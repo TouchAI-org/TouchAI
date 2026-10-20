@@ -6,6 +6,7 @@
     import ModelCapabilityTags from '@components/ModelCapabilityTags.vue';
     import ModelLogo from '@components/ModelLogo.vue';
     import SearchableSelect from '@components/SearchableSelect.vue';
+    import { Button } from '@components/ui/button';
     import { findModelsWithProvider } from '@database/queries';
     import type { ModelWithProvider } from '@database/queries/models';
     import { AppEvent, eventService } from '@services/EventService';
@@ -452,9 +453,9 @@
                     icon="mcp"
                 >
                     <template v-if="nextAppendEntry" #actions>
-                        <button type="button" class="settings-button-primary" @click="addModel">
+                        <Button variant="strong" @click="addModel">
                             {{ t('settings.builtInTools.upgradeModel.addModel') }}
-                        </button>
+                        </Button>
                     </template>
                 </EmptyState>
             </div>

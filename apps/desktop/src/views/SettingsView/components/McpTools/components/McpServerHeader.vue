@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import { Button } from '@components/ui/button';
     import { useMcpConnection } from '@composables/useMcpConnection';
     import type { McpServerEntity } from '@database/types';
     import { computed, onUnmounted, toRef } from 'vue';
@@ -158,11 +159,11 @@
             </div>
 
             <div class="flex gap-2">
-                <button
+                <Button
                     v-if="status === 'disconnected' || status === 'error'"
+                    variant="strong"
                     :disabled="isConnecting"
                     :class="[
-                        'settings-button-primary',
                         'flex items-center gap-2',
                         isConnecting && 'cursor-not-allowed opacity-50',
                     ]"
@@ -177,12 +178,12 @@
                             ? t('settings.mcp.actions.connecting')
                             : t('settings.mcp.actions.connect')
                     }}
-                </button>
-                <button
+                </Button>
+                <Button
                     v-else-if="status === 'connected'"
+                    variant="outline-neutral"
                     :disabled="isDisconnecting"
                     :class="[
-                        'settings-button-secondary',
                         'flex items-center gap-2',
                         isDisconnecting && 'cursor-not-allowed opacity-50',
                     ]"
@@ -201,12 +202,12 @@
                             ? t('settings.mcp.actions.disconnecting')
                             : t('settings.mcp.actions.disconnect')
                     }}
-                </button>
-                <button
+                </Button>
+                <Button
                     v-if="status === 'connected'"
+                    variant="strong"
                     :disabled="isConnecting || isDisconnecting || isReconnecting"
                     :class="[
-                        'settings-button-primary',
                         'flex items-center gap-2',
                         (isConnecting || isDisconnecting || isReconnecting) &&
                             'cursor-not-allowed opacity-50',
@@ -222,7 +223,7 @@
                             ? t('settings.mcp.actions.reconnecting')
                             : t('settings.mcp.actions.reconnect')
                     }}
-                </button>
+                </Button>
                 <button
                     v-else-if="status === 'connecting'"
                     disabled

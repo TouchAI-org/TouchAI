@@ -1,4 +1,5 @@
 ﻿<script setup lang="ts">
+    import { Button } from '@components/ui/button';
     import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
     import {
@@ -383,13 +384,13 @@
                                 {{ t('settings.dataManagement.clearAllSessionsDescription') }}
                             </div>
                         </div>
-                        <button
-                            class="settings-button-danger"
+                        <Button
+                            variant="danger"
                             :disabled="isLoading || stats.sessions === 0"
                             @click="handleClearSessions"
                         >
                             {{ t('common.clear') }}
-                        </button>
+                        </Button>
                     </div>
 
                     <div
@@ -405,13 +406,13 @@
                                 {{ t('settings.dataManagement.clearAllMessagesDescription') }}
                             </div>
                         </div>
-                        <button
-                            class="settings-button-danger"
+                        <Button
+                            variant="danger"
                             :disabled="isLoading || stats.messages === 0"
                             @click="handleClearMessages"
                         >
                             {{ t('common.clear') }}
-                        </button>
+                        </Button>
                     </div>
 
                     <div
@@ -427,13 +428,13 @@
                                 {{ t('settings.dataManagement.clearSessionTurnsDescription') }}
                             </div>
                         </div>
-                        <button
-                            class="settings-button-danger"
+                        <Button
+                            variant="danger"
                             :disabled="isLoading || stats.sessionTurns === 0"
                             @click="handleClearSessionTurns"
                         >
                             {{ t('common.clear') }}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </section>
@@ -459,13 +460,13 @@
                                 {{ modelMetadataUpdatedText }}
                             </div>
                         </div>
-                        <button
-                            class="settings-button-primary"
+                        <Button
+                            variant="strong"
                             :disabled="isLoading"
                             @click="handleUpdateModelMetadata"
                         >
                             {{ t('common.update') }}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </section>
@@ -488,13 +489,13 @@
                                 {{ t('settings.dataManagement.exportSettingsDescription') }}
                             </div>
                         </div>
-                        <button
-                            class="settings-button-primary"
+                        <Button
+                            variant="strong"
                             :disabled="isLoading"
                             @click="handleExportSettings"
                         >
                             {{ t('common.export') }}
-                        </button>
+                        </Button>
                     </div>
 
                     <div
@@ -510,13 +511,13 @@
                                 {{ t('settings.dataManagement.importSettingsDescription') }}
                             </div>
                         </div>
-                        <button
-                            class="settings-button-primary"
+                        <Button
+                            variant="strong"
                             :disabled="isLoading"
                             @click="openImportModeDialog"
                         >
                             {{ t('common.import') }}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </section>

@@ -2,6 +2,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import EmptyState from '@components/EmptyState.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
+    import { Button } from '@components/ui/button';
     import { Dialog, DialogContent, DialogTitle } from '@components/ui/dialog';
     import { computed } from 'vue';
 
@@ -103,23 +104,23 @@
                 <footer
                     class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-neutral-200/50 px-7 py-5"
                 >
-                    <button
+                    <Button
                         v-if="hasUpdate"
-                        type="button"
-                        class="settings-button-secondary inline-flex h-9 items-center justify-center px-4"
+                        variant="outline-neutral"
+                        class="inline-flex h-9 items-center justify-center px-4"
                         @click="$emit('close')"
                     >
                         {{ t('common.cancel') }}
-                    </button>
-                    <button
-                        type="button"
-                        class="settings-button-primary inline-flex h-9 items-center justify-center px-4"
+                    </Button>
+                    <Button
+                        variant="strong"
+                        class="inline-flex h-9 items-center justify-center px-4"
                         data-testid="settings-update-dialog-primary"
                         :disabled="hasUpdate && busy"
                         @click="hasUpdate ? $emit('action') : $emit('close')"
                     >
                         {{ hasUpdate ? actionText : t('common.confirm') }}
-                    </button>
+                    </Button>
                 </footer>
             </div>
         </DialogContent>

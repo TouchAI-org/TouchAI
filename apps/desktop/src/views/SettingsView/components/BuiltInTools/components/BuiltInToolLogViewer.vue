@@ -3,6 +3,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import EmptyState from '@components/EmptyState.vue';
+    import { Button } from '@components/ui/button';
     import { useListFilter } from '@composables/useListFilter';
     import { onMounted, ref, watch } from 'vue';
 
@@ -157,13 +158,9 @@
                     icon="document-text"
                 >
                     <template v-if="hasActiveFilters" #actions>
-                        <button
-                            type="button"
-                            class="settings-button-secondary"
-                            @click="resetFilters"
-                        >
+                        <Button variant="outline-neutral" @click="resetFilters">
                             {{ t('common.clearFilters') }}
-                        </button>
+                        </Button>
                     </template>
                 </EmptyState>
             </div>
@@ -185,14 +182,9 @@
                 />
 
                 <div v-if="hasMore" class="pt-2 text-center">
-                    <button
-                        type="button"
-                        :disabled="loadingMore"
-                        class="settings-button-secondary"
-                        @click="loadMore"
-                    >
+                    <Button variant="outline-neutral" :disabled="loadingMore" @click="loadMore">
                         {{ loadingMore ? t('common.loading') : t('common.loadMore') }}
-                    </button>
+                    </Button>
                 </div>
             </div>
         </div>

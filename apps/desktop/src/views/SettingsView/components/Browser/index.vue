@@ -2,6 +2,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
     import EmptyState from '@components/EmptyState.vue';
+    import { Button } from '@components/ui/button';
     import { open } from '@tauri-apps/plugin-dialog';
     import { storeToRefs } from 'pinia';
     import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -496,15 +497,15 @@
                                     placeholder="browser-data"
                                     :disabled="!draft.enabled"
                                 />
-                                <button
-                                    type="button"
-                                    class="settings-icon-button shrink-0"
+                                <Button
+                                    variant="ghost-neutral"
+                                    class="shrink-0"
                                     :disabled="!draft.enabled"
                                     :title="t('settings.browser.browserDataPath.pick')"
                                     @click="pickBrowserDataPath"
                                 >
                                     <AppIcon name="folder-open" class="h-4 w-4" />
-                                </button>
+                                </Button>
                             </div>
                         </div>
 
@@ -554,15 +555,15 @@
                                     placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe"
                                     :disabled="!draft.enabled"
                                 />
-                                <button
-                                    type="button"
-                                    class="settings-icon-button shrink-0"
+                                <Button
+                                    variant="ghost-neutral"
+                                    class="shrink-0"
                                     :disabled="!draft.enabled"
                                     :title="t('settings.browser.executablePath.pick')"
                                     @click="pickBrowserExecutable"
                                 >
                                     <AppIcon name="folder" class="h-4 w-4" />
-                                </button>
+                                </Button>
                             </div>
                         </div>
 
@@ -760,13 +761,12 @@
                             :description="t('settings.browser.blockedDomains.empty')"
                         >
                             <template v-if="draft.enabled" #actions>
-                                <button
-                                    type="button"
-                                    class="settings-button-secondary"
+                                <Button
+                                    variant="outline-neutral"
                                     @click="addingBlockedDomain = true"
                                 >
                                     {{ t('settings.browser.addDomainButton') }}
-                                </button>
+                                </Button>
                             </template>
                         </EmptyState>
                     </div>
@@ -825,13 +825,12 @@
                             :description="t('settings.browser.allowedDomains.empty')"
                         >
                             <template v-if="draft.enabled" #actions>
-                                <button
-                                    type="button"
-                                    class="settings-button-secondary"
+                                <Button
+                                    variant="outline-neutral"
                                     @click="addingAllowedDomain = true"
                                 >
                                     {{ t('settings.browser.addDomainButton') }}
-                                </button>
+                                </Button>
                             </template>
                         </EmptyState>
                     </div>

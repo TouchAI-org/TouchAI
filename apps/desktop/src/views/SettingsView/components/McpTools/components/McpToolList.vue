@@ -4,6 +4,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import EmptyState from '@components/EmptyState.vue';
     import MotionCollapse from '@components/MotionCollapse.vue';
+    import { Button } from '@components/ui/button';
     import { useListFilter } from '@composables/useListFilter';
     import { updateMcpTool } from '@database/queries';
     import type { McpServerEntity, McpToolEntity } from '@database/types';
@@ -186,13 +187,9 @@
                     icon="mcp"
                 >
                     <template v-if="hasActiveFilters" #actions>
-                        <button
-                            type="button"
-                            class="settings-button-secondary"
-                            @click="resetFilters"
-                        >
+                        <Button variant="outline-neutral" @click="resetFilters">
                             {{ t('common.clearFilters') }}
-                        </button>
+                        </Button>
                     </template>
                 </EmptyState>
             </div>

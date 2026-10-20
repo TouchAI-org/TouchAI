@@ -3,6 +3,7 @@
 <script setup lang="ts">
     import AlertMessage from '@components/AlertMessage.vue';
     import EmptyState from '@components/EmptyState.vue';
+    import { Button } from '@components/ui/button';
     import { useContextMenu } from '@composables/useContextMenu.ts';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { useScrollFade } from '@composables/useScrollFade';
@@ -393,9 +394,9 @@
             />
 
             <div class="settings-side-panel-footer">
-                <button class="settings-button-primary w-full" @click="handleAddServer">
+                <Button variant="strong" class="w-full" @click="handleAddServer">
                     {{ t('settings.mcp.servers.add') }}
-                </button>
+                </Button>
             </div>
 
             <div
@@ -431,13 +432,9 @@
                     class="max-w-md"
                 >
                     <template v-if="mcpStore.servers.length === 0" #actions>
-                        <button
-                            type="button"
-                            class="settings-button-primary"
-                            @click="handleAddServer"
-                        >
+                        <Button variant="strong" @click="handleAddServer">
                             {{ t('settings.mcp.servers.addButton') }}
-                        </button>
+                        </Button>
                     </template>
                 </EmptyState>
             </div>

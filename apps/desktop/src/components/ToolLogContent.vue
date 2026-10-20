@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import { Button } from '@components/ui/button';
     import { computed, ref } from 'vue';
 
     import { t } from '@/i18n';
@@ -89,15 +90,15 @@
                     >
                         {{ showRawInput ? t('toolLog.showCommand') : t('toolLog.rawJson') }}
                     </button>
-                    <button
-                        type="button"
-                        class="settings-icon-button h-7 w-7 rounded-md"
+                    <Button
+                        variant="ghost-neutral"
+                        class="h-7 w-7 rounded-md"
                         :title="t('toolLog.copyInput')"
                         :aria-label="t('toolLog.copyInput')"
                         @click="copyText(formattedInput)"
                     >
                         <AppIcon name="copy" class="h-4 w-4" />
-                    </button>
+                    </Button>
                 </div>
             </div>
             <div v-if="workingDirectory" class="mb-2 text-[11px] leading-5 text-neutral-500">
@@ -135,15 +136,15 @@
                 <span v-if="exitCode" class="text-[11px] text-neutral-500">
                     {{ t('toolLog.exitCode') }} {{ exitCode }}
                 </span>
-                <button
-                    type="button"
-                    class="settings-icon-button ml-auto h-7 w-7 rounded-md"
+                <Button
+                    variant="ghost-neutral"
+                    class="ml-auto h-7 w-7 rounded-md"
                     :title="t('toolLog.copyOutput')"
                     :aria-label="t('toolLog.copyOutput')"
                     @click="copyText(formattedOutput)"
                 >
                     <AppIcon name="copy" class="h-4 w-4" />
-                </button>
+                </Button>
             </div>
             <pre
                 data-testid="tool-log-code-block"
