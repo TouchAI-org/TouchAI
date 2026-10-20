@@ -1,7 +1,7 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import type { UsageTrendPoint } from '@database/queries/usageStats';
+    import type { UsageBucket, UsageTrendPoint } from '@database/queries/usageStats';
     import { computed, ref } from 'vue';
 
     import { t } from '@/i18n';
@@ -18,7 +18,7 @@
 
     interface Props {
         points: UsageTrendPoint[];
-        bucket: 'hour' | 'day';
+        bucket: UsageBucket;
         dimension: Dimension;
         /** 只展示前 N 个分组，其余归入「其他」，避免颜色过多无法分辨 */
         maxSeries?: number;
@@ -172,7 +172,9 @@
     });
 
     function labelOf(key: string): string {
-        return props.bucket === 'hour' ? key.slice(11, 16) : formatDayLabel(key);
+        if (props.bucket === 'minute') return key.slice(11, 16);
+        if (props.bucket === 'hour') return key.slice(11, 16);
+        return formatDayLabel(key);
     }
 
     // ===== 悬停提示 =====
@@ -212,11 +214,12 @@
 </script>
 
 <template>
-    <section class="settings-row-group p-4" data-testid="settings-usage-chart">
-        <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <span class="text-[13px] text-neutral-950">
+    <section class="space-y-3" data-testid="settings-usage-chart">
+        <!-- 小标题与切换留在卡外，与首屏卡片保持同一套节奏 -->
+        <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="settings-section-title">
                 {{ t('settings.usage.chart.title') }}
-            </span>
+            </h2>
 
             <div class="flex items-center gap-1">
                 <button
@@ -235,7 +238,7 @@
                     {{ t(`settings.usage.breakdown.by.${option}`) }}
                 </button>
 
-                <span class="mx-1 h-4 w-px bg-neutral-200" aria-hidden="true" />
+                <span class="mx-1 h-4 w-px bg-neutral-300" aria-hidden="true" />
 
                 <button
                     v-for="option in METRIC_OPTIONS"
@@ -255,127 +258,134 @@
             </div>
         </div>
 
-        <div v-if="points.length === 0" class="flex h-[140px] items-center justify-center">
-            <span class="text-xs text-neutral-400">{{ t('settings.usage.trend.empty') }}</span>
-        </div>
+        <div class="rounded-[11px] bg-neutral-50/80 p-4">
+            <div v-if="points.length === 0" class="flex h-[140px] items-center justify-center">
+                <span class="text-xs text-neutral-400">{{ t('settings.usage.trend.empty') }}</span>
+            </div>
 
-        <div v-else class="relative">
-            <svg
-                :viewBox="`0 0 ${VIEW_WIDTH} ${height}`"
-                :height="height"
-                class="w-full"
-                role="img"
-                :aria-label="t('settings.usage.chart.title')"
-            >
-                <template v-for="tick in yTicks" :key="tick.label">
-                    <line
-                        :x1="PADDING.left"
-                        :x2="VIEW_WIDTH - PADDING.right"
-                        :y1="tick.y"
-                        :y2="tick.y"
-                        stroke="currentColor"
-                        class="text-neutral-100"
-                        stroke-width="1"
-                    />
+            <div v-else class="relative">
+                <svg
+                    :viewBox="`0 0 ${VIEW_WIDTH} ${height}`"
+                    :height="height"
+                    class="w-full"
+                    role="img"
+                    :aria-label="t('settings.usage.chart.title')"
+                >
+                    <template v-for="tick in yTicks" :key="tick.label">
+                        <line
+                            :x1="PADDING.left"
+                            :x2="VIEW_WIDTH - PADDING.right"
+                            :y1="tick.y"
+                            :y2="tick.y"
+                            stroke="currentColor"
+                            class="text-neutral-100"
+                            stroke-width="1"
+                        />
+                        <text
+                            :x="PADDING.left - 6"
+                            :y="tick.y + 3"
+                            text-anchor="end"
+                            class="fill-neutral-400"
+                            font-size="9"
+                        >
+                            {{ tick.label }}
+                        </text>
+                    </template>
+
+                    <g v-for="bar in geometry" :key="bar.key">
+                        <rect
+                            v-for="segment in stackOf(bar)"
+                            :key="`${bar.key}-${segment.name}`"
+                            :x="bar.x"
+                            :y="segment.y"
+                            :width="bar.width"
+                            :height="Math.max(0, segment.height)"
+                            :fill="segment.color"
+                            :opacity="
+                                hoveredIndex === null || hoveredIndex === bar.index ? 1 : 0.45
+                            "
+                        />
+                        <!-- 命中区覆盖整列，鼠标不用精确落在柱子上 -->
+                        <rect
+                            :x="bar.x - (bar.slot - bar.width) / 2"
+                            :y="PADDING.top"
+                            :width="bar.slot"
+                            :height="innerHeight"
+                            fill="transparent"
+                            @mouseenter="hoveredIndex = bar.index"
+                            @mouseleave="hoveredIndex = null"
+                        />
+                    </g>
+
                     <text
-                        :x="PADDING.left - 6"
-                        :y="tick.y + 3"
-                        text-anchor="end"
+                        v-for="index in labelIndices"
+                        :key="`label-${index}`"
+                        :x="geometry[index] ? geometry[index]!.x + geometry[index]!.width / 2 : 0"
+                        :y="height - 5"
+                        text-anchor="middle"
                         class="fill-neutral-400"
                         font-size="9"
                     >
-                        {{ tick.label }}
+                        {{ labelOf(geometry[index]!.key) }}
                     </text>
-                </template>
+                </svg>
 
-                <g v-for="bar in geometry" :key="bar.key">
-                    <rect
-                        v-for="segment in stackOf(bar)"
-                        :key="`${bar.key}-${segment.name}`"
-                        :x="bar.x"
-                        :y="segment.y"
-                        :width="bar.width"
-                        :height="Math.max(0, segment.height)"
-                        :fill="segment.color"
-                        :opacity="hoveredIndex === null || hoveredIndex === bar.index ? 1 : 0.45"
-                    />
-                    <!-- 命中区覆盖整列，鼠标不用精确落在柱子上 -->
-                    <rect
-                        :x="bar.x - (bar.slot - bar.width) / 2"
-                        :y="PADDING.top"
-                        :width="bar.slot"
-                        :height="innerHeight"
-                        fill="transparent"
-                        @mouseenter="hoveredIndex = bar.index"
-                        @mouseleave="hoveredIndex = null"
-                    />
-                </g>
-
-                <text
-                    v-for="index in labelIndices"
-                    :key="`label-${index}`"
-                    :x="geometry[index] ? geometry[index]!.x + geometry[index]!.width / 2 : 0"
-                    :y="height - 5"
-                    text-anchor="middle"
-                    class="fill-neutral-400"
-                    font-size="9"
+                <div
+                    v-if="hovered"
+                    class="pointer-events-none absolute top-0 min-w-40 rounded-[10px] border border-neutral-200 bg-white px-3 py-2 text-xs shadow-sm"
+                    :style="tooltipStyle"
+                    data-testid="settings-usage-chart-tooltip"
                 >
-                    {{ labelOf(geometry[index]!.key) }}
-                </text>
-            </svg>
-
-            <div
-                v-if="hovered"
-                class="pointer-events-none absolute top-0 min-w-40 rounded-[10px] border border-neutral-200 bg-white px-3 py-2 text-xs shadow-sm"
-                :style="tooltipStyle"
-                data-testid="settings-usage-chart-tooltip"
-            >
-                <div class="mb-1 flex items-baseline justify-between gap-3">
-                    <span class="font-medium text-neutral-900">{{ hovered.label }}</span>
-                    <span class="text-neutral-500 tabular-nums">
-                        {{ formatValue(hovered.bar.total) }}
-                    </span>
-                </div>
-                <div class="space-y-0.5">
-                    <div
-                        v-for="row in hovered.rows"
-                        :key="row.name"
-                        class="flex items-center gap-2"
-                    >
-                        <span
-                            class="h-2 w-2 shrink-0 rounded-sm"
-                            :style="{ backgroundColor: row.color }"
-                            aria-hidden="true"
-                        />
-                        <span class="min-w-0 flex-1 truncate text-neutral-600" :title="row.name">
-                            {{ row.name }}
+                    <div class="mb-1 flex items-baseline justify-between gap-3">
+                        <span class="font-medium text-neutral-900">{{ hovered.label }}</span>
+                        <span class="text-neutral-500 tabular-nums">
+                            {{ formatValue(hovered.bar.total) }}
                         </span>
-                        <span class="shrink-0 text-neutral-800 tabular-nums">
-                            {{ formatValue(row.value) }}
-                        </span>
+                    </div>
+                    <div class="space-y-0.5">
+                        <div
+                            v-for="row in hovered.rows"
+                            :key="row.name"
+                            class="flex items-center gap-2"
+                        >
+                            <span
+                                class="h-2 w-2 shrink-0 rounded-sm"
+                                :style="{ backgroundColor: row.color }"
+                                aria-hidden="true"
+                            />
+                            <span
+                                class="min-w-0 flex-1 truncate text-neutral-600"
+                                :title="row.name"
+                            >
+                                {{ row.name }}
+                            </span>
+                            <span class="shrink-0 text-neutral-800 tabular-nums">
+                                {{ formatValue(row.value) }}
+                            </span>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- 图例：居中横排，只承担图例职责（总量与占比看趋势图即可） -->
-        <div
-            v-if="series.length > 0"
-            class="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 border-t border-neutral-100 pt-3"
-        >
-            <span
-                v-for="entry in series"
-                :key="entry.name"
-                class="flex items-center gap-1.5 text-[11px] text-neutral-600"
-                :title="`${entry.name} ${formatValue(seriesTotals.get(entry.name) ?? 0)}`"
+            <!-- 图例：居中横排，只承担图例职责（总量与占比看趋势图即可） -->
+            <div
+                v-if="series.length > 0"
+                class="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 border-t border-neutral-200/70 pt-3"
             >
                 <span
-                    class="h-2 w-2 shrink-0 rounded-full"
-                    :style="{ backgroundColor: entry.color }"
-                    aria-hidden="true"
-                />
-                <span class="max-w-40 truncate">{{ entry.name }}</span>
-            </span>
+                    v-for="entry in series"
+                    :key="entry.name"
+                    class="flex items-center gap-1.5 text-[11px] text-neutral-600"
+                    :title="`${entry.name} ${formatValue(seriesTotals.get(entry.name) ?? 0)}`"
+                >
+                    <span
+                        class="h-2 w-2 shrink-0 rounded-full"
+                        :style="{ backgroundColor: entry.color }"
+                        aria-hidden="true"
+                    />
+                    <span class="max-w-40 truncate">{{ entry.name }}</span>
+                </span>
+            </div>
         </div>
     </section>
 </template>

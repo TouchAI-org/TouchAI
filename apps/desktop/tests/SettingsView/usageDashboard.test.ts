@@ -62,7 +62,8 @@ describe('usage dashboard paired metrics', () => {
         expect(wrapper.findAll('[data-testid^="settings-usage-card-"]')).toHaveLength(6);
         const cache = wrapper.get('[data-testid="settings-usage-card-cacheRead"]');
         expect(cache.text()).toContain('缓存读取');
-        expect(cache.text()).toContain('9.4K');
+        // 中文用「万」作单位；9400 不足一万，直接给原数
+        expect(cache.text()).toContain('9400');
         expect(cache.text()).toContain('命中率 94.0%');
 
         const activity = wrapper.get('[data-testid="settings-usage-card-activity"]');

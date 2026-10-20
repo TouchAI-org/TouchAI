@@ -71,7 +71,23 @@ export interface UsageLiveTurn {
     durationMs: number | null;
 }
 
-/** 一个时间桶里按模型（或供应商）拆开的一段 */
+/**
+ * 趋势分桶粒度。
+ *
+ * 短区间必须细到分钟，否则凌晨看「今天」只有两三个小时桶，曲线就是一个尖峰；
+ * 长区间又必须粗到天，否则点多到画不出来。粒度跟着区间跨度走。
+ */
+export type UsageBucket = 'minute' | 'hour' | 'day';
+
+/** 分钟桶的宽度 */
+export const USAGE_MINUTE_BUCKET_MS = 5 * 60_000;
+
+/** 按跨度选粒度：≤6 小时用 5 分钟，≤48 小时用小时，其余用天 */
+export function resolveUsageBucket(spanMs: number): UsageBucket {
+    if (spanMs <= 6 * 60 * 60_000) return 'minute';
+    if (spanMs <= 48 * 60 * 60_000) return 'hour';
+    return 'day';
+}
 export interface UsageTrendSegment {
     /** 分组 id；分组已不存在时为 null */
     groupId: number | null;
@@ -145,8 +161,17 @@ export interface UsageGroup {
     meanDurationMs: number | null;
 }
 
+/**
+ * 热力图的一格。
+ *
+ * 按「日 + 小时」返回，由组件决定按日还是按小时渲染：
+ * 短区间用小时×日期才看得出密度，长区间用星期×周才看得出日历。
+ * 如果查询层直接按日聚合，短区间就只剩一两个格子。
+ */
 export interface UsageHeatmapDay {
     day: string;
+    /** 0–23，本地时区 */
+    hour: number;
     requests: number;
     tokens: number;
     costMicros: number;
@@ -297,7 +322,7 @@ export const getUsageDashboardSnapshot = async (
 ): Promise<{
     summary: UsageSummary;
     liveTurns: UsageLiveTurn[];
-    trend: { bucket: 'hour' | 'day'; points: UsageTrendPoint[] };
+    trend: { bucket: UsageBucket; points: UsageTrendPoint[] };
 }> =>
     db.transaction(
         async (tx) => {
@@ -336,14 +361,18 @@ export const getUsageTrend = async (
     filter: UsageFilter,
     dimension: 'model' | 'provider' = 'model',
     database: DatabaseExecutor = db
-): Promise<{ bucket: 'hour' | 'day'; points: UsageTrendPoint[] }> => {
+): Promise<{ bucket: UsageBucket; points: UsageTrendPoint[] }> => {
     const spanMs = new Date(filter.to).getTime() - new Date(filter.from).getTime();
-    const bucket: 'hour' | 'day' = spanMs <= 48 * 60 * 60 * 1000 ? 'hour' : 'day';
+    const bucket = resolveUsageBucket(spanMs);
 
     const keyExpr =
-        bucket === 'hour'
-            ? sql<string>`strftime('%Y-%m-%d %H:00', ${sessionTurns.created_at}, 'localtime')`
-            : sql<string>`date(${sessionTurns.created_at}, 'localtime')`;
+        bucket === 'minute'
+            ? // 对齐到 5 分钟：分钟数向下取到 0/5/10…
+              sql<string>`strftime('%Y-%m-%d %H:', ${sessionTurns.created_at}, 'localtime')
+                  || printf('%02d', cast(strftime('%M', ${sessionTurns.created_at}, 'localtime') as integer) / 5 * 5)`
+            : bucket === 'hour'
+              ? sql<string>`strftime('%Y-%m-%d %H:00', ${sessionTurns.created_at}, 'localtime')`
+              : sql<string>`date(${sessionTurns.created_at}, 'localtime')`;
 
     const groupIdExpr =
         dimension === 'model'
@@ -814,10 +843,12 @@ export const getToolUsageStats = async (filter: UsageFilter): Promise<ToolUsageS
  */
 export const getUsageHeatmap = async (filter: UsageFilter): Promise<UsageHeatmapDay[]> => {
     const dayExpr = sql<string>`date(${sessionTurns.created_at}, 'localtime')`;
+    const hourExpr = sql<number>`cast(strftime('%H', ${sessionTurns.created_at}, 'localtime') as integer)`;
 
     const rows = await db
         .select({
             day: dayExpr.as('day'),
+            hour: hourExpr.as('hour'),
             requests: count(),
             tokens: sql<number>`coalesce(sum(
                 ${sessionTurns.input_tokens} + ${sessionTurns.output_tokens}
@@ -827,8 +858,8 @@ export const getUsageHeatmap = async (filter: UsageFilter): Promise<UsageHeatmap
         })
         .from(sessionTurns)
         .where(buildTurnWhere(filter))
-        .groupBy(dayExpr)
-        .orderBy(dayExpr)
+        .groupBy(dayExpr, hourExpr)
+        .orderBy(dayExpr, hourExpr)
         .all();
 
     return rows;

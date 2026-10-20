@@ -101,6 +101,36 @@ describe('usage curve with stable historical buckets', () => {
         expect(current.find((point) => point.key === '2026-05-02')?.value).toBe(0);
     });
 
+    it('extends the live tail along real time instead of stacking on one x', () => {
+        // 区间是 UTC 字符串，now 也用 UTC 构造，避免测试受本机时区影响
+        const now = Date.parse('2026-05-01T10:30:00Z');
+        const hourRange = {
+            preset: 'custom',
+            from: '2026-05-01 08:00:00',
+            to: '2026-05-01 11:00:00',
+        };
+        const withTail = buildUsageCurve(
+            points,
+            'hour',
+            hourRange,
+            [baseline],
+            [live],
+            [
+                { atMs: now - 40_000, tokens: 20 },
+                { atMs: now - 20_000, tokens: 45 },
+                { atMs: now, tokens: 80 },
+            ],
+            now
+        );
+
+        const livePoints = withTail.filter((point) => point.live);
+        expect(livePoints).toHaveLength(3);
+        // 每个采样点的 x 时间递增，曲线才能往右延伸
+        expect(livePoints[1]!.at).toBeGreaterThan(livePoints[0]!.at);
+        expect(livePoints[2]!.at).toBeGreaterThan(livePoints[1]!.at);
+        expect(livePoints[2]!.value).toBeGreaterThan(livePoints[0]!.value);
+    });
+
     it('does not double-count after persistence catches up', () => {
         const current = buildUsageCurve(
             points,

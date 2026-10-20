@@ -46,7 +46,7 @@
 </script>
 
 <template>
-    <section class="space-y-4" data-testid="settings-usage-tools">
+    <section class="space-y-3" data-testid="settings-usage-tools">
         <div>
             <h2 class="settings-section-title">{{ t('settings.usage.tools.title') }}</h2>
             <p class="settings-section-description">
@@ -54,14 +54,17 @@
             </p>
         </div>
 
-        <div v-if="stats.totalCount === 0" class="settings-row-group px-5 py-10 text-center">
+        <div
+            v-if="stats.totalCount === 0"
+            class="rounded-[11px] bg-neutral-50/80 px-5 py-10 text-center"
+        >
             <span class="text-xs text-neutral-400">{{ t('settings.usage.tools.empty') }}</span>
         </div>
 
         <template v-else>
-            <div class="settings-row-group p-4">
+            <div class="rounded-[11px] bg-neutral-50/80 p-4">
                 <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                    <div class="flex flex-col gap-1 rounded-[10px] bg-neutral-50/80 px-4 py-3">
+                    <div class="flex flex-col gap-1 rounded-[10px] bg-white/70 px-4 py-3">
                         <span class="text-xs text-neutral-500">
                             {{ t('settings.usage.tools.total') }}
                         </span>
@@ -71,7 +74,7 @@
                             {{ formatInt(stats.totalCount) }}
                         </span>
                     </div>
-                    <div class="flex flex-col gap-1 rounded-[10px] bg-neutral-50/80 px-4 py-3">
+                    <div class="flex flex-col gap-1 rounded-[10px] bg-white/70 px-4 py-3">
                         <span class="text-xs text-neutral-500">
                             {{ t('settings.usage.tools.distinct') }}
                         </span>
@@ -81,7 +84,7 @@
                             {{ formatInt(stats.distinctTools) }}
                         </span>
                     </div>
-                    <div class="flex flex-col gap-1 rounded-[10px] bg-neutral-50/80 px-4 py-3">
+                    <div class="flex flex-col gap-1 rounded-[10px] bg-white/70 px-4 py-3">
                         <span class="text-xs text-neutral-500">
                             {{ t('settings.usage.tools.errorRate') }}
                         </span>
@@ -98,7 +101,7 @@
                             }}
                         </span>
                     </div>
-                    <div class="flex flex-col gap-1 rounded-[10px] bg-neutral-50/80 px-4 py-3">
+                    <div class="flex flex-col gap-1 rounded-[10px] bg-white/70 px-4 py-3">
                         <span class="text-xs text-neutral-500">
                             {{ t('settings.usage.tools.meanDuration') }}
                         </span>
@@ -111,7 +114,7 @@
                 </div>
             </div>
 
-            <div class="settings-row-group divide-y divide-neutral-200/70">
+            <div class="divide-y divide-neutral-200/60 rounded-[11px] bg-neutral-50/80">
                 <div
                     class="flex items-center gap-4 px-5 py-2 text-[11px] text-neutral-400"
                     aria-hidden="true"

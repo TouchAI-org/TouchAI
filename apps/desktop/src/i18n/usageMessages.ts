@@ -109,6 +109,7 @@ export const usageMessagesZhCN = {
     'settings.usage.live.online': '进行中',
     'settings.usage.live.idle': '空闲',
     'settings.usage.live.waiting': '等待下一次对话',
+    'settings.usage.live.activeSessions': '{count} 个会话',
     'settings.usage.live.activeStreams': '{count} 路响应中',
     'settings.usage.live.total': '合计',
     'settings.usage.live.elapsed': '已用时',
@@ -153,6 +154,8 @@ export const usageMessagesZhCN = {
     // 热力图
     'settings.usage.heatmap.title': '使用热力图',
     'settings.usage.heatmap.summary': '所选区间活跃 {days} 天 · 共 {tokens} tokens',
+    'settings.usage.heatmap.summaryHours':
+        '所选区间活跃 {days} 天 {hours} 个时段 · 共 {tokens} tokens',
     'settings.usage.heatmap.lastYear': '近一年活跃 {days} 天 · 共 {tokens} tokens',
     'settings.usage.heatmap.tooltip': '{day} · {requests} 次 · {tokens} tokens · {cost}',
     'settings.usage.heatmap.less': '少',
@@ -336,6 +339,7 @@ export const usageMessagesEnUS = {
     'settings.usage.live.online': 'live',
     'settings.usage.live.idle': 'idle',
     'settings.usage.live.waiting': 'Waiting for the next conversation',
+    'settings.usage.live.activeSessions': '{count} sessions',
     'settings.usage.live.activeStreams': '{count} active',
     'settings.usage.live.total': 'total',
     'settings.usage.live.elapsed': 'elapsed',
@@ -378,6 +382,8 @@ export const usageMessagesEnUS = {
 
     'settings.usage.heatmap.title': 'Activity heatmap',
     'settings.usage.heatmap.summary': '{days} active days · {tokens} tokens in this range',
+    'settings.usage.heatmap.summaryHours':
+        '{days} days, {hours} active hours · {tokens} tokens in this range',
     'settings.usage.heatmap.lastYear': '{days} active days · {tokens} tokens in the past year',
     'settings.usage.heatmap.tooltip': '{day} · {requests} calls · {tokens} tokens · {cost}',
     'settings.usage.heatmap.less': 'Less',

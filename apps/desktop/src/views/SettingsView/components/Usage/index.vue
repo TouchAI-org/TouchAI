@@ -11,6 +11,7 @@
         getUsageHeatmap,
         getUsageTrendFromArchive,
         type ToolUsageSummary,
+        type UsageBucket,
         type UsageFilter,
         type UsageFilterOptions,
         type UsageHeatmapDay,
@@ -40,7 +41,7 @@
     type StatusValue = 'all' | 'completed' | 'failed' | 'cancelled' | 'retried';
     type Dimension = 'model' | 'provider';
 
-    const preset = ref<UsageRangePreset>('30d');
+    const preset = ref<UsageRangePreset>('today');
     const status = ref<StatusValue>('all');
     const modelId = ref<number | null>(null);
     const providerId = ref<number | null>(null);
@@ -54,7 +55,7 @@
     const liveTurns = ref<UsageLiveTurn[]>([]);
     const trackedTaskIds = ref<string[]>([]);
     const loadedRange = ref(resolveUsageRange(preset.value));
-    const trend = ref<{ bucket: 'hour' | 'day'; points: UsageTrendPoint[] }>({
+    const trend = ref<{ bucket: UsageBucket; points: UsageTrendPoint[] }>({
         bucket: 'day',
         points: [],
     });
@@ -284,6 +285,7 @@
                         />
                     </div>
 
+                    <!-- 跨度够大才画热力图：短区间已经有按小时的趋势图，这里只补日历感 -->
                     <UsageHeatmap :days="heatmap" :range="{ preset, ...loadedRange }" />
                 </template>
             </template>

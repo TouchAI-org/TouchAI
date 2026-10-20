@@ -1,8 +1,8 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import AppIcon from '@components/AppIcon.vue';
     import type {
+        UsageBucket,
         UsageLiveTurn,
         UsageSummary,
         UsageTrendPoint,
@@ -30,7 +30,7 @@
     interface Props {
         summary: UsageSummary | null;
         trend: UsageTrendPoint[];
-        bucket: 'hour' | 'day';
+        bucket: UsageBucket;
         liveTurns: UsageLiveTurn[];
         range: { preset: string; from: string; to: string };
     }
@@ -41,6 +41,12 @@
     const streams = ref(new Map<string, SessionTaskUsageProgressEvent>());
     const seenAt = new Map<string, number>();
     const now = ref(Date.now());
+    /**
+     * 实时采样：本轮累计输出增量。
+     *
+     * 不存速度：速度是瞬时量，直接拿来画线会得到一条与总量无关的曲线。
+     */
+    const liveSamples = ref<Array<{ atMs: number; tokens: number }>>([]);
     let timer: ReturnType<typeof setInterval> | null = null;
     let unlisten: (() => void) | null = null;
     let disposed = false;
@@ -192,7 +198,15 @@
     });
 
     const curve = computed(() =>
-        buildUsageCurve(props.trend, props.bucket, props.range, props.liveTurns, liveStates.value)
+        buildUsageCurve(
+            props.trend,
+            props.bucket,
+            props.range,
+            props.liveTurns,
+            liveStates.value,
+            liveSamples.value,
+            now.value
+        )
     );
     const WIDTH = 520;
     const HEIGHT = 96;
@@ -200,16 +214,11 @@
         const points = curve.value;
         if (!points.length) return [];
         const peak = Math.max(1, ...points.map((point) => point.value));
-        const times = points.map((point) =>
-            new Date(
-                point.key.replace(' ', 'T') + (props.bucket === 'day' ? 'T00:00:00' : ':00')
-            ).getTime()
-        );
-        const first = times[0]!;
-        const span = times[times.length - 1]! - first;
-        return points.map((point, index) => ({
+        const first = points[0]!.at;
+        const span = points[points.length - 1]!.at - first;
+        return points.map((point) => ({
             ...point,
-            x: span > 0 ? 4 + ((times[index]! - first) / span) * (WIDTH - 8) : WIDTH / 2,
+            x: span > 0 ? 4 + ((point.at - first) / span) * (WIDTH - 8) : WIDTH / 2,
             y: 8 + (1 - point.value / peak) * (HEIGHT - 12),
         }));
     });
@@ -231,6 +240,22 @@
     onMounted(() => {
         timer = setInterval(() => {
             now.value = Date.now();
+
+            // 按 500ms 节拍记录本轮累计输出；曲线尾靠它向右延伸。
+            const total = [...streams.value.values()].reduce(
+                (sum, stream) => sum + stream.outputTokens,
+                0
+            );
+            if (total > 0) {
+                const previous = liveSamples.value[liveSamples.value.length - 1];
+                if (!previous || total !== previous.tokens) {
+                    liveSamples.value = [
+                        ...liveSamples.value,
+                        { atMs: now.value, tokens: total },
+                    ].slice(-600);
+                }
+            }
+
             // 已结束且已由汇总接管的快照才可清理。未落库的最终事件保留到刷新完成。
             let changed = false;
             for (const [taskId, stream] of streams.value) {
@@ -257,6 +282,7 @@
                 seenAt.set(payload.taskId, Date.now());
                 now.value = Date.now();
                 streams.value = new Map(streams.value);
+                if (isNew) liveSamples.value = [];
                 if (isNew || !payload.streaming) emit('track-tasks', [...streams.value.keys()]);
             })
             .then((stop) => {
@@ -273,24 +299,7 @@
 
 <template>
     <section class="pb-1" data-testid="settings-usage-dashboard">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-            <span class="text-[13px] text-neutral-950">
-                {{ t('settings.usage.dashboardHistoryTitle') }}
-            </span>
-            <div v-if="anyStreaming" class="flex items-baseline gap-1.5">
-                <span
-                    class="font-serif text-[26px] leading-none font-semibold text-neutral-950 tabular-nums"
-                >
-                    {{ aggregate.speed === null ? '—' : aggregate.speed.toFixed(1) }}
-                </span>
-                <span class="text-[11px] text-neutral-400">tok/s</span>
-                <span class="ml-1 text-[11px] text-neutral-400">
-                    {{ t('settings.usage.live.activeStreams', { count: aggregate.activeCount }) }}
-                </span>
-            </div>
-        </div>
-
-        <div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <div
                 v-for="card in cards"
                 :key="card.key"
@@ -310,7 +319,7 @@
                             class="mr-1.5 inline-flex items-baseline gap-0.5 last:mr-0"
                         >
                             {{ part.value }}
-                            <span class="font-sans text-[15px] font-normal text-neutral-400">
+                            <span class="text-[15px] font-normal text-neutral-400">
                                 {{ part.unit }}
                             </span>
                         </span>
@@ -347,24 +356,41 @@
         </div>
 
         <div class="mt-3 rounded-[11px] bg-neutral-50/80 p-3">
-            <div class="flex items-center justify-between">
-                <span class="text-[10px] tracking-wide text-neutral-400 uppercase">
+            <div class="flex items-start justify-between gap-3">
+                <span class="pt-0.5 text-[10px] tracking-wide text-neutral-400 uppercase">
                     {{ t('settings.usage.dashboardCurveTitle') }} ·
                     {{ t('settings.usage.metric.tokens') }}
                 </span>
-                <span
-                    class="flex items-center gap-1.5 text-[11px]"
-                    :class="anyStreaming ? 'text-neutral-700' : 'text-neutral-400'"
-                >
+
+                <!-- 有流时右上角给吞吐与路数；无流时只留一个安静的状态点 -->
+                <div class="flex flex-col items-end gap-0.5">
+                    <div v-if="anyStreaming" class="flex items-baseline gap-1.5">
+                        <span
+                            class="font-serif text-[22px] leading-none font-semibold text-neutral-950 tabular-nums"
+                        >
+                            {{ aggregate.speed === null ? '—' : aggregate.speed.toFixed(1) }}
+                        </span>
+                        <span class="text-[11px] text-neutral-400">tok/s</span>
+                    </div>
                     <span
-                        class="h-1.5 w-1.5 rounded-full"
-                        :class="anyStreaming ? 'animate-pulse bg-sky-500' : 'bg-neutral-300'"
-                        aria-hidden="true"
-                    />
-                    {{
-                        t(anyStreaming ? 'settings.usage.live.online' : 'settings.usage.live.idle')
-                    }}
-                </span>
+                        class="flex items-center gap-1.5 text-[11px]"
+                        :class="anyStreaming ? 'text-neutral-600' : 'text-neutral-400'"
+                    >
+                        <span
+                            class="h-1.5 w-1.5 rounded-full"
+                            :class="anyStreaming ? 'animate-pulse bg-sky-500' : 'bg-neutral-300'"
+                            aria-hidden="true"
+                        />
+                        <template v-if="anyStreaming">
+                            {{
+                                t('settings.usage.live.activeSessions', {
+                                    count: aggregate.activeCount,
+                                })
+                            }}
+                        </template>
+                        <template v-else>{{ t('settings.usage.live.idle') }}</template>
+                    </span>
+                </div>
             </div>
             <svg
                 v-if="geometry.length"
@@ -393,15 +419,5 @@
                 />
             </svg>
         </div>
-        <p class="mt-2 flex flex-wrap items-center gap-x-1.5 text-[11px] text-neutral-400">
-            <AppIcon name="information-circle" class="h-3 w-3 shrink-0" />
-            {{
-                t(
-                    anyStreaming
-                        ? 'settings.usage.live.estimateNote'
-                        : 'settings.usage.dashboardHistoryNote'
-                )
-            }}
-        </p>
     </section>
 </template>

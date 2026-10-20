@@ -1,25 +1,65 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import type { UsageLiveTurn, UsageSummary, UsageTrendPoint } from '@database/queries/usageStats';
+import type {
+    UsageBucket,
+    UsageLiveTurn,
+    UsageSummary,
+    UsageTrendPoint,
+} from '@database/queries/usageStats';
 import type { SessionTaskUsageProgressEvent } from '@services/EventService';
+
+/** 分钟桶宽度，与查询层的 5 分钟粒度一致 */
+const MINUTE_BUCKET_MS = 5 * 60_000;
+
+/** 各粒度的桶宽 */
+function bucketMsOf(bucket: UsageBucket): number {
+    if (bucket === 'minute') return MINUTE_BUCKET_MS;
+    if (bucket === 'hour') return 3_600_000;
+    return 86_400_000;
+}
+
+/** 把时间对齐到桶起点 */
+function floorToBucket(date: Date, bucket: UsageBucket): void {
+    if (bucket === 'minute') {
+        date.setSeconds(0, 0);
+        date.setMinutes(Math.floor(date.getMinutes() / 5) * 5);
+        return;
+    }
+    if (bucket === 'hour') {
+        date.setMinutes(0, 0, 0);
+        return;
+    }
+    date.setHours(0, 0, 0, 0);
+}
 
 export interface UsageCurvePoint {
     key: string;
+    /** 该点的真实时间戳（毫秒）；横轴按它定位，而不是按数组下标等距排开 */
+    at: number;
     value: number;
     live: boolean;
+}
+
+/** 实时采样：某时刻本轮的累计增量 token */
+export interface LiveUsageSample {
+    atMs: number;
+    tokens: number;
 }
 
 export function parseUsageTime(value: string): number {
     return Date.parse(value.includes('T') ? value : `${value.replace(' ', 'T')}Z`);
 }
 
-export function localUsageKey(date: Date, bucket: 'hour' | 'day' = 'day'): string {
+export function localUsageKey(date: Date, bucket: UsageBucket = 'day'): string {
     const day = [
         date.getFullYear(),
         String(date.getMonth() + 1).padStart(2, '0'),
         String(date.getDate()).padStart(2, '0'),
     ].join('-');
-    return bucket === 'hour' ? `${day} ${String(date.getHours()).padStart(2, '0')}:00` : day;
+    if (bucket === 'day') return day;
+    const hour = `${day} ${String(date.getHours()).padStart(2, '0')}:`;
+    if (bucket === 'hour') return `${hour}00`;
+    return `${hour}${String(Math.floor(date.getMinutes() / 5) * 5).padStart(2, '0')}`;
 }
 
 /** 只使用当前筛选内尚未终结的任务。数据库终态优先于迟到的进度事件。 */
@@ -61,45 +101,74 @@ export function mergeLiveUsage(
     return merged;
 }
 
-/** 同一小时/日桶内更新实时增量；横轴始终采用真实时间，不拼接半秒采样点。 */
+/**
+ * 同一时间桶内更新实时增量；横轴始终采用真实时间。
+ *
+ * 历史点每个桶一个（按桶起点定位）。当前桶额外附上实时采样，
+ * 这样对话进行时曲线尾会真的往右长，而不是只在同一个 x 上抬高。
+ */
 export function buildUsageCurve(
     history: readonly UsageTrendPoint[],
-    bucket: 'hour' | 'day',
+    bucket: UsageBucket,
     range: { preset: string; from: string; to: string },
     turns: readonly UsageLiveTurn[],
-    streams: readonly SessionTaskUsageProgressEvent[]
+    streams: readonly SessionTaskUsageProgressEvent[],
+    liveSamples: readonly LiveUsageSample[] = [],
+    nowMs = Date.now()
 ): UsageCurvePoint[] {
-    const values = new Map(
-        history.map((point) => [point.key, { key: point.key, value: point.tokens, live: false }])
-    );
+    const persisted = new Map(history.map((point) => [point.key, point.tokens]));
+    const liveDelta = new Map<string, number>();
+
     for (const { turn, stream } of pendingUsageStreams(turns, streams)) {
         const key = localUsageKey(new Date(parseUsageTime(turn.createdAt)), bucket);
-        const point = values.get(key) ?? { key, value: 0, live: false };
-        point.value += Math.max(0, stream.outputTokens - turn.outputTokens);
-        point.live ||= stream.streaming;
-        values.set(key, point);
+        liveDelta.set(
+            key,
+            (liveDelta.get(key) ?? 0) + Math.max(0, stream.outputTokens - turn.outputTokens)
+        );
     }
 
-    const ordered = [...values.values()].sort((left, right) => left.key.localeCompare(right.key));
+    const valueOf = (key: string) => (persisted.get(key) ?? 0) + (liveDelta.get(key) ?? 0);
+    const atOf = (key: string) => parseUsageTime(key.length > 10 ? `${key}:00` : `${key} 00:00:00`);
+    const sparse = () =>
+        [...new Set([...persisted.keys(), ...liveDelta.keys()])]
+            .sort()
+            .map((key) => ({ key, at: atOf(key), value: valueOf(key), live: false }));
+
+    const bucketMs = bucketMsOf(bucket);
     const start = new Date(
-        range.preset === 'all' && ordered[0]
-            ? `${ordered[0].key.replace(' ', 'T')}${bucket === 'day' ? 'T00:00:00' : ':00'}`
-            : parseUsageTime(range.from)
+        range.preset === 'all' && history[0] ? atOf(history[0].key) : parseUsageTime(range.from)
     );
-    const end = new Date(range.preset === 'all' ? Date.now() : parseUsageTime(range.to));
-    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return ordered;
-    if (bucket === 'hour') start.setMinutes(0, 0, 0);
-    else start.setHours(0, 0, 0, 0);
+    const end = new Date(range.preset === 'all' ? nowMs : parseUsageTime(range.to));
+
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return sparse();
+    floorToBucket(start, bucket);
+
+    // 极长的「全部」范围不逐桶铺满，只保留有数据的桶
+    if ((end.getTime() - start.getTime()) / bucketMs > 5000) return sparse();
 
     const points: UsageCurvePoint[] = [];
-    // 极长的「全部」范围保留稀疏桶，绘制时仍用真实时间坐标。
-    const bucketMs = bucket === 'hour' ? 3_600_000 : 86_400_000;
-    if ((end.getTime() - start.getTime()) / bucketMs > 5000) return ordered;
-    for (const cursor = new Date(start); cursor.getTime() <= end.getTime(); ) {
+    const cursor = new Date(start);
+    while (cursor.getTime() <= end.getTime()) {
         const key = localUsageKey(cursor, bucket);
-        points.push(values.get(key) ?? { key, value: 0, live: false });
-        if (bucket === 'hour') cursor.setTime(cursor.getTime() + bucketMs);
-        else cursor.setDate(cursor.getDate() + 1);
+        points.push({ key, at: cursor.getTime(), value: valueOf(key), live: false });
+        cursor.setTime(cursor.getTime() + bucketMs);
     }
+
+    // 当前桶：把实时采样按真实时间接在桶起点之后，尾部会随时间往右走
+    const currentKey = localUsageKey(new Date(nowMs), bucket);
+    const currentIndex = points.findIndex((point) => point.key === currentKey);
+    if (currentIndex >= 0 && liveSamples.length > 0) {
+        const bucketStartAt = points[currentIndex]!.at;
+        const base = persisted.get(currentKey) ?? 0;
+        const tail: UsageCurvePoint[] = [];
+        for (const sample of liveSamples) {
+            const at = Math.max(bucketStartAt + 1, Math.min(sample.atMs, nowMs));
+            const previous = tail[tail.length - 1];
+            if (previous && at <= previous.at) continue;
+            tail.push({ key: currentKey, at, value: base + sample.tokens, live: true });
+        }
+        if (tail.length > 0) points.splice(currentIndex + 1, 0, ...tail);
+    }
+
     return points;
 }

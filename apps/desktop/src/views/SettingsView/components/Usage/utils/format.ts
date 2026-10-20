@@ -45,18 +45,42 @@ export function formatCostCompact(micros: number, currency = 'USD'): string {
     }).format(amount);
 }
 
-/** 紧凑 token 数：1.2K / 3.4M / 3.9B */
+/**
+ * 紧凑 token 数：按语言选单位。
+ *
+ * 中文习惯看「万 / 亿」，英文习惯看 K / M / B。
+ * 用同一套 K/M 会在中文界面里读成「4.4M」，与其余中文文案脱节；
+ * 反之把「亿」塞给英文界面也一样别扭。所以按当前语言分两条分支。
+ */
 export function formatTokensCompact(value: number): string {
+    const locale = getLocale();
+
+    if (locale === 'zh-CN') {
+        if (value >= 100_000_000) {
+            return `${trimZero(value / 100_000_000)}亿`;
+        }
+        if (value >= 10_000) {
+            return `${trimZero(value / 10_000)}万`;
+        }
+        return String(value);
+    }
+
     if (value >= 1_000_000_000) {
-        return `${(value / 1_000_000_000).toFixed(1)}B`;
+        return `${trimZero(value / 1_000_000_000)}B`;
     }
     if (value >= 1_000_000) {
-        return `${(value / 1_000_000).toFixed(1)}M`;
+        return `${trimZero(value / 1_000_000)}M`;
     }
-    if (value >= 1000) {
-        return `${(value / 1000).toFixed(1)}K`;
+    if (value >= 1_000) {
+        return `${trimZero(value / 1_000)}K`;
     }
     return String(value);
+}
+
+/** 保留一位小数，但去掉无意义的 `.0`（「1.0万」读起来不如「1万」） */
+function trimZero(value: number): string {
+    const fixed = value.toFixed(1);
+    return fixed.endsWith('.0') ? fixed.slice(0, -2) : fixed;
 }
 
 /** 整数带千分位 */

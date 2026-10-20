@@ -73,9 +73,9 @@
 </script>
 
 <template>
-    <section class="settings-row-group p-4" :data-testid="`settings-usage-ranking-${metric}`">
-        <div class="mb-2 flex items-center justify-between gap-3">
-            <span class="text-[13px] text-neutral-950">{{ title }}</span>
+    <section class="space-y-3" :data-testid="`settings-usage-ranking-${metric}`">
+        <div class="flex items-center justify-between gap-3">
+            <h2 class="settings-section-title">{{ title }}</h2>
 
             <div class="flex items-center gap-1">
                 <button
@@ -96,55 +96,59 @@
             </div>
         </div>
 
-        <div v-if="items.length === 0" class="py-8 text-center">
-            <span class="text-xs text-neutral-400">{{ t('settings.usage.group.empty') }}</span>
-        </div>
+        <div class="rounded-[11px] bg-neutral-50/80 p-4">
+            <div v-if="items.length === 0" class="py-8 text-center">
+                <span class="text-xs text-neutral-400">{{ t('settings.usage.group.empty') }}</span>
+            </div>
 
-        <div v-else :class="['space-y-2.5 transition-opacity', loading ? 'opacity-60' : '']">
-            <div
-                v-for="item in items"
-                :key="item.id"
-                data-testid="settings-usage-ranking-row"
-                class="flex items-center gap-3"
-            >
-                <!-- 图标只用于会话条目，模型条目省掉以免视觉噪音 -->
-                <span
-                    v-if="showIcon"
-                    class="flex h-6 w-6 shrink-0 items-center justify-center rounded-[7px] bg-neutral-100 text-[10px] text-neutral-500"
-                    aria-hidden="true"
+            <div v-else :class="['space-y-2.5 transition-opacity', loading ? 'opacity-60' : '']">
+                <div
+                    v-for="item in items"
+                    :key="item.id"
+                    data-testid="settings-usage-ranking-row"
+                    class="flex items-center gap-3"
                 >
-                    {{ item.name.slice(0, 1) }}
-                </span>
-
-                <div class="min-w-0 flex-1">
-                    <!-- 并排时每列只有半宽，标题与数值同排、条形独占一行更可读 -->
-                    <div class="flex items-baseline gap-2">
-                        <span
-                            class="min-w-0 flex-1 truncate text-[12.5px] text-neutral-900"
-                            :title="item.name"
-                        >
-                            {{ item.name }}
-                        </span>
-                        <span
-                            class="shrink-0 text-[12px] text-neutral-600 tabular-nums"
-                            :title="valueText(item)"
-                        >
-                            {{ valueText(item) }}
-                        </span>
-                    </div>
-
-                    <div class="mt-1 h-[5px] w-full overflow-hidden rounded-full bg-neutral-100">
-                        <div
-                            class="h-full rounded-full bg-neutral-800/70"
-                            :style="{ width: barWidth(item) }"
-                        />
-                    </div>
-
-                    <div
-                        v-if="item.subtitle || item.lastAt"
-                        class="mt-0.5 truncate text-[11px] text-neutral-400"
+                    <!-- 图标只用于会话条目，模型条目省掉以免视觉噪音 -->
+                    <span
+                        v-if="showIcon"
+                        class="flex h-6 w-6 shrink-0 items-center justify-center rounded-[7px] bg-neutral-100 text-[10px] text-neutral-500"
+                        aria-hidden="true"
                     >
-                        {{ subtitleOf(item) }}
+                        {{ item.name.slice(0, 1) }}
+                    </span>
+
+                    <div class="min-w-0 flex-1">
+                        <!-- 并排时每列只有半宽，标题与数值同排、条形独占一行更可读 -->
+                        <div class="flex items-baseline gap-2">
+                            <span
+                                class="min-w-0 flex-1 truncate text-[12.5px] text-neutral-900"
+                                :title="item.name"
+                            >
+                                {{ item.name }}
+                            </span>
+                            <span
+                                class="shrink-0 text-[12px] text-neutral-600 tabular-nums"
+                                :title="valueText(item)"
+                            >
+                                {{ valueText(item) }}
+                            </span>
+                        </div>
+
+                        <div
+                            class="mt-1 h-[5px] w-full overflow-hidden rounded-full bg-neutral-200/70"
+                        >
+                            <div
+                                class="h-full rounded-full bg-neutral-800/70"
+                                :style="{ width: barWidth(item) }"
+                            />
+                        </div>
+
+                        <div
+                            v-if="item.subtitle || item.lastAt"
+                            class="mt-0.5 truncate text-[11px] text-neutral-400"
+                        >
+                            {{ subtitleOf(item) }}
+                        </div>
                     </div>
                 </div>
             </div>
