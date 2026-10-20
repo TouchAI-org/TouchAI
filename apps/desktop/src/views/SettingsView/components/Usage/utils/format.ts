@@ -1,6 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { getLocale } from '@/i18n';
+import { getLocale, t } from '@/i18n';
 
 /**
  * 金额：微元 → 本地化货币字符串。
@@ -45,8 +45,11 @@ export function formatCostCompact(micros: number, currency = 'USD'): string {
     }).format(amount);
 }
 
-/** 紧凑 token 数：1.2K / 3.4M */
+/** 紧凑 token 数：1.2K / 3.4M / 3.9B */
 export function formatTokensCompact(value: number): string {
+    if (value >= 1_000_000_000) {
+        return `${(value / 1_000_000_000).toFixed(1)}B`;
+    }
     if (value >= 1_000_000) {
         return `${(value / 1_000_000).toFixed(1)}M`;
     }
@@ -75,6 +78,34 @@ export function formatDuration(ms: number | null | undefined): string {
         return `${Math.round(ms)}ms`;
     }
     return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/** 将累计活跃时长拆成数字与单位，便于卡片弱化单位、突出数值。 */
+export function formatActiveDuration(
+    ms: number | null | undefined
+): Array<{ value: string; unit: string }> {
+    if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return [];
+
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (totalSeconds === 0 && ms > 0) {
+        return [{ value: '<1', unit: t('settings.usage.duration.second') }];
+    }
+    if (hours > 0) {
+        return [
+            { value: formatInt(hours), unit: t('settings.usage.duration.hour') },
+            { value: formatInt(minutes), unit: t('settings.usage.duration.minute') },
+        ];
+    }
+    if (minutes > 0) {
+        return [
+            { value: formatInt(minutes), unit: t('settings.usage.duration.minute') },
+            { value: formatInt(seconds), unit: t('settings.usage.duration.second') },
+        ];
+    }
+    return [{ value: formatInt(seconds), unit: t('settings.usage.duration.second') }];
 }
 
 /** 解码速度 tok/s，样本不足返回 null */

@@ -20,15 +20,26 @@
                 <div class="h-6 w-20 animate-pulse rounded bg-neutral-100" />
             </div>
 
-            <div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 <div
-                    v-for="index in 5"
+                    v-for="index in 6"
                     :key="index"
                     class="flex flex-col gap-2 rounded-[10px] bg-neutral-50/80 px-4 py-3"
                 >
                     <div class="h-3 w-12 animate-pulse rounded bg-neutral-200/70" />
                     <div class="h-6 w-20 animate-pulse rounded bg-neutral-200/70" />
                     <div class="h-2.5 w-16 animate-pulse rounded bg-neutral-200/50" />
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                <div
+                    v-for="index in 6"
+                    :key="index"
+                    class="flex flex-col gap-1 rounded-[9px] bg-neutral-50/60 px-3 py-2"
+                >
+                    <div class="h-3 w-12 animate-pulse rounded bg-neutral-200/70" />
+                    <div class="h-5 w-16 animate-pulse rounded bg-neutral-200/70" />
                 </div>
             </div>
 
@@ -66,6 +77,19 @@
                     >
                         <div class="h-3 w-12 animate-pulse rounded bg-neutral-200/70" />
                         <div class="h-6 w-16 animate-pulse rounded bg-neutral-200/70" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 模型与会话排行 -->
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <div v-for="index in 2" :key="index" class="settings-row-group p-4">
+                <div class="mb-4 h-3 w-16 animate-pulse rounded bg-neutral-100" />
+                <div class="space-y-3">
+                    <div v-for="row in 5" :key="row" class="space-y-2">
+                        <div class="h-3 w-2/3 animate-pulse rounded bg-neutral-100" />
+                        <div class="h-[5px] animate-pulse rounded bg-neutral-100" />
                     </div>
                 </div>
             </div>

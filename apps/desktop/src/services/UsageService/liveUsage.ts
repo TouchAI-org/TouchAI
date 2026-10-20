@@ -54,6 +54,13 @@ export interface LiveUsageTrackerOptions {
 export class LiveUsageTracker {
     private readonly startedAt = Date.now();
     private readonly samples: UsageThroughputSample[] = [];
+    /**
+     * 累计 token 的真实计数器快照。
+     *
+     * 早期实现用「上次速度 × 间隔」反推 token 数，误差会随着每次推送累积，
+     * 长对话里速度会越算越偏。这里直接记录当时的累计值，差值就是真实增量。
+     */
+    private readonly tokenMarks: Array<{ atMs: number; tokens: number }> = [];
 
     private cjkChars = 0;
     private otherChars = 0;
@@ -83,37 +90,40 @@ export class LiveUsageTracker {
             return null;
         }
 
-        const windowStart = Math.max(this.firstContentAtMs, nowMs - SPEED_WINDOW_MS);
-        const windowSeconds = (nowMs - windowStart) / 1000;
+        // 找到窗口起点之前的最后一个计数快照，用它的真实累计值作基准
+        const cutoff = nowMs - SPEED_WINDOW_MS;
+        let baseline: { atMs: number; tokens: number } | null = null;
+        for (const mark of this.tokenMarks) {
+            if (mark.atMs > cutoff) break;
+            baseline = mark;
+        }
+        if (!baseline) {
+            baseline = this.tokenMarks[0] ?? null;
+        }
+        if (!baseline) {
+            return null;
+        }
+
+        const windowSeconds = (nowMs - baseline.atMs) / 1000;
         if (windowSeconds <= 0) {
             return null;
         }
 
-        const previous = this.samples[this.samples.length - 1];
-        const previousTokens = previous ? this.tokensAt(previous.atMs) : 0;
-        const deltaTokens = this.estimatedTokens - previousTokens;
+        const deltaTokens = this.estimatedTokens - baseline.tokens;
         if (deltaTokens <= 0) {
-            return previous?.tokensPerSecond ?? null;
+            return this.samples[this.samples.length - 1]?.tokensPerSecond ?? null;
         }
 
         return deltaTokens / windowSeconds;
     }
 
-    /**
-     * 某时刻的 token 数。
-     *
-     * 采样里只存了速度，没有存绝对量，这里按采样时刻反推一个保守值：
-     * 仅用于计算两次推送之间的增量，误差不会累积到最终数字。
-     */
-    private tokensAt(atMs: number): number {
-        let sum = 0;
-        for (let index = 0; index < this.samples.length; index += 1) {
-            const current = this.samples[index]!;
-            const next = this.samples[index + 1];
-            const spanEnd = next ? next.atMs : atMs;
-            sum += (current.tokensPerSecond * (spanEnd - current.atMs)) / 1000;
+    /** 记录当前累计 token；只保留窗口附近的两倍长度，避免数组无限增长。 */
+    private markTokens(nowMs: number): void {
+        this.tokenMarks.push({ atMs: nowMs, tokens: this.estimatedTokens });
+        const cutoff = nowMs - SPEED_WINDOW_MS * 2;
+        while (this.tokenMarks.length > 2 && this.tokenMarks[0]!.atMs < cutoff) {
+            this.tokenMarks.shift();
         }
-        return sum;
     }
 
     /**
@@ -156,6 +166,9 @@ export class LiveUsageTracker {
         }
 
         const nowMs = Date.now() - this.startedAt;
+        if (added) {
+            this.markTokens(nowMs);
+        }
         if (this.hasEmitted && nowMs - this.lastEmitAtMs < EMIT_INTERVAL_MS) {
             return;
         }

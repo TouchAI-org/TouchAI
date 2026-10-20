@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { setLocale } from '@/i18n';
 
 import {
+    formatActiveDuration,
     formatCost,
     formatDayLabel,
     formatDbTime,
@@ -40,9 +41,10 @@ describe('formatTokensCompact', () => {
         expect(formatTokensCompact(42)).toBe('42');
     });
 
-    it('compacts thousands and millions', () => {
+    it('compacts thousands, millions and billions', () => {
         expect(formatTokensCompact(1_500)).toBe('1.5K');
         expect(formatTokensCompact(2_400_000)).toBe('2.4M');
+        expect(formatTokensCompact(3_900_000_000)).toBe('3.9B');
     });
 });
 
@@ -63,6 +65,48 @@ describe('formatDuration', () => {
     it('switches to seconds past one second', () => {
         expect(formatDuration(850)).toBe('850ms');
         expect(formatDuration(3200)).toBe('3.2s');
+    });
+});
+
+describe('formatActiveDuration', () => {
+    it('keeps accumulated hours instead of wrapping them into days', () => {
+        setLocale('zh-CN');
+        expect(formatActiveDuration((188 * 60 + 7) * 60_000)).toEqual([
+            { value: '188', unit: '小时' },
+            { value: '7', unit: '分' },
+        ]);
+    });
+
+    it('keeps short conversations visible in seconds', () => {
+        setLocale('zh-CN');
+        expect(formatActiveDuration(1)).toEqual([{ value: '<1', unit: '秒' }]);
+        expect(formatActiveDuration(999)).toEqual([{ value: '<1', unit: '秒' }]);
+        expect(formatActiveDuration(1000)).toEqual([{ value: '1', unit: '秒' }]);
+        expect(formatActiveDuration(3000)).toEqual([{ value: '3', unit: '秒' }]);
+        expect(formatActiveDuration(65_000)).toEqual([
+            { value: '1', unit: '分' },
+            { value: '5', unit: '秒' },
+        ]);
+        expect(formatActiveDuration(3_600_000)).toEqual([
+            { value: '1', unit: '小时' },
+            { value: '0', unit: '分' },
+        ]);
+    });
+
+    it('distinguishes zero from a missing or invalid duration', () => {
+        setLocale('zh-CN');
+        expect(formatActiveDuration(0)).toEqual([{ value: '0', unit: '秒' }]);
+        expect(formatActiveDuration(null)).toEqual([]);
+        expect(formatActiveDuration(Number.NaN)).toEqual([]);
+        expect(formatActiveDuration(-1)).toEqual([]);
+    });
+
+    it('localizes the duration units', () => {
+        setLocale('en-US');
+        expect(formatActiveDuration((188 * 60 + 7) * 60_000)).toEqual([
+            { value: '188', unit: 'h' },
+            { value: '7', unit: 'm' },
+        ]);
     });
 });
 

@@ -63,7 +63,7 @@ export const usageMessagesZhCN = {
     'settings.usage.metric.costNote': '基于官方价格估算',
     'settings.usage.metric.costNoteWithLive': '含本轮估算',
     'settings.usage.metric.rpm': '平均 RPM',
-    'settings.usage.metric.rpmNote': '每分钟请求数',
+    'settings.usage.metric.rpmNote': '按活跃时长计',
     'settings.usage.metric.requests': '总请求',
     'settings.usage.metric.requestsNote': '成功率 {rate}',
     'settings.usage.metric.sessions': '会话数',
@@ -74,7 +74,18 @@ export const usageMessagesZhCN = {
     'settings.usage.metric.cacheHitRate': '缓存命中率',
     'settings.usage.metric.freshInput': '新增输入',
     'settings.usage.metric.output': '输出',
-    'settings.usage.metric.cacheRead': '缓存命中',
+    'settings.usage.metric.cacheRead': '缓存读取',
+    'settings.usage.metric.cacheReadNote': '命中率 {rate}',
+    'settings.usage.metric.cacheWrite': '缓存写入',
+    'settings.usage.metric.activeDuration': '活跃时长',
+    'settings.usage.metric.activeDay': '共 {count} 天',
+    'settings.usage.metric.activeDays': '共 {count} 天',
+    'settings.usage.metric.activeDurationNote':
+        '所选区间内各回合耗时之和；并行回合分别累加，天数按本地日期去重',
+    'settings.usage.duration.hour': '小时',
+    'settings.usage.duration.minute': '分',
+    'settings.usage.duration.second': '秒',
+    'settings.usage.duration.millisecond': '毫秒',
     'settings.usage.metric.reasoning': '其中推理',
     'settings.usage.metric.ttft': '平均首字',
     'settings.usage.metric.ttftNote': '首 token 延迟',
@@ -120,7 +131,7 @@ export const usageMessagesZhCN = {
     'settings.usage.ranking.metric.tokens': 'Tokens',
     'settings.usage.ranking.metric.cost': '费用',
     'settings.usage.ranking.metric.duration': '活跃',
-    'settings.usage.dashboardHistoryNote': '汇总所选区间的已落库用量；对话进行中时切换为实时数字。',
+    'settings.usage.dashboardHistoryNote': '汇总所选区间的用量，对话进行中时持续更新当前时间桶。',
 
     // 工具调用
     'settings.usage.tools.title': '工具调用',
@@ -141,7 +152,8 @@ export const usageMessagesZhCN = {
 
     // 热力图
     'settings.usage.heatmap.title': '使用热力图',
-    'settings.usage.heatmap.summary': '近一年活跃 {days} 天 · 共 {tokens} tokens',
+    'settings.usage.heatmap.summary': '所选区间活跃 {days} 天 · 共 {tokens} tokens',
+    'settings.usage.heatmap.lastYear': '近一年活跃 {days} 天 · 共 {tokens} tokens',
     'settings.usage.heatmap.tooltip': '{day} · {requests} 次 · {tokens} tokens · {cost}',
     'settings.usage.heatmap.less': '少',
     'settings.usage.heatmap.more': '多',
@@ -287,7 +299,7 @@ export const usageMessagesEnUS = {
     'settings.usage.metric.costNote': 'Estimated from official prices',
     'settings.usage.metric.costNoteWithLive': 'Including the live turn',
     'settings.usage.metric.rpm': 'Mean RPM',
-    'settings.usage.metric.rpmNote': 'Requests per minute',
+    'settings.usage.metric.rpmNote': 'Per active minute',
     'settings.usage.metric.requests': 'Requests',
     'settings.usage.metric.requestsNote': '{rate} succeeded',
     'settings.usage.metric.sessions': 'Sessions',
@@ -299,6 +311,17 @@ export const usageMessagesEnUS = {
     'settings.usage.metric.freshInput': 'Fresh input',
     'settings.usage.metric.output': 'Output',
     'settings.usage.metric.cacheRead': 'Cache read',
+    'settings.usage.metric.cacheReadNote': 'Hit rate {rate}',
+    'settings.usage.metric.cacheWrite': 'Cache write',
+    'settings.usage.metric.activeDuration': 'Active time',
+    'settings.usage.metric.activeDay': '{count} active day',
+    'settings.usage.metric.activeDays': '{count} active days',
+    'settings.usage.metric.activeDurationNote':
+        'Sum of turn durations in this range, including concurrent turns; distinct active days use local dates',
+    'settings.usage.duration.hour': 'h',
+    'settings.usage.duration.minute': 'm',
+    'settings.usage.duration.second': 's',
+    'settings.usage.duration.millisecond': 'ms',
     'settings.usage.metric.reasoning': 'Reasoning',
     'settings.usage.metric.ttft': 'Mean first token',
     'settings.usage.metric.ttftNote': 'First-token latency',
@@ -334,7 +357,7 @@ export const usageMessagesEnUS = {
     'settings.usage.ranking.metric.cost': 'Cost',
     'settings.usage.ranking.metric.duration': 'Active',
     'settings.usage.dashboardHistoryNote':
-        'Aggregates stored usage for the selected range; switches to live numbers while a conversation is running.',
+        'Usage for the selected range; the current time bucket updates as conversations run.',
 
     'settings.usage.tools.title': 'Tool calls',
     'settings.usage.tools.description':
@@ -354,7 +377,8 @@ export const usageMessagesEnUS = {
     'settings.usage.tools.column.duration': 'Duration',
 
     'settings.usage.heatmap.title': 'Activity heatmap',
-    'settings.usage.heatmap.summary': '{days} active days · {tokens} tokens in the past year',
+    'settings.usage.heatmap.summary': '{days} active days · {tokens} tokens in this range',
+    'settings.usage.heatmap.lastYear': '{days} active days · {tokens} tokens in the past year',
     'settings.usage.heatmap.tooltip': '{day} · {requests} calls · {tokens} tokens · {cost}',
     'settings.usage.heatmap.less': 'Less',
     'settings.usage.heatmap.more': 'More',

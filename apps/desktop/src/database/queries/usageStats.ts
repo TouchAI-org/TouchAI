@@ -1,21 +1,8 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import {
-    and,
-    between,
-    count,
-    desc,
-    eq,
-    gte,
-    inArray,
-    like,
-    lte,
-    or,
-    type SQL,
-    sql,
-} from 'drizzle-orm';
+import { and, between, count, desc, eq, inArray, like, or, type SQL, sql } from 'drizzle-orm';
 
-import { db } from '../index';
+import { type DatabaseExecutor, db } from '../index';
 import {
     messageParts,
     models,
@@ -49,6 +36,12 @@ export interface UsageSummary {
     requestCount: number;
     /** 产生过用量的会话数 */
     sessionCount: number;
+    /** 活跃天数（有任一回合的日历天） */
+    activeDayCount: number;
+    /** 所有回合耗时之和（毫秒）；不是首末时间差 */
+    totalDurationMs: number;
+    /** 筛选后第一条请求的 UTC 时间，供「全部」范围计算平均 RPM */
+    firstRequestAt: string | null;
     successCount: number;
     totalCostMicros: number;
     unpricedCount: number;
@@ -66,6 +59,16 @@ export interface UsageSummary {
     meanDurationMs: number | null;
     /** 平均解码速度（tok/s），样本不足时为 null */
     decodeSpeed: number | null;
+}
+
+/** 与汇总同一数据库快照内的任务基线，用于扣除已经落库的实时用量。 */
+export interface UsageLiveTurn {
+    taskId: string;
+    createdAt: string;
+    status: string;
+    outputTokens: number;
+    totalCostMicros: number;
+    durationMs: number | null;
 }
 
 /** 一个时间桶里按模型（或供应商）拆开的一段 */
@@ -217,8 +220,11 @@ function computeCacheHitRate(input: number, cacheRead: number, cacheWrite: numbe
 // 汇总
 // ============================================================================
 
-export const getUsageSummary = async (filter: UsageFilter): Promise<UsageSummary> => {
-    const row = await db
+export const getUsageSummary = async (
+    filter: UsageFilter,
+    database: DatabaseExecutor = db
+): Promise<UsageSummary> => {
+    const row = await database
         .select({
             requestCount: count(),
             successCount: sql<number>`sum(case when ${sessionTurns.status} = 'completed' then 1 else 0 end)`,
@@ -234,6 +240,8 @@ export const getUsageSummary = async (filter: UsageFilter): Promise<UsageSummary
             sumDuration: sql<number>`coalesce(sum(${sessionTurns.duration_ms}), 0)`,
             durationCount: sql<number>`count(${sessionTurns.duration_ms})`,
             sessionCount: sql<number>`count(distinct ${sessionTurns.session_id})`,
+            activeDayCount: sql<number>`count(distinct date(${sessionTurns.created_at}, 'localtime'))`,
+            firstRequestAt: sql<string | null>`min(${sessionTurns.created_at})`,
         })
         .from(sessionTurns)
         .where(buildTurnWhere(filter))
@@ -254,6 +262,11 @@ export const getUsageSummary = async (filter: UsageFilter): Promise<UsageSummary
     return {
         requestCount,
         sessionCount: row?.sessionCount ?? 0,
+        activeDayCount: row?.activeDayCount ?? 0,
+        // 活跃时长取的是「回合耗时之和」，不是首末时间差：
+        // 后者会把中间闲置的几小时也算进去，无法反映真实对话强度。
+        totalDurationMs: row?.sumDuration ?? 0,
+        firstRequestAt: row?.firstRequestAt ?? null,
         successCount,
         totalCostMicros: row?.totalCostMicros ?? 0,
         unpricedCount: row?.unpricedCount ?? 0,
@@ -276,6 +289,39 @@ export const getUsageSummary = async (filter: UsageFilter): Promise<UsageSummary
     };
 };
 
+/** 汇总与任务基线必须来自同一个读快照，防止完成写入夹在两次读取之间。 */
+export const getUsageDashboardSnapshot = async (
+    filter: UsageFilter,
+    taskIds: string[],
+    dimension: 'model' | 'provider' = 'model'
+): Promise<{
+    summary: UsageSummary;
+    liveTurns: UsageLiveTurn[];
+    trend: { bucket: 'hour' | 'day'; points: UsageTrendPoint[] };
+}> =>
+    db.transaction(
+        async (tx) => {
+            const summary = await getUsageSummary(filter, tx);
+            const liveTurns = taskIds.length
+                ? await tx
+                      .select({
+                          taskId: sessionTurns.task_id,
+                          createdAt: sessionTurns.created_at,
+                          status: sessionTurns.status,
+                          outputTokens: sessionTurns.output_tokens,
+                          totalCostMicros: sessionTurns.total_cost_micros,
+                          durationMs: sessionTurns.duration_ms,
+                      })
+                      .from(sessionTurns)
+                      .where(and(buildTurnWhere(filter), inArray(sessionTurns.task_id, taskIds)))
+                      .all()
+                : [];
+            const trend = await getUsageTrend(filter, dimension, tx);
+            return { summary, liveTurns, trend };
+        },
+        { behavior: 'deferred' }
+    );
+
 // ============================================================================
 // 趋势
 // ============================================================================
@@ -288,7 +334,8 @@ export const getUsageSummary = async (filter: UsageFilter): Promise<UsageSummary
  */
 export const getUsageTrend = async (
     filter: UsageFilter,
-    dimension: 'model' | 'provider' = 'model'
+    dimension: 'model' | 'provider' = 'model',
+    database: DatabaseExecutor = db
 ): Promise<{ bucket: 'hour' | 'day'; points: UsageTrendPoint[] }> => {
     const spanMs = new Date(filter.to).getTime() - new Date(filter.from).getTime();
     const bucket: 'hour' | 'day' = spanMs <= 48 * 60 * 60 * 1000 ? 'hour' : 'day';
@@ -307,7 +354,7 @@ export const getUsageTrend = async (
             ? sql<string>`${models.name}`
             : sql<string>`coalesce(${providers.name}, '—')`;
 
-    const rows = await db
+    const rows = await database
         .select({
             key: keyExpr.as('key'),
             groupId: groupIdExpr.as('groupId'),
@@ -765,9 +812,7 @@ export const getToolUsageStats = async (filter: UsageFilter): Promise<ToolUsageS
  * 跟随所选区间，而不是固定一年：选了“近 7 天”却看到一整年的格子
  * 会让人误以为筛选没生效。
  */
-export const getUsageHeatmap = async (
-    filter: Pick<UsageFilter, 'from' | 'to'>
-): Promise<UsageHeatmapDay[]> => {
+export const getUsageHeatmap = async (filter: UsageFilter): Promise<UsageHeatmapDay[]> => {
     const dayExpr = sql<string>`date(${sessionTurns.created_at}, 'localtime')`;
 
     const rows = await db
@@ -781,9 +826,7 @@ export const getUsageHeatmap = async (
             costMicros: sql<number>`coalesce(sum(${sessionTurns.total_cost_micros}), 0)`,
         })
         .from(sessionTurns)
-        .where(
-            and(gte(sessionTurns.created_at, filter.from), lte(sessionTurns.created_at, filter.to))
-        )
+        .where(buildTurnWhere(filter))
         .groupBy(dayExpr)
         .orderBy(dayExpr)
         .all();

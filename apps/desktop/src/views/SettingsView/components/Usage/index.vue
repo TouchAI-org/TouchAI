@@ -6,15 +6,15 @@
         getModelRanking,
         getSessionRanking,
         getToolUsageStats,
+        getUsageDashboardSnapshot,
         getUsageFilterOptions,
         getUsageHeatmap,
-        getUsageSummary,
-        getUsageTrend,
         getUsageTrendFromArchive,
         type ToolUsageSummary,
         type UsageFilter,
         type UsageFilterOptions,
         type UsageHeatmapDay,
+        type UsageLiveTurn,
         type UsageRangePreset,
         type UsageRankItem,
         type UsageRankMetric,
@@ -51,6 +51,9 @@
     const loadError = ref(false);
 
     const summary = ref<UsageSummary | null>(null);
+    const liveTurns = ref<UsageLiveTurn[]>([]);
+    const trackedTaskIds = ref<string[]>([]);
+    const loadedRange = ref(resolveUsageRange(preset.value));
     const trend = ref<{ bucket: 'hour' | 'day'; points: UsageTrendPoint[] }>({
         bucket: 'day',
         points: [],
@@ -72,6 +75,8 @@
 
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     let unlistenTaskStatus: (() => void) | null = null;
+    let loadVersion = 0;
+    let disposed = false;
 
     const filter = computed<UsageFilter>(() => {
         const base = resolveUsageRange(preset.value);
@@ -87,44 +92,12 @@
         };
     });
 
-    /** 「全部时间」下真实的首末时间跨度，供平均 RPM 使用 */
-    const actualSpanMs = computed(() => {
-        const points = trend.value.points;
-        if (points.length < 2) return 0;
-
-        const first = Date.parse(points[0]!.key.replace(' ', 'T'));
-        const last = Date.parse(points[points.length - 1]!.key.replace(' ', 'T'));
-        if (!Number.isFinite(first) || !Number.isFinite(last)) return 0;
-
-        // 桶键只到天/小时，至少补一个桶宽度，避免除零
-        const bucketMs = trend.value.bucket === 'hour' ? 3_600_000 : 86_400_000;
-        return Math.max(bucketMs, last - first + bucketMs);
-    });
-
-    /**
-     * 热力图周数：跟随所选区间。
-     *
-     * 至少给一周，否则 7 天区间会算成 1 列看不出日历感；
-     * 上限 53 周，与「全部时间」保持一致。
-     */
-    const heatmapWeeks = computed(() => {
-        const from = Date.parse(filter.value.from.replace(' ', 'T') + 'Z');
-        const to = Date.parse(filter.value.to.replace(' ', 'T') + 'Z');
-        const spanMs = Number.isFinite(from) && Number.isFinite(to) ? to - from : 0;
-
-        // 「全部时间」的跨度是 1970-9999，改用真实首末时间
-        const effective = preset.value === 'all' ? actualSpanMs.value : spanMs;
-        if (!Number.isFinite(effective) || effective <= 0) return 4;
-
-        const days = Math.ceil(effective / 86_400_000);
-        return Math.min(53, Math.max(1, Math.ceil(days / 7)));
-    });
-
     async function load() {
+        const version = ++loadVersion;
         loading.value = true;
         loadError.value = false;
         try {
-            const current = filter.value;
+            const current = { ...filter.value, ...resolveUsageRange(preset.value) };
             // 「全部时间」且无筛选时优先用永久保留的日汇总表：
             // 清理过会话轮次后，历史曲线仍然完整。
             // 汇总表为空（例如首次启动还没跑维护）时回退到实时查询，
@@ -133,18 +106,14 @@
             const archiveTrend = useArchive ? await getUsageTrendFromArchive() : null;
 
             const [
-                nextSummary,
-                nextTrend,
+                dashboard,
                 nextOptions,
                 nextTools,
                 nextHeatmap,
                 nextModelRanking,
                 nextSessionRanking,
             ] = await Promise.all([
-                getUsageSummary(current),
-                archiveTrend && archiveTrend.points.length > 0
-                    ? archiveTrend
-                    : getUsageTrend(current, dimension.value),
+                getUsageDashboardSnapshot(current, trackedTaskIds.value, dimension.value),
                 getUsageFilterOptions(current),
                 getToolUsageStats(current),
                 getUsageHeatmap(current),
@@ -152,8 +121,23 @@
                 getSessionRanking(current, sessionRankMetric.value),
             ]);
 
-            summary.value = nextSummary;
-            trend.value = nextTrend;
+            if (version !== loadVersion || disposed) return;
+            summary.value = dashboard.summary;
+            liveTurns.value = dashboard.liveTurns;
+            loadedRange.value = { from: current.from, to: current.to };
+            // 即时查询覆盖仍有明细的日期；归档只补回已清理的历史日期。
+            const nextTrend = dashboard.trend;
+            const rawKeys = new Set(nextTrend.points.map((point) => point.key));
+            trend.value =
+                archiveTrend && nextTrend.bucket === 'day'
+                    ? {
+                          bucket: 'day',
+                          points: [
+                              ...archiveTrend.points.filter((point) => !rawKeys.has(point.key)),
+                              ...nextTrend.points,
+                          ].sort((left, right) => left.key.localeCompare(right.key)),
+                      }
+                    : nextTrend;
             options.value = nextOptions;
             toolStats.value = nextTools;
             heatmap.value = nextHeatmap;
@@ -161,9 +145,9 @@
             sessionRanking.value = nextSessionRanking;
         } catch (error) {
             console.error('[SettingsUsageSection] Failed to load usage stats:', error);
-            loadError.value = true;
+            if (version === loadVersion && !disposed) loadError.value = true;
         } finally {
-            loading.value = false;
+            if (version === loadVersion && !disposed) loading.value = false;
         }
     }
 
@@ -178,8 +162,12 @@
     }
 
     watch(filter, () => void load(), { deep: true });
-    // 维度切换只影响图表分组，不必重算其它查询
-    watch(dimension, () => void load());
+    watch([dimension, modelRankMetric, sessionRankMetric], () => void load());
+
+    function trackTasks(taskIds: string[]) {
+        trackedTaskIds.value = taskIds;
+        scheduleRefresh();
+    }
 
     onMounted(() => {
         void load();
@@ -196,11 +184,14 @@
                 }
             })
             .then((unlisten) => {
-                unlistenTaskStatus = unlisten;
+                if (disposed) unlisten();
+                else unlistenTaskStatus = unlisten;
             });
     });
 
     onUnmounted(() => {
+        disposed = true;
+        loadVersion += 1;
         if (refreshTimer) {
             clearTimeout(refreshTimer);
         }
@@ -246,12 +237,10 @@
                 <UsageDashboard
                     :summary="summary"
                     :trend="trend.points"
-                    :range="{
-                        preset,
-                        from: filter.from,
-                        to: filter.to,
-                    }"
-                    :actual-span-ms="actualSpanMs"
+                    :bucket="trend.bucket"
+                    :live-turns="liveTurns"
+                    :range="{ preset, ...loadedRange }"
+                    @track-tasks="trackTasks"
                 />
 
                 <div
@@ -295,7 +284,7 @@
                         />
                     </div>
 
-                    <UsageHeatmap :days="heatmap" :weeks="heatmapWeeks" />
+                    <UsageHeatmap :days="heatmap" :range="{ preset, ...loadedRange }" />
                 </template>
             </template>
         </div>

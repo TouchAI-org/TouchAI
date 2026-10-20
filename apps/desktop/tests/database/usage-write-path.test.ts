@@ -133,6 +133,80 @@ const WIDE_RANGE = { from: '1970-01-01 00:00:00', to: '9999-12-31 23:59:59' };
 
 afterEach(() => databases.splice(0).forEach((database) => database.close()));
 
+describe('usage summary activity against a real database', () => {
+    it('sums turn durations and counts distinct local active days within the filter', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        seed(database);
+        database.exec(`
+            UPDATE session_turns SET created_at = '2026-05-01 12:00:00', duration_ms = 1000,
+                input_tokens = 30, cache_read_tokens = 60, cache_write_tokens = 10
+            WHERE id = 1;
+            INSERT INTO session_turns (session_id, model_id, task_id, prompt_snapshot_json, status, duration_ms, created_at)
+            VALUES
+                (1, 1, 'task-2', '{}', 'completed', 2000, '2026-05-01 13:00:00'),
+                (1, 1, 'task-3', '{}', 'completed', NULL, '2026-05-03 12:00:00'),
+                (1, 1, 'task-outside', '{}', 'completed', 9000000, '2020-01-01 12:00:00');
+        `);
+
+        const summary = await getUsageSummary({
+            from: '2026-05-01 00:00:00',
+            to: '2026-05-04 00:00:00',
+        });
+
+        expect(summary.totalDurationMs).toBe(3000);
+        expect(summary.activeDayCount).toBe(2);
+        expect(summary.cacheReadTokens).toBe(60);
+        expect(summary.cacheHitRate).toBe(0.6);
+
+        const completed = await getUsageSummary({
+            from: '2026-05-01 00:00:00',
+            to: '2026-05-04 00:00:00',
+            statuses: ['completed'],
+        });
+        expect(completed.totalDurationMs).toBe(2000);
+        expect(completed.activeDayCount).toBe(2);
+
+        const otherModel = await getUsageSummary({ ...WIDE_RANGE, modelIds: [999] });
+        expect(otherModel.totalDurationMs).toBe(0);
+        expect(otherModel.activeDayCount).toBe(0);
+    });
+
+    it('counts UTC timestamps on either side of local midnight as separate days', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        seed(database);
+        const localMidnight = new Date(2026, 4, 2).getTime();
+        const before = new Date(localMidnight - 1000).toISOString().slice(0, 19).replace('T', ' ');
+        const after = new Date(localMidnight + 1000).toISOString().slice(0, 19).replace('T', ' ');
+        database.prepare('UPDATE session_turns SET created_at = ? WHERE id = 1').run(before);
+        database
+            .prepare(
+                `INSERT INTO session_turns (session_id, model_id, task_id, prompt_snapshot_json, status, created_at)
+                 VALUES (1, 1, 'after-midnight', '{}', 'completed', ?)`
+            )
+            .run(after);
+
+        expect((await getUsageSummary(WIDE_RANGE)).activeDayCount).toBe(2);
+    });
+
+    it('returns explicit zero activity for an empty range', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        seed(database);
+
+        const summary = await getUsageSummary({
+            from: '2020-01-01 00:00:00',
+            to: '2020-01-02 00:00:00',
+        });
+
+        expect(summary.totalDurationMs).toBe(0);
+        expect(summary.activeDayCount).toBe(0);
+        expect(summary.cacheReadTokens).toBe(0);
+        expect(summary.cacheHitRate).toBe(0);
+    });
+});
+
 describe('usage write path against a real database', () => {
     it('appends llm_call parts after the existing text parts without a sort_order clash', async () => {
         const database = openDatabase();

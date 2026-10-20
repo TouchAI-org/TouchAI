@@ -152,6 +152,15 @@ describe('LiveUsageTracker', () => {
         expect(lastPayload().tokensPerSecond).toBeGreaterThan(0);
     });
 
+    it('measures a steady stream from token counter deltas in the last five seconds', () => {
+        const instance = tracker();
+        feed(instance, 'a'.repeat(100), 400);
+        for (let index = 0; index < 20; index += 1) feed(instance, 'a'.repeat(100), 400);
+
+        // 每 400ms 增加 25 token，即 62.5 tok/s；更早的样本不应摊入窗口。
+        expect(lastPayload().tokensPerSecond).toBeCloseTo(62.5, 1);
+    });
+
     it('reports no speed until the first measurable window', () => {
         const instance = tracker();
 
