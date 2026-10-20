@@ -229,13 +229,14 @@
     });
 
     /**
-     * 把本消息里所有 WebSearch 来源汇总成一张查找表。
+     * 把本消息里所有 WebSearch 来源按 URL 汇总成一张查找表。
      *
-     * 一条 assistant 消息可能包含多轮搜索，按 URL 去重后统一编序号，
-     * 这样行内引用 `[n]` 与来源卡片的序号能对齐。
+     * 一条 assistant 消息可能包含多轮搜索，按 URL 去重后供行内引用反查。
+     * 这里不分配序号：chip 本身不显示数字（来源卡片的序号是单次搜索内的），
+     * 两套序号容易对不上。
      */
     const citationIndex = computed(() => {
-        const byUrl = new Map<string, { source: WebSearchSource; index: number }>();
+        const byUrl = new Map<string, WebSearchSource>();
 
         for (const part of props.message.parts) {
             if (part.type !== 'tool_call') continue;
@@ -245,7 +246,7 @@
             for (const source of payload.sources) {
                 const key = normalizeCitationUrl(source.url);
                 if (!key || byUrl.has(key)) continue;
-                byUrl.set(key, { source, index: byUrl.size + 1 });
+                byUrl.set(key, source);
             }
         }
 
@@ -255,8 +256,7 @@
     // provide 要在 setup 期间调用，但查找必须实时读 computed，
     // 否则流式新增的搜索结果会被锁死在初始快照里。
     provide<WebSearchCitationRegistry>(WEB_SEARCH_CITATIONS_KEY, {
-        findByUrl: (url) => citationIndex.value.get(normalizeCitationUrl(url))?.source,
-        indexOf: (source) => citationIndex.value.get(normalizeCitationUrl(source.url))?.index,
+        findByUrl: (url) => citationIndex.value.get(normalizeCitationUrl(url)),
     });
 
     /**

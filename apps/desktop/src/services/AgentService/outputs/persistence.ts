@@ -29,6 +29,8 @@ import {
     type AttachmentIndex,
     createEmptyAttachmentDeliveryManifest,
     ensurePersistedAttachmentIndex,
+    persistPreparedAttachment,
+    prepareAttachmentForPersistence,
     serializeAttachmentDeliveryManifest,
     upsertAttachmentDeliveryManifestRequest,
 } from '@/services/AgentService/infrastructure/attachments';
@@ -156,6 +158,13 @@ export class PersistenceProjector {
      * 记录轮次开始阶段：先记录用户消息，再创建流式处理中状态的轮次与首次尝试记录。
      */
     async recordTurnStart(initialCheckpoint: AttemptCheckpoint): Promise<void> {
+        // 同 persistToolResult：附件 hash 与落盘必须在写事务外完成。
+        if (!this.userMessageId && this.attachments.length > 0) {
+            await Promise.all(
+                this.attachments.map((attachment) => prepareAttachmentForPersistence(attachment))
+            );
+        }
+
         const result = await db.transaction(async (tx) => {
             await this.syncSessionIdentity(tx);
 
@@ -164,7 +173,7 @@ export class PersistenceProjector {
                     ? []
                     : await Promise.all(
                           this.attachments.map((attachment) =>
-                              ensurePersistedAttachmentIndex(attachment, tx)
+                              persistPreparedAttachment(attachment, tx)
                           )
                       );
 
@@ -456,6 +465,12 @@ export class PersistenceProjector {
             return;
         }
 
+        // 附件 hash 与落盘是纯文件 I/O，必须先于写事务完成：
+        // 放进事务会把持写锁时长抬到秒级，并发写库时直接撞满 busy_timeout。
+        await Promise.all(
+            attachments.map((attachment) => prepareAttachmentForPersistence(attachment))
+        );
+
         await db.transaction(async (tx) => {
             const part = await mergeMessagePartData(partId, { output: result }, tx);
             if (!part) {
@@ -464,7 +479,7 @@ export class PersistenceProjector {
 
             if (attachments.length > 0) {
                 const persisted = await Promise.all(
-                    attachments.map((attachment) => ensurePersistedAttachmentIndex(attachment, tx))
+                    attachments.map((attachment) => persistPreparedAttachment(attachment, tx))
                 );
                 for (const [index, entity] of persisted.entries()) {
                     const source = attachments[index]!;

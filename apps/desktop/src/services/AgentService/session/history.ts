@@ -110,6 +110,12 @@ function parseBuiltInConversationSemantic(
     }
 }
 
+/**
+ * 解析并校验持久化的结构化载荷。
+ *
+ * 历史导入 / 外部备份里的 `data` 可能是脏数据，`source.url` 非字符串会让下游
+ * `new URL()` 走异常分支，所以逐条校验并过滤。
+ */
 function parseStructuredPayload(raw: string | null): ToolEventStructuredPayload | undefined {
     if (!raw) {
         return undefined;
@@ -117,9 +123,20 @@ function parseStructuredPayload(raw: string | null): ToolEventStructuredPayload 
 
     try {
         const parsed = JSON.parse(raw) as ToolEventStructuredPayload;
-        return parsed && parsed.kind === 'web_search_sources' && Array.isArray(parsed.sources)
-            ? parsed
-            : undefined;
+        if (!parsed || parsed.kind !== 'web_search_sources' || !Array.isArray(parsed.sources)) {
+            return undefined;
+        }
+
+        const sources = parsed.sources.filter(
+            (source: (typeof parsed.sources)[number]) =>
+                Boolean(source) &&
+                typeof source.id === 'string' &&
+                typeof source.title === 'string' &&
+                typeof source.url === 'string' &&
+                /^https?:\/\//i.test(source.url)
+        );
+
+        return sources.length > 0 ? { ...parsed, sources } : undefined;
     } catch {
         return undefined;
     }
@@ -332,12 +349,13 @@ function appendAssistantOutput(message: SessionMessage, parts: MessagePartEntity
  * 按位置把 `tool_call` 行的片段分成「正文」与「工具结果」。
  *
  * 同一行里 text 片段有两种来源：
- * - 排在工具调用**之前**的，是模型调用工具前输出的正文；
- * - 排在工具调用**之后**的，是工具结果的回退存储
- *   （`persistToolResult` 找不到 tool_call 片段时会追加一条 text）。
+ * - 模型正文（工具调用前后的正文都算）；
+ * - 工具结果的回退存储（`persistToolResult` 找不到 tool_call 片段时追加的 text）。
  *
- * 后者已经由工具卡片自己展示，当成正文渲染会在对话里留下大段原始输出。
- * 模型侧的行为是「先输出文本、再发起工具调用」，因此按位置切分是可靠的。
+ * 回退结果的特征是「紧跟在工具调用之后的一串 text」。
+ * 所以只把**尾部连续的 text** 当回退结果，其余全部保留为正文 ——
+ * 不能简单取「第一个 tool_call 之前的片段」，否则工具调用后的 reasoning
+ * （交错推理的合法形态）会被静默丢弃。
  */
 function splitToolCallRowParts(parts: MessagePartEntity[]): {
     prose: MessagePartEntity[];
@@ -347,14 +365,21 @@ function splitToolCallRowParts(parts: MessagePartEntity[]): {
     const ordered = [...parts].sort(
         (left, right) => left.sort_order - right.sort_order || left.id - right.id
     );
-    const firstToolIndex = ordered.findIndex((part) => part.type === 'tool_call');
-    if (firstToolIndex === -1) {
+
+    // 从末尾往回扫，收集连续的 text 片段
+    let trailingStart = ordered.length;
+    while (trailingStart > 0 && ordered[trailingStart - 1]!.type === 'text') {
+        trailingStart -= 1;
+    }
+
+    // 整行都是 text（没有任何 tool_call）：都是正文，没有回退结果。
+    if (trailingStart === 0) {
         return { prose: ordered, trailingResults: [] };
     }
 
     return {
-        prose: ordered.slice(0, firstToolIndex),
-        trailingResults: ordered.slice(firstToolIndex),
+        prose: ordered.slice(0, trailingStart),
+        trailingResults: ordered.slice(trailingStart),
     };
 }
 function appendReasoningPart(message: SessionMessage, segment: MessagePartEntity): void {

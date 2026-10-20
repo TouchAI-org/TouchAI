@@ -27,9 +27,23 @@ export function rememberFavicon(host: string, resolvedUrl: string): void {
 }
 
 /**
+ * 第三方 favicon 服务的总开关。
+ *
+ * 默认关闭：启用后会把用户搜到的域名（以及访问时刻）发给 Google / DuckDuckGo，
+ * 属于可观察的元数据泄露。需要更好的图标覆盖率时在设置里手动开启。
+ * 未来若接入设置项，把这里换成读配置即可。
+ */
+let remoteFaviconServicesEnabled = false;
+
+/** 仅供设置层 / 测试切换第三方图标服务。 */
+export function setRemoteFaviconServicesEnabled(enabled: boolean): void {
+    remoteFaviconServicesEnabled = enabled;
+}
+
+/**
  * 组装图标候选列表。
  *
- * 站点自带图标排在第三方服务前面，避免把用户访问的站点泄露给图标 CDN。
+ * 顺序：provider 给的图标 → 站点自带 /favicon.ico →（可选）第三方服务。
  * 失败结果不缓存：瞬时网络问题不该让该站点本次会话永久没有图标。
  */
 export function buildFaviconCandidates(source: { url: string; favicon?: string }): string[] {
@@ -46,10 +60,13 @@ export function buildFaviconCandidates(source: { url: string; favicon?: string }
     }
 
     if (host) {
-        // 根路径常返回 SPA 的 HTML，`<img>` 解码失败会自动降级到下一候选。
+        // 根路径常返回 SPA 的 HTML，`<img>` 解码失败会自动降级。
         candidates.push(`https://${host}/favicon.ico`);
-        candidates.push(`https://www.google.com/s2/favicons?domain=${host}&sz=64`);
-        candidates.push(`https://icons.duckduckgo.com/ip3/${host}.ico`);
+
+        if (remoteFaviconServicesEnabled) {
+            candidates.push(`https://www.google.com/s2/favicons?domain=${host}&sz=64`);
+            candidates.push(`https://icons.duckduckgo.com/ip3/${host}.ico`);
+        }
     }
 
     return [...new Set(candidates)];

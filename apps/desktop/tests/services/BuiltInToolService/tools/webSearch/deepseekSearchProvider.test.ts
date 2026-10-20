@@ -179,29 +179,41 @@ describe('DeepSeek result ranking', () => {
             { ...high, title: 'e', url: 'https://e.example' },
         ];
 
-        expect(rankDeepSeekResults([...authoritative, weak], true)).toEqual(authoritative);
+        // 「优先官方来源」是排序语义：高权威在前，低权威保留，
+        // 而不是把低权威结果整个丢掉（中文长尾站点 authority 普遍 < 3）。
+        const ranked = rankDeepSeekResults([weak, ...authoritative], true);
+        expect(ranked).toHaveLength(4);
+        expect(ranked[ranked.length - 1]?.title).toBe('c');
+
+        // 高权威结果不够时保持原顺序
         expect(rankDeepSeekResults([high, weak], true)).toEqual([high, weak]);
-        expect(rankDeepSeekResults([...authoritative, weak], false)).toEqual([
-            ...authoritative,
+        // 关闭时不重排
+        expect(rankDeepSeekResults([weak, ...authoritative], false)).toEqual([
             weak,
+            ...authoritative,
         ]);
+
+        // 全部低于挡位时回退到未过滤集合，避免静默「0 条结果」
+        const lowScores = [
+            { ...high, title: 'l1', score: 0.4 },
+            { ...high, title: 'l2', score: 0.2 },
+        ];
+        expect(rankDeepSeekResults(lowScores, false)).toHaveLength(2);
     });
 });
 
 describe('DeepSeek endpoint normalization', () => {
     it('accepts both documented endpoint forms', () => {
         // 官方同时接受 `/` 与 `/v1` 结尾，两者都不能拼成 `/v1/v1/...`。
-        expect(buildDeepSeekToolsUrl('https://api.deepseek.com/v1', 'search')).toBe(
+        expect(buildDeepSeekToolsUrl('https://api.deepseek.com/v1')).toBe(
             'https://api.deepseek.com/v1/tools/search'
         );
-        expect(buildDeepSeekToolsUrl('https://api.deepseek.com/', 'search')).toBe(
+        expect(buildDeepSeekToolsUrl('https://api.deepseek.com/')).toBe(
             'https://api.deepseek.com/v1/tools/search'
         );
-        expect(buildDeepSeekToolsUrl('', 'search')).toBe(
-            'https://api.deepseek.com/v1/tools/search'
-        );
-        expect(buildDeepSeekToolsUrl('https://relay.example.com/v1', 'fetch')).toBe(
-            'https://relay.example.com/v1/tools/fetch'
+        expect(buildDeepSeekToolsUrl('')).toBe('https://api.deepseek.com/v1/tools/search');
+        expect(buildDeepSeekToolsUrl('https://relay.example.com/v1')).toBe(
+            'https://relay.example.com/v1/tools/search'
         );
     });
 });

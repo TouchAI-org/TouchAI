@@ -34,6 +34,8 @@ export {
     createPersistedAttachmentFromData,
     ensurePersistedAttachmentIndex,
     hydratePersistedAttachments,
+    persistPreparedAttachment,
+    prepareAttachmentForPersistence,
 } from './storage';
 export {
     type AttachmentCapabilities,

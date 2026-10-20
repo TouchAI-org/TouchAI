@@ -29,31 +29,6 @@ export interface WebSearchSourcesPayload {
     sources: WebSearchSource[];
 }
 
-export const WEB_SEARCH_SOURCES_ATTACHMENT_PREFIX = 'web-search-sources:';
-
-export function serializeWebSearchSources(payload: WebSearchSourcesPayload): string {
-    return `${WEB_SEARCH_SOURCES_ATTACHMENT_PREFIX}${JSON.stringify(payload)}`;
-}
-
-/** 解析失败返回 `null`：来源卡片是增强展示，不该让整条消息渲染失败。 */
-export function parseWebSearchSources(identifier: string): WebSearchSourcesPayload | null {
-    if (!identifier.startsWith(WEB_SEARCH_SOURCES_ATTACHMENT_PREFIX)) {
-        return null;
-    }
-
-    try {
-        const parsed = JSON.parse(
-            identifier.slice(WEB_SEARCH_SOURCES_ATTACHMENT_PREFIX.length)
-        ) as WebSearchSourcesPayload;
-        if (!parsed || !Array.isArray(parsed.sources)) {
-            return null;
-        }
-        return parsed;
-    } catch {
-        return null;
-    }
-}
-
 /** 去掉 `www.`，其余保持原样。 */
 export function webSearchHostname(url: string): string {
     try {

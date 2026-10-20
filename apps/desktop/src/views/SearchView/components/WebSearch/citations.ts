@@ -13,7 +13,6 @@ import type { WebSearchSource } from '@/services/BuiltInToolService/tools/webSea
 
 export interface WebSearchCitationRegistry {
     findByUrl(url: string): WebSearchSource | undefined;
-    indexOf(source: WebSearchSource): number | undefined;
 }
 
 export const WEB_SEARCH_CITATIONS_KEY: InjectionKey<WebSearchCitationRegistry> =

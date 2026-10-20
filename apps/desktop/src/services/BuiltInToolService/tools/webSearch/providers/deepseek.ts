@@ -8,13 +8,11 @@ import { WebSearchHttpError } from './types';
 /** 官方同时接受 `/` 与 `/v1` 结尾，先剥版本段再统一拼接，避免 `/v1/v1/...`。 */
 const DEEPSEEK_API_ROOT = 'https://api.deepseek.com';
 
-export function buildDeepSeekToolsUrl(
-    endpoint: string | null | undefined,
-    tool: 'search' | 'fetch'
-): string {
+/** 拼接 DeepSeek 搜索接口地址。Fetch 尚未接入，等接入时再扩展。 */
+export function buildDeepSeekToolsUrl(endpoint: string | null | undefined): string {
     const trimmed = (endpoint ?? '').trim().replace(/\/+$/, '');
     const root = trimmed ? trimmed.replace(/\/v1$/i, '') : DEEPSEEK_API_ROOT;
-    return `${root}/v1/tools/${tool}`;
+    return `${root}/v1/tools/search`;
 }
 /**
  * Search / Fetch 是账号级限流，各自 5 QPS。按 4 QPS 排队，
@@ -179,7 +177,12 @@ export function buildDeepSeekQuery(request: WebSearchRequest): string {
     return appended.length > 0 ? `${query} ${appended.join(' ')}` : query;
 }
 
-/** `summary`（600–800 字）是给模型读的，`snippet`（100–200 字）才适合 UI。 */
+/**
+ * 把单条 DeepSeek 结果映射为统一结构。
+ *
+ * 官方定位：`summary`（600-800 字）给模型读，`snippet`（100-200 字）给 UI 展示，
+ * 所以这里优先取 `summary` 作为模型可见的摘要。
+ */
 export function toDeepSeekResult(item: unknown): WebSearchResult | null {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
         return null;
@@ -219,6 +222,16 @@ function safeHostname(url: string): string {
     }
 }
 
+/**
+ * 应用 DeepSeek 自带的质量信号。
+ *
+ * 「优先官方来源」是**排序**语义，不是过滤：直接丢掉低权威结果会静默冲掉
+ * 大量有效的中文长尾站点（它们的 authority 普遍 < 3），也与其他 provider 不一致。
+ * 这里只把高权威结果稳定地排到前面。
+ *
+ * 相关性过滤保留兜底：若过滤后为空（如上游改成 0-1 归一化分数），
+ * 退回未过滤集合 —— 宁可多给几条，也不静默地变成「0 条结果」。
+ */
 export function rankDeepSeekResults(
     results: WebSearchResult[],
     preferOfficialSources: boolean
@@ -226,15 +239,25 @@ export function rankDeepSeekResults(
     const relevant = results.filter(
         (result) => result.score === undefined || result.score >= DEEPSEEK_MIN_RESULT_SCORE
     );
+    const ranked = relevant.length > 0 ? relevant : results;
 
     if (!preferOfficialSources) {
-        return relevant;
+        return ranked;
     }
 
-    const authoritative = relevant.filter(
+    const authoritativeCount = ranked.filter(
         (result) => (result.authority ?? 0) >= DEEPSEEK_AUTHORITY_THRESHOLD
+    ).length;
+    if (authoritativeCount < DEEPSEEK_MIN_AUTHORITATIVE_RESULTS) {
+        return ranked;
+    }
+
+    // 稳定排序：高权威在前，其余保持原有相对顺序。
+    const isAuthoritative = (result: WebSearchResult) =>
+        (result.authority ?? 0) >= DEEPSEEK_AUTHORITY_THRESHOLD;
+    return [...ranked].sort(
+        (left, right) => Number(isAuthoritative(right)) - Number(isAuthoritative(left))
     );
-    return authoritative.length >= DEEPSEEK_MIN_AUTHORITATIVE_RESULTS ? authoritative : relevant;
 }
 
 function readDeepSeekResultItems(payload: unknown): unknown[] {
@@ -276,7 +299,7 @@ export const deepSeekSearchAdapter = createSearchProviderAdapter({
             throw new Error('DeepSeek search needs an API key. Enter one in Search settings.');
         }
 
-        const url = new URL(buildDeepSeekToolsUrl(config.endpoint, 'search'));
+        const url = new URL(buildDeepSeekToolsUrl(config.endpoint));
         const body = JSON.stringify({
             query: buildDeepSeekQuery(request),
             count: resultLimit(request),

@@ -1,6 +1,6 @@
 <!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
 <template>
-    <WebSearchCitation v-if="matchedSource" :source="matchedSource" :index="matchedIndex" />
+    <WebSearchCitation v-if="matchedSource" :source="matchedSource" />
     <!--
         未命中的链接交回 markstream 的 LinkNode 渲染：
         它会保留 `node.children` 里的行内格式（粗体、代码等），
@@ -34,8 +34,4 @@
         }
         return registry.findByUrl(props.node.href);
     });
-
-    const matchedIndex = computed(() =>
-        matchedSource.value ? registry?.indexOf(matchedSource.value) : undefined
-    );
 </script>

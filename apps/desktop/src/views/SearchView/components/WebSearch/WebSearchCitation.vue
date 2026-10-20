@@ -80,7 +80,6 @@
 
     interface Props {
         source: WebSearchSource;
-        index?: number;
     }
 
     const props = defineProps<Props>();
@@ -95,8 +94,6 @@
     const previewTop = ref(0);
     const previewMaxWidth = ref<number | null>(null);
     const previewMaxHeight = ref<number | null>(null);
-    /** 水平偏移：未夹取时对齐 chip 左边缘，否则向左推。 */
-    const previewShift = ref(0);
     /**
      * 预览的实测自然尺寸。
      *
@@ -212,7 +209,6 @@
         const left = Math.min(Math.max(chipRect.left, limitLeft), maxLeft);
 
         previewLeft.value = left;
-        previewShift.value = left - chipRect.left;
         previewMaxWidth.value = width;
     }
 
@@ -239,7 +235,6 @@
     }
 
     function releasePreview(): void {
-        previewShift.value = 0;
         previewMaxWidth.value = null;
         previewMaxHeight.value = null;
         previewAbove.value = false;

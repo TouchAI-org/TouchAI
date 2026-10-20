@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
     buildFaviconCandidates,
     faviconHost,
     rememberFavicon,
+    setRemoteFaviconServicesEnabled,
 } from '@/views/SearchView/components/WebSearch/favicon';
 
 describe('favicon candidates', () => {
@@ -13,6 +14,12 @@ describe('favicon candidates', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        // 默认关闭：第三方服务会把用户搜到的域名泄露给 CDN。
+        setRemoteFaviconServicesEnabled(false);
+    });
+
+    afterEach(() => {
+        setRemoteFaviconServicesEnabled(false);
     });
 
     it('extracts the host, keeping www', () => {
@@ -20,7 +27,7 @@ describe('favicon candidates', () => {
         expect(faviconHost('not a url')).toBe('');
     });
 
-    it('prefers the provider-supplied icon before any third party service', () => {
+    it('prefers the provider-supplied icon, then the site favicon', () => {
         const host = uniqueHost();
         const candidates = buildFaviconCandidates({
             url: `https://${host}/post`,
@@ -29,21 +36,28 @@ describe('favicon candidates', () => {
 
         expect(candidates[0]).toBe('https://cdn.example.com/icon.png');
         expect(candidates).toContain(`https://${host}/favicon.ico`);
-        expect(candidates).toContain(`https://www.google.com/s2/favicons?domain=${host}&sz=64`);
-        expect(candidates).toContain(`https://icons.duckduckgo.com/ip3/${host}.ico`);
     });
 
-    it('tries the site favicon before falling back to icon services', () => {
+    it('does not contact third-party icon services by default', () => {
         const host = uniqueHost();
         const candidates = buildFaviconCandidates({ url: `https://${host}/post` });
 
-        expect(candidates.indexOf(`https://${host}/favicon.ico`)).toBeGreaterThanOrEqual(0);
+        expect(candidates).toEqual([`https://${host}/favicon.ico`]);
+        expect(candidates.some((url) => url.includes('google.com'))).toBe(false);
+        expect(candidates.some((url) => url.includes('duckduckgo.com'))).toBe(false);
+    });
+
+    it('uses third-party services only when explicitly enabled', () => {
+        setRemoteFaviconServicesEnabled(true);
+        const host = uniqueHost();
+        const candidates = buildFaviconCandidates({ url: `https://${host}/post` });
+
+        expect(candidates).toContain(`https://www.google.com/s2/favicons?domain=${host}&sz=64`);
+        expect(candidates).toContain(`https://icons.duckduckgo.com/ip3/${host}.ico`);
+        // 站点自身仍排在第三方前面
         expect(candidates.indexOf(`https://${host}/favicon.ico`)).toBeLessThan(
             candidates.indexOf(`https://www.google.com/s2/favicons?domain=${host}&sz=64`)
         );
-        expect(
-            candidates.indexOf(`https://www.google.com/s2/favicons?domain=${host}&sz=64`)
-        ).toBeLessThan(candidates.indexOf(`https://icons.duckduckgo.com/ip3/${host}.ico`));
     });
 
     it('returns only the resolved icon once a host succeeded', () => {
