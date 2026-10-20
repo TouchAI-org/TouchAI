@@ -356,28 +356,7 @@ export async function ensurePersistedAttachmentIndex(
     attachment: AttachmentIndex,
     database: DatabaseExecutor = db
 ): Promise<AttachmentEntity> {
-    if (attachment.attachmentId && attachment.hash) {
-        return {
-            id: attachment.attachmentId,
-            hash: attachment.hash,
-            type: attachment.type,
-            original_name: attachment.name,
-            origin_path: attachment.originPath,
-            mime_type: attachment.mimeType ?? null,
-            size: attachment.size ?? null,
-            created_at: new Date().toISOString(),
-        };
-    }
-
-    const persisted = await ensureAttachmentRecord(
-        attachment.type,
-        attachment.path,
-        attachment.originPath,
-        database
-    );
-    await syncAttachmentIndexFromRecord(attachment, persisted);
-
-    return persisted;
+    return persistPreparedAttachment(attachment, database);
 }
 
 /**
@@ -396,7 +375,7 @@ export async function prepareAttachmentForPersistence(attachment: AttachmentInde
 /** 事务外预计算结果，按附件实例缓存。 */
 const preparedAttachments = new WeakMap<AttachmentIndex, PreparedAttachment>();
 
-/** 在事务内写入记录；若未预计算则退化为就地计算。 */
+/** 写入附件记录；若未预计算则退化为就地计算。 */
 export async function persistPreparedAttachment(
     attachment: AttachmentIndex,
     database: DatabaseExecutor = db
