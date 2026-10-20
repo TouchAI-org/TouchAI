@@ -1,0 +1,27 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ui/Input > class 稳定性 > 无 props 时的 class 稳定 1`] = `
+[
+  "[box-shadow:none]",
+  "bg-white",
+  "border",
+  "border-gray-200",
+  "disabled:bg-gray-50",
+  "disabled:cursor-not-allowed",
+  "disabled:text-gray-400",
+  "flex",
+  "focus:[box-shadow:none]",
+  "focus:border-primary-400",
+  "focus:outline-none",
+  "focus:shadow-none",
+  "h-9",
+  "px-3",
+  "py-2",
+  "rounded-lg",
+  "shadow-none",
+  "t-control",
+  "text-gray-900",
+  "text-sm",
+  "w-full",
+]
+`;

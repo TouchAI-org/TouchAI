@@ -3,10 +3,14 @@
 <script setup lang="ts">
     defineOptions({
         name: 'UiInput',
+        // 不把 $attrs 自动继承到根节点，而是显式转发到原生 <input>。
+        // 否则 maxlength / aria-* / data-* / spellcheck 等属性会被丢在组件外层，
+        // 无法到达真正接收用户输入的元素。
+        inheritAttrs: false,
     });
 
     import type { HTMLAttributes, InputHTMLAttributes } from 'vue';
-    import { computed } from 'vue';
+    import { computed, useAttrs } from 'vue';
 
     import { cn } from '@/lib/utils';
 
@@ -40,6 +44,8 @@
 
     const emit = defineEmits<Emits>();
 
+    const attrs = useAttrs();
+
     const value = computed(() => (props.modelValue == null ? '' : String(props.modelValue)));
 
     const handleInput = (event: Event) => {
@@ -51,6 +57,7 @@
 
 <template>
     <input
+        v-bind="attrs"
         :id="id"
         :value="value"
         :type="type"

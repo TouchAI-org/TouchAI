@@ -1,0 +1,285 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ui/Button > 全部 variant 组合的 class 快照 > size=default 1`] = `
+[
+  "bg-primary-500",
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "font-medium",
+  "gap-2",
+  "h-9",
+  "hover:bg-primary-600",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "px-4",
+  "py-2",
+  "rounded-md",
+  "t-press",
+  "text-sm",
+  "text-white",
+  "whitespace-nowrap",
+]
+`;
+
+exports[`ui/Button > 全部 variant 组合的 class 快照 > size=icon 1`] = `
+[
+  "bg-primary-500",
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "font-medium",
+  "gap-2",
+  "h-9",
+  "hover:bg-primary-600",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "rounded-md",
+  "t-press",
+  "text-sm",
+  "text-white",
+  "w-9",
+  "whitespace-nowrap",
+]
+`;
+
+exports[`ui/Button > 全部 variant 组合的 class 快照 > size=lg 1`] = `
+[
+  "bg-primary-500",
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "font-medium",
+  "gap-2",
+  "h-10",
+  "hover:bg-primary-600",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "px-8",
+  "rounded-md",
+  "t-press",
+  "text-sm",
+  "text-white",
+  "whitespace-nowrap",
+]
+`;
+
+exports[`ui/Button > 全部 variant 组合的 class 快照 > size=sm 1`] = `
+[
+  "bg-primary-500",
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "font-medium",
+  "gap-2",
+  "h-8",
+  "hover:bg-primary-600",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "px-3",
+  "rounded-md",
+  "t-press",
+  "text-white",
+  "text-xs",
+  "whitespace-nowrap",
+]
+`;
+
+exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=default 1`] = `
+[
+  "bg-primary-500",
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "font-medium",
+  "gap-2",
+  "h-9",
+  "hover:bg-primary-600",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "px-4",
+  "py-2",
+  "rounded-md",
+  "t-press",
+  "text-sm",
+  "text-white",
+  "whitespace-nowrap",
+]
+`;
+
+exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=destructive 1`] = `
+[
+  "bg-red-500",
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "font-medium",
+  "gap-2",
+  "h-9",
+  "hover:bg-red-600",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "px-4",
+  "py-2",
+  "rounded-md",
+  "t-press",
+  "text-sm",
+  "text-white",
+  "whitespace-nowrap",
+]
+`;
+
+exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=ghost 1`] = `
+[
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "font-medium",
+  "gap-2",
+  "h-9",
+  "hover:bg-gray-100",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "px-4",
+  "py-2",
+  "rounded-md",
+  "t-press",
+  "text-gray-600",
+  "text-sm",
+  "whitespace-nowrap",
+]
+`;
+
+exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=link 1`] = `
+[
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "font-medium",
+  "gap-2",
+  "h-9",
+  "hover:underline",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "px-4",
+  "py-2",
+  "rounded-md",
+  "t-press",
+  "text-primary-600",
+  "text-sm",
+  "underline-offset-4",
+  "whitespace-nowrap",
+]
+`;
+
+exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=outline 1`] = `
+[
+  "bg-white",
+  "border",
+  "border-gray-200",
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "font-medium",
+  "gap-2",
+  "h-9",
+  "hover:border-gray-300",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "px-4",
+  "py-2",
+  "rounded-md",
+  "t-press",
+  "text-gray-600",
+  "text-sm",
+  "whitespace-nowrap",
+]
+`;
+
+exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=secondary 1`] = `
+[
+  "bg-gray-100",
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "font-medium",
+  "gap-2",
+  "h-9",
+  "hover:bg-gray-200",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "px-4",
+  "py-2",
+  "rounded-md",
+  "t-press",
+  "text-gray-900",
+  "text-sm",
+  "whitespace-nowrap",
+]
+`;
+
+exports[`ui/Button > 现有调用点的默认输出必须保持不变 > variant=ghost size=icon 的 class 稳定 1`] = `
+[
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "font-medium",
+  "gap-2",
+  "h-9",
+  "hover:bg-gray-100",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "rounded-md",
+  "t-press",
+  "text-gray-600",
+  "text-sm",
+  "w-9",
+  "whitespace-nowrap",
+]
+`;
+
+exports[`ui/Button > 现有调用点的默认输出必须保持不变 > variant=outline 的 class 稳定 1`] = `
+[
+  "bg-white",
+  "border",
+  "border-gray-200",
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "font-medium",
+  "gap-2",
+  "h-9",
+  "hover:border-gray-300",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "px-4",
+  "py-2",
+  "rounded-md",
+  "t-press",
+  "text-gray-600",
+  "text-sm",
+  "whitespace-nowrap",
+]
+`;
+
+exports[`ui/Button > 现有调用点的默认输出必须保持不变 > 无 props 时的 class 稳定 1`] = `
+[
+  "bg-primary-500",
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "font-medium",
+  "gap-2",
+  "h-9",
+  "hover:bg-primary-600",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "px-4",
+  "py-2",
+  "rounded-md",
+  "t-press",
+  "text-sm",
+  "text-white",
+  "whitespace-nowrap",
+]
+`;

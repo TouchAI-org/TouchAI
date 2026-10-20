@@ -102,6 +102,42 @@
 
     /* 遮罩渐变 */
     --color-overlay-fade: rgba(255, 255, 255, 0.95);
+
+    /*
+     * shadcn 语义 token
+     *
+     * 仅作为「别名层」存在，映射到上面已定义的 TouchAI 配色，不引入新颜色。
+     * 用途：未来通过 shadcn CLI 生成的组件、以及希望用语义化写法的新代码。
+     *
+     * 注意：已迁移到 components/ui 的现有组件仍使用原始类名（如 bg-primary-700），
+     * 不使用这些 token。这样调整 --color-primary 不会影响既有界面，
+     * 保证「视觉零变化」的验证边界清晰。
+     */
+    --color-background: #fbfbf6;
+    --color-foreground: #4a4039;
+
+    --color-primary: var(--color-primary-700);
+    --color-primary-foreground: #ffffff;
+
+    --color-secondary: var(--color-primary-100);
+    --color-secondary-foreground: var(--color-primary-700);
+
+    --color-muted: #f4f4f2;
+    --color-muted-foreground: #737373;
+
+    --color-accent: var(--color-primary-100);
+    --color-accent-foreground: var(--color-primary-700);
+
+    --color-destructive: #dc2626;
+    --color-destructive-foreground: #ffffff;
+
+    --color-border: #e5e5e5;
+    --color-input: #e5e5e5;
+    --color-ring: var(--color-primary-300);
+
+    --radius-sm: 0.5rem;
+    --radius-md: 0.625rem;
+    --radius-lg: 0.75rem;
 }
 
 /* 全局基础样式 */
