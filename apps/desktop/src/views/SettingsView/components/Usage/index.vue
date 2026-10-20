@@ -27,9 +27,8 @@
 
     import UsageChart from './components/UsageChart.vue';
     import UsageContext from './components/UsageContext.vue';
+    import UsageDashboard from './components/UsageDashboard.vue';
     import UsageHeatmap from './components/UsageHeatmap.vue';
-    import UsageLive from './components/UsageLive.vue';
-    import UsageOverview from './components/UsageOverview.vue';
     import UsageToolbar from './components/UsageToolbar.vue';
     import UsageToolStats from './components/UsageToolStats.vue';
     import { resolveUsageRange } from './utils/usageRange';
@@ -199,7 +198,8 @@
 
             <template v-else-if="summary">
                 <!-- 实时面板放在“有无历史数据”之外：首轮对话进行中就该看得到 -->
-                <UsageLive />
+                <!-- 概览与实时合并为一块：有流时显示这一轮，否则显示区间汇总 -->
+                <UsageDashboard :summary="summary" />
 
                 <div
                     v-if="summary.requestCount === 0"
@@ -213,8 +213,6 @@
                 </div>
 
                 <template v-else>
-                    <UsageOverview :summary="summary" />
-
                     <UsageChart
                         :points="trend.points"
                         :bucket="trend.bucket"

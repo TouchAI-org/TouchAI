@@ -102,6 +102,13 @@ export const usageMessagesZhCN = {
     'settings.usage.live.stopped': '已结束',
     'settings.usage.live.estimateNote':
         '流式期间的 token 与成本按已流入字符估算；结束时 token 换成实测值。',
+    'settings.usage.live.estimateNoteShort': '估算值',
+    'settings.usage.live.estimatedTokens': '估算，含推理',
+    'settings.usage.live.streaming': '正在流式',
+
+    // 统一仪表盘
+    'settings.usage.dashboardHistoryTitle': '用量概览',
+    'settings.usage.dashboardHistoryNote': '汇总所选区间的已落库用量；对话进行中时切换为实时数字。',
 
     // 工具调用
     'settings.usage.tools.title': '工具调用',
@@ -298,6 +305,13 @@ export const usageMessagesEnUS = {
     'settings.usage.live.stopped': 'finished',
     'settings.usage.live.estimateNote':
         'Token and cost are estimated from streamed characters while streaming; tokens switch to the measured value at the end.',
+    'settings.usage.live.estimateNoteShort': 'estimated',
+    'settings.usage.live.estimatedTokens': 'estimated, incl. reasoning',
+    'settings.usage.live.streaming': 'streaming',
+
+    'settings.usage.dashboardHistoryTitle': 'Usage overview',
+    'settings.usage.dashboardHistoryNote':
+        'Aggregates stored usage for the selected range; switches to live numbers while a conversation is running.',
 
     'settings.usage.tools.title': 'Tool calls',
     'settings.usage.tools.description':

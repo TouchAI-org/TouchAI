@@ -201,7 +201,7 @@ describe('TouchAI usage observability', () => {
             { timeout: 60000, timeoutMsg: 'Usage page never rendered the chart' }
         );
 
-        const overview = await $("[data-testid='settings-usage-overview']");
+        const overview = await $("[data-testid='settings-usage-dashboard']");
         await overview.waitForDisplayed();
 
         // 必须显示真实数字，而不是空状态或全 0
@@ -223,8 +223,8 @@ describe('TouchAI usage observability', () => {
             throw new Error('Usage chart rendered no legend rows.');
         }
 
-        // 实时面板常驻（无任务时是等待态）
-        const live = await $("[data-testid='settings-usage-live']");
+        // 实时与概览已合并：单块面板，无流时是区间汇总
+        const live = await $("[data-testid='settings-usage-dashboard']");
         await live.waitForDisplayed();
 
         // 工具统计与热力图都在页面上
