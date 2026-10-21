@@ -387,6 +387,18 @@
         scrollbar-width: none;
     }
 
+    /* 隐藏滚动条但保留滚动能力：用于不需要看见轨道的内容区 */
+    .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+
+    .no-scrollbar::-webkit-scrollbar {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+    }
+
     .settings-scrollbar::-webkit-scrollbar {
         display: none !important;
         width: 0 !important;

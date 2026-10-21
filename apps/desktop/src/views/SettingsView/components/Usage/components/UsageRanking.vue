@@ -30,6 +30,10 @@
 
     defineOptions({ name: 'UsageRanking' });
 
+    /** 可见行数与单行高度：正好装下 4 行，不露半行 */
+    const VISIBLE_ROWS = 4;
+    const ROW_HEIGHT = 62;
+
     /** 排行条按「相对榜首」的比例，而不是占总量的比例：后者会让第 5 名几乎看不见 */
     const peak = computed(() => Math.max(1, ...props.items.map((item) => valueOf(item))));
 
@@ -117,15 +121,13 @@
             </div>
 
             <!--
-                两列等高：外层 grid 拉伸拉平卡片高度（items-stretch 默认），
-                内层再 max-h + 滚动，只有超出时才出现滚动条。
+                高度刚好装下 4 行（每行约 52px + 间距 10px）。
+                滚动条不可见但可滚动：`no-scrollbar` 只隐藏滚动条，不禁止滚动。
             -->
             <div
                 v-else
-                :class="[
-                    'custom-scrollbar max-h-[236px] space-y-2.5 overflow-y-auto pr-1',
-                    loading ? 'opacity-60' : '',
-                ]"
+                :class="['no-scrollbar space-y-2.5 overflow-y-auto', loading ? 'opacity-60' : '']"
+                :style="{ maxHeight: `${VISIBLE_ROWS * ROW_HEIGHT}px` }"
             >
                 <div
                     v-for="item in items"

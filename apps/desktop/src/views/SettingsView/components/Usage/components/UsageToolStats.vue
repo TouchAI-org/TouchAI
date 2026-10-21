@@ -39,10 +39,10 @@
         return name;
     }
 
-    /** 环形几何：与 Token/耗时构成保持一致 */
-    const RING = 128;
-    const R = 32;
-    const STROKE = 8;
+    /** 环形几何：与 Token/耗时构成完全一致（160px / R40 / 线宽 9） */
+    const RING = 160;
+    const R = 40;
+    const STROKE = 9;
     const CIRCUMFERENCE = 2 * Math.PI * R;
 
     /** 与趋势图、构成环共用同一套色板 */
@@ -193,72 +193,53 @@
                 </div>
             </div>
 
-            <!-- 环图 + 明细：与 Token/耗时构成同一套读法，明细用独立小块而不是分割线 -->
+            <!--
+                环图 + 明细。图例删掉：右侧明细已经有名称、次数和占比，
+                再列一遍只是重复。环图尺寸与上方 Token/耗时构成保持一致。
+            -->
             <div
-                class="flex flex-col gap-5 rounded-[11px] bg-neutral-50/80 p-4 lg:flex-row lg:items-center"
+                class="flex flex-col gap-6 rounded-[11px] bg-neutral-50/80 p-4 lg:flex-row lg:items-center"
             >
-                <div class="flex shrink-0 items-center gap-5">
-                    <div class="relative">
-                        <svg
-                            :viewBox="`0 0 ${RING} ${RING}`"
-                            class="h-28 w-28 -rotate-90"
-                            role="img"
-                            :aria-label="t('settings.usage.tools.title')"
-                        >
-                            <circle
-                                :cx="RING / 2"
-                                :cy="RING / 2"
-                                :r="R"
-                                fill="none"
-                                stroke="currentColor"
-                                class="text-neutral-200/70"
-                                :stroke-width="STROKE"
-                            />
-                            <circle
-                                v-for="slice in ringSlices"
-                                :key="slice.name"
-                                :cx="RING / 2"
-                                :cy="RING / 2"
-                                :r="R"
-                                fill="none"
-                                :stroke="slice.color"
-                                :stroke-width="STROKE"
-                                :stroke-dasharray="slice.dash"
-                                :stroke-dashoffset="slice.offset"
-                            />
-                        </svg>
-                        <div
-                            class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
-                        >
-                            <span
-                                class="max-w-[66px] truncate text-center font-serif text-[14px] leading-tight font-semibold text-neutral-950 tabular-nums"
-                            >
-                                {{ formatInt(stats.totalCount) }}
-                            </span>
-                            <span class="mt-1 text-[10px] text-neutral-400">
-                                {{ t('settings.usage.tools.total') }}
-                            </span>
-                        </div>
-                    </div>
-
-                    <div class="min-w-0 space-y-1.5">
-                        <div
+                <div class="relative shrink-0">
+                    <svg
+                        :viewBox="`0 0 ${RING} ${RING}`"
+                        class="h-40 w-40 -rotate-90"
+                        role="img"
+                        :aria-label="t('settings.usage.tools.title')"
+                    >
+                        <circle
+                            :cx="RING / 2"
+                            :cy="RING / 2"
+                            :r="R"
+                            fill="none"
+                            stroke="currentColor"
+                            class="text-neutral-200/70"
+                            :stroke-width="STROKE"
+                        />
+                        <circle
                             v-for="slice in ringSlices"
                             :key="slice.name"
-                            class="flex items-baseline gap-2 text-[12px]"
+                            :cx="RING / 2"
+                            :cy="RING / 2"
+                            :r="R"
+                            fill="none"
+                            :stroke="slice.color"
+                            :stroke-width="STROKE"
+                            :stroke-dasharray="slice.dash"
+                            :stroke-dashoffset="slice.offset"
+                        />
+                    </svg>
+                    <div
+                        class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
+                    >
+                        <span
+                            class="max-w-[86px] truncate text-center font-serif text-[15px] leading-tight font-semibold text-neutral-950 tabular-nums"
                         >
-                            <span
-                                class="h-1.5 w-1.5 shrink-0 rounded-full"
-                                :style="{ backgroundColor: slice.color }"
-                                aria-hidden="true"
-                            />
-                            <span class="min-w-0 flex-1 truncate text-neutral-700">
-                                {{ slice.name }}
-                            </span>
-                            <span class="shrink-0 font-medium text-neutral-900 tabular-nums">
-                                {{ formatPercent(slice.ratio) }}
-                            </span>
-                        </div>
+                            {{ formatInt(stats.totalCount) }}
+                        </span>
+                        <span class="mt-1 text-[10px] text-neutral-400">
+                            {{ t('settings.usage.tools.total') }}
+                        </span>
                     </div>
                 </div>
 

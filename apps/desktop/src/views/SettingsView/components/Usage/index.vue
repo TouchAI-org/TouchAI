@@ -101,6 +101,16 @@
         };
     });
 
+    /**
+     * 两个排行是否并排。
+     *
+     * 任一侧不足 4 项时不并排：一边只有一两行、另一边满四行，
+     * 视觉上会显得一块空、一块满。竖着放反而整齐。
+     */
+    const rankingsSideBySide = computed(
+        () => modelRanking.value.length >= 4 && sessionRanking.value.length >= 4
+    );
+
     async function load() {
         const version = ++loadVersion;
         loading.value = true;
@@ -292,8 +302,13 @@
 
                     <UsageToolStats :stats="toolStats" :loading="!toolsReady" />
 
-                    <!-- 两个排行并排一行；窄屏自动堆叠 -->
-                    <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    <!-- 两个排行并排一行；任一侧不足 4 项时改为竖排，避免一行短一行长 -->
+                    <div
+                        :class="[
+                            'grid grid-cols-1 gap-3',
+                            rankingsSideBySide ? 'lg:grid-cols-2' : '',
+                        ]"
+                    >
                         <UsageRanking
                             :title="t('settings.usage.ranking.modelTitle')"
                             :items="modelRanking"

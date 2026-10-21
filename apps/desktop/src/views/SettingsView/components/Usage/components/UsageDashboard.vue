@@ -545,7 +545,7 @@
             </div>
 
             <!-- 左下角：会话数（有流时是活跃路数，空闲时是区间会话数） -->
-            <div class="mt-1 flex items-center gap-1.5 text-[11px] text-neutral-500">
+            <div class="mt-3 flex items-center gap-1.5 text-[11px] text-neutral-500">
                 <span
                     class="h-1.5 w-1.5 rounded-full"
                     :class="anyStreaming ? 'animate-pulse bg-sky-500' : 'bg-neutral-300'"
