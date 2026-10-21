@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import DialogShell from '@components/DialogShell.vue';
+    import { Badge } from '@components/ui/badge';
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { useAlert } from '@composables/useAlert';
@@ -9,6 +10,8 @@
     import { ref, watch } from 'vue';
 
     import { t } from '@/i18n';
+
+    import { CAPABILITY_CHIPS } from './capabilityChips';
     interface Props {
         providerId: number;
         open?: boolean;
@@ -121,66 +124,17 @@
                     {{ t('settings.ai.modelCapabilities') }}
                 </label>
                 <div class="flex flex-wrap gap-2">
-                    <button
-                        type="button"
-                        :class="[
-                            'rounded px-1.5 py-0.5 text-xs font-medium transition-colors',
-                            form.reasoning
-                                ? 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-                                : 'bg-neutral-100 text-neutral-400 hover:bg-neutral-200',
-                        ]"
-                        @click="form.reasoning = !form.reasoning"
+                    <Badge
+                        v-for="cap in CAPABILITY_CHIPS"
+                        :key="cap.key"
+                        as="button"
+                        variant="toggle"
+                        :tone="cap.tone"
+                        :active="Boolean(form[cap.key])"
+                        @click="form[cap.key] = !form[cap.key]"
                     >
-                        {{ t('model.capability.reasoning') }}
-                    </button>
-                    <button
-                        type="button"
-                        :class="[
-                            'rounded px-1.5 py-0.5 text-xs font-medium transition-colors',
-                            form.tool_call
-                                ? 'bg-green-50 text-green-600 hover:bg-green-100'
-                                : 'bg-neutral-100 text-neutral-400 hover:bg-neutral-200',
-                        ]"
-                        @click="form.tool_call = !form.tool_call"
-                    >
-                        {{ t('settings.mcp.tabs.tools') }}
-                    </button>
-                    <button
-                        type="button"
-                        :class="[
-                            'rounded px-1.5 py-0.5 text-xs font-medium transition-colors',
-                            form.multimodal
-                                ? 'bg-purple-50 text-purple-600 hover:bg-purple-100'
-                                : 'bg-neutral-100 text-neutral-400 hover:bg-neutral-200',
-                        ]"
-                        @click="form.multimodal = !form.multimodal"
-                    >
-                        {{ t('model.capability.multimodal') }}
-                    </button>
-                    <button
-                        type="button"
-                        :class="[
-                            'rounded px-1.5 py-0.5 text-xs font-medium transition-colors',
-                            form.attachment
-                                ? 'bg-orange-50 text-orange-600 hover:bg-orange-100'
-                                : 'bg-neutral-100 text-neutral-400 hover:bg-neutral-200',
-                        ]"
-                        @click="form.attachment = !form.attachment"
-                    >
-                        {{ t('model.capability.files') }}
-                    </button>
-                    <button
-                        type="button"
-                        :class="[
-                            'rounded px-1.5 py-0.5 text-xs font-medium transition-colors',
-                            form.open_weights
-                                ? 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
-                                : 'bg-neutral-100 text-neutral-400 hover:bg-neutral-200',
-                        ]"
-                        @click="form.open_weights = !form.open_weights"
-                    >
-                        {{ t('model.capability.openWeights') }}
-                    </button>
+                        {{ t(cap.labelKey) }}
+                    </Badge>
                 </div>
             </div>
         </div>

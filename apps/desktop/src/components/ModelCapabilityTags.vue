@@ -1,6 +1,7 @@
-﻿<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import { Badge } from '@components/ui/badge';
     import { computed } from 'vue';
 
     import { type MessageKey, t } from '@/i18n';
@@ -24,62 +25,48 @@
     });
 
     type CapabilityLabelKey = Extract<MessageKey, `model.capability.${string}`>;
+    type BadgeTone = 'blue' | 'green' | 'purple' | 'orange' | 'indigo' | 'gray';
 
     const tags = computed(() => {
-        const result: Array<{ labelKey: CapabilityLabelKey; color: string }> = [];
+        const result: Array<{ labelKey: CapabilityLabelKey; tone: BadgeTone }> = [];
 
         if (props.model.reasoning === 1) {
-            result.push({ labelKey: 'model.capability.reasoning', color: 'blue' });
+            result.push({ labelKey: 'model.capability.reasoning', tone: 'blue' });
         }
         if (props.model.tool_call === 1) {
-            result.push({ labelKey: 'model.capability.tools', color: 'green' });
+            result.push({ labelKey: 'model.capability.tools', tone: 'green' });
         }
         if (props.model.modalities) {
             const modalities = parseModelModalities(props.model.modalities);
             if (supportsImageModality(modalities)) {
-                result.push({ labelKey: 'model.capability.multimodal', color: 'purple' });
+                result.push({ labelKey: 'model.capability.multimodal', tone: 'purple' });
             }
         }
         if (props.model.attachment === 1) {
-            result.push({ labelKey: 'model.capability.files', color: 'orange' });
+            result.push({ labelKey: 'model.capability.files', tone: 'orange' });
         }
         if (props.model.open_weights === 1) {
-            result.push({ labelKey: 'model.capability.openWeights', color: 'indigo' });
+            result.push({ labelKey: 'model.capability.openWeights', tone: 'indigo' });
         }
 
         if (result.length === 0) {
-            result.push({ labelKey: 'model.capability.text', color: 'gray' });
+            result.push({ labelKey: 'model.capability.text', tone: 'gray' });
         }
 
         return result;
-    });
-
-    const sizeClass = computed(() => {
-        return props.size === 'sm'
-            ? 'max-w-[5.75rem] px-1 py-0.5 text-[10px] leading-tight'
-            : 'max-w-[7.5rem] px-1.5 py-0.5 text-xs leading-tight';
     });
 </script>
 
 <template>
     <div class="flex min-w-0 flex-wrap items-center gap-1">
-        <span
+        <Badge
             v-for="tag in tags"
-            :key="`${tag.color}-${tag.labelKey}`"
-            :class="[
-                'inline-flex min-w-0 items-center rounded text-center font-medium break-words whitespace-normal',
-                sizeClass,
-                {
-                    'bg-blue-50 text-blue-600': tag.color === 'blue',
-                    'bg-green-50 text-green-600': tag.color === 'green',
-                    'bg-purple-50 text-purple-600': tag.color === 'purple',
-                    'bg-orange-50 text-orange-600': tag.color === 'orange',
-                    'bg-indigo-50 text-indigo-600': tag.color === 'indigo',
-                    'bg-gray-100 text-gray-500': tag.color === 'gray',
-                },
-            ]"
+            :key="`${tag.tone}-${tag.labelKey}`"
+            variant="tag"
+            :size="size"
+            :tone="tag.tone"
         >
             {{ t(tag.labelKey) }}
-        </span>
+        </Badge>
     </div>
 </template>

@@ -1,0 +1,205 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ui/Badge > tag 族（能力展示标签） > tone=blue 尺寸 sm 稳定性 1`] = `
+[
+  "bg-blue-50",
+  "break-words",
+  "font-medium",
+  "inline-flex",
+  "items-center",
+  "leading-tight",
+  "max-w-[5.75rem]",
+  "min-w-0",
+  "px-1",
+  "py-0.5",
+  "rounded",
+  "text-[10px]",
+  "text-blue-600",
+  "text-center",
+  "whitespace-normal",
+]
+`;
+
+exports[`ui/Badge > tag 族（能力展示标签） > tone=gray 尺寸 sm 稳定性 1`] = `
+[
+  "bg-gray-100",
+  "break-words",
+  "font-medium",
+  "inline-flex",
+  "items-center",
+  "leading-tight",
+  "max-w-[5.75rem]",
+  "min-w-0",
+  "px-1",
+  "py-0.5",
+  "rounded",
+  "text-[10px]",
+  "text-center",
+  "text-gray-500",
+  "whitespace-normal",
+]
+`;
+
+exports[`ui/Badge > tag 族（能力展示标签） > tone=green 尺寸 sm 稳定性 1`] = `
+[
+  "bg-green-50",
+  "break-words",
+  "font-medium",
+  "inline-flex",
+  "items-center",
+  "leading-tight",
+  "max-w-[5.75rem]",
+  "min-w-0",
+  "px-1",
+  "py-0.5",
+  "rounded",
+  "text-[10px]",
+  "text-center",
+  "text-green-600",
+  "whitespace-normal",
+]
+`;
+
+exports[`ui/Badge > tag 族（能力展示标签） > tone=indigo 尺寸 sm 稳定性 1`] = `
+[
+  "bg-indigo-50",
+  "break-words",
+  "font-medium",
+  "inline-flex",
+  "items-center",
+  "leading-tight",
+  "max-w-[5.75rem]",
+  "min-w-0",
+  "px-1",
+  "py-0.5",
+  "rounded",
+  "text-[10px]",
+  "text-center",
+  "text-indigo-600",
+  "whitespace-normal",
+]
+`;
+
+exports[`ui/Badge > tag 族（能力展示标签） > tone=orange 尺寸 sm 稳定性 1`] = `
+[
+  "bg-orange-50",
+  "break-words",
+  "font-medium",
+  "inline-flex",
+  "items-center",
+  "leading-tight",
+  "max-w-[5.75rem]",
+  "min-w-0",
+  "px-1",
+  "py-0.5",
+  "rounded",
+  "text-[10px]",
+  "text-center",
+  "text-orange-600",
+  "whitespace-normal",
+]
+`;
+
+exports[`ui/Badge > tag 族（能力展示标签） > tone=purple 尺寸 sm 稳定性 1`] = `
+[
+  "bg-purple-50",
+  "break-words",
+  "font-medium",
+  "inline-flex",
+  "items-center",
+  "leading-tight",
+  "max-w-[5.75rem]",
+  "min-w-0",
+  "px-1",
+  "py-0.5",
+  "rounded",
+  "text-[10px]",
+  "text-center",
+  "text-purple-600",
+  "whitespace-normal",
+]
+`;
+
+exports[`ui/Badge > toggle 族（能力开关 chip） > tone=blue 开启态稳定性 1`] = `
+[
+  "bg-blue-50",
+  "font-medium",
+  "hover:bg-blue-100",
+  "px-1.5",
+  "py-0.5",
+  "rounded",
+  "text-blue-600",
+  "text-xs",
+  "transition-colors",
+]
+`;
+
+exports[`ui/Badge > toggle 族（能力开关 chip） > tone=green 开启态稳定性 1`] = `
+[
+  "bg-green-50",
+  "font-medium",
+  "hover:bg-green-100",
+  "px-1.5",
+  "py-0.5",
+  "rounded",
+  "text-green-600",
+  "text-xs",
+  "transition-colors",
+]
+`;
+
+exports[`ui/Badge > toggle 族（能力开关 chip） > tone=indigo 开启态稳定性 1`] = `
+[
+  "bg-indigo-50",
+  "font-medium",
+  "hover:bg-indigo-100",
+  "px-1.5",
+  "py-0.5",
+  "rounded",
+  "text-indigo-600",
+  "text-xs",
+  "transition-colors",
+]
+`;
+
+exports[`ui/Badge > toggle 族（能力开关 chip） > tone=orange 开启态稳定性 1`] = `
+[
+  "bg-orange-50",
+  "font-medium",
+  "hover:bg-orange-100",
+  "px-1.5",
+  "py-0.5",
+  "rounded",
+  "text-orange-600",
+  "text-xs",
+  "transition-colors",
+]
+`;
+
+exports[`ui/Badge > toggle 族（能力开关 chip） > tone=purple 开启态稳定性 1`] = `
+[
+  "bg-purple-50",
+  "font-medium",
+  "hover:bg-purple-100",
+  "px-1.5",
+  "py-0.5",
+  "rounded",
+  "text-purple-600",
+  "text-xs",
+  "transition-colors",
+]
+`;
+
+exports[`ui/Badge > toggle 族（能力开关 chip） > 开启态的 blue 输出原 capability chip 的类 1`] = `
+[
+  "bg-blue-50",
+  "font-medium",
+  "hover:bg-blue-100",
+  "px-1.5",
+  "py-0.5",
+  "rounded",
+  "text-blue-600",
+  "text-xs",
+  "transition-colors",
+]
+`;
