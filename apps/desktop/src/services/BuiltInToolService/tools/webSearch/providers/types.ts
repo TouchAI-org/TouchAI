@@ -36,6 +36,22 @@ export type WebSearchFetchJson = (
     }
 ) => Promise<unknown>;
 
+/**
+ * 按文本读取响应。
+ *
+ * 少数免费端点只提供 SSE 流（如 Exa 的公开 MCP 端点，显式要求
+ * `Accept: text/event-stream`，否则返回 406），无法走 `fetchJson`。
+ */
+export type WebSearchFetchText = (
+    url: URL,
+    signal: AbortSignal,
+    init?: {
+        method?: 'GET' | 'POST';
+        headers?: Record<string, string>;
+        body?: string;
+    }
+) => Promise<string>;
+
 export interface WebSearchProviderAdapter {
     id: SearchProviderId;
     isConfigured(config: SearchProviderConfig): boolean;
@@ -44,5 +60,6 @@ export interface WebSearchProviderAdapter {
         settings: SearchSettingsConfig;
         signal: AbortSignal;
         fetchJson: WebSearchFetchJson;
+        fetchText: WebSearchFetchText;
     }): Promise<WebSearchResult[]>;
 }

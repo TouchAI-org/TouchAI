@@ -36,7 +36,11 @@ import {
     getSearchProviderAdapter,
     isConfiguredSearchProvider,
 } from './providers/adapters';
-import { type WebSearchFetchJson, WebSearchHttpError } from './providers/types';
+import {
+    type WebSearchFetchJson,
+    type WebSearchFetchText,
+    WebSearchHttpError,
+} from './providers/types';
 import { webSearchHostname, type WebSearchSourcesPayload } from './sources';
 
 const tauriFetch = createTauriFetch();
@@ -185,6 +189,28 @@ const fetchJson: WebSearchFetchJson = async (url, signal, init = {}) => {
     return await response.json();
 };
 
+const fetchText: WebSearchFetchText = async (url, signal, init = {}) => {
+    const response = await tauriFetch(url.toString(), {
+        method: init.method ?? 'GET',
+        headers: {
+            'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+            ...(init.headers ?? {}),
+        },
+        body: init.body,
+        signal,
+    });
+
+    if (!response.ok) {
+        throw new WebSearchHttpError(response.status, response.statusText, {
+            retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after')),
+        });
+    }
+
+    return await response.text();
+};
+
 async function loadSearchSettings(): Promise<SearchSettingsConfig> {
     return parseSearchSettingsConfig(await getSettingValue({ key: SEARCH_SETTINGS_KEY }));
 }
@@ -244,7 +270,7 @@ async function runSearchProvider(
         throw new Error('No enabled search provider is configured.');
     }
 
-    return adapter.search({ request, settings, signal, fetchJson });
+    return adapter.search({ request, settings, signal, fetchJson, fetchText });
 }
 
 function applySearchSettingsDefaults(
