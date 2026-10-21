@@ -43,9 +43,9 @@
     };
 
     /** 环形几何：半径 34、线宽 11，内径约 46，可容下「141.1万」+ 副标题 */
-    const R = 32;
-    const STROKE = 8;
-    const SVG = 128;
+    const R = 40;
+    const STROKE = 9;
+    const SVG = 160;
     const CIRCUMFERENCE = 2 * Math.PI * R;
 
     interface Slice {
@@ -128,8 +128,8 @@
             </div>
 
             <div class="rounded-[11px] bg-neutral-50/80 p-4">
-                <div v-if="!composition" class="flex items-center gap-5 py-2">
-                    <div class="h-28 w-28 shrink-0 animate-pulse rounded-full bg-neutral-200/60" />
+                <div v-if="!composition" class="flex items-center gap-6 py-2">
+                    <div class="h-40 w-40 shrink-0 animate-pulse rounded-full bg-neutral-200/60" />
                     <div class="flex-1 space-y-2">
                         <div
                             v-for="i in 4"
@@ -144,11 +144,11 @@
                     </span>
                 </div>
 
-                <div v-else class="flex items-center gap-5">
+                <div v-else class="flex items-center gap-6">
                     <div class="relative shrink-0">
                         <svg
                             :viewBox="`0 0 ${SVG} ${SVG}`"
-                            class="h-32 w-32 -rotate-90"
+                            class="h-40 w-40 -rotate-90"
                             role="img"
                             :aria-label="t('settings.usage.composition.tokenTitle')"
                         >
@@ -179,7 +179,7 @@
                             class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
                         >
                             <span
-                                class="max-w-[66px] truncate text-center font-serif text-[14px] leading-tight font-semibold text-neutral-950 tabular-nums"
+                                class="max-w-[86px] truncate text-center font-serif text-[15px] leading-tight font-semibold text-neutral-950 tabular-nums"
                             >
                                 {{ formatTokensCompact(composition?.tokens.total ?? 0) }}
                             </span>
@@ -238,8 +238,8 @@
             </div>
 
             <div class="rounded-[11px] bg-neutral-50/80 p-4">
-                <div v-if="!composition" class="flex items-center gap-5 py-2">
-                    <div class="h-28 w-28 shrink-0 animate-pulse rounded-full bg-neutral-200/60" />
+                <div v-if="!composition" class="flex items-center gap-6 py-2">
+                    <div class="h-40 w-40 shrink-0 animate-pulse rounded-full bg-neutral-200/60" />
                     <div class="flex-1 space-y-2">
                         <div
                             v-for="i in 3"
@@ -254,11 +254,11 @@
                     </span>
                 </div>
 
-                <div v-else class="flex items-center gap-5">
+                <div v-else class="flex items-center gap-6">
                     <div class="relative shrink-0">
                         <svg
                             :viewBox="`0 0 ${SVG} ${SVG}`"
-                            class="h-32 w-32 -rotate-90"
+                            class="h-40 w-40 -rotate-90"
                             role="img"
                             :aria-label="t('settings.usage.composition.timingTitle')"
                         >
@@ -289,7 +289,7 @@
                             class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
                         >
                             <span
-                                class="max-w-[66px] truncate text-center font-serif text-[14px] leading-tight font-semibold text-neutral-950 tabular-nums"
+                                class="max-w-[86px] truncate text-center font-serif text-[15px] leading-tight font-semibold text-neutral-950 tabular-nums"
                             >
                                 {{ formatLongDuration(composition?.timing.totalMs ?? 0) }}
                             </span>

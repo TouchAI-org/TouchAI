@@ -51,7 +51,7 @@
      *
      * 不存速度：速度是瞬时量，直接拿来画线会得到一条与总量无关的曲线。
      */
-    const liveSamples = ref<Array<{ atMs: number; tokens: number }>>([]);
+    const liveSamples = ref<Array<{ atMs: number; tokens: number; speed: number }>>([]);
     let timer: ReturnType<typeof setInterval> | null = null;
     let unlisten: (() => void) | null = null;
     let disposed = false;
@@ -322,17 +322,24 @@
         timer = setInterval(() => {
             now.value = Date.now();
 
-            // 按 500ms 节拍记录本轮累计输出；曲线尾靠它向右延伸。
-            const total = [...streams.value.values()].reduce(
-                (sum, stream) => sum + stream.outputTokens,
-                0
-            );
+            /*
+             * 直接采样速度，而不是对累计 token 做差分。
+             *
+             * 差分有两个致命问题：
+             * 1. 采集器每 300ms 才推一次，500ms 节拍经常采到同一个值 → 速率为 0；
+             * 2. 结束时事件会把估算值改成实测值，差分算出一次巨额跳变。
+             * 采集器本身已经有滑动窗口算出的瞬时速度，直接用它最准，
+             * 也与右上角那个数字完全一致。
+             */
+            const speed = aggregate.value.speed;
+            const total = aggregate.value.totalTokens;
             if (total > 0) {
                 const previous = liveSamples.value[liveSamples.value.length - 1];
+                // 只在数值真的变了时追加，避免把同一秒重复画成平线
                 if (!previous || total !== previous.tokens) {
                     liveSamples.value = [
                         ...liveSamples.value,
-                        { atMs: now.value, tokens: total },
+                        { atMs: now.value, tokens: total, speed: speed ?? 0 },
                     ].slice(-600);
                 }
             }
@@ -471,74 +478,71 @@
                     </span>
                 </div>
             </div>
-            <svg
-                v-if="geometry.length"
-                :viewBox="`0 0 ${WIDTH} ${HEIGHT}`"
-                :height="HEIGHT"
-                class="mt-1 w-full"
-                role="img"
-                :aria-label="t('settings.usage.dashboardCurveTitle')"
-            >
-                <!-- 峰值刻度与零线：只看形状无法读出量级 -->
-                <text :x="4" :y="11" class="fill-neutral-400" font-size="10">
-                    {{ formatCurveValue(peakValue) }}
-                </text>
-                <text :x="4" :y="HEIGHT - 6" class="fill-neutral-300" font-size="9">0</text>
-                <line
-                    :x1="4"
-                    :x2="WIDTH - 4"
-                    :y1="9"
-                    :y2="9"
-                    stroke="currentColor"
-                    class="text-neutral-200/70"
-                    stroke-width="1"
-                    stroke-dasharray="2 3"
-                />
-                <line
-                    :x1="4"
-                    :x2="WIDTH - 4"
-                    :y1="HEIGHT - 4"
-                    :y2="HEIGHT - 4"
-                    stroke="currentColor"
-                    class="text-neutral-200"
-                    stroke-width="1"
-                />
-
-                <path
-                    :d="areaPath"
-                    fill="currentColor"
-                    class="text-sky-500/10"
-                    style="transition: opacity 300ms ease-out"
-                />
-                <path
-                    :d="linePath"
-                    fill="none"
-                    stroke="currentColor"
-                    class="text-sky-500 transition-all duration-500 ease-out"
-                    stroke-width="1.6"
-                    stroke-linejoin="round"
-                    stroke-linecap="round"
-                />
-
-                <circle
-                    :cx="geometry[geometry.length - 1]!.x"
-                    :cy="geometry[geometry.length - 1]!.y"
-                    r="2.5"
-                    fill="currentColor"
-                    class="text-sky-500 transition-all duration-500 ease-out"
-                />
-
-                <!-- 尾端当前值，跟随末端点 -->
-                <text
-                    :x="Math.min(WIDTH - 4, geometry[geometry.length - 1]!.x + 6)"
-                    :y="Math.max(14, geometry[geometry.length - 1]!.y - 4)"
-                    :text-anchor="geometry[geometry.length - 1]!.x > WIDTH - 60 ? 'end' : 'start'"
-                    class="fill-sky-600 font-medium transition-all duration-500 ease-out"
-                    font-size="10"
+            <!-- 纵轴刻度：放在图表外部，与“使用趋势”一致 -->
+            <div class="mt-1 flex gap-2">
+                <div
+                    class="flex w-9 shrink-0 flex-col justify-between text-right text-[9px] text-neutral-400 tabular-nums"
+                    :style="{ height: `${HEIGHT}px` }"
+                    aria-hidden="true"
                 >
-                    {{ formatCurveValue(geometry[geometry.length - 1]!.value) }}
-                </text>
-            </svg>
+                    <span>{{ formatCurveValue(peakValue) }}</span>
+                    <span>0</span>
+                </div>
+
+                <svg
+                    v-if="geometry.length"
+                    :viewBox="`0 0 ${WIDTH} ${HEIGHT}`"
+                    :height="HEIGHT"
+                    class="min-w-0 flex-1"
+                    role="img"
+                    :aria-label="t('settings.usage.dashboardCurveTitle')"
+                >
+                    <!-- 峰值虚线：与左侧刻度对齐 -->
+                    <line
+                        :x1="0"
+                        :x2="WIDTH"
+                        :y1="8"
+                        :y2="8"
+                        stroke="currentColor"
+                        class="text-neutral-200/70"
+                        stroke-width="1"
+                        stroke-dasharray="2 3"
+                    />
+                    <line
+                        :x1="0"
+                        :x2="WIDTH"
+                        :y1="HEIGHT"
+                        :y2="HEIGHT"
+                        stroke="currentColor"
+                        class="text-neutral-200"
+                        stroke-width="1"
+                    />
+
+                    <!--
+                        面积与曲线必须完全同步：两者用同一条 d，且都不加 CSS 过渡。
+                        之前给两者加 transition-all，SVG path 的插值路径不一致，
+                        面积会慢半拍、与线错开。
+                    -->
+                    <path :d="areaPath" fill="currentColor" class="text-sky-500/10" />
+                    <path
+                        :d="linePath"
+                        fill="none"
+                        stroke="currentColor"
+                        class="text-sky-500"
+                        stroke-width="1.6"
+                        stroke-linejoin="round"
+                        stroke-linecap="round"
+                    />
+
+                    <circle
+                        :cx="geometry[geometry.length - 1]!.x"
+                        :cy="geometry[geometry.length - 1]!.y"
+                        r="2.5"
+                        fill="currentColor"
+                        class="text-sky-500"
+                    />
+                </svg>
+            </div>
 
             <!-- 左下角：会话数（有流时是活跃路数，空闲时是区间会话数） -->
             <div class="mt-1 flex items-center gap-1.5 text-[11px] text-neutral-500">

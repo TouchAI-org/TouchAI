@@ -40,10 +40,12 @@ export interface UsageCurvePoint {
     live: boolean;
 }
 
-/** 实时采样：某时刻本轮的累计增量 token */
+/** 实时采样：采集器当时算出的瞬时速度（token/秒） */
 export interface LiveUsageSample {
     atMs: number;
     tokens: number;
+    /** 采集器的滑动窗口速度；旧数据可能没有该字段 */
+    speed?: number;
 }
 
 export function parseUsageTime(value: string): number {
@@ -112,11 +114,9 @@ export const LIVE_WINDOW_MS = 60_000;
 /**
  * 实时曲线：**每秒** token 消耗量，不是累计值。
  *
- * 累计值只能单调上升，看不出快慢；用户要看的是「此刻跑得多快」。
- * 相邻采样作差再除以时间间隔，就得到瞬时速率。
- *
- * 窗口只有一分钟，直接用采样点定位，不四舍五入到桶：
- * 桶粒度会把曲线磨成阶梯。
+ * 直接使用采集器算好的瞬时速度（它自己维护 5 秒滑动窗口）。
+ * 不要再对累计 token 做差分：采集器每 300ms 才推一次，500ms 节拍会经常
+ * 采到同一个值得到 0；而且结束时会把估算值换成实测值，差分会出现巨额跳变。
  */
 export function buildLiveCurve(
     samples: readonly LiveUsageSample[],
@@ -131,36 +131,12 @@ export function buildLiveCurve(
     const start = Math.max(cutoff, first.atMs);
     const points: UsageCurvePoint[] = [];
 
-    // 速率需要「前一个采样」作基准，因此先找到窗口前最近的一个点
-    let baseline: LiveUsageSample | null = null;
-    for (const sample of samples) {
-        if (sample.atMs <= start) baseline = sample;
-        else break;
-    }
-
-    let previous = baseline;
     for (const sample of samples) {
         if (sample.atMs < start) continue;
         const at = Math.min(sample.atMs, nowMs);
-
-        // 没有基线时，首个点作为基准：速率为 0，之后靠差值算
-        if (!previous) {
-            previous = sample;
-            if (points.length === 0) points.push({ key: '', at, value: 0, live: true });
-            continue;
-        }
-
-        const elapsed = (at - previous.atMs) / 1000;
-        // 间隔太短时差值噪声大，沿用上一个速率
-        const rate =
-            elapsed >= 0.2
-                ? Math.max(0, sample.tokens - previous.tokens) / elapsed
-                : (points[points.length - 1]?.value ?? 0);
-
         const last = points[points.length - 1];
         if (last && at <= last.at) continue;
-        points.push({ key: '', at, value: rate, live: true });
-        previous = sample;
+        points.push({ key: '', at, value: Math.max(0, sample.speed ?? 0), live: true });
     }
 
     // 尾部延伸到当下：即使没有新 token，横轴也在走，速率回落到 0

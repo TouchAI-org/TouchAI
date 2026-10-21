@@ -137,18 +137,17 @@ describe('usage curve with stable historical buckets', () => {
         const now = Date.parse('2026-05-01T10:30:00Z');
         const rate = buildLiveCurve(
             [
-                { atMs: now - 30_000, tokens: 100 },
-                { atMs: now - 20_000, tokens: 200 },
-                { atMs: now - 10_000, tokens: 300 },
-                { atMs: now, tokens: 400 },
+                { atMs: now - 30_000, tokens: 100, speed: 10 },
+                { atMs: now - 20_000, tokens: 200, speed: 10 },
+                { atMs: now - 10_000, tokens: 300, speed: 10 },
+                { atMs: now, tokens: 400, speed: 10 },
             ],
             60_000,
             now
         );
 
-        // 每 10 秒增 100 token = 10 tok/s，而不是累计到 400
-        // 首个点是基准（速率 0），末个点是为延伸横轴补的归零点，都不参与断言
-        for (const point of rate.slice(1, -1)) {
+        // 直接使用采集器给的速率；末个点是为延伸横轴补的归零点，不参与断言
+        for (const point of rate.slice(0, -1)) {
             expect(point.value).toBeCloseTo(10, 5);
         }
     });
@@ -157,8 +156,8 @@ describe('usage curve with stable historical buckets', () => {
         const now = Date.parse('2026-05-01T10:30:00Z');
         const rate = buildLiveCurve(
             [
-                { atMs: now - 20_000, tokens: 100 },
-                { atMs: now - 10_000, tokens: 200 },
+                { atMs: now - 20_000, tokens: 100, speed: 12 },
+                { atMs: now - 10_000, tokens: 200, speed: 12 },
             ],
             60_000,
             now
