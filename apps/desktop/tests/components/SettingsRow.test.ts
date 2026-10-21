@@ -3,7 +3,7 @@
 /**
  * SettingsRow 的 class 快照与契约测试。
  *
- * 这个组件是 29 处手写设置行的收敛。它必须精确重现原实现的每一个 class，
+ * 这个组件是 27 处手写设置行的收敛。它必须精确重现原实现的每一个 class，
  * 否则就是把重复换成了视觉偏差。因此用快照锁定三种典型形态：
  *   - 无描述的开关行（auto 宽度）
  *   - 带描述的输入行（320 宽度）
@@ -133,7 +133,7 @@ describe('SettingsRow', () => {
             const wrapper = mountRow({
                 labelAttrs: { 'data-testid': 'settings-general-row-label' },
             });
-            expect(wrapper.get('[data-testid="settings-general-row-label"]').exists()).toBe(true);
+            expect(wrapper.find('[data-testid="settings-general-row-label"]').exists()).toBe(true);
         });
 
         it('controlAttrs 与 controlClass 落到控件容器上', () => {
@@ -151,7 +151,7 @@ describe('SettingsRow', () => {
     describe('插槽', () => {
         it('默认插槽渲染在控件容器内', () => {
             const wrapper = mountRow();
-            expect(wrapper.get('[data-testid="control"]').exists()).toBe(true);
+            expect(wrapper.find('[data-testid="control"]').exists()).toBe(true);
         });
 
         it('description 插槽可替代文本描述', () => {
@@ -163,6 +163,16 @@ describe('SettingsRow', () => {
                 },
             });
             expect(wrapper.get('[data-testid="desc-slot"]').text()).toBe('自定义描述');
+        });
+
+        it('label 插槽可替代纯文本标签', () => {
+            const wrapper = mount(SettingsRow, {
+                slots: {
+                    default: () => h('span'),
+                    label: () => h('span', { 'data-testid': 'label-slot' }, '富标签'),
+                },
+            });
+            expect(wrapper.get('[data-testid="label-slot"]').text()).toBe('富标签');
         });
     });
 });
