@@ -79,7 +79,7 @@
         <DropdownMenuContent
             :side-offset="2"
             align="start"
-            class="min-w-[160px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+            class="min-w-[160px] rounded-lg border border-gray-200 bg-white py-1 font-serif shadow-lg"
             :data-context-menu-id="menuId"
             @animationend="handleAnimationEnd"
         >

@@ -5,6 +5,27 @@ import { h, onMounted, ref } from 'vue';
 import { AppEvent, eventService } from '@/services/EventService';
 import SettingsWindowView from '@/views/SettingsView/index.vue';
 
+/*
+ * 标题栏的窗口控制按钮现在包在 ui/Tooltip 里。reka-ui 的 TooltipContent 通过
+ * Teleport 渲染，在 jsdom 下会因 insertBefore 失败而抛错。
+ * 这些用例验证的是窗口控制与导航行为，不是提示气泡本身，
+ * 所以把 Tooltip 降级为只渲染默认插槽。
+ */
+vi.mock('@components/ui/tooltip', () => ({
+    Tooltip: {
+        name: 'Tooltip',
+        template: '<div><slot /></div>',
+    },
+    TooltipTrigger: {
+        name: 'TooltipTrigger',
+        template: '<div><slot /></div>',
+    },
+    TooltipContent: {
+        name: 'TooltipContent',
+        template: '<div><slot /></div>',
+    },
+}));
+
 const windowApiMock = vi.hoisted(() => ({
     currentWindow: {
         close: vi.fn().mockResolvedValue(undefined),
@@ -163,6 +184,11 @@ const navigationSidebarStub = {
 const mountSettingsWindow = (suspenseTemplate = '<div><slot /></div>') =>
     shallowMount(SettingsWindowView, {
         global: {
+            /*
+             * shallowMount 默认把子组件 stub 成空元素。标题栏按钮现在包在
+             * ui/Tooltip 里，若 stub 不渲染默认插槽，按钮就不存在了。
+             */
+            renderStubDefaultSlot: true,
             stubs: {
                 NavigationSidebar: navigationSidebarStub,
                 SettingsWindowTitleBar: false,
@@ -263,9 +289,9 @@ describe('SettingsWindowView', () => {
 
         expect(windowApiMock.currentWindow.minimize).toHaveBeenCalledTimes(1);
         expect(windowApiMock.currentWindow.maximize).toHaveBeenCalledTimes(1);
-        expect(wrapper.get('[data-testid="settings-window-maximize"]').attributes('title')).toBe(
-            '还原'
-        );
+        expect(
+            wrapper.get('[data-testid="settings-window-maximize"]').attributes('aria-label')
+        ).toBe('还原');
 
         windowApiMock.currentWindow.isMaximized.mockResolvedValue(true);
         await wrapper.get('[data-testid="settings-window-maximize"]').trigger('click');

@@ -34,8 +34,9 @@ describe('SettingsWindowTitleBar', () => {
         const wrapper = mount(SettingsWindowTitleBar);
         try {
             await flushPromises();
+            // ui/Tooltip 取代了原生 title，可访问名改由 aria-label 提供
             expect(
-                wrapper.get('[data-testid="settings-window-maximize"]').attributes('title')
+                wrapper.get('[data-testid="settings-window-maximize"]').attributes('aria-label')
             ).toBe('还原');
         } finally {
             wrapper.unmount();
@@ -52,16 +53,16 @@ describe('SettingsWindowTitleBar', () => {
 
         const wrapper = mount(SettingsWindowTitleBar);
         await flushPromises();
-        expect(wrapper.get('[data-testid="settings-window-maximize"]').attributes('title')).toBe(
-            '最大化'
-        );
+        expect(
+            wrapper.get('[data-testid="settings-window-maximize"]').attributes('aria-label')
+        ).toBe('最大化');
 
         windowApiMock.currentWindow.isMaximized.mockResolvedValue(true);
         notifyResized?.();
         await flushPromises();
-        expect(wrapper.get('[data-testid="settings-window-maximize"]').attributes('title')).toBe(
-            '还原'
-        );
+        expect(
+            wrapper.get('[data-testid="settings-window-maximize"]').attributes('aria-label')
+        ).toBe('还原');
 
         wrapper.unmount();
         expect(unlisten).toHaveBeenCalledOnce();
