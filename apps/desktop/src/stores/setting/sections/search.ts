@@ -107,33 +107,32 @@ export const SEARCH_PROVIDER_METADATA: Record<SearchProviderId, SearchProviderMe
     },
     tavily: {
         id: 'tavily',
-        enabledByDefault: false,
+        enabledByDefault: true,
         apiKeyRequirement: 'optional',
         endpointRequirement: 'none',
         displayName: 'Tavily',
         sourceName: 'Tavily',
         recommendation:
-            'Research-style broad web search with concise snippets; works keyless with an anonymous quota.',
+            'Research-style broad web search with concise snippets; free without an API key.',
     },
     exa: {
         id: 'exa',
-        enabledByDefault: false,
+        enabledByDefault: true,
         apiKeyRequirement: 'optional',
         endpointRequirement: 'none',
         displayName: 'Exa',
         sourceName: 'Exa',
         recommendation:
-            'Semantic web discovery for companies, products, articles, and high-signal pages; works keyless via the public MCP endpoint.',
+            'Semantic web discovery for companies, products, articles, and high-signal pages; free via the public MCP endpoint without an API key.',
     },
     firecrawl: {
         id: 'firecrawl',
-        enabledByDefault: false,
+        enabledByDefault: true,
         apiKeyRequirement: 'optional',
         endpointRequirement: 'none',
         displayName: 'Firecrawl',
         sourceName: 'Firecrawl',
-        recommendation:
-            'Search plus crawl-oriented discovery; works keyless with an anonymous quota.',
+        recommendation: 'Search plus crawl-oriented discovery; free without an API key.',
     },
     searxng: {
         id: 'searxng',
