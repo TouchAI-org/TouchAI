@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import { Tooltip, TooltipTrigger } from '@components/ui/tooltip';
     import { getCurrentWindow } from '@tauri-apps/api/window';
 
     import { t } from '@/i18n';
@@ -52,27 +53,33 @@
         </div>
 
         <div class="flex items-center gap-1">
-            <button
-                v-if="showMinimize"
-                data-tauri-drag-region="false"
-                class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600"
-                :title="t('window.minimize')"
-                :aria-label="t('window.minimize')"
-                @click="handleMinimize"
-            >
-                <AppIcon name="minimize" class="h-4 w-4" />
-            </button>
+            <Tooltip :text="t('window.minimize')">
+                <TooltipTrigger as-child>
+                    <button
+                        v-if="showMinimize"
+                        data-tauri-drag-region="false"
+                        class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600"
+                        :aria-label="t('window.minimize')"
+                        @click="handleMinimize"
+                    >
+                        <AppIcon name="minimize" class="h-4 w-4" />
+                    </button>
+                </TooltipTrigger>
+            </Tooltip>
 
-            <button
-                v-if="showClose"
-                data-tauri-drag-region="false"
-                class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600"
-                :title="t('window.close')"
-                :aria-label="t('window.close')"
-                @click="handleClose"
-            >
-                <AppIcon name="close" class="h-4 w-4" />
-            </button>
+            <Tooltip :text="t('window.close')">
+                <TooltipTrigger as-child>
+                    <button
+                        v-if="showClose"
+                        data-tauri-drag-region="false"
+                        class="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                        :aria-label="t('window.close')"
+                        @click="handleClose"
+                    >
+                        <AppIcon name="close" class="h-4 w-4" />
+                    </button>
+                </TooltipTrigger>
+            </Tooltip>
         </div>
     </div>
 </template>

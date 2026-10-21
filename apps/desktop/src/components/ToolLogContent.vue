@@ -3,6 +3,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import { Button } from '@components/ui/button';
+    import { Tooltip, TooltipTrigger } from '@components/ui/tooltip';
     import { computed, ref } from 'vue';
 
     import { t } from '@/i18n';
@@ -90,15 +91,18 @@
                     >
                         {{ showRawInput ? t('toolLog.showCommand') : t('toolLog.rawJson') }}
                     </button>
-                    <Button
-                        variant="ghost-neutral"
-                        class="h-7 w-7 rounded-md"
-                        :title="t('toolLog.copyInput')"
-                        :aria-label="t('toolLog.copyInput')"
-                        @click="copyText(formattedInput)"
-                    >
-                        <AppIcon name="copy" class="h-4 w-4" />
-                    </Button>
+                    <Tooltip :text="t('toolLog.copyInput')">
+                        <TooltipTrigger as-child>
+                            <Button
+                                variant="ghost-neutral"
+                                class="h-7 w-7 rounded-md"
+                                :aria-label="t('toolLog.copyInput')"
+                                @click="copyText(formattedInput)"
+                            >
+                                <AppIcon name="copy" class="h-4 w-4" />
+                            </Button>
+                        </TooltipTrigger>
+                    </Tooltip>
                 </div>
             </div>
             <div v-if="workingDirectory" class="mb-2 text-[11px] leading-5 text-neutral-500">
@@ -136,15 +140,18 @@
                 <span v-if="exitCode" class="text-[11px] text-neutral-500">
                     {{ t('toolLog.exitCode') }} {{ exitCode }}
                 </span>
-                <Button
-                    variant="ghost-neutral"
-                    class="ml-auto h-7 w-7 rounded-md"
-                    :title="t('toolLog.copyOutput')"
-                    :aria-label="t('toolLog.copyOutput')"
-                    @click="copyText(formattedOutput)"
-                >
-                    <AppIcon name="copy" class="h-4 w-4" />
-                </Button>
+                <Tooltip :text="t('toolLog.copyOutput')">
+                    <TooltipTrigger as-child>
+                        <Button
+                            variant="ghost-neutral"
+                            class="ml-auto h-7 w-7 rounded-md"
+                            :aria-label="t('toolLog.copyOutput')"
+                            @click="copyText(formattedOutput)"
+                        >
+                            <AppIcon name="copy" class="h-4 w-4" />
+                        </Button>
+                    </TooltipTrigger>
+                </Tooltip>
             </div>
             <pre
                 data-testid="tool-log-code-block"

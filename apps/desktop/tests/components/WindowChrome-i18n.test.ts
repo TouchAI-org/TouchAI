@@ -31,9 +31,14 @@ describe('window chrome i18n', () => {
         const wrapper = mount(TitleBar);
         const buttons = wrapper.findAll('button');
 
-        expect(buttons[0]?.attributes('title')).toBe('Minimize');
+        /*
+         * 标题栏按钮现在用 ui/Tooltip 提供视觉提示，不再是原生 title 属性。
+         * aria-label 仍然逐个按钮标注，是自动化能断言的本地化依据。
+         * 原生 title 被移除是预期的：它会与 Tooltip 同时弹出两个提示。
+         */
+        expect(buttons[0]?.attributes('title')).toBeUndefined();
         expect(buttons[0]?.attributes('aria-label')).toBe('Minimize');
-        expect(buttons[1]?.attributes('title')).toBe('Close');
+        expect(buttons[1]?.attributes('title')).toBeUndefined();
         expect(buttons[1]?.attributes('aria-label')).toBe('Close');
     });
 
