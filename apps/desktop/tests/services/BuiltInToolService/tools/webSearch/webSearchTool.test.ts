@@ -28,6 +28,12 @@ function createExecutionContext(): Parameters<typeof executeWebSearchTool>[2] {
     };
 }
 
+/** 取最后一次 tauriFetch 调用的参数。 */
+function lastFetchCall(): [string, RequestInit] {
+    const calls = tauriFetchMock.mock.calls;
+    return calls[calls.length - 1] as [string, RequestInit];
+}
+
 describe('WebSearch tool', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -548,7 +554,7 @@ describe('WebSearch tool', () => {
 
         expect(result.isError).toBe(false);
         expect(result.result).toContain('Tavily keyless result');
-        const [, init] = tauriFetchMock.mock.calls.at(-1) as [string, RequestInit];
+        const [, init] = lastFetchCall();
         const headers = init.headers as Record<string, string>;
         // 匿名档必须改发 access-mode 头，且不能带空的 Bearer 凭据。
         expect(headers['x-tavily-access-mode']).toBe('keyless');
@@ -586,7 +592,7 @@ describe('WebSearch tool', () => {
 
         expect(result.isError).toBe(false);
         expect(result.result).toContain('Firecrawl keyless result');
-        const [, init] = tauriFetchMock.mock.calls.at(-1) as [string, RequestInit];
+        const [, init] = lastFetchCall();
         // 匿名档不能带空的 Bearer 凭据。
         expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
     });
@@ -635,7 +641,7 @@ describe('WebSearch tool', () => {
         expect(result.isError).toBe(false);
         expect(result.result).toContain('Exa keyless result');
         expect(result.result).toContain('https://example.com/exa-keyless');
-        const [url, init] = tauriFetchMock.mock.calls.at(-1) as [string, RequestInit];
+        const [url, init] = lastFetchCall();
         expect(url).toBe('https://mcp.exa.ai/mcp');
         // 该端点只接受 SSE，必须显式声明。
         expect((init.headers as Record<string, string>).Accept).toContain('text/event-stream');

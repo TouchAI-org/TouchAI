@@ -126,7 +126,7 @@ describe('Search settings section', () => {
         );
         expect(wrapper.get('[data-testid="search-provider-quota-brave"]').text()).toContain('2k');
         expect(wrapper.get('[data-testid="search-provider-quota-tavily"]').text()).toContain(
-            '匿名免费'
+            '免费额度'
         );
         expect(wrapper.get('[data-testid="search-provider-quota-anysearch"]').text()).not.toBe(
             '免费'
@@ -187,9 +187,10 @@ describe('Search settings section', () => {
         expect(routeSelect!.text()).toContain('Semantic Scholar');
         expect(routeSelect!.text()).toContain('GitHub');
         expect(routeSelect!.text()).toContain('Brave Search');
-        expect(routeSelect!.text()).not.toContain('Tavily');
-        expect(routeSelect!.text()).not.toContain('Exa');
-        expect(routeSelect!.text()).not.toContain('Firecrawl');
+        // Tavily / Exa / Firecrawl 有免费额度，默认开启，因此也出现在路由选项里。
+        expect(routeSelect!.text()).toContain('Tavily');
+        expect(routeSelect!.text()).toContain('Exa');
+        expect(routeSelect!.text()).toContain('Firecrawl');
         expect(routeSelect!.text()).not.toContain('SearXNG');
 
         await routeSelect!.setValue('brave');
@@ -213,7 +214,26 @@ describe('Search settings section', () => {
         await Promise.resolve();
         updateSearchSettingsMock.mockClear();
 
-        // Tavily / Exa / Firecrawl 有 keyless 匿名额度，无需先填 key 就能启用。
+        // Tavily / Exa / Firecrawl 有免费额度，默认开启，且无需先填 key。
+        for (const provider of ['tavily', 'exa', 'firecrawl']) {
+            expect(
+                wrapper
+                    .get(`[data-testid="search-provider-toggle-${provider}"]`)
+                    .attributes('aria-checked')
+            ).toBe('true');
+            expect(
+                wrapper.get(`[data-testid="search-${provider}-api-key-input"]`).classes()
+            ).not.toContain('border-red-300');
+        }
+
+        // 关掉再打开，仍然不需要 key 就能重新启用。
+        await wrapper.get('[data-testid="search-provider-toggle-tavily"]').trigger('click');
+        await vi.advanceTimersByTimeAsync(300);
+        expect(
+            wrapper.get('[data-testid="search-provider-toggle-tavily"]').attributes('aria-checked')
+        ).toBe('false');
+
+        updateSearchSettingsMock.mockClear();
         await wrapper.get('[data-testid="search-provider-toggle-tavily"]').trigger('click');
         await vi.advanceTimersByTimeAsync(300);
 
