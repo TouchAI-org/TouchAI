@@ -58,6 +58,8 @@ export interface UsageSummary {
     cacheHitRate: number;
     successRate: number;
     meanTtftMs: number | null;
+    /** 首字（首个正文，不含推理）平均耗时；无样本时为 null */
+    meanFirstTextMs: number | null;
     meanDurationMs: number | null;
     /** 平均解码速度（tok/s），样本不足时为 null */
     decodeSpeed: number | null;
@@ -284,6 +286,8 @@ export const getUsageSummary = async (
             reasoningTokens: sql<number>`coalesce(sum(${sessionTurns.reasoning_tokens}), 0)`,
             sumTtft: sql<number>`coalesce(sum(${sessionTurns.ttft_ms}), 0)`,
             ttftCount: sql<number>`count(${sessionTurns.ttft_ms})`,
+            sumFirstText: sql<number>`coalesce(sum(${sessionTurns.first_text_ms}), 0)`,
+            firstTextCount: sql<number>`count(${sessionTurns.first_text_ms})`,
             sumDuration: sql<number>`coalesce(sum(${sessionTurns.duration_ms}), 0)`,
             durationCount: sql<number>`count(${sessionTurns.duration_ms})`,
             sessionCount: sql<number>`count(distinct ${sessionTurns.session_id})`,
@@ -305,6 +309,9 @@ export const getUsageSummary = async (
     const meanDurationMs =
         durationCount > 0 ? Math.round((row?.sumDuration ?? 0) / durationCount) : null;
     const meanTtftMs = ttftCount > 0 ? Math.round((row?.sumTtft ?? 0) / ttftCount) : null;
+    const firstTextCount = row?.firstTextCount ?? 0;
+    const meanFirstTextMs =
+        firstTextCount > 0 ? Math.round((row?.sumFirstText ?? 0) / firstTextCount) : null;
 
     return {
         requestCount,
@@ -326,6 +333,7 @@ export const getUsageSummary = async (
         cacheHitRate: computeCacheHitRate(inputTokens, cacheReadTokens, cacheWriteTokens),
         successRate: requestCount > 0 ? successCount / requestCount : 0,
         meanTtftMs,
+        meanFirstTextMs,
         meanDurationMs,
         // 粗算解码速度：输出 token / 总耗时。精确值需要 flowMs，
         // 但回合级没有该字段；UI 上标注为「≈」。

@@ -18,16 +18,14 @@
 
     /** 只列前若干名，其余折进「其他」，避免长列表淹没页面 */
     const MAX_ROWS = 8;
+    /** 环图最多展示的分类数（含「其他」） */
+    const MAX_RING = 5;
 
     const rows = computed(() => props.stats.byTool.slice(0, MAX_ROWS));
 
     const hiddenCount = computed(() => Math.max(0, props.stats.byTool.length - MAX_ROWS));
 
     /** 分母是调用总数，与卡片里的数字口径一致 */
-    function shareOf(count: number): number {
-        return props.stats.totalCount > 0 ? count / props.stats.totalCount : 0;
-    }
-
     function errorRateOf(count: number, errorCount: number): number {
         return count > 0 ? errorCount / count : 0;
     }
@@ -40,9 +38,61 @@
         return name;
     }
 
-    function kindLabel(kind: 'builtin' | 'mcp'): string {
-        return kind === 'mcp' ? t('settings.usage.tools.mcp') : t('settings.usage.tools.builtin');
-    }
+    /** 环形几何：与 Token/耗时构成保持一致 */
+    const RING = 128;
+    const R = 32;
+    const STROKE = 8;
+    const CIRCUMFERENCE = 2 * Math.PI * R;
+
+    /** 与趋势图、构成环共用同一套色板 */
+    const PALETTE = [
+        'rgb(63 63 70)',
+        'rgb(14 165 233)',
+        'rgb(16 185 129)',
+        'rgb(245 158 11)',
+        'rgb(139 92 246)',
+        'rgb(236 72 153)',
+    ];
+    const OTHER_COLOR = 'rgb(212 212 212)';
+
+    /**
+     * 按调用次数占比拆成环。
+     *
+     * 只取前 N 名，其余合并为「其他」：色板只有 6 色，再多就分不清了。
+     */
+    const ringSlices = computed(() => {
+        const ranked = [...props.stats.byTool].sort((left, right) => right.count - left.count);
+        const head = ranked.slice(0, MAX_RING);
+        const tail = ranked.slice(MAX_RING);
+        const total = props.stats.totalCount || 1;
+
+        const entries = head.map((tool, index) => ({
+            name: displayName(tool.name),
+            value: tool.count,
+            color: PALETTE[index % PALETTE.length]!,
+        }));
+        if (tail.length > 0) {
+            entries.push({
+                name: t('settings.usage.chart.other'),
+                value: tail.reduce((sum, tool) => sum + tool.count, 0),
+                color: OTHER_COLOR,
+            });
+        }
+
+        let consumed = 0;
+        return entries.map((entry) => {
+            const ratio = entry.value / total;
+            const length = ratio * CIRCUMFERENCE;
+            const slice = {
+                ...entry,
+                ratio,
+                dash: `${length.toFixed(2)} ${(CIRCUMFERENCE - length).toFixed(2)}`,
+                offset: -consumed,
+            };
+            consumed += length;
+            return slice;
+        });
+    });
 </script>
 
 <template>
@@ -113,77 +163,114 @@
                 </div>
             </div>
 
-            <!-- 工具列表：同样用留白隔开，不用分割线 -->
-            <div class="space-y-2">
-                <div
-                    class="flex items-center gap-4 px-4 text-[11px] text-neutral-400"
-                    aria-hidden="true"
-                >
-                    <span class="min-w-0 flex-1">
-                        {{ t('settings.usage.tools.column.tool') }}
-                    </span>
-                    <span class="w-16 shrink-0 text-right">
-                        {{ t('settings.usage.tools.column.calls') }}
-                    </span>
-                    <span class="w-14 shrink-0 text-right">
-                        {{ t('settings.usage.tools.column.share') }}
-                    </span>
-                    <span class="w-16 shrink-0 text-right">
-                        {{ t('settings.usage.tools.column.errorRate') }}
-                    </span>
-                    <span class="w-16 shrink-0 text-right">
-                        {{ t('settings.usage.tools.column.duration') }}
-                    </span>
+            <!-- 环图 + 明细：与 Token/耗时构成同一套读法，明细用独立小块而不是分割线 -->
+            <div
+                class="flex flex-col gap-5 rounded-[11px] bg-neutral-50/80 p-4 lg:flex-row lg:items-center"
+            >
+                <div class="flex shrink-0 items-center gap-5">
+                    <div class="relative">
+                        <svg
+                            :viewBox="`0 0 ${RING} ${RING}`"
+                            class="h-28 w-28 -rotate-90"
+                            role="img"
+                            :aria-label="t('settings.usage.tools.title')"
+                        >
+                            <circle
+                                :cx="RING / 2"
+                                :cy="RING / 2"
+                                :r="R"
+                                fill="none"
+                                stroke="currentColor"
+                                class="text-neutral-200/70"
+                                :stroke-width="STROKE"
+                            />
+                            <circle
+                                v-for="slice in ringSlices"
+                                :key="slice.name"
+                                :cx="RING / 2"
+                                :cy="RING / 2"
+                                :r="R"
+                                fill="none"
+                                :stroke="slice.color"
+                                :stroke-width="STROKE"
+                                :stroke-dasharray="slice.dash"
+                                :stroke-dashoffset="slice.offset"
+                            />
+                        </svg>
+                        <div
+                            class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
+                        >
+                            <span
+                                class="max-w-[66px] truncate text-center font-serif text-[14px] leading-tight font-semibold text-neutral-950 tabular-nums"
+                            >
+                                {{ formatInt(stats.totalCount) }}
+                            </span>
+                            <span class="mt-1 text-[10px] text-neutral-400">
+                                {{ t('settings.usage.tools.total') }}
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="min-w-0 space-y-1.5">
+                        <div
+                            v-for="slice in ringSlices"
+                            :key="slice.name"
+                            class="flex items-baseline gap-2 text-[12px]"
+                        >
+                            <span
+                                class="h-1.5 w-1.5 shrink-0 rounded-full"
+                                :style="{ backgroundColor: slice.color }"
+                                aria-hidden="true"
+                            />
+                            <span class="min-w-0 flex-1 truncate text-neutral-700">
+                                {{ slice.name }}
+                            </span>
+                            <span class="shrink-0 font-medium text-neutral-900 tabular-nums">
+                                {{ formatPercent(slice.ratio) }}
+                            </span>
+                        </div>
+                    </div>
                 </div>
 
-                <div
-                    v-for="row in rows"
-                    :key="row.name"
-                    data-testid="settings-usage-tool-row"
-                    class="flex items-center gap-4 rounded-[10px] bg-neutral-50/80 px-4 py-2.5"
-                >
-                    <div class="flex min-w-0 flex-1 items-center gap-2">
-                        <span class="truncate text-[12.5px] text-neutral-900" :title="row.name">
+                <div class="min-w-0 flex-1 space-y-1.5">
+                    <div
+                        v-for="row in rows"
+                        :key="row.name"
+                        data-testid="settings-usage-tool-row"
+                        class="flex items-center gap-3 rounded-[9px] bg-white/70 px-3 py-1.5"
+                    >
+                        <span
+                            class="min-w-0 flex-1 truncate text-[12px] text-neutral-900"
+                            :title="row.name"
+                        >
                             {{ displayName(row.name) }}
                         </span>
+                        <span class="shrink-0 text-[12px] text-neutral-500 tabular-nums">
+                            {{ formatInt(row.count) }}
+                        </span>
                         <span
-                            class="shrink-0 rounded bg-neutral-200/60 px-1.5 py-0.5 text-[10px] text-neutral-500"
+                            :class="[
+                                'w-14 shrink-0 text-right text-[12px] tabular-nums',
+                                row.errorCount > 0 ? 'text-red-600' : 'text-neutral-500',
+                            ]"
                         >
-                            {{ kindLabel(row.kind) }}
+                            {{ formatPercent(errorRateOf(row.count, row.errorCount)) }}
+                        </span>
+                        <span
+                            class="w-14 shrink-0 text-right text-[12px] text-neutral-500 tabular-nums"
+                        >
+                            {{ formatDuration(row.meanDurationMs) }}
                         </span>
                     </div>
-                    <span
-                        class="w-16 shrink-0 text-right text-[12.5px] text-neutral-600 tabular-nums"
-                    >
-                        {{ formatInt(row.count) }}
-                    </span>
-                    <span
-                        class="w-14 shrink-0 text-right text-[12.5px] text-neutral-600 tabular-nums"
-                    >
-                        {{ formatPercent(shareOf(row.count)) }}
-                    </span>
-                    <span
-                        :class="[
-                            'w-16 shrink-0 text-right text-[12.5px] tabular-nums',
-                            row.errorCount > 0 ? 'text-red-600' : 'text-neutral-600',
-                        ]"
-                    >
-                        {{ formatPercent(errorRateOf(row.count, row.errorCount)) }}
-                    </span>
-                    <span
-                        class="w-16 shrink-0 text-right text-[12.5px] text-neutral-600 tabular-nums"
-                    >
-                        {{ formatDuration(row.meanDurationMs) }}
-                    </span>
-                </div>
 
-                <p
-                    v-if="hiddenCount > 0"
-                    class="px-4 text-[11px] text-neutral-400"
-                    data-testid="settings-usage-tools-more"
-                >
-                    {{ t('settings.usage.tools.more', { count: hiddenCount }) }}
-                </p>
+                    <p
+                        v-if="hiddenCount > 0"
+                        class="px-3 text-[11px] text-neutral-400"
+                        data-testid="settings-usage-tools-more"
+                    >
+                        {{ t('settings.usage.tools.more', { count: hiddenCount }) }}
+                    </p>
+                </div>
             </div>
         </template>
     </section>

@@ -74,7 +74,10 @@
 </script>
 
 <template>
-    <section class="space-y-3" :data-testid="`settings-usage-ranking-${metric}`">
+    <section
+        class="flex h-full min-h-0 flex-col gap-3"
+        :data-testid="`settings-usage-ranking-${metric}`"
+    >
         <div class="flex items-center justify-between gap-3">
             <h2 class="settings-section-title">{{ title }}</h2>
 
@@ -97,14 +100,14 @@
             </div>
         </div>
 
-        <div class="rounded-[11px] bg-neutral-50/80 p-4">
+        <div class="flex min-h-0 flex-1 flex-col rounded-[11px] bg-neutral-50/80 p-4">
             <div v-if="items.length === 0" class="py-8 text-center">
                 <span class="text-xs text-neutral-400">{{ t('settings.usage.group.empty') }}</span>
             </div>
 
             <!--
-                两边共用「最大高度」而不是固定高度：
-                只有一行数据时不该占满整块，多了又能滚起来。
+                两列等高：外层 grid 拉伸拉平卡片高度（items-stretch 默认），
+                内层再 max-h + 滚动，只有超出时才出现滚动条。
             -->
             <div
                 v-else

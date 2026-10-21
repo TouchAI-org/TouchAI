@@ -1,5 +1,3 @@
-<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
-
 <script setup lang="ts">
     /**
      * 用量页的骨架屏。
@@ -7,17 +5,27 @@
      * 不用全局 `LoadingState`：那个组件把品牌动画居中放在整块区域里，
      * 在内容密集的页面上会显得突兀，也让布局在加载完成时跳一下。
      *
-     * 骨架必须与真实结构一一对应——卡片数量、每块的高度、是否灰底、
-     * 小标题在卡外还是在卡内，都要和加载完成后一致，否则会出现可见的跳位。
-     * 真实页面的顺序：仪表盘 → 趋势 → 构成 → 工具调用 → 排行 → 热力图。
+     * 每块高度不再手写：真实内容渲染后会量出各块高度并缓存，
+     * 这里直接套用（`blockHeights`），所以改字号、加卡片都不会让骨架跑偏。
+     * 首次访问没有缓存时退回自身内容撑开。
      */
     defineOptions({ name: 'UsageSkeleton' });
+
+    const props = withDefaults(defineProps<{ blockHeights?: number[] }>(), {
+        blockHeights: () => [],
+    });
+
+    /** 第 index 块的最小高度；没有量测值时不限制 */
+    function minHeightOf(index: number): string | undefined {
+        const height = props.blockHeights[index];
+        return height && height > 0 ? `${height}px` : undefined;
+    }
 </script>
 
 <template>
     <div class="settings-section-stack" data-testid="settings-usage-skeleton" aria-hidden="true">
         <!-- 仪表盘：六张主卡 + 次级小卡 + 曲线（顶部没有标题行） -->
-        <div class="min-h-[415px] space-y-3 pb-1">
+        <div class="space-y-3 pb-1" :style="{ minHeight: minHeightOf(0) }">
             <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 <div
                     v-for="index in 6"
@@ -51,7 +59,7 @@
         </div>
 
         <!-- 使用趋势与分布：小标题在卡外，卡内是柱状图 + 居中图例 -->
-        <div class="min-h-[278px] space-y-3">
+        <div class="space-y-3" :style="{ minHeight: minHeightOf(1) }">
             <div class="flex items-center justify-between gap-2">
                 <div class="h-4 w-28 animate-pulse rounded bg-neutral-200/70" />
                 <div class="h-6 w-56 animate-pulse rounded bg-neutral-200/50" />
@@ -69,7 +77,7 @@
         </div>
 
         <!-- Token 构成与耗时构成：两张并排的环图卡 -->
-        <div class="grid min-h-[374px] grid-cols-1 gap-3 xl:grid-cols-2">
+        <div class="grid grid-cols-1 gap-3 xl:grid-cols-2" :style="{ minHeight: minHeightOf(2) }">
             <div v-for="index in 2" :key="index" class="space-y-3">
                 <div class="flex items-baseline justify-between gap-2">
                     <div class="h-4 w-20 animate-pulse rounded bg-neutral-200/70" />
@@ -92,7 +100,7 @@
         </div>
 
         <!-- 工具调用：标题 + 描述，卡内四个指标 + 表格 -->
-        <div class="min-h-[335px] space-y-3">
+        <div class="space-y-3" :style="{ minHeight: minHeightOf(3) }">
             <div class="space-y-2">
                 <div class="h-4 w-16 animate-pulse rounded bg-neutral-200/70" />
                 <div class="h-2.5 w-64 animate-pulse rounded bg-neutral-200/50" />
@@ -120,7 +128,7 @@
         </div>
 
         <!-- 模型与会话排行：小标题在卡外，两张并排 -->
-        <div class="grid min-h-[115px] grid-cols-1 gap-3 lg:grid-cols-2">
+        <div class="grid grid-cols-1 gap-3 lg:grid-cols-2" :style="{ minHeight: minHeightOf(4) }">
             <div v-for="index in 2" :key="index" class="space-y-2">
                 <div class="flex items-center justify-between gap-3">
                     <div class="h-4 w-16 animate-pulse rounded bg-neutral-200/70" />
@@ -141,7 +149,7 @@
         </div>
 
         <!-- 使用热力图：短区间是小时×日期，这里按一行高铺开 -->
-        <div class="min-h-[149px] space-y-3">
+        <div class="space-y-3" :style="{ minHeight: minHeightOf(5) }">
             <div class="flex items-baseline justify-between gap-2">
                 <div class="h-4 w-20 animate-pulse rounded bg-neutral-200/70" />
                 <div class="h-2.5 w-40 animate-pulse rounded bg-neutral-200/50" />

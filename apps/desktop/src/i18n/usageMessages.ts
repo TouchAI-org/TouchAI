@@ -89,6 +89,8 @@ export const usageMessagesZhCN = {
     'settings.usage.metric.reasoning': '其中推理',
     'settings.usage.metric.ttft': '平均首字',
     'settings.usage.metric.ttftNote': '首 token 延迟',
+    'settings.usage.metric.firstText': '首字耗时',
+    'settings.usage.metric.firstTextNote': '首个正文出现，不含推理',
     'settings.usage.metric.unpriced': '{count} 次调用未定价',
 
     // 趋势
@@ -126,10 +128,13 @@ export const usageMessagesZhCN = {
     'settings.usage.dashboardHistoryTitle': '用量概览',
     'settings.usage.dashboardCurveTitle': '消耗 Token',
     'settings.usage.curve.liveWindow': '最近 1 分钟',
+    'settings.usage.curve.liveSpeed': '实时速度',
+    'settings.usage.curve.avgSpeed': '平均速度',
+    'settings.usage.curve.sessionCount': '{count} 个会话',
 
     // 排行
-    'settings.usage.ranking.modelTitle': '模型',
-    'settings.usage.ranking.sessionTitle': '最耗会话',
+    'settings.usage.ranking.modelTitle': '模型排行',
+    'settings.usage.ranking.sessionTitle': '会话排行',
     'settings.usage.ranking.metric.tokens': 'Tokens',
     'settings.usage.ranking.metric.cost': '费用',
     'settings.usage.ranking.metric.duration': '活跃',
@@ -352,6 +357,8 @@ export const usageMessagesEnUS = {
     'settings.usage.metric.reasoning': 'Reasoning',
     'settings.usage.metric.ttft': 'Mean first token',
     'settings.usage.metric.ttftNote': 'First-token latency',
+    'settings.usage.metric.firstText': 'First text',
+    'settings.usage.metric.firstTextNote': 'First visible text, excluding reasoning',
     'settings.usage.metric.unpriced': '{count} calls unpriced',
 
     'settings.usage.chart.title': 'Trend and breakdown',
@@ -379,8 +386,11 @@ export const usageMessagesEnUS = {
     'settings.usage.dashboardHistoryTitle': 'Usage overview',
     'settings.usage.dashboardCurveTitle': 'Tokens used',
     'settings.usage.curve.liveWindow': 'last minute',
+    'settings.usage.curve.liveSpeed': 'live',
+    'settings.usage.curve.avgSpeed': 'average',
+    'settings.usage.curve.sessionCount': '{count} sessions',
 
-    'settings.usage.ranking.modelTitle': 'Models',
+    'settings.usage.ranking.modelTitle': 'Top models',
     'settings.usage.ranking.sessionTitle': 'Top sessions',
     'settings.usage.ranking.metric.tokens': 'Tokens',
     'settings.usage.ranking.metric.cost': 'Cost',

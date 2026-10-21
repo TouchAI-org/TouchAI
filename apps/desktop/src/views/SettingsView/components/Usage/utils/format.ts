@@ -3,29 +3,59 @@
 import { getLocale, t } from '@/i18n';
 
 /**
+ * 中文界面的金额换算汇率。
+ *
+ * 定价源（models.dev）只给美元，库里存的也是美元微元，这里不改库、不改写入，
+ * 只在展示时按当前语言换汇：中文看人民币更直观。汇率是固定值而不是实时汇率，
+ * 只是量级参考，因此文案里已经写明「基于官方价格估算」。
+ */
+export const USD_TO_CNY = 7.2;
+
+/** 当前语言下应使用的币种 */
+function activeCurrency(): string {
+    return getLocale() === 'zh-CN' ? 'CNY' : 'USD';
+}
+
+/** 美元微元 → 当前语言下金额的数值 */
+function convertMicros(micros: number): number {
+    const usd = micros / 1_000_000;
+    return getLocale() === 'zh-CN' ? usd * USD_TO_CNY : usd;
+}
+
+/**
  * 金额：微元 → 本地化货币字符串。
  *
- * 默认 USD 是因为唯一的定价源（models.dev）以美元报价，
- * `computeCost` 也就把 `USD` 写进了每条调用记录。
- * 这里若默认 CNY，等于把 $3 的调用显示成 ¥3。
+ * 库里存的是美元微元（定价源只给美元）。展示时按语言选择币种：
+ * 中文换汇成人民币，英文保持美元。
  *
- * `narrowSymbol` 让中文界面显示 `$1.70` 而不是 `US$1.70`：
+ * `narrowSymbol` 让中文界面显示 `¥1.70` 而不是 `CN¥1.70`：
  * 币种已在标题里说明，再带国家前缀属于冗余。
  */
-export function formatCost(micros: number, currency = 'USD'): string {
-    const amount = micros / 1_000_000;
+export function formatCost(micros: number, currency = activeCurrency()): string {
     return new Intl.NumberFormat(getLocale(), {
         style: 'currency',
         currency,
         currencyDisplay: 'narrowSymbol',
         minimumFractionDigits: 2,
         maximumFractionDigits: 4,
-    }).format(amount);
+    }).format(convertMicros(micros));
 }
 
 /** 金额（紧凑形式，用于图表轴与卡片） */
-export function formatCostCompact(micros: number, currency = 'USD'): string {
-    const amount = micros / 1_000_000;
+export function formatCostCompact(micros: number, currency = activeCurrency()): string {
+    const amount = convertMicros(micros);
+    if (getLocale() === 'zh-CN') {
+        const symbol = new Intl.NumberFormat(getLocale(), {
+            style: 'currency',
+            currency,
+            currencyDisplay: 'narrowSymbol',
+        })
+            .formatToParts(0)
+            .find((part) => part.type === 'currency')?.value;
+        if (amount >= 100_000_000) return `${symbol}${(amount / 100_000_000).toFixed(1)}亿`;
+        if (amount >= 10_000) return `${symbol}${(amount / 10_000).toFixed(1)}万`;
+        if (amount >= 1000) return `${symbol}${amount.toFixed(1)}k`;
+    }
     if (amount >= 1000) {
         return new Intl.NumberFormat(getLocale(), {
             style: 'currency',

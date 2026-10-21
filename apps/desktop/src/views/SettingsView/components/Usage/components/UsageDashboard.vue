@@ -12,7 +12,7 @@
         eventService,
         type SessionTaskUsageProgressEvent,
     } from '@services/EventService';
-    import { computed, onMounted, onUnmounted, ref } from 'vue';
+    import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
 
@@ -190,6 +190,13 @@
                 key: 'ttft',
                 label: t('settings.usage.metric.ttft'),
                 value: formatDuration(value.meanTtftMs),
+                note: t('settings.usage.metric.ttftNote'),
+            },
+            {
+                key: 'ttftP90',
+                label: t('settings.usage.metric.firstText'),
+                value: formatDuration(value.meanFirstTextMs ?? null),
+                note: t('settings.usage.metric.firstTextNote'),
             },
             { key: 'rpm', label: t('settings.usage.metric.rpm'), value: averageRpm.value },
         ];
@@ -209,6 +216,20 @@
      * 放在同一个时间尺度上永远是平的。切换时标题会同步变化，不让读者误解。
      */
     const liveMode = computed(() => liveSamples.value.length > 0);
+
+    /**
+     * 窗口长度做一次短过渡：从区间宽度骤变到 1 分钟时，
+     * 曲线不会瞬间跳形，而是“收窄”过去，让用户看出尺度变了。
+     * 用 prop 驱动的 CSS transition 实现，不引入动画库。
+     */
+    const windowTransitioning = ref(false);
+
+    watch(liveMode, () => {
+        windowTransitioning.value = true;
+        setTimeout(() => {
+            windowTransitioning.value = false;
+        }, 600);
+    });
 
     const curve = computed(() =>
         liveMode.value
@@ -246,6 +267,20 @@
     const peakValue = computed(() =>
         geometry.value.reduce((max, point) => Math.max(max, point.value), 0)
     );
+
+    /**
+     * 吞吐显示：有流时用实时速度，空闲时用区间平均速度。
+     *
+     * 空闲时如果什么都不显示，右上角就空着，读者也不知道这一整段时间快不快；
+     * `decodeSpeed` 是「输出 token / 平均耗时」，正好回答这个问题。
+     */
+    const speedDisplay = computed(() => {
+        const value = anyStreaming.value
+            ? aggregate.value.speed
+            : (summary.value?.decodeSpeed ?? null);
+        if (value === null || !Number.isFinite(value) || value <= 0) return '—';
+        return value.toFixed(1);
+    });
     const areaPath = computed(() => {
         const first = geometry.value[0];
         const last = geometry.value[geometry.value.length - 1];
@@ -354,12 +389,13 @@
 
         <div
             v-if="secondaryMetrics.length"
-            class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6"
+            class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-7"
         >
             <div
                 v-for="item in secondaryMetrics"
                 :key="item.key"
                 :data-testid="`settings-usage-metric-${item.key}`"
+                :title="item.note"
                 class="flex min-w-0 flex-col gap-0.5 rounded-[9px] bg-neutral-50/60 px-3 py-2"
             >
                 <span class="truncate text-[11px] text-neutral-500">{{ item.label }}</span>
@@ -384,33 +420,23 @@
                     </span>
                 </div>
 
-                <!-- 有流时右上角给吞吐与路数；无流时只留一个安静的状态点 -->
+                <!-- 右上角始终给吞吐：有流时是实时值，空闲时是区间平均值 -->
                 <div class="flex flex-col items-end gap-0.5">
-                    <div v-if="anyStreaming" class="flex items-baseline gap-1.5">
+                    <div class="flex items-baseline gap-1.5">
                         <span
-                            class="font-serif text-[22px] leading-none font-semibold text-neutral-950 tabular-nums"
+                            class="font-serif text-[22px] leading-none font-semibold tabular-nums"
+                            :class="anyStreaming ? 'text-neutral-950' : 'text-neutral-400'"
                         >
-                            {{ aggregate.speed === null ? '—' : aggregate.speed.toFixed(1) }}
+                            {{ speedDisplay }}
                         </span>
                         <span class="text-[11px] text-neutral-400">tok/s</span>
                     </div>
-                    <span
-                        class="flex items-center gap-1.5 text-[11px]"
-                        :class="anyStreaming ? 'text-neutral-600' : 'text-neutral-400'"
-                    >
-                        <span
-                            class="h-1.5 w-1.5 rounded-full"
-                            :class="anyStreaming ? 'animate-pulse bg-sky-500' : 'bg-neutral-300'"
-                            aria-hidden="true"
-                        />
-                        <template v-if="anyStreaming">
-                            {{
-                                t('settings.usage.live.activeSessions', {
-                                    count: aggregate.activeCount,
-                                })
-                            }}
-                        </template>
-                        <template v-else>{{ t('settings.usage.live.idle') }}</template>
+                    <span class="text-[10px] text-neutral-400">
+                        {{
+                            anyStreaming
+                                ? t('settings.usage.curve.liveSpeed')
+                                : t('settings.usage.curve.avgSpeed')
+                        }}
                     </span>
                 </div>
             </div>
@@ -422,7 +448,21 @@
                 role="img"
                 :aria-label="t('settings.usage.dashboardCurveTitle')"
             >
-                <!-- 基线：让“贴底”也有参照，不至于看不出零在哪 -->
+                <!-- 峰值刻度与零线：只看形状无法读出量级 -->
+                <text :x="4" :y="11" class="fill-neutral-400" font-size="10">
+                    {{ formatTokensCompact(peakValue) }}
+                </text>
+                <text :x="4" :y="HEIGHT - 6" class="fill-neutral-300" font-size="9">0</text>
+                <line
+                    :x1="4"
+                    :x2="WIDTH - 4"
+                    :y1="9"
+                    :y2="9"
+                    stroke="currentColor"
+                    class="text-neutral-200/70"
+                    stroke-width="1"
+                    stroke-dasharray="2 3"
+                />
                 <line
                     :x1="4"
                     :x2="WIDTH - 4"
@@ -433,41 +473,65 @@
                     stroke-width="1"
                 />
 
-                <path :d="areaPath" fill="currentColor" class="text-sky-500/10" />
+                <path
+                    :d="areaPath"
+                    fill="currentColor"
+                    class="text-sky-500/10"
+                    :class="windowTransitioning ? 'opacity-40' : 'opacity-100'"
+                    style="transition: opacity 300ms ease-out"
+                />
                 <path
                     :d="linePath"
                     fill="none"
                     stroke="currentColor"
-                    class="text-sky-500"
+                    class="text-sky-500 transition-all duration-500 ease-out"
                     stroke-width="1.6"
                     stroke-linejoin="round"
                     stroke-linecap="round"
                 />
-
-                <!-- 峰值标注：给出刻度，否则只看形状无法读出量级 -->
-                <text :x="4" :y="10" class="fill-neutral-400" font-size="9">
-                    {{ formatTokensCompact(peakValue) }}
-                </text>
 
                 <circle
                     :cx="geometry[geometry.length - 1]!.x"
                     :cy="geometry[geometry.length - 1]!.y"
                     r="2.5"
                     fill="currentColor"
-                    class="text-sky-500"
+                    class="text-sky-500 transition-all duration-500 ease-out"
                 />
 
                 <!-- 尾端当前值，跟随末端点 -->
                 <text
                     :x="Math.min(WIDTH - 4, geometry[geometry.length - 1]!.x + 6)"
-                    :y="Math.max(12, geometry[geometry.length - 1]!.y - 4)"
+                    :y="Math.max(14, geometry[geometry.length - 1]!.y - 4)"
                     :text-anchor="geometry[geometry.length - 1]!.x > WIDTH - 60 ? 'end' : 'start'"
-                    class="fill-sky-600 font-medium"
+                    class="fill-sky-600 font-medium transition-all duration-500 ease-out"
                     font-size="10"
                 >
                     {{ formatTokensCompact(geometry[geometry.length - 1]!.value) }}
                 </text>
             </svg>
+
+            <!-- 左下角：会话数（有流时是活跃路数，空闲时是区间会话数） -->
+            <div class="mt-1 flex items-center gap-1.5 text-[11px] text-neutral-500">
+                <span
+                    class="h-1.5 w-1.5 rounded-full"
+                    :class="anyStreaming ? 'animate-pulse bg-sky-500' : 'bg-neutral-300'"
+                    aria-hidden="true"
+                />
+                <span v-if="anyStreaming">
+                    {{
+                        t('settings.usage.live.activeSessions', {
+                            count: aggregate.activeCount,
+                        })
+                    }}
+                </span>
+                <span v-else>
+                    {{
+                        t('settings.usage.curve.sessionCount', {
+                            count: formatInt(summary?.sessionCount ?? 0),
+                        })
+                    }}
+                </span>
+            </div>
         </div>
     </section>
 </template>

@@ -20,8 +20,9 @@
      * 所以横轴固定为周、纵轴固定为星期，由筛选只影响颜色深浅。
      */
     const WEEKS = 53;
-    const CELL = 12;
-    const STEP = 16;
+    /** 格子放大到 16px：之前 12px 加上 9px 字号连正常距离都看不清 */
+    const CELL = 16;
+    const STEP = 21;
     const WEEKDAYS = 7;
 
     /** 按日聚合（查询按小时返回，这里合并） */
@@ -153,16 +154,21 @@
     });
 
     const width = computed(() => WEEKS * STEP);
-    const height = computed(() => WEEKDAYS * STEP + 18);
+    const height = computed(() => WEEKDAYS * STEP + 22);
 
-    /** 宽度随容器缩放，但保持方格：只放大整体 viewBox */
+    /**
+     * 宽度驱动：容器够宽时按比例放大整幅图（包括字号与格子）。
+     * 用 viewBox 缩放而不是拉伸 svg：保持方格不被拉成矩形。
+     */
     const containerRef = ref<HTMLElement | null>(null);
     const containerWidth = ref(0);
-    const scale = computed(() => {
-        const available = containerWidth.value - 44;
-        if (available <= 0) return 1;
-        return Math.max(1, available / width.value);
+    const naturalWidth = computed(() => 50 + width.value);
+    const renderWidth = computed(() => {
+        if (containerWidth.value <= 0) return naturalWidth.value;
+        // 不超过天然尺寸的 1.35 倍，再大就失去密度的感觉了
+        return Math.min(naturalWidth.value * 1.35, containerWidth.value - 2);
     });
+    const renderHeight = computed(() => (renderWidth.value / naturalWidth.value) * height.value);
 
     let observer: ResizeObserver | null = null;
     onMounted(() => {
@@ -198,19 +204,20 @@
         <div class="rounded-[11px] bg-neutral-50/80 p-4">
             <div ref="containerRef" class="overflow-x-auto">
                 <svg
-                    :viewBox="`0 0 ${44 + width} ${height}`"
-                    class="block w-full"
-                    :style="{ height: `${Math.round(height * scale)}px` }"
+                    :viewBox="`0 0 ${naturalWidth} ${height}`"
+                    :width="renderWidth"
+                    :height="renderHeight"
+                    class="block max-w-full"
                     role="img"
                     :aria-label="t('settings.usage.heatmap.title')"
                 >
                     <text
                         v-for="label in monthLabels"
                         :key="`m-${label.column}`"
-                        :x="44 + label.column * STEP"
-                        y="9"
-                        class="fill-neutral-400"
-                        font-size="9"
+                        :x="50 + label.column * STEP"
+                        y="12"
+                        class="fill-neutral-500"
+                        font-size="11"
                     >
                         {{ label.text }}
                     </text>
@@ -218,16 +225,16 @@
                     <text
                         v-for="label in rowLabels"
                         :key="`r-${label.row}`"
-                        :x="38"
-                        :y="18 + label.row * STEP + CELL * 0.8"
+                        :x="44"
+                        :y="24 + label.row * STEP + CELL * 0.78"
                         text-anchor="end"
-                        class="fill-neutral-400"
-                        font-size="9"
+                        class="fill-neutral-500"
+                        font-size="11"
                     >
                         {{ label.text }}
                     </text>
 
-                    <g transform="translate(44, 18)">
+                    <g transform="translate(50, 24)">
                         <rect
                             v-for="cell in cells"
                             :key="cell.day"
@@ -236,7 +243,7 @@
                             :y="cell.row * STEP"
                             :width="CELL"
                             :height="CELL"
-                            rx="2.5"
+                            rx="3"
                             :class="
                                 cell.future ? 'fill-transparent' : LEVEL_FILL[levelOf(cell.tokens)]
                             "

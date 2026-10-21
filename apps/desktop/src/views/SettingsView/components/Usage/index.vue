@@ -38,6 +38,7 @@
     import UsageToolbar from './components/UsageToolbar.vue';
     import UsageToolStats from './components/UsageToolStats.vue';
     import { resolveUsageRange } from './utils/usageRange';
+    import { useMeasuredBlockHeights } from './utils/useMeasuredBlockHeights';
 
     defineOptions({ name: 'SettingsUsageSection' });
 
@@ -84,6 +85,14 @@
     let unlistenTaskStatus: (() => void) | null = null;
     let loadVersion = 0;
     let disposed = false;
+
+    /** 真实内容容器：量测各块高度给骨架用 */
+    const contentRef = ref<HTMLElement | null>(null);
+    const { heights: blockHeights } = useMeasuredBlockHeights(contentRef, {
+        key: 'usage',
+        // 布局改动较大时递增，旧量测值自动作废
+        version: 3,
+    });
 
     const filter = computed<UsageFilter>(() => {
         const base = resolveUsageRange(preset.value);
@@ -251,68 +260,71 @@
             </div>
 
             <!-- 骨架屏而不是全局跑马灯：保持与真实内容一致的骨架，加载完成不跳位 -->
-            <UsageSkeleton v-else-if="loading && !summary" />
+            <UsageSkeleton v-else-if="loading && !summary" :block-heights="blockHeights" />
 
             <template v-else-if="summary">
-                <UsageDashboard
-                    :summary="summary"
-                    :trend="trend.points"
-                    :bucket="trend.bucket"
-                    :live-turns="liveTurns"
-                    :range="{ preset, ...loadedRange }"
-                    @track-tasks="trackTasks"
-                />
-
-                <div
-                    v-if="summary.requestCount === 0"
-                    class="settings-row-group px-5 py-16 text-center"
-                    data-testid="settings-usage-empty"
-                >
-                    <p class="text-sm text-neutral-500">{{ t('settings.usage.empty.title') }}</p>
-                    <p class="mt-1 text-xs text-neutral-400">
-                        {{ t('settings.usage.empty.body') }}
-                    </p>
-                </div>
-
-                <template v-else>
-                    <UsageChart
-                        :points="trend.points"
+                <div ref="contentRef" class="settings-section-stack">
+                    <UsageDashboard
+                        :summary="summary"
+                        :trend="trend.points"
                         :bucket="trend.bucket"
-                        :dimension="dimension"
-                        :loading="composition === null"
-                        @update:dimension="dimension = $event"
+                        :live-turns="liveTurns"
+                        :range="{ preset, ...loadedRange }"
+                        @track-tasks="trackTasks"
                     />
 
-                    <UsageComposition v-if="composition" :composition="composition" />
-
-                    <UsageToolStats
-                        v-if="toolStats.totalCount > 0 || !loading"
-                        :stats="toolStats"
-                    />
-
-                    <!-- 两个排行并排一行；窄屏自动堆叠 -->
-                    <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                        <UsageRanking
-                            :title="t('settings.usage.ranking.modelTitle')"
-                            :items="modelRanking"
-                            :metric="modelRankMetric"
-                            :loading="loading"
-                            @update:metric="modelRankMetric = $event"
-                        />
-                        <UsageRanking
-                            :title="t('settings.usage.ranking.sessionTitle')"
-                            :items="sessionRanking"
-                            :metric="sessionRankMetric"
-                            supports-duration
-                            :loading="loading"
-                            @update:metric="sessionRankMetric = $event"
-                        />
+                    <div
+                        v-if="summary.requestCount === 0"
+                        class="settings-row-group px-5 py-16 text-center"
+                        data-testid="settings-usage-empty"
+                    >
+                        <p class="text-sm text-neutral-500">
+                            {{ t('settings.usage.empty.title') }}
+                        </p>
+                        <p class="mt-1 text-xs text-neutral-400">
+                            {{ t('settings.usage.empty.body') }}
+                        </p>
                     </div>
 
-                    <!-- 跨度够大才画热力图：短区间已经有按小时的趋势图，这里只补日历感 -->
-                    <!-- 热力图固定展示近一年，不再跟随筛选区间，只影响深浅 -->
-                    <UsageHeatmap :days="heatmap" />
-                </template>
+                    <template v-else>
+                        <UsageChart
+                            :points="trend.points"
+                            :bucket="trend.bucket"
+                            :dimension="dimension"
+                            :loading="composition === null"
+                            @update:dimension="dimension = $event"
+                        />
+
+                        <UsageComposition v-if="composition" :composition="composition" />
+
+                        <UsageToolStats
+                            v-if="toolStats.totalCount > 0 || !loading"
+                            :stats="toolStats"
+                        />
+
+                        <!-- 两个排行并排一行；窄屏自动堆叠 -->
+                        <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                            <UsageRanking
+                                :title="t('settings.usage.ranking.modelTitle')"
+                                :items="modelRanking"
+                                :metric="modelRankMetric"
+                                :loading="loading"
+                                @update:metric="modelRankMetric = $event"
+                            />
+                            <UsageRanking
+                                :title="t('settings.usage.ranking.sessionTitle')"
+                                :items="sessionRanking"
+                                :metric="sessionRankMetric"
+                                supports-duration
+                                :loading="loading"
+                                @update:metric="sessionRankMetric = $event"
+                            />
+                        </div>
+
+                        <!-- 热力图固定展示近一年，不再跟随筛选区间，只影响深浅 -->
+                        <UsageHeatmap :days="heatmap" />
+                    </template>
+                </div>
             </template>
         </div>
     </div>
