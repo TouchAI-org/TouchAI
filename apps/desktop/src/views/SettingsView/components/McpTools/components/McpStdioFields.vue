@@ -5,6 +5,8 @@
     import { Input } from '@components/ui/input';
 
     import { t } from '@/i18n';
+
+    import KeyValueRows from './KeyValueRows.vue';
     interface Props {
         command: string;
         args: string[];
@@ -40,27 +42,8 @@
         emit('update:args', newArgs);
     };
 
-    const addEnv = () => {
-        emit('update:env', [...props.env, { key: '', value: '' }]);
-    };
-
-    const removeEnv = (index: number) => {
-        const newEnv = [...props.env];
-        newEnv.splice(index, 1);
-        emit('update:env', newEnv);
-        emit('blur');
-    };
-
-    const updateEnvKey = (index: number, key: string) => {
-        const newEnv = [...props.env];
-        newEnv[index] = { ...newEnv[index]!, key, value: newEnv[index]!.value };
-        emit('update:env', newEnv);
-    };
-
-    const updateEnvValue = (index: number, value: string) => {
-        const newEnv = [...props.env];
-        newEnv[index] = { ...newEnv[index]!, key: newEnv[index]!.key, value };
-        emit('update:env', newEnv);
+    const updateEnv = (next: { key: string; value: string }[]) => {
+        emit('update:env', next);
     };
 </script>
 
@@ -130,46 +113,13 @@
             />
         </div>
 
-        <div>
-            <div class="flex items-center justify-between">
-                <label class="block text-sm font-medium text-neutral-700">
-                    {{ t('settings.mcp.config.env') }}
-                </label>
-                <button
-                    class="text-neutral-400 transition-colors hover:text-neutral-700"
-                    @click="addEnv"
-                >
-                    <AppIcon name="plus" class="h-5 w-5" />
-                </button>
-            </div>
-            <div v-if="env.length > 0" class="mt-2 space-y-2">
-                <div v-for="(envItem, index) in env" :key="index" class="flex gap-2">
-                    <Input
-                        variant="filled"
-                        :model-value="envItem.key"
-                        type="text"
-                        class="w-1/3 px-4 py-2.5 font-mono"
-                        :placeholder="t('settings.mcp.config.envKeyPlaceholder')"
-                        @input="updateEnvKey(index, ($event.target as HTMLInputElement).value)"
-                        @blur="emit('blur')"
-                    />
-                    <Input
-                        variant="filled"
-                        :model-value="envItem.value"
-                        type="text"
-                        class="flex-1 px-4 py-2.5 font-mono"
-                        :placeholder="t('settings.mcp.config.envValuePlaceholder')"
-                        @input="updateEnvValue(index, ($event.target as HTMLInputElement).value)"
-                        @blur="emit('blur')"
-                    />
-                    <button
-                        class="text-neutral-400 transition-colors hover:text-red-600"
-                        @click="removeEnv(index)"
-                    >
-                        <AppIcon name="x" class="h-5 w-5" />
-                    </button>
-                </div>
-            </div>
-        </div>
+        <KeyValueRows
+            :rows="props.env"
+            :title="t('settings.mcp.config.env')"
+            :key-placeholder="t('settings.mcp.config.envKeyPlaceholder')"
+            :value-placeholder="t('settings.mcp.config.envValuePlaceholder')"
+            @update:rows="updateEnv"
+            @blur="emit('blur')"
+        />
     </div>
 </template>

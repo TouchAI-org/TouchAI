@@ -1,10 +1,11 @@
 ﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import AppIcon from '@components/AppIcon.vue';
     import { Input } from '@components/ui/input';
 
     import { t } from '@/i18n';
+
+    import KeyValueRows from './KeyValueRows.vue';
     interface Props {
         url: string;
         headers: { key: string; value: string }[];
@@ -19,27 +20,8 @@
     const props = defineProps<Props>();
     const emit = defineEmits<Emits>();
 
-    const addHeader = () => {
-        emit('update:headers', [...props.headers, { key: '', value: '' }]);
-    };
-
-    const removeHeader = (index: number) => {
-        const newHeaders = [...props.headers];
-        newHeaders.splice(index, 1);
-        emit('update:headers', newHeaders);
-        emit('blur');
-    };
-
-    const updateHeaderKey = (index: number, key: string) => {
-        const newHeaders = [...props.headers];
-        newHeaders[index] = { ...newHeaders[index]!, key, value: newHeaders[index]!.value };
-        emit('update:headers', newHeaders);
-    };
-
-    const updateHeaderValue = (index: number, value: string) => {
-        const newHeaders = [...props.headers];
-        newHeaders[index] = { ...newHeaders[index]!, key: newHeaders[index]!.key, value };
-        emit('update:headers', newHeaders);
+    const updateHeaders = (next: { key: string; value: string }[]) => {
+        emit('update:headers', next);
     };
 </script>
 
@@ -61,46 +43,13 @@
             />
         </div>
 
-        <div>
-            <div class="flex items-center justify-between">
-                <label class="block text-sm font-medium text-neutral-700">
-                    {{ t('settings.mcp.config.headers') }}
-                </label>
-                <button
-                    class="text-neutral-400 transition-colors hover:text-neutral-700"
-                    @click="addHeader"
-                >
-                    <AppIcon name="plus" class="h-5 w-5" />
-                </button>
-            </div>
-            <div v-if="headers.length > 0" class="mt-2 space-y-2">
-                <div v-for="(header, index) in headers" :key="index" class="flex gap-2">
-                    <Input
-                        variant="filled"
-                        :model-value="header.key"
-                        type="text"
-                        class="w-1/3 px-4 py-2.5 font-mono"
-                        :placeholder="t('settings.mcp.config.headerNamePlaceholder')"
-                        @input="updateHeaderKey(index, ($event.target as HTMLInputElement).value)"
-                        @blur="emit('blur')"
-                    />
-                    <Input
-                        variant="filled"
-                        :model-value="header.value"
-                        type="text"
-                        class="flex-1 px-4 py-2.5 font-mono"
-                        :placeholder="t('settings.mcp.config.headerValuePlaceholder')"
-                        @input="updateHeaderValue(index, ($event.target as HTMLInputElement).value)"
-                        @blur="emit('blur')"
-                    />
-                    <button
-                        class="text-neutral-400 transition-colors hover:text-red-600"
-                        @click="removeHeader(index)"
-                    >
-                        <AppIcon name="x" class="h-5 w-5" />
-                    </button>
-                </div>
-            </div>
-        </div>
+        <KeyValueRows
+            :rows="props.headers"
+            :title="t('settings.mcp.config.headers')"
+            :key-placeholder="t('settings.mcp.config.headerNamePlaceholder')"
+            :value-placeholder="t('settings.mcp.config.headerValuePlaceholder')"
+            @update:rows="updateHeaders"
+            @blur="emit('blur')"
+        />
     </div>
 </template>
