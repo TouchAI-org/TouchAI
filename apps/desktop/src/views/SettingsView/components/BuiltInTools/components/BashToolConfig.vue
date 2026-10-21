@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import { Input } from '@components/ui/input';
     import { open } from '@tauri-apps/plugin-dialog';
 
     import { t } from '@/i18n';
@@ -163,13 +164,14 @@
                         {{ t('settings.builtInTools.bash.defaultWorkingDirectory') }}
                     </label>
                     <div class="mt-1.5 flex gap-2">
-                        <input
-                            :value="modelValue.defaultWorkingDirectory"
+                        <Input
+                            variant="filled"
+                            :model-value="modelValue.defaultWorkingDirectory"
                             :disabled="disabled"
                             readonly
                             type="text"
                             spellcheck="false"
-                            class="settings-input flex-1 font-mono disabled:bg-neutral-50"
+                            class="flex-1 font-mono disabled:bg-neutral-50"
                             :placeholder="
                                 t('settings.builtInTools.bash.defaultWorkingDirectoryPlaceholder')
                             "
@@ -211,13 +213,14 @@
                             :key="index"
                             class="flex gap-2"
                         >
-                            <input
-                                :value="directory"
+                            <Input
+                                variant="filled"
+                                :model-value="directory"
                                 :disabled="disabled"
                                 readonly
                                 type="text"
                                 spellcheck="false"
-                                class="settings-input flex-1 px-4 py-2.5 font-mono disabled:bg-neutral-50"
+                                class="flex-1 px-4 py-2.5 font-mono disabled:bg-neutral-50"
                                 placeholder="D:\\Project\\TouchAI"
                             />
                             <button
@@ -252,13 +255,14 @@
                     <label class="block text-sm font-medium text-neutral-700">
                         {{ t('settings.builtInTools.bash.timeoutMs') }}
                     </label>
-                    <input
-                        :value="modelValue.timeoutMs"
+                    <Input
+                        variant="filled"
+                        :model-value="modelValue.timeoutMs"
                         :disabled="disabled"
                         type="number"
                         min="0"
                         max="120000"
-                        class="settings-input mt-1.5 w-full disabled:bg-neutral-50"
+                        class="mt-1.5 w-full disabled:bg-neutral-50"
                         @input="updateTimeoutMs"
                     />
                     <p class="mt-1 text-xs text-neutral-500">
@@ -270,13 +274,14 @@
                     <label class="block text-sm font-medium text-neutral-700">
                         {{ t('settings.builtInTools.bash.outputLimitChars') }}
                     </label>
-                    <input
-                        :value="modelValue.maxOutputChars"
+                    <Input
+                        variant="filled"
+                        :model-value="modelValue.maxOutputChars"
                         :disabled="disabled"
                         type="number"
                         min="1000"
                         max="50000"
-                        class="settings-input mt-1.5 w-full disabled:bg-neutral-50"
+                        class="mt-1.5 w-full disabled:bg-neutral-50"
                         @input="
                             patch({
                                 maxOutputChars: Number(

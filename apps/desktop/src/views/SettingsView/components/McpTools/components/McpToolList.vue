@@ -5,6 +5,7 @@
     import EmptyState from '@components/EmptyState.vue';
     import MotionCollapse from '@components/MotionCollapse.vue';
     import { Button } from '@components/ui/button';
+    import { Input } from '@components/ui/input';
     import { useListFilter } from '@composables/useListFilter';
     import { updateMcpTool } from '@database/queries';
     import type { McpServerEntity, McpToolEntity } from '@database/types';
@@ -155,11 +156,12 @@
 
                 <!-- 搜索框 -->
                 <div class="relative w-64">
-                    <input
+                    <Input
                         v-model="searchQuery"
+                        variant="filled"
                         type="text"
                         :placeholder="t('settings.mcp.tools.searchPlaceholder')"
-                        class="settings-input w-full py-1.5 pr-3 pl-9"
+                        class="w-full py-1.5 pr-3 pl-9"
                     />
                     <AppIcon
                         name="search"

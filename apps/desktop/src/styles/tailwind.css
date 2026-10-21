@@ -309,15 +309,6 @@
         @apply overflow-hidden rounded-[11px] border border-neutral-200/80 bg-white shadow-none;
     }
 
-    .settings-input {
-        @apply focus:border-primary-300 rounded-[10px] border border-transparent bg-[#f0f0ef] px-3 py-2 text-[13px] text-neutral-900 shadow-none transition-colors hover:bg-[#ececea] focus:bg-white focus:shadow-none focus:outline-none;
-        box-shadow: none;
-    }
-
-    .settings-input:focus {
-        box-shadow: none;
-    }
-
     .settings-side-panel {
         @apply relative flex h-full shrink-0 flex-col border-r border-neutral-200/70 bg-[#f6f6f4];
     }

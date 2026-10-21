@@ -4,6 +4,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import EmptyState from '@components/EmptyState.vue';
     import { Button } from '@components/ui/button';
+    import { Input } from '@components/ui/input';
     import { useAlert } from '@composables/useAlert';
     import { useMotion } from '@composables/useMotion';
     import type { Model, NewModel, Provider } from '@database/schema';
@@ -269,11 +270,12 @@
                         name="search"
                         class="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-neutral-400"
                     />
-                    <input
+                    <Input
                         v-model="searchQuery"
+                        variant="filled"
                         type="text"
                         :placeholder="searchPlaceholder"
-                        class="settings-input w-full py-1.5 pr-3 pl-9"
+                        class="w-full py-1.5 pr-3 pl-9"
                     />
                 </div>
             </div>

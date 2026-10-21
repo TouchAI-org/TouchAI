@@ -3,6 +3,7 @@
     import CustomSelect from '@components/CustomSelect.vue';
     import EmptyState from '@components/EmptyState.vue';
     import { Button } from '@components/ui/button';
+    import { Input } from '@components/ui/input';
     import { open } from '@tauri-apps/plugin-dialog';
     import { storeToRefs } from 'pinia';
     import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -490,10 +491,11 @@
                                 </div>
                             </div>
                             <div class="flex min-w-0 items-center gap-2">
-                                <input
+                                <Input
                                     v-model="browserDataPathValue"
+                                    variant="filled"
                                     data-testid="browser-data-path-input"
-                                    class="settings-input min-w-0 flex-1 disabled:bg-neutral-50"
+                                    class="min-w-0 flex-1 disabled:bg-neutral-50"
                                     placeholder="browser-data"
                                     :disabled="!draft.enabled"
                                 />
@@ -548,10 +550,11 @@
                                 </div>
                             </div>
                             <div class="flex min-w-0 items-center gap-2">
-                                <input
+                                <Input
                                     v-model="draft.browserExecutablePath"
+                                    variant="filled"
                                     data-testid="browser-executable-path-input"
-                                    class="settings-input min-w-0 flex-1 disabled:bg-neutral-50"
+                                    class="min-w-0 flex-1 disabled:bg-neutral-50"
                                     placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe"
                                     :disabled="!draft.enabled"
                                 />
@@ -585,10 +588,11 @@
                                     }}
                                 </div>
                             </div>
-                            <input
+                            <Input
                                 v-model="defaultHomepageValue"
+                                variant="filled"
                                 data-testid="browser-default-homepage-input"
-                                class="settings-input w-full disabled:bg-neutral-50"
+                                class="w-full disabled:bg-neutral-50"
                                 :class="
                                     homepageError ? 'border-red-300 bg-red-50 text-red-600' : ''
                                 "
@@ -737,13 +741,14 @@
                                 :key="rule.domain"
                                 class="flex gap-2"
                             >
-                                <input
-                                    :value="rule.domain"
+                                <Input
+                                    variant="filled"
+                                    :model-value="rule.domain"
                                     :disabled="!draft.enabled"
                                     readonly
                                     type="text"
                                     spellcheck="false"
-                                    class="settings-input flex-1 px-4 py-2.5 font-mono disabled:bg-neutral-50"
+                                    class="flex-1 px-4 py-2.5 font-mono disabled:bg-neutral-50"
                                 />
                                 <button
                                     type="button"
@@ -801,13 +806,14 @@
                                 :key="rule.domain"
                                 class="flex gap-2"
                             >
-                                <input
-                                    :value="rule.domain"
+                                <Input
+                                    variant="filled"
+                                    :model-value="rule.domain"
                                     :disabled="!draft.enabled"
                                     readonly
                                     type="text"
                                     spellcheck="false"
-                                    class="settings-input flex-1 px-4 py-2.5 font-mono disabled:bg-neutral-50"
+                                    class="flex-1 px-4 py-2.5 font-mono disabled:bg-neutral-50"
                                 />
                                 <button
                                     type="button"
@@ -873,15 +879,17 @@
                                 </div>
                             </div>
                             <div class="grid min-w-0 grid-cols-2 gap-2">
-                                <input
+                                <Input
                                     v-model="draft.fingerprintLocale"
-                                    class="settings-input min-w-0 disabled:bg-neutral-50"
+                                    variant="filled"
+                                    class="min-w-0 disabled:bg-neutral-50"
                                     placeholder="zh-CN"
                                     :disabled="!draft.enabled"
                                 />
-                                <input
+                                <Input
                                     v-model="draft.fingerprintTimezone"
-                                    class="settings-input min-w-0 disabled:bg-neutral-50"
+                                    variant="filled"
+                                    class="min-w-0 disabled:bg-neutral-50"
                                     placeholder="Asia/Shanghai"
                                     :disabled="!draft.enabled"
                                 />
@@ -899,9 +907,10 @@
                                     {{ t('settings.browser.userAgent.description') }}
                                 </div>
                             </div>
-                            <input
+                            <Input
                                 v-model="draft.fingerprintUserAgent"
-                                class="settings-input w-full disabled:bg-neutral-50"
+                                variant="filled"
+                                class="w-full disabled:bg-neutral-50"
                                 placeholder="Mozilla/5.0 ..."
                                 :disabled="!draft.enabled"
                             />
@@ -919,18 +928,20 @@
                                 </div>
                             </div>
                             <div class="grid min-w-0 grid-cols-2 gap-2">
-                                <input
+                                <Input
                                     v-model="fingerprintWindowWidth"
+                                    variant="filled"
                                     data-testid="browser-window-width-input"
-                                    class="settings-input min-w-0 disabled:bg-neutral-50"
+                                    class="min-w-0 disabled:bg-neutral-50"
                                     placeholder="1366"
                                     inputmode="numeric"
                                     :disabled="!draft.enabled"
                                 />
-                                <input
+                                <Input
                                     v-model="fingerprintWindowHeight"
+                                    variant="filled"
                                     data-testid="browser-window-height-input"
-                                    class="settings-input min-w-0 disabled:bg-neutral-50"
+                                    class="min-w-0 disabled:bg-neutral-50"
                                     placeholder="768"
                                     inputmode="numeric"
                                     :disabled="!draft.enabled"

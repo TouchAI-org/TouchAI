@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import { Input } from '@components/ui/input';
 
     import { t } from '@/i18n';
     interface Props {
@@ -49,10 +50,11 @@
                 URL
                 <span class="text-red-500">*</span>
             </label>
-            <input
-                :value="url"
+            <Input
+                variant="filled"
+                :model-value="url"
                 type="text"
-                class="settings-input mt-1.5 w-full font-mono"
+                class="mt-1.5 w-full font-mono"
                 :placeholder="t('settings.mcp.config.urlPlaceholder')"
                 @input="emit('update:url', ($event.target as HTMLInputElement).value)"
                 @blur="emit('blur')"
@@ -73,18 +75,20 @@
             </div>
             <div v-if="headers.length > 0" class="mt-2 space-y-2">
                 <div v-for="(header, index) in headers" :key="index" class="flex gap-2">
-                    <input
-                        :value="header.key"
+                    <Input
+                        variant="filled"
+                        :model-value="header.key"
                         type="text"
-                        class="settings-input w-1/3 px-4 py-2.5 font-mono"
+                        class="w-1/3 px-4 py-2.5 font-mono"
                         :placeholder="t('settings.mcp.config.headerNamePlaceholder')"
                         @input="updateHeaderKey(index, ($event.target as HTMLInputElement).value)"
                         @blur="emit('blur')"
                     />
-                    <input
-                        :value="header.value"
+                    <Input
+                        variant="filled"
+                        :model-value="header.value"
                         type="text"
-                        class="settings-input flex-1 px-4 py-2.5 font-mono"
+                        class="flex-1 px-4 py-2.5 font-mono"
                         :placeholder="t('settings.mcp.config.headerValuePlaceholder')"
                         @input="updateHeaderValue(index, ($event.target as HTMLInputElement).value)"
                         @blur="emit('blur')"

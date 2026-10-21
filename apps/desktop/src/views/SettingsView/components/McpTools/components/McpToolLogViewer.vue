@@ -4,6 +4,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import EmptyState from '@components/EmptyState.vue';
     import { Button } from '@components/ui/button';
+    import { Input } from '@components/ui/input';
     import { useListFilter } from '@composables/useListFilter';
     import { findMcpToolLogsByServerId } from '@database/queries';
     import type { McpServerEntity, McpToolLogEntity } from '@database/types';
@@ -107,11 +108,12 @@
 
                 <!-- 搜索框 -->
                 <div class="relative min-w-[16rem] flex-1" data-testid="mcp-tool-log-search">
-                    <input
+                    <Input
                         v-model="searchQuery"
+                        variant="filled"
                         type="text"
                         :placeholder="t('toolLog.searchPlaceholder')"
-                        class="settings-input w-full py-1.5 pr-3 pl-9"
+                        class="w-full py-1.5 pr-3 pl-9"
                     />
                     <AppIcon
                         name="search"

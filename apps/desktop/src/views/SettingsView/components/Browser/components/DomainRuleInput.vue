@@ -1,5 +1,6 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import { Input } from '@components/ui/input';
     import { onMounted, ref } from 'vue';
 
     import { t } from '@/i18n';
@@ -14,7 +15,8 @@
         submit: [];
         cancel: [];
     }>();
-    const inputRef = ref<HTMLInputElement | null>(null);
+    // ui/Input 通过 defineExpose 暴露 focus()，不是原生 HTMLInputElement
+    const inputRef = ref<{ focus: () => void } | null>(null);
 
     function handleBlur() {
         if (!model.value.trim()) {
@@ -33,15 +35,16 @@
 
 <template>
     <div class="flex gap-2">
-        <input
+        <Input
             ref="inputRef"
             v-model="model"
+            variant="filled"
             :disabled="disabled"
             :aria-label="label"
             :placeholder="placeholder"
             type="text"
             spellcheck="false"
-            class="settings-input flex-1 px-4 py-2.5 font-mono disabled:bg-neutral-50"
+            class="flex-1 px-4 py-2.5 font-mono disabled:bg-neutral-50"
             @blur="handleBlur"
             @keydown.enter="handleSubmit"
         />

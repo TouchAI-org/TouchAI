@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import CustomSelect from '@components/CustomSelect.vue';
+    import { Input } from '@components/ui/input';
     import { createMcpServer, updateMcpServer } from '@database/queries';
     import type { DbTransportType, McpServerCreateData, McpServerEntity } from '@database/types';
     import { computed, onUnmounted, ref, watch } from 'vue';
@@ -245,10 +246,11 @@
                             {{ t('settings.mcp.config.name') }}
                             <span class="text-red-500">*</span>
                         </label>
-                        <input
+                        <Input
                             v-model="editableConfig.name"
+                            variant="filled"
                             type="text"
-                            class="settings-input mt-1.5 w-full"
+                            class="mt-1.5 w-full"
                             :placeholder="t('settings.mcp.config.namePlaceholder')"
                             @blur="onBlur"
                         />
@@ -291,10 +293,11 @@
                         <label class="block text-sm font-medium text-neutral-700">
                             {{ t('settings.mcp.config.toolTimeoutMs') }}
                         </label>
-                        <input
+                        <Input
                             v-model.number="editableConfig.toolTimeout"
+                            variant="filled"
                             type="number"
-                            class="settings-input mt-1.5 w-full"
+                            class="mt-1.5 w-full"
                             placeholder="30000"
                             @blur="onBlur"
                         />

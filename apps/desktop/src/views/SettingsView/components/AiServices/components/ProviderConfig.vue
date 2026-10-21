@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import PasswordInput from '@components/PasswordInput.vue';
+    import { Input } from '@components/ui/input';
     import type { Provider } from '@database/schema';
     import { computed, ref, watch } from 'vue';
 
@@ -93,10 +94,11 @@
                 <label class="block text-sm font-normal text-neutral-700">
                     {{ t('settings.ai.apiEndpointRequired') }}
                 </label>
-                <input
+                <Input
                     v-model="form.api_endpoint"
+                    variant="filled"
                     type="text"
-                    class="settings-input mt-1.5 w-full"
+                    class="mt-1.5 w-full"
                     :placeholder="driverDefinition.placeholder"
                     @input="handleInput"
                 />

@@ -1,5 +1,6 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import { Input } from '@components/ui/input';
     import { computed, nextTick, ref, useId, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -14,7 +15,8 @@
 
     const query = defineModel<string>({ default: '' });
     const activeIndex = ref(0);
-    const inputRef = ref<HTMLInputElement | null>(null);
+    // ui/Input 通过 defineExpose 暴露 focus()，不是原生 HTMLInputElement
+    const inputRef = ref<{ focus: () => void } | null>(null);
     const resultsRef = ref<HTMLElement | null>(null);
     const results = computed(() => searchSettings(query.value));
     const searching = computed(() => query.value.trim().length > 0);
@@ -89,9 +91,10 @@
                 name="search"
                 class="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400"
             />
-            <input
+            <Input
                 ref="inputRef"
                 v-model="query"
+                variant="filled"
                 type="search"
                 role="combobox"
                 autocomplete="off"
@@ -104,7 +107,7 @@
                     searching && results.length ? `${listId}-${activeIndex}` : undefined
                 "
                 aria-autocomplete="list"
-                class="settings-input h-9 w-full pr-8 pl-8 text-[12px] [&::-webkit-search-cancel-button]:appearance-none"
+                class="h-9 w-full pr-8 pl-8 text-[12px] [&::-webkit-search-cancel-button]:appearance-none"
                 data-testid="settings-search-input"
                 @keydown="handleKeydown"
             />

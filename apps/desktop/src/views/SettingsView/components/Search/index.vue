@@ -1,6 +1,7 @@
 <script setup lang="ts">
     import CustomSelect from '@components/CustomSelect.vue';
     import PasswordInput from '@components/PasswordInput.vue';
+    import { Input } from '@components/ui/input';
     import { findBuiltInToolByToolId, updateBuiltInTool } from '@database/queries';
     import { storeToRefs } from 'pinia';
     import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -486,13 +487,14 @@
                                     {{ t('settings.search.maxResults.description') }}
                                 </div>
                             </div>
-                            <input
+                            <Input
                                 v-model.number="draft.maxResults"
+                                variant="filled"
                                 data-testid="search-max-results-input"
                                 type="number"
                                 min="1"
                                 max="10"
-                                class="settings-input w-full disabled:bg-neutral-50"
+                                class="w-full disabled:bg-neutral-50"
                                 :disabled="!toolEnabled"
                             />
                         </div>
@@ -509,13 +511,14 @@
                                     {{ t('settings.search.timeout.description') }}
                                 </div>
                             </div>
-                            <input
+                            <Input
                                 v-model.number="draft.timeoutMs"
+                                variant="filled"
                                 type="number"
                                 min="1000"
                                 max="60000"
                                 step="1000"
-                                class="settings-input w-full disabled:bg-neutral-50"
+                                class="w-full disabled:bg-neutral-50"
                                 :disabled="!toolEnabled"
                             />
                         </div>
