@@ -1,8 +1,20 @@
 /*
- * Bridges shadcn-style CSS variables (used by the upstream ask-user-questions
- * component) to neutral defaults that match the upstream visual identity.
+ * AskUser 面板的局部主题变量。
  *
- * Scoped to .ask-user-panel so it does not leak globally.
+ * 背景：AskUser 的这部分是从 fluidfunctionalism registry 移植的，原本假定存在
+ * 一套 shadcn 风格的语义变量（--background / --foreground / --card / --hover …）。
+ *
+ * 项目现在已经在 styles/tailwind.css 的 @theme 里定义了同名的 --color-* token，
+ * 理论上可以删掉这里的一部分。但不能直接删：本文件的取值与全局 token 并不相同，
+ * 例如：
+ *   --foreground  这里是 var(--color-primary-700)，全局是 #4a4039
+ *   --card        这里是 transparent，全局 --color-card 不存在
+ *   --hover / --active  全局没有对应 token
+ * 另外 .ask-user-panel .bg-hover / .bg-active 这类作用域限定规则也不由 Tailwind
+ * 自动生成。
+ *
+ * 因此这里保留为「局部主题层」，只把作用域限定在 .ask-user-panel，不泄漏全局。
+ * 若将来要让 AskUser 完全对齐全局 token 层，需要单独做一轮视觉比对。
  */
 
 .ask-user-divider {

@@ -106,6 +106,27 @@ TouchAI supports lightweight self-assignment on eligible issues.
 
 To keep a claim active, leave a visible progress update in the issue thread within 7 days. If a claimed issue stays inactive for 14 days, the claim may be released automatically so someone else can pick it up.
 
+## UI primitives
+
+`apps/desktop/src/components/ui/` is the single source of truth for UI primitives. New screens and components should build on it instead of hand-rolling inputs, buttons, toggles, badges or overlays.
+
+Available today:
+
+- `button` — variants cover the three button families in the app (default, settings, icon); use it instead of raw `<button>`
+- `input` — `default` and `filled` variants, covers `.settings-*` form styling
+- `switch` — three sizes matching the existing toggle dimensions
+- `badge` — clickable capability chips and display-only tags
+- `tooltip`, `popover` — overlay primitives
+- `dialog`, `alert-dialog`, `dropdown-menu`, `select`, `sonner` — portalled surfaces
+
+When a new primitive is needed:
+
+1. Check whether an existing variant can be extended first. Adding a `cva` variant is preferred over a new component.
+2. `components.json` is present, so `npx shadcn-vue@latest add <name>` works. Note that generated components use shadcn's default token styling (`bg-primary`, `text-primary-foreground`), which does not match this project's palette. After generating, port the class strings to the project's existing vocabulary rather than adopting the defaults.
+3. Add a `tests/components/ui/<name>.test.ts` with a class snapshot. The snapshot is the guard that keeps visual output stable through future refactors.
+
+Styles that are genuinely one-off (a single complex animation, a bespoke layout) should stay inline. The goal is to remove duplicated primitives, not to route every element through a shared component.
+
 ## Testing and TDD
 
 For detailed testing guidelines, principles, and coverage requirements, see [docs/testing/testing.md](docs/testing/testing.md).
