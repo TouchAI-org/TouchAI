@@ -110,10 +110,13 @@ export function mergeLiveUsage(
 export const LIVE_WINDOW_MS = 60_000;
 
 /**
- * 实时曲线：当前这轮（或几轮并行）的累计输出 token 随时间变化。
+ * 实时曲线：**每秒** token 消耗量，不是累计值。
  *
- * 与历史不同，这里直接用采样点定位，不四舍五入到桶：
- * 窗口只有一分钟，桶粒度会把曲线磨成阶梯。
+ * 累计值只能单调上升，看不出快慢；用户要看的是「此刻跑得多快」。
+ * 相邻采样作差再除以时间间隔，就得到瞬时速率。
+ *
+ * 窗口只有一分钟，直接用采样点定位，不四舍五入到桶：
+ * 桶粒度会把曲线磨成阶梯。
  */
 export function buildLiveCurve(
     samples: readonly LiveUsageSample[],
@@ -128,18 +131,42 @@ export function buildLiveCurve(
     const start = Math.max(cutoff, first.atMs);
     const points: UsageCurvePoint[] = [];
 
+    // 速率需要「前一个采样」作基准，因此先找到窗口前最近的一个点
+    let baseline: LiveUsageSample | null = null;
+    for (const sample of samples) {
+        if (sample.atMs <= start) baseline = sample;
+        else break;
+    }
+
+    let previous = baseline;
     for (const sample of samples) {
         if (sample.atMs < start) continue;
         const at = Math.min(sample.atMs, nowMs);
-        const previous = points[points.length - 1];
-        if (previous && at <= previous.at) continue;
-        points.push({ key: '', at, value: sample.tokens, live: true });
+
+        // 没有基线时，首个点作为基准：速率为 0，之后靠差值算
+        if (!previous) {
+            previous = sample;
+            if (points.length === 0) points.push({ key: '', at, value: 0, live: true });
+            continue;
+        }
+
+        const elapsed = (at - previous.atMs) / 1000;
+        // 间隔太短时差值噪声大，沿用上一个速率
+        const rate =
+            elapsed >= 0.2
+                ? Math.max(0, sample.tokens - previous.tokens) / elapsed
+                : (points[points.length - 1]?.value ?? 0);
+
+        const last = points[points.length - 1];
+        if (last && at <= last.at) continue;
+        points.push({ key: '', at, value: rate, live: true });
+        previous = sample;
     }
 
-    // 保证尾部一直延伸到现在：即使没有新 token，横轴也在走
+    // 尾部延伸到当下：即使没有新 token，横轴也在走，速率回落到 0
     const last = points[points.length - 1];
     if (!last || nowMs - last.at > 200) {
-        points.push({ key: '', at: nowMs, value: last?.value ?? 0, live: true });
+        points.push({ key: '', at: nowMs, value: 0, live: true });
     }
 
     return points;

@@ -30,6 +30,7 @@ const summary: UsageSummary = {
     cacheHitRate: 0.94,
     successRate: 1,
     meanTtftMs: 850,
+    meanFirstTextMs: 1200,
     meanDurationMs: 1000,
     decodeSpeed: 10,
 };

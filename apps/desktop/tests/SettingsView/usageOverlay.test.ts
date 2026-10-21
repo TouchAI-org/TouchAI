@@ -5,6 +5,7 @@ import type { SessionTaskUsageProgressEvent } from '@services/EventService';
 import { describe, expect, it } from 'vitest';
 
 import {
+    buildLiveCurve,
     buildUsageCurve,
     mergeLiveUsage,
 } from '@/views/SettingsView/components/Usage/utils/usageOverlay';
@@ -27,6 +28,7 @@ const summary: UsageSummary = {
     cacheHitRate: 0.8,
     successRate: 2 / 3,
     meanTtftMs: 10,
+    meanFirstTextMs: 20,
     meanDurationMs: 1000,
     decodeSpeed: 100,
 };
@@ -129,6 +131,40 @@ describe('usage curve with stable historical buckets', () => {
         expect(livePoints[1]!.at).toBeGreaterThan(livePoints[0]!.at);
         expect(livePoints[2]!.at).toBeGreaterThan(livePoints[1]!.at);
         expect(livePoints[2]!.value).toBeGreaterThan(livePoints[0]!.value);
+    });
+
+    it('reports the live rate per second rather than a running total', () => {
+        const now = Date.parse('2026-05-01T10:30:00Z');
+        const rate = buildLiveCurve(
+            [
+                { atMs: now - 30_000, tokens: 100 },
+                { atMs: now - 20_000, tokens: 200 },
+                { atMs: now - 10_000, tokens: 300 },
+                { atMs: now, tokens: 400 },
+            ],
+            60_000,
+            now
+        );
+
+        // 每 10 秒增 100 token = 10 tok/s，而不是累计到 400
+        // 首个点是基准（速率 0），末个点是为延伸横轴补的归零点，都不参与断言
+        for (const point of rate.slice(1, -1)) {
+            expect(point.value).toBeCloseTo(10, 5);
+        }
+    });
+
+    it('drops to zero once the stream stops producing tokens', () => {
+        const now = Date.parse('2026-05-01T10:30:00Z');
+        const rate = buildLiveCurve(
+            [
+                { atMs: now - 20_000, tokens: 100 },
+                { atMs: now - 10_000, tokens: 200 },
+            ],
+            60_000,
+            now
+        );
+
+        expect(rate[rate.length - 1]!.value).toBe(0);
     });
 
     it('does not double-count after persistence catches up', () => {

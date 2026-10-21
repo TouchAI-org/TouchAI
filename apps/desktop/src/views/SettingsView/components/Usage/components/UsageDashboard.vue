@@ -218,22 +218,40 @@
     const liveMode = computed(() => liveSamples.value.length > 0);
 
     /**
-     * 窗口长度做一次短过渡：从区间宽度骤变到 1 分钟时，
-     * 曲线不会瞬间跳形，而是“收窄”过去，让用户看出尺度变了。
-     * 用 prop 驱动的 CSS transition 实现，不引入动画库。
+     * 窗口长度做一次“逐步收窄”的动画。
+     *
+     * 从大尺度直接跳到 1 分钟会让图形瞬间变形，看不出发生了什么。
+     * 这里用几个中间尺度做缓动：120s → 60s，视觉上就像镜头拉近，
+     * 旧的历史被挤出左侧，当前的增量被放大。
      */
-    const windowTransitioning = ref(false);
+    const ZOOM_STEPS = [300, 180, 120, 90, 60] as const;
+    const zoomWindowMs = ref<number>(LIVE_WINDOW_MS);
+    /** 缩放动画的定时器；卸载时要清掉，否则会往已销毁的组件写值 */
+    const timers = new Set<ReturnType<typeof setInterval>>();
 
-    watch(liveMode, () => {
-        windowTransitioning.value = true;
-        setTimeout(() => {
-            windowTransitioning.value = false;
-        }, 600);
+    watch(liveMode, (active) => {
+        if (!active) {
+            zoomWindowMs.value = LIVE_WINDOW_MS;
+            return;
+        }
+        // 进入实时模式：从大窗口逐级收到 1 分钟
+        let index = 0;
+        zoomWindowMs.value = ZOOM_STEPS[0]!;
+        const timer = setInterval(() => {
+            index += 1;
+            if (index >= ZOOM_STEPS.length) {
+                zoomWindowMs.value = LIVE_WINDOW_MS;
+                clearInterval(timer);
+                return;
+            }
+            zoomWindowMs.value = ZOOM_STEPS[index]!;
+        }, 120);
+        timers.add(timer);
     });
 
     const curve = computed(() =>
         liveMode.value
-            ? buildLiveCurve(liveSamples.value, LIVE_WINDOW_MS, now.value)
+            ? buildLiveCurve(liveSamples.value, zoomWindowMs.value * 1000, now.value)
             : buildUsageCurve(
                   props.trend,
                   props.bucket,
@@ -267,6 +285,17 @@
     const peakValue = computed(() =>
         geometry.value.reduce((max, point) => Math.max(max, point.value), 0)
     );
+
+    /** 纵轴单位：实时模式是 token/秒，历史模式是 token 总量 */
+    const curveUnit = computed(() =>
+        liveMode.value ? 'tok/s' : t('settings.usage.metric.tokens')
+    );
+
+    /** 格式化纵轴与尾端数值：实时模式是速率，保留一位小数 */
+    function formatCurveValue(value: number): string {
+        if (!liveMode.value) return formatTokensCompact(value);
+        return value >= 100 ? String(Math.round(value)) : value.toFixed(1);
+    }
 
     /**
      * 吞吐显示：有流时用实时速度，空闲时用区间平均速度。
@@ -344,6 +373,8 @@
     });
     onUnmounted(() => {
         disposed = true;
+        for (const timer of timers) clearInterval(timer);
+        timers.clear();
         if (timer) clearInterval(timer);
         unlisten?.();
     });
@@ -414,9 +445,9 @@
                     <span class="text-[10px] tracking-wide text-neutral-400 uppercase">
                         {{ t('settings.usage.dashboardCurveTitle') }}
                     </span>
-                    <!-- 有流时说明当前是最近一分钟，否则读者会把平滑曲线当成整天走势 -->
+                    <!-- 有流时说明当前是最近一分钟与单位，否则读者会误读坐标 -->
                     <span v-if="liveMode" class="text-[10px] text-neutral-400">
-                        {{ t('settings.usage.curve.liveWindow') }}
+                        {{ t('settings.usage.curve.liveWindow') }} · {{ curveUnit }}
                     </span>
                 </div>
 
@@ -450,7 +481,7 @@
             >
                 <!-- 峰值刻度与零线：只看形状无法读出量级 -->
                 <text :x="4" :y="11" class="fill-neutral-400" font-size="10">
-                    {{ formatTokensCompact(peakValue) }}
+                    {{ formatCurveValue(peakValue) }}
                 </text>
                 <text :x="4" :y="HEIGHT - 6" class="fill-neutral-300" font-size="9">0</text>
                 <line
@@ -477,7 +508,6 @@
                     :d="areaPath"
                     fill="currentColor"
                     class="text-sky-500/10"
-                    :class="windowTransitioning ? 'opacity-40' : 'opacity-100'"
                     style="transition: opacity 300ms ease-out"
                 />
                 <path
@@ -506,7 +536,7 @@
                     class="fill-sky-600 font-medium transition-all duration-500 ease-out"
                     font-size="10"
                 >
-                    {{ formatTokensCompact(geometry[geometry.length - 1]!.value) }}
+                    {{ formatCurveValue(geometry[geometry.length - 1]!.value) }}
                 </text>
             </svg>
 
