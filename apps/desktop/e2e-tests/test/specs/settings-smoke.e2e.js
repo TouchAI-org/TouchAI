@@ -54,16 +54,18 @@ describe('TouchAI settings smoke', () => {
         await settingsView.waitForDisplayed();
         await generalSection.waitForDisplayed();
 
-        const initialPressed = await startMinimizedToggle.getAttribute('aria-pressed');
+        // ui/Switch 用 role="switch" + aria-checked（正确的开关语义），
+        // 不再是原先手写 <button> 的 aria-pressed。
+        const initialPressed = await startMinimizedToggle.getAttribute('aria-checked');
 
         await startMinimizedToggle.click();
         await browser.waitUntil(async () => {
-            return (await startMinimizedToggle.getAttribute('aria-pressed')) !== initialPressed;
+            return (await startMinimizedToggle.getAttribute('aria-checked')) !== initialPressed;
         });
 
         await startMinimizedToggle.click();
         await browser.waitUntil(async () => {
-            return (await startMinimizedToggle.getAttribute('aria-pressed')) === initialPressed;
+            return (await startMinimizedToggle.getAttribute('aria-checked')) === initialPressed;
         });
 
         await browser.closeWindow();
