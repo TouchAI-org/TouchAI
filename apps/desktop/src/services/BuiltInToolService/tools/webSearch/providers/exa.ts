@@ -97,7 +97,7 @@ async function searchExaMcp(
 
     const payload = parseSsePayload(raw) as {
         error?: { message?: string };
-        result?: { content?: ExaMcpContentBlock[] };
+        result?: { content?: ExaMcpContentBlock[]; isError?: boolean };
     } | null;
     if (!payload) {
         return [];
@@ -110,6 +110,12 @@ async function searchExaMcp(
         .filter((block) => block.type === 'text' && block.text)
         .map((block) => block.text as string)
         .join('\n');
+    // MCP 把工具级失败（限流、参数校验、上游错误）放在 result.isError 里，
+    // 而不是 JSON-RPC 的 error 字段。不单独处理的话，错误文本会被当成结果去解析，
+    // 解析不出 URL 就静默返回空列表，用户只会看到「没有结果」。
+    if (payload.result?.isError) {
+        throw new Error(`Exa MCP error: ${text.slice(0, 300) || 'unknown error'}`);
+    }
     return parseExaMcpText(text);
 }
 
