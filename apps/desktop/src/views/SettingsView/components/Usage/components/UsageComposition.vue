@@ -42,9 +42,10 @@
         other: 'settings.usage.composition.other',
     };
 
-    /** 环形几何：半径 34、线宽 10，viewBox 96 */
+    /** 环形几何：半径 34、线宽 11，内径约 46，可容下「141.1万」+ 副标题 */
     const R = 34;
-    const STROKE = 10;
+    const STROKE = 11;
+    const SVG = 128;
     const CIRCUMFERENCE = 2 * Math.PI * R;
 
     interface Slice {
@@ -134,14 +135,14 @@
                 <div v-else class="flex items-center gap-5">
                     <div class="relative shrink-0">
                         <svg
-                            :viewBox="`0 0 96 96`"
-                            class="h-[96px] w-[96px] -rotate-90"
+                            :viewBox="`0 0 ${SVG} ${SVG}`"
+                            class="h-32 w-32 -rotate-90"
                             role="img"
                             :aria-label="t('settings.usage.composition.tokenTitle')"
                         >
                             <circle
-                                :cx="48"
-                                :cy="48"
+                                :cx="SVG / 2"
+                                :cy="SVG / 2"
                                 :r="R"
                                 fill="none"
                                 stroke="currentColor"
@@ -151,8 +152,8 @@
                             <circle
                                 v-for="slice in tokenSlices"
                                 :key="slice.key"
-                                :cx="48"
-                                :cy="48"
+                                :cx="SVG / 2"
+                                :cy="SVG / 2"
                                 :r="R"
                                 fill="none"
                                 :stroke="slice.color"
@@ -166,11 +167,11 @@
                             class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
                         >
                             <span
-                                class="font-serif text-[15px] leading-none font-semibold text-neutral-950 tabular-nums"
+                                class="max-w-[76px] truncate text-center font-serif text-[15px] leading-tight font-semibold text-neutral-950 tabular-nums"
                             >
                                 {{ formatTokensCompact(composition.tokens.total) }}
                             </span>
-                            <span class="mt-0.5 text-[10px] text-neutral-400">
+                            <span class="mt-1 text-[10.5px] text-neutral-400">
                                 {{ t('settings.usage.composition.totalTokens') }}
                             </span>
                         </div>
@@ -192,17 +193,17 @@
                                             aria-hidden="true"
                                         />
                                         <span
-                                            class="min-w-0 flex-1 truncate text-[11px] text-neutral-600"
+                                            class="min-w-0 flex-1 truncate text-[12px] text-neutral-700"
                                         >
                                             {{ slice.label }}
                                         </span>
                                         <span
-                                            class="shrink-0 text-[11px] text-neutral-900 tabular-nums"
+                                            class="shrink-0 text-[12px] font-medium text-neutral-900 tabular-nums"
                                         >
                                             {{ formatPercent(slice.ratio) }}
                                         </span>
                                     </div>
-                                    <div class="pl-3 text-[10.5px] text-neutral-400 tabular-nums">
+                                    <div class="pl-3 text-[11px] text-neutral-400 tabular-nums">
                                         {{ slice.detail }}
                                     </div>
                                 </div>
@@ -234,14 +235,14 @@
                 <div v-else class="flex items-center gap-5">
                     <div class="relative shrink-0">
                         <svg
-                            :viewBox="`0 0 96 96`"
-                            class="h-[96px] w-[96px] -rotate-90"
+                            :viewBox="`0 0 ${SVG} ${SVG}`"
+                            class="h-32 w-32 -rotate-90"
                             role="img"
                             :aria-label="t('settings.usage.composition.timingTitle')"
                         >
                             <circle
-                                :cx="48"
-                                :cy="48"
+                                :cx="SVG / 2"
+                                :cy="SVG / 2"
                                 :r="R"
                                 fill="none"
                                 stroke="currentColor"
@@ -251,8 +252,8 @@
                             <circle
                                 v-for="slice in timingSlices"
                                 :key="slice.key"
-                                :cx="48"
-                                :cy="48"
+                                :cx="SVG / 2"
+                                :cy="SVG / 2"
                                 :r="R"
                                 fill="none"
                                 :stroke="slice.color"
@@ -266,11 +267,11 @@
                             class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
                         >
                             <span
-                                class="font-serif text-[15px] leading-none font-semibold text-neutral-950 tabular-nums"
+                                class="max-w-[76px] truncate text-center font-serif text-[15px] leading-tight font-semibold text-neutral-950 tabular-nums"
                             >
                                 {{ formatLongDuration(composition.timing.totalMs) }}
                             </span>
-                            <span class="mt-0.5 text-[10px] text-neutral-400">
+                            <span class="mt-1 text-[10.5px] text-neutral-400">
                                 {{ t('settings.usage.composition.activeTime') }}
                             </span>
                         </div>
@@ -292,17 +293,17 @@
                                             aria-hidden="true"
                                         />
                                         <span
-                                            class="min-w-0 flex-1 truncate text-[11px] text-neutral-600"
+                                            class="min-w-0 flex-1 truncate text-[12px] text-neutral-700"
                                         >
                                             {{ slice.label }}
                                         </span>
                                         <span
-                                            class="shrink-0 text-[11px] text-neutral-900 tabular-nums"
+                                            class="shrink-0 text-[12px] font-medium text-neutral-900 tabular-nums"
                                         >
                                             {{ formatPercent(slice.ratio) }}
                                         </span>
                                     </div>
-                                    <div class="pl-3 text-[10.5px] text-neutral-400 tabular-nums">
+                                    <div class="pl-3 text-[11px] text-neutral-400 tabular-nums">
                                         {{ slice.detail }}
                                     </div>
                                 </div>

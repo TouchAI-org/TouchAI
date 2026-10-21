@@ -288,7 +288,6 @@
                             :items="sessionRanking"
                             :metric="sessionRankMetric"
                             supports-duration
-                            show-icon
                             :loading="loading"
                             @update:metric="sessionRankMetric = $event"
                         />

@@ -15,6 +15,7 @@
         /** 是否提供「活跃」维度（会话才有） */
         supportsDuration?: boolean;
         /** 用于展示图标/色点的区分：模型排行不需要 */
+        /** 是否展示图标（已移除，保留 prop 以兼容旧调用） */
         showIcon?: boolean;
         loading?: boolean;
     }
@@ -101,22 +102,23 @@
                 <span class="text-xs text-neutral-400">{{ t('settings.usage.group.empty') }}</span>
             </div>
 
-            <div v-else :class="['space-y-2.5 transition-opacity', loading ? 'opacity-60' : '']">
+            <!--
+                两只排行共用同一高度并各自内部滚动：
+                模型只有 5 项、会话有 8 项，不限高会一边高一边矮，看起来像没对齐。
+            -->
+            <div
+                v-else
+                :class="[
+                    'custom-scrollbar h-[236px] space-y-2.5 overflow-y-auto pr-1',
+                    loading ? 'opacity-60' : '',
+                ]"
+            >
                 <div
                     v-for="item in items"
                     :key="item.id"
                     data-testid="settings-usage-ranking-row"
                     class="flex items-center gap-3"
                 >
-                    <!-- 图标只用于会话条目，模型条目省掉以免视觉噪音 -->
-                    <span
-                        v-if="showIcon"
-                        class="flex h-6 w-6 shrink-0 items-center justify-center rounded-[7px] bg-neutral-100 text-[10px] text-neutral-500"
-                        aria-hidden="true"
-                    >
-                        {{ item.name.slice(0, 1) }}
-                    </span>
-
                     <div class="min-w-0 flex-1">
                         <!-- 并排时每列只有半宽，标题与数值同排、条形独占一行更可读 -->
                         <div class="flex items-baseline gap-2">

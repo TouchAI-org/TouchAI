@@ -1,8 +1,19 @@
 import { mount } from '@vue/test-utils';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import UsageHeatmap from '@/views/SettingsView/components/Usage/components/UsageHeatmap.vue';
+
+/** jsdom 没有 ResizeObserver；给一个不触发回调的桩，走默认格子尺寸 */
+class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+}
+
+beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+});
 
 function dbTime(date: Date) {
     return date.toISOString().slice(0, 19).replace('T', ' ');
@@ -26,14 +37,13 @@ describe('usage heatmap granularity', () => {
             },
         });
 
-        // 单天区间：24 小时为列、1 天为行，同一小时的多次调用合并到一格
+        // 单天区间：12 列（每 2 小时一格）× 1 行，铺满宽度而不是只剩一条缝
         const cells = wrapper.findAll('[data-day]');
-        expect(cells).toHaveLength(24);
+        expect(cells).toHaveLength(12);
         expect(wrapper.text()).toContain('1 天');
         expect(wrapper.text()).toContain('2 个时段');
-        expect(wrapper.text()).toContain('06:00');
-        // 列数是 24，说明铺满了宽度而不是只剩一列
-        expect(wrapper.get('svg').attributes('viewBox')).toBe('0 0 370 30');
+        expect(wrapper.text()).toContain('00:00');
+        expect(wrapper.get('svg').attributes('viewBox')).toBe('0 0 394 45');
     });
 
     it('switches to a weekday-by-week grid for long ranges', () => {

@@ -2,7 +2,7 @@
 
 <script setup lang="ts">
     import type { UsageHeatmapDay } from '@database/queries/usageStats';
-    import { computed } from 'vue';
+    import { computed, onMounted, onUnmounted, ref } from 'vue';
 
     import { getLocale, t } from '@/i18n';
 
@@ -15,8 +15,16 @@
     }>();
     defineOptions({ name: 'UsageHeatmap' });
 
-    const CELL = 11;
-    const STEP = 14;
+    /**
+     * 格子尺寸按模式分别取值。
+     *
+     * 细粒度只有 24 列 × 几天，继续用 11px 会缩成一条虚线；
+     * 粗粒度可能有 53 列，必须小一点否则装不下。
+     */
+    const FINE_CELL = 26;
+    /** 粗粒度也有 53 列的上限，格子不能太大，否则会溢出容器 */
+    const COARSE_CELL = 15;
+
     /** 跨度达到这个天数就切到「星期 × 周」，否则用「小时 × 日期」 */
     const DAY_SCALE_THRESHOLD = 21;
 
@@ -33,6 +41,8 @@
 
     /** 细粒度：小时 × 日期；粗粒度：星期 × 周 */
     const fine = computed(() => bounds.value.spanDays < DAY_SCALE_THRESHOLD);
+    const GUTTER = computed(() => (fine.value ? 46 : 32));
+    const containerRef = ref<HTMLElement | null>(null);
 
     interface Cell {
         key: string;
@@ -73,17 +83,18 @@
                 cursor.setDate(cursor.getDate() + 1), dayIndex += 1
             ) {
                 const day = localUsageKey(cursor);
-                for (let hour = 0; hour < 24; hour += 1) {
-                    const entry = byCell.get(`${day} ${hour}`);
+                for (let hour = 0; hour < 24; hour += 2) {
+                    const first = byCell.get(`${day} ${hour}`);
+                    const second = byCell.get(`${day} ${hour + 1}`);
                     result.push({
                         key: `${day} ${hour}`,
                         day,
-                        column: hour,
+                        column: hour / 2,
                         row: dayIndex,
                         inRange: true,
-                        requests: entry?.requests ?? 0,
-                        tokens: entry?.tokens ?? 0,
-                        costMicros: entry?.costMicros ?? 0,
+                        requests: (first?.requests ?? 0) + (second?.requests ?? 0),
+                        tokens: (first?.tokens ?? 0) + (second?.tokens ?? 0),
+                        costMicros: (first?.costMicros ?? 0) + (second?.costMicros ?? 0),
                         label: `${day} ${String(hour).padStart(2, '0')}:00`,
                     });
                 }
@@ -130,8 +141,6 @@
     const columns = computed(() =>
         Math.max(1, (cells.value[cells.value.length - 1]?.column ?? 0) + 1)
     );
-    const width = computed(() => columns.value * STEP);
-    const height = computed(() => rows.value * STEP + 16);
 
     const visible = computed(() => cells.value.filter((cell) => cell.inRange));
     const totalTokens = computed(() =>
@@ -187,9 +196,10 @@
     /** 列标签：细粒度标日期，粗粒度标月份 */
     const labels = computed(() => {
         if (fine.value) {
-            return [0, 6, 12, 18].map((hour) => ({
-                column: hour,
-                text: `${String(hour).padStart(2, '0')}:00`,
+            // 2 小时一格，所以 0 / 4 / 8 列分别对应 00:00 / 08:00 / 16:00
+            return [0, 4, 8].map((column) => ({
+                column,
+                text: `${String(column * 2).padStart(2, '0')}:00`,
             }));
         }
 
@@ -211,23 +221,74 @@
         return result;
     });
 
-    /** 行标签：细粒度标日期，粗粒度不标（星期感由格子位置承担） */
+    /** 行标签：星期名 */
     const rowLabels = computed(() => {
-        if (!fine.value) return [];
-        const result: Array<{ row: number; text: string }> = [];
-        let lastDay = '';
-        for (const cell of visible.value) {
-            if (cell.day === lastDay) continue;
-            lastDay = cell.day;
-            result.push({
-                row: cell.row,
-                text: new Intl.DateTimeFormat(getLocale(), {
-                    month: 'numeric',
-                    day: 'numeric',
-                }).format(new Date(`${cell.day}T12:00:00`)),
-            });
+        if (fine.value) {
+            const result: Array<{ row: number; text: string }> = [];
+            let lastDay = '';
+            for (const cell of visible.value) {
+                if (cell.day === lastDay) continue;
+                lastDay = cell.day;
+                result.push({
+                    row: cell.row,
+                    text: new Intl.DateTimeFormat(getLocale(), {
+                        month: 'numeric',
+                        day: 'numeric',
+                    }).format(new Date(`${cell.day}T12:00:00`)),
+                });
+            }
+            return result;
         }
-        return result;
+
+        const formatter = new Intl.DateTimeFormat(getLocale(), { weekday: 'narrow' });
+        return [0, 1, 2, 3, 4, 5, 6].map((row) => ({
+            row,
+            // 2026-01-05 是周一，用它作参照取星期名
+            text: formatter.format(new Date(2026, 0, 4 + row)),
+        }));
+    });
+
+    /**
+     * 按容器宽度求出可用的格子边长。
+     *
+     * 固定尺寸会让短区间只占很小一块，右边全是空白；
+     * 直接拉满又会把方格压成矩形。所以只算边长，保持正方。
+     */
+    const containerWidth = ref(0);
+    /**
+     * 格子边长：同时受容器宽度与期望高度约束。
+     *
+     * 只看宽度会让行数少的月份得到过大的格子（5 列 × 46px 会高到 359px），
+     * 所以同时给一个总高度上限，取两者较小的那个。
+     */
+    const MAX_HEIGHT = 240;
+    const cellSize = computed(() => {
+        const available = containerWidth.value - GUTTER.value - 8;
+        if (available <= 0 || columns.value === 0) return fine.value ? FINE_CELL : COARSE_CELL;
+        const byWidth = available / columns.value - 3;
+        const byHeight = (MAX_HEIGHT - 16) / rows.value - 3;
+        return Math.max(10, Math.min(byWidth, byHeight, 26));
+    });
+    const step = computed(() => cellSize.value + 3);
+
+    const svgWidth = computed(() => GUTTER.value + columns.value * step.value);
+    const svgHeight = computed(() => rows.value * step.value + 16);
+
+    let resizeObserver: ResizeObserver | null = null;
+    onMounted(() => {
+        const el = containerRef.value;
+        if (!el) return;
+        containerWidth.value = el.clientWidth;
+        // watchEffect 在挂载前读到 0，改由 ResizeObserver 跟踪实际宽度
+        resizeObserver = new ResizeObserver((entries) => {
+            const width = entries[0]?.contentRect.width ?? 0;
+            if (width > 0) containerWidth.value = width;
+        });
+        resizeObserver.observe(el);
+    });
+    onUnmounted(() => {
+        resizeObserver?.disconnect();
+        resizeObserver = null;
     });
 </script>
 
@@ -252,63 +313,72 @@
         </div>
 
         <div class="rounded-[11px] bg-neutral-50/80 p-4">
-            <svg
-                :viewBox="`0 0 ${width + 34} ${height}`"
-                class="block max-w-full"
-                role="img"
-                :aria-label="t('settings.usage.heatmap.title')"
-            >
-                <text
-                    v-for="label in rowLabels"
-                    :key="`row-${label.row}`"
-                    :x="28"
-                    :y="16 + label.row * STEP + 8"
-                    text-anchor="end"
-                    class="fill-neutral-400"
-                    font-size="9"
+            <!--
+                按格子自然尺寸渲染，不拉到满宽。
+                格子必须保持正方：`w-full` + viewBox 会在宽容器里把高度也等比放大，
+                或者（父级限制高度时）只铺开很小一块导致大片留白。
+            -->
+            <div ref="containerRef" class="overflow-x-auto">
+                <svg
+                    :viewBox="`0 0 ${svgWidth} ${svgHeight}`"
+                    :width="svgWidth"
+                    :height="svgHeight"
+                    class="block"
+                    role="img"
+                    :aria-label="t('settings.usage.heatmap.title')"
                 >
-                    {{ label.text }}
-                </text>
-
-                <text
-                    v-for="label in labels"
-                    :key="`col-${label.column}`"
-                    :x="34 + label.column * STEP"
-                    y="9"
-                    class="fill-neutral-400"
-                    font-size="9"
-                >
-                    {{ label.text }}
-                </text>
-
-                <g transform="translate(34, 16)">
-                    <rect
-                        v-for="cell in cells"
-                        :key="cell.key"
-                        :data-day="cell.inRange ? cell.day : undefined"
-                        :data-hour="cell.inRange && fine ? cell.key.split(' ')[1] : undefined"
-                        :x="cell.column * STEP"
-                        :y="cell.row * STEP"
-                        :width="CELL"
-                        :height="CELL"
-                        rx="2.5"
-                        :class="
-                            cell.inRange ? LEVEL_FILL[levelOf(cell.tokens)] : 'fill-transparent'
-                        "
+                    <text
+                        v-for="label in rowLabels"
+                        :key="`row-${label.row}`"
+                        :x="GUTTER - 6"
+                        :y="16 + label.row * step + cellSize * 0.78"
+                        text-anchor="end"
+                        class="fill-neutral-400"
+                        font-size="9"
                     >
-                        <title v-if="cell.inRange">
-                            {{
-                                t('settings.usage.heatmap.tooltip', {
-                                    day: cell.label,
-                                    requests: cell.requests,
-                                    tokens: formatTokensCompact(cell.tokens),
-                                    cost: formatCost(cell.costMicros),
-                                })
-                            }}
-                        </title>
-                    </rect>
-                </g>
-            </svg>
+                        {{ label.text }}
+                    </text>
+
+                    <text
+                        v-for="label in labels"
+                        :key="`col-${label.column}`"
+                        :x="GUTTER + label.column * step"
+                        y="9"
+                        class="fill-neutral-400"
+                        font-size="9"
+                    >
+                        {{ label.text }}
+                    </text>
+
+                    <g :transform="`translate(${GUTTER}, 16)`">
+                        <rect
+                            v-for="cell in cells"
+                            :key="cell.key"
+                            :data-day="cell.inRange ? cell.day : undefined"
+                            :data-hour="cell.inRange && fine ? cell.key.split(' ')[1] : undefined"
+                            :x="cell.column * step"
+                            :y="cell.row * step"
+                            :width="cellSize"
+                            :height="cellSize"
+                            rx="2.5"
+                            :class="
+                                cell.inRange ? LEVEL_FILL[levelOf(cell.tokens)] : 'fill-transparent'
+                            "
+                        >
+                            <title v-if="cell.inRange">
+                                {{
+                                    t('settings.usage.heatmap.tooltip', {
+                                        day: cell.label,
+                                        requests: cell.requests,
+                                        tokens: formatTokensCompact(cell.tokens),
+                                        cost: formatCost(cell.costMicros),
+                                    })
+                                }}
+                            </title>
+                        </rect>
+                    </g>
+                </svg>
+            </div>
 
             <div class="mt-2 flex items-center gap-1.5 text-[11px] text-neutral-500">
                 <span>{{ t('settings.usage.heatmap.less') }}</span>
