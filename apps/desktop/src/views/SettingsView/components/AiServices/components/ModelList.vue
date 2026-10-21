@@ -12,8 +12,7 @@
 
     import { t, tp } from '@/i18n';
 
-    import AddModelDialog from './AddModelDialog.vue';
-    import EditModelDialog from './EditModelDialog.vue';
+    import ModelFormDialog from './ModelFormDialog.vue';
     import ModelGroup from './ModelGroup.vue';
     interface Props {
         providerId: number;
@@ -365,8 +364,9 @@
             />
         </div>
 
-        <AddModelDialog
+        <ModelFormDialog
             v-if="isAddDialogMounted"
+            mode="create"
             :open="showAddDialog"
             :provider-id="providerId"
             @create="handleCreate"
@@ -374,8 +374,9 @@
             @closed="handleAddDialogClosed"
         />
 
-        <EditModelDialog
+        <ModelFormDialog
             v-if="editingModel"
+            mode="edit"
             :open="showEditDialog"
             :model="editingModel"
             @update="handleUpdate"

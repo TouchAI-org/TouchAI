@@ -179,8 +179,7 @@ async function mountDefaultModelSelection(providerEnabled: number) {
                         </div>
                     `,
                 },
-                AddProviderDialog: true,
-                EditProviderDialog: true,
+                ProviderFormDialog: true,
                 BadgedLogo: true,
             },
         },
@@ -234,8 +233,7 @@ describe('SettingsAiServicesSection', () => {
                     },
                     ProviderConfig: true,
                     ModelList: true,
-                    AddProviderDialog: true,
-                    EditProviderDialog: true,
+                    ProviderFormDialog: true,
                     BadgedLogo: {
                         props: ['logo', 'name'],
                         template: '<div data-testid="badged-logo-stub" />',
@@ -278,8 +276,7 @@ describe('SettingsAiServicesSection', () => {
                     },
                     ProviderConfig: true,
                     ModelList: true,
-                    AddProviderDialog: true,
-                    EditProviderDialog: true,
+                    ProviderFormDialog: true,
                     BadgedLogo: {
                         props: ['logo', 'name'],
                         template: '<div data-testid="badged-logo-stub" />',
@@ -342,8 +339,7 @@ describe('SettingsAiServicesSection', () => {
                         `,
                     },
                     ModelList: true,
-                    AddProviderDialog: true,
-                    EditProviderDialog: true,
+                    ProviderFormDialog: true,
                     BadgedLogo: {
                         props: ['logo', 'name'],
                         template: '<div data-testid="badged-logo-stub" />',
@@ -407,7 +403,7 @@ describe('SettingsAiServicesSection', () => {
                     },
                     ProviderConfig: true,
                     ModelList: true,
-                    AddProviderDialog: {
+                    ProviderFormDialog: {
                         emits: ['create', 'cancel'],
                         template: `
                             <button
@@ -427,7 +423,6 @@ describe('SettingsAiServicesSection', () => {
                             </button>
                         `,
                     },
-                    EditProviderDialog: true,
                     BadgedLogo: {
                         props: ['logo', 'name'],
                         template: '<div data-testid="badged-logo-stub" />',
@@ -495,7 +490,7 @@ describe('SettingsAiServicesSection', () => {
                     },
                     ProviderConfig: true,
                     ModelList: true,
-                    AddProviderDialog: {
+                    ProviderFormDialog: {
                         emits: ['create', 'cancel'],
                         template: `
                             <button
@@ -515,7 +510,6 @@ describe('SettingsAiServicesSection', () => {
                             </button>
                         `,
                     },
-                    EditProviderDialog: true,
                     BadgedLogo: {
                         props: ['logo', 'name'],
                         template: '<div data-testid="badged-logo-stub" />',
@@ -610,8 +604,7 @@ describe('SettingsAiServicesSection', () => {
                             </button>
                         `,
                     },
-                    AddProviderDialog: true,
-                    EditProviderDialog: true,
+                    ProviderFormDialog: true,
                     BadgedLogo: {
                         props: ['logo', 'name'],
                         template: '<div data-testid="badged-logo-stub" />',

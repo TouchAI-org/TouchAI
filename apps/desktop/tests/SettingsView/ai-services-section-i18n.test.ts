@@ -123,31 +123,17 @@ vi.mock('@/views/SettingsView/components/AiServices/components/ModelList.vue', (
     }),
 }));
 
-vi.mock('@/views/SettingsView/components/AiServices/components/AddProviderDialog.vue', () => ({
+vi.mock('@/views/SettingsView/components/AiServices/components/ProviderFormDialog.vue', () => ({
     default: defineComponent({
-        name: 'AddProviderDialog',
-        template: '<section data-testid="add-provider-dialog" />',
+        name: 'ProviderFormDialog',
+        template: '<section data-testid="provider-form-dialog" />',
     }),
 }));
 
-vi.mock('@/views/SettingsView/components/AiServices/components/EditProviderDialog.vue', () => ({
+vi.mock('@/views/SettingsView/components/AiServices/components/ModelFormDialog.vue', () => ({
     default: defineComponent({
-        name: 'EditProviderDialog',
-        template: '<section data-testid="edit-provider-dialog" />',
-    }),
-}));
-
-vi.mock('@/views/SettingsView/components/AiServices/components/AddModelDialog.vue', () => ({
-    default: defineComponent({
-        name: 'AddModelDialog',
-        template: '<section data-testid="add-model-dialog" />',
-    }),
-}));
-
-vi.mock('@/views/SettingsView/components/AiServices/components/EditModelDialog.vue', () => ({
-    default: defineComponent({
-        name: 'EditModelDialog',
-        template: '<section data-testid="edit-model-dialog" />',
+        name: 'ModelFormDialog',
+        template: '<section data-testid="model-form-dialog" />',
     }),
 }));
 

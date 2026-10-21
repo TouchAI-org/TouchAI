@@ -41,11 +41,10 @@
         name: 'SettingsAiServicesSection',
     });
 
-    import AddProviderDialog from './components/AddProviderDialog.vue';
     import BadgedLogo from './components/BadgedLogo.vue';
-    import EditProviderDialog from './components/EditProviderDialog.vue';
     import ModelList from './components/ModelList.vue';
     import ProviderConfig from './components/ProviderConfig.vue';
+    import ProviderFormDialog from './components/ProviderFormDialog.vue';
     import ProviderList from './components/ProviderList.vue';
 
     const alert = useAlert();
@@ -837,16 +836,18 @@
             </div>
         </div>
 
-        <AddProviderDialog
+        <ProviderFormDialog
             v-if="isAddDialogMounted"
+            mode="create"
             :open="showAddDialog"
             @create="handleCreateProvider"
             @cancel="showAddDialog = false"
             @closed="handleAddDialogClosed"
         />
 
-        <EditProviderDialog
+        <ProviderFormDialog
             v-if="isEditDialogMounted && editingProvider"
+            mode="edit"
             :open="showEditDialog"
             :provider="editingProvider"
             @update="handleUpdateProviderInfo"
