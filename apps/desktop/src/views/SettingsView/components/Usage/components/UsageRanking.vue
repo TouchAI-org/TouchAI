@@ -101,7 +101,18 @@
         </div>
 
         <div class="flex min-h-0 flex-1 flex-col rounded-[11px] bg-neutral-50/80 p-4">
-            <div v-if="items.length === 0" class="py-8 text-center">
+            <!-- 骨架写在组件内部：和真实内容同一份布局，不会因外部改动而漂移 -->
+            <div v-if="loading && items.length === 0" class="space-y-2.5">
+                <div v-for="row in 5" :key="row" class="space-y-1">
+                    <div class="flex items-baseline gap-2">
+                        <div class="h-3 flex-1 animate-pulse rounded bg-neutral-200/60" />
+                        <div class="h-3 w-10 animate-pulse rounded bg-neutral-200/50" />
+                    </div>
+                    <div class="h-[5px] animate-pulse rounded-full bg-neutral-200/60" />
+                </div>
+            </div>
+
+            <div v-else-if="items.length === 0" class="py-8 text-center">
                 <span class="text-xs text-neutral-400">{{ t('settings.usage.group.empty') }}</span>
             </div>
 

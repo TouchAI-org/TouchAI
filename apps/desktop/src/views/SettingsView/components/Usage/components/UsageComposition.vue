@@ -8,7 +8,7 @@
 
     import { formatLongDuration, formatPercent, formatTokensCompact } from '../utils/format';
 
-    const props = defineProps<{ composition: UsageComposition }>();
+    const props = defineProps<{ composition: UsageComposition | null }>();
     defineOptions({ name: 'UsageComposition' });
 
     /** 与趋势图共用同一套色板，避免同一个模型在两处是两种颜色 */
@@ -85,15 +85,17 @@
     }
 
     const tokenSlices = computed(() =>
-        buildSlices(props.composition.tokens.segments, props.composition.tokens.total, (segment) =>
-            formatTokensCompact(segment.value)
+        buildSlices(
+            props.composition?.tokens.segments ?? [],
+            props.composition?.tokens.total ?? 0,
+            (segment) => formatTokensCompact(segment.value)
         )
     );
 
     const timingSlices = computed(() =>
         buildSlices(
-            props.composition.timing.segments,
-            props.composition.timing.totalMs,
+            props.composition?.timing.segments ?? [],
+            props.composition?.timing.totalMs ?? 0,
             (segment) => formatLongDuration(segment.value)
         )
     );
@@ -119,14 +121,24 @@
                 <span class="text-[11px] text-neutral-400">
                     {{
                         t('settings.usage.composition.cacheNote', {
-                            rate: formatPercent(composition.cacheReadShare),
+                            rate: formatPercent(composition?.cacheReadShare ?? 0),
                         })
                     }}
                 </span>
             </div>
 
             <div class="rounded-[11px] bg-neutral-50/80 p-4">
-                <div v-if="tokenSlices.length === 0" class="py-10 text-center">
+                <div v-if="!composition" class="flex items-center gap-5 py-2">
+                    <div class="h-28 w-28 shrink-0 animate-pulse rounded-full bg-neutral-200/60" />
+                    <div class="flex-1 space-y-2">
+                        <div
+                            v-for="i in 4"
+                            :key="i"
+                            class="h-3 animate-pulse rounded bg-neutral-200/60"
+                        />
+                    </div>
+                </div>
+                <div v-else-if="tokenSlices.length === 0" class="py-10 text-center">
                     <span class="text-xs text-neutral-400">
                         {{ t('settings.usage.composition.empty') }}
                     </span>
@@ -169,7 +181,7 @@
                             <span
                                 class="max-w-[66px] truncate text-center font-serif text-[14px] leading-tight font-semibold text-neutral-950 tabular-nums"
                             >
-                                {{ formatTokensCompact(composition.tokens.total) }}
+                                {{ formatTokensCompact(composition?.tokens.total ?? 0) }}
                             </span>
                             <span class="mt-1 text-[10.5px] text-neutral-400">
                                 {{ t('settings.usage.composition.totalTokens') }}
@@ -226,7 +238,17 @@
             </div>
 
             <div class="rounded-[11px] bg-neutral-50/80 p-4">
-                <div v-if="timingSlices.length === 0" class="py-10 text-center">
+                <div v-if="!composition" class="flex items-center gap-5 py-2">
+                    <div class="h-28 w-28 shrink-0 animate-pulse rounded-full bg-neutral-200/60" />
+                    <div class="flex-1 space-y-2">
+                        <div
+                            v-for="i in 3"
+                            :key="i"
+                            class="h-3 animate-pulse rounded bg-neutral-200/60"
+                        />
+                    </div>
+                </div>
+                <div v-else-if="timingSlices.length === 0" class="py-10 text-center">
                     <span class="text-xs text-neutral-400">
                         {{ t('settings.usage.composition.empty') }}
                     </span>
@@ -269,7 +291,7 @@
                             <span
                                 class="max-w-[66px] truncate text-center font-serif text-[14px] leading-tight font-semibold text-neutral-950 tabular-nums"
                             >
-                                {{ formatLongDuration(composition.timing.totalMs) }}
+                                {{ formatLongDuration(composition?.timing.totalMs ?? 0) }}
                             </span>
                             <span class="mt-1 text-[10.5px] text-neutral-400">
                                 {{ t('settings.usage.composition.activeTime') }}

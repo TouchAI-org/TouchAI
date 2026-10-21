@@ -10,10 +10,11 @@
 
     interface Props {
         stats: ToolUsageSummary;
+        /** 数据未到时在组件内部画骨架，不再由外部统一拼接 */
+        loading?: boolean;
     }
 
     const props = defineProps<Props>();
-
     defineOptions({ name: 'UsageToolStats' });
 
     /** 只列前若干名，其余折进「其他」，避免长列表淹没页面 */
@@ -105,12 +106,41 @@
         </div>
 
         <div
-            v-if="stats.totalCount === 0"
+            v-if="loading"
+            class="space-y-3"
+            data-testid="settings-usage-tools-loading"
+            aria-hidden="true"
+        >
+            <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <div
+                    v-for="index in 4"
+                    :key="index"
+                    class="flex flex-col gap-1 rounded-[10px] bg-neutral-50/80 px-4 py-3"
+                >
+                    <div class="h-3 w-14 animate-pulse rounded bg-neutral-200/70" />
+                    <div class="h-5 w-16 animate-pulse rounded bg-neutral-200/70" />
+                </div>
+            </div>
+            <div class="rounded-[11px] bg-neutral-50/80 p-4">
+                <div class="flex items-center gap-5">
+                    <div class="h-28 w-28 shrink-0 animate-pulse rounded-full bg-neutral-200/60" />
+                    <div class="flex-1 space-y-2">
+                        <div
+                            v-for="index in 4"
+                            :key="index"
+                            class="h-3 animate-pulse rounded bg-neutral-200/60"
+                        />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div
+            v-else-if="stats.totalCount === 0"
             class="rounded-[11px] bg-neutral-50/80 px-5 py-10 text-center"
         >
             <span class="text-xs text-neutral-400">{{ t('settings.usage.tools.empty') }}</span>
         </div>
-
         <template v-else>
             <!-- 指标：与首屏同样的独立浅底小卡，不套大卡壳 -->
             <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
