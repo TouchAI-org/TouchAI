@@ -647,6 +647,48 @@ describe('WebSearch tool', () => {
         expect((init.headers as Record<string, string>).Accept).toContain('text/event-stream');
     });
 
+    it('surfaces Exa MCP tool-level errors instead of reporting no results', async () => {
+        getSettingValueMock.mockResolvedValueOnce(
+            JSON.stringify({
+                providers: {
+                    exa: { enabled: true, apiKey: '' },
+                },
+            })
+        );
+        // MCP 把工具级失败放在 result.isError 里，而不是 JSON-RPC 的 error 字段。
+        const sse = [
+            'event: message',
+            `data: ${JSON.stringify({
+                result: {
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'MCP error -32602: Input validation error: Invalid arguments',
+                        },
+                    ],
+                    isError: true,
+                },
+            })}`,
+            '',
+        ].join('\n');
+        tauriFetchMock.mockResolvedValueOnce(
+            new Response(sse, {
+                status: 200,
+                headers: { 'content-type': 'text/event-stream' },
+            })
+        );
+
+        const result = await executeWebSearchTool(
+            { query: 'OpenClaw semantic', provider: 'exa' },
+            {},
+            createExecutionContext()
+        );
+
+        // 关键点：不能静默变成「没有结果」，要把真实失败原因暴露出来。
+        expect(result.isError).toBe(true);
+        expect(result.result).toContain('Input validation error');
+    });
+
     it('routes academic searches to Semantic Scholar when configured', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
