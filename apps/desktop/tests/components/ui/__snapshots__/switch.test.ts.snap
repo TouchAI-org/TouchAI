@@ -1,0 +1,77 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ui/Switch > class 稳定性 > size=lg 开启态 1`] = `
+[
+  "data-[state=checked]:bg-primary-700",
+  "data-[state=unchecked]:bg-neutral-200",
+  "h-5",
+  "inline-flex",
+  "items-center",
+  "relative",
+  "rounded-full",
+  "t-toggle-track",
+  "w-9",
+]
+`;
+
+exports[`ui/Switch > class 稳定性 > size=md 关闭态 1`] = `
+[
+  "cursor-pointer",
+  "data-[state=checked]:bg-primary-700",
+  "data-[state=unchecked]:bg-neutral-200",
+  "h-5",
+  "inline-flex",
+  "items-center",
+  "relative",
+  "rounded-full",
+  "shrink-0",
+  "t-toggle-track",
+  "w-9",
+]
+`;
+
+exports[`ui/Switch > class 稳定性 > size=md 开启态 1`] = `
+[
+  "cursor-pointer",
+  "data-[state=checked]:bg-primary-700",
+  "data-[state=unchecked]:bg-neutral-200",
+  "h-5",
+  "inline-flex",
+  "items-center",
+  "relative",
+  "rounded-full",
+  "shrink-0",
+  "t-toggle-track",
+  "w-9",
+]
+`;
+
+exports[`ui/Switch > class 稳定性 > size=sm 关闭态 1`] = `
+[
+  "data-[state=checked]:bg-primary-700",
+  "data-[state=unchecked]:bg-neutral-200",
+  "flex-shrink-0",
+  "h-5",
+  "inline-flex",
+  "items-center",
+  "relative",
+  "rounded-full",
+  "t-toggle-track",
+  "w-9",
+]
+`;
+
+exports[`ui/Switch > class 稳定性 > size=sm 开启态 1`] = `
+[
+  "data-[state=checked]:bg-primary-700",
+  "data-[state=unchecked]:bg-neutral-200",
+  "flex-shrink-0",
+  "h-5",
+  "inline-flex",
+  "items-center",
+  "relative",
+  "rounded-full",
+  "t-toggle-track",
+  "w-9",
+]
+`;

@@ -1,7 +1,8 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
     import CustomSelect from '@components/CustomSelect.vue';
     import PasswordInput from '@components/PasswordInput.vue';
     import { Input } from '@components/ui/input';
+    import { Switch } from '@components/ui/switch';
     import { findBuiltInToolByToolId, updateBuiltInTool } from '@database/queries';
     import { storeToRefs } from 'pinia';
     import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -431,25 +432,15 @@
                         {{ t('settings.search.description') }}
                     </p>
                 </div>
-                <button
-                    type="button"
+                <Switch
+                    size="lg"
+                    class="ml-auto shrink-0"
                     data-testid="search-enabled-toggle"
                     :aria-label="t('settings.search.title')"
-                    :aria-pressed="toolEnabled"
+                    :model-value="toolEnabled"
                     :disabled="savingToolEnabled"
-                    :class="[
-                        't-toggle-track relative ml-auto inline-flex h-5 w-9 shrink-0 items-center rounded-full disabled:cursor-not-allowed disabled:opacity-50',
-                        toolEnabled ? 'settings-toggle-enabled' : 'bg-neutral-200',
-                    ]"
-                    @click="toggleToolEnabled"
-                >
-                    <span
-                        :class="[
-                            't-toggle-thumb inline-block h-3.5 w-3.5 transform rounded-full bg-white',
-                            toolEnabled ? 'translate-x-[18px]' : 'translate-x-1',
-                        ]"
-                    />
-                </button>
+                    @update:model-value="toggleToolEnabled"
+                />
             </header>
 
             <fieldset :disabled="!toolEnabled" class="contents">
@@ -555,34 +546,20 @@
                             </div>
                             <div class="min-w-0">
                                 <div class="flex min-w-0 items-center gap-2">
-                                    <button
-                                        type="button"
+                                    <Switch
+                                        size="lg"
+                                        class="shrink-0"
                                         :data-testid="`search-provider-toggle-${provider.id}`"
                                         :aria-label="provider.label"
-                                        :aria-pressed="providerConfig(provider.id).enabled"
-                                        :class="[
-                                            't-toggle-track relative inline-flex h-5 w-9 shrink-0 items-center rounded-full disabled:cursor-not-allowed disabled:opacity-50',
-                                            providerConfig(provider.id).enabled
-                                                ? 'settings-toggle-enabled'
-                                                : 'bg-neutral-200',
-                                        ]"
+                                        :model-value="providerConfig(provider.id).enabled"
                                         :disabled="!toolEnabled"
-                                        @click="
+                                        @update:model-value="
                                             updateProviderEnabled(
                                                 provider.id,
                                                 !providerConfig(provider.id).enabled
                                             )
                                         "
-                                    >
-                                        <span
-                                            :class="[
-                                                't-toggle-thumb inline-block h-3.5 w-3.5 transform rounded-full bg-white',
-                                                providerConfig(provider.id).enabled
-                                                    ? 'translate-x-[18px]'
-                                                    : 'translate-x-1',
-                                            ]"
-                                        />
-                                    </button>
+                                    />
                                     <input
                                         v-if="providerRequiresEndpoint(provider.id)"
                                         :value="providerCredentialValue(provider.id)"
@@ -679,25 +656,15 @@
                                     {{ row.description }}
                                 </div>
                             </div>
-                            <button
-                                type="button"
+                            <Switch
+                                size="lg"
+                                class="ml-auto shrink-0"
                                 :data-testid="`search-advanced-toggle-${row.key}`"
                                 :aria-label="row.label"
-                                :aria-pressed="draft[row.key]"
-                                :class="[
-                                    't-toggle-track relative ml-auto inline-flex h-5 w-9 shrink-0 items-center rounded-full disabled:cursor-not-allowed disabled:opacity-50',
-                                    draft[row.key] ? 'settings-toggle-enabled' : 'bg-neutral-200',
-                                ]"
+                                :model-value="draft[row.key]"
                                 :disabled="!toolEnabled"
-                                @click="draft[row.key] = !draft[row.key]"
-                            >
-                                <span
-                                    :class="[
-                                        't-toggle-thumb inline-block h-3.5 w-3.5 transform rounded-full bg-white',
-                                        draft[row.key] ? 'translate-x-[18px]' : 'translate-x-1',
-                                    ]"
-                                />
-                            </button>
+                                @update:model-value="draft[row.key] = !draft[row.key]"
+                            />
                         </div>
                     </div>
                 </section>

@@ -1,6 +1,7 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
     import AlertMessage from '@components/AlertMessage.vue';
     import CustomSelect from '@components/CustomSelect.vue';
+    import { Switch } from '@components/ui/switch';
     import { native } from '@services/NativeService';
     import { storeToRefs } from 'pinia';
     import { computed, onMounted, ref, watch } from 'vue';
@@ -205,23 +206,14 @@
                         >
                             {{ t('settings.general.startOnBoot') }}
                         </div>
-                        <button
-                            :class="[
-                                't-toggle-track relative inline-flex h-5 w-9 items-center rounded-full',
-                                settings.startOnBoot ? 'settings-toggle-enabled' : 'bg-neutral-200',
-                            ]"
-                            @click="
+                        <Switch
+                            size="lg"
+                            :model-value="settings.startOnBoot"
+                            @update:model-value="
                                 settings.startOnBoot = !settings.startOnBoot;
                                 saveStartOnBoot();
                             "
-                        >
-                            <span
-                                :class="[
-                                    't-toggle-thumb inline-block h-3.5 w-3.5 transform rounded-full bg-white',
-                                    settings.startOnBoot ? 'translate-x-[18px]' : 'translate-x-1',
-                                ]"
-                            />
-                        </button>
+                        />
                     </div>
 
                     <div
@@ -234,29 +226,15 @@
                         >
                             {{ t('settings.general.startMinimized') }}
                         </div>
-                        <button
-                            :class="[
-                                't-toggle-track relative inline-flex h-5 w-9 items-center rounded-full',
-                                settings.startMinimized
-                                    ? 'settings-toggle-enabled'
-                                    : 'bg-neutral-200',
-                            ]"
+                        <Switch
+                            size="lg"
                             data-testid="settings-start-minimized-toggle"
-                            :aria-pressed="settings.startMinimized"
-                            @click="
+                            :model-value="settings.startMinimized"
+                            @update:model-value="
                                 settings.startMinimized = !settings.startMinimized;
                                 saveStartMinimized();
                             "
-                        >
-                            <span
-                                :class="[
-                                    't-toggle-thumb inline-block h-3.5 w-3.5 transform rounded-full bg-white',
-                                    settings.startMinimized
-                                        ? 'translate-x-[18px]'
-                                        : 'translate-x-1',
-                                ]"
-                            />
-                        </button>
+                        />
                     </div>
 
                     <div

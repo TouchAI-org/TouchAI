@@ -6,6 +6,7 @@
     import MotionCollapse from '@components/MotionCollapse.vue';
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
+    import { Switch } from '@components/ui/switch';
     import { useListFilter } from '@composables/useListFilter';
     import { updateMcpTool } from '@database/queries';
     import type { McpServerEntity, McpToolEntity } from '@database/types';
@@ -61,8 +62,7 @@
         }
     };
 
-    const toggleEnabled = async (tool: McpToolEntity, event: Event) => {
-        event.stopPropagation();
+    const toggleEnabled = async (tool: McpToolEntity) => {
         try {
             await updateMcpTool(tool.id, {
                 enabled: tool.enabled ? 0 : 1,
@@ -217,20 +217,11 @@
                                     >
                                         {{ tool.name }}
                                     </h3>
-                                    <button
-                                        :class="[
-                                            't-toggle-track relative inline-flex h-5 w-9 items-center rounded-full',
-                                            tool.enabled ? 'bg-primary-700' : 'bg-neutral-200',
-                                        ]"
-                                        @click="toggleEnabled(tool, $event)"
-                                    >
-                                        <span
-                                            :class="[
-                                                't-toggle-thumb inline-block h-3 w-3 transform rounded-full bg-white',
-                                                tool.enabled ? 'translate-x-5' : 'translate-x-1',
-                                            ]"
-                                        />
-                                    </button>
+                                    <Switch
+                                        size="sm"
+                                        :model-value="tool.enabled === 1"
+                                        @update:model-value="toggleEnabled(tool)"
+                                    />
                                 </div>
                                 <p
                                     v-if="tool.description"

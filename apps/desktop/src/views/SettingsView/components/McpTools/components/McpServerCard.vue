@@ -1,6 +1,7 @@
 ﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import { Switch } from '@components/ui/switch';
     import { useConfirm } from '@composables/useConfirm';
     import type { McpServerEntity } from '@database/types';
     import { computed } from 'vue';
@@ -146,23 +147,13 @@
             </div>
 
             <div class="flex items-center gap-1">
-                <button
+                <Switch
+                    size="sm"
+                    :model-value="server.enabled === 1"
                     :disabled="isToggling"
-                    :class="[
-                        't-toggle-track relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full',
-                        server.enabled ? 'bg-primary-700' : 'bg-neutral-200',
-                        isToggling && 'cursor-not-allowed opacity-50',
-                    ]"
                     :title="t('settings.builtInTools.toggleEnabled')"
-                    @click.stop="handleToggleEnabled"
-                >
-                    <span
-                        :class="[
-                            't-toggle-thumb inline-block h-3 w-3 transform rounded-full bg-white',
-                            server.enabled ? 'translate-x-5' : 'translate-x-1',
-                        ]"
-                    />
-                </button>
+                    @update:model-value="handleToggleEnabled"
+                />
             </div>
         </div>
     </button>

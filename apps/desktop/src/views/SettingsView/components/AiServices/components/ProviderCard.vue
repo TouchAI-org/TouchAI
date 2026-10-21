@@ -1,6 +1,7 @@
 ﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import { Switch } from '@components/ui/switch';
     import type { Provider } from '@database/schema';
     import { computed } from 'vue';
 
@@ -83,31 +84,12 @@
             </div>
         </div>
 
-        <label class="relative inline-flex shrink-0 cursor-pointer items-center" @click.stop>
-            <input
-                type="checkbox"
-                :checked="provider.enabled === 1"
-                :disabled="isToggleDisabled"
-                class="peer sr-only"
-                @change="handleToggle"
-            />
-            <div
-                class="peer t-toggle-track h-5 w-9 rounded-full"
-                :class="{
-                    'bg-primary-700': provider.enabled === 1,
-                    'bg-neutral-200': provider.enabled === 0,
-                    'cursor-not-allowed opacity-50': isToggleDisabled,
-                }"
-            >
-                <div
-                    class="t-toggle-thumb absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white"
-                    :class="{
-                        'translate-x-4': provider.enabled === 1,
-                        'translate-x-0': provider.enabled === 0,
-                    }"
-                ></div>
-            </div>
-        </label>
+        <Switch
+            size="md"
+            :model-value="provider.enabled === 1"
+            :disabled="isToggleDisabled"
+            @update:model-value="handleToggle"
+        />
     </div>
 </template>
 

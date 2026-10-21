@@ -158,8 +158,11 @@ describe('Search settings section', () => {
         const parallelToggle = wrapper.get(
             '[data-testid="search-advanced-toggle-parallelProviders"]'
         );
-        expect(parallelToggle.attributes('aria-pressed')).toBe('false');
-        expect(parallelToggle.classes()).toContain('bg-neutral-200');
+        // ui/Switch 使用 role="switch" + aria-checked（正确的 switch 语义），
+        // 不再是原先手写 <button> 的 aria-pressed。
+        expect(parallelToggle.attributes('aria-checked')).toBe('false');
+        expect(parallelToggle.attributes('role')).toBe('switch');
+        expect(parallelToggle.classes()).toContain('data-[state=unchecked]:bg-neutral-200');
 
         await parallelToggle.trigger('click');
         await vi.advanceTimersByTimeAsync(300);
@@ -219,7 +222,7 @@ describe('Search settings section', () => {
         await vi.advanceTimersByTimeAsync(300);
 
         expect(
-            wrapper.get('[data-testid="search-provider-toggle-tavily"]').attributes('aria-pressed')
+            wrapper.get('[data-testid="search-provider-toggle-tavily"]').attributes('aria-checked')
         ).toBe('false');
         expect(wrapper.get('[data-testid="search-tavily-api-key-input"]').classes()).toContain(
             'border-red-300'
@@ -275,7 +278,7 @@ describe('Search settings section', () => {
         expect(
             wrapper
                 .get('[data-testid="search-provider-toggle-deepseek"]')
-                .attributes('aria-pressed')
+                .attributes('aria-checked')
         ).toBe('false');
         expect(wrapper.get('[data-testid="search-deepseek-api-key-input"]').classes()).toContain(
             'border-red-300'

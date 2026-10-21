@@ -205,7 +205,10 @@ describe('AiServices i18n and layout', () => {
         expect(wrapper.text()).toContain('Default');
         expect(wrapper.text()).not.toContain('大模型服务');
 
-        const addButton = wrapper.get('button');
+        // 用 data-testid 精确定位「添加服务商」按钮。
+        // 不能用 wrapper.get('button')：ProviderCard 里的 Switch 也渲染成 <button>，
+        // 且 DOM 顺序在它之前。
+        const addButton = wrapper.get('[data-testid="settings-add-custom-provider-button"]');
         expect(addButton.classes()).toContain('whitespace-normal');
         expect(addButton.classes()).toContain('break-words');
     });

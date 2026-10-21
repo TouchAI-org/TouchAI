@@ -1,5 +1,6 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
     import CustomSelect from '@components/CustomSelect.vue';
+    import { Switch } from '@components/ui/switch';
     import { appUpdateService } from '@services/AppUpdateService';
     import { getAvailableAppUpdateVersion } from '@services/AppUpdateService/availability';
     import type { AppUpdateChannel } from '@services/AppUpdateService/types';
@@ -294,24 +295,13 @@
                 >
                     {{ t('settings.general.update.autoCheck') }}
                 </div>
-                <button
-                    type="button"
-                    :class="[
-                        't-toggle-track relative inline-flex h-5 w-9 items-center rounded-full disabled:cursor-not-allowed disabled:opacity-50',
-                        updateState.autoCheckEnabled ? 'settings-toggle-enabled' : 'bg-neutral-200',
-                    ]"
+                <Switch
+                    size="lg"
                     data-testid="settings-update-auto-check-toggle"
-                    :aria-pressed="updateState.autoCheckEnabled"
+                    :model-value="updateState.autoCheckEnabled"
                     :disabled="isBusy"
-                    @click="toggleAutoCheck"
-                >
-                    <span
-                        :class="[
-                            't-toggle-thumb inline-block h-3.5 w-3.5 transform rounded-full bg-white',
-                            updateState.autoCheckEnabled ? 'translate-x-[18px]' : 'translate-x-1',
-                        ]"
-                    />
-                </button>
+                    @update:model-value="toggleAutoCheck"
+                />
             </div>
 
             <div

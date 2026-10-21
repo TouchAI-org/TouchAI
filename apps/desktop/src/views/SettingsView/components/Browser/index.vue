@@ -1,9 +1,10 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
     import EmptyState from '@components/EmptyState.vue';
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
+    import { Switch } from '@components/ui/switch';
     import { open } from '@tauri-apps/plugin-dialog';
     import { storeToRefs } from 'pinia';
     import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -455,23 +456,13 @@
                         {{ t('settings.browser.description') }}
                     </p>
                 </div>
-                <button
-                    type="button"
+                <Switch
+                    size="lg"
+                    class="ml-auto shrink-0"
                     data-testid="browser-enabled-toggle"
-                    :aria-pressed="draft.enabled"
-                    :class="[
-                        't-toggle-track relative ml-auto inline-flex h-5 w-9 shrink-0 items-center rounded-full',
-                        draft.enabled ? 'settings-toggle-enabled' : 'bg-neutral-200',
-                    ]"
-                    @click="draft.enabled = !draft.enabled"
-                >
-                    <span
-                        :class="[
-                            't-toggle-thumb inline-block h-3.5 w-3.5 transform rounded-full bg-white',
-                            draft.enabled ? 'translate-x-[18px]' : 'translate-x-1',
-                        ]"
-                    />
-                </button>
+                    :model-value="draft.enabled"
+                    @update:model-value="draft.enabled = !draft.enabled"
+                />
             </header>
 
             <fieldset :disabled="!draft.enabled" class="contents">
