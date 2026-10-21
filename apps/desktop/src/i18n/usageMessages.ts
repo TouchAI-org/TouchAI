@@ -124,7 +124,8 @@ export const usageMessagesZhCN = {
 
     // 统一仪表盘
     'settings.usage.dashboardHistoryTitle': '用量概览',
-    'settings.usage.dashboardCurveTitle': '用量曲线',
+    'settings.usage.dashboardCurveTitle': '消耗 Token',
+    'settings.usage.curve.liveWindow': '最近 1 分钟',
 
     // 排行
     'settings.usage.ranking.modelTitle': '模型',
@@ -175,6 +176,7 @@ export const usageMessagesZhCN = {
 
     // 热力图
     'settings.usage.heatmap.title': '使用热力图',
+    'settings.usage.heatmap.yearSummary': '近一年活跃 {days} 天 · 共 {tokens} tokens',
     'settings.usage.heatmap.summary': '所选区间活跃 {days} 天 · 共 {tokens} tokens',
     'settings.usage.heatmap.summaryHours':
         '所选区间活跃 {days} 天 {hours} 个时段 · 共 {tokens} tokens',
@@ -375,7 +377,8 @@ export const usageMessagesEnUS = {
     'settings.usage.live.streaming': 'streaming',
 
     'settings.usage.dashboardHistoryTitle': 'Usage overview',
-    'settings.usage.dashboardCurveTitle': 'Usage curve',
+    'settings.usage.dashboardCurveTitle': 'Tokens used',
+    'settings.usage.curve.liveWindow': 'last minute',
 
     'settings.usage.ranking.modelTitle': 'Models',
     'settings.usage.ranking.sessionTitle': 'Top sessions',
@@ -425,6 +428,7 @@ export const usageMessagesEnUS = {
     'settings.usage.tools.column.duration': 'Duration',
 
     'settings.usage.heatmap.title': 'Activity heatmap',
+    'settings.usage.heatmap.yearSummary': '{days} active days · {tokens} tokens in the past year',
     'settings.usage.heatmap.summary': '{days} active days · {tokens} tokens in this range',
     'settings.usage.heatmap.summaryHours':
         '{days} days, {hours} active hours · {tokens} tokens in this range',

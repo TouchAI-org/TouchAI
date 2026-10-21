@@ -25,7 +25,12 @@
         formatTokensCompact,
     } from '../utils/format';
     import { aggregateStreams } from '../utils/liveAggregate';
-    import { buildUsageCurve, mergeLiveUsage } from '../utils/usageOverlay';
+    import {
+        buildLiveCurve,
+        buildUsageCurve,
+        LIVE_WINDOW_MS,
+        mergeLiveUsage,
+    } from '../utils/usageOverlay';
 
     interface Props {
         summary: UsageSummary | null;
@@ -197,16 +202,24 @@
         return items;
     });
 
+    /**
+     * 有流时用滑动窗口，无流时用区间汇总。
+     *
+     * 两者不能共用一条横轴：区间可能是 24 小时，而一轮对话只有几十秒，
+     * 放在同一个时间尺度上永远是平的。切换时标题会同步变化，不让读者误解。
+     */
+    const liveMode = computed(() => liveSamples.value.length > 0);
+
     const curve = computed(() =>
-        buildUsageCurve(
-            props.trend,
-            props.bucket,
-            props.range,
-            props.liveTurns,
-            liveStates.value,
-            liveSamples.value,
-            now.value
-        )
+        liveMode.value
+            ? buildLiveCurve(liveSamples.value, LIVE_WINDOW_MS, now.value)
+            : buildUsageCurve(
+                  props.trend,
+                  props.bucket,
+                  props.range,
+                  props.liveTurns,
+                  liveStates.value
+              )
     );
     const WIDTH = 520;
     const HEIGHT = 96;
@@ -218,7 +231,7 @@
         const span = points[points.length - 1]!.at - first;
         return points.map((point) => ({
             ...point,
-            x: span > 0 ? 4 + ((point.at - first) / span) * (WIDTH - 8) : WIDTH / 2,
+            x: span > 0 ? 4 + ((point.at - first) / span) * (WIDTH - 8) : WIDTH - 4,
             y: 8 + (1 - point.value / peak) * (HEIGHT - 12),
         }));
     });
@@ -228,6 +241,10 @@
                 (point, index) => `${index ? 'L' : 'M'}${point.x.toFixed(1)},${point.y.toFixed(1)}`
             )
             .join(' ')
+    );
+    /** 曲线峰值：作为纵轴刻度标在左上角 */
+    const peakValue = computed(() =>
+        geometry.value.reduce((max, point) => Math.max(max, point.value), 0)
     );
     const areaPath = computed(() => {
         const first = geometry.value[0];
@@ -357,10 +374,15 @@
 
         <div class="mt-3 rounded-[11px] bg-neutral-50/80 p-3">
             <div class="flex items-start justify-between gap-3">
-                <span class="pt-0.5 text-[10px] tracking-wide text-neutral-400 uppercase">
-                    {{ t('settings.usage.dashboardCurveTitle') }} ·
-                    {{ t('settings.usage.metric.tokens') }}
-                </span>
+                <div class="flex flex-col gap-0.5">
+                    <span class="text-[10px] tracking-wide text-neutral-400 uppercase">
+                        {{ t('settings.usage.dashboardCurveTitle') }}
+                    </span>
+                    <!-- 有流时说明当前是最近一分钟，否则读者会把平滑曲线当成整天走势 -->
+                    <span v-if="liveMode" class="text-[10px] text-neutral-400">
+                        {{ t('settings.usage.curve.liveWindow') }}
+                    </span>
+                </div>
 
                 <!-- 有流时右上角给吞吐与路数；无流时只留一个安静的状态点 -->
                 <div class="flex flex-col items-end gap-0.5">
@@ -400,6 +422,17 @@
                 role="img"
                 :aria-label="t('settings.usage.dashboardCurveTitle')"
             >
+                <!-- 基线：让“贴底”也有参照，不至于看不出零在哪 -->
+                <line
+                    :x1="4"
+                    :x2="WIDTH - 4"
+                    :y1="HEIGHT - 4"
+                    :y2="HEIGHT - 4"
+                    stroke="currentColor"
+                    class="text-neutral-200"
+                    stroke-width="1"
+                />
+
                 <path :d="areaPath" fill="currentColor" class="text-sky-500/10" />
                 <path
                     :d="linePath"
@@ -410,6 +443,12 @@
                     stroke-linejoin="round"
                     stroke-linecap="round"
                 />
+
+                <!-- 峰值标注：给出刻度，否则只看形状无法读出量级 -->
+                <text :x="4" :y="10" class="fill-neutral-400" font-size="9">
+                    {{ formatTokensCompact(peakValue) }}
+                </text>
+
                 <circle
                     :cx="geometry[geometry.length - 1]!.x"
                     :cy="geometry[geometry.length - 1]!.y"
@@ -417,6 +456,17 @@
                     fill="currentColor"
                     class="text-sky-500"
                 />
+
+                <!-- 尾端当前值，跟随末端点 -->
+                <text
+                    :x="Math.min(WIDTH - 4, geometry[geometry.length - 1]!.x + 6)"
+                    :y="Math.max(12, geometry[geometry.length - 1]!.y - 4)"
+                    :text-anchor="geometry[geometry.length - 1]!.x > WIDTH - 60 ? 'end' : 'start'"
+                    class="fill-sky-600 font-medium"
+                    font-size="10"
+                >
+                    {{ formatTokensCompact(geometry[geometry.length - 1]!.value) }}
+                </text>
             </svg>
         </div>
     </section>

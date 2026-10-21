@@ -102,6 +102,50 @@ export function mergeLiveUsage(
 }
 
 /**
+ * 实时窗口长度。
+ *
+ * 横轴若按整个区间（如「今天」= 24 小时）铺开，一段 30 秒的对话只占宽度的
+ * 万分之三，曲线看上去永远是平的。所以有流时改用滑动窗口，让增量占满宽度。
+ */
+export const LIVE_WINDOW_MS = 60_000;
+
+/**
+ * 实时曲线：当前这轮（或几轮并行）的累计输出 token 随时间变化。
+ *
+ * 与历史不同，这里直接用采样点定位，不四舍五入到桶：
+ * 窗口只有一分钟，桶粒度会把曲线磨成阶梯。
+ */
+export function buildLiveCurve(
+    samples: readonly LiveUsageSample[],
+    windowMs = LIVE_WINDOW_MS,
+    nowMs = Date.now()
+): UsageCurvePoint[] {
+    if (samples.length === 0) return [];
+
+    const cutoff = nowMs - windowMs;
+    const first = samples[0]!;
+    // 对话刚开始时窗口向右对齐到采样起点，避免左边全是空白
+    const start = Math.max(cutoff, first.atMs);
+    const points: UsageCurvePoint[] = [];
+
+    for (const sample of samples) {
+        if (sample.atMs < start) continue;
+        const at = Math.min(sample.atMs, nowMs);
+        const previous = points[points.length - 1];
+        if (previous && at <= previous.at) continue;
+        points.push({ key: '', at, value: sample.tokens, live: true });
+    }
+
+    // 保证尾部一直延伸到现在：即使没有新 token，横轴也在走
+    const last = points[points.length - 1];
+    if (!last || nowMs - last.at > 200) {
+        points.push({ key: '', at: nowMs, value: last?.value ?? 0, live: true });
+    }
+
+    return points;
+}
+
+/**
  * 同一时间桶内更新实时增量；横轴始终采用真实时间。
  *
  * 历史点每个桶一个（按桶起点定位）。当前桶额外附上实时采样，

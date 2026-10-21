@@ -998,9 +998,23 @@ export const getToolUsageStats = async (filter: UsageFilter): Promise<ToolUsageS
  * 跟随所选区间，而不是固定一年：选了“近 7 天”却看到一整年的格子
  * 会让人误以为筛选没生效。
  */
+/** 数据库时间戳格式（UTC），与 created_at 一致 */
+function toDbTimestamp(date: Date): string {
+    return date.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+/**
+ * 热力图按日聚合最近一年。
+ *
+ * 热力图固定看一年，所以不能用筛选区间：区间可能是「今天」，
+ * 那样图上只剩一天有颜色，其余全是空的。筛选里的模型/供应商仍然生效，
+ * 只把时间范围换成固定的一年。
+ */
 export const getUsageHeatmap = async (filter: UsageFilter): Promise<UsageHeatmapDay[]> => {
     const dayExpr = sql<string>`date(${sessionTurns.created_at}, 'localtime')`;
     const hourExpr = sql<number>`cast(strftime('%H', ${sessionTurns.created_at}, 'localtime') as integer)`;
+    const yearAgo = new Date();
+    yearAgo.setFullYear(yearAgo.getFullYear() - 1);
 
     const rows = await db
         .select({
@@ -1014,7 +1028,13 @@ export const getUsageHeatmap = async (filter: UsageFilter): Promise<UsageHeatmap
             costMicros: sql<number>`coalesce(sum(${sessionTurns.total_cost_micros}), 0)`,
         })
         .from(sessionTurns)
-        .where(buildTurnWhere(filter))
+        .where(
+            buildTurnWhere({
+                ...filter,
+                from: toDbTimestamp(yearAgo),
+                to: toDbTimestamp(new Date()),
+            })
+        )
         .groupBy(dayExpr, hourExpr)
         .orderBy(dayExpr, hourExpr)
         .all();

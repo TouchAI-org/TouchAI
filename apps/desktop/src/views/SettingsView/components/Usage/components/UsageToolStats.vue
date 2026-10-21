@@ -62,129 +62,128 @@
         </div>
 
         <template v-else>
-            <!-- 指标与表格同处一块卡片，不再拆成两个灰块上下堆 -->
-            <div class="rounded-[11px] bg-neutral-50/80 p-4">
-                <div class="grid grid-cols-2 gap-x-6 gap-y-3 lg:grid-cols-4">
-                    <div class="flex flex-col gap-0.5">
-                        <span class="text-[11px] text-neutral-500">
-                            {{ t('settings.usage.tools.total') }}
-                        </span>
-                        <span
-                            class="font-serif text-[20px] leading-tight font-semibold text-neutral-950 tabular-nums"
-                        >
-                            {{ formatInt(stats.totalCount) }}
-                        </span>
-                    </div>
-                    <div class="flex flex-col gap-0.5">
-                        <span class="text-[11px] text-neutral-500">
-                            {{ t('settings.usage.tools.distinct') }}
-                        </span>
-                        <span
-                            class="font-serif text-[20px] leading-tight font-semibold text-neutral-950 tabular-nums"
-                        >
-                            {{ formatInt(stats.distinctTools) }}
-                        </span>
-                    </div>
-                    <div class="flex flex-col gap-0.5">
-                        <span class="text-[11px] text-neutral-500">
-                            {{ t('settings.usage.tools.errorRate') }}
-                        </span>
-                        <span
-                            :class="[
-                                'font-serif text-[20px] leading-tight font-semibold tabular-nums',
-                                stats.errorCount > 0 ? 'text-red-600' : 'text-neutral-950',
-                            ]"
-                        >
-                            {{
-                                formatPercent(
-                                    stats.totalCount > 0 ? stats.errorCount / stats.totalCount : 0
-                                )
-                            }}
-                        </span>
-                    </div>
-                    <div class="flex flex-col gap-0.5">
-                        <span class="text-[11px] text-neutral-500">
-                            {{ t('settings.usage.tools.meanDuration') }}
-                        </span>
-                        <span
-                            class="font-serif text-[20px] leading-tight font-semibold text-neutral-950 tabular-nums"
-                        >
-                            {{ formatDuration(stats.meanDurationMs) }}
-                        </span>
-                    </div>
+            <!-- 指标：与首屏同样的独立浅底小卡，不套大卡壳 -->
+            <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <div class="flex flex-col gap-0.5 rounded-[10px] bg-neutral-50/80 px-4 py-3">
+                    <span class="text-[11px] text-neutral-500">
+                        {{ t('settings.usage.tools.total') }}
+                    </span>
+                    <span
+                        class="font-serif text-[20px] leading-tight font-semibold text-neutral-950 tabular-nums"
+                    >
+                        {{ formatInt(stats.totalCount) }}
+                    </span>
+                </div>
+                <div class="flex flex-col gap-0.5 rounded-[10px] bg-neutral-50/80 px-4 py-3">
+                    <span class="text-[11px] text-neutral-500">
+                        {{ t('settings.usage.tools.distinct') }}
+                    </span>
+                    <span
+                        class="font-serif text-[20px] leading-tight font-semibold text-neutral-950 tabular-nums"
+                    >
+                        {{ formatInt(stats.distinctTools) }}
+                    </span>
+                </div>
+                <div class="flex flex-col gap-0.5 rounded-[10px] bg-neutral-50/80 px-4 py-3">
+                    <span class="text-[11px] text-neutral-500">
+                        {{ t('settings.usage.tools.errorRate') }}
+                    </span>
+                    <span
+                        :class="[
+                            'font-serif text-[20px] leading-tight font-semibold tabular-nums',
+                            stats.errorCount > 0 ? 'text-red-600' : 'text-neutral-950',
+                        ]"
+                    >
+                        {{
+                            formatPercent(
+                                stats.totalCount > 0 ? stats.errorCount / stats.totalCount : 0
+                            )
+                        }}
+                    </span>
+                </div>
+                <div class="flex flex-col gap-0.5 rounded-[10px] bg-neutral-50/80 px-4 py-3">
+                    <span class="text-[11px] text-neutral-500">
+                        {{ t('settings.usage.tools.meanDuration') }}
+                    </span>
+                    <span
+                        class="font-serif text-[20px] leading-tight font-semibold text-neutral-950 tabular-nums"
+                    >
+                        {{ formatDuration(stats.meanDurationMs) }}
+                    </span>
+                </div>
+            </div>
+
+            <!-- 工具列表：同样用留白隔开，不用分割线 -->
+            <div class="space-y-2">
+                <div
+                    class="flex items-center gap-4 px-4 text-[11px] text-neutral-400"
+                    aria-hidden="true"
+                >
+                    <span class="min-w-0 flex-1">
+                        {{ t('settings.usage.tools.column.tool') }}
+                    </span>
+                    <span class="w-16 shrink-0 text-right">
+                        {{ t('settings.usage.tools.column.calls') }}
+                    </span>
+                    <span class="w-14 shrink-0 text-right">
+                        {{ t('settings.usage.tools.column.share') }}
+                    </span>
+                    <span class="w-16 shrink-0 text-right">
+                        {{ t('settings.usage.tools.column.errorRate') }}
+                    </span>
+                    <span class="w-16 shrink-0 text-right">
+                        {{ t('settings.usage.tools.column.duration') }}
+                    </span>
                 </div>
 
-                <div class="mt-4 divide-y divide-neutral-200/60 border-t border-neutral-200/60">
-                    <div
-                        class="flex items-center gap-4 py-1.5 text-[11px] text-neutral-400"
-                        aria-hidden="true"
-                    >
-                        <span class="min-w-0 flex-1">
-                            {{ t('settings.usage.tools.column.tool') }}
+                <div
+                    v-for="row in rows"
+                    :key="row.name"
+                    data-testid="settings-usage-tool-row"
+                    class="flex items-center gap-4 rounded-[10px] bg-neutral-50/80 px-4 py-2.5"
+                >
+                    <div class="flex min-w-0 flex-1 items-center gap-2">
+                        <span class="truncate text-[12.5px] text-neutral-900" :title="row.name">
+                            {{ displayName(row.name) }}
                         </span>
-                        <span class="w-16 shrink-0 text-right">
-                            {{ t('settings.usage.tools.column.calls') }}
-                        </span>
-                        <span class="w-14 shrink-0 text-right">
-                            {{ t('settings.usage.tools.column.share') }}
-                        </span>
-                        <span class="w-16 shrink-0 text-right">
-                            {{ t('settings.usage.tools.column.errorRate') }}
-                        </span>
-                        <span class="w-16 shrink-0 text-right">
-                            {{ t('settings.usage.tools.column.duration') }}
+                        <span
+                            class="shrink-0 rounded bg-neutral-200/60 px-1.5 py-0.5 text-[10px] text-neutral-500"
+                        >
+                            {{ kindLabel(row.kind) }}
                         </span>
                     </div>
-
-                    <div
-                        v-for="row in rows"
-                        :key="row.name"
-                        data-testid="settings-usage-tool-row"
-                        class="flex items-center gap-4 py-2"
+                    <span
+                        class="w-16 shrink-0 text-right text-[12.5px] text-neutral-600 tabular-nums"
                     >
-                        <div class="flex min-w-0 flex-1 items-center gap-2">
-                            <span class="truncate text-[12.5px] text-neutral-900" :title="row.name">
-                                {{ displayName(row.name) }}
-                            </span>
-                            <span
-                                class="shrink-0 rounded bg-neutral-200/60 px-1.5 py-0.5 text-[10px] text-neutral-500"
-                            >
-                                {{ kindLabel(row.kind) }}
-                            </span>
-                        </div>
-                        <span
-                            class="w-16 shrink-0 text-right text-[12.5px] text-neutral-600 tabular-nums"
-                        >
-                            {{ formatInt(row.count) }}
-                        </span>
-                        <span
-                            class="w-14 shrink-0 text-right text-[12.5px] text-neutral-600 tabular-nums"
-                        >
-                            {{ formatPercent(shareOf(row.count)) }}
-                        </span>
-                        <span
-                            :class="[
-                                'w-16 shrink-0 text-right text-[12.5px] tabular-nums',
-                                row.errorCount > 0 ? 'text-red-600' : 'text-neutral-600',
-                            ]"
-                        >
-                            {{ formatPercent(errorRateOf(row.count, row.errorCount)) }}
-                        </span>
-                        <span
-                            class="w-16 shrink-0 text-right text-[12.5px] text-neutral-600 tabular-nums"
-                        >
-                            {{ formatDuration(row.meanDurationMs) }}
-                        </span>
-                    </div>
-
-                    <p
-                        v-if="hiddenCount > 0"
-                        class="py-2 text-[11px] text-neutral-400"
-                        data-testid="settings-usage-tools-more"
+                        {{ formatInt(row.count) }}
+                    </span>
+                    <span
+                        class="w-14 shrink-0 text-right text-[12.5px] text-neutral-600 tabular-nums"
                     >
-                        {{ t('settings.usage.tools.more', { count: hiddenCount }) }}
-                    </p>
+                        {{ formatPercent(shareOf(row.count)) }}
+                    </span>
+                    <span
+                        :class="[
+                            'w-16 shrink-0 text-right text-[12.5px] tabular-nums',
+                            row.errorCount > 0 ? 'text-red-600' : 'text-neutral-600',
+                        ]"
+                    >
+                        {{ formatPercent(errorRateOf(row.count, row.errorCount)) }}
+                    </span>
+                    <span
+                        class="w-16 shrink-0 text-right text-[12.5px] text-neutral-600 tabular-nums"
+                    >
+                        {{ formatDuration(row.meanDurationMs) }}
+                    </span>
                 </div>
+
+                <p
+                    v-if="hiddenCount > 0"
+                    class="px-4 text-[11px] text-neutral-400"
+                    data-testid="settings-usage-tools-more"
+                >
+                    {{ t('settings.usage.tools.more', { count: hiddenCount }) }}
+                </p>
             </div>
         </template>
     </section>

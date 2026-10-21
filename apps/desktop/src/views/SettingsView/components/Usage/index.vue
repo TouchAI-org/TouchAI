@@ -77,6 +77,8 @@
         meanDurationMs: null,
         byTool: [],
     });
+    /** 工具统计是否已到（空数据也要展示空态，不能当成未加载） */
+    const toolsReady = ref(false);
 
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     let unlistenTaskStatus: (() => void) | null = null;
@@ -103,15 +105,27 @@
         loadError.value = false;
         try {
             const current = { ...filter.value, ...resolveUsageRange(preset.value) };
-            // 「全部时间」且无筛选时优先用永久保留的日汇总表：
-            // 清理过会话轮次后，历史曲线仍然完整。
-            // 汇总表为空（例如首次启动还没跑维护）时回退到实时查询，
-            // 避免出现「指标有数、图表空白」的矛盾。
-            const useArchive = preset.value === 'all' && canUseUsageArchive(current);
-            const archiveTrend = useArchive ? await getUsageTrendFromArchive() : null;
 
+            // 第一阶段：只取首屏（汇总 + 曲线），先把仪表盘渲染出来。
+            // 其余区块都是独立查询，没必让首屏陪着一起等。
+            const dashboard = await getUsageDashboardSnapshot(
+                current,
+                trackedTaskIds.value,
+                dimension.value
+            );
+            if (version !== loadVersion || disposed) return;
+
+            summary.value = dashboard.summary;
+            liveTurns.value = dashboard.liveTurns;
+            loadedRange.value = { from: current.from, to: current.to };
+            trend.value = dashboard.trend;
+            // 首屏已就绪，后续区块可以各自显示自己的加载态
+            loading.value = false;
+
+            // 第二阶段：其余区块并行填充（含「全部时间」的归档趋势）。
+            const useArchive = preset.value === 'all' && canUseUsageArchive(current);
             const [
-                dashboard,
+                archiveTrend,
                 nextOptions,
                 nextComposition,
                 nextTools,
@@ -119,7 +133,7 @@
                 nextModelRanking,
                 nextSessionRanking,
             ] = await Promise.all([
-                getUsageDashboardSnapshot(current, trackedTaskIds.value, dimension.value),
+                useArchive ? getUsageTrendFromArchive() : Promise.resolve(null),
                 getUsageFilterOptions(current),
                 getUsageComposition(current),
                 getToolUsageStats(current),
@@ -129,25 +143,23 @@
             ]);
 
             if (version !== loadVersion || disposed) return;
-            summary.value = dashboard.summary;
-            liveTurns.value = dashboard.liveTurns;
-            loadedRange.value = { from: current.from, to: current.to };
+
             // 即时查询覆盖仍有明细的日期；归档只补回已清理的历史日期。
             const nextTrend = dashboard.trend;
-            const rawKeys = new Set(nextTrend.points.map((point) => point.key));
-            trend.value =
-                archiveTrend && nextTrend.bucket === 'day'
-                    ? {
-                          bucket: 'day',
-                          points: [
-                              ...archiveTrend.points.filter((point) => !rawKeys.has(point.key)),
-                              ...nextTrend.points,
-                          ].sort((left, right) => left.key.localeCompare(right.key)),
-                      }
-                    : nextTrend;
+            if (archiveTrend && nextTrend.bucket === 'day') {
+                const rawKeys = new Set(nextTrend.points.map((point) => point.key));
+                trend.value = {
+                    bucket: 'day',
+                    points: [
+                        ...archiveTrend.points.filter((point) => !rawKeys.has(point.key)),
+                        ...nextTrend.points,
+                    ].sort((left, right) => left.key.localeCompare(right.key)),
+                };
+            }
             options.value = nextOptions;
             composition.value = nextComposition;
             toolStats.value = nextTools;
+            toolsReady.value = true;
             heatmap.value = nextHeatmap;
             modelRanking.value = nextModelRanking;
             sessionRanking.value = nextSessionRanking;
@@ -267,12 +279,16 @@
                         :points="trend.points"
                         :bucket="trend.bucket"
                         :dimension="dimension"
+                        :loading="composition === null"
                         @update:dimension="dimension = $event"
                     />
 
                     <UsageComposition v-if="composition" :composition="composition" />
 
-                    <UsageToolStats :stats="toolStats" />
+                    <UsageToolStats
+                        v-if="toolStats.totalCount > 0 || !loading"
+                        :stats="toolStats"
+                    />
 
                     <!-- 两个排行并排一行；窄屏自动堆叠 -->
                     <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -294,7 +310,8 @@
                     </div>
 
                     <!-- 跨度够大才画热力图：短区间已经有按小时的趋势图，这里只补日历感 -->
-                    <UsageHeatmap :days="heatmap" :range="{ preset, ...loadedRange }" />
+                    <!-- 热力图固定展示近一年，不再跟随筛选区间，只影响深浅 -->
+                    <UsageHeatmap :days="heatmap" />
                 </template>
             </template>
         </div>

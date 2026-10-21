@@ -103,13 +103,13 @@
             </div>
 
             <!--
-                两只排行共用同一高度并各自内部滚动：
-                模型只有 5 项、会话有 8 项，不限高会一边高一边矮，看起来像没对齐。
+                两边共用「最大高度」而不是固定高度：
+                只有一行数据时不该占满整块，多了又能滚起来。
             -->
             <div
                 v-else
                 :class="[
-                    'custom-scrollbar h-[236px] space-y-2.5 overflow-y-auto pr-1',
+                    'custom-scrollbar max-h-[236px] space-y-2.5 overflow-y-auto pr-1',
                     loading ? 'opacity-60' : '',
                 ]"
             >

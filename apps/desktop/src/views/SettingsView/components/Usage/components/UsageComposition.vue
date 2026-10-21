@@ -43,8 +43,8 @@
     };
 
     /** 环形几何：半径 34、线宽 11，内径约 46，可容下「141.1万」+ 副标题 */
-    const R = 34;
-    const STROKE = 11;
+    const R = 32;
+    const STROKE = 8;
     const SVG = 128;
     const CIRCUMFERENCE = 2 * Math.PI * R;
 
@@ -167,7 +167,7 @@
                             class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
                         >
                             <span
-                                class="max-w-[76px] truncate text-center font-serif text-[15px] leading-tight font-semibold text-neutral-950 tabular-nums"
+                                class="max-w-[66px] truncate text-center font-serif text-[14px] leading-tight font-semibold text-neutral-950 tabular-nums"
                             >
                                 {{ formatTokensCompact(composition.tokens.total) }}
                             </span>
@@ -267,7 +267,7 @@
                             class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
                         >
                             <span
-                                class="max-w-[76px] truncate text-center font-serif text-[15px] leading-tight font-semibold text-neutral-950 tabular-nums"
+                                class="max-w-[66px] truncate text-center font-serif text-[14px] leading-tight font-semibold text-neutral-950 tabular-nums"
                             >
                                 {{ formatLongDuration(composition.timing.totalMs) }}
                             </span>
