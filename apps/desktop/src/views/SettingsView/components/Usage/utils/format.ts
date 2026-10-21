@@ -76,6 +76,60 @@ export function formatCostCompact(micros: number, currency = activeCurrency()): 
 }
 
 /**
+ * 把一个数值拆成「数字 + 前后缀 + 小数位」，交给数字滚轮渲染。
+ *
+ * 滚轮只能转数字，所以单位必须从字符串里分出来。
+ */
+export interface CounterSpec {
+    value: number;
+    prefix?: string;
+    suffix?: string;
+    decimals?: number;
+}
+
+/** 金额 → 滚轮参数（币种符号作前缀，固定两位小数） */
+export function costCounter(micros: number): CounterSpec {
+    const symbol = new Intl.NumberFormat(getLocale(), {
+        style: 'currency',
+        currency: activeCurrency(),
+        currencyDisplay: 'narrowSymbol',
+    })
+        .formatToParts(0)
+        .find((part) => part.type === 'currency')?.value;
+
+    return { value: convertMicros(micros), prefix: symbol, decimals: 2 };
+}
+
+/** 紧凑 token → 滚轮参数（万/亿 或 K/M/B 作后缀） */
+export function tokensCounter(tokens: number): CounterSpec {
+    if (getLocale() === 'zh-CN') {
+        if (tokens >= 100_000_000) {
+            return { value: tokens / 100_000_000, suffix: '亿', decimals: 1 };
+        }
+        if (tokens >= 10_000) {
+            return { value: tokens / 10_000, suffix: '万', decimals: 1 };
+        }
+        return { value: tokens, decimals: 0 };
+    }
+
+    if (tokens >= 1_000_000_000) {
+        return { value: tokens / 1_000_000_000, suffix: 'B', decimals: 1 };
+    }
+    if (tokens >= 1_000_000) {
+        return { value: tokens / 1_000_000, suffix: 'M', decimals: 1 };
+    }
+    if (tokens >= 1_000) {
+        return { value: tokens / 1_000, suffix: 'K', decimals: 1 };
+    }
+    return { value: tokens, decimals: 0 };
+}
+
+/** 整数 → 滚轮参数 */
+export function intCounter(value: number): CounterSpec {
+    return { value, decimals: 0 };
+}
+
+/**
  * 紧凑 token 数：按语言选单位。
  *
  * 中文习惯看「万 / 亿」，英文习惯看 K / M / B。

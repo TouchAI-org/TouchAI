@@ -18,21 +18,42 @@
         /** 是否展示图标（已移除，保留 prop 以兼容旧调用） */
         showIcon?: boolean;
         loading?: boolean;
+        /** 两侧统一的高度（行数）；不传时按四行 */
+        heightRows?: number;
     }
 
     const props = withDefaults(defineProps<Props>(), {
         supportsDuration: false,
         showIcon: false,
         loading: false,
+        heightRows: undefined,
     });
 
     const emit = defineEmits<{ (event: 'update:metric', value: UsageRankMetric): void }>();
 
     defineOptions({ name: 'UsageRanking' });
 
-    /** 可见行数与单行高度：正好装下 4 行，不露半行 */
-    const VISIBLE_ROWS = 4;
-    const ROW_HEIGHT = 62;
+    /** 单行高度 */
+    const ROW_HEIGHT = 44;
+
+    /** 高度按父级统一给的行数 */
+    const targetRows = computed(() => Math.max(1, props.heightRows ?? 4));
+
+    /** 实际显示的内容行数：多出的内部滚动 */
+    const contentRows = computed(() => Math.min(props.items.length, targetRows.value));
+
+    /**
+     * 补齐的行数。
+     *
+     * 两侧高度必须一致，短的那一侧用与真实行同结构的骨架填满，
+     * 而不是留一块空白——空白看起来像没加载完。
+     */
+    const placeholderRows = computed(() =>
+        props.items.length === 0 ? 0 : targetRows.value - contentRows.value
+    );
+
+    /** 容器高度 */
+    const boxHeight = computed(() => `${targetRows.value * ROW_HEIGHT}px`);
 
     /** 排行条按「相对榜首」的比例，而不是占总量的比例：后者会让第 5 名几乎看不见 */
     const peak = computed(() => Math.max(1, ...props.items.map((item) => valueOf(item))));
@@ -121,53 +142,54 @@
             </div>
 
             <!--
-                高度刚好装下 4 行（每行约 52px + 间距 10px）。
+                高度固定为 4 行，不足 4 行用骨架补齐，这样并排的两侧永远等高。
                 滚动条不可见但可滚动：`no-scrollbar` 只隐藏滚动条，不禁止滚动。
             -->
             <div
                 v-else
-                :class="['no-scrollbar space-y-2.5 overflow-y-auto', loading ? 'opacity-60' : '']"
-                :style="{ maxHeight: `${VISIBLE_ROWS * ROW_HEIGHT}px` }"
+                :class="['no-scrollbar overflow-y-auto', loading ? 'opacity-60' : '']"
+                :style="{ height: boxHeight }"
             >
                 <div
                     v-for="item in items"
                     :key="item.id"
                     data-testid="settings-usage-ranking-row"
-                    class="flex items-center gap-3"
+                    class="flex items-center gap-2.5"
+                    :style="{ height: `${ROW_HEIGHT}px` }"
+                    :title="[item.name, subtitleOf(item)].filter(Boolean).join('\n')"
                 >
-                    <div class="min-w-0 flex-1">
-                        <!-- 并排时每列只有半宽，标题与数值同排、条形独占一行更可读 -->
-                        <div class="flex items-baseline gap-2">
-                            <span
-                                class="min-w-0 flex-1 truncate text-[12.5px] text-neutral-900"
-                                :title="item.name"
-                            >
-                                {{ item.name }}
-                            </span>
-                            <span
-                                class="shrink-0 text-[12px] text-neutral-600 tabular-nums"
-                                :title="valueText(item)"
-                            >
-                                {{ valueText(item) }}
-                            </span>
-                        </div>
+                    <span class="w-[42%] min-w-0 shrink-0 truncate text-[12.5px] text-neutral-900">
+                        {{ item.name }}
+                    </span>
 
+                    <div
+                        class="h-[5px] min-w-0 flex-1 overflow-hidden rounded-full bg-neutral-200/70"
+                    >
                         <div
-                            class="mt-1 h-[5px] w-full overflow-hidden rounded-full bg-neutral-200/70"
-                        >
-                            <div
-                                class="h-full rounded-full bg-neutral-800/70"
-                                :style="{ width: barWidth(item) }"
-                            />
-                        </div>
-
-                        <div
-                            v-if="item.subtitle || item.lastAt"
-                            class="mt-0.5 truncate text-[11px] text-neutral-400"
-                        >
-                            {{ subtitleOf(item) }}
-                        </div>
+                            class="h-full rounded-full bg-neutral-800/70"
+                            :style="{ width: barWidth(item) }"
+                        />
                     </div>
+
+                    <span
+                        class="w-14 shrink-0 text-right text-[12px] text-neutral-600 tabular-nums"
+                    >
+                        {{ valueText(item) }}
+                    </span>
+                </div>
+
+                <!-- 补齐到 4 行：与真实行同高同结构，但不带数字，避免被误读 -->
+                <div
+                    v-for="row in placeholderRows"
+                    :key="`placeholder-${row}`"
+                    class="flex items-center gap-2.5"
+                    :style="{ height: `${ROW_HEIGHT}px` }"
+                    aria-hidden="true"
+                    data-testid="settings-usage-ranking-placeholder"
+                >
+                    <div class="h-3 w-[42%] shrink-0 rounded bg-neutral-200/40" />
+                    <div class="h-[5px] min-w-0 flex-1 rounded-full bg-neutral-200/40" />
+                    <div class="h-3 w-10 shrink-0 rounded bg-neutral-200/40" />
                 </div>
             </div>
         </div>

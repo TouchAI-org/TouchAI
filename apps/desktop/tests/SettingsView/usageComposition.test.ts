@@ -1,9 +1,27 @@
 import type { UsageComposition } from '@database/queries/usageStats';
 import { mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import UsageCompositionPanel from '@/views/SettingsView/components/Usage/components/UsageComposition.vue';
+
+/** jsdom 没有 rAF 循环所需的布局能力；给一个不驱动动画的桩 */
+class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+}
+
+beforeEach(() => {
+    setLocale('zh-CN');
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+    // 让 rAF 立即执行一次，但不持续调度
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+        cb(0);
+        return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+});
 
 const composition: UsageComposition = {
     tokens: {
@@ -26,60 +44,55 @@ const composition: UsageComposition = {
     cacheReadShare: 0.777,
 };
 
-function mountPanel(value: UsageComposition = composition) {
-    return mount(UsageCompositionPanel, {
-        props: { composition: value },
-        global: { stubs: {} },
-    });
+function mountPanel(value: UsageComposition | null = composition) {
+    return mount(UsageCompositionPanel, { props: { composition: value } });
 }
 
-beforeEach(() => setLocale('zh-CN'));
-
 describe('usage composition panel', () => {
-    it('renders one ring slice per non-empty segment', () => {
+    it('renders one legend row per segment', () => {
         const wrapper = mountPanel();
 
-        // 两张卡各一个底环 + 各段
-        const tokenSlices = wrapper.findAll('[data-testid^="settings-usage-composition-token-"]');
-        expect(tokenSlices).toHaveLength(4);
-
-        const timingSlices = wrapper.findAll('[data-testid^="settings-usage-composition-timing-"]');
-        expect(timingSlices).toHaveLength(3);
+        // 两张环图各有一组图例按钮
+        const legendButtons = wrapper.findAll('figure button');
+        expect(legendButtons).toHaveLength(7);
     });
 
-    it('marks estimated values and leaves measured ones unmarked', () => {
+    it('marks estimated values with a tilde and leaves measured ones clean', () => {
         const wrapper = mountPanel();
 
-        const systemPrompt = wrapper.get(
-            '[data-testid="settings-usage-composition-token-systemPrompt"]'
-        );
-        const output = wrapper.get('[data-testid="settings-usage-composition-token-output"]');
-
-        expect(systemPrompt.text()).toContain('≈');
-        expect(output.text()).not.toContain('≈');
-        expect(output.text()).toContain('16.0%');
+        const text = wrapper.text();
+        // 系统提示词是估算的
+        expect(text).toContain('≈56万');
+        // 输出是供应商实测值，不带 ≈
+        expect(text).toContain('16万');
+        expect(text).not.toContain('≈16万');
     });
 
     it('shows the cache hit share as a note rather than a slice', () => {
         const wrapper = mountPanel();
 
         expect(wrapper.text()).toContain('77.7%');
-        expect(
-            wrapper.find('[data-testid="settings-usage-composition-token-cacheRead"]').exists()
-        ).toBe(false);
+        // 缓存读取不进内容构成
+        expect(wrapper.text()).not.toContain('缓存读取');
     });
 
-    it('localizes labels and units together', () => {
+    it('localizes labels together', () => {
         setLocale('en-US');
         const wrapper = mountPanel();
 
         expect(wrapper.text()).toContain('System prompt');
         expect(wrapper.text()).toContain('Model reply');
-        expect(wrapper.text()).toContain('Token composition');
         expect(wrapper.text()).not.toContain('系统提示词');
     });
 
-    it('renders an empty state instead of an empty ring', () => {
+    it('renders a skeleton instead of an empty ring while loading', () => {
+        const wrapper = mountPanel(null);
+
+        expect(wrapper.find('.animate-pulse').exists()).toBe(true);
+        expect(wrapper.findAll('figure button')).toHaveLength(0);
+    });
+
+    it('shows an empty state when there is nothing to break down', () => {
         const wrapper = mountPanel({
             tokens: { total: 0, segments: [] },
             timing: { totalMs: 0, segments: [] },
@@ -87,6 +100,5 @@ describe('usage composition panel', () => {
         });
 
         expect(wrapper.text()).toContain('这段时间没有可拆分的用量');
-        expect(wrapper.findAll('circle')).toHaveLength(0);
     });
 });

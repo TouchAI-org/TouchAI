@@ -38,9 +38,9 @@ describe('usage heatmap year grid', () => {
             props: { days: [cell(dayKey(0), 9, 100), cell(dayKey(0), 14, 200)] },
         });
 
-        // 53 周 × 7 天，固定网格
+        // 固定一年窗口：365 天，最后一行完整
         const cells = wrapper.findAll('[data-day]');
-        expect(cells).toHaveLength(53 * 7);
+        expect(cells).toHaveLength(365);
         expect(wrapper.text()).toContain('近一年');
         // 同一天的两个小时合并成一格
         expect(wrapper.text()).toContain('300');

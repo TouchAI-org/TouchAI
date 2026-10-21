@@ -165,6 +165,11 @@ export const usageMessagesZhCN = {
     // 工具调用
     'settings.usage.tools.title': '工具调用',
     'settings.usage.tools.description': '数据来自工具调用片段，含内置工具与 MCP 工具。',
+    'settings.usage.tools.callsTitle': '调用次数',
+    'settings.usage.tools.callsNote': '共 {count} 次',
+    'settings.usage.tools.timeTitle': '耗时构成',
+    'settings.usage.tools.timeNote': '按工具汇总',
+    'settings.usage.tools.timeTotal': '工具耗时',
     'settings.usage.tools.empty': '这段时间没有工具调用',
     'settings.usage.tools.total': '调用次数',
     'settings.usage.tools.distinct': '用到的工具',
@@ -182,6 +187,8 @@ export const usageMessagesZhCN = {
     // 热力图
     'settings.usage.heatmap.title': '使用热力图',
     'settings.usage.heatmap.yearSummary': '近一年活跃 {days} 天 · 共 {tokens} tokens',
+    'settings.usage.heatmap.levelCaption': '{days} 天属于该档',
+    'settings.usage.heatmap.tooltipRequests': '{requests} 次请求',
     'settings.usage.heatmap.summary': '所选区间活跃 {days} 天 · 共 {tokens} tokens',
     'settings.usage.heatmap.summaryHours':
         '所选区间活跃 {days} 天 {hours} 个时段 · 共 {tokens} tokens',
@@ -189,6 +196,8 @@ export const usageMessagesZhCN = {
     'settings.usage.heatmap.tooltip': '{day} · {requests} 次 · {tokens} tokens · {cost}',
     'settings.usage.heatmap.less': '少',
     'settings.usage.heatmap.more': '多',
+    'settings.usage.heatmap.legendUnit': '每日请求',
+    'settings.usage.heatmap.legendDay': '天',
 
     // 分组/排行
     'settings.usage.group.byModel': '按模型',
@@ -423,6 +432,11 @@ export const usageMessagesEnUS = {
     'settings.usage.tools.title': 'Tool calls',
     'settings.usage.tools.description':
         'Recorded from tool-call parts, covering built-in and MCP tools.',
+    'settings.usage.tools.callsTitle': 'Calls',
+    'settings.usage.tools.callsNote': '{count} total',
+    'settings.usage.tools.timeTitle': 'Time spent',
+    'settings.usage.tools.timeNote': 'Summed per tool',
+    'settings.usage.tools.timeTotal': 'Tool time',
     'settings.usage.tools.empty': 'No tool calls in this range',
     'settings.usage.tools.total': 'Calls',
     'settings.usage.tools.distinct': 'Tools used',
@@ -439,6 +453,8 @@ export const usageMessagesEnUS = {
 
     'settings.usage.heatmap.title': 'Activity heatmap',
     'settings.usage.heatmap.yearSummary': '{days} active days · {tokens} tokens in the past year',
+    'settings.usage.heatmap.levelCaption': '{days} days at this level',
+    'settings.usage.heatmap.tooltipRequests': '{requests} calls',
     'settings.usage.heatmap.summary': '{days} active days · {tokens} tokens in this range',
     'settings.usage.heatmap.summaryHours':
         '{days} days, {hours} active hours · {tokens} tokens in this range',
@@ -446,6 +462,8 @@ export const usageMessagesEnUS = {
     'settings.usage.heatmap.tooltip': '{day} · {requests} calls · {tokens} tokens · {cost}',
     'settings.usage.heatmap.less': 'Less',
     'settings.usage.heatmap.more': 'More',
+    'settings.usage.heatmap.legendUnit': 'Daily calls',
+    'settings.usage.heatmap.legendDay': 'days',
 
     'settings.usage.trend.title': 'Usage trend',
     'settings.usage.trend.empty': 'No usage in this range',

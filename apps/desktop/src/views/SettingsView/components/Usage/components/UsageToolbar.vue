@@ -3,6 +3,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
+    import { Input } from '@components/ui/input';
     import type { UsageFilterOptions, UsageRangePreset } from '@database/queries/usageStats';
     import { computed } from 'vue';
 
@@ -127,12 +128,13 @@
         </div>
 
         <div class="relative w-[150px]">
-            <input
-                :value="search"
+            <Input
+                :model-value="search"
+                variant="filled"
                 type="text"
                 :placeholder="t('settings.usage.filter.search')"
-                class="settings-input w-full py-1 pr-2 pl-6 text-xs"
-                @input="emit('update:search', ($event.target as HTMLInputElement).value)"
+                class="w-full py-1 pr-2 pl-6 text-xs"
+                @update:model-value="emit('update:search', $event)"
             />
             <AppIcon
                 name="search"

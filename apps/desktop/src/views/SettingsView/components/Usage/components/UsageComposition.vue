@@ -1,7 +1,8 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import type { UsageComposition, UsageCompositionSegment } from '@database/queries/usageStats';
+    import DonutChart from '@components/ui/donut-chart/DonutChart.vue';
+    import type { UsageComposition } from '@database/queries/usageStats';
     import { computed } from 'vue';
 
     import { t } from '@/i18n';
@@ -11,22 +12,11 @@
     const props = defineProps<{ composition: UsageComposition | null }>();
     defineOptions({ name: 'UsageComposition' });
 
-    /** 与趋势图共用同一套色板，避免同一个模型在两处是两种颜色 */
-    const COLORS: Record<string, string> = {
-        systemPrompt: 'rgb(63 63 70)',
-        toolDefinitions: 'rgb(14 165 233)',
-        conversation: 'rgb(16 185 129)',
-        toolResults: 'rgb(245 158 11)',
-        userPrompt: 'rgb(139 92 246)',
-        injections: 'rgb(236 72 153)',
-        output: 'rgb(163 163 163)',
-        wait: 'rgb(14 165 233)',
-        think: 'rgb(139 92 246)',
-        reply: 'rgb(63 63 70)',
-        tool: 'rgb(16 185 129)',
-        other: 'rgb(212 212 212)',
-    };
-
+    /**
+     * 环图直接吃 `{ key, label, value }`：
+     * 分组、配色、间隙、悬停联动、中心读数都由 DonutChart 负责，
+     * 这里只负责把字段翻成文案。
+     */
     const LABEL: Record<string, Parameters<typeof t>[0]> = {
         systemPrompt: 'settings.usage.composition.systemPrompt',
         toolDefinitions: 'settings.usage.composition.toolDefinitions',
@@ -42,72 +32,32 @@
         other: 'settings.usage.composition.other',
     };
 
-    /** 环形几何：半径 34、线宽 11，内径约 46，可容下「141.1万」+ 副标题 */
-    const R = 40;
-    const STROKE = 9;
-    const SVG = 160;
-    const CIRCUMFERENCE = 2 * Math.PI * R;
-
-    interface Slice {
-        key: string;
-        label: string;
-        color: string;
-        value: number;
-        ratio: number;
-        detail: string;
-        dash: string;
-        offset: number;
+    function labelOf(key: string): string {
+        return t(LABEL[key] ?? 'settings.usage.composition.other');
     }
 
-    function buildSlices(
-        segments: UsageCompositionSegment[],
-        total: number,
-        formatValue: (segment: UsageCompositionSegment) => string
-    ): Slice[] {
-        let consumed = 0;
-        return segments.map((segment) => {
-            const ratio = total > 0 ? segment.value / total : 0;
-            const length = ratio * CIRCUMFERENCE;
-            const slice: Slice = {
-                key: segment.key,
-                label: t(LABEL[segment.key] ?? 'settings.usage.composition.other'),
-                color: COLORS[segment.key] ?? 'rgb(163 163 163)',
-                value: segment.value,
-                ratio,
-                detail: `${segment.estimated ? '≈' : ''}${formatValue(segment)}`,
-                dash: `${length.toFixed(2)} ${(CIRCUMFERENCE - length).toFixed(2)}`,
-                // SVG 从 3 点钟开始，转 -90° 让第一段从 12 点开始
-                offset: -consumed,
-            };
-            consumed += length;
-            return slice;
-        });
-    }
-
-    const tokenSlices = computed(() =>
-        buildSlices(
-            props.composition?.tokens.segments ?? [],
-            props.composition?.tokens.total ?? 0,
-            (segment) => formatTokensCompact(segment.value)
-        )
+    const tokenData = computed(() =>
+        (props.composition?.tokens.segments ?? []).map((segment) => ({
+            key: segment.key,
+            label: labelOf(segment.key),
+            value: segment.value,
+        }))
     );
 
-    const timingSlices = computed(() =>
-        buildSlices(
-            props.composition?.timing.segments ?? [],
-            props.composition?.timing.totalMs ?? 0,
-            (segment) => formatLongDuration(segment.value)
-        )
+    const timingData = computed(() =>
+        (props.composition?.timing.segments ?? []).map((segment) => ({
+            key: segment.key,
+            label: labelOf(segment.key),
+            value: segment.value,
+        }))
     );
 
-    /** 图例分两列，左列前半、右列后半——与参考图的信息密度一致 */
-    const tokenColumns = computed(() => splitColumns(tokenSlices.value));
-    const timingColumns = computed(() => splitColumns(timingSlices.value));
-
-    function splitColumns(slices: Slice[]): [Slice[], Slice[]] {
-        const half = Math.ceil(slices.length / 2);
-        return [slices.slice(0, half), slices.slice(half)];
-    }
+    /** 估算值的 key：图例里加 ≈ */
+    const estimatedTokenKeys = computed(() =>
+        (props.composition?.tokens.segments ?? [])
+            .filter((segment) => segment.estimated)
+            .map((segment) => segment.key)
+    );
 </script>
 
 <template>
@@ -138,91 +88,21 @@
                         />
                     </div>
                 </div>
-                <div v-else-if="tokenSlices.length === 0" class="py-10 text-center">
+                <div v-else-if="tokenData.length === 0" class="py-10 text-center">
                     <span class="text-xs text-neutral-400">
                         {{ t('settings.usage.composition.empty') }}
                     </span>
                 </div>
 
-                <div v-else class="flex items-center gap-6">
-                    <div class="relative shrink-0">
-                        <svg
-                            :viewBox="`0 0 ${SVG} ${SVG}`"
-                            class="h-40 w-40 -rotate-90"
-                            role="img"
-                            :aria-label="t('settings.usage.composition.tokenTitle')"
-                        >
-                            <circle
-                                :cx="SVG / 2"
-                                :cy="SVG / 2"
-                                :r="R"
-                                fill="none"
-                                stroke="currentColor"
-                                class="text-neutral-200/70"
-                                :stroke-width="STROKE"
-                            />
-                            <circle
-                                v-for="slice in tokenSlices"
-                                :key="slice.key"
-                                :cx="SVG / 2"
-                                :cy="SVG / 2"
-                                :r="R"
-                                fill="none"
-                                :stroke="slice.color"
-                                :stroke-width="STROKE"
-                                :stroke-dasharray="slice.dash"
-                                :stroke-dashoffset="slice.offset"
-                                stroke-linecap="butt"
-                            />
-                        </svg>
-                        <div
-                            class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
-                        >
-                            <span
-                                class="max-w-[86px] truncate text-center font-serif text-[15px] leading-tight font-semibold text-neutral-950 tabular-nums"
-                            >
-                                {{ formatTokensCompact(composition?.tokens.total ?? 0) }}
-                            </span>
-                            <span class="mt-1 text-[10.5px] text-neutral-400">
-                                {{ t('settings.usage.composition.totalTokens') }}
-                            </span>
-                        </div>
-                    </div>
-
-                    <div class="grid min-w-0 flex-1 grid-cols-2 gap-x-5 gap-y-2.5 xl:max-w-[420px]">
-                        <template v-for="column in tokenColumns" :key="column[0]?.key ?? 'empty'">
-                            <div class="min-w-0 space-y-2">
-                                <div
-                                    v-for="slice in column"
-                                    :key="slice.key"
-                                    class="min-w-0"
-                                    :data-testid="`settings-usage-composition-token-${slice.key}`"
-                                >
-                                    <div class="flex items-baseline gap-1.5">
-                                        <span
-                                            class="h-1.5 w-1.5 shrink-0 rounded-full"
-                                            :style="{ backgroundColor: slice.color }"
-                                            aria-hidden="true"
-                                        />
-                                        <span
-                                            class="min-w-0 flex-1 truncate text-[12px] text-neutral-700"
-                                        >
-                                            {{ slice.label }}
-                                        </span>
-                                        <span
-                                            class="shrink-0 text-[12px] font-medium text-neutral-900 tabular-nums"
-                                        >
-                                            {{ formatPercent(slice.ratio) }}
-                                        </span>
-                                    </div>
-                                    <div class="pl-3 text-[11px] text-neutral-400 tabular-nums">
-                                        {{ slice.detail }}
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                </div>
+                <DonutChart
+                    v-else
+                    :data="tokenData"
+                    :total-label="t('settings.usage.composition.totalTokens')"
+                    :size="176"
+                    :thickness="22"
+                    :estimated-keys="estimatedTokenKeys"
+                    :format-value="formatTokensCompact"
+                />
             </div>
         </section>
 
@@ -248,91 +128,20 @@
                         />
                     </div>
                 </div>
-                <div v-else-if="timingSlices.length === 0" class="py-10 text-center">
+                <div v-else-if="timingData.length === 0" class="py-10 text-center">
                     <span class="text-xs text-neutral-400">
                         {{ t('settings.usage.composition.empty') }}
                     </span>
                 </div>
 
-                <div v-else class="flex items-center gap-6">
-                    <div class="relative shrink-0">
-                        <svg
-                            :viewBox="`0 0 ${SVG} ${SVG}`"
-                            class="h-40 w-40 -rotate-90"
-                            role="img"
-                            :aria-label="t('settings.usage.composition.timingTitle')"
-                        >
-                            <circle
-                                :cx="SVG / 2"
-                                :cy="SVG / 2"
-                                :r="R"
-                                fill="none"
-                                stroke="currentColor"
-                                class="text-neutral-200/70"
-                                :stroke-width="STROKE"
-                            />
-                            <circle
-                                v-for="slice in timingSlices"
-                                :key="slice.key"
-                                :cx="SVG / 2"
-                                :cy="SVG / 2"
-                                :r="R"
-                                fill="none"
-                                :stroke="slice.color"
-                                :stroke-width="STROKE"
-                                :stroke-dasharray="slice.dash"
-                                :stroke-dashoffset="slice.offset"
-                                stroke-linecap="butt"
-                            />
-                        </svg>
-                        <div
-                            class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
-                        >
-                            <span
-                                class="max-w-[86px] truncate text-center font-serif text-[15px] leading-tight font-semibold text-neutral-950 tabular-nums"
-                            >
-                                {{ formatLongDuration(composition?.timing.totalMs ?? 0) }}
-                            </span>
-                            <span class="mt-1 text-[10.5px] text-neutral-400">
-                                {{ t('settings.usage.composition.activeTime') }}
-                            </span>
-                        </div>
-                    </div>
-
-                    <div class="grid min-w-0 flex-1 grid-cols-2 gap-x-5 gap-y-2.5 xl:max-w-[420px]">
-                        <template v-for="column in timingColumns" :key="column[0]?.key ?? 'empty'">
-                            <div class="min-w-0 space-y-2">
-                                <div
-                                    v-for="slice in column"
-                                    :key="slice.key"
-                                    class="min-w-0"
-                                    :data-testid="`settings-usage-composition-timing-${slice.key}`"
-                                >
-                                    <div class="flex items-baseline gap-1.5">
-                                        <span
-                                            class="h-1.5 w-1.5 shrink-0 rounded-full"
-                                            :style="{ backgroundColor: slice.color }"
-                                            aria-hidden="true"
-                                        />
-                                        <span
-                                            class="min-w-0 flex-1 truncate text-[12px] text-neutral-700"
-                                        >
-                                            {{ slice.label }}
-                                        </span>
-                                        <span
-                                            class="shrink-0 text-[12px] font-medium text-neutral-900 tabular-nums"
-                                        >
-                                            {{ formatPercent(slice.ratio) }}
-                                        </span>
-                                    </div>
-                                    <div class="pl-3 text-[11px] text-neutral-400 tabular-nums">
-                                        {{ slice.detail }}
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                </div>
+                <DonutChart
+                    v-else
+                    :data="timingData"
+                    :total-label="t('settings.usage.composition.activeTime')"
+                    :size="176"
+                    :thickness="22"
+                    :format-value="formatLongDuration"
+                />
             </div>
         </section>
     </div>

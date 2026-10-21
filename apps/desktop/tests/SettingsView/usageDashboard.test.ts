@@ -64,7 +64,8 @@ describe('usage dashboard paired metrics', () => {
         const cache = wrapper.get('[data-testid="settings-usage-card-cacheRead"]');
         expect(cache.text()).toContain('缓存读取');
         // 中文用「万」作单位；9400 不足一万，直接给原数
-        expect(cache.text()).toContain('9400');
+        // 数字滚轮的可读值放在 data-value 上，text() 里是滚轮的十个字形
+        expect(cache.get('[data-value]').attributes('data-value')).toBe('9,400');
         expect(cache.text()).toContain('命中率 94.0%');
 
         const activity = wrapper.get('[data-testid="settings-usage-card-activity"]');

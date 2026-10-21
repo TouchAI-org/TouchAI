@@ -1,6 +1,9 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import AnimatedCounter from '@components/ui/animated-counter/AnimatedCounter.vue';
+    import LineChart from '@components/ui/line-chart/LineChart.vue';
+    import RealtimeStream from '@components/ui/realtime-stream/RealtimeStream.vue';
     import type {
         UsageBucket,
         UsageLiveTurn,
@@ -14,15 +17,19 @@
     } from '@services/EventService';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
-    import { t } from '@/i18n';
+    import { getLocale, t } from '@/i18n';
 
     import {
+        costCounter,
+        type CounterSpec,
         formatActiveDuration,
         formatCost,
         formatDuration,
         formatInt,
         formatPercent,
         formatTokensCompact,
+        intCounter,
+        tokensCounter,
     } from '../utils/format';
     import { aggregateStreams } from '../utils/liveAggregate';
     import {
@@ -88,6 +95,8 @@
         note: string;
         warn?: boolean;
         valueParts?: Array<{ value: string; unit: string }>;
+        /** 交给数字滚轮：有值就滚动，否则直接显示 `value` */
+        counter?: CounterSpec;
         description?: string;
     }
     const cards = computed<Card[]>(() => {
@@ -97,6 +106,7 @@
                 key: 'cost',
                 label: t('settings.usage.metric.cost'),
                 value: formatCost(value?.totalCostMicros ?? 0),
+                counter: costCounter(value?.totalCostMicros ?? 0),
                 prefix: (value?.unpricedCount ?? 0) > 0 ? '≥ ' : '',
                 note:
                     (value?.unpricedCount ?? 0) > 0
@@ -108,6 +118,7 @@
                 key: 'requests',
                 label: t('settings.usage.metric.requests'),
                 value: formatInt(value?.requestCount ?? 0),
+                counter: intCounter(value?.requestCount ?? 0),
                 note: t('settings.usage.metric.requestsNote', {
                     rate: formatPercent(value?.successRate ?? 0),
                 }),
@@ -116,12 +127,14 @@
                 key: 'sessions',
                 label: t('settings.usage.metric.sessions'),
                 value: formatInt(value?.sessionCount ?? 0),
+                counter: intCounter(value?.sessionCount ?? 0),
                 note: t('settings.usage.metric.sessionsNote'),
             },
             {
                 key: 'tokens',
                 label: t('settings.usage.metric.tokens'),
                 value: formatTokensCompact(value?.realTotalTokens ?? 0),
+                counter: tokensCounter(value?.realTotalTokens ?? 0),
                 note: t(
                     anyStreaming.value
                         ? 'settings.usage.metric.tokensNoteWithLive'
@@ -132,6 +145,7 @@
                 key: 'cacheRead',
                 label: t('settings.usage.metric.cacheRead'),
                 value: formatTokensCompact(value?.cacheReadTokens ?? 0),
+                counter: tokensCounter(value?.cacheReadTokens ?? 0),
                 note: t('settings.usage.metric.cacheReadNote', {
                     rate: formatPercent(value?.cacheHitRate ?? 0),
                 }),
@@ -260,31 +274,38 @@
                   liveStates.value
               )
     );
-    const WIDTH = 520;
-    const HEIGHT = 96;
-    const geometry = computed(() => {
+    /** 实时采样点：直接交给 RealtimeStream，值用采集器自己的速度 */
+    const livePoints = computed(() =>
+        liveSamples.value.map((sample) => ({ at: sample.atMs, value: sample.speed ?? 0 }))
+    );
+
+    /**
+     * 曲线数据交给 LineChart。
+     *
+     * x 用真实时间，所以实时窗口收窄时曲线会被横向拉伸，
+     * 而不是把旧点挤在左边。
+     */
+    const curveData = computed(() => {
         const points = curve.value;
-        if (!points.length) return [];
-        const peak = Math.max(1, ...points.map((point) => point.value));
+        if (points.length === 0) return [];
         const first = points[0]!.at;
-        const span = points[points.length - 1]!.at - first;
+        const span = points[points.length - 1]!.at - first || 1;
         return points.map((point) => ({
-            ...point,
-            x: span > 0 ? 4 + ((point.at - first) / span) * (WIDTH - 8) : WIDTH - 4,
-            y: 8 + (1 - point.value / peak) * (HEIGHT - 12),
+            key: String(point.at),
+            label: formatClock(point.at),
+            // LineChart 的 x 是均匀下标，这里用归一化后的时间轴保真
+            values: { value: point.value },
+            ratio: (point.at - first) / span,
         }));
     });
-    const linePath = computed(() =>
-        geometry.value
-            .map(
-                (point, index) => `${index ? 'L' : 'M'}${point.x.toFixed(1)},${point.y.toFixed(1)}`
-            )
-            .join(' ')
-    );
-    /** 曲线峰值：作为纵轴刻度标在左上角 */
-    const peakValue = computed(() =>
-        geometry.value.reduce((max, point) => Math.max(max, point.value), 0)
-    );
+
+    /** 时间标签：HH:mm:ss，用于 tooltip */
+    function formatClock(at: number): string {
+        const date = new Date(at);
+        return [date.getHours(), date.getMinutes(), date.getSeconds()]
+            .map((value) => String(value).padStart(2, '0'))
+            .join(':');
+    }
 
     /** 纵轴单位：实时模式是 token/秒，历史模式是 token 总量 */
     const curveUnit = computed(() =>
@@ -309,13 +330,6 @@
             : (summary.value?.decodeSpeed ?? null);
         if (value === null || !Number.isFinite(value) || value <= 0) return '—';
         return value.toFixed(1);
-    });
-    const areaPath = computed(() => {
-        const first = geometry.value[0];
-        const last = geometry.value[geometry.value.length - 1];
-        return first && last
-            ? `${linePath.value} L${last.x.toFixed(1)},${HEIGHT - 4} L${first.x.toFixed(1)},${HEIGHT - 4} Z`
-            : '';
     });
 
     onMounted(() => {
@@ -402,7 +416,15 @@
                     class="truncate font-serif text-[22px] leading-tight font-semibold text-neutral-950 tabular-nums"
                     :title="`${card.prefix ?? ''}${card.value}`"
                 >
-                    <template v-if="card.valueParts">
+                    <template v-if="card.counter">
+                        <span v-if="card.prefix" class="mr-0.5">{{ card.prefix }}</span>
+                        <AnimatedCounter
+                            v-bind="card.counter"
+                            :animate-on-view="true"
+                            :locale="getLocale()"
+                        />
+                    </template>
+                    <template v-else-if="card.valueParts">
                         <span
                             v-for="part in card.valueParts"
                             :key="part.unit"
@@ -452,9 +474,9 @@
                     <span class="text-[10px] tracking-wide text-neutral-400 uppercase">
                         {{ t('settings.usage.dashboardCurveTitle') }}
                     </span>
-                    <!-- 有流时说明当前是最近一分钟与单位，否则读者会误读坐标 -->
+                    <!-- 有流时说明当前是最近一分钟，单位已在右侧标注，这里不再重复 -->
                     <span v-if="liveMode" class="text-[10px] text-neutral-400">
-                        {{ t('settings.usage.curve.liveWindow') }} · {{ curveUnit }}
+                        {{ t('settings.usage.curve.liveWindow') }}
                     </span>
                 </div>
 
@@ -478,71 +500,34 @@
                     </span>
                 </div>
             </div>
-            <!-- 纵轴刻度：放在图表外部，与“使用趋势”一致 -->
-            <div class="mt-1 flex gap-2">
-                <div
-                    class="flex w-9 shrink-0 flex-col justify-between text-right text-[9px] text-neutral-400 tabular-nums"
-                    :style="{ height: `${HEIGHT}px` }"
-                    aria-hidden="true"
-                >
-                    <span>{{ formatCurveValue(peakValue) }}</span>
-                    <span>0</span>
-                </div>
-
-                <svg
-                    v-if="geometry.length"
-                    :viewBox="`0 0 ${WIDTH} ${HEIGHT}`"
-                    :height="HEIGHT"
-                    class="min-w-0 flex-1"
-                    role="img"
-                    :aria-label="t('settings.usage.dashboardCurveTitle')"
-                >
-                    <!-- 峰值虚线：与左侧刻度对齐 -->
-                    <line
-                        :x1="0"
-                        :x2="WIDTH"
-                        :y1="8"
-                        :y2="8"
-                        stroke="currentColor"
-                        class="text-neutral-200/70"
-                        stroke-width="1"
-                        stroke-dasharray="2 3"
-                    />
-                    <line
-                        :x1="0"
-                        :x2="WIDTH"
-                        :y1="HEIGHT"
-                        :y2="HEIGHT"
-                        stroke="currentColor"
-                        class="text-neutral-200"
-                        stroke-width="1"
-                    />
-
-                    <!--
-                        面积与曲线必须完全同步：两者用同一条 d，且都不加 CSS 过渡。
-                        之前给两者加 transition-all，SVG path 的插值路径不一致，
-                        面积会慢半拍、与线错开。
-                    -->
-                    <path :d="areaPath" fill="currentColor" class="text-sky-500/10" />
-                    <path
-                        :d="linePath"
-                        fill="none"
-                        stroke="currentColor"
-                        class="text-sky-500"
-                        stroke-width="1.6"
-                        stroke-linejoin="round"
-                        stroke-linecap="round"
-                    />
-
-                    <circle
-                        :cx="geometry[geometry.length - 1]!.x"
-                        :cy="geometry[geometry.length - 1]!.y"
-                        r="2.5"
-                        fill="currentColor"
-                        class="text-sky-500"
-                    />
-                </svg>
-            </div>
+            <!--
+                实时流与历史曲线是两种不同的东西：
+                有流时交给 RealtimeStream（右边缘永远是「此刻」，逐帧向左滑，线头呼吸）；
+                否则用 LineChart 画按桶聚合的历史曲线。
+            -->
+            <RealtimeStream
+                v-if="liveMode"
+                class="mt-1"
+                :points="livePoints"
+                :label="t('settings.usage.dashboardCurveTitle')"
+                :window-ms="zoomWindowMs * 1000"
+                :streaming="anyStreaming"
+                :height="132"
+                :format-value="formatCurveValue"
+                :format-tick="formatCurveValue"
+            />
+            <LineChart
+                v-else-if="curveData.length > 0"
+                class="mt-1"
+                :data="curveData"
+                :series="[{ key: 'value', label: curveUnit }]"
+                :label="t('settings.usage.dashboardCurveTitle')"
+                :height="132"
+                :curve="'smooth'"
+                :legend="false"
+                :format-value="formatCurveValue"
+                :format-tick="formatCurveValue"
+            />
 
             <!-- 左下角：会话数（有流时是活跃路数，空闲时是区间会话数） -->
             <div class="mt-3 flex items-center gap-1.5 text-[11px] text-neutral-500">

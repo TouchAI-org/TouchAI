@@ -1,6 +1,7 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import DonutChart from '@components/ui/donut-chart/DonutChart.vue';
     import type { ToolUsageSummary } from '@database/queries/usageStats';
     import { computed } from 'vue';
 
@@ -18,18 +19,17 @@
     defineOptions({ name: 'UsageToolStats' });
 
     /** 只列前若干名，其余折进「其他」，避免长列表淹没页面 */
-    const MAX_ROWS = 8;
-    /** 环图最多展示的分类数（含「其他」） */
-    const MAX_RING = 5;
+    const MAX_SEGMENTS = 5;
 
-    const rows = computed(() => props.stats.byTool.slice(0, MAX_ROWS));
-
-    const hiddenCount = computed(() => Math.max(0, props.stats.byTool.length - MAX_ROWS));
-
-    /** 分母是调用总数，与卡片里的数字口径一致 */
-    function errorRateOf(count: number, errorCount: number): number {
-        return count > 0 ? errorCount / count : 0;
-    }
+    /** 与趋势图、构成环共用同一套色板 */
+    const SERIES = [
+        'rgb(63 63 70)',
+        'rgb(14 165 233)',
+        'rgb(16 185 129)',
+        'rgb(245 158 11)',
+        'rgb(139 92 246)',
+    ];
+    const OTHER_COLOR = 'rgb(212 212 212)';
 
     /** 工具名去掉前缀后更易读；前缀本身保留在 title 里 */
     function displayName(name: string): string {
@@ -39,60 +39,74 @@
         return name;
     }
 
-    /** 环形几何：与 Token/耗时构成完全一致（160px / R40 / 线宽 9） */
-    const RING = 160;
-    const R = 40;
-    const STROKE = 9;
-    const CIRCUMFERENCE = 2 * Math.PI * R;
-
-    /** 与趋势图、构成环共用同一套色板 */
-    const PALETTE = [
-        'rgb(63 63 70)',
-        'rgb(14 165 233)',
-        'rgb(16 185 129)',
-        'rgb(245 158 11)',
-        'rgb(139 92 246)',
-        'rgb(236 72 153)',
-    ];
-    const OTHER_COLOR = 'rgb(212 212 212)';
-
     /**
-     * 按调用次数占比拆成环。
+     * 分组在组件里做一次，两张环图共用同一批 key。
      *
-     * 只取前 N 名，其余合并为「其他」：色板只有 6 色，再多就分不清了。
+     * 如果各自按占比分组，右侧「耗时」的第一名可能和左侧「次数」不同，
+     * 两张图的图例就会对不上，读者无法横向比较。
      */
-    const ringSlices = computed(() => {
-        const ranked = [...props.stats.byTool].sort((left, right) => right.count - left.count);
-        const head = ranked.slice(0, MAX_RING);
-        const tail = ranked.slice(MAX_RING);
-        const total = props.stats.totalCount || 1;
+    const ranked = computed(() =>
+        [...props.stats.byTool].sort((left, right) => right.count - left.count)
+    );
 
-        const entries = head.map((tool, index) => ({
-            name: displayName(tool.name),
+    const shown = computed(() => ranked.value.slice(0, MAX_SEGMENTS));
+    const hidden = computed(() => ranked.value.slice(MAX_SEGMENTS));
+    const hasOther = computed(() => hidden.value.length > 0);
+
+    /** 每个工具一个固定颜色，两张环图一致 */
+    const colorOf = computed(() => {
+        const map = new Map<string, string>();
+        shown.value.forEach((tool, index) => {
+            map.set(tool.name, SERIES[index % SERIES.length]!);
+        });
+        map.set('__other', OTHER_COLOR);
+        return map;
+    });
+
+    /** 单个工具的总耗时：平均耗时 × 调用次数 */
+    function totalMsOf(mean: number | null, count: number): number {
+        return mean === null ? 0 : mean * count;
+    }
+
+    /** 环图数据：按调用次数 */
+    const callData = computed(() => {
+        const slices = shown.value.map((tool) => ({
+            key: tool.name,
+            label: displayName(tool.name),
             value: tool.count,
-            color: PALETTE[index % PALETTE.length]!,
+            color: colorOf.value.get(tool.name),
         }));
-        if (tail.length > 0) {
-            entries.push({
-                name: t('settings.usage.chart.other'),
-                value: tail.reduce((sum, tool) => sum + tool.count, 0),
+        if (hasOther.value) {
+            slices.push({
+                key: '__other',
+                label: t('settings.usage.chart.other'),
+                value: hidden.value.reduce((sum, tool) => sum + tool.count, 0),
                 color: OTHER_COLOR,
             });
         }
+        return slices;
+    });
 
-        let consumed = 0;
-        return entries.map((entry) => {
-            const ratio = entry.value / total;
-            const length = ratio * CIRCUMFERENCE;
-            const slice = {
-                ...entry,
-                ratio,
-                dash: `${length.toFixed(2)} ${(CIRCUMFERENCE - length).toFixed(2)}`,
-                offset: -consumed,
-            };
-            consumed += length;
-            return slice;
-        });
+    /** 环图数据：按工具耗时汇总 */
+    const timeData = computed(() => {
+        const slices = shown.value.map((tool) => ({
+            key: tool.name,
+            label: displayName(tool.name),
+            value: totalMsOf(tool.meanDurationMs, tool.count),
+            color: colorOf.value.get(tool.name),
+        }));
+        if (hasOther.value) {
+            slices.push({
+                key: '__other',
+                label: t('settings.usage.chart.other'),
+                value: hidden.value.reduce(
+                    (sum, tool) => sum + totalMsOf(tool.meanDurationMs, tool.count),
+                    0
+                ),
+                color: OTHER_COLOR,
+            });
+        }
+        return slices;
     });
 </script>
 
@@ -121,15 +135,19 @@
                     <div class="h-5 w-16 animate-pulse rounded bg-neutral-200/70" />
                 </div>
             </div>
-            <div class="rounded-[11px] bg-neutral-50/80 p-4">
-                <div class="flex items-center gap-5">
-                    <div class="h-28 w-28 shrink-0 animate-pulse rounded-full bg-neutral-200/60" />
-                    <div class="flex-1 space-y-2">
+            <div class="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                <div v-for="index in 2" :key="index" class="rounded-[11px] bg-neutral-50/80 p-4">
+                    <div class="flex items-center gap-6">
                         <div
-                            v-for="index in 4"
-                            :key="index"
-                            class="h-3 animate-pulse rounded bg-neutral-200/60"
+                            class="h-40 w-40 shrink-0 animate-pulse rounded-full bg-neutral-200/60"
                         />
+                        <div class="flex-1 space-y-2">
+                            <div
+                                v-for="line in 4"
+                                :key="line"
+                                class="h-3 animate-pulse rounded bg-neutral-200/60"
+                            />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -141,6 +159,7 @@
         >
             <span class="text-xs text-neutral-400">{{ t('settings.usage.tools.empty') }}</span>
         </div>
+
         <template v-else>
             <!-- 指标：与首屏同样的独立浅底小卡，不套大卡壳 -->
             <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -194,95 +213,44 @@
             </div>
 
             <!--
-                环图 + 明细。图例删掉：右侧明细已经有名称、次数和占比，
-                再列一遍只是重复。环图尺寸与上方 Token/耗时构成保持一致。
+                两张环图并排，与上方 Token / 耗时构成同一套版式：
+                环图在左、图例在右，颜色按工具固定，左右两侧可以横向对照。
             -->
-            <div
-                class="flex flex-col gap-6 rounded-[11px] bg-neutral-50/80 p-4 lg:flex-row lg:items-center"
-            >
-                <div class="relative shrink-0">
-                    <svg
-                        :viewBox="`0 0 ${RING} ${RING}`"
-                        class="h-40 w-40 -rotate-90"
-                        role="img"
-                        :aria-label="t('settings.usage.tools.title')"
-                    >
-                        <circle
-                            :cx="RING / 2"
-                            :cy="RING / 2"
-                            :r="R"
-                            fill="none"
-                            stroke="currentColor"
-                            class="text-neutral-200/70"
-                            :stroke-width="STROKE"
+            <div class="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                <section class="space-y-3">
+                    <h3 class="settings-section-title">
+                        {{ t('settings.usage.tools.callsTitle') }}
+                    </h3>
+                    <div class="rounded-[11px] bg-neutral-50/80 p-4">
+                        <DonutChart
+                            :data="callData"
+                            :total-label="t('settings.usage.tools.total')"
+                            :size="176"
+                            :thickness="22"
+                            :format-value="formatInt"
                         />
-                        <circle
-                            v-for="slice in ringSlices"
-                            :key="slice.name"
-                            :cx="RING / 2"
-                            :cy="RING / 2"
-                            :r="R"
-                            fill="none"
-                            :stroke="slice.color"
-                            :stroke-width="STROKE"
-                            :stroke-dasharray="slice.dash"
-                            :stroke-dashoffset="slice.offset"
+                    </div>
+                </section>
+
+                <section class="space-y-3">
+                    <h3 class="settings-section-title">
+                        {{ t('settings.usage.tools.timeTitle') }}
+                    </h3>
+                    <div class="rounded-[11px] bg-neutral-50/80 p-4">
+                        <DonutChart
+                            :data="timeData"
+                            :total-label="t('settings.usage.tools.timeTotal')"
+                            :size="176"
+                            :thickness="22"
+                            :format-value="formatDuration"
                         />
-                    </svg>
-                    <div
-                        class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"
-                    >
-                        <span
-                            class="max-w-[86px] truncate text-center font-serif text-[15px] leading-tight font-semibold text-neutral-950 tabular-nums"
-                        >
-                            {{ formatInt(stats.totalCount) }}
-                        </span>
-                        <span class="mt-1 text-[10px] text-neutral-400">
-                            {{ t('settings.usage.tools.total') }}
-                        </span>
                     </div>
-                </div>
-
-                <div class="min-w-0 flex-1 space-y-1.5">
-                    <div
-                        v-for="row in rows"
-                        :key="row.name"
-                        data-testid="settings-usage-tool-row"
-                        class="flex items-center gap-3 rounded-[9px] bg-white/70 px-3 py-1.5"
-                    >
-                        <span
-                            class="min-w-0 flex-1 truncate text-[12px] text-neutral-900"
-                            :title="row.name"
-                        >
-                            {{ displayName(row.name) }}
-                        </span>
-                        <span class="shrink-0 text-[12px] text-neutral-500 tabular-nums">
-                            {{ formatInt(row.count) }}
-                        </span>
-                        <span
-                            :class="[
-                                'w-14 shrink-0 text-right text-[12px] tabular-nums',
-                                row.errorCount > 0 ? 'text-red-600' : 'text-neutral-500',
-                            ]"
-                        >
-                            {{ formatPercent(errorRateOf(row.count, row.errorCount)) }}
-                        </span>
-                        <span
-                            class="w-14 shrink-0 text-right text-[12px] text-neutral-500 tabular-nums"
-                        >
-                            {{ formatDuration(row.meanDurationMs) }}
-                        </span>
-                    </div>
-
-                    <p
-                        v-if="hiddenCount > 0"
-                        class="px-3 text-[11px] text-neutral-400"
-                        data-testid="settings-usage-tools-more"
-                    >
-                        {{ t('settings.usage.tools.more', { count: hiddenCount }) }}
-                    </p>
-                </div>
+                </section>
             </div>
+
+            <p v-if="hasOther" class="text-[11px] text-neutral-400">
+                {{ t('settings.usage.tools.more', { count: hidden.length }) }}
+            </p>
         </template>
     </section>
 </template>

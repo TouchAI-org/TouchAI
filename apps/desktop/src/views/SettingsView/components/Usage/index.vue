@@ -82,6 +82,18 @@
     /** 两个排行是否已到 */
     const rankingsReady = ref(false);
 
+    /**
+     * 两个排行统一用的行数。
+     *
+     * 取两侧中较高的一侧，但不超过四行：
+     * - 两侧都只有 1 行时就是 1 行，不会拖出三行空骨架；
+     * - 一侧 7 行、另一侧 2 行时，按四行封顶，短的一侧补 2 行骨架，
+     *   两侧等高，超过四行的部分内部滚动。
+     */
+    const rankingRows = computed(() =>
+        Math.min(Math.max(modelRanking.value.length, sessionRanking.value.length), 4)
+    );
+
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     let unlistenTaskStatus: (() => void) | null = null;
     let loadVersion = 0;
@@ -100,16 +112,6 @@
             search: search.value.trim() || undefined,
         };
     });
-
-    /**
-     * 两个排行是否并排。
-     *
-     * 任一侧不足 4 项时不并排：一边只有一两行、另一边满四行，
-     * 视觉上会显得一块空、一块满。竖着放反而整齐。
-     */
-    const rankingsSideBySide = computed(
-        () => modelRanking.value.length >= 4 && sessionRanking.value.length >= 4
-    );
 
     async function load() {
         const version = ++loadVersion;
@@ -275,60 +277,43 @@
             />
             <UsageDashboardSkeleton v-else />
 
-            <template v-if="summary">
-                <div
-                    v-if="summary.requestCount === 0"
-                    class="settings-row-group px-5 py-16 text-center"
-                    data-testid="settings-usage-empty"
-                >
-                    <p class="text-sm text-neutral-500">
-                        {{ t('settings.usage.empty.title') }}
-                    </p>
-                    <p class="mt-1 text-xs text-neutral-400">
-                        {{ t('settings.usage.empty.body') }}
-                    </p>
+            <!-- 无数据时下方不渲染任何区块，仪表盘自带的「0 个会话」已说明情况 -->
+            <template v-if="summary && summary.requestCount > 0">
+                <UsageChart
+                    :points="trend.points"
+                    :bucket="trend.bucket"
+                    :dimension="dimension"
+                    @update:dimension="dimension = $event"
+                />
+
+                <!-- 各区块自带骨架：数据未到时组件内部画占位，不再由外部拼接 -->
+                <UsageComposition :composition="composition" />
+
+                <UsageToolStats :stats="toolStats" :loading="!toolsReady" />
+
+                <!-- 两个排行并排；高度取「两侧较多行数」与四行中的较大值，空缺处用骨架补齐 -->
+                <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    <UsageRanking
+                        :title="t('settings.usage.ranking.modelTitle')"
+                        :items="modelRanking"
+                        :metric="modelRankMetric"
+                        :loading="!rankingsReady"
+                        :height-rows="rankingRows"
+                        @update:metric="modelRankMetric = $event"
+                    />
+                    <UsageRanking
+                        :title="t('settings.usage.ranking.sessionTitle')"
+                        :items="sessionRanking"
+                        :metric="sessionRankMetric"
+                        supports-duration
+                        :loading="!rankingsReady"
+                        :height-rows="rankingRows"
+                        @update:metric="sessionRankMetric = $event"
+                    />
                 </div>
 
-                <template v-else>
-                    <UsageChart
-                        :points="trend.points"
-                        :bucket="trend.bucket"
-                        :dimension="dimension"
-                        @update:dimension="dimension = $event"
-                    />
-
-                    <!-- 各区块自带骨架：数据未到时组件内部画占位，不再由外部拼接 -->
-                    <UsageComposition :composition="composition" />
-
-                    <UsageToolStats :stats="toolStats" :loading="!toolsReady" />
-
-                    <!-- 两个排行并排一行；任一侧不足 4 项时改为竖排，避免一行短一行长 -->
-                    <div
-                        :class="[
-                            'grid grid-cols-1 gap-3',
-                            rankingsSideBySide ? 'lg:grid-cols-2' : '',
-                        ]"
-                    >
-                        <UsageRanking
-                            :title="t('settings.usage.ranking.modelTitle')"
-                            :items="modelRanking"
-                            :metric="modelRankMetric"
-                            :loading="!rankingsReady"
-                            @update:metric="modelRankMetric = $event"
-                        />
-                        <UsageRanking
-                            :title="t('settings.usage.ranking.sessionTitle')"
-                            :items="sessionRanking"
-                            :metric="sessionRankMetric"
-                            supports-duration
-                            :loading="!rankingsReady"
-                            @update:metric="sessionRankMetric = $event"
-                        />
-                    </div>
-
-                    <!-- 热力图固定展示近一年，不再跟随筛选区间，只影响深浅 -->
-                    <UsageHeatmap :days="heatmap" />
-                </template>
+                <!-- 热力图固定展示近一年，不再跟随筛选区间，只影响深浅 -->
+                <UsageHeatmap :days="heatmap" />
             </template>
         </div>
     </div>
