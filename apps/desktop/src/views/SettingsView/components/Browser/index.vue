@@ -2,6 +2,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import CustomSelect from '@components/CustomSelect.vue';
     import EmptyState from '@components/EmptyState.vue';
+    import SettingsRow from '@components/SettingsRow.vue';
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { Switch } from '@components/ui/switch';
@@ -469,106 +470,90 @@
                 <section class="space-y-4">
                     <h2 class="settings-section-title">{{ t('settings.browser.section.data') }}</h2>
                     <div class="settings-row-group divide-y divide-neutral-200/70">
-                        <div
+                        <SettingsRow
                             data-settings-search-target="browser-data-path"
-                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                            control-width="320"
+                            :label="t('settings.browser.browserDataPath')"
+                            :description="t('settings.browser.browserDataPath.description')"
+                            control-class="flex items-center gap-2"
                         >
-                            <div>
-                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                    {{ t('settings.browser.browserDataPath') }}
-                                </div>
-                                <div class="mt-1 text-xs text-neutral-500">
-                                    {{ t('settings.browser.browserDataPath.description') }}
-                                </div>
-                            </div>
-                            <div class="flex min-w-0 items-center gap-2">
-                                <Input
-                                    v-model="browserDataPathValue"
-                                    variant="filled"
-                                    data-testid="browser-data-path-input"
-                                    class="min-w-0 flex-1 disabled:bg-neutral-50"
-                                    placeholder="browser-data"
-                                    :disabled="!draft.enabled"
-                                />
-                                <Button
-                                    variant="ghost-neutral"
-                                    class="shrink-0"
-                                    :disabled="!draft.enabled"
-                                    :title="t('settings.browser.browserDataPath.pick')"
-                                    @click="pickBrowserDataPath"
-                                >
-                                    <AppIcon name="folder-open" class="h-4 w-4" />
-                                </Button>
-                            </div>
-                        </div>
+                            <Input
+                                v-model="browserDataPathValue"
+                                variant="filled"
+                                data-testid="browser-data-path-input"
+                                class="min-w-0 flex-1 disabled:bg-neutral-50"
+                                placeholder="browser-data"
+                                :disabled="!draft.enabled"
+                            />
+                            <Button
+                                variant="ghost-neutral"
+                                class="shrink-0"
+                                :disabled="!draft.enabled"
+                                :title="t('settings.browser.browserDataPath.pick')"
+                                @click="pickBrowserDataPath"
+                            >
+                                <AppIcon name="folder-open" class="h-4 w-4" />
+                            </Button>
+                        </SettingsRow>
 
-                        <div
+                        <SettingsRow
                             data-settings-search-target="browser-executable"
-                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                            control-width="320"
+                            label-as="label"
+                            :label="t('settings.browser.executablePath')"
+                            control-class="space-y-2"
                         >
-                            <div>
-                                <label class="text-[13px] leading-6 font-normal text-neutral-900">
-                                    {{ t('settings.browser.executablePath') }}
-                                </label>
+                            <template #description>
                                 <div class="mt-1 text-xs text-neutral-500">
                                     {{
                                         browserDiscoveryError ||
                                         t('settings.browser.executablePath.description')
                                     }}
                                 </div>
-                            </div>
-                            <div class="min-w-0 space-y-2">
-                                <CustomSelect
-                                    v-model="browserExecutableMode"
-                                    data-testid="browser-executable-select"
-                                    :options="browserExecutableOptions"
-                                    :disabled="!draft.enabled"
-                                    @update:open="handleBrowserExecutableDropdownOpen"
-                                />
-                            </div>
-                        </div>
+                            </template>
+                            <CustomSelect
+                                v-model="browserExecutableMode"
+                                data-testid="browser-executable-select"
+                                :options="browserExecutableOptions"
+                                :disabled="!draft.enabled"
+                                @update:open="handleBrowserExecutableDropdownOpen"
+                            />
+                        </SettingsRow>
 
-                        <div
+                        <SettingsRow
                             v-if="isCustomBrowserExecutable"
-                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                            control-width="320"
+                            label-as="label"
+                            :label="t('settings.browser.executablePath.custom')"
+                            :description="t('settings.browser.executablePath.custom.description')"
+                            control-class="flex items-center gap-2"
                         >
-                            <div>
-                                <label class="text-[13px] leading-6 font-normal text-neutral-900">
-                                    {{ t('settings.browser.executablePath.custom') }}
-                                </label>
-                                <div class="mt-1 text-xs text-neutral-500">
-                                    {{ t('settings.browser.executablePath.custom.description') }}
-                                </div>
-                            </div>
-                            <div class="flex min-w-0 items-center gap-2">
-                                <Input
-                                    v-model="draft.browserExecutablePath"
-                                    variant="filled"
-                                    data-testid="browser-executable-path-input"
-                                    class="min-w-0 flex-1 disabled:bg-neutral-50"
-                                    placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe"
-                                    :disabled="!draft.enabled"
-                                />
-                                <Button
-                                    variant="ghost-neutral"
-                                    class="shrink-0"
-                                    :disabled="!draft.enabled"
-                                    :title="t('settings.browser.executablePath.pick')"
-                                    @click="pickBrowserExecutable"
-                                >
-                                    <AppIcon name="folder" class="h-4 w-4" />
-                                </Button>
-                            </div>
-                        </div>
+                            <Input
+                                v-model="draft.browserExecutablePath"
+                                variant="filled"
+                                data-testid="browser-executable-path-input"
+                                class="min-w-0 flex-1 disabled:bg-neutral-50"
+                                placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe"
+                                :disabled="!draft.enabled"
+                            />
+                            <Button
+                                variant="ghost-neutral"
+                                class="shrink-0"
+                                :disabled="!draft.enabled"
+                                :title="t('settings.browser.executablePath.pick')"
+                                @click="pickBrowserExecutable"
+                            >
+                                <AppIcon name="folder" class="h-4 w-4" />
+                            </Button>
+                        </SettingsRow>
 
-                        <div
+                        <SettingsRow
                             data-settings-search-target="browser-homepage"
-                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                            control-width="320"
+                            label-as="label"
+                            :label="t('settings.browser.defaultHomepage')"
                         >
-                            <div>
-                                <label class="text-[13px] leading-6 font-normal text-neutral-900">
-                                    {{ t('settings.browser.defaultHomepage') }}
-                                </label>
+                            <template #description>
                                 <div
                                     class="mt-1 text-xs"
                                     :class="homepageError ? 'text-red-500' : 'text-neutral-500'"
@@ -578,7 +563,7 @@
                                         t('settings.browser.defaultHomepage.description')
                                     }}
                                 </div>
-                            </div>
+                            </template>
                             <Input
                                 v-model="defaultHomepageValue"
                                 variant="filled"
@@ -590,46 +575,34 @@
                                 placeholder="https://touch-ai.org"
                                 :disabled="!draft.enabled"
                             />
-                        </div>
+                        </SettingsRow>
 
-                        <div
+                        <SettingsRow
                             data-settings-search-target="browser-mode"
-                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                            control-width="320"
+                            :label="t('settings.browser.defaultMode')"
+                            :description="t('settings.browser.defaultMode.description')"
                         >
-                            <div>
-                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                    {{ t('settings.browser.defaultMode') }}
-                                </div>
-                                <div class="mt-1 text-xs text-neutral-500">
-                                    {{ t('settings.browser.defaultMode.description') }}
-                                </div>
-                            </div>
                             <CustomSelect
                                 v-model="selectedDefaultMode"
                                 data-testid="browser-default-mode-select"
                                 :options="defaultModeOptions"
                                 :disabled="!draft.enabled"
                             />
-                        </div>
+                        </SettingsRow>
 
-                        <div
+                        <SettingsRow
                             data-settings-search-target="browser-screenshot"
-                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                            control-width="320"
+                            :label="t('settings.browser.screenshotAttachment')"
+                            :description="t('settings.browser.screenshotAttachment.description')"
                         >
-                            <div>
-                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                    {{ t('settings.browser.screenshotAttachment') }}
-                                </div>
-                                <div class="mt-1 text-xs text-neutral-500">
-                                    {{ t('settings.browser.screenshotAttachment.description') }}
-                                </div>
-                            </div>
                             <CustomSelect
                                 v-model="draft.screenshotAttachmentMode"
                                 :options="screenshotOptions"
                                 :disabled="!draft.enabled"
                             />
-                        </div>
+                        </SettingsRow>
                     </div>
                 </section>
 
@@ -638,65 +611,47 @@
                         {{ t('settings.browser.section.permissions') }}
                     </h2>
                     <div class="settings-row-group divide-y divide-neutral-200/70">
-                        <div
+                        <SettingsRow
                             data-settings-search-target="browser-permission-mode"
-                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center"
+                            control-width="220"
+                            :label="t('settings.browser.permissionMode')"
+                            :description="t('settings.browser.permissionMode.description')"
                         >
-                            <div>
-                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                    {{ t('settings.browser.permissionMode') }}
-                                </div>
-                                <div class="mt-1 text-xs text-neutral-500">
-                                    {{ t('settings.browser.permissionMode.description') }}
-                                </div>
-                            </div>
                             <CustomSelect
                                 v-model="draft.permissionMode"
                                 data-testid="browser-permission-mode-select"
                                 :options="permissionModeOptions"
                                 :disabled="!draft.enabled"
                             />
-                        </div>
-                        <div
+                        </SettingsRow>
+                        <SettingsRow
                             data-settings-search-target="browser-existing-session"
-                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center"
+                            control-width="220"
+                            :label="t('settings.browser.existingSessionPolicy')"
+                            :description="t('settings.browser.existingSessionPolicy.description')"
                         >
-                            <div>
-                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                    {{ t('settings.browser.existingSessionPolicy') }}
-                                </div>
-                                <div class="mt-1 text-xs text-neutral-500">
-                                    {{ t('settings.browser.existingSessionPolicy.description') }}
-                                </div>
-                            </div>
                             <CustomSelect
                                 v-model="draft.existingSessionPolicy"
                                 data-testid="browser-existing-session-policy-select"
                                 :options="existingSessionOptions"
                                 :disabled="!draft.enabled"
                             />
-                        </div>
+                        </SettingsRow>
                         <template v-if="draft.permissionMode === 'auto'">
-                            <div
+                            <SettingsRow
                                 v-for="row in permissionRows"
                                 :key="row.key"
                                 :data-settings-search-target="`browser-permission-${row.key}`"
-                                class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center"
+                                control-width="220"
+                                :label="row.label"
+                                :description="row.description"
                             >
-                                <div>
-                                    <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                        {{ row.label }}
-                                    </div>
-                                    <div class="mt-1 text-xs text-neutral-500">
-                                        {{ row.description }}
-                                    </div>
-                                </div>
                                 <CustomSelect
                                     v-model="draft.permissions[row.key]"
                                     :options="permissionOptions"
                                     :disabled="!draft.enabled"
                                 />
-                            </div>
+                            </SettingsRow>
                         </template>
                     </div>
                 </section>
@@ -838,66 +793,47 @@
                         {{ t('settings.browser.section.advanced') }}
                     </h2>
                     <div class="settings-row-group divide-y divide-neutral-200/70">
-                        <div
+                        <SettingsRow
                             data-testid="browser-fingerprint-profile-row"
                             data-settings-search-target="browser-fingerprint"
-                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                            control-width="320"
+                            :label="t('settings.browser.fingerprintProfile')"
+                            :description="t('settings.browser.fingerprintProfile.description')"
                         >
-                            <div>
-                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                    {{ t('settings.browser.fingerprintProfile') }}
-                                </div>
-                                <div class="mt-1 text-xs text-neutral-500">
-                                    {{ t('settings.browser.fingerprintProfile.description') }}
-                                </div>
-                            </div>
                             <CustomSelect
                                 v-model="draft.fingerprintProfile"
                                 :options="fingerprintOptions"
                                 :disabled="!draft.enabled"
                             />
-                        </div>
-                        <div
+                        </SettingsRow>
+                        <SettingsRow
                             data-settings-search-target="browser-locale-timezone"
-                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                            control-width="320"
+                            :label="t('settings.browser.localeTimezone')"
+                            :description="t('settings.browser.localeTimezone.description')"
+                            control-class="grid grid-cols-2 gap-2"
                         >
-                            <div>
-                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                    {{ t('settings.browser.localeTimezone') }}
-                                </div>
-                                <div class="mt-1 text-xs text-neutral-500">
-                                    {{ t('settings.browser.localeTimezone.description') }}
-                                </div>
-                            </div>
-                            <div class="grid min-w-0 grid-cols-2 gap-2">
-                                <Input
-                                    v-model="draft.fingerprintLocale"
-                                    variant="filled"
-                                    class="min-w-0 disabled:bg-neutral-50"
-                                    placeholder="zh-CN"
-                                    :disabled="!draft.enabled"
-                                />
-                                <Input
-                                    v-model="draft.fingerprintTimezone"
-                                    variant="filled"
-                                    class="min-w-0 disabled:bg-neutral-50"
-                                    placeholder="Asia/Shanghai"
-                                    :disabled="!draft.enabled"
-                                />
-                            </div>
-                        </div>
-                        <div
+                            <Input
+                                v-model="draft.fingerprintLocale"
+                                variant="filled"
+                                class="min-w-0 disabled:bg-neutral-50"
+                                placeholder="zh-CN"
+                                :disabled="!draft.enabled"
+                            />
+                            <Input
+                                v-model="draft.fingerprintTimezone"
+                                variant="filled"
+                                class="min-w-0 disabled:bg-neutral-50"
+                                placeholder="Asia/Shanghai"
+                                :disabled="!draft.enabled"
+                            />
+                        </SettingsRow>
+                        <SettingsRow
                             data-settings-search-target="browser-user-agent"
-                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                            control-width="320"
+                            :label="t('settings.browser.userAgent')"
+                            :description="t('settings.browser.userAgent.description')"
                         >
-                            <div>
-                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                    {{ t('settings.browser.userAgent') }}
-                                </div>
-                                <div class="mt-1 text-xs text-neutral-500">
-                                    {{ t('settings.browser.userAgent.description') }}
-                                </div>
-                            </div>
                             <Input
                                 v-model="draft.fingerprintUserAgent"
                                 variant="filled"
@@ -905,40 +841,33 @@
                                 placeholder="Mozilla/5.0 ..."
                                 :disabled="!draft.enabled"
                             />
-                        </div>
-                        <div
+                        </SettingsRow>
+                        <SettingsRow
                             data-settings-search-target="browser-window-size"
-                            class="grid min-w-0 gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_320px] sm:items-center"
+                            control-width="320"
+                            :label="t('settings.browser.windowSize')"
+                            :description="t('settings.browser.windowSize.description')"
+                            control-class="grid grid-cols-2 gap-2"
                         >
-                            <div>
-                                <div class="text-[13px] leading-6 font-normal text-neutral-900">
-                                    {{ t('settings.browser.windowSize') }}
-                                </div>
-                                <div class="mt-1 text-xs text-neutral-500">
-                                    {{ t('settings.browser.windowSize.description') }}
-                                </div>
-                            </div>
-                            <div class="grid min-w-0 grid-cols-2 gap-2">
-                                <Input
-                                    v-model="fingerprintWindowWidth"
-                                    variant="filled"
-                                    data-testid="browser-window-width-input"
-                                    class="min-w-0 disabled:bg-neutral-50"
-                                    placeholder="1366"
-                                    inputmode="numeric"
-                                    :disabled="!draft.enabled"
-                                />
-                                <Input
-                                    v-model="fingerprintWindowHeight"
-                                    variant="filled"
-                                    data-testid="browser-window-height-input"
-                                    class="min-w-0 disabled:bg-neutral-50"
-                                    placeholder="768"
-                                    inputmode="numeric"
-                                    :disabled="!draft.enabled"
-                                />
-                            </div>
-                        </div>
+                            <Input
+                                v-model="fingerprintWindowWidth"
+                                variant="filled"
+                                data-testid="browser-window-width-input"
+                                class="min-w-0 disabled:bg-neutral-50"
+                                placeholder="1366"
+                                inputmode="numeric"
+                                :disabled="!draft.enabled"
+                            />
+                            <Input
+                                v-model="fingerprintWindowHeight"
+                                variant="filled"
+                                data-testid="browser-window-height-input"
+                                class="min-w-0 disabled:bg-neutral-50"
+                                placeholder="768"
+                                inputmode="numeric"
+                                :disabled="!draft.enabled"
+                            />
+                        </SettingsRow>
                     </div>
                 </section>
             </fieldset>
