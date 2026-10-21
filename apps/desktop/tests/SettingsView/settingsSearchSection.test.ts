@@ -125,7 +125,9 @@ describe('Search settings section', () => {
             'rounded'
         );
         expect(wrapper.get('[data-testid="search-provider-quota-brave"]').text()).toContain('2k');
-        expect(wrapper.get('[data-testid="search-provider-quota-tavily"]').text()).toContain('1k');
+        expect(wrapper.get('[data-testid="search-provider-quota-tavily"]').text()).toContain(
+            '匿名免费'
+        );
         expect(wrapper.get('[data-testid="search-provider-quota-anysearch"]').text()).not.toBe(
             '免费'
         );
@@ -206,56 +208,25 @@ describe('Search settings section', () => {
         );
     });
 
-    it('keeps required-key providers disabled until an API key is configured', async () => {
+    it('enables optional-key providers without an API key', async () => {
         const wrapper = mount(SearchSettingsView);
         await Promise.resolve();
         updateSearchSettingsMock.mockClear();
 
-        const tavilyInput = wrapper.get('[data-testid="search-tavily-api-key-input"]');
-        expect((tavilyInput.element as HTMLInputElement).disabled).toBe(true);
-        expect(tavilyInput.classes()).not.toContain('border-red-300');
-        expect(
-            wrapper.find('[data-testid="search-provider-api-key-required-tavily"]').exists()
-        ).toBe(false);
-
+        // Tavily / Exa / Firecrawl 有 keyless 匿名额度，无需先填 key 就能启用。
         await wrapper.get('[data-testid="search-provider-toggle-tavily"]').trigger('click');
         await vi.advanceTimersByTimeAsync(300);
 
         expect(
             wrapper.get('[data-testid="search-provider-toggle-tavily"]').attributes('aria-checked')
-        ).toBe('false');
-        expect(wrapper.get('[data-testid="search-tavily-api-key-input"]').classes()).toContain(
-            'border-red-300'
-        );
-        expect(
-            (wrapper.get('[data-testid="search-tavily-api-key-input"]').element as HTMLInputElement)
-                .disabled
-        ).toBe(false);
-        expect(
-            wrapper.find('[data-testid="search-provider-api-key-required-tavily"]').exists()
-        ).toBe(false);
-        expect(updateSearchSettingsMock).not.toHaveBeenCalledWith(
-            expect.objectContaining({
-                providers: expect.objectContaining({
-                    tavily: expect.objectContaining({ enabled: true }),
-                }),
-            })
-        );
-
-        await tavilyInput.setValue('tavily-key');
-        await vi.advanceTimersByTimeAsync(300);
+        ).toBe('true');
         expect(wrapper.get('[data-testid="search-tavily-api-key-input"]').classes()).not.toContain(
             'border-red-300'
         );
-        updateSearchSettingsMock.mockClear();
-
-        await wrapper.get('[data-testid="search-provider-toggle-tavily"]').trigger('click');
-        await vi.advanceTimersByTimeAsync(300);
-
         expect(updateSearchSettingsMock).toHaveBeenCalledWith(
             expect.objectContaining({
                 providers: expect.objectContaining({
-                    tavily: expect.objectContaining({ enabled: true, apiKey: 'tavily-key' }),
+                    tavily: expect.objectContaining({ enabled: true, apiKey: '' }),
                 }),
             })
         );

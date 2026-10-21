@@ -72,7 +72,9 @@ describe('WebSearch tool', () => {
         expect(definition.input_schema.properties.provider).toMatchObject({
             enum: expect.arrayContaining(['auto', 'brave', 'exa', 'wikipedia', 'github']),
         });
-        expect(providerSchema.enum).not.toContain('tavily');
+        // tavily 已启用且无 key：keyless 匿名额度可直接用，因此仍出现在可选列表里。
+        expect(providerSchema.enum).toContain('tavily');
+        // firecrawl 显式关闭，不应出现。
         expect(providerSchema.enum).not.toContain('firecrawl');
         expect(definition.description).toContain('brave: Fresh broad web/news discovery');
         expect(definition.description).toContain('exa: Semantic web discovery');
@@ -513,6 +515,130 @@ describe('WebSearch tool', () => {
                 body: expect.stringContaining('OpenClaw official updates'),
             })
         );
+    });
+
+    it('uses the Tavily keyless mode when no API key is configured', async () => {
+        getSettingValueMock.mockResolvedValueOnce(
+            JSON.stringify({
+                providers: {
+                    tavily: { enabled: true, apiKey: '' },
+                },
+            })
+        );
+        tauriFetchMock.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    results: [
+                        {
+                            title: 'Tavily keyless result',
+                            url: 'https://example.com/tavily-keyless',
+                            content: 'Anonymous quota result',
+                        },
+                    ],
+                }),
+                { status: 200, headers: { 'content-type': 'application/json' } }
+            )
+        );
+
+        const result = await executeWebSearchTool(
+            { query: 'OpenClaw keyless', provider: 'tavily' },
+            {},
+            createExecutionContext()
+        );
+
+        expect(result.isError).toBe(false);
+        expect(result.result).toContain('Tavily keyless result');
+        const [, init] = tauriFetchMock.mock.calls.at(-1) as [string, RequestInit];
+        const headers = init.headers as Record<string, string>;
+        // 匿名档必须改发 access-mode 头，且不能带空的 Bearer 凭据。
+        expect(headers['x-tavily-access-mode']).toBe('keyless');
+        expect(headers.Authorization).toBeUndefined();
+    });
+
+    it('uses the Firecrawl keyless mode when no API key is configured', async () => {
+        getSettingValueMock.mockResolvedValueOnce(
+            JSON.stringify({
+                providers: {
+                    firecrawl: { enabled: true, apiKey: '' },
+                },
+            })
+        );
+        tauriFetchMock.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    data: [
+                        {
+                            title: 'Firecrawl keyless result',
+                            url: 'https://example.com/firecrawl-keyless',
+                            description: 'Anonymous quota result',
+                        },
+                    ],
+                }),
+                { status: 200, headers: { 'content-type': 'application/json' } }
+            )
+        );
+
+        const result = await executeWebSearchTool(
+            { query: 'OpenClaw keyless', provider: 'firecrawl' },
+            {},
+            createExecutionContext()
+        );
+
+        expect(result.isError).toBe(false);
+        expect(result.result).toContain('Firecrawl keyless result');
+        const [, init] = tauriFetchMock.mock.calls.at(-1) as [string, RequestInit];
+        // 匿名档不能带空的 Bearer 凭据。
+        expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
+    });
+
+    it('uses the Exa public MCP endpoint and parses SSE when no API key is configured', async () => {
+        getSettingValueMock.mockResolvedValueOnce(
+            JSON.stringify({
+                providers: {
+                    exa: { enabled: true, apiKey: '' },
+                },
+            })
+        );
+        const sse = [
+            'event: message',
+            `data: ${JSON.stringify({
+                result: {
+                    content: [
+                        {
+                            type: 'text',
+                            text: [
+                                'Title: Exa keyless result',
+                                'URL: https://example.com/exa-keyless',
+                                'Published: 2026-10-01',
+                                'Highlights:',
+                                'Semantic anonymous result',
+                            ].join('\n'),
+                        },
+                    ],
+                },
+            })}`,
+            '',
+        ].join('\n');
+        tauriFetchMock.mockResolvedValueOnce(
+            new Response(sse, {
+                status: 200,
+                headers: { 'content-type': 'text/event-stream' },
+            })
+        );
+
+        const result = await executeWebSearchTool(
+            { query: 'OpenClaw semantic', provider: 'exa' },
+            {},
+            createExecutionContext()
+        );
+
+        expect(result.isError).toBe(false);
+        expect(result.result).toContain('Exa keyless result');
+        expect(result.result).toContain('https://example.com/exa-keyless');
+        const [url, init] = tauriFetchMock.mock.calls.at(-1) as [string, RequestInit];
+        expect(url).toBe('https://mcp.exa.ai/mcp');
+        // 该端点只接受 SSE，必须显式声明。
+        expect((init.headers as Record<string, string>).Accept).toContain('text/event-stream');
     });
 
     it('routes academic searches to Semantic Scholar when configured', async () => {
