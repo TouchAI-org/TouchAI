@@ -2,17 +2,20 @@
 
 <script setup lang="ts">
     /**
-     * 环形图。
+     * Donut chart.
      *
-     * 移植自 uiarc 的 donut-chart（原版是 React + motion），保留它的核心机制：
-     * - 圆角环形扇形 + 恒定像素间隙（不用 stroke-dasharray，段之间才有空隙）
-     * - 颜色跟着 key 走，切换数据集时同一项不变色
-     * - 悬停图例或扇区时两边同时点亮，其余变暗并向外抬起
-     * - 中心读数在有选中项时显示该项，静止时显示总量
-     * - 占比过小的段自动合并为「其他」
+     * Ported from uiarc's donut-chart (React + motion upstream), keeping its
+     * core mechanics:
+     * - Rounded annular sectors with a constant pixel gap, so segments separate
+     *   without relying on stroke-dasharray.
+     * - Colour follows the key, so an item keeps its colour across data changes.
+     * - Hovering the legend or a sector lights both up; the rest dim and lift.
+     * - The centre readout shows the active slice, or the total when idle.
+     * - Slices below the threshold merge into "other".
      *
-     * 动画用 requestAnimationFrame 直接写 `d` 属性：SVG path 的 CSS 过渡
-     * 在形状差异大时会错位，逐帧写入才能让所有段严格同步。
+     * Animation writes the `d` attribute per frame: a CSS transition on an SVG
+     * path desynchronises when shapes differ a lot, while per-frame writes keep
+     * every slice in lockstep.
      */
     import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
@@ -22,21 +25,21 @@
 
     interface Props {
         data: Array<{ key: string; label: string; value: number; color?: string }>;
-        /** 中心副标题；选中时替换为该项名称 */
+        /** Centre caption; replaced by the slice name when one is active. */
         totalLabel?: string;
-        /** 环直径（px） */
+        /** Ring diameter in px. */
         size?: number;
-        /** 环的粗细 */
+        /** Ring thickness. */
         thickness?: number;
-        /** 低于此占比的段并入「其他」 */
+        /** Slices below this share merge into "other". */
         groupBelow?: number;
-        /** 最多保留多少段（不含「其他」） */
+        /** Maximum kept slices, excluding "other". */
         maxSegments?: number;
-        /** 数值格式化 */
+        /** Value formatter. */
         formatValue?: (value: number) => string;
-        /** 这些 key 的值是估算的，图例里带 ≈ 前缀 */
+        /** Keys whose values are estimated; their legend label gets a ≈ prefix. */
         estimatedKeys?: string[];
-        /** 是否显示右侧图例 */
+        /** Whether to render the legend. */
         legend?: boolean;
         emptyLabel?: string;
     }
@@ -55,16 +58,17 @@
 
     defineOptions({ name: 'DonutChart' });
 
-    /** 段间隙与圆角（px） */
+    /** Segment gap and corner radius, in px. */
     const GAP = 3;
     const CORNER = 5;
-    /** 悬停时向外抬起的距离 */
+    /** How far a hovered slice lifts outward. */
     const GROW = 2;
 
     /**
-     * 与趋势图、构成环共用同一套色板。
+     * Shared palette with the trend chart and composition rings.
      *
-     * 用 CSS 变量而不是硬编码色值，暗色主题下自动跟随。
+     * CSS variables rather than literal colours, so a dark theme follows
+     * automatically.
      */
     const SERIES = [
         'var(--usage-series-1, rgb(63 63 70))',
@@ -88,10 +92,10 @@
     );
 
     /**
-     * 颜色按 key 首次出现的顺序分配。
+     * Colours are assigned by first appearance of a key.
      *
-     * 如果按数组下标分配，筛选变化导致排序变动时同一项会突然换色，
-     * 读者会以为换成了另一个东西。
+     * Assigning by array index would recolour an item whenever a filter changes
+     * the ordering, which reads as a different item entirely.
      */
     const palette = ref(new Map<string, number>());
     watch(
@@ -113,11 +117,11 @@
 
     const total = computed(() => slices.value.reduce((sum, item) => sum + item.value, 0));
 
-    // ===== 交互状态 =====
+    // ===== Interaction state =====
 
-    /** 图例点选：固定某一项（再点一次取消） */
+    /** Legend click pins a slice; clicking it again clears the pin. */
     const selected = ref<string | null>(null);
-    /** 悬停预览：优先级高于选中 */
+    /** Hover preview, which outranks the pin. */
     const preview = ref<string | null>(null);
 
     const activeKey = computed(() => preview.value ?? selected.value);
@@ -133,20 +137,20 @@
         return total.value > 0 ? value / total.value : 0;
     }
 
-    /** 估算值的图例数字前加 ≈，与卡片上的说明一致 */
+    /** Prefix estimated values with ≈ in the legend, matching the card notes. */
     function valueText(key: string, value: number): string {
         const mark = props.estimatedKeys.includes(key) ? '≈' : '';
         return `${mark}${props.formatValue(value)}`;
     }
 
-    // ===== 动画：逐帧写入 path =====
+    // ===== Animation: write the path per frame =====
 
     const c = computed(() => props.size / 2);
     const outer = computed(() => c.value - 6);
     const inner = computed(() => Math.max(8, outer.value - props.thickness));
     const corner = computed(() => Math.min(CORNER, props.thickness / 4));
 
-    /** 每段当前的动画状态：start/end 是 0–1 的弧位置，lift 是抬起量 */
+    /** Per-slice animation state: arc positions in 0..1, plus the lift amount. */
     interface Anim {
         start: number;
         end: number;
@@ -160,14 +164,14 @@
     }
 
     const anims = new Map<string, Anim>();
-    /** 每段的 path 元素 */
+    /** Path element of each slice. */
     const pathRefs = new Map<string, SVGPathElement>();
 
     const rendered = ref<Array<{ key: string; d: string; color: string; dim: boolean }>>([]);
 
     function setPathRef(key: string) {
         return (el: unknown) => {
-            // jsdom 里没有 SVGPathElement 构造函数，用 tagName 判断更稳
+            // jsdom has no SVGPathElement constructor, so check tagName instead.
             const isPath =
                 typeof el === 'object' &&
                 el !== null &&
@@ -178,10 +182,11 @@
     }
 
     /**
-     * 临界阻尼弹簧的数值积分。
+     * Numerical integration of a critically damped spring.
      *
-     * 比线性缓动自然：数据更新时段的边会「追」过去而不是匀速滑过去。
-     * 用固定步长 + 收敛判定，静止后停止 rAF，避免常驻耗电。
+     * More natural than linear easing: slice edges chase the target instead of
+     * sliding at constant speed. A fixed step plus a convergence check stops the
+     * rAF loop once settled, so it costs nothing at rest.
      */
     const STIFFNESS = 170;
     const DAMPING = 26;
@@ -263,12 +268,13 @@
         }
     }
 
-    /** 数据或选中态变化时，重设目标并启动动画 */
+    /** Retarget every slice and start the loop when data or selection changes. */
     function retarget(): void {
         const arcs = layout(slices.value, new Set<string>());
         const active = activeKey.value;
 
-        // 新出现的段从前一段的当前位置长出来，不会从 0 突然冒出
+        // A new slice grows out of the previous slice's current edge instead of
+        // popping in from zero.
         const order = slices.value.map((item) => item.key);
         order.forEach((key, index) => {
             const arc = arcs.get(key) ?? { start: 0, end: 0 };
@@ -298,7 +304,7 @@
             anim.targetLift = active === key ? 1 : 0;
         });
 
-        // 已经不存在的段：目标收成 0，动画结束后移除
+        // Removed slices collapse to zero width and drop out once settled.
         for (const [key, anim] of anims) {
             if (!order.includes(key)) {
                 anim.targetStart = anim.end;
@@ -313,7 +319,7 @@
     watch([slices, activeKey], () => retarget(), { deep: true, immediate: true });
 
     onMounted(() => {
-        // 首次进入：所有段从 12 点一起扫开
+        // First mount: every slice sweeps out from twelve o'clock together.
         for (const anim of anims.values()) {
             anim.start = 0;
             anim.end = 0;
@@ -328,7 +334,7 @@
         pathRefs.clear();
     });
 
-    /** 中心读数：选中时显示该项，静止时显示总量 */
+    /** Centre readout: the active slice, or the total when idle. */
     const centerValue = computed(() =>
         props.formatValue(activeSlice.value ? activeSlice.value.value : total.value)
     );
@@ -341,15 +347,16 @@
     });
 
     /**
-     * 中心读数的字号。
+     * Centre font size.
      *
-     * 先按环大小给一个基准字号，再根据字符串实际占宽收缩，
-     * 保证「148.6万」这类长读数完整落在孔洞里，而不是被截成「148…」。
+     * Start from a size derived from the ring, then shrink to fit the actual
+     * string width so a long readout like `148.6万` stays inside the hole
+     * instead of being clipped to `148…`.
      */
     const centerFontSize = computed(() => {
         const base = Math.max(12, Math.round(props.size * (centerMeta.value ? 0.085 : 0.1)));
         const text = centerValue.value;
-        // 数字与西文约 0.58em，中日韩字符按 1em 计
+        // Digits and Latin average about 0.58em; CJK counts as 1em.
         const units = [...text].reduce(
             (total, char) => total + (/[\u3000-\u9fff\uff00-\uffef]/.test(char) ? 1 : 0.58),
             0
@@ -449,7 +456,10 @@
                         :style="{ backgroundColor: colorOf(item) }"
                         aria-hidden="true"
                     />
-                    <span class="min-w-0 flex-1 truncate text-[12px] text-neutral-700">
+                    <span
+                        class="min-w-0 flex-1 truncate text-[12px] text-neutral-700"
+                        :title="item.label"
+                    >
                         {{ item.label }}
                     </span>
                     <span class="shrink-0 text-[11px] text-neutral-400 tabular-nums">

@@ -13,9 +13,9 @@
     defineOptions({ name: 'UsageComposition' });
 
     /**
-     * 环图直接吃 `{ key, label, value }`：
-     * 分组、配色、间隙、悬停联动、中心读数都由 DonutChart 负责，
-     * 这里只负责把字段翻成文案。
+     * DonutChart takes `{ key, label, value }` directly: grouping, palette,
+     * gaps, hover linking, and the centre readout are its job. This component
+     * only maps keys to copy.
      */
     const LABEL: Record<string, Parameters<typeof t>[0]> = {
         systemPrompt: 'settings.usage.composition.systemPrompt',
@@ -52,7 +52,7 @@
         }))
     );
 
-    /** 估算值的 key：图例里加 ≈ */
+    /** Keys of estimated segments, marked with a leading ≈ in the legend. */
     const estimatedTokenKeys = computed(() =>
         (props.composition?.tokens.segments ?? [])
             .filter((segment) => segment.estimated)
@@ -61,7 +61,8 @@
 </script>
 
 <template>
-    <div class="grid grid-cols-1 gap-3 xl:grid-cols-2" data-testid="settings-usage-composition">
+    <!-- 两张卡内部已铺满内容，间距要比普通栅格大一些才不会读成一块 -->
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-2" data-testid="settings-usage-composition">
         <!-- Token 构成 -->
         <section class="space-y-3">
             <div class="flex items-baseline justify-between gap-2">

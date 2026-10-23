@@ -8,43 +8,52 @@ import type {
 } from '@database/queries/usageStats';
 import type { SessionTaskUsageProgressEvent } from '@services/EventService';
 
-/** 分钟桶宽度，与查询层的 5 分钟粒度一致 */
-const MINUTE_BUCKET_MS = 5 * 60_000;
-
-/** 各粒度的桶宽 */
+/** Default bucket widths, used only when the caller has no real width. */
 function bucketMsOf(bucket: UsageBucket): number {
-    if (bucket === 'minute') return MINUTE_BUCKET_MS;
+    if (bucket === 'minute') return 10 * 60_000;
     if (bucket === 'hour') return 3_600_000;
     return 86_400_000;
 }
 
-/** 把时间对齐到桶起点 */
-function floorToBucket(date: Date, bucket: UsageBucket): void {
-    if (bucket === 'minute') {
-        date.setSeconds(0, 0);
-        date.setMinutes(Math.floor(date.getMinutes() / 5) * 5);
+/**
+ * Align a timestamp to its bucket start.
+ *
+ * Alignment must use the real bucket width and absolute (epoch) time, matching
+ * the SQL `strftime('%s') / bucketSeconds` exactly. Rounding by local minute
+ * would drift by whole buckets under a non-hour timezone offset.
+ */
+function floorToBucket(date: Date, bucket: UsageBucket, bucketMs?: number): void {
+    if (!bucketMs) {
+        if (bucket === 'minute') {
+            date.setSeconds(0, 0);
+            date.setMinutes(Math.floor(date.getMinutes() / 10) * 10);
+            return;
+        }
+        if (bucket === 'hour') {
+            date.setMinutes(0, 0, 0);
+            return;
+        }
+        date.setHours(0, 0, 0, 0);
         return;
     }
-    if (bucket === 'hour') {
-        date.setMinutes(0, 0, 0);
-        return;
-    }
-    date.setHours(0, 0, 0, 0);
+
+    const ms = date.getTime();
+    date.setTime(Math.floor(ms / bucketMs) * bucketMs);
 }
 
 export interface UsageCurvePoint {
     key: string;
-    /** 该点的真实时间戳（毫秒）；横轴按它定位，而不是按数组下标等距排开 */
+    /** Real timestamp in ms; the x axis follows it instead of array position. */
     at: number;
     value: number;
     live: boolean;
 }
 
-/** 实时采样：采集器当时算出的瞬时速度（token/秒） */
+/** One live sample: the instantaneous rate the tracker computed at that moment. */
 export interface LiveUsageSample {
     atMs: number;
     tokens: number;
-    /** 采集器的滑动窗口速度；旧数据可能没有该字段 */
+    /** Tracker sliding-window speed; older samples may lack it. */
     speed?: number;
 }
 
@@ -52,19 +61,44 @@ export function parseUsageTime(value: string): number {
     return Date.parse(value.includes('T') ? value : `${value.replace(' ', 'T')}Z`);
 }
 
-export function localUsageKey(date: Date, bucket: UsageBucket = 'day'): string {
+/**
+ * Bucket key for a timestamp.
+ *
+ * With a real bucket width the timestamp is aligned first, then formatted.
+ * Keys are UTC text so they match the query layer's `formatBucketKey` and
+ * `parseUsageTime` can read them back.
+ */
+export function localUsageKey(
+    date: Date,
+    bucket: UsageBucket = 'day',
+    /** Real bucket width; when given, align by it to match the query layer. */
+    bucketMs?: number
+): string {
+    /*
+     * Align to the bucket start first, then format. Output is UTC text, the
+     * same shape as the query layer's `formatBucketKey`; `parseUsageTime`
+     * appends 'Z', so both sides must be UTC to line up.
+     */
+    if (bucketMs && bucket !== 'day') {
+        const aligned = new Date(Math.floor(date.getTime() / bucketMs) * bucketMs);
+        return localUsageKey(aligned, bucket);
+    }
+
     const day = [
-        date.getFullYear(),
-        String(date.getMonth() + 1).padStart(2, '0'),
-        String(date.getDate()).padStart(2, '0'),
+        date.getUTCFullYear(),
+        String(date.getUTCMonth() + 1).padStart(2, '0'),
+        String(date.getUTCDate()).padStart(2, '0'),
     ].join('-');
     if (bucket === 'day') return day;
-    const hour = `${day} ${String(date.getHours()).padStart(2, '0')}:`;
+    const hour = `${day} ${String(date.getUTCHours()).padStart(2, '0')}:`;
     if (bucket === 'hour') return `${hour}00`;
-    return `${hour}${String(Math.floor(date.getMinutes() / 5) * 5).padStart(2, '0')}`;
+    return `${hour}${String(date.getUTCMinutes()).padStart(2, '0')}`;
 }
 
-/** 只使用当前筛选内尚未终结的任务。数据库终态优先于迟到的进度事件。 */
+/**
+ * Turns inside the current filter that have not settled yet.
+ * A database terminal status wins over a late progress event.
+ */
 export function pendingUsageStreams(
     turns: readonly UsageLiveTurn[],
     streams: readonly SessionTaskUsageProgressEvent[]
@@ -77,7 +111,10 @@ export function pendingUsageStreams(
     });
 }
 
-/** 历史汇总已包含请求、会话与活跃日；只叠加各任务尚未落库的增量。 */
+/**
+ * Overlay the not-yet-persisted deltas on the historical summary.
+ * The summary already covers requests, sessions, and active days.
+ */
 export function mergeLiveUsage(
     summary: UsageSummary,
     turns: readonly UsageLiveTurn[],
@@ -89,7 +126,8 @@ export function mergeLiveUsage(
         merged.outputTokens += outputDelta;
         merged.realTotalTokens += outputDelta;
         merged.totalDurationMs += Math.max(0, stream.elapsedMs - (turn.durationMs ?? 0));
-        // 实时估算只覆盖输出。只按尚未落库输出的比例叠加，避免重复计算已计价调用。
+        // Live estimation covers output only. Scale by the unpersisted share
+        // so already-priced calls are not counted twice.
         if (outputDelta > 0) {
             if (stream.estimatedCostMicros === null) {
                 merged.unpricedCount += 1;
@@ -104,19 +142,25 @@ export function mergeLiveUsage(
 }
 
 /**
- * 实时窗口长度。
+ * Live window length.
  *
- * 横轴若按整个区间（如「今天」= 24 小时）铺开，一段 30 秒的对话只占宽度的
- * 万分之三，曲线看上去永远是平的。所以有流时改用滑动窗口，让增量占满宽度。
+ * Across a whole range such as "today" a 30-second conversation occupies
+ * 0.003% of the width and the curve looks permanently flat, so a live stream
+ * switches to a sliding window that lets the increment fill the plot.
+ *
+ * Fifteen seconds: within a minute there are only one or two cold-start
+ * spikes and long flat stretches that read as "stuck"; at this width every
+ * fluctuation is visible.
  */
-export const LIVE_WINDOW_MS = 60_000;
+export const LIVE_WINDOW_MS = 15_000;
 
 /**
- * 实时曲线：**每秒** token 消耗量，不是累计值。
+ * Live curve: tokens **per second**, not a cumulative total.
  *
- * 直接使用采集器算好的瞬时速度（它自己维护 5 秒滑动窗口）。
- * 不要再对累计 token 做差分：采集器每 300ms 才推一次，500ms 节拍会经常
- * 采到同一个值得到 0；而且结束时会把估算值换成实测值，差分会出现巨额跳变。
+ * Uses the tracker's own instantaneous speed (it keeps a 5-second sliding
+ * window). Do not diff the cumulative tokens instead: the tracker pushes every
+ * 300ms so a fixed tick often samples the same value and yields 0, and the
+ * final measured usage replaces the estimate, producing one huge jump.
  */
 export function buildLiveCurve(
     samples: readonly LiveUsageSample[],
@@ -127,7 +171,7 @@ export function buildLiveCurve(
 
     const cutoff = nowMs - windowMs;
     const first = samples[0]!;
-    // 对话刚开始时窗口向右对齐到采样起点，避免左边全是空白
+    // Right-align the window to the first sample so a fresh stream is not blank.
     const start = Math.max(cutoff, first.atMs);
     const points: UsageCurvePoint[] = [];
 
@@ -139,20 +183,35 @@ export function buildLiveCurve(
         points.push({ key: '', at, value: Math.max(0, sample.speed ?? 0), live: true });
     }
 
-    // 尾部延伸到当下：即使没有新 token，横轴也在走，速率回落到 0
     const last = points[points.length - 1];
-    if (!last || nowMs - last.at > 200) {
-        points.push({ key: '', at: nowMs, value: 0, live: true });
+    if (!last) return points;
+
+    /*
+     * Extend the tail to the present.
+     *
+     * Hold the last known speed rather than dropping to 0: the tracker only
+     * pushes when tokens actually arrive, so gaps over 200ms are normal, and
+     * filling them with 0 makes the curve jump up from zero every few hundred
+     * milliseconds. Fall to 0 only when a whole window has passed with no
+     * sample, which means the stream really stopped.
+     */
+    if (nowMs - last.at > 200) {
+        const silent = nowMs - last.at > windowMs;
+        points.push({
+            key: '',
+            at: nowMs,
+            value: silent ? 0 : last.value,
+            live: true,
+        });
     }
 
     return points;
 }
 
 /**
- * 同一时间桶内更新实时增量；横轴始终采用真实时间。
- *
- * 历史点每个桶一个（按桶起点定位）。当前桶额外附上实时采样，
- * 这样对话进行时曲线尾会真的往右长，而不是只在同一个 x 上抬高。
+ * Historical curve: one point per bucket, positioned by its real start time.
+ * The current bucket also carries the live samples so the tail grows to the
+ * right while a conversation is running.
  */
 export function buildUsageCurve(
     history: readonly UsageTrendPoint[],
@@ -161,13 +220,19 @@ export function buildUsageCurve(
     turns: readonly UsageLiveTurn[],
     streams: readonly SessionTaskUsageProgressEvent[],
     liveSamples: readonly LiveUsageSample[] = [],
-    nowMs = Date.now()
+    nowMs = Date.now(),
+    /** Real bucket width in ms; without it the width is guessed from the kind. */
+    bucketMsOverride?: number
 ): UsageCurvePoint[] {
     const persisted = new Map(history.map((point) => [point.key, point.tokens]));
     const liveDelta = new Map<string, number>();
 
     for (const { turn, stream } of pendingUsageStreams(turns, streams)) {
-        const key = localUsageKey(new Date(parseUsageTime(turn.createdAt)), bucket);
+        const key = localUsageKey(
+            new Date(parseUsageTime(turn.createdAt)),
+            bucket,
+            bucketMsOverride
+        );
         liveDelta.set(
             key,
             (liveDelta.get(key) ?? 0) + Math.max(0, stream.outputTokens - turn.outputTokens)
@@ -181,28 +246,29 @@ export function buildUsageCurve(
             .sort()
             .map((key) => ({ key, at: atOf(key), value: valueOf(key), live: false }));
 
-    const bucketMs = bucketMsOf(bucket);
+    const bucketMs = bucketMsOverride ?? bucketMsOf(bucket);
     const start = new Date(
         range.preset === 'all' && history[0] ? atOf(history[0].key) : parseUsageTime(range.from)
     );
     const end = new Date(range.preset === 'all' ? nowMs : parseUsageTime(range.to));
 
     if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return sparse();
-    floorToBucket(start, bucket);
+    floorToBucket(start, bucket, bucketMsOverride);
 
-    // 极长的「全部」范围不逐桶铺满，只保留有数据的桶
+    // A very long "all time" range is not padded bucket by bucket.
     if ((end.getTime() - start.getTime()) / bucketMs > 5000) return sparse();
 
     const points: UsageCurvePoint[] = [];
     const cursor = new Date(start);
     while (cursor.getTime() <= end.getTime()) {
-        const key = localUsageKey(cursor, bucket);
+        const key = localUsageKey(cursor, bucket, bucketMsOverride);
         points.push({ key, at: cursor.getTime(), value: valueOf(key), live: false });
         cursor.setTime(cursor.getTime() + bucketMs);
     }
 
-    // 当前桶：把实时采样按真实时间接在桶起点之后，尾部会随时间往右走
-    const currentKey = localUsageKey(new Date(nowMs), bucket);
+    // Current bucket: append live samples after the bucket start so the tail
+    // advances with real time.
+    const currentKey = localUsageKey(new Date(nowMs), bucket, bucketMsOverride);
     const currentIndex = points.findIndex((point) => point.key === currentKey);
     if (currentIndex >= 0 && liveSamples.length > 0) {
         const bucketStartAt = points[currentIndex]!.at;

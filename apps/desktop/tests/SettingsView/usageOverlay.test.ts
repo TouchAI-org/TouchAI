@@ -152,18 +152,35 @@ describe('usage curve with stable historical buckets', () => {
         }
     });
 
-    it('drops to zero once the stream stops producing tokens', () => {
+    it('holds the last known speed instead of sawtoothing to zero', () => {
+        // The tracker pushes only when tokens arrive, and gaps over 200ms are
+        // normal. Holding the last value avoids a jump up from zero each gap.
         const now = Date.parse('2026-05-01T10:30:00Z');
         const rate = buildLiveCurve(
             [
-                { atMs: now - 20_000, tokens: 100, speed: 12 },
-                { atMs: now - 10_000, tokens: 200, speed: 12 },
+                { atMs: now - 1000, tokens: 100, speed: 12 },
+                { atMs: now - 300, tokens: 200, speed: 40 },
             ],
             60_000,
             now
         );
 
-        expect(rate[rate.length - 1]!.value).toBe(0);
+        expect(rate[rate.length - 1]!.value).toBe(40);
+    });
+
+    it('drops points older than the window instead of drawing them', () => {
+        const now = Date.parse('2026-05-01T10:30:00Z');
+        const rate = buildLiveCurve(
+            [
+                { atMs: now - 40_000, tokens: 100, speed: 12 },
+                { atMs: now - 30_000, tokens: 200, speed: 12 },
+            ],
+            15_000,
+            now
+        );
+
+        // Samples outside the window are not drawn; the curve falls back to the baseline.
+        expect(rate).toEqual([]);
     });
 
     it('does not double-count after persistence catches up', () => {

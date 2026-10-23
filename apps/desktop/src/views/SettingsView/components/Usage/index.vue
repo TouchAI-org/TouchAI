@@ -58,13 +58,14 @@
     const liveTurns = ref<UsageLiveTurn[]>([]);
     const trackedTaskIds = ref<string[]>([]);
     const loadedRange = ref(resolveUsageRange(preset.value));
-    const trend = ref<{ bucket: UsageBucket; points: UsageTrendPoint[] }>({
+    const trend = ref<{ bucket: UsageBucket; bucketMs: number; points: UsageTrendPoint[] }>({
         bucket: 'day',
+        bucketMs: 86_400_000,
         points: [],
     });
     const heatmap = ref<UsageHeatmapDay[]>([]);
     const options = ref<UsageFilterOptions>({ models: [], providers: [] });
-    /** 两个排行各自的指标维度 */
+    /** Metric dimension of each ranking. */
     const modelRankMetric = ref<UsageRankMetric>('tokens');
     const sessionRankMetric = ref<UsageRankMetric>('duration');
     const modelRanking = ref<UsageRankItem[]>([]);
@@ -77,18 +78,18 @@
         meanDurationMs: null,
         byTool: [],
     });
-    /** 工具统计是否已到（空数据也要展示空态，不能当成未加载） */
+    /** Tool stats arrived; empty data still renders an empty state, not a loader. */
     const toolsReady = ref(false);
-    /** 两个排行是否已到 */
+    /** Both rankings arrived. */
     const rankingsReady = ref(false);
 
     /**
-     * 两个排行统一用的行数。
+     * Row count shared by both rankings.
      *
-     * 取两侧中较高的一侧，但不超过四行：
-     * - 两侧都只有 1 行时就是 1 行，不会拖出三行空骨架；
-     * - 一侧 7 行、另一侧 2 行时，按四行封顶，短的一侧补 2 行骨架，
-     *   两侧等高，超过四行的部分内部滚动。
+     * Takes the taller side, capped at four rows: two single-row sides stay
+     * single-row instead of padding three empty skeletons, while a seven-row
+     * side against a two-row side caps at four and pads the shorter one so the
+     * pair lines up, with the excess scrolling inside.
      */
     const rankingRows = computed(() =>
         Math.min(Math.max(modelRanking.value.length, sessionRanking.value.length), 4)
@@ -120,8 +121,9 @@
         try {
             const current = { ...filter.value, ...resolveUsageRange(preset.value) };
 
-            // 第一阶段：只取首屏（汇总 + 曲线），先把仪表盘渲染出来。
-            // 其余区块都是独立查询，没必让首屏陪着一起等。
+            // Phase one: the above-the-fold snapshot only, so the dashboard
+            // renders immediately. The blocks below run their own queries and
+            // do not need to hold it up.
             const dashboard = await getUsageDashboardSnapshot(
                 current,
                 trackedTaskIds.value,
@@ -133,10 +135,12 @@
             liveTurns.value = dashboard.liveTurns;
             loadedRange.value = { from: current.from, to: current.to };
             trend.value = dashboard.trend;
-            // 首屏已就绪，后续区块可以各自显示自己的加载态
+            // The above-the-fold content is ready; each block below can show
+            // its own loading state from here on.
             loading.value = false;
 
-            // 第二阶段：其余区块并行填充（含「全部时间」的归档趋势）。
+            // Phase two: fill the remaining blocks in parallel, including the
+            // archived trend for "all time".
             const useArchive = preset.value === 'all' && canUseUsageArchive(current);
             const [
                 archiveTrend,
@@ -158,12 +162,14 @@
 
             if (version !== loadVersion || disposed) return;
 
-            // 即时查询覆盖仍有明细的日期；归档只补回已清理的历史日期。
+            // Live queries cover days that still have detail rows; the archive
+            // only fills in days that were already pruned.
             const nextTrend = dashboard.trend;
             if (archiveTrend && nextTrend.bucket === 'day') {
                 const rawKeys = new Set(nextTrend.points.map((point) => point.key));
                 trend.value = {
                     bucket: 'day',
+                    bucketMs: 86_400_000,
                     points: [
                         ...archiveTrend.points.filter((point) => !rawKeys.has(point.key)),
                         ...nextTrend.points,
@@ -186,7 +192,7 @@
         }
     }
 
-    /** 事件驱动的实时刷新：任务结束后延迟合并，避免短暂加载态 */
+    /** Event-driven refresh: debounce after a task ends to avoid a loading flash. */
     function scheduleRefresh() {
         if (refreshTimer) {
             clearTimeout(refreshTimer);
@@ -207,7 +213,8 @@
     onMounted(() => {
         void load();
 
-        // 对话完成/失败/取消后自动刷新，用量页不提供手动刷新按钮
+        // Refresh automatically once a conversation completes, fails, or is
+        // cancelled. This page has no manual refresh control.
         void eventService
             .on(AppEvent.SESSION_TASK_STATUS_CHANGED, (payload) => {
                 if (
@@ -271,6 +278,7 @@
                 :summary="summary"
                 :trend="trend.points"
                 :bucket="trend.bucket"
+                :bucket-ms="trend.bucketMs"
                 :live-turns="liveTurns"
                 :range="{ preset, ...loadedRange }"
                 @track-tasks="trackTasks"
@@ -282,6 +290,7 @@
                 <UsageChart
                     :points="trend.points"
                     :bucket="trend.bucket"
+                    :bucket-ms="trend.bucketMs"
                     :dimension="dimension"
                     @update:dimension="dimension = $event"
                 />
@@ -299,7 +308,9 @@
                         :metric="modelRankMetric"
                         :loading="!rankingsReady"
                         :height-rows="rankingRows"
+                        :selected-id="modelId"
                         @update:metric="modelRankMetric = $event"
+                        @select="modelId = $event"
                     />
                     <UsageRanking
                         :title="t('settings.usage.ranking.sessionTitle')"

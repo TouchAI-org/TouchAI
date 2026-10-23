@@ -20,8 +20,10 @@
     interface Props {
         points: UsageTrendPoint[];
         bucket: 'minute' | 'hour' | 'day';
+        /** Real bucket width in ms, used for label granularity and rate conversion. */
+        bucketMs?: number;
         dimension: Dimension;
-        /** 只展示前 N 个分组，其余归入「其他」 */
+        /** Show only the top N groups; the rest fold into "other". */
         maxSeries?: number;
     }
 
@@ -35,7 +37,7 @@
 
     const METRIC_OPTIONS: Metric[] = ['tokens', 'requests', 'cost'];
 
-    /** 与环图、曲线共用同一套色板 */
+    /** Shared palette with the donut and the live curve. */
     const PALETTE = [
         'rgb(63 63 70)',
         'rgb(14 165 233)',
@@ -51,7 +53,7 @@
         return input.tokens;
     }
 
-    /** 全期间的 top N 分组；其余合并为「其他」 */
+    /** Top N groups across the whole range; the rest merge into "other". */
     const series = computed(() => {
         const totals = new Map<string, number>();
         for (const point of props.points) {
@@ -76,7 +78,7 @@
         ];
     });
 
-    /** 每个时间桶一根柱 */
+    /** One bar per time bucket. */
     const data = computed(() =>
         props.points.map((point) => {
             const values: Record<string, number> = {};
@@ -93,6 +95,7 @@
                 values['__other'] = other;
             }
 
+            // Labels follow the granularity: days as `9/22`, hours and minutes as clock time.
             const label =
                 props.bucket === 'day' ? formatDayLabel(point.key) : point.key.slice(11, 16);
 
@@ -106,7 +109,7 @@
         return formatTokensCompact(Math.round(value));
     }
 
-    /** 纵轴用更紧凑的形式，避免 5 个刻度把左侧挤满 */
+    /** Compact axis labels, so five ticks do not crowd the left edge. */
     function formatTick(value: number): string {
         if (metric.value === 'cost') return formatCostCompact(value * 1_000_000);
         if (metric.value === 'requests') return formatInt(Math.round(value));

@@ -3,33 +3,29 @@
 import { getLocale, t } from '@/i18n';
 
 /**
- * 中文界面的金额换算汇率。
+ * Display rate for CNY.
  *
- * 定价源（models.dev）只给美元，库里存的也是美元微元，这里不改库、不改写入，
- * 只在展示时按当前语言换汇：中文看人民币更直观。汇率是固定值而不是实时汇率，
- * 只是量级参考，因此文案里已经写明「基于官方价格估算」。
+ * The pricing source (models.dev) quotes USD and the database stores USD
+ * micros; nothing is rewritten on write. Conversion happens only for display
+ * so a Chinese reader sees a familiar magnitude. The rate is fixed rather than
+ * live, so the UI labels the figure as an estimate.
  */
 export const USD_TO_CNY = 7.2;
 
-/** 当前语言下应使用的币种 */
 function activeCurrency(): string {
     return getLocale() === 'zh-CN' ? 'CNY' : 'USD';
 }
 
-/** 美元微元 → 当前语言下金额的数值 */
 function convertMicros(micros: number): number {
     const usd = micros / 1_000_000;
     return getLocale() === 'zh-CN' ? usd * USD_TO_CNY : usd;
 }
 
 /**
- * 金额：微元 → 本地化货币字符串。
+ * Currency for display, converted from USD micros.
  *
- * 库里存的是美元微元（定价源只给美元）。展示时按语言选择币种：
- * 中文换汇成人民币，英文保持美元。
- *
- * `narrowSymbol` 让中文界面显示 `¥1.70` 而不是 `CN¥1.70`：
- * 币种已在标题里说明，再带国家前缀属于冗余。
+ * `narrowSymbol` renders `¥1.70` instead of `CN¥1.70`; the currency is already
+ * named by the surrounding label, so the country prefix is noise.
  */
 export function formatCost(micros: number, currency = activeCurrency()): string {
     return new Intl.NumberFormat(getLocale(), {
@@ -41,7 +37,7 @@ export function formatCost(micros: number, currency = activeCurrency()): string 
     }).format(convertMicros(micros));
 }
 
-/** 金额（紧凑形式，用于图表轴与卡片） */
+/** Compact currency for axes and cards. */
 export function formatCostCompact(micros: number, currency = activeCurrency()): string {
     const amount = convertMicros(micros);
     if (getLocale() === 'zh-CN') {
@@ -76,9 +72,8 @@ export function formatCostCompact(micros: number, currency = activeCurrency()): 
 }
 
 /**
- * 把一个数值拆成「数字 + 前后缀 + 小数位」，交给数字滚轮渲染。
- *
- * 滚轮只能转数字，所以单位必须从字符串里分出来。
+ * A value split into number, affixes, and decimals for the counter component.
+ * The unit has to come out of the formatted string because only the digits animate.
  */
 export interface CounterSpec {
     value: number;
@@ -87,7 +82,7 @@ export interface CounterSpec {
     decimals?: number;
 }
 
-/** 金额 → 滚轮参数（币种符号作前缀，固定两位小数） */
+/** Currency counter: symbol as prefix, fixed two decimals. */
 export function costCounter(micros: number): CounterSpec {
     const symbol = new Intl.NumberFormat(getLocale(), {
         style: 'currency',
@@ -100,79 +95,56 @@ export function costCounter(micros: number): CounterSpec {
     return { value: convertMicros(micros), prefix: symbol, decimals: 2 };
 }
 
-/** 紧凑 token → 滚轮参数（万/亿 或 K/M/B 作后缀） */
-export function tokensCounter(tokens: number): CounterSpec {
-    if (getLocale() === 'zh-CN') {
-        if (tokens >= 100_000_000) {
-            return { value: tokens / 100_000_000, suffix: '亿', decimals: 1 };
-        }
-        if (tokens >= 10_000) {
-            return { value: tokens / 10_000, suffix: '万', decimals: 1 };
-        }
-        return { value: tokens, decimals: 0 };
-    }
-
-    if (tokens >= 1_000_000_000) {
-        return { value: tokens / 1_000_000_000, suffix: 'B', decimals: 1 };
-    }
-    if (tokens >= 1_000_000) {
-        return { value: tokens / 1_000_000, suffix: 'M', decimals: 1 };
-    }
-    if (tokens >= 1_000) {
-        return { value: tokens / 1_000, suffix: 'K', decimals: 1 };
-    }
-    return { value: tokens, decimals: 0 };
-}
-
-/** 整数 → 滚轮参数 */
+/** Integer counter. */
 export function intCounter(value: number): CounterSpec {
     return { value, decimals: 0 };
 }
 
 /**
- * 紧凑 token 数：按语言选单位。
+ * Compact token count, localised per language.
  *
- * 中文习惯看「万 / 亿」，英文习惯看 K / M / B。
- * 用同一套 K/M 会在中文界面里读成「4.4M」，与其余中文文案脱节；
- * 反之把「亿」塞给英文界面也一样别扭。所以按当前语言分两条分支。
+ * Chinese reads 万 / 亿 and English reads K / M / B; forcing K/M into Chinese
+ * gives `4.4M` in the middle of Chinese copy, and 亿 in English is just as odd.
  */
 export function formatTokensCompact(value: number): string {
+    const parts = tokensParts(value);
+    return `${parts.value}${parts.unit}`;
+}
+
+/**
+ * Compact token count split into number and unit.
+ *
+ * `formatTokensCompact` returns a joined string, but cards need the unit on its
+ * own to dim it, so both go through this function and share one set of thresholds.
+ */
+export function tokensParts(tokens: number): { value: string; unit: string } {
     const locale = getLocale();
 
     if (locale === 'zh-CN') {
-        if (value >= 100_000_000) {
-            return `${trimZero(value / 100_000_000)}亿`;
-        }
-        if (value >= 10_000) {
-            return `${trimZero(value / 10_000)}万`;
-        }
-        return String(value);
+        if (tokens >= 100_000_000) return { value: trimZero(tokens / 100_000_000), unit: '亿' };
+        if (tokens >= 10_000) return { value: trimZero(tokens / 10_000), unit: '万' };
+        if (tokens >= 1_000) return { value: trimZero(tokens / 1_000), unit: '千' };
+        return { value: formatInt(tokens), unit: '' };
     }
 
-    if (value >= 1_000_000_000) {
-        return `${trimZero(value / 1_000_000_000)}B`;
-    }
-    if (value >= 1_000_000) {
-        return `${trimZero(value / 1_000_000)}M`;
-    }
-    if (value >= 1_000) {
-        return `${trimZero(value / 1_000)}K`;
-    }
-    return String(value);
+    if (tokens >= 1_000_000_000) return { value: trimZero(tokens / 1_000_000_000), unit: 'B' };
+    if (tokens >= 1_000_000) return { value: trimZero(tokens / 1_000_000), unit: 'M' };
+    if (tokens >= 1_000) return { value: trimZero(tokens / 1_000), unit: 'K' };
+    return { value: formatInt(tokens), unit: '' };
 }
 
-/** 保留一位小数，但去掉无意义的 `.0`（「1.0万」读起来不如「1万」） */
+/** Drop a trailing `.0`: `1万` reads better than `1.0万`. */
 function trimZero(value: number): string {
     const fixed = value.toFixed(1);
     return fixed.endsWith('.0') ? fixed.slice(0, -2) : fixed;
 }
 
-/** 整数带千分位 */
+/** Integer with group separators. */
 export function formatInt(value: number): string {
     return new Intl.NumberFormat(getLocale()).format(value);
 }
 
-/** 百分比，保留一位小数；极小但非零的占比不显示成 0.0% */
+/** Percentage with one decimal; tiny non-zero shares stay visible. */
 export function formatPercent(ratio: number): string {
     if (ratio > 0 && ratio < 0.001) {
         return '<0.1%';
@@ -181,10 +153,11 @@ export function formatPercent(ratio: number): string {
 }
 
 /**
- * 较大时长：用于总量与分段展示。
+ * Long durations, for totals and segments.
  *
- * `formatDuration` 适合毫秒到秒级（首字延迟、单次工具），
- * 但总量动辄几百秒，写成 `2208.9s` 既难读也看不出量级。
+ * `formatDuration` suits millisecond-to-second values such as first-token
+ * latency, but a total of several hundred seconds reads poorly as `2208.9s`
+ * and hides the magnitude.
  */
 export function formatLongDuration(ms: number | null | undefined): string {
     if (ms === null || ms === undefined || !Number.isFinite(ms)) return '—';
@@ -203,7 +176,7 @@ export function formatLongDuration(ms: number | null | undefined): string {
     return `${minutes}${minuteUnit} ${seconds}${secondUnit}`;
 }
 
-/** 毫秒耗时：850ms / 3.2s */
+/** Millisecond duration: `850ms` / `3.2s`. */
 export function formatDuration(ms: number | null | undefined): string {
     if (ms === null || ms === undefined) {
         return '—';
@@ -214,7 +187,10 @@ export function formatDuration(ms: number | null | undefined): string {
     return `${(ms / 1000).toFixed(1)}s`;
 }
 
-/** 将累计活跃时长拆成数字与单位，便于卡片弱化单位、突出数值。 */
+/**
+ * Active duration split into number and unit pairs, so a card can dim the unit
+ * and let the value carry the line.
+ */
 export function formatActiveDuration(
     ms: number | null | undefined
 ): Array<{ value: string; unit: string }> {
@@ -242,7 +218,7 @@ export function formatActiveDuration(
     return [{ value: formatInt(seconds), unit: t('settings.usage.duration.second') }];
 }
 
-/** 解码速度 tok/s，样本不足返回 null */
+/** Decode speed in tok/s; null when there is no usable sample. */
 export function formatSpeed(tokensPerSecond: number | null): string | null {
     if (tokensPerSecond === null || !Number.isFinite(tokensPerSecond) || tokensPerSecond <= 0) {
         return null;
@@ -250,7 +226,7 @@ export function formatSpeed(tokensPerSecond: number | null): string | null {
     return `${tokensPerSecond.toFixed(1)} tok/s`;
 }
 
-/** 数据库时间戳（UTC）转本地时间显示 */
+/** Database timestamp (UTC) rendered in local time. */
 export function formatDbTime(value: string): string {
     const normalized = value.includes('T') ? value : value.replace(' ', 'T');
     const date = new Date(`${normalized}Z`);
@@ -266,7 +242,7 @@ export function formatDbTime(value: string): string {
     }).format(date);
 }
 
-/** 热力图的日期标签（YYYY-MM-DD → M/D） */
+/** Heatmap day label: `YYYY-MM-DD` to `M/D`. */
 export function formatDayLabel(day: string): string {
     const [, month, date] = day.split('-');
     return `${Number(month)}/${Number(date)}`;

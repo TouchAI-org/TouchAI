@@ -2,14 +2,16 @@
 
 <script setup lang="ts">
     /**
-     * 堆叠柱状图。
+     * Stacked bar chart.
      *
-     * 移植自 uiarc 的 bar-chart，并扩展成堆叠（「分布」需要看构成）：
-     * - 柱顶圆角只给最上面一段，基线一侧方角，整根柱读起来是一个整体
-     * - 最新的柱固定在右侧，区间变长时向左「拉远」
-     * - 虚线是每根柱的合计平均值，随区间变化平滑移动
-     * - 悬停整列高亮并给出明细，键盘左右键同样可用
-     * - 首帧从基线长出来，逐根错开
+     * Ported from uiarc's bar-chart and extended to stacking, because a
+     * distribution needs the composition of each column:
+     * - Only the top segment gets rounded corners; the baseline side stays
+     *   square so a column reads as one bar rather than stacked blocks.
+     * - The newest bar stays pinned right; a longer range zooms out to the left.
+     * - The dashed line is the mean column total and follows the range.
+     * - Hovering highlights the whole column with a breakdown; arrow keys work.
+     * - Bars grow from the baseline on the first frame, staggered left to right.
      */
     import { computed, onMounted, ref } from 'vue';
 
@@ -32,13 +34,13 @@
         data: Datum[];
         series: Series[];
         label: string;
-        /** 绘图区高度 */
+        /** Plot height. */
         height?: number;
         formatValue?: (value: number) => string;
         formatTick?: (value: number) => string;
-        /** 顶部序列开关 */
+        /** Series toggles above the plot. */
         legend?: boolean;
-        /** 合计平均值虚线 */
+        /** Dashed mean line. */
         showAverage?: boolean;
         emptyLabel?: string;
     }
@@ -69,7 +71,14 @@
 
     const hidden = ref<string[]>([]);
     const visible = computed(() => props.series.filter((item) => !hidden.value.includes(item.key)));
-    const showLegend = computed(() => props.legend ?? props.series.length > 1);
+    /**
+     * The legend always renders, even for a single series.
+     *
+     * With one series it is not a toggle but a caption telling the reader what
+     * the bars represent. It is centred because the legend belongs to the plot;
+     * left-aligning it would compete with the y axis for the visual start.
+     */
+    const showLegend = computed(() => props.legend ?? true);
 
     function toggle(key: string): void {
         hidden.value = hidden.value.includes(key)
@@ -77,9 +86,9 @@
             : [...hidden.value, key];
     }
 
-    // ===== 布局 =====
+    // ===== Layout =====
 
-    /** 左侧留给刻度，底部留给轴标签 */
+    /** Space for ticks on the left and axis labels below. */
     const PAD = { top: 12, right: 4, bottom: 20, left: 0 };
     const VIEW_WIDTH = 760;
     const GAP = 1.5;
@@ -87,7 +96,7 @@
 
     const plotHeight = computed(() => props.height - PAD.top - PAD.bottom);
 
-    /** 每根柱的合计，用于定纵轴与平均值 */
+    /** Column totals, used to size the axis and the mean line. */
     const totals = computed(() =>
         props.data.map((item) =>
             visible.value.reduce((sum, line) => sum + (item.values[line.key] ?? 0), 0)
@@ -103,7 +112,7 @@
         return totals.value.reduce((sum, value) => sum + value, 0) / totals.value.length;
     });
 
-    /** 柱宽：按列数均分，但不超过上限，避免两三天时柱子变成色块 */
+    /** Bar width: split by column count, capped so two days do not become blocks. */
     const slot = computed(() => VIEW_WIDTH / Math.max(1, props.data.length));
     const barWidth = computed(() => Math.min(MAX_BAR, slot.value * 0.62));
 
@@ -112,10 +121,10 @@
     }
 
     /**
-     * 每根柱的分段路径。
+     * Segment paths for every column.
      *
-     * `progress` 是生长进度（0–1），首帧动画与区间切换都靠它，
-     * 这样不必给每根柱各跑一个动画。
+     * Only the top segment is rounded; the rest stay square so the column reads
+     * as one bar rather than stacked blocks.
      */
     const columns = computed(() =>
         props.data.map((item, index) => {
@@ -129,7 +138,7 @@
                     if (value <= 0) return null;
                     const bottom = cursor;
                     cursor += value;
-                    // 段高减掉缝，让堆叠关系看得出来
+                    // Subtract the gap so the stacking is visible.
                     const height = Math.max(0, (value / max.value) * plotHeight.value - GAP);
                     return {
                         key: `${item.key}-${line.key}`,
@@ -142,7 +151,7 @@
                 })
                 .filter((segment): segment is NonNullable<typeof segment> => segment !== null);
 
-            // 只有最上面那段带圆角，其余是方角，整根柱读起来是一个整体
+            // Only the top segment is rounded; the rest stay square.
             const topIndex = segments.length - 1;
             const paths = segments.map((segment, order) =>
                 columnPath(x, barWidth.value, segment.top, segment.height, order === topIndex)
@@ -152,24 +161,25 @@
         })
     );
 
-    // ===== 生长动画 =====
+    // ===== Growth animation =====
 
-    /** 0 → 1：整体从基线长出来 */
+    /** 0 to 1: the whole plot grows from the baseline. */
     const grown = ref(false);
 
     onMounted(() => {
-        // 等一帧再打开，避免首帧就带着过渡从 0 开始
+        // Wait a frame before enabling the transition, so the first paint does
+        // not animate from 0.
         requestAnimationFrame(() => {
             grown.value = true;
         });
     });
 
-    /** 每根柱的入场延迟：从左到右错开，最多 240ms */
+    /** Per-bar entry delay: staggered left to right, capped at 240ms. */
     function delayOf(index: number): string {
         return `${Math.min(index * 14, 240)}ms`;
     }
 
-    // ===== 交互 =====
+    // ===== Interaction =====
 
     const activeIndex = ref<number | null>(null);
     const plotRef = ref<HTMLElement | null>(null);
@@ -209,11 +219,11 @@
         activeIndex.value === null ? null : (props.data[activeIndex.value] ?? null)
     );
 
-    /** 标题读数：悬停时给当列合计，静止时给平均值 */
+    /** Headline value: the hovered column total, or the mean when idle. */
     const tooltipStyle = computed(() => {
         if (activeIndex.value === null || props.data.length === 0) return {};
         const ratio = (activeIndex.value + 0.5) / props.data.length;
-        // 靠右时改为向左展开，避免贴边被裁掉
+        // Flip to the left near the right edge so the tooltip is not clipped.
         return ratio > 0.62
             ? { right: `${(1 - ratio) * 100}%`, marginRight: '8px' }
             : { left: `${ratio * 100}%`, marginLeft: '8px' };
@@ -230,7 +240,10 @@
 
 <template>
     <figure class="m-0 min-w-0">
-        <div v-if="showLegend" class="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        <div
+            v-if="showLegend"
+            class="mb-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5"
+        >
             <button
                 v-for="(line, index) in series"
                 :key="line.key"

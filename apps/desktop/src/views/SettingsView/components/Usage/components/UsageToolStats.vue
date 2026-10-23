@@ -11,17 +11,17 @@
 
     interface Props {
         stats: ToolUsageSummary;
-        /** 数据未到时在组件内部画骨架，不再由外部统一拼接 */
+        /** The component draws its own skeleton while data is missing. */
         loading?: boolean;
     }
 
     const props = defineProps<Props>();
     defineOptions({ name: 'UsageToolStats' });
 
-    /** 只列前若干名，其余折进「其他」，避免长列表淹没页面 */
+    /** List the top few tools; the rest fold into "other" so the page stays readable. */
     const MAX_SEGMENTS = 5;
 
-    /** 与趋势图、构成环共用同一套色板 */
+    /** Shared palette with the trend chart and the composition rings. */
     const SERIES = [
         'rgb(63 63 70)',
         'rgb(14 165 233)',
@@ -31,7 +31,7 @@
     ];
     const OTHER_COLOR = 'rgb(212 212 212)';
 
-    /** 工具名去掉前缀后更易读；前缀本身保留在 title 里 */
+    /** Strip the prefix for readability; the full name stays in the title. */
     function displayName(name: string): string {
         if (name.startsWith('builtin__')) return name.slice('builtin__'.length);
         const mcp = name.match(/^mcp__([^_]+(?:_[^_]+)*)__(.+)$/);
@@ -40,10 +40,11 @@
     }
 
     /**
-     * 分组在组件里做一次，两张环图共用同一批 key。
+     * Group once here so both rings share the same keys.
      *
-     * 如果各自按占比分组，右侧「耗时」的第一名可能和左侧「次数」不同，
-     * 两张图的图例就会对不上，读者无法横向比较。
+     * If each ring grouped by its own share, the top tool by duration could
+     * differ from the top tool by calls and the two legends would not line up
+     * for comparison.
      */
     const ranked = computed(() =>
         [...props.stats.byTool].sort((left, right) => right.count - left.count)
@@ -53,7 +54,7 @@
     const hidden = computed(() => ranked.value.slice(MAX_SEGMENTS));
     const hasOther = computed(() => hidden.value.length > 0);
 
-    /** 每个工具一个固定颜色，两张环图一致 */
+    /** One fixed colour per tool, identical across both rings. */
     const colorOf = computed(() => {
         const map = new Map<string, string>();
         shown.value.forEach((tool, index) => {
@@ -63,12 +64,12 @@
         return map;
     });
 
-    /** 单个工具的总耗时：平均耗时 × 调用次数 */
+    /** Total time for one tool: mean duration x call count. */
     function totalMsOf(mean: number | null, count: number): number {
         return mean === null ? 0 : mean * count;
     }
 
-    /** 环图数据：按调用次数 */
+    /** Ring data by call count. */
     const callData = computed(() => {
         const slices = shown.value.map((tool) => ({
             key: tool.name,
@@ -87,7 +88,7 @@
         return slices;
     });
 
-    /** 环图数据：按工具耗时汇总 */
+    /** Ring data by total tool time. */
     const timeData = computed(() => {
         const slices = shown.value.map((tool) => ({
             key: tool.name,
@@ -114,9 +115,6 @@
     <section class="space-y-3" data-testid="settings-usage-tools">
         <div>
             <h2 class="settings-section-title">{{ t('settings.usage.tools.title') }}</h2>
-            <p class="settings-section-description">
-                {{ t('settings.usage.tools.description') }}
-            </p>
         </div>
 
         <div
@@ -215,8 +213,9 @@
             <!--
                 两张环图并排，与上方 Token / 耗时构成同一套版式：
                 环图在左、图例在右，颜色按工具固定，左右两侧可以横向对照。
+                两张卡内部已经铺满内容，间距要比普通栅格大一些才不会读成一块。
             -->
-            <div class="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
                 <section class="space-y-3">
                     <h3 class="settings-section-title">
                         {{ t('settings.usage.tools.callsTitle') }}

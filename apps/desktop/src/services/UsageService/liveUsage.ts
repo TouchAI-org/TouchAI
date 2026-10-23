@@ -8,21 +8,24 @@ import {
     type UsageThroughputSample,
 } from '@services/EventService';
 
-/** 两次推送之间的最短间隔；太密会让 UI 与 IPC 白跑 */
-const EMIT_INTERVAL_MS = 300;
+/** Minimum gap between pushes; denser only burns UI and IPC time. */
+const EMIT_INTERVAL_MS = 200;
 
-/** 滚动采样上限，与实时曲线的横轴容量一致 */
+/** Rolling sample cap, matching the live curve's x-axis capacity. */
 const MAX_SAMPLES = 60;
 
-/** 速度按「最近一段时间」算，否则初期会被 TTFT 拖低、后期被历史摊平 */
+/**
+ * Speed uses a recent window; otherwise early samples are dragged down by TTFT
+ * and later ones flattened by the whole history.
+ */
 const SPEED_WINDOW_MS = 5000;
 
 /**
- * CJK 字符占比估算 token。
+ * Estimate tokens from a character mix.
  *
- * 与 `utils/promptBreakdown` 同一套系数，但那里按整段文本重算，
- * 流式场景每来一个片段就重算整段是 O(n²)。这里按增量累计两种字符数，
- * 复杂度是 O(1)。
+ * Same coefficients as `utils/promptBreakdown`, but that helper rescans the
+ * whole text and re-running it per streamed chunk is O(n^2). Accumulating two
+ * character counts incrementally keeps this O(1).
  */
 const CJK_TOKENS_PER_CHAR = 1 / 1.5;
 const OTHER_TOKENS_PER_CHAR = 1 / 4;
@@ -39,26 +42,28 @@ export interface LiveUsageTrackerOptions {
     taskId: string;
     sessionId: number | null;
     modelName: string;
-    /** 无定价时为 null，此时不展示成本 */
+    /** Null when the model has no pricing; cost is then hidden. */
     estimatedInputCostPerMillion?: number | null;
     estimatedOutputCostPerMillion?: number | null;
 }
 
 /**
- * 把流式片段折算成实时用量并节流推送。
+ * Converts streamed chunks into live usage and throttles the pushes.
  *
- * 供应商只在调用结束时返回真实 token 数，所以流式期间的 token 与成本
- * 都是按已流入字符估算的。这里不做假精度处理：结束时会用实测值再推一次，
- * 并把 `estimated` 置为 false，让 UI 能区分两段语义。
+ * Providers report true token counts only when a call ends, so tokens and cost
+ * during streaming are estimated from the characters received. No fake
+ * precision is applied: the finish path pushes the measured values once with
+ * `estimated` set to false so the UI can tell the two apart.
  */
 export class LiveUsageTracker {
     private readonly startedAt = Date.now();
     private readonly samples: UsageThroughputSample[] = [];
     /**
-     * 累计 token 的真实计数器快照。
+     * Snapshots of the real cumulative counter.
      *
-     * 早期实现用「上次速度 × 间隔」反推 token 数，误差会随着每次推送累积，
-     * 长对话里速度会越算越偏。这里直接记录当时的累计值，差值就是真实增量。
+     * Deriving tokens from "previous speed x interval" accumulates error on
+     * every push and drifts badly over a long conversation. Recording the
+     * counter itself makes each delta exact.
      */
     private readonly tokenMarks: Array<{ atMs: number; tokens: number }> = [];
 
@@ -66,13 +71,38 @@ export class LiveUsageTracker {
     private otherChars = 0;
     private firstContentAtMs: number | null = null;
     private lastEmitAtMs = 0;
-    /** 首个片段立即推送，否则面板会晚一拍才点亮 */
+    /** The first chunk pushes immediately, otherwise the panel lights up late. */
     private hasEmitted = false;
     private finished = false;
+    /** Heartbeat so the rate decays during tool calls, when no chunk arrives. */
+    private heartbeat: ReturnType<typeof setInterval> | null = null;
 
     constructor(private readonly options: LiveUsageTrackerOptions) {}
 
-    /** 输出 token 估算值 */
+    /**
+     * Start the heartbeat.
+     *
+     * The curve cannot update only on chunks: tool calls and first-token waits
+     * produce none, so the plot would stay flat until the tool returns and then
+     * jump. Recomputing the sliding window on a timer lets the rate fall to 0
+     * while idle and rise again when output resumes.
+     */
+    start(): void {
+        if (this.heartbeat) return;
+        this.heartbeat = setInterval(() => {
+            if (this.finished) return;
+            this.pushSample(Date.now() - this.startedAt);
+            void eventService.emit(AppEvent.SESSION_TASK_USAGE_PROGRESS, this.snapshot());
+        }, EMIT_INTERVAL_MS);
+    }
+
+    private stopHeartbeat(): void {
+        if (!this.heartbeat) return;
+        clearInterval(this.heartbeat);
+        this.heartbeat = null;
+    }
+
+    /** Estimated output tokens. */
     private get estimatedTokens(): number {
         return Math.round(
             this.cjkChars * CJK_TOKENS_PER_CHAR + this.otherChars * OTHER_TOKENS_PER_CHAR
@@ -80,17 +110,30 @@ export class LiveUsageTracker {
     }
 
     /**
-     * 当前速度。
+     * Current speed.
      *
-     * 用「窗口内新增 token / 窗口时长」而不是「总量 / 总时长」：
-     * 前者反映此刻的吞吐，后者会把首字延迟与工具停顿永久摊进平均值。
+     * Uses new tokens inside the window divided by the window length, not the
+     * total divided by total time: the latter permanently averages first-token
+     * latency and tool pauses into the number.
+     *
+     * Returns 0 when the window holds no new tokens instead of holding the
+     * previous value. A tool call really produces nothing, and the curve should
+     * sink to the baseline; holding the value makes that stretch look frozen
+     * until the tool returns and it jumps.
      */
     private currentSpeed(nowMs: number): number | null {
+        /*
+         * Return 0 rather than null before any output exists.
+         *
+         * Null makes the heartbeat skip the push, so first-token waits and
+         * early tool calls show no data at all and look stalled. Zero is the
+         * honest value: nothing has been produced yet.
+         */
         if (this.firstContentAtMs === null) {
-            return null;
+            return 0;
         }
 
-        // 找到窗口起点之前的最后一个计数快照，用它的真实累计值作基准
+        // Last counter snapshot at or before the window start is the baseline.
         const cutoff = nowMs - SPEED_WINDOW_MS;
         let baseline: { atMs: number; tokens: number } | null = null;
         for (const mark of this.tokenMarks) {
@@ -110,14 +153,11 @@ export class LiveUsageTracker {
         }
 
         const deltaTokens = this.estimatedTokens - baseline.tokens;
-        if (deltaTokens <= 0) {
-            return this.samples[this.samples.length - 1]?.tokensPerSecond ?? null;
-        }
-
-        return deltaTokens / windowSeconds;
+        // A negative delta should not happen; 0 means the window produced nothing.
+        return Math.max(0, deltaTokens) / windowSeconds;
     }
 
-    /** 记录当前累计 token；只保留窗口附近的两倍长度，避免数组无限增长。 */
+    /** Record the counter, keeping only twice the window so the array stays bounded. */
     private markTokens(nowMs: number): void {
         this.tokenMarks.push({ atMs: nowMs, tokens: this.estimatedTokens });
         const cutoff = nowMs - SPEED_WINDOW_MS * 2;
@@ -127,10 +167,11 @@ export class LiveUsageTracker {
     }
 
     /**
-     * 每个片段调用一次；内部按字符增量累计，不做整段重算。
+     * Called once per chunk; accumulates character counts instead of rescanning.
      *
-     * 曲线由消费方按固定节拍对「聚合速度」采样，这里只推当前瞬时值，
-     * 避免每个任务各自维护一份采样序列再在 UI 里对齐。
+     * The consumer samples the aggregate speed on a fixed tick, so this only
+     * pushes the current instantaneous value rather than keeping a per-task
+     * sample series that the UI would have to align.
      */
     consume(chunk: AiStreamChunk): void {
         if (this.finished) {
@@ -149,7 +190,7 @@ export class LiveUsageTracker {
             added = true;
         }
 
-        // 推理内容同样计入吞吐：用户感知的「在动」包含思考阶段
+        // Reasoning counts toward throughput: the user perceives thinking as motion.
         if (chunk.reasoning) {
             for (const char of chunk.reasoning) {
                 if (isCjk(char.codePointAt(0) ?? 0)) {
@@ -179,11 +220,12 @@ export class LiveUsageTracker {
     }
 
     /**
-     * 本轮结束时用实测值收尾。
+     * Close the turn with measured values.
      *
-     * token 换成供应商返回的真实数字；成本仍为估算（它要等落库按当下定价算完），
-     * `costMicros` 传 null 表示沿用流式期间最后算出的估算值，
-     * 而不是把这一格清空。
+     * Tokens become the provider's real count. Cost stays an estimate because
+     * it is only finalised when the turn is persisted against current pricing;
+     * passing null keeps the last streamed estimate instead of blanking the
+     * field.
      */
     finish(actual: { outputTokens: number; costMicros: number | null }): void {
         if (this.finished) {
@@ -191,6 +233,7 @@ export class LiveUsageTracker {
         }
 
         this.finished = true;
+        this.stopHeartbeat();
         const snapshot = this.snapshot();
         void eventService.emit(AppEvent.SESSION_TASK_USAGE_PROGRESS, {
             ...snapshot,
@@ -201,9 +244,10 @@ export class LiveUsageTracker {
     }
 
     /**
-     * 停止推送但不改写数字。
+     * Stop pushing without rewriting the numbers.
      *
-     * 失败或取消时拿不到供应商的实测用量，保留估算值比报 0 诚实。
+     * A failure or cancellation yields no measured usage from the provider, so
+     * keeping the estimate is more honest than reporting zero.
      */
     stop(): void {
         if (this.finished) {
@@ -211,6 +255,7 @@ export class LiveUsageTracker {
         }
 
         this.finished = true;
+        this.stopHeartbeat();
         void eventService.emit(AppEvent.SESSION_TASK_USAGE_PROGRESS, {
             ...this.snapshot(),
             streaming: false,
@@ -219,14 +264,15 @@ export class LiveUsageTracker {
 
     private pushSample(nowMs: number): void {
         const speed = this.currentSpeed(nowMs);
-        if (speed === null || !Number.isFinite(speed) || speed <= 0) {
-            // 首个片段时窗口长度为零，算不出速度；此时不造假样本
+        if (speed === null || !Number.isFinite(speed)) {
+            // The window has zero length on the first chunk; do not invent a sample.
             this.lastEmitAtMs = nowMs;
             return;
         }
 
         this.lastEmitAtMs = nowMs;
-        // 同时记下累计 token：消费方靠它把实时段接在历史曲线后面
+        // Record the cumulative count too: the consumer splices the live tail
+        // onto the history curve with it.
         this.samples.push({
             atMs: nowMs,
             tokensPerSecond: speed,
@@ -249,7 +295,7 @@ export class LiveUsageTracker {
             elapsedMs: Date.now() - this.startedAt,
             ttftMs: this.firstContentAtMs,
             estimatedCostMicros: this.estimateCost(outputTokens),
-            // 调用方会在收尾时改成 false
+            // The caller flips this to false when closing out.
             streaming: !this.finished,
         };
     }

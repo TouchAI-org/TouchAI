@@ -14,6 +14,7 @@ import {
     formatPercent,
     formatSpeed,
     formatTokensCompact,
+    tokensParts,
 } from '../../src/views/SettingsView/components/Usage/utils/format';
 
 describe('formatCost', () => {
@@ -160,5 +161,41 @@ describe('formatDayLabel', () => {
     it('drops the year and leading zeros', () => {
         expect(formatDayLabel('2026-05-01')).toBe('5/1');
         expect(formatDayLabel('2026-12-25')).toBe('12/25');
+    });
+});
+
+describe('formatTokensCompact', () => {
+    it('uses thousands, ten-thousands, and hundred-millions in Chinese', () => {
+        setLocale('zh-CN');
+
+        expect(formatTokensCompact(940)).toBe('940');
+        expect(formatTokensCompact(9400)).toBe('9.4千');
+        expect(formatTokensCompact(94_000)).toBe('9.4万');
+        expect(formatTokensCompact(940_000_000)).toBe('9.4亿');
+    });
+
+    it('steps at a thousand so column widths stay comparable', () => {
+        setLocale('zh-CN');
+
+        expect(formatTokensCompact(999)).toBe('999');
+        expect(formatTokensCompact(1000)).toBe('1千');
+    });
+
+    it('uses K, M, and B in English', () => {
+        setLocale('en-US');
+
+        expect(formatTokensCompact(9400)).toBe('9.4K');
+        expect(formatTokensCompact(9_400_000)).toBe('9.4M');
+        expect(formatTokensCompact(9_400_000_000)).toBe('9.4B');
+    });
+});
+
+describe('tokensParts', () => {
+    it('splits the number from the unit so a card can dim it', () => {
+        setLocale('zh-CN');
+
+        expect(tokensParts(9400)).toEqual({ value: '9.4', unit: '千' });
+        expect(tokensParts(94_000)).toEqual({ value: '9.4', unit: '万' });
+        expect(tokensParts(50)).toEqual({ value: '50', unit: '' });
     });
 });

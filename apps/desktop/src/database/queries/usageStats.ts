@@ -15,15 +15,15 @@ import {
 } from '../schema';
 
 // ============================================================================
-// 类型
+// Types
 // ============================================================================
 
 export type UsageRangePreset = 'today' | '24h' | '7d' | '30d' | 'all' | 'custom';
 
 export interface UsageFilter {
-    /** ISO 日期时间，含 */
+    /** ISO datetime string. */
     from: string;
-    /** ISO 日期时间，含 */
+    /** ISO datetime string. */
     to: string;
     modelIds?: number[];
     providerIds?: number[];
@@ -34,15 +34,15 @@ export interface UsageFilter {
 }
 
 export interface UsageSummary {
-    /** 回合数 */
+    /** Turn count. */
     requestCount: number;
-    /** 产生过用量的会话数 */
+    /** Sessions that produced usage. */
     sessionCount: number;
-    /** 活跃天数（有任一回合的日历天） */
+    /** Active days: calendar days with at least one turn. */
     activeDayCount: number;
-    /** 所有回合耗时之和（毫秒）；不是首末时间差 */
+    /** Sum of turn durations in ms; not the first-to-last span. */
     totalDurationMs: number;
-    /** 筛选后第一条请求的 UTC 时间，供「全部」范围计算平均 RPM */
+    /** UTC time of the first matching request, used for mean RPM over all time. */
     firstRequestAt: string | null;
     successCount: number;
     totalCostMicros: number;
@@ -52,20 +52,20 @@ export interface UsageSummary {
     cacheReadTokens: number;
     cacheWriteTokens: number;
     reasoningTokens: number;
-    /** 新鲜输入 + 输出 + 缓存读 + 缓存写 */
+    /** Fresh input + output + cache read + cache write. */
     realTotalTokens: number;
     /** cacheRead / (input + cacheWrite + cacheRead) */
     cacheHitRate: number;
     successRate: number;
     meanTtftMs: number | null;
-    /** 首字（首个正文，不含推理）平均耗时；无样本时为 null */
+    /** Mean first-text latency (first content, excluding reasoning); null without samples. */
     meanFirstTextMs: number | null;
     meanDurationMs: number | null;
-    /** 平均解码速度（tok/s），样本不足时为 null */
+    /** Mean decode speed in tok/s; null without enough samples. */
     decodeSpeed: number | null;
 }
 
-/** 与汇总同一数据库快照内的任务基线，用于扣除已经落库的实时用量。 */
+/** Task baseline from the same snapshot as the summary, used to subtract persisted live usage. */
 export interface UsageLiveTurn {
     taskId: string;
     createdAt: string;
@@ -76,24 +76,73 @@ export interface UsageLiveTurn {
 }
 
 /**
- * 趋势分桶粒度。
+ * Trend bucket granularity.
  *
- * 短区间必须细到分钟，否则凌晨看「今天」只有两三个小时桶，曲线就是一个尖峰；
- * 长区间又必须粗到天，否则点多到画不出来。粒度跟着区间跨度走。
+ * A short range needs minute buckets, otherwise looking at "today" just after
+ * midnight yields two or three hour buckets and one spike; a long range needs
+ *
+ * day buckets, otherwise there are too many points to draw. The width is
+ * derived from the span and snapped to whole-minute steps (1/2/5/10/15/30 min,
+ * 1/2/3/6/12 h, 1 day): an hour shows 2-minute buckets, six hours 10-minute,
+ * a week 6-hour, a month 1-day, keeping the point count in a readable band.
  */
 export type UsageBucket = 'minute' | 'hour' | 'day';
 
-/** 分钟桶的宽度 */
-export const USAGE_MINUTE_BUCKET_MS = 5 * 60_000;
+/** Milliseconds per hour, used when deriving the bucket width. */
+const HOUR_MS = 3_600_000;
+const DAY_MS = 86_400_000;
 
-/** 按跨度选粒度：≤6 小时用 5 分钟，≤48 小时用小时，其余用天 */
+/** Target point count; this density reads well on the curve. */
+export const USAGE_TARGET_BUCKETS = 48;
+
+/** Allowed bucket widths in ms. */
+const BUCKET_STEPS = [
+    60_000,
+    2 * 60_000,
+    5 * 60_000,
+    10 * 60_000,
+    15 * 60_000,
+    30 * 60_000,
+    HOUR_MS,
+    2 * HOUR_MS,
+    3 * HOUR_MS,
+    6 * HOUR_MS,
+    12 * HOUR_MS,
+    DAY_MS,
+];
+
+/**
+ * Pick the bucket width for a range span.
+ *
+ * Snaps to the first step at or above span / target, so every span lands on a
+ * sensible density instead of jumping from 10 minutes to an hour at a boundary.
+ */
+export function resolveUsageBucketMs(spanMs: number): number {
+    if (!(spanMs > 0)) return 10 * 60_000;
+
+    const ideal = spanMs / USAGE_TARGET_BUCKETS;
+    let best = BUCKET_STEPS[0]!;
+    for (const step of BUCKET_STEPS) {
+        // First step at or above the ideal; beyond the largest step it caps there.
+        best = step;
+        if (step >= ideal) break;
+    }
+    return best;
+}
+
+/** Bucket width to granularity name, so the UI can pick alignment and labels. */
+export function bucketKindOf(bucketMs: number): UsageBucket {
+    if (bucketMs >= DAY_MS) return 'day';
+    if (bucketMs >= HOUR_MS) return 'hour';
+    return 'minute';
+}
+
+/** Granularity for a span; kept for older call sites. */
 export function resolveUsageBucket(spanMs: number): UsageBucket {
-    if (spanMs <= 6 * 60 * 60_000) return 'minute';
-    if (spanMs <= 48 * 60 * 60_000) return 'hour';
-    return 'day';
+    return bucketKindOf(resolveUsageBucketMs(spanMs));
 }
 export interface UsageTrendSegment {
-    /** 分组 id；分组已不存在时为 null */
+    /** Group id; null when the group no longer exists. */
     groupId: number | null;
     name: string;
     requests: number;
@@ -106,35 +155,35 @@ export interface UsageTrendPoint {
     requests: number;
     tokens: number;
     costMicros: number;
-    /** 堆叠柱的拆分；按总量降序，UI 取前 N 段并合并其余 */
+    /** Stack segments sorted by total, so the UI can take the top N and merge the rest. */
     segments: UsageTrendSegment[];
 }
 
-/** 排行项：模型或会话 */
+/** A ranking row: a model or a session. */
 export interface UsageRankItem {
     id: number;
-    /** 主标题：模型名或会话标题 */
+    /** Primary label: model name or session title. */
     name: string;
-    /** 副标题：会话条目用（模型名等）；模型条目为空 */
+    /** Secondary line for session rows (model name); empty for model rows. */
     subtitle: string | null;
-    /** 最后活跃时间（会话条目用） */
+    /** Last active time, for session rows. */
     lastAt: string | null;
     requests: number;
     tokens: number;
     costMicros: number;
     unpricedCount: number;
-    /** 会话时长（毫秒）；模型条目为 null */
+    /** Session duration in ms; null for model rows. */
     durationMs: number | null;
 }
 
-/** 排行维度：与界面的三档切换对应 */
+/** Ranking metric, matching the three-way switch in the UI. */
 export type UsageRankMetric = 'tokens' | 'cost' | 'duration';
 
 /**
- * 构成环图的一段。
+ * One slice of a composition ring.
  *
- * `estimated` 为 true 时数值由字符数折算，UI 必须标 `≈`；
- * 输出 token 与耗时来自供应商或本地计时，是精确值。
+ * When `estimated` is true the value came from character counts and the UI
+ * must mark it with ≈; output tokens and timings are measured and exact.
  */
 export interface UsageCompositionSegment {
     key: string;
@@ -142,29 +191,29 @@ export interface UsageCompositionSegment {
     estimated: boolean;
 }
 
-/** 用量构成：token 侧看「上下文里有什么」，耗时侧看「时间花在哪」 */
+/** Composition: tokens show what the context held, timings show where time went. */
 export interface UsageComposition {
     tokens: { total: number; segments: UsageCompositionSegment[] };
     timing: { totalMs: number; segments: UsageCompositionSegment[] };
-    /** 缓存读取占全部计费输入的比例；只作图注，不进入内容构成 */
+    /** Cache read as a share of billed input; a footnote, not a slice. */
     cacheReadShare: number;
 }
 
-/** 工具调用统计（来自 `tool_call` 片段） */
+/** Tool call stats derived from `tool_call` parts. */
 export interface ToolUsageStat {
-    /** 工具调用名，如 `builtin__read` / `mcp__server__tool` */
+    /** Tool name, e.g. `builtin__read` or `mcp__server__tool`. */
     name: string;
     kind: 'builtin' | 'mcp';
     count: number;
     errorCount: number;
-    /** 平均耗时；无样本时为 null */
+    /** Mean duration; null without samples. */
     meanDurationMs: number | null;
 }
 
 export interface ToolUsageSummary {
     totalCount: number;
     errorCount: number;
-    /** 用过多少种工具 */
+    /** Distinct tools used. */
     distinctTools: number;
     meanDurationMs: number | null;
     byTool: ToolUsageStat[];
@@ -186,15 +235,15 @@ export interface UsageGroup {
 }
 
 /**
- * 热力图的一格。
+ * One heatmap cell.
  *
- * 按「日 + 小时」返回，由组件决定按日还是按小时渲染：
- * 短区间用小时×日期才看得出密度，长区间用星期×周才看得出日历。
- * 如果查询层直接按日聚合，短区间就只剩一两个格子。
+ * Returned per day and hour so the component can render either: a short range
+ * needs hours against dates to show density, a long range needs weekdays
+ * against weeks to show a calendar. Aggregating by day here would leave a short range with one or two cells.
  */
 export interface UsageHeatmapDay {
     day: string;
-    /** 0–23，本地时区 */
+    /** 0-23 in local time. */
     hour: number;
     requests: number;
     tokens: number;
@@ -207,10 +256,10 @@ export interface UsageFilterOptions {
 }
 
 // ============================================================================
-// 内部：WHERE 构造
+// Internal: WHERE construction
 // ============================================================================
 
-/** 构建回合级 WHERE。所有聚合查询共用，保证口径一致。 */
+/** Turn-level WHERE shared by every aggregate so the numbers agree. */
 function buildTurnWhere(filter: UsageFilter): SQL {
     const clauses: Array<SQL | undefined> = [
         between(sessionTurns.created_at, filter.from, filter.to),
@@ -235,7 +284,7 @@ function buildTurnWhere(filter: UsageFilter): SQL {
         clauses.push(eq(sessionTurns.status, 'failed'));
     }
     if (filter.onlyRetried) {
-        // 重试过的回合：尝试数 > 1
+        // Retried turns: more than one attempt.
         clauses.push(
             sql`(SELECT count(*) FROM session_turn_attempts WHERE turn_id = ${sessionTurns.id}) > 1`
         );
@@ -259,14 +308,14 @@ function buildTurnWhere(filter: UsageFilter): SQL {
     return and(...clauses)!;
 }
 
-/** 计算缓存命中率：cacheRead / (input + cacheWrite + cacheRead) */
+/** Cache hit rate: cacheRead / (input + cacheWrite + cacheRead). */
 function computeCacheHitRate(input: number, cacheRead: number, cacheWrite: number): number {
     const denominator = input + cacheWrite + cacheRead;
     return denominator > 0 ? cacheRead / denominator : 0;
 }
 
 // ============================================================================
-// 汇总
+// Summary
 // ============================================================================
 
 export const getUsageSummary = async (
@@ -317,8 +366,8 @@ export const getUsageSummary = async (
         requestCount,
         sessionCount: row?.sessionCount ?? 0,
         activeDayCount: row?.activeDayCount ?? 0,
-        // 活跃时长取的是「回合耗时之和」，不是首末时间差：
-        // 后者会把中间闲置的几小时也算进去，无法反映真实对话强度。
+        // Active duration is the sum of turn durations, not the first-to-last span:
+        // the latter would count idle hours in between and hide real conversation intensity.
         totalDurationMs: row?.sumDuration ?? 0,
         firstRequestAt: row?.firstRequestAt ?? null,
         successCount,
@@ -335,8 +384,8 @@ export const getUsageSummary = async (
         meanTtftMs,
         meanFirstTextMs,
         meanDurationMs,
-        // 粗算解码速度：输出 token / 总耗时。精确值需要 flowMs，
-        // 但回合级没有该字段；UI 上标注为「≈」。
+        // Rough decode speed: output tokens / total duration. An exact value needs
+        // flowMs, which turns do not carry; the UI marks it with ≈.
         decodeSpeed:
             meanDurationMs !== null && outputTokens > 0
                 ? outputTokens / requestCount / (meanDurationMs / 1000)
@@ -344,7 +393,7 @@ export const getUsageSummary = async (
     };
 };
 
-/** 汇总与任务基线必须来自同一个读快照，防止完成写入夹在两次读取之间。 */
+/** Summary and task baseline must share one read snapshot so a completion write cannot slip between them. */
 export const getUsageDashboardSnapshot = async (
     filter: UsageFilter,
     taskIds: string[],
@@ -352,7 +401,7 @@ export const getUsageDashboardSnapshot = async (
 ): Promise<{
     summary: UsageSummary;
     liveTurns: UsageLiveTurn[];
-    trend: { bucket: UsageBucket; points: UsageTrendPoint[] };
+    trend: { bucket: UsageBucket; bucketMs: number; points: UsageTrendPoint[] };
 }> =>
     db.transaction(
         async (tx) => {
@@ -378,31 +427,37 @@ export const getUsageDashboardSnapshot = async (
     );
 
 // ============================================================================
-// 趋势
+// Trend
 // ============================================================================
 
 /**
- * 趋势：按时间桶汇总，并在桶内按模型（或供应商）拆成堆叠段。
+ * Trend: aggregate per time bucket and split each bucket into stack segments by
  *
- * 一次查询拿到「桶 × 分组」的组合，再在内存里折叠成桶。
- * 分组维度由 `dimension` 决定，与图表上的切换按钮一致。
+ * model or provider. One query returns bucket-by-group rows that are folded
+ * into buckets in memory; `dimension` matches the chart switch.
  */
 export const getUsageTrend = async (
     filter: UsageFilter,
     dimension: 'model' | 'provider' = 'model',
     database: DatabaseExecutor = db
-): Promise<{ bucket: UsageBucket; points: UsageTrendPoint[] }> => {
+): Promise<{ bucket: UsageBucket; bucketMs: number; points: UsageTrendPoint[] }> => {
     const spanMs = new Date(filter.to).getTime() - new Date(filter.from).getTime();
-    const bucket = resolveUsageBucket(spanMs);
+    const bucketMs = resolveUsageBucketMs(spanMs);
+    const bucket = bucketKindOf(bucketMs);
 
-    const keyExpr =
-        bucket === 'minute'
-            ? // 对齐到 5 分钟：分钟数向下取到 0/5/10…
-              sql<string>`strftime('%Y-%m-%d %H:', ${sessionTurns.created_at}, 'localtime')
-                  || printf('%02d', cast(strftime('%M', ${sessionTurns.created_at}, 'localtime') as integer) / 5 * 5)`
-            : bucket === 'hour'
-              ? sql<string>`strftime('%Y-%m-%d %H:00', ${sessionTurns.created_at}, 'localtime')`
-              : sql<string>`date(${sessionTurns.created_at}, 'localtime')`;
+    /*
+     * Bucket key is integer division of Unix seconds by the bucket width.
+     *
+     * Do **not** pass 'localtime' to strftime here: created_at holds UTC text
+     * and `new Date(seconds)` already converts to local time. Converting twice
+     * shifts every label by the timezone offset, putting trend keys outside the
+     * queried range so the curve renders flat at zero.
+     */
+    const bucketSeconds = Math.max(60, Math.round(bucketMs / 1000));
+    const keyExpr = sql<number>`cast(
+        cast(strftime('%s', ${sessionTurns.created_at}) as integer) / ${bucketSeconds}
+        as integer
+    )`;
 
     const groupIdExpr =
         dimension === 'model'
@@ -433,20 +488,29 @@ export const getUsageTrend = async (
         .orderBy(keyExpr)
         .all();
 
-    // 按桶折叠；每桶内的分组按 token 量降序，方便图表取前 N 段
-    const byBucket = new Map<string, UsageTrendPoint>();
+    // Fold into buckets; segments inside a bucket sort by tokens so the chart can take the top N.
+    const byBucket = new Map<number, UsageTrendPoint>();
     for (const row of rows) {
-        let point = byBucket.get(row.key);
+        const bucketIndex = Number(row.key);
+        let point = byBucket.get(bucketIndex);
         if (!point) {
-            point = { key: row.key, requests: 0, tokens: 0, costMicros: 0, segments: [] };
-            byBucket.set(row.key, point);
+            // Integer bucket index to a UTC label; the SQL side already floored it.
+            const at = new Date(bucketIndex * bucketSeconds * 1000);
+            point = {
+                key: formatBucketKey(at, bucket),
+                requests: 0,
+                tokens: 0,
+                costMicros: 0,
+                segments: [],
+            };
+            byBucket.set(bucketIndex, point);
         }
 
         point.requests += row.requests;
         point.tokens += row.tokens;
         point.costMicros += row.costMicros;
         point.segments.push({
-            // 供应商维度用 0 代表「无」；模型维度保留真实 id
+            // Provider rows use 0 for "none"; model rows keep the real id.
             groupId: row.groupId === 0 && dimension === 'provider' ? null : row.groupId,
             name: row.groupName || '—',
             requests: row.requests,
@@ -459,17 +523,40 @@ export const getUsageTrend = async (
         point.segments.sort((left, right) => right.tokens - left.tokens);
     }
 
-    return { bucket, points: [...byBucket.values()] };
+    return { bucket, bucketMs, points: [...byBucket.values()] };
 };
 
 /**
- * 「全部时间」趋势：走日汇总表。
+ * Bucket start to label.
  *
- * 日汇总永久保留且只有几十行，而 `session_turns` 会被「清理会话轮次」
- * 或后续的保留策略清空。用归档表回答「历史上总共花了多少」才不会随清理归零。
+ * Labels are **UTC** text, the same basis as created_at. Consumers parse them
+ * with `parseUsageTime`, which appends 'Z' to a zone-less string, so this must
+ * be UTC; formatting in local time would offset every key and the curve would
+ * never line up.
+ */
+function formatBucketKey(at: Date, bucket: UsageBucket): string {
+    const day = [
+        at.getUTCFullYear(),
+        String(at.getUTCMonth() + 1).padStart(2, '0'),
+        String(at.getUTCDate()).padStart(2, '0'),
+    ].join('-');
+    if (bucket === 'day') return day;
+
+    const hour = `${day} ${String(at.getUTCHours()).padStart(2, '0')}:`;
+    if (bucket === 'hour') return `${hour}00`;
+    return `${hour}${String(at.getUTCMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * All-time trend, read from the daily rollup table.
  *
- * 只适用于没有模型/供应商筛选的场景：汇总表按名字而非 id 存储，
- * 无法参与基于 id 的筛选。
+ * Rollups are kept forever and hold only a few dozen rows, while
+ * `session_turns` is emptied by turn cleanup and by retention. Answering "how
+ * much has been spent overall" from the archive keeps it from dropping to zero
+ * after a prune.
+ *
+ * Only valid without a model or provider filter: the rollup stores names rather
+ * than ids and cannot take part in id-based filtering.
  */
 export const getUsageTrendFromArchive = async (): Promise<{
     bucket: 'day';
@@ -503,7 +590,7 @@ export const getUsageTrendFromArchive = async (): Promise<{
         point.tokens += row.tokens;
         point.costMicros += row.costMicros;
         point.segments.push({
-            // 归档表按名字存储，没有 id
+            // The archive stores names, not ids.
             groupId: null,
             name: row.groupName || '—',
             requests: row.requests,
@@ -519,7 +606,7 @@ export const getUsageTrendFromArchive = async (): Promise<{
     return { bucket: 'day', points: [...byBucket.values()] };
 };
 
-/** 筛选会影响趋势时不能使用归档表（归档表不含 id 维度） */
+/** The archive cannot serve a filtered trend; it has no id dimension. */
 export function canUseUsageArchive(filter: UsageFilter): boolean {
     return (
         !filter.modelIds?.length &&
@@ -532,7 +619,7 @@ export function canUseUsageArchive(filter: UsageFilter): boolean {
 }
 
 // ============================================================================
-// 排行
+// Rankings
 // ============================================================================
 
 function toGroup(row: {
@@ -619,10 +706,10 @@ export const getUsageByProvider = async (filter: UsageFilter): Promise<UsageGrou
 };
 
 /**
- * 模型排行：按所选指标排序。
+ * Model ranking sorted by the chosen metric.
  *
- * 与 `getUsageByModel` 的区别：那个返回完整字段供表格展示，
- * 这里只给排行需要的量，并按 `metric` 排序。
+ * Unlike `getUsageByModel`, which returns every field for the table, this
+ * returns only what a ranking row needs, ordered by `metric`.
  */
 export const getModelRanking = async (
     filter: UsageFilter,
@@ -671,10 +758,10 @@ export const getModelRanking = async (
 };
 
 /**
- * 会话排行。
+ * Session ranking.
  *
- * 时长口径是「该会话里所有回合的耗时之和」，不是首末时间差：
- * 后者会把中间不用的时间也算进去，无法反映真实对话强度。
+ * Duration is the sum of that session's turn durations, not the first-to-last
+ * span: the span counts idle time in between and hides real intensity.
  */
 export const getSessionRanking = async (
     filter: UsageFilter,
@@ -728,7 +815,7 @@ export const getSessionRanking = async (
     }));
 };
 
-/** 筛选下拉的候选列表（按请求数降序） */
+/** Filter dropdown options, ordered by request count. */
 export const getUsageFilterOptions = async (filter: UsageFilter): Promise<UsageFilterOptions> => {
     const [modelRows, providerRows] = await Promise.all([
         db
@@ -757,18 +844,19 @@ export const getUsageFilterOptions = async (filter: UsageFilter): Promise<UsageF
 };
 
 // ============================================================================
-// 用量构成（token / 耗时）
+// Composition (tokens and timings)
 // ============================================================================
 
 /**
- * 内容构成与时间构成。
+ * Content composition and time composition.
  *
- * 两边的总量口径不同，不能相加：
- * - token 侧是「上下文里到底装了什么」，按字符估算，总量≈估算值之和；
- * - 耗时侧是「活跃时长花在哪里」，以回合耗时之和为分母。
+ * The two totals use different bases and must not be added:
+ * - tokens describe what the context actually held, estimated from characters;
+ * - timings describe where active time went, over the sum of turn durations.
  *
- * 缓存读取故意**不**作为内容分类：它只是同一批内容被第二次读到，
- * 属于计费口径。把它当分类会占掉 70%+，把真实构成压成细线。
+ * Cache reads are deliberately **not** a content slice: they are the same
+ * content read again and belong to billing. As a slice they would take 70% or
+ * more and crush the real composition into hairlines.
  */
 export const getUsageComposition = async (filter: UsageFilter): Promise<UsageComposition> => {
     const where = buildTurnWhere(filter);
@@ -796,7 +884,7 @@ export const getUsageComposition = async (filter: UsageFilter): Promise<UsageCom
         .where(where)
         .get();
 
-    // 对话历史与工具结果只能从片段长度估算：供应商不返回 prompt 分片
+    // History and tool results are estimated from part lengths; providers do not return prompt slices.
     const parts = await db
         .select({
             textChars: sql<number>`coalesce(sum(case when ${messageParts.type} = 'text' then length(${messageParts.content}) else 0 end), 0)`,
@@ -807,11 +895,11 @@ export const getUsageComposition = async (filter: UsageFilter): Promise<UsageCom
         .where(between(messageParts.created_at, filter.from, filter.to))
         .get();
 
-    // 耗时拆解：都来自调用级与工具级计时
+    // Timing split, all from call-level and tool-level timers.
     const timing = await db
         .select({
             wait: sql<number>`coalesce(sum(case when ${messageParts.type} = 'llm_call' then json_extract(${messageParts.data}, '$.timing.ttftMs') else 0 end), 0)`,
-            // 首字之后到首段正文之间是思考阶段（推理模型才有）
+            // The span between first token and first content is thinking, for reasoning models only.
             think: sql<number>`coalesce(sum(case when ${messageParts.type} = 'llm_call'
                 and json_extract(${messageParts.data}, '$.timing.firstTextMs') is not null
                 and json_extract(${messageParts.data}, '$.timing.ttftMs') is not null
@@ -858,7 +946,7 @@ export const getUsageComposition = async (filter: UsageFilter): Promise<UsageCom
             ),
             estimated: true,
         },
-        // 输出是供应商返回的实测值，含推理
+        // Output is the measured value from the provider and includes reasoning.
         { key: 'output', value: turns?.outputTokens ?? 0, estimated: false },
     ];
 
@@ -867,7 +955,7 @@ export const getUsageComposition = async (filter: UsageFilter): Promise<UsageCom
     const think = timing?.think ?? 0;
     const reply = timing?.reply ?? 0;
     const tool = timing?.tool ?? 0;
-    // 工具参数构造与调用间隙只能取差额：四项之和常略超过回合耗时
+    // Argument building and gaps take the remainder; the four measured parts often exceed the turn duration.
     const other = Math.max(0, totalMs - wait - think - reply - tool);
 
     const billingInput = (turns?.inputTokens ?? 0) + (turns?.cacheReadTokens ?? 0);
@@ -892,14 +980,15 @@ export const getUsageComposition = async (filter: UsageFilter): Promise<UsageCom
 };
 
 // ============================================================================
-// 工具调用统计
+// Tool call stats
 // ============================================================================
 
 /**
- * 工具调用统计。
+ * Tool call stats.
  *
- * 数据源是 `tool_call` 片段——工具执行的唯一真相源。
- * 工具名从 `data` 里的原始字段拼出，而不是复用渲染层的展示格式。
+ * The source is `tool_call` parts, the single source of truth for tool runs.
+ * Names are rebuilt from the raw fields in `data` rather than reused from the
+ * render layer's display format.
  */
 export const getToolUsageStats = async (filter: UsageFilter): Promise<ToolUsageSummary> => {
     const nameExpr = sql<string | null>`case json_extract(${messageParts.data}, '$.toolKind')
@@ -930,7 +1019,7 @@ export const getToolUsageStats = async (filter: UsageFilter): Promise<ToolUsageS
         .groupBy(nameExpr, kindExpr, statusExpr)
         .all();
 
-    // 同一工具的不同状态要合并成一行
+    // Merge different statuses of the same tool into one row.
     const byTool = new Map<
         string,
         ToolUsageStat & { sumDuration: number; durationCount: number }
@@ -997,26 +1086,23 @@ export const getToolUsageStats = async (filter: UsageFilter): Promise<ToolUsageS
 };
 
 // ============================================================================
-// 热力图（跟随所选区间）
+// Heatmap
 // ============================================================================
 
 /**
- * 热力图。
- *
- * 跟随所选区间，而不是固定一年：选了“近 7 天”却看到一整年的格子
- * 会让人误以为筛选没生效。
+ * Heatmap cells.
  */
-/** 数据库时间戳格式（UTC），与 created_at 一致 */
+/** Database timestamp format (UTC), matching created_at. */
 function toDbTimestamp(date: Date): string {
     return date.toISOString().slice(0, 19).replace('T', ' ');
 }
 
 /**
- * 热力图按日聚合最近一年。
+ * Heatmap aggregated by day over the last year.
  *
- * 热力图固定看一年，所以不能用筛选区间：区间可能是「今天」，
- * 那样图上只剩一天有颜色，其余全是空的。筛选里的模型/供应商仍然生效，
- * 只把时间范围换成固定的一年。
+ * The heatmap always shows a full year, so it ignores the range: a "today"
+ * filter would leave one coloured cell and an empty grid. Model and provider
+ * filters still apply; only the time window is pinned to a year.
  */
 export const getUsageHeatmap = async (filter: UsageFilter): Promise<UsageHeatmapDay[]> => {
     const dayExpr = sql<string>`date(${sessionTurns.created_at}, 'localtime')`;

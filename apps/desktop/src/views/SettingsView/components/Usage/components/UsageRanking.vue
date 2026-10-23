@@ -12,14 +12,16 @@
         title: string;
         items: UsageRankItem[];
         metric: UsageRankMetric;
-        /** 是否提供「活跃」维度（会话才有） */
+        /** Whether the "active" metric is offered; sessions only. */
         supportsDuration?: boolean;
-        /** 用于展示图标/色点的区分：模型排行不需要 */
-        /** 是否展示图标（已移除，保留 prop 以兼容旧调用） */
+        /** Whether to show an icon; unused by the model ranking. */
+        /** Whether to show an icon. Kept for older call sites. */
         showIcon?: boolean;
         loading?: boolean;
-        /** 两侧统一的高度（行数）；不传时按四行 */
+        /** Row count shared by both sides; defaults to four. */
         heightRows?: number;
+        /** Currently selected item id, used to highlight the active filter. */
+        selectedId?: number | null;
     }
 
     const props = withDefaults(defineProps<Props>(), {
@@ -27,35 +29,49 @@
         showIcon: false,
         loading: false,
         heightRows: undefined,
+        selectedId: null,
     });
 
-    const emit = defineEmits<{ (event: 'update:metric', value: UsageRankMetric): void }>();
+    const emit = defineEmits<{
+        (event: 'update:metric', value: UsageRankMetric): void;
+        /** Clicking a row asks the parent to filter by it. */
+        (event: 'select', id: number | null): void;
+    }>();
+
+    /**
+     * Clicking the selected row again clears the filter, so returning to the
+     * unfiltered view does not require hunting for a reset control.
+     */
+    function pick(id: number): void {
+        emit('select', props.selectedId === id ? null : id);
+    }
 
     defineOptions({ name: 'UsageRanking' });
 
-    /** 单行高度 */
+    /** Height of one row. */
     const ROW_HEIGHT = 44;
 
-    /** 高度按父级统一给的行数 */
+    /** Row count dictated by the parent, so both sides match. */
     const targetRows = computed(() => Math.max(1, props.heightRows ?? 4));
 
-    /** 实际显示的内容行数：多出的内部滚动 */
+    /** Rows actually rendered; any excess scrolls inside the box. */
     const contentRows = computed(() => Math.min(props.items.length, targetRows.value));
 
     /**
-     * 补齐的行数。
+     * Number of skeleton rows needed to fill the box.
      *
-     * 两侧高度必须一致，短的那一侧用与真实行同结构的骨架填满，
-     * 而不是留一块空白——空白看起来像没加载完。
+     * Both sides must be the same height, so the shorter one pads with
+     * skeletons that mirror the real row layout instead of leaving a gap, which
+     * would read as "still loading".
      */
     const placeholderRows = computed(() =>
         props.items.length === 0 ? 0 : targetRows.value - contentRows.value
     );
 
-    /** 容器高度 */
+    /** Container height. */
     const boxHeight = computed(() => `${targetRows.value * ROW_HEIGHT}px`);
 
-    /** 排行条按「相对榜首」的比例，而不是占总量的比例：后者会让第 5 名几乎看不见 */
+    /** Bars are relative to the leader, not to the total; the latter hides rank 5. */
     const peak = computed(() => Math.max(1, ...props.items.map((item) => valueOf(item))));
 
     function valueOf(item: UsageRankItem): number {
@@ -78,7 +94,7 @@
         return formatTokensCompact(item.tokens);
     }
 
-    /** 会话条目的副标题：模型 · 最后活跃 */
+    /** Session subtitle: model · last active. */
     function subtitleOf(item: UsageRankItem): string {
         const parts = [item.subtitle, item.lastAt ? formatDbTime(item.lastAt) : null].filter(
             Boolean
@@ -150,13 +166,21 @@
                 :class="['no-scrollbar overflow-y-auto', loading ? 'opacity-60' : '']"
                 :style="{ height: boxHeight }"
             >
-                <div
+                <button
                     v-for="item in items"
                     :key="item.id"
+                    type="button"
                     data-testid="settings-usage-ranking-row"
-                    class="flex items-center gap-2.5"
+                    class="flex w-full items-center gap-2.5 rounded-[9px] px-2 text-left transition-colors"
+                    :class="
+                        selectedId === item.id
+                            ? 'bg-neutral-900/[0.06]'
+                            : 'hover:bg-neutral-900/[0.04]'
+                    "
                     :style="{ height: `${ROW_HEIGHT}px` }"
                     :title="[item.name, subtitleOf(item)].filter(Boolean).join('\n')"
+                    :aria-pressed="selectedId === item.id"
+                    @click="pick(item.id)"
                 >
                     <span class="w-[42%] min-w-0 shrink-0 truncate text-[12.5px] text-neutral-900">
                         {{ item.name }}
@@ -176,7 +200,7 @@
                     >
                         {{ valueText(item) }}
                     </span>
-                </div>
+                </button>
 
                 <!-- 补齐到 4 行：与真实行同高同结构，但不带数字，避免被误读 -->
                 <div

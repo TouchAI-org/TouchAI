@@ -68,7 +68,7 @@
 
     function handleProviderChange(value: number) {
         emit('update:providerId', value === 0 ? null : value);
-        // 供应商与模型互斥，避免查出空集
+        // Provider and model are mutually exclusive, otherwise the query matches nothing.
         if (value !== 0) {
             emit('update:modelId', null);
         }
@@ -133,7 +133,7 @@
                 variant="filled"
                 type="text"
                 :placeholder="t('settings.usage.filter.search')"
-                class="w-full py-1 pr-2 pl-6 text-xs"
+                class="h-auto w-full py-1 pr-2 pl-6 text-xs"
                 @update:model-value="emit('update:search', $event)"
             />
             <AppIcon
@@ -146,13 +146,14 @@
 
 <style scoped>
     /*
-     * CustomSelect 的尺寸写死在组件内部的静态类（h-9 px-3 py-2 text-sm），
-     * 从调用方传 utility 类只是同级并列，谁生效取决于 Tailwind 的输出顺序，
-     * 并不可靠。用「父类 + 元素」选择器提高特异性，覆盖才确定。
+     * CustomSelect hardcodes its sizing in static classes (h-9 px-3 py-2 text-sm).
+     * Passing utility classes from the call site only ties with them, so which
+     * one wins depends on Tailwind's output order. A parent-plus-element selector
+     * raises specificity and makes the override deterministic.
      *
-     * h-9 是固定高度，不改的话 padding 再小也压不下来。
-     * 下拉面板默认被 portal 到 body，不在这个选择器范围内，
-     * 所以选项文字仍保持正常字号。
+     * h-9 is a fixed height, so padding alone cannot shrink it. The dropdown is
+     * portalled to body and falls outside this selector, so option text keeps
+     * its normal size.
      */
     .usage-filters :deep(button) {
         height: auto;
