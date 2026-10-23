@@ -32,10 +32,16 @@ function formatPercentTable(rows) {
 }
 
 function formatRustTable(coverage) {
-    const rows = [
-        ['Lines', coverage.lines],
-        ['Branches', coverage.branches],
-    ];
+    const rows = [['Lines', coverage.lines]];
+
+    // cargo-tarpaulin does not implement branch coverage (its `--branch` flag is documented
+    // as "NOT IMPLEMENTED" and the Cobertura writer hardcodes zero branch totals), so a
+    // Branches row would report 0.00% for a metric that was never measured. Only show it
+    // when a future version actually emits branch data.
+    if (coverage.branches.total > 0) {
+        rows.push(['Branches', coverage.branches]);
+    }
+
     const hasCounts = rows.every(
         ([, metric]) => typeof metric.covered === 'number' && typeof metric.total === 'number'
     );
@@ -63,8 +69,12 @@ function readCount(attributes, name) {
     return Number.isFinite(value) ? value : null;
 }
 
-function readMetric(attributes, rateName, coveredName, totalName) {
+function readMetric(attributes, rateName, coveredName, totalName, { required = true } = {}) {
     if (!attributes.has(rateName)) {
+        if (!required) {
+            return { percent: 0, covered: 0, total: 0 };
+        }
+
         throw new Error(
             `Rust coverage report is missing the ${rateName} attribute on the <coverage> element.`
         );
@@ -103,7 +113,11 @@ export function parseCoberturaCoverage(xml) {
 
     return {
         lines: readMetric(attributes, 'line-rate', 'lines-covered', 'lines-valid'),
-        branches: readMetric(attributes, 'branch-rate', 'branches-covered', 'branches-valid'),
+        // Optional: cargo-tarpaulin omits branch data entirely, and a report without it is
+        // a valid line-coverage report rather than a malformed one.
+        branches: readMetric(attributes, 'branch-rate', 'branches-covered', 'branches-valid', {
+            required: false,
+        }),
     };
 }
 
@@ -132,7 +146,7 @@ export function formatRustCoverage(xml) {
     if (coverage.branches.total === 0) {
         lines.push(
             '',
-            '_cargo-tarpaulin writes zero branch totals in its Cobertura report, so the branch rate is always 0._'
+            '_Line coverage only: cargo-tarpaulin does not implement branch coverage, so it reports no branch totals and `--branch` is a no-op. There is no branch percentage to show for Rust._'
         );
     }
 

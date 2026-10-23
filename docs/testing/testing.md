@@ -100,6 +100,8 @@ The floor sits about one point under what the suite reaches, so it blocks a regr
 
 Rust coverage runs in CI as a report, not a gate: it has no threshold yet, so a drop there is visible in the job summary but does not fail the build.
 
+Rust coverage is **line coverage only**. cargo-tarpaulin does not implement branch coverage: its `--branch` flag is documented as "NOT IMPLEMENTED", the Cobertura writer hardcodes zero branch totals, and the `lcov` reporter still carries a `TODO: add support for branching`. The summarizer therefore omits a branch row rather than printing a `0.00%` for something never measured, and `test:coverage:rust` no longer passes `--branch`. If a future tarpaulin release emits branch data, the row appears on its own; no code change is needed.
+
 - Per-file thresholds in `apps/desktop/vitest.config.ts` are the enforced frontend contract; do not lower one to land a change.
 - New modules start at the minimum in [Test Layers](#test-layers) and keep it.
 - A line covered only by an interaction assertion does not count as covered behavior.

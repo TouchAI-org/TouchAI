@@ -134,7 +134,7 @@ describe('user reads the frontend coverage table in the job summary', () => {
 });
 
 describe('user reads the Rust coverage table in the job summary', () => {
-    it('user sees the line and branch rates converted to percentages', async () => {
+    it('user sees only line coverage when tarpaulin reports no branch totals', async () => {
         const workspace = await createWorkspace();
         await writeFile(workspace.rustPath, coberturaXml, 'utf8');
 
@@ -146,22 +146,31 @@ describe('user reads the Rust coverage table in the job summary', () => {
 
         expect(markdown).toContain('## Rust Coverage');
         expect(markdown).toContain('| Lines | 81.25% | 13 | 16 |');
-        expect(markdown).toContain('| Branches | 0.00% | 0 | 0 |');
+        expect(markdown).not.toContain('| Branches |');
         expect(markdown).not.toContain('25.00%');
         expect(await readFile(workspace.summaryPath, 'utf8')).toContain('| Lines | 81.25% |');
     });
 
-    it('user is told the branch rate is unavailable when tarpaulin reports no branches', () => {
-        expect(formatRustCoverage(coberturaXml)).toContain('zero branch totals');
+    it('user is told Rust branch coverage does not exist rather than shown a zero', () => {
+        const markdown = formatRustCoverage(coberturaXml);
+
+        expect(markdown).toContain('does not implement branch coverage');
+        expect(markdown).not.toContain('| Branches | 0.00% |');
+    });
+
+    it('user sees a branch percentage when a future tarpaulin reports branch totals', () => {
+        const markdown = formatRustCoverage(
+            '<coverage lines-covered="10" lines-valid="20" line-rate="0.5" branches-covered="3" branches-valid="4" branch-rate="0.75"></coverage>'
+        );
+
+        expect(markdown).toContain('| Branches | 75.00% | 3 | 4 |');
+        expect(markdown).not.toContain('does not implement branch coverage');
     });
 
     it('user sees the rate percentages when the report omits the covered and total counts', () => {
-        const markdown = formatRustCoverage(
-            '<coverage line-rate="0.5" branch-rate="0.125"></coverage>'
-        );
+        const markdown = formatRustCoverage('<coverage line-rate="0.5"></coverage>');
 
         expect(markdown).toContain('| Lines | 50.00% |');
-        expect(markdown).toContain('| Branches | 12.50% |');
         expect(markdown).not.toContain('Covered');
     });
 
