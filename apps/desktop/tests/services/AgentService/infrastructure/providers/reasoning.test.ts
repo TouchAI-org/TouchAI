@@ -19,8 +19,8 @@ import {
     resolveReasoning,
 } from '@/services/AgentService/infrastructure/providers/reasoning';
 
-describe('reasoning level contract', () => {
-    it('accepts only TouchAI canonical reasoning levels', () => {
+describe('user picks how hard the model should think', () => {
+    it('user sees only canonical reasoning levels accepted', () => {
         expect(isSelectableReasoningLevel('off')).toBe(true);
         expect(isSelectableReasoningLevel('high')).toBe(true);
         expect(isSelectableReasoningLevel('max')).toBe(true);
@@ -30,13 +30,13 @@ describe('reasoning level contract', () => {
         expect(isSelectableReasoningLevel(undefined)).toBe(false);
     });
 
-    it('uses max as the temporary default', () => {
+    it('user sees the strongest level used until the model is known', () => {
         expect(DEFAULT_REASONING_LEVEL).toBe('max');
     });
 });
 
-describe('reasoning level map', () => {
-    it('treats an effort enum without none/off as unable to disable reasoning', () => {
+describe('user sees whether a model can turn reasoning off', () => {
+    it('user sees an effort list without off reported as unable to disable reasoning', () => {
         const map = deriveReasoningLevelMap([
             { type: 'effort', values: ['minimal', 'low', 'medium', 'high'] },
         ]);
@@ -46,7 +46,7 @@ describe('reasoning level map', () => {
         expect(clampReasoningLevel(map, 'max')).toBe('high');
     });
 
-    it('maps none onto the off level and keeps xhigh/max only when declared', () => {
+    it('user sees none mapped to off and higher levels kept only when declared', () => {
         const map = deriveReasoningLevelMap([
             { type: 'effort', values: ['none', 'low', 'medium', 'high', 'xhigh'] },
         ]);
@@ -57,7 +57,7 @@ describe('reasoning level map', () => {
         expect(clampReasoningLevel(map, 'max')).toBe('xhigh');
     });
 
-    it('passes the gateway-only ultra level through when the model declares it', () => {
+    it('user sees a gateway-only level passed through when the model declares it', () => {
         const map = deriveReasoningLevelMap([
             { type: 'effort', values: ['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
         ]);
@@ -72,7 +72,7 @@ describe('reasoning level map', () => {
     });
 });
 
-describe('OpenAI reasoning level map', () => {
+describe('user sees the requested reasoning level clamped to what the model supports', () => {
     function resolveLevel(
         modelId: string,
         level: SelectableReasoningLevel = DEFAULT_REASONING_LEVEL
@@ -100,11 +100,11 @@ describe('OpenAI reasoning level map', () => {
         ['gpt-6-luna', 'max'],
         ['o3', 'high'],
         ['openai/gpt-6', 'max'],
-    ] as const)('clamps the default max level for %s to %s', (modelId, expected) => {
+    ] as const)('user sees the strongest level clamped for %s to %s', (modelId, expected) => {
         expect(resolveLevel(modelId)).toBe(expected);
     });
 
-    it('maps an explicitly requested level to the nearest supported model level', () => {
+    it('user sees an explicitly requested level mapped to the nearest supported one', () => {
         expect(resolveLevel('gpt-5.1', 'xhigh')).toBe('high');
         expect(resolveLevel('gpt-5', 'off')).toBe('minimal');
         expect(resolveLevel('gpt-5.1', 'minimal')).toBe('low');
@@ -112,13 +112,13 @@ describe('OpenAI reasoning level map', () => {
         expect(resolveLevel('gpt-5.2', 'medium')).toBe('medium');
     });
 
-    it('returns an empty map for unknown or non-reasoning OpenAI models', () => {
+    it('user sees no reasoning levels for unknown or non-reasoning models', () => {
         expect(getOpenAiReasoningLevelMap('gpt-4o')).toEqual({});
         expect(getOpenAiReasoningLevelMap('gpt-5-chat-latest')).toEqual({});
         expect(getOpenAiReasoningLevelMap('unknown-model')).toEqual({});
     });
 
-    it('defaults the official driver to the stateless Responses format', () => {
+    it('user sees the official driver default to stateless Responses', () => {
         const adapter = new OpenAIProviderAdapter({ apiEndpoint: 'https://api.openai.com/v1' });
         const probe = adapter as unknown as {
             getStreamProviderOptions(options: AiRequestOptions): unknown;
@@ -160,7 +160,7 @@ describe('OpenAI reasoning level map', () => {
         });
     });
 
-    it('uses Chat Completions transport for non-Responses format overrides', () => {
+    it('user sees Chat Completions used when the transport is overridden', () => {
         const adapter = new OpenAIProviderAdapter({
             apiEndpoint: 'https://api.openai.com/v1',
             config: { reasoning: { format: 'deepseek' } },
@@ -171,7 +171,7 @@ describe('OpenAI reasoning level map', () => {
         );
     });
 
-    it('keeps the Chat Completions constraint when the format is overridden', () => {
+    it('user keeps the Chat Completions constraint when the transport is overridden', () => {
         const adapter = new OpenAIProviderAdapter({
             apiEndpoint: 'https://api.openai.com/v1',
             config: { reasoning: { format: 'openai' } },
@@ -202,7 +202,7 @@ describe('OpenAI reasoning level map', () => {
         });
     });
 
-    it('sends no reasoning when model metadata declares it unsupported', () => {
+    it('user sees no reasoning sent when metadata declares it unsupported', () => {
         const adapter = new OpenAIProviderAdapter({
             apiEndpoint: 'https://api.openai.com/v1',
             config: { reasoning: { format: 'openai' } },
@@ -233,7 +233,7 @@ describe('OpenAI reasoning level map', () => {
         ).toBeUndefined();
     });
 
-    it('lets an explicit passthrough mode override the unsupported declaration', () => {
+    it('user sees an explicit passthrough override an unsupported declaration', () => {
         const adapter = new OpenAIProviderAdapter({
             apiEndpoint: 'https://api.openai.com/v1',
             config: { reasoning: { format: 'openai', mode: 'passthrough' } },
@@ -253,8 +253,8 @@ describe('OpenAI reasoning level map', () => {
     });
 });
 
-describe('reasoning capability normalization', () => {
-    it('accepts both object and array upstream shapes', () => {
+describe('user sees reasoning capabilities read from upstream', () => {
+    it('user sees both object and array upstream shapes accepted', () => {
         expect(normalizeReasoningOptions({ type: 'toggle' })).toEqual([{ type: 'toggle' }]);
         expect(
             normalizeReasoningOptions([
@@ -267,20 +267,20 @@ describe('reasoning capability normalization', () => {
         ]);
     });
 
-    it('drops malformed entries and empty effort lists', () => {
+    it('user sees malformed entries and empty effort lists dropped', () => {
         expect(normalizeReasoningOptions(null)).toEqual([]);
         expect(normalizeReasoningOptions({ type: 'effort', values: [] })).toEqual([]);
         expect(normalizeReasoningOptions([null, 'x', { type: 'unknown' }])).toEqual([]);
     });
 });
 
-describe('reasoning resolver', () => {
+describe('user sees the requested level resolved against the model', () => {
     const options: ReasoningOption[] = [
         { type: 'effort', values: ['none', 'low', 'medium', 'high'] },
     ];
     const effortMap = deriveReasoningLevelMap(options);
 
-    it('snaps to the nearest supported level and prefers the higher level on ties', () => {
+    it('user sees the nearest supported level chosen with the higher one on ties', () => {
         const plan = resolveReasoning({
             level: 'xhigh',
             map: effortMap,
@@ -294,7 +294,7 @@ describe('reasoning resolver', () => {
         expect(plan.source).toBe('capability');
     });
 
-    it('uses max by default and maps it onto the closest native level', () => {
+    it('user sees the strongest level by default mapped onto the closest native one', () => {
         const plan = resolveReasoning({
             level: undefined,
             map: effortMap,
@@ -308,7 +308,7 @@ describe('reasoning resolver', () => {
         expect(plan.mapped).toBe('high');
     });
 
-    it('sends nothing when metadata is missing and mode is auto', () => {
+    it('user sees nothing sent when metadata is missing and the mode is auto', () => {
         const plan = resolveReasoning({
             level: 'max',
             map: {},
@@ -321,7 +321,7 @@ describe('reasoning resolver', () => {
         expect(plan.level).toBe('off');
     });
 
-    it('passes the canonical level through when mode is passthrough', () => {
+    it('user sees the canonical level passed through in passthrough mode', () => {
         const plan = resolveReasoning({
             level: 'xhigh',
             map: {},
@@ -335,7 +335,7 @@ describe('reasoning resolver', () => {
         expect(plan.source).toBe('fallback');
     });
 
-    it('disables reasoning entirely when mode is off', () => {
+    it('user sees reasoning disabled entirely when the mode is off', () => {
         const plan = resolveReasoning({
             level: 'max',
             map: effortMap,
@@ -349,8 +349,8 @@ describe('reasoning resolver', () => {
     });
 });
 
-describe('OpenAI-compatible relay', () => {
-    it('remaps encoded options into the OpenAI-compatible namespace', () => {
+describe('user sees reasoning options remapped for an OpenAI-compatible relay', () => {
+    it('user sees encoded options land in the OpenAI-compatible namespace', () => {
         const adapter = new OpenAICompatibleProviderAdapter({
             apiEndpoint: 'https://relay.example.com/v1',
             config: { reasoning: { format: 'deepseek', mode: 'passthrough' } },
@@ -374,7 +374,7 @@ describe('OpenAI-compatible relay', () => {
     });
 });
 
-describe('reasoning format encoders', () => {
+describe('user sees each provider get its own reasoning wire format', () => {
     function plan(
         format: ReasoningResolution['format'],
         level: SelectableReasoningLevel,
@@ -396,13 +396,13 @@ describe('reasoning format encoders', () => {
         };
     }
 
-    it('encodes openai as reasoningEffort only', () => {
+    it('user sees reasoning encoded as reasoningEffort for OpenAI', () => {
         expect(encodeReasoning(plan('openai', 'high', 'high'))).toEqual({
             providerOptions: { openai: { reasoningEffort: 'high' } },
         });
     });
 
-    it('encodes openai-responses with stateless replay options', () => {
+    it('user sees stateless replay options encoded for OpenAI Responses', () => {
         expect(encodeReasoning(plan('openai-responses', 'max', 'max'))).toEqual({
             providerOptions: {
                 openai: {
@@ -416,13 +416,13 @@ describe('reasoning format encoders', () => {
         });
     });
 
-    it('encodes openrouter as reasoning.effort', () => {
+    it('user sees reasoning encoded as reasoning.effort for OpenRouter', () => {
         expect(encodeReasoning(plan('openrouter', 'high', 'high'))).toEqual({
             providerOptions: { openaiCompatible: { reasoning: { effort: 'high' } } },
         });
     });
 
-    it('encodes deepseek thinking toggle and effort', () => {
+    it('user sees the DeepSeek thinking toggle and effort encoded', () => {
         expect(encodeReasoning(plan('deepseek', 'off', undefined))).toEqual({
             providerOptions: { deepseek: { thinking: { type: 'disabled' } } },
         });
@@ -433,7 +433,7 @@ describe('reasoning format encoders', () => {
         });
     });
 
-    it('encodes anthropic-messages adaptive thinking with effort', () => {
+    it('user sees Anthropic adaptive thinking encoded with an effort', () => {
         expect(
             encodeReasoning(plan('anthropic-messages', 'high', 'high'), {
                 forceAdaptiveThinking: true,
@@ -451,7 +451,7 @@ describe('reasoning format encoders', () => {
         });
     });
 
-    it('encodes anthropic-messages budget as thinking budgetTokens', () => {
+    it('user sees an Anthropic thinking budget encoded as budgetTokens', () => {
         expect(
             encodeReasoning(plan('anthropic-messages', 'medium', undefined, { budgetTokens: 4096 }))
         ).toEqual({
@@ -461,7 +461,7 @@ describe('reasoning format encoders', () => {
         });
     });
 
-    it('encodes google-generative budget as thinkingConfig', () => {
+    it('user sees a Google thinking budget encoded as thinkingConfig', () => {
         expect(
             encodeReasoning(
                 plan('google-generative', 'low', undefined, {
@@ -476,7 +476,7 @@ describe('reasoning format encoders', () => {
         });
     });
 
-    it('emits nothing when there is no reasoning signal (auto + missing metadata)', () => {
+    it('user sees nothing encoded when there is no reasoning signal', () => {
         const base = plan('openai', 'off', undefined, { source: 'fallback' });
         expect(encodeReasoning(base)).toEqual({});
         for (const format of [
@@ -493,13 +493,13 @@ describe('reasoning format encoders', () => {
         }
     });
 
-    it('keeps only the stateless default for openai-responses without a reasoning signal', () => {
+    it('user keeps only the stateless default for OpenAI Responses without a reasoning signal', () => {
         expect(
             encodeReasoning(plan('openai-responses', 'off', undefined, { source: 'fallback' }))
         ).toEqual({ providerOptions: { openai: { store: false } } });
     });
 
-    it('emits nothing when the resolution source is off', () => {
+    it('user sees nothing encoded when reasoning is off', () => {
         expect(
             encodeReasoning(plan('openai-responses', 'off', undefined, { source: 'off' }))
         ).toEqual({});

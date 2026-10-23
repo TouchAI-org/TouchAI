@@ -15,8 +15,8 @@ function createPayload(overrides: Partial<ClipboardPayload>): ClipboardPayload {
     };
 }
 
-describe('ClipboardService HTML normalization', () => {
-    it('strips Word style artifacts while preserving visible paragraph breaks', () => {
+describe('user pastes rich content from a web page or document', () => {
+    it('user gets clean paragraph breaks without Word style artifacts', () => {
         const payload = normalizeClipboardPayload(
             createPayload({
                 text: 'Visible Word text\nSecond line',
@@ -44,7 +44,7 @@ describe('ClipboardService HTML normalization', () => {
         expect(payload?.text).not.toContain('margin');
     });
 
-    it('prefers plain visible text over HTML inline formatting Markdown', () => {
+    it('user gets the visible text instead of inline formatting markup', () => {
         const payload = normalizeClipboardPayload(
             createPayload({
                 text: 'Important text',
@@ -56,7 +56,7 @@ describe('ClipboardService HTML normalization', () => {
         expect(payload?.fragments).toEqual([{ type: 'text', text: 'Important text' }]);
     });
 
-    it('keeps structured plain list text instead of reformatting it from HTML', () => {
+    it('user gets a pasted list as structured plain text', () => {
         const payload = normalizeClipboardPayload(
             createPayload({
                 text: '• First item\n• Second item',
@@ -67,7 +67,7 @@ describe('ClipboardService HTML normalization', () => {
         expect(payload?.text).toBe('• First item\n• Second item');
     });
 
-    it('uses HTML list structure when paste event plain text was flattened', () => {
+    it('user gets a list kept when the browser flattened the plain text', () => {
         const payload = normalizeClipboardPayload(
             createPayload({
                 text: 'First item Second item',
@@ -78,7 +78,7 @@ describe('ClipboardService HTML normalization', () => {
         expect(payload?.text).toBe('- First item\n- Second item');
     });
 
-    it('keeps table clipboard text as plain rows instead of Markdown tables', () => {
+    it('user gets pasted table text as plain rows instead of a markdown table', () => {
         const payload = normalizeClipboardPayload(
             createPayload({
                 text: 'Name\tAge\nAlice\t28',
@@ -96,7 +96,7 @@ describe('ClipboardService HTML normalization', () => {
         expect(payload?.text).not.toContain('| --- |');
     });
 
-    it('uses HTML structure when plain text was flattened', () => {
+    it('user gets structure from the HTML when the plain text was flattened', () => {
         const payload = normalizeClipboardPayload(
             createPayload({
                 text: 'Install Read docs first.',
@@ -107,7 +107,7 @@ describe('ClipboardService HTML normalization', () => {
         expect(payload?.text).toBe('## Install\n\nRead [docs](https://example.com/docs) first.');
     });
 
-    it('keeps plain text line breaks when HTML has no stronger structure', () => {
+    it('user gets plain-text line breaks when the HTML has no stronger structure', () => {
         const payload = normalizeClipboardPayload(
             createPayload({
                 text: '毕业设计开题报告\n题目： 基于大语言模型的桌面效率 Agent 系统设计与实现\n姓 名： 谢志勇',
@@ -120,7 +120,7 @@ describe('ClipboardService HTML normalization', () => {
         );
     });
 
-    it('splits HTML image Markdown back into ordered image fragments', () => {
+    it('user gets pasted images as ordered image fragments', () => {
         const payload = normalizeClipboardPayload(
             createPayload({
                 text: 'Before\nAfter',
@@ -137,7 +137,7 @@ describe('ClipboardService HTML normalization', () => {
         ]);
     });
 
-    it('splits linked HTML images without leaving Markdown link wrapper text', () => {
+    it('user gets linked images without leftover link wrapper text', () => {
         const payload = normalizeClipboardPayload(
             createPayload({
                 text: 'Before\nAfter',
@@ -154,7 +154,7 @@ describe('ClipboardService HTML normalization', () => {
         ]);
     });
 
-    it('splits repeated HTML images into repeated image fragments', () => {
+    it('user gets repeated images as repeated fragments', () => {
         const payload = normalizeClipboardPayload(
             createPayload({
                 text: 'Before\nBetween\nAfter',
@@ -176,7 +176,7 @@ describe('ClipboardService HTML normalization', () => {
         ]);
     });
 
-    it('preserves inline spacing around HTML image fragments', () => {
+    it('user gets inline spacing preserved around pasted images', () => {
         const payload = normalizeClipboardPayload(
             createPayload({
                 text: 'See image above',
@@ -195,7 +195,7 @@ describe('ClipboardService HTML normalization', () => {
         ]);
     });
 
-    it('keeps HTML image ordering even when chosen plain text differs from HTML markdown', () => {
+    it('user gets pasted images in their original order', () => {
         const payload = normalizeClipboardPayload(
             createPayload({
                 text: 'See image above',
@@ -216,7 +216,7 @@ describe('ClipboardService HTML normalization', () => {
         ]);
     });
 
-    it('keeps native image fallback when HTML image sources cannot be resolved', () => {
+    it('user gets an image fallback when pasted image sources cannot be resolved', () => {
         const payload = normalizeClipboardPayload(
             createPayload({
                 text: 'See image above',
@@ -234,7 +234,7 @@ describe('ClipboardService HTML normalization', () => {
         ]);
     });
 
-    it('preserves safe image data URLs while stripping dangerous data links from HTML paste', () => {
+    it('user gets safe image data kept while dangerous data links are stripped', () => {
         const payload = normalizeClipboardPayload(
             createPayload({
                 text: null,

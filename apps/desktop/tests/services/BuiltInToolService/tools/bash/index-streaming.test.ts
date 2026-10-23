@@ -62,8 +62,8 @@ function createBashResponse(
     };
 }
 
-describe('executeBashTool streaming result deltas', () => {
-    it('emits a result delta while the bash command is still running', async () => {
+describe('user watches a shell command produce output live', () => {
+    it('user sees a result delta while the command is still running', async () => {
         const response = createBashResponse();
         mockTauriCommand('built_in_tools_start_bash', async (payload: unknown) => {
             const stream = resolveSerializedStreamChannel(payload);
@@ -118,7 +118,7 @@ describe('executeBashTool streaming result deltas', () => {
         expect(result.result).toContain('alpha');
     });
 
-    it('propagates streaming bash output into the task projection before call completion', async () => {
+    it('user sees live shell output reach the conversation before the call completes', async () => {
         const response = createBashResponse({
             command: 'Write-Output "alpha"; Write-Output "beta"',
             durationMs: 240,
@@ -216,7 +216,7 @@ describe('executeBashTool streaming result deltas', () => {
         expect(toolCalls[0]?.result).toContain('beta');
     });
 
-    it('coalesces rapid stream deltas into a leading and trailing emission', async () => {
+    it('user sees rapid deltas coalesced into a leading and trailing update', async () => {
         vi.useFakeTimers();
 
         let stdout = '';
@@ -286,7 +286,7 @@ describe('executeBashTool streaming result deltas', () => {
         expect(deltaResults[1]).toContain('line 39');
     });
 
-    it('flushes the buffered delta before the tool call resolves', async () => {
+    it('user sees buffered output flushed before the tool call resolves', async () => {
         const response = createBashResponse({
             command: 'Write-Output "alpha"; Write-Output "beta"',
             durationMs: 240,
@@ -359,7 +359,7 @@ describe('executeBashTool streaming result deltas', () => {
         expect(result.result).toContain('beta');
     });
 
-    it('drops buffered output when the native bash call fails', async () => {
+    it('user sees buffered output dropped when the command fails', async () => {
         vi.useFakeTimers();
 
         mockTauriCommand('built_in_tools_start_bash', async (payload: unknown) => {
@@ -416,7 +416,7 @@ describe('executeBashTool streaming result deltas', () => {
         );
     });
 
-    it('returns a timeout error when the native bash response times out', async () => {
+    it('user sees a timeout error when the command outlives its deadline', async () => {
         const response = createBashResponse({
             exitCode: null,
             success: false,
@@ -461,7 +461,7 @@ describe('executeBashTool streaming result deltas', () => {
         });
     });
 
-    it('returns a formatted execution error when the native bash response fails', async () => {
+    it('user sees a formatted failure when the command cannot run', async () => {
         const response = createBashResponse({
             command: 'Write-Error "boom"',
             exitCode: 1,

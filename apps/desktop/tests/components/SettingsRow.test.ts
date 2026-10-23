@@ -24,9 +24,9 @@ const mountRow = (props: Record<string, unknown> = {}, options: Record<string, u
 
 const rootOf = (wrapper: ReturnType<typeof mountRow>) => wrapper.get('div');
 
-describe('SettingsRow', () => {
-    describe('class 稳定性', () => {
-        it('无描述 + auto 宽度（开关行）', () => {
+describe('user reads a settings row', () => {
+    describe('user sees the row keep its look', () => {
+        it('user sees the toggle row layout when a row has no description', () => {
             expect(
                 rootOf(mountRow({ controlWidth: 'auto' }))
                     .classes()
@@ -34,7 +34,7 @@ describe('SettingsRow', () => {
             ).toMatchSnapshot();
         });
 
-        it('有描述 + 320 宽度（输入行）', () => {
+        it('user sees the input row layout when a row has a description', () => {
             expect(
                 rootOf(mountRow({ controlWidth: '320', description: '说明文字' }))
                     .classes()
@@ -43,24 +43,24 @@ describe('SettingsRow', () => {
         });
     });
 
-    describe('网格宽度档位', () => {
+    describe('user sees the row width follow its control', () => {
         it.each([
             ['auto', 'sm:grid-cols-[minmax(0,1fr)_auto]'],
             ['180', 'sm:grid-cols-[minmax(0,1fr)_180px]'],
             ['220', 'sm:grid-cols-[minmax(0,1fr)_220px]'],
             ['320', 'sm:grid-cols-[minmax(0,1fr)_320px]'],
             ['360', 'sm:grid-cols-[minmax(0,1fr)_360px]'],
-        ])('controlWidth=%s 输出 %s', (width, expected) => {
+        ])('user controlwidth=%s 输出 %s', (width, expected) => {
             expect(rootOf(mountRow({ controlWidth: width })).classes()).toContain(expected);
         });
 
-        it('默认档位是 320', () => {
+        it('user gets the input-width column when no width is given', () => {
             expect(rootOf(mountRow()).classes()).toContain('sm:grid-cols-[minmax(0,1fr)_320px]');
         });
     });
 
-    describe('基础结构类', () => {
-        it('根元素携带原实现的网格与内边距', () => {
+    describe('user sees the row structure', () => {
+        it('user sees the row laid out as a labelled grid with padded edges', () => {
             const classes = rootOf(mountRow()).classes();
             for (const expected of [
                 'grid',
@@ -75,8 +75,8 @@ describe('SettingsRow', () => {
         });
     });
 
-    describe('标签与描述', () => {
-        it('标签默认渲染为 div 且携带原字号', () => {
+    describe('user reads the row label and description', () => {
+        it('user sees the label in the default text style', () => {
             const label = mountRow().get('.text-\\[13px\\]');
             expect(label.element.tagName).toBe('DIV');
             for (const expected of [
@@ -89,17 +89,17 @@ describe('SettingsRow', () => {
             }
         });
 
-        it('labelAs=label 时渲染为 label 元素', () => {
+        it('user can click a real label element tied to its control', () => {
             const wrapper = mountRow({ labelAs: 'label', labelFor: 'x' });
             const label = wrapper.get('label');
             expect(label.attributes('for')).toBe('x');
         });
 
-        it('无描述时不渲染描述元素', () => {
+        it('user sees no description line when the row has none', () => {
             expect(mountRow().find('.mt-1').exists()).toBe(false);
         });
 
-        it('有描述时渲染描述元素并携带原字号与颜色', () => {
+        it('user reads the description under the label', () => {
             const desc = mountRow({ description: '说明文字' }).get('.mt-1');
             expect(desc.classes()).toContain('text-xs');
             expect(desc.classes()).toContain('text-neutral-500');
@@ -107,8 +107,8 @@ describe('SettingsRow', () => {
         });
     });
 
-    describe('属性透传', () => {
-        it('data-settings-search-target 落在根元素上', () => {
+    describe('user sees the row attributes land', () => {
+        it('user finds the row from settings search', () => {
             const wrapper = mountRow(
                 {},
                 {
@@ -118,25 +118,25 @@ describe('SettingsRow', () => {
             expect(rootOf(wrapper).attributes('data-settings-search-target')).toBe('start-on-boot');
         });
 
-        it('data-testid 落在根元素上', () => {
+        it('user reaches the row through the test hook', () => {
             const wrapper = mountRow({}, { attrs: { 'data-testid': 'some-row' } });
             expect(rootOf(wrapper).attributes('data-testid')).toBe('some-row');
         });
 
-        it('调用点 class 与内部 class 合并而非替换', () => {
+        it('user keeps the call-site class on the row', () => {
             const wrapper = mountRow({ class: 'custom-row' });
             expect(rootOf(wrapper).classes()).toContain('custom-row');
             expect(rootOf(wrapper).classes()).toContain('grid');
         });
 
-        it('labelAttrs 落到标签元素上', () => {
+        it('user sees the label attributes on the label element', () => {
             const wrapper = mountRow({
                 labelAttrs: { 'data-testid': 'settings-general-row-label' },
             });
             expect(wrapper.find('[data-testid="settings-general-row-label"]').exists()).toBe(true);
         });
 
-        it('controlAttrs 与 controlClass 落到控件容器上', () => {
+        it('user sees the control attributes and class on the control container', () => {
             const wrapper = mountRow({
                 controlAttrs: { 'data-testid': 'settings-general-control' },
                 controlClass: 'ml-auto w-[180px]',
@@ -148,13 +148,13 @@ describe('SettingsRow', () => {
         });
     });
 
-    describe('插槽', () => {
-        it('默认插槽渲染在控件容器内', () => {
+    describe('user sees custom row content', () => {
+        it('user sees the control inside its own container', () => {
             const wrapper = mountRow();
             expect(wrapper.find('[data-testid="control"]').exists()).toBe(true);
         });
 
-        it('description 插槽可替代文本描述', () => {
+        it('user sees a rich description in place of the text one', () => {
             const wrapper = mount(SettingsRow, {
                 props: { label: '标签' },
                 slots: {
@@ -165,7 +165,7 @@ describe('SettingsRow', () => {
             expect(wrapper.get('[data-testid="desc-slot"]').text()).toBe('自定义描述');
         });
 
-        it('label 插槽可替代纯文本标签', () => {
+        it('user sees a rich label in place of the plain text one', () => {
             const wrapper = mount(SettingsRow, {
                 slots: {
                     default: () => h('span'),

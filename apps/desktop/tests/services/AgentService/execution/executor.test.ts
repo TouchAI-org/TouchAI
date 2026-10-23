@@ -122,7 +122,7 @@ function createCheckpoint(): AttemptCheckpoint {
     };
 }
 
-describe('AiRequestExecutor', () => {
+describe('user sends a prompt and receives a streamed answer', () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
@@ -130,7 +130,7 @@ describe('AiRequestExecutor', () => {
         vi.useRealTimers();
     });
 
-    it('passes the canonical max reasoning level even when model metadata disables reasoning', async () => {
+    it('user sees the requested reasoning level honored even when metadata says it is unsupported', async () => {
         providerMock.stream.mockImplementation(async function* () {
             yield { content: 'Done', done: true };
         });
@@ -146,7 +146,7 @@ describe('AiRequestExecutor', () => {
         );
     });
 
-    it('returns the failed stream fragments with their wall-clock boundaries without persisting a snapshot', async () => {
+    it('user keeps the partial answer with its timings when the stream fails', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(1000);
         providerMock.stream.mockImplementation(async function* () {
@@ -175,7 +175,7 @@ describe('AiRequestExecutor', () => {
         expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('persists the reasoning start before waiting for the next stream event', async () => {
+    it('user sees reasoning saved before the next stream event arrives', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(1000);
         const persistOutputProgress = vi.fn().mockResolvedValue(undefined);
@@ -202,7 +202,7 @@ describe('AiRequestExecutor', () => {
         expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('persists completed output fragments without a timer or an attempt snapshot', async () => {
+    it('user sees the finished answer saved without a temporary snapshot', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(1000);
         const persistOutputProgress = vi.fn().mockResolvedValue(undefined);
@@ -230,7 +230,7 @@ describe('AiRequestExecutor', () => {
         expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('preserves interleaved output order in the next live tool-loop request', async () => {
+    it('user sees interleaved output kept in order on the next tool-loop request', async () => {
         providerMock.stream
             .mockImplementationOnce(async function* () {
                 yield {
@@ -292,7 +292,7 @@ describe('AiRequestExecutor', () => {
         expect(providerMock.stream).toHaveBeenCalledTimes(2);
     });
 
-    it('keeps the original request error when provider error classification fails', async () => {
+    it('user sees the original failure reported when classifying the provider error fails', async () => {
         const requestError = new Error(
             'error sending request for url (https://token-plan-cn.xiaomimimo.com/v1/chat/completions)'
         );
@@ -353,8 +353,8 @@ function createToolCall(): AiToolCall {
     };
 }
 
-describe('AiRequestExecutor.executeMcpToolCall', () => {
-    it('emits call_start with startedAt before running the MCP tool', async () => {
+describe('user runs a tool call and watches it start', () => {
+    it('user sees a tool call start reported before the tool runs', async () => {
         createMcpToolLogMock.mockResolvedValue({ id: 23 });
         updateMcpToolLogByCallIdMock.mockResolvedValue(undefined);
         resolveToolCallMock.mockResolvedValue({

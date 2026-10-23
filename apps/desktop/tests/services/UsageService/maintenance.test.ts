@@ -126,8 +126,8 @@ function seedTurn(
 
 afterEach(() => databases.splice(0).forEach((database) => database.close()));
 
-describe('rollupUsageDaily', () => {
-    it('groups turns by day, model, and provider', async () => {
+describe('user sees daily usage rolled up for the dashboard', () => {
+    it('user sees turns grouped by day, model, and provider', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -186,7 +186,7 @@ describe('rollupUsageDaily', () => {
         });
     });
 
-    it('keeps ttft sample count at zero when no turn reported a first token', async () => {
+    it('user sees a zero first-token sample count when no turn reported one', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -200,7 +200,7 @@ describe('rollupUsageDaily', () => {
         expect(row.ttft_sample_count).toBe(0);
     });
 
-    it('is idempotent across repeated runs', async () => {
+    it('user sees the same totals after the rollup runs twice', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -220,7 +220,7 @@ describe('rollupUsageDaily', () => {
         expect(row).toEqual({ n: 1, tokens: 100 });
     });
 
-    it('recomputes a day when its turns change', async () => {
+    it('user sees a day recomputed when its turns change', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -237,7 +237,7 @@ describe('rollupUsageDaily', () => {
         expect(row.input_tokens).toBe(250);
     });
 
-    it('falls back to a placeholder when the model or provider is gone', async () => {
+    it('user sees a placeholder when the model or provider is gone', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -253,7 +253,7 @@ describe('rollupUsageDaily', () => {
     });
 });
 
-describe('pruneUsageDetail', () => {
+describe('user loses old usage detail after the retention window', () => {
     function seedCallPart(database: SqliteDatabase, id: number, createdAt: string) {
         database
             .prepare(
@@ -263,7 +263,7 @@ describe('pruneUsageDetail', () => {
             .run(id, id, createdAt);
     }
 
-    it('does nothing when retention is disabled', async () => {
+    it('user keeps all detail when retention is disabled', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -279,7 +279,7 @@ describe('pruneUsageDetail', () => {
         expect(row.n).toBe(1);
     });
 
-    it('removes only expired call parts and leaves text parts alone', async () => {
+    it('user keeps text parts while expired call parts are removed', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -303,8 +303,8 @@ describe('pruneUsageDetail', () => {
     });
 });
 
-describe('getUsageTrendFromArchive', () => {
-    it('folds a day into one point and keeps its per-model segments', async () => {
+describe('user sees the usage trend read from the archive', () => {
+    it('user sees a day folded into one point with its per-model segments', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -342,7 +342,7 @@ describe('getUsageTrendFromArchive', () => {
         expect(segmentTotal).toBe(330);
     });
 
-    it('agrees with the live trend when nothing has been pruned', async () => {
+    it('user sees the archived trend agree with the live trend when nothing was pruned', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -370,18 +370,18 @@ describe('getUsageTrendFromArchive', () => {
     });
 });
 
-describe('canUseUsageArchive', () => {
+describe('user sees the archive used only for queries it can answer', () => {
     const open = {
         from: '1970-01-01 00:00:00',
         to: '9999-12-31 23:59:59',
     };
 
-    it('allows the archive when nothing narrows the query', () => {
+    it('user sees the archive allowed when nothing narrows the query', () => {
         expect(canUseUsageArchive(open)).toBe(true);
         expect(canUseUsageArchive({ ...open, search: '   ' })).toBe(true);
     });
 
-    it('refuses the archive for any id- or status-based filter', () => {
+    it('user sees the archive refused for any id- or status-based filter', () => {
         expect(canUseUsageArchive({ ...open, modelIds: [1] })).toBe(false);
         expect(canUseUsageArchive({ ...open, providerIds: [1] })).toBe(false);
         expect(canUseUsageArchive({ ...open, statuses: ['failed'] })).toBe(false);
@@ -391,8 +391,8 @@ describe('canUseUsageArchive', () => {
     });
 });
 
-describe('runUsageMaintenance', () => {
-    it('rolls up and records the run time', async () => {
+describe('user sees usage maintenance run at startup', () => {
+    it('user sees the rollup run and its run time recorded', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -411,7 +411,7 @@ describe('runUsageMaintenance', () => {
         expect(stamp?.value).toBeTruthy();
     });
 
-    it('skips the second run inside the throttle window', async () => {
+    it('user sees the second run inside the throttle window skipped', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -428,7 +428,7 @@ describe('runUsageMaintenance', () => {
         expect(rollups.n).toBe(1);
     });
 
-    it('re-runs once the recorded timestamp is stale', async () => {
+    it('user sees the rollup re-run once the recorded timestamp is stale', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -447,7 +447,7 @@ describe('runUsageMaintenance', () => {
         expect(rollups.n).toBe(2);
     });
 
-    it('swallows database failures instead of breaking startup', async () => {
+    it('user sees startup survive a failing usage database', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         database.exec('DROP TABLE usage_daily_rollups');

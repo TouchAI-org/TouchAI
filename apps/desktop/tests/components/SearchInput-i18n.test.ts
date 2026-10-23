@@ -21,8 +21,8 @@ function createAttachmentIndex(
     };
 }
 
-describe('useSearchInput i18n boundaries', () => {
-    it('returns localized source text for unsupported image attachment errors', () => {
+describe('user attaches a file to a prompt', () => {
+    it('user gets localized source text for unsupported image attachment errors', () => {
         setLocale('en-US');
         const attachments = useSearchAttachments({
             attachments: ref<Index[]>([
@@ -37,7 +37,7 @@ describe('useSearchInput i18n boundaries', () => {
         setLocale('zh-CN');
     });
 
-    it('returns localized source text for unsupported mixed attachment errors', () => {
+    it('user gets localized source text for unsupported mixed attachment errors', () => {
         setLocale('en-US');
         const attachments = useSearchAttachments({
             attachments: ref<Index[]>([

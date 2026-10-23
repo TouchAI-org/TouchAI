@@ -29,7 +29,7 @@ vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => ({ label: 'settings' }),
 }));
 
-describe('browser settings config', () => {
+describe('user edits the browser settings', () => {
     beforeEach(() => {
         settingsValues.clear();
         setSettingMock.mockClear();
@@ -37,7 +37,7 @@ describe('browser settings config', () => {
         setActivePinia(createPinia());
     });
 
-    it('normalizes defaults and invalid json', async () => {
+    it('user normalizes defaults and invalid json', async () => {
         const {
             DEFAULT_BROWSER_SETTINGS,
             getDefaultHomepageError,
@@ -72,7 +72,7 @@ describe('browser settings config', () => {
         ).toBe('');
     });
 
-    it('trims string fields and preserves configured permissions', async () => {
+    it('user trims string fields and preserves configured permissions', async () => {
         const { parseBrowserSettingsConfig } = await import('@/stores/setting/sections/browser');
 
         expect(
@@ -125,7 +125,7 @@ describe('browser settings config', () => {
         });
     });
 
-    it('derives the merged fingerprint profile from legacy fingerprint fields', async () => {
+    it('user derives the merged fingerprint profile from legacy fingerprint fields', async () => {
         const { parseBrowserSettingsConfig } = await import('@/stores/setting/sections/browser');
 
         expect(
@@ -155,7 +155,7 @@ describe('browser settings config', () => {
         });
     });
 
-    it('loads and saves browser settings through the existing settings store', async () => {
+    it('user loads and saves browser settings through the existing settings store', async () => {
         const { DEFAULT_BROWSER_SETTINGS } = await import('@/stores/setting/sections/browser');
         const { useSettingsStore } = await import('@/stores/settings');
         settingsValues.set(

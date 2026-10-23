@@ -12,8 +12,8 @@ const OTHER_URL = 'https://docs.example.com/guide';
 const index = new Set([normalizeCitationUrl(CITATION_URL)]);
 const isCitationUrl = (url: string) => index.has(url);
 
-describe('normalizeWrappedCitations', () => {
-    it('drops half-width parentheses that wrap the citation after a period', () => {
+describe('user reads a citation next to punctuation', () => {
+    it('user drops half-width parentheses that wrap the citation after a period', () => {
         // 模型实际输出：`领投。([新浪科技](url))`
         const content = `蓝驰创投等领投。([新浪科技](${CITATION_URL}))`;
 
@@ -22,7 +22,7 @@ describe('normalizeWrappedCitations', () => {
         );
     });
 
-    it('drops full-width parentheses and moves the punctuation before the link', () => {
+    it('user drops full-width parentheses and moves the punctuation before the link', () => {
         const content = `华为宣布量产（[新浪科技](${CITATION_URL})）。`;
 
         expect(normalizeWrappedCitations(content, isCitationUrl)).toBe(
@@ -30,7 +30,7 @@ describe('normalizeWrappedCitations', () => {
         );
     });
 
-    it('drops parentheses with no surrounding punctuation', () => {
+    it('user drops parentheses with no surrounding punctuation', () => {
         const content = `消息属实([新浪科技](${CITATION_URL}))`;
 
         expect(normalizeWrappedCitations(content, isCitationUrl)).toBe(
@@ -38,13 +38,13 @@ describe('normalizeWrappedCitations', () => {
         );
     });
 
-    it('leaves parentheses around non-search links untouched', () => {
+    it('user leaves parentheses around non-search links untouched', () => {
         const content = `参见（[官方文档](${OTHER_URL})）。`;
 
         expect(normalizeWrappedCitations(content, isCitationUrl)).toBe(content);
     });
 
-    it('returns the content unchanged when no wrapped citation is present', () => {
+    it('user gets the content unchanged when no wrapped citation is present', () => {
         const content = `普通段落，没有任何引用（括号也只是括注）。`;
 
         expect(normalizeWrappedCitations(content, isCitationUrl)).toBe(content);

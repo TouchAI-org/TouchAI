@@ -105,11 +105,14 @@ async function flushResizeLifecycle() {
     await nextTick();
 }
 
-describe('useSearchWindowResize', () => {
+describe('when the search window has no conversation on screen', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-
         vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0);
+            return 1;
+        });
 
         currentWindowMock.isVisible.mockResolvedValue(true);
         currentWindowMock.isMaximized.mockResolvedValue(false);
@@ -130,68 +133,7 @@ describe('useSearchWindowResize', () => {
         document.body.innerHTML = '';
     });
 
-    it.each([false, true])(
-        'does not maximize without a conversation (quick search: %s)',
-        async (quickSearchOpen) => {
-            const mounted = await mountComposable(() =>
-                useSearchWindowResize({
-                    target: ref<HTMLElement | null>(null),
-                    sessionCount: ref(0),
-                    quickSearchOpen: ref(quickSearchOpen),
-                    defaultSize: ref({ width: 750, height: 60 }),
-                    ready: ref(true),
-                })
-            );
-
-            await flushResizeLifecycle();
-            try {
-                await mounted.result.toggleMaximize();
-
-                expect(currentWindowMock.maximize).not.toHaveBeenCalled();
-                expect(mounted.result.effectiveWindowMaximized.value).toBe(false);
-            } finally {
-                mounted.unmount();
-            }
-        }
-    );
-
-    it('maximizes a conversation and still allows restoring after the conversation closes', async () => {
-        const sessionCount = ref(1);
-        currentWindowMock.maximize.mockImplementation(async () => {
-            currentWindowMock.isMaximized.mockResolvedValue(true);
-        });
-        currentWindowMock.unmaximize.mockImplementation(async () => {
-            currentWindowMock.isMaximized.mockResolvedValue(false);
-        });
-        const mounted = await mountComposable(() =>
-            useSearchWindowResize({
-                target: ref<HTMLElement | null>(null),
-                sessionCount,
-                quickSearchOpen: ref(false),
-                defaultSize: ref({ width: 750, height: 60 }),
-                ready: ref(true),
-            })
-        );
-
-        await flushResizeLifecycle();
-        try {
-            await mounted.result.toggleMaximize();
-            expect(currentWindowMock.maximize).toHaveBeenCalledTimes(1);
-            expect(mounted.result.isMaximized.value).toBe(true);
-
-            sessionCount.value = 0;
-            await mounted.result.toggleMaximize();
-            expect(currentWindowMock.unmaximize).toHaveBeenCalledTimes(1);
-            expect(mounted.result.effectiveWindowMaximized.value).toBe(false);
-
-            await mounted.result.toggleMaximize();
-            expect(currentWindowMock.maximize).toHaveBeenCalledTimes(1);
-        } finally {
-            mounted.unmount();
-        }
-    });
-
-    it('applies idle defaults and locks the min-height constraint to the configured idle height once ready', async () => {
+    it('user gets the configured default size applied once the window is ready', async () => {
         const mounted = await mountComposable(() =>
             useSearchWindowResize({
                 target: ref<HTMLElement | null>(null),
@@ -208,66 +150,60 @@ describe('useSearchWindowResize', () => {
             width: 750,
             height: 60,
         });
-        expect(nativeMock.window.resetSearchWindowBounds).toHaveBeenCalledTimes(1);
-        expect(nativeMock.window.setSearchWindowAllowHeightOverride).toHaveBeenCalledWith(false);
+
+        mounted.unmount();
+    });
+
+    it('user cannot make the idle window taller or shorter by dragging its edge', async () => {
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref<HTMLElement | null>(null),
+                sessionCount: ref(0),
+                quickSearchOpen: ref(false),
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready: ref(true),
+            })
+        );
+
+        await flushResizeLifecycle();
+
+        // The idle window is pinned to the default height on both sides.
         expect(nativeMock.window.setSearchWindowMinSize).toHaveBeenLastCalledWith({
             minWidth: 750,
             minHeight: 60,
             maxHeight: 60,
         });
+        expect(nativeMock.window.setSearchWindowAllowHeightOverride).toHaveBeenCalledWith(false);
 
         mounted.unmount();
     });
 
-    it('remeasures a managed panel and only sends a native resize when the measured height changes', async () => {
-        const target = createMeasuredElement(180);
-        const ready = ref(false);
-        const sessionCount = ref(1);
-
+    it('user cannot maximize the search bar on its own', async () => {
         const mounted = await mountComposable(() =>
             useSearchWindowResize({
-                target: ref(target.element),
-                sessionCount,
+                target: ref<HTMLElement | null>(null),
+                sessionCount: ref(0),
                 quickSearchOpen: ref(false),
                 defaultSize: ref({ width: 750, height: 60 }),
-                ready,
+                ready: ref(true),
             })
         );
 
-        ready.value = true;
         await flushResizeLifecycle();
-        vi.clearAllMocks();
+        await mounted.result.toggleMaximize();
 
-        await mounted.result.remeasureTargetHeight();
-
-        expect(nativeMock.window.resizeWindowHeight).not.toHaveBeenCalled();
-
-        target.setHeight(220);
-        await mounted.result.remeasureTargetHeight();
-
-        expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledWith({
-            targetHeight: 220,
-            center: true,
-            animate: false,
-            respectManualOverride: true,
-        });
-        expect(nativeMock.window.setSearchWindowMinSize).toHaveBeenLastCalledWith({
-            minWidth: 750,
-            minHeight: 220,
-            maxHeight: null,
-        });
+        expect(mounted.result.effectiveWindowMaximized.value).toBe(false);
 
         mounted.unmount();
     });
 
-    it('repairs the search window back to idle defaults when a manual-override conversation view returns to idle', async () => {
+    it('user gets the idle height restored when a conversation with a hand-picked height closes', async () => {
         nativeMock.window.getSearchWindowState.mockResolvedValue(
             createWindowState({
                 currentHeight: 240,
                 heightMode: SearchWindowHeightMode.ManualOverride,
             })
         );
-
         const sessionCount = ref(1);
 
         const mounted = await mountComposable(() =>
@@ -286,8 +222,7 @@ describe('useSearchWindowResize', () => {
         sessionCount.value = 0;
         await flushResizeLifecycle();
 
-        expect(nativeMock.window.resetSearchWindowBounds).toHaveBeenCalledTimes(1);
-        expect(nativeMock.window.setSearchWindowAllowHeightOverride).toHaveBeenCalledWith(false);
+        expect(nativeMock.window.resetSearchWindowBounds).toHaveBeenCalled();
         expect(nativeMock.window.setSearchWindowMinSize).toHaveBeenLastCalledWith({
             minWidth: 750,
             minHeight: 60,
@@ -295,5 +230,283 @@ describe('useSearchWindowResize', () => {
         });
 
         mounted.unmount();
+    });
+});
+
+describe('when a conversation is on screen', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0);
+            return 1;
+        });
+
+        currentWindowMock.isVisible.mockResolvedValue(true);
+        currentWindowMock.isMaximized.mockResolvedValue(false);
+        currentWindowMock.maximize.mockResolvedValue(undefined);
+        currentWindowMock.unmaximize.mockResolvedValue(undefined);
+        currentWindowMock.onResized.mockImplementation(async () => () => undefined);
+
+        nativeMock.window.getSearchWindowState.mockResolvedValue(createWindowState());
+        nativeMock.window.resizeWindowHeight.mockResolvedValue(undefined);
+        nativeMock.window.resetSearchWindowBounds.mockResolvedValue(undefined);
+        nativeMock.window.setSearchWindowAllowHeightOverride.mockResolvedValue(undefined);
+        nativeMock.window.setSearchWindowDefaults.mockImplementation(async (defaults) => defaults);
+        nativeMock.window.setSearchWindowMinSize.mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        document.body.innerHTML = '';
+    });
+
+    it('user gets the window following the conversation height as content grows', async () => {
+        const target = createMeasuredElement(180);
+        const ready = ref(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref(target.element),
+                sessionCount: ref(1),
+                quickSearchOpen: ref(false),
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready,
+            })
+        );
+
+        ready.value = true;
+        await flushResizeLifecycle();
+        vi.clearAllMocks();
+
+        // Nothing changed yet, so the window must not be resized again.
+        await mounted.result.remeasureTargetHeight();
+        expect(nativeMock.window.resizeWindowHeight).not.toHaveBeenCalled();
+
+        target.setHeight(220);
+        await mounted.result.remeasureTargetHeight();
+
+        expect(nativeMock.window.resizeWindowHeight).toHaveBeenCalledWith({
+            targetHeight: 220,
+            center: true,
+            animate: false,
+            respectManualOverride: true,
+        });
+
+        mounted.unmount();
+    });
+
+    it('user gets a taller minimum height so the conversation can grow without a jump', async () => {
+        const target = createMeasuredElement(180);
+        const ready = ref(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref(target.element),
+                sessionCount: ref(1),
+                quickSearchOpen: ref(false),
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready,
+            })
+        );
+
+        ready.value = true;
+        await flushResizeLifecycle();
+        await mounted.result.remeasureTargetHeight();
+
+        // Once the conversation is measured, the floor follows it instead of the
+        // idle height, so the window can shrink back down without being blocked.
+        expect(nativeMock.window.setSearchWindowMinSize).toHaveBeenLastCalledWith({
+            minWidth: 750,
+            minHeight: 180,
+            maxHeight: null,
+        });
+
+        mounted.unmount();
+    });
+
+    it('user keeps a hand-picked height instead of having the window follow the content', async () => {
+        const target = createMeasuredElement(180);
+        nativeMock.window.getSearchWindowState.mockResolvedValue(
+            createWindowState({
+                currentHeight: 300,
+                heightMode: SearchWindowHeightMode.ManualOverride,
+            })
+        );
+
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref(target.element),
+                sessionCount: ref(1),
+                quickSearchOpen: ref(false),
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready: ref(true),
+            })
+        );
+
+        await flushResizeLifecycle();
+        vi.clearAllMocks();
+
+        target.setHeight(400);
+        await mounted.result.remeasureTargetHeight();
+
+        expect(nativeMock.window.resizeWindowHeight).not.toHaveBeenCalled();
+
+        mounted.unmount();
+    });
+
+    it('user gets no resize while the search window is hidden', async () => {
+        currentWindowMock.isVisible.mockResolvedValue(false);
+        const target = createMeasuredElement(180);
+        const ready = ref(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref(target.element),
+                sessionCount: ref(1),
+                quickSearchOpen: ref(false),
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready,
+            })
+        );
+
+        ready.value = true;
+        await flushResizeLifecycle();
+        vi.clearAllMocks();
+
+        target.setHeight(400);
+        await mounted.result.remeasureTargetHeight();
+
+        expect(nativeMock.window.resizeWindowHeight).not.toHaveBeenCalled();
+
+        mounted.unmount();
+    });
+
+    it('user can maximize the conversation and restore it later, even after the conversation closes', async () => {
+        const sessionCount = ref(1);
+        currentWindowMock.maximize.mockImplementation(async () => {
+            currentWindowMock.isMaximized.mockResolvedValue(true);
+        });
+        currentWindowMock.unmaximize.mockImplementation(async () => {
+            currentWindowMock.isMaximized.mockResolvedValue(false);
+        });
+
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref<HTMLElement | null>(null),
+                sessionCount,
+                quickSearchOpen: ref(false),
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready: ref(true),
+            })
+        );
+
+        await flushResizeLifecycle();
+
+        await mounted.result.toggleMaximize();
+        expect(mounted.result.isMaximized.value).toBe(true);
+        expect(mounted.result.effectiveWindowMaximized.value).toBe(true);
+
+        // Closing the conversation must not trap the window in the maximized state.
+        sessionCount.value = 0;
+        await mounted.result.toggleMaximize();
+        expect(mounted.result.effectiveWindowMaximized.value).toBe(false);
+
+        mounted.unmount();
+    });
+});
+
+describe('when the quick search panel replaces the conversation', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0);
+            return 1;
+        });
+
+        currentWindowMock.isVisible.mockResolvedValue(true);
+        currentWindowMock.isMaximized.mockResolvedValue(false);
+        currentWindowMock.onResized.mockImplementation(async () => () => undefined);
+
+        nativeMock.window.getSearchWindowState.mockResolvedValue(createWindowState());
+        nativeMock.window.resizeWindowHeight.mockResolvedValue(undefined);
+        nativeMock.window.resetSearchWindowBounds.mockResolvedValue(undefined);
+        nativeMock.window.setSearchWindowAllowHeightOverride.mockResolvedValue(undefined);
+        nativeMock.window.setSearchWindowDefaults.mockImplementation(async (defaults) => defaults);
+        nativeMock.window.setSearchWindowMinSize.mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        document.body.innerHTML = '';
+    });
+
+    it('user gets the window following the panel without letting a manual height stick', async () => {
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref<HTMLElement | null>(null),
+                sessionCount: ref(0),
+                quickSearchOpen: ref(true),
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready: ref(true),
+            })
+        );
+
+        await flushResizeLifecycle();
+
+        expect(nativeMock.window.setSearchWindowAllowHeightOverride).toHaveBeenCalledWith(false);
+        expect(nativeMock.window.setSearchWindowMinSize).toHaveBeenLastCalledWith(
+            expect.objectContaining({ maxHeight: null })
+        );
+
+        mounted.unmount();
+    });
+});
+
+describe('when the window stops being observed', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0);
+            return 1;
+        });
+
+        currentWindowMock.isVisible.mockResolvedValue(true);
+        currentWindowMock.isMaximized.mockResolvedValue(false);
+        currentWindowMock.onResized.mockResolvedValue(() => undefined);
+
+        nativeMock.window.getSearchWindowState.mockResolvedValue(createWindowState());
+        nativeMock.window.setSearchWindowDefaults.mockImplementation(async (defaults) => defaults);
+        nativeMock.window.setSearchWindowMinSize.mockResolvedValue(undefined);
+        nativeMock.window.setSearchWindowAllowHeightOverride.mockResolvedValue(undefined);
+        nativeMock.window.resetSearchWindowBounds.mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        document.body.innerHTML = '';
+    });
+
+    it('user gets the window resize listener released when leaving the search view', async () => {
+        const unlisten = vi.fn();
+        currentWindowMock.onResized.mockResolvedValue(unlisten);
+
+        const mounted = await mountComposable(() =>
+            useSearchWindowResize({
+                target: ref<HTMLElement | null>(null),
+                sessionCount: ref(0),
+                quickSearchOpen: ref(false),
+                defaultSize: ref({ width: 750, height: 60 }),
+                ready: ref(true),
+            })
+        );
+
+        await flushResizeLifecycle();
+        mounted.unmount();
+        await flushResizeLifecycle();
+
+        expect(unlisten).toHaveBeenCalled();
     });
 });

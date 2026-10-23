@@ -48,7 +48,7 @@ vi.mock('@components/CustomSelect.vue', () => ({
     },
 }));
 
-describe('Browser settings section', () => {
+describe('user edits the browser settings', () => {
     beforeEach(() => {
         setActivePinia(createPinia());
         setLocale('zh-CN');
@@ -75,7 +75,7 @@ describe('Browser settings section', () => {
         vi.useRealTimers();
     });
 
-    it('renders dedicated browser controls and auto-saves edits through settings store', async () => {
+    it('user sees dedicated browser controls and auto-saves edits through settings store', async () => {
         const wrapper = mount(BrowserSettingsView);
 
         expect(wrapper.get('[data-testid="browser-settings-title"]').text()).toContain(
@@ -162,7 +162,7 @@ describe('Browser settings section', () => {
         );
     });
 
-    it('edits browser window size as separate width and height fields', async () => {
+    it('user edits browser window size as separate width and height fields', async () => {
         const wrapper = mount(BrowserSettingsView);
 
         await wrapper.get('[data-testid="browser-window-width-input"]').setValue('1440');
@@ -174,7 +174,7 @@ describe('Browser settings section', () => {
         );
     });
 
-    it('navigates browser search results to their matching controls', () => {
+    it('user navigates browser search results to their matching controls', () => {
         const wrapper = mount(BrowserSettingsView);
         const windowSizeResult = searchSettings('窗口尺寸').find(
             (result) => result.section === 'browser'
@@ -201,7 +201,7 @@ describe('Browser settings section', () => {
         ).toBe('Mozilla/5.0 ...');
     });
 
-    it('renders localized homepage validation text', async () => {
+    it('user sees localized homepage validation text', async () => {
         const wrapper = mount(BrowserSettingsView);
 
         await wrapper
@@ -216,7 +216,7 @@ describe('Browser settings section', () => {
         );
     });
 
-    it('shows detailed permission rows only in automatic permission mode', async () => {
+    it('user sees detailed permission rows only in automatic permission mode', async () => {
         const wrapper = mount(BrowserSettingsView);
         const permissionModeSelect = wrapper.get('[data-testid="browser-permission-mode-select"]');
 
@@ -233,7 +233,7 @@ describe('Browser settings section', () => {
         );
     });
 
-    it('disables browser settings controls when the feature is off', async () => {
+    it('user disables browser settings controls when the feature is off', async () => {
         const wrapper = mount(BrowserSettingsView);
 
         await wrapper.get('[data-testid="browser-enabled-toggle"]').trigger('click');
@@ -251,7 +251,7 @@ describe('Browser settings section', () => {
     });
 
     it.each(['blocked', 'allowed'] as const)(
-        'hides the %s domain empty state while editing and closes a blank draft on blur',
+        'user hides the %s domain empty state while editing and closes a blank draft on blur',
         async (kind) => {
             const wrapper = mount(BrowserSettingsView);
             const section = wrapper.get(`[data-settings-search-target="browser-${kind}-domains"]`);
@@ -272,7 +272,7 @@ describe('Browser settings section', () => {
     );
 
     it.each(['blocked', 'allowed'] as const)(
-        'keeps an unsubmitted %s domain on blur until the cancel icon is clicked',
+        'user keeps an unsubmitted %s domain on blur until the cancel icon is clicked',
         async (kind) => {
             const wrapper = mount(BrowserSettingsView);
             const section = wrapper.get(`[data-settings-search-target="browser-${kind}-domains"]`);
@@ -296,7 +296,7 @@ describe('Browser settings section', () => {
     );
 
     it.each(['blocked', 'allowed'] as const)(
-        'saves a normalized %s domain on Enter with the cancel-only editor',
+        'user saves a normalized %s domain on Enter with the cancel-only editor',
         async (kind) => {
             const wrapper = mount(BrowserSettingsView);
             const section = wrapper.get(`[data-settings-search-target="browser-${kind}-domains"]`);
@@ -316,7 +316,7 @@ describe('Browser settings section', () => {
         }
     );
 
-    it('renders browser settings copy in English when locale is English', () => {
+    it('user sees browser settings copy in English when locale is English', () => {
         setLocale('en-US');
 
         const wrapper = mount(BrowserSettingsView);
@@ -345,7 +345,7 @@ describe('Browser settings section', () => {
         expect(wrapper.text()).not.toContain('权限模式');
     });
 
-    it('shows the runtime default browser when no executable path is configured', async () => {
+    it('user sees the runtime default browser when no executable path is configured', async () => {
         browserSettingsPatch.value = { browserExecutablePath: '' };
         const wrapper = mount(BrowserSettingsView);
         await vi.runOnlyPendingTimersAsync();
@@ -366,7 +366,7 @@ describe('Browser settings section', () => {
         expect(updateBrowserSettingsMock).not.toHaveBeenCalled();
     });
 
-    it('shows the runtime default browser data path without saving it automatically', async () => {
+    it('user sees the runtime default browser data path without saving it automatically', async () => {
         browserSettingsPatch.value = { browserDataPath: '' };
         const wrapper = mount(BrowserSettingsView);
 
@@ -378,7 +378,7 @@ describe('Browser settings section', () => {
         expect(updateBrowserSettingsMock).not.toHaveBeenCalled();
     });
 
-    it('shows the default homepage as the field value without saving it automatically', () => {
+    it('user sees the default homepage as the field value without saving it automatically', () => {
         browserSettingsPatch.value = { defaultHomepage: '' };
         const wrapper = mount(BrowserSettingsView);
 
@@ -390,7 +390,7 @@ describe('Browser settings section', () => {
         expect(updateBrowserSettingsMock).not.toHaveBeenCalled();
     });
 
-    it('reuses installed browser discovery across remounts in the same app runtime', async () => {
+    it('user reuses installed browser discovery across remounts in the same app runtime', async () => {
         const firstWrapper = mount(BrowserSettingsView);
         await flushPromises();
 
@@ -406,7 +406,7 @@ describe('Browser settings section', () => {
         secondWrapper.unmount();
     });
 
-    it('refreshes installed browsers asynchronously when the browser selector opens', async () => {
+    it('user refreshes installed browsers asynchronously when the browser selector opens', async () => {
         const wrapper = mount(BrowserSettingsView);
         await flushPromises();
 
@@ -418,7 +418,7 @@ describe('Browser settings section', () => {
         expect(getTauriInvokeCalls('browser_discover_installed')).toHaveLength(2);
     });
 
-    it('renders and saves the existing browser session policy', async () => {
+    it('user sees and saves the existing browser session policy', async () => {
         browserSettingsPatch.value = { existingSessionPolicy: 'ask' };
         const wrapper = mount(BrowserSettingsView);
 
@@ -434,7 +434,7 @@ describe('Browser settings section', () => {
         );
     });
 
-    it('switches to custom browser path editing without auto-saving a discovered path first', async () => {
+    it('user switches to custom browser path editing without auto-saving a discovered path first', async () => {
         browserSettingsPatch.value = { browserExecutablePath: '' };
         const wrapper = mount(BrowserSettingsView);
         await vi.runOnlyPendingTimersAsync();
@@ -459,7 +459,7 @@ describe('Browser settings section', () => {
         );
     });
 
-    it('saves a discovered browser path when selecting a concrete browser', async () => {
+    it('user saves a discovered browser path when selecting a concrete browser', async () => {
         browserSettingsPatch.value = { browserExecutablePath: '' };
         const wrapper = mount(BrowserSettingsView);
         await vi.runOnlyPendingTimersAsync();
@@ -477,7 +477,7 @@ describe('Browser settings section', () => {
         );
     });
 
-    it('clears the custom browser path when switching back to the default browser', async () => {
+    it('user clears the custom browser path when switching back to the default browser', async () => {
         const wrapper = mount(BrowserSettingsView);
 
         await wrapper.get('[data-testid="browser-executable-select"]').setValue('default');

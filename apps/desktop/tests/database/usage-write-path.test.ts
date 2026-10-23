@@ -133,8 +133,8 @@ const WIDE_RANGE = { from: '1970-01-01 00:00:00', to: '9999-12-31 23:59:59' };
 
 afterEach(() => databases.splice(0).forEach((database) => database.close()));
 
-describe('usage summary activity against a real database', () => {
-    it('sums turn durations and counts distinct local active days within the filter', async () => {
+describe('when the user looks at how active they were', () => {
+    it('user sees the total talking time and the number of days they used the app', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -172,7 +172,7 @@ describe('usage summary activity against a real database', () => {
         expect(otherModel.activeDayCount).toBe(0);
     });
 
-    it('counts UTC timestamps on either side of local midnight as separate days', async () => {
+    it('user sees two days when a session crosses their local midnight', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -190,7 +190,7 @@ describe('usage summary activity against a real database', () => {
         expect((await getUsageSummary(WIDE_RANGE)).activeDayCount).toBe(2);
     });
 
-    it('returns explicit zero activity for an empty range', async () => {
+    it('user gets explicit zeros for a range with no activity', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -207,8 +207,8 @@ describe('usage summary activity against a real database', () => {
     });
 });
 
-describe('usage write path against a real database', () => {
-    it('appends llm_call parts after the existing text parts without a sort_order clash', async () => {
+describe('when a turn records its model calls', () => {
+    it('user sees the call recorded after the reply text without reordering it', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -233,7 +233,7 @@ describe('usage write path against a real database', () => {
         ]);
     });
 
-    it('continues numbering when a turn makes several calls in a row', async () => {
+    it('user sees every call of a multi-call turn kept in order', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -258,7 +258,7 @@ describe('usage write path against a real database', () => {
         expect(orders.map((row) => row.sort_order)).toEqual([1, 2, 3]);
     });
 
-    it('aggregates the same call in both the attempt and the turn', async () => {
+    it('user sees the same call counted in both the attempt and the turn', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -320,7 +320,7 @@ describe('usage write path against a real database', () => {
         expect(summary.unpricedCount).toBe(1);
     });
 
-    it('writes the call payload with usage and timing', async () => {
+    it('user sees the token usage and timing stored with the call', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -345,7 +345,7 @@ describe('usage write path against a real database', () => {
         expect(row.priced).toBe(false);
     });
 
-    it('records the owning turn so a call can be traced back to its turn', async () => {
+    it('user can trace a call back to the turn that made it', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -370,7 +370,7 @@ describe('usage write path against a real database', () => {
         expect(status.status).toBe('failed');
     });
 
-    it('keeps the cost columns when the call is priced', async () => {
+    it('user sees the cost kept when the call could be priced', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -406,7 +406,7 @@ describe('usage write path against a real database', () => {
         expect(persisted.currency).toBe('USD');
     });
 
-    it('survives a wasted first attempt: both attempts keep their own usage', async () => {
+    it('user sees both attempts of a retried call keep their own usage', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);

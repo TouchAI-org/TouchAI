@@ -10,8 +10,8 @@ import { describe, expect, it } from 'vitest';
  *
  * 直接跑生产队列 `enqueueToolPartWrite`，不在测试里复刻实现。
  */
-describe('tool part write serialization', () => {
-    it('does not start the next write until the previous one settles', async () => {
+describe('when tool results are written at the same time', () => {
+    it('user gets tool results written one after another', async () => {
         const events: string[] = [];
         let releaseFirst: () => void = () => undefined;
         const firstGate = new Promise<void>((resolve) => {
@@ -40,7 +40,7 @@ describe('tool part write serialization', () => {
         expect(events).toEqual(['first:start', 'first:end', 'second:start']);
     });
 
-    it('assigns distinct sort_order to concurrent writes', async () => {
+    it('user sees concurrent tool results keep distinct positions', async () => {
         const rows: number[] = [];
 
         const createPart = () =>
@@ -59,7 +59,7 @@ describe('tool part write serialization', () => {
         expect(new Set(assigned).size).toBe(3);
     });
 
-    it('keeps the queue alive after a failed write', async () => {
+    it('user gets later tool results written after one write fails', async () => {
         await expect(
             enqueueToolPartWrite(async () => {
                 throw new Error('write failed');
@@ -69,7 +69,7 @@ describe('tool part write serialization', () => {
         await expect(enqueueToolPartWrite(async () => 'ok')).resolves.toBe('ok');
     });
 
-    it('runs queued operations in submission order', async () => {
+    it('user sees tool results stored in the order they happened', async () => {
         const order: string[] = [];
 
         await Promise.all([

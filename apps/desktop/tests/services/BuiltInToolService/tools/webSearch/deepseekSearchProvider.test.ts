@@ -72,8 +72,8 @@ function requestHeaders(callIndex = 0): Record<string, string> {
     return tauriFetchMock.mock.calls[callIndex]?.[1]?.headers as Record<string, string>;
 }
 
-describe('DeepSeek query mapping', () => {
-    it('maps domains to site: operators and recency to after:', () => {
+describe('user searches the web with DeepSeek', () => {
+    it('user sees domains mapped to site: operators and recency to after:', () => {
         const query = buildDeepSeekQuery(
             baseRequest({
                 domains: ['github.com', 'huggingface.co'],
@@ -86,7 +86,7 @@ describe('DeepSeek query mapping', () => {
         expect(query.startsWith('DeepSeek V4 发布')).toBe(true);
     });
 
-    it('drops operators instead of truncating the query when the budget is exhausted', () => {
+    it('user sees operators dropped instead of a truncated query when the budget runs out', () => {
         const longQuery = 'a'.repeat(DEEPSEEK_QUERY_MAX_CHARS - 8);
         const query = buildDeepSeekQuery(
             baseRequest({ query: longQuery, domains: ['github.com'] })
@@ -95,11 +95,11 @@ describe('DeepSeek query mapping', () => {
         expect(query).toBe(longQuery);
     });
 
-    it('keeps the query untouched when no operator applies', () => {
+    it('user sees the query untouched when no operator applies', () => {
         expect(buildDeepSeekQuery(baseRequest())).toBe('DeepSeek V4 发布');
     });
 
-    it('caps the number of site: operators', () => {
+    it('user sees the number of site: operators capped', () => {
         const query = buildDeepSeekQuery(
             baseRequest({
                 query: 'q',
@@ -111,8 +111,8 @@ describe('DeepSeek query mapping', () => {
     });
 });
 
-describe('DeepSeek result mapping', () => {
-    it('prefers the model-facing summary over the UI snippet', () => {
+describe('user sees search results mapped from the provider response', () => {
+    it('user sees the model-facing summary preferred over the UI snippet', () => {
         const result = toDeepSeekResult({
             title: 'DeepSeek V4 model released',
             url: 'https://example.com/deepseek-v4',
@@ -138,7 +138,7 @@ describe('DeepSeek result mapping', () => {
         });
     });
 
-    it('normalizes unknown authority and missing optional fields', () => {
+    it('user sees unknown authority and missing optional fields normalized', () => {
         const result = toDeepSeekResult({
             title: 'DeepSeek result',
             url: 'https://example.com/post',
@@ -156,22 +156,22 @@ describe('DeepSeek result mapping', () => {
         });
     });
 
-    it('drops malformed entries', () => {
+    it('user sees malformed entries dropped', () => {
         expect(toDeepSeekResult({ title: 'no url' })).toBeNull();
         expect(toDeepSeekResult({ url: 'https://example.com' })).toBeNull();
         expect(toDeepSeekResult(null)).toBeNull();
     });
 });
 
-describe('DeepSeek result ranking', () => {
+describe('user sees search results ranked', () => {
     const high = { title: 'a', url: 'https://a.example', source: 'a', score: 2, authority: 3 };
     const low = { title: 'b', url: 'https://b.example', source: 'b', score: 0.4, authority: 1 };
 
-    it('drops clearly irrelevant results', () => {
+    it('user sees clearly irrelevant results dropped', () => {
         expect(rankDeepSeekResults([high, low], false)).toEqual([high]);
     });
 
-    it('converges on authoritative sources only when enough of them survive', () => {
+    it('user sees authoritative sources converge only when enough of them survive', () => {
         const weak = { title: 'c', url: 'https://c.example', source: 'c', score: 2, authority: 1 };
         const authoritative = [
             high,
@@ -202,8 +202,8 @@ describe('DeepSeek result ranking', () => {
     });
 });
 
-describe('DeepSeek endpoint normalization', () => {
-    it('accepts both documented endpoint forms', () => {
+describe('user sees documented endpoint forms accepted', () => {
+    it('user sees both documented endpoint forms accepted', () => {
         // 官方同时接受 `/` 与 `/v1` 结尾，两者都不能拼成 `/v1/v1/...`。
         expect(buildDeepSeekToolsUrl('https://api.deepseek.com/v1')).toBe(
             'https://api.deepseek.com/v1/tools/search'
@@ -218,8 +218,8 @@ describe('DeepSeek endpoint normalization', () => {
     });
 });
 
-describe('DeepSeek throttling and retries', () => {
-    it('spaces queued requests by the configured interval', async () => {
+describe('user sees throttled and retried searches', () => {
+    it('user sees queued requests spaced by the configured interval', async () => {
         let now = 0;
         const sleeps: number[] = [];
         const scheduler = createRequestScheduler({
@@ -241,7 +241,7 @@ describe('DeepSeek throttling and retries', () => {
         expect(sleeps).toEqual([250, 250]);
     });
 
-    it('keeps the queue alive after a failed request', async () => {
+    it('user sees the queue stay alive after a failed request', async () => {
         const scheduler = createRequestScheduler({
             minIntervalMs: 0,
             now: () => 0,
@@ -254,7 +254,7 @@ describe('DeepSeek throttling and retries', () => {
         await expect(scheduler.run(async () => 'ok')).resolves.toBe('ok');
     });
 
-    it('classifies retryable statuses per the official error table', () => {
+    it('user sees retryable statuses classified per the official error table', () => {
         expect(isRetryableDeepSeekError(new WebSearchHttpError(408, 'Request Timeout'))).toBe(true);
         expect(isRetryableDeepSeekError(new WebSearchHttpError(429, 'Too Many Requests'))).toBe(
             true
@@ -267,7 +267,7 @@ describe('DeepSeek throttling and retries', () => {
         expect(isRetryableDeepSeekError(new Error('HTTP 500'))).toBe(false);
     });
 
-    it('honours Retry-After and otherwise falls back to exponential backoff', () => {
+    it('user sees Retry-After honored and exponential backoff otherwise', () => {
         expect(
             deepSeekRetryDelayMs(
                 0,
@@ -283,7 +283,7 @@ describe('DeepSeek throttling and retries', () => {
         );
     });
 
-    it('retries retryable failures and stops on deterministic ones', async () => {
+    it('user sees retryable failures retried and deterministic ones stopped', async () => {
         const sleep = vi.fn(async () => undefined);
         let attempts = 0;
 
@@ -316,13 +316,13 @@ describe('DeepSeek throttling and retries', () => {
     });
 });
 
-describe('DeepSeek search provider', () => {
+describe('user gets search results from the DeepSeek provider', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         getSettingValueMock.mockResolvedValue(null);
     });
 
-    it('searches through the documented endpoint with an inline key', async () => {
+    it('user sees the documented endpoint called with an inline key', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             deepseekSettings({ apiKey: 'inline-key', endpoint: 'https://api.deepseek.com' })
         );
@@ -368,7 +368,7 @@ describe('DeepSeek search provider', () => {
         });
     });
 
-    it('keeps the provider in the semantic target when search fails', async () => {
+    it('user sees the provider kept in the semantic target when a search fails', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             deepseekSettings({ apiKey: 'inline-key', endpoint: 'https://api.deepseek.com' })
         );
@@ -387,7 +387,7 @@ describe('DeepSeek search provider', () => {
         });
     });
 
-    it('falls back to an available provider when no DeepSeek key is configured', async () => {
+    it('user sees another provider used when no DeepSeek key is configured', async () => {
         getSettingValueMock.mockResolvedValueOnce(deepseekSettings({}));
         tauriFetchMock.mockResolvedValueOnce(jsonResponse({ results: [] }));
 
@@ -403,7 +403,7 @@ describe('DeepSeek search provider', () => {
         );
     });
 
-    it('does not duplicate the version prefix for /v1 endpoints', async () => {
+    it('user does not see a duplicated version prefix for /v1 endpoints', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             deepseekSettings({ apiKey: 'relay-key', endpoint: 'https://relay.example.com/v1' })
         );
@@ -416,7 +416,7 @@ describe('DeepSeek search provider', () => {
         );
     });
 
-    it('requests inline page content only when asked', async () => {
+    it('user sees inline page content requested only when asked', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             deepseekSettings({ apiKey: 'inline-key', endpoint: 'https://api.deepseek.com' })
         );
@@ -442,7 +442,7 @@ describe('DeepSeek search provider', () => {
         expect(result.result).toContain('Content: # DeepSeek V4');
     });
 
-    it('passes domain and recency hints through the query operators', async () => {
+    it('user sees domain and recency hints passed through query operators', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             deepseekSettings({ apiKey: 'inline-key', endpoint: 'https://api.deepseek.com' })
         );
@@ -462,7 +462,7 @@ describe('DeepSeek search provider', () => {
         expect(String(requestBody().query)).toMatch(/after:\d{4}-\d{2}-\d{2}/);
     });
 
-    it('translates deterministic API failures into actionable messages', () => {
+    it('user reads deterministic API failures as actionable messages', () => {
         expect(
             describeDeepSeekFailure(new WebSearchHttpError(402, 'Payment Required')).message
         ).toBe('DeepSeek account has insufficient balance. (HTTP 402 Payment Required)');
@@ -475,7 +475,7 @@ describe('DeepSeek search provider', () => {
         );
     });
 
-    it('retries rate limited requests before succeeding', async () => {
+    it('user sees rate-limited requests retried before succeeding', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             deepseekSettings({ apiKey: 'inline-key', endpoint: 'https://api.deepseek.com' })
         );
@@ -500,7 +500,7 @@ describe('DeepSeek search provider', () => {
         expect(result.result).toContain('Recovered');
     });
 
-    it('surfaces non-retryable billing failures without retrying', async () => {
+    it('user sees billing failures surfaced without retrying', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             deepseekSettings({ apiKey: 'inline-key', endpoint: 'https://api.deepseek.com' })
         );

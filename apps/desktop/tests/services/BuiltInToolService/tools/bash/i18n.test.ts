@@ -6,12 +6,12 @@ import { DEFAULT_BASH_TOOL_CONFIG } from '@/services/BuiltInToolService/tools/ba
 import { formatBashToolResult } from '@/services/BuiltInToolService/tools/bash/helper';
 import type { BuiltInBashExecutionResponse } from '@/services/NativeService';
 
-describe('Bash approval i18n', () => {
+describe('user approves a shell command in their own language', () => {
     beforeEach(() => {
         setLocale('zh-CN');
     });
 
-    it('creates an English approval request when the active locale is English', async () => {
+    it('user reads the shell approval request in English', async () => {
         setLocale('en-US');
 
         const approval = await createBashApprovalRequest(
@@ -36,7 +36,7 @@ describe('Bash approval i18n', () => {
         });
     });
 
-    it('formats empty command output in English when the active locale is English', () => {
+    it('user reads empty command output in English', () => {
         setLocale('en-US');
 
         const result = formatBashToolResult(

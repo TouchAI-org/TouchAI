@@ -34,12 +34,12 @@ vi.mock('@tauri-apps/plugin-process', () => ({
     exit: vi.fn(),
 }));
 
-describe('TrayView i18n', () => {
+describe('user opens the tray menu', () => {
     beforeEach(() => {
         setLocale('zh-CN');
     });
 
-    it('renders concise English menu labels', () => {
+    it('user sees concise English menu labels', () => {
         setLocale('en-US');
 
         const wrapper = mount(TrayView);

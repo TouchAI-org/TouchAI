@@ -188,7 +188,7 @@ async function mountDefaultModelSelection(providerEnabled: number) {
     return wrapper;
 }
 
-describe('SettingsAiServicesSection', () => {
+describe('user manages providers and models', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         modelUpdateListeners.clear();
@@ -206,7 +206,7 @@ describe('SettingsAiServicesSection', () => {
         modelMetadataMock.refreshModelMetadataIfStale.mockResolvedValue({ status: 'skipped' });
     });
 
-    it('omits custom-only controls for builtin providers', async () => {
+    it('user omits custom-only controls for builtin providers', async () => {
         queries.findAllProvidersSorted.mockResolvedValue([
             {
                 id: 1,
@@ -249,7 +249,7 @@ describe('SettingsAiServicesSection', () => {
         expect(wrapper.find('[data-testid="settings-provider-edit-button"]').exists()).toBe(false);
     });
 
-    it('exposes custom provider controls and driver metadata', async () => {
+    it('user exposes custom provider controls and driver metadata', async () => {
         queries.findAllProvidersSorted.mockResolvedValue([
             {
                 id: 2,
@@ -292,7 +292,7 @@ describe('SettingsAiServicesSection', () => {
         expect(wrapper.text()).toContain('Custom Gateway');
     });
 
-    it('patches provider config locally and refreshes models without a success toast', async () => {
+    it('user patches provider config locally and refreshes models without a success toast', async () => {
         const provider = {
             id: 2,
             name: 'Custom Gateway',
@@ -365,7 +365,7 @@ describe('SettingsAiServicesSection', () => {
         expect(wrapper.text()).toContain('Renamed Gateway');
     });
 
-    it('refreshes models after creating a provider without a success toast', async () => {
+    it('user refreshes models after creating a provider without a success toast', async () => {
         const createdProvider = {
             id: 9,
             name: 'New Gateway',
@@ -443,7 +443,7 @@ describe('SettingsAiServicesSection', () => {
         expect(alertMock.success).not.toHaveBeenCalled();
     });
 
-    it('hands the refreshed model list to the persistence use case', async () => {
+    it('user hands the refreshed model list to the persistence use case', async () => {
         const upstreamCapabilities = {
             contextLimit: 400_000,
             outputLimit: 128_000,
@@ -541,7 +541,7 @@ describe('SettingsAiServicesSection', () => {
         expect(alertMock.success).not.toHaveBeenCalled();
     });
 
-    it('patches the default model locally without provider list reload', async () => {
+    it('user patches the default model locally without provider list reload', async () => {
         const provider = {
             id: 2,
             name: 'Custom Gateway',
@@ -626,7 +626,7 @@ describe('SettingsAiServicesSection', () => {
         expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 20');
     });
 
-    it('enables a disabled provider before setting its model as default and updates cached models', async () => {
+    it('user enables a disabled provider before setting its model as default and updates cached models', async () => {
         const wrapper = await mountDefaultModelSelection(0);
 
         await wrapper.get('[data-testid="set-default-model"]').trigger('click');
@@ -649,7 +649,7 @@ describe('SettingsAiServicesSection', () => {
         expect(queries.findAllProvidersSorted).toHaveBeenCalledTimes(1);
     });
 
-    it('preserves the model list and filter when its own update notification returns', async () => {
+    it('user preserves the model list and filter when its own update notification returns', async () => {
         const wrapper = await mountDefaultModelSelection(1);
         const filter = wrapper.get<HTMLInputElement>('[data-testid="model-filter"]');
         const scrollContainer = wrapper.get<HTMLElement>('.settings-scrollbar');
@@ -669,7 +669,7 @@ describe('SettingsAiServicesSection', () => {
         expect(eventServiceMock.emit).toHaveBeenCalledTimes(1);
     });
 
-    it('renders local models while a remote metadata refresh is pending', async () => {
+    it('user sees local models while a remote metadata refresh is pending', async () => {
         let resolveRefresh!: (result: { status: string }) => void;
         modelMetadataMock.refreshModelMetadataIfStale.mockReturnValueOnce(
             new Promise((resolve) => {
@@ -689,7 +689,7 @@ describe('SettingsAiServicesSection', () => {
         }
     });
 
-    it('still synchronizes model changes published by another instance', async () => {
+    it('user still synchronizes model changes published by another instance', async () => {
         const wrapper = await mountDefaultModelSelection(1);
         queries.findDefaultModel.mockResolvedValue({ id: 20, provider_id: 2 });
 
@@ -703,7 +703,7 @@ describe('SettingsAiServicesSection', () => {
         expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 20');
     });
 
-    it('keeps the previous default and disabled state when enabling fails', async () => {
+    it('user keeps the previous default and disabled state when enabling fails', async () => {
         const wrapper = await mountDefaultModelSelection(0);
         queries.updateProvider.mockRejectedValueOnce(new Error('Enable failed'));
 
@@ -718,7 +718,7 @@ describe('SettingsAiServicesSection', () => {
         expect(alertMock.error).toHaveBeenCalledWith('Enable failed');
     });
 
-    it('keeps the previous default when saving a new default fails', async () => {
+    it('user keeps the previous default when saving a new default fails', async () => {
         const wrapper = await mountDefaultModelSelection(1);
         queries.setDefaultModel.mockRejectedValueOnce(new Error('Save failed'));
 
@@ -734,7 +734,7 @@ describe('SettingsAiServicesSection', () => {
         expect(alertMock.error).toHaveBeenCalledWith('Save failed');
     });
 
-    it('publishes the enabled provider state even when saving its default model fails', async () => {
+    it('user sees the enabled provider state even when saving its default model fails', async () => {
         const wrapper = await mountDefaultModelSelection(0);
         queries.setDefaultModel.mockRejectedValueOnce(new Error('Save failed'));
 

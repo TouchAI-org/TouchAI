@@ -16,8 +16,8 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { TooltipProvider } from 'reka-ui';
 import { describe, expect, it } from 'vitest';
 
-describe('ui/Tooltip', () => {
-    it('as-child 的触发元素保持原有标签', () => {
+describe('user hovers for a tooltip', () => {
+    it('user as-child 的触发元素保持原有标签', () => {
         const wrapper = mount({
             components: { Tooltip, TooltipTrigger },
             template: `
@@ -33,7 +33,7 @@ describe('ui/Tooltip', () => {
         expect(trigger.element.tagName).toBe('BUTTON');
     });
 
-    it('content 携带项目既有的卡片样式', async () => {
+    it('user content 携带项目既有的卡片样式', async () => {
         const wrapper = mount(
             {
                 components: { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider },

@@ -53,13 +53,13 @@ function mountAgent() {
     return { agent: agent as ReturnType<typeof useAgent>, wrapper };
 }
 
-describe('useAgent i18n', () => {
+describe('when the app language is not English', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('zh-CN');
     });
 
-    it('uses keyed localized empty prompt errors in the active locale', async () => {
+    it('user is told the prompt is empty in the app language', async () => {
         setLocale('en-US');
         const { agent, wrapper } = mountAgent();
 
@@ -71,7 +71,7 @@ describe('useAgent i18n', () => {
         wrapper.unmount();
     });
 
-    it('uses keyed localized request failure notification titles while localizing known AiError bodies', async () => {
+    it('user gets the request failure notification in the app language', async () => {
         setLocale('en-US');
         startTaskMock.mockRejectedValue(new AiError(AiErrorCode.EMPTY_RESPONSE));
         const { agent, wrapper } = mountAgent();

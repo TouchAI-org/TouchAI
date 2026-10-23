@@ -42,8 +42,8 @@ function createToolCall(): AiToolCall {
     };
 }
 
-describe('BuiltInToolService.executeTool', () => {
-    it('emits call_start with startedAt before executing the builtin tool', async () => {
+describe('user runs a built-in tool', () => {
+    it('user sees the tool call start reported with its start time before the tool runs', async () => {
         createBuiltInToolLogMock.mockResolvedValue({ id: 17 });
         findBuiltInToolByToolIdMock.mockResolvedValue({
             tool_id: 'bash',
@@ -116,7 +116,7 @@ describe('BuiltInToolService.executeTool', () => {
         });
     });
 
-    it('emits an immediate call_start before async semantic preparation finishes', async () => {
+    it('user sees the tool call start reported before slow preparation finishes', async () => {
         createBuiltInToolLogMock.mockResolvedValue({ id: 18 });
         updateBuiltInToolLogByCallIdMock.mockResolvedValue(undefined);
         findBuiltInToolByToolIdMock.mockResolvedValue({

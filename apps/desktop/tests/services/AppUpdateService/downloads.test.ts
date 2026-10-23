@@ -36,14 +36,14 @@ const downloads: AppUpdateDownload[] = [
     },
 ];
 
-describe('preferredAppUpdateDownload', () => {
-    it('prefers the Windows installer on Windows', () => {
+describe('user downloads the installer that fits the platform', () => {
+    it('user gets the Windows installer on Windows', () => {
         expect(preferredAppUpdateDownload(downloads, { os: 'windows' })?.name).toBe(
             'TouchAI-0.2.0-windows.msi'
         );
     });
 
-    it('falls back to the Windows setup installer when no MSI is available', () => {
+    it('user gets the Windows setup installer when no MSI is published', () => {
         const downloadsWithoutMsi: AppUpdateDownload[] = [
             {
                 kind: 'installer',
@@ -70,25 +70,25 @@ describe('preferredAppUpdateDownload', () => {
         );
     });
 
-    it('prefers the DMG on macOS', () => {
+    it('user gets the disk image on macOS', () => {
         expect(preferredAppUpdateDownload(downloads, { os: 'macos' })?.name).toBe(
             'TouchAI-0.2.0-macos.dmg'
         );
     });
 
-    it('prefers the AppImage on Linux', () => {
+    it('user gets the AppImage on Linux', () => {
         expect(preferredAppUpdateDownload(downloads, { os: 'linux' })?.name).toBe(
             'TouchAI-0.2.0-linux.AppImage'
         );
     });
 
-    it('falls back to the first preferred download on unknown platforms', () => {
+    it('user gets the first published installer on an unknown platform', () => {
         expect(preferredAppUpdateDownload(downloads, { os: 'unknown' })?.name).toBe(
             'TouchAI-0.2.0-windows.msi'
         );
     });
 
-    it('returns null for known platforms when no matching download is available', () => {
+    it('user gets nothing when the platform has no matching installer', () => {
         const windowsOnlyDownloads: AppUpdateDownload[] = [
             {
                 kind: 'installer',
@@ -108,7 +108,7 @@ describe('preferredAppUpdateDownload', () => {
         expect(preferredAppUpdateDownload(windowsOnlyDownloads, { os: 'macos' })).toBeNull();
     });
 
-    it('returns null when there are no downloads', () => {
+    it('user gets nothing when the release publishes no downloads', () => {
         expect(preferredAppUpdateDownload([], { os: 'windows' })).toBeNull();
     });
 });

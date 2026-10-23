@@ -19,14 +19,14 @@ vi.mock('@/services/AgentService/infrastructure/providers', () => ({
     createTauriFetch: () => tauriFetchMock,
 }));
 
-describe('WebFetch tool i18n', () => {
+describe('user reads fetched page reports in their own language', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useRealTimers();
         setLocale('zh-CN');
     });
 
-    it('localizes generated fetch report labels in English mode while preserving page content', () => {
+    it('user reads generated fetch report labels in English while page content stays as fetched', () => {
         setLocale('en-US');
         const request = {
             url: new URL('https://example.test/article'),
@@ -68,7 +68,7 @@ describe('WebFetch tool i18n', () => {
         expect(result).not.toContain('请求 URL');
     });
 
-    it('localizes unsupported response labels and reasons', () => {
+    it('user reads unsupported response labels and reasons in English', () => {
         setLocale('en-US');
         const request = {
             url: new URL('https://example.test/file.zip'),
@@ -91,7 +91,7 @@ describe('WebFetch tool i18n', () => {
         expect(result).not.toContain('原因: 当前仅支持');
     });
 
-    it('localizes truncation fallback text', () => {
+    it('user reads truncation fallback text in English', () => {
         setLocale('en-US');
 
         const result = truncateContent('abcdef', 3);
@@ -99,7 +99,7 @@ describe('WebFetch tool i18n', () => {
         expect(result.content).toBe('abc\n\n[Body truncated, 6 characters total]');
     });
 
-    it('localizes request validation errors in English', () => {
+    it('user reads request validation errors in English', () => {
         setLocale('en-US');
 
         expect(() =>
@@ -120,7 +120,7 @@ describe('WebFetch tool i18n', () => {
         ).toThrow('WebFetch tool blocks localhost, private-network and single-label hostnames.');
     });
 
-    it('localizes timeout abort reason in English', () => {
+    it('user reads the timeout reason in English', () => {
         setLocale('en-US');
         vi.useFakeTimers();
 
@@ -133,7 +133,7 @@ describe('WebFetch tool i18n', () => {
         cleanup();
     });
 
-    it('localizes unsupported content type error message in English', async () => {
+    it('user reads the unsupported content type message in English', async () => {
         setLocale('en-US');
         tauriFetchMock.mockResolvedValueOnce(
             new Response('', {
@@ -158,7 +158,7 @@ describe('WebFetch tool i18n', () => {
         expect(result.result).toContain('Web page fetch failed');
     });
 
-    it('localizes fallback target and image alt text in English', () => {
+    it('user reads the fallback target and image alt text in English', () => {
         setLocale('en-US');
 
         expect(webFetchTool.buildConversationSemantic({})).toMatchObject({

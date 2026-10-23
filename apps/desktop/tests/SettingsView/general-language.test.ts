@@ -94,7 +94,7 @@ async function flushMountedPromises() {
     }
 }
 
-describe('Settings General shortcut capture i18n', () => {
+describe('user captures a shortcut in general settings', () => {
     beforeEach(() => {
         setActivePinia(createPinia());
         vi.clearAllMocks();
@@ -104,13 +104,13 @@ describe('Settings General shortcut capture i18n', () => {
         setLocale('zh-CN');
     });
 
-    it('localizes the shortcut capture prompt from source text', () => {
+    it('user sees the shortcut capture prompt from source text', () => {
         setLocale('en-US');
 
         expect(tt('请按下快捷键...')).toBe('Press a shortcut...');
     });
 
-    it('renders general settings copy and option labels in English without DOM localization', async () => {
+    it('user sees general settings copy and option labels in English without DOM localization', async () => {
         setLocale('en-US');
 
         const wrapper = mount(GeneralSection, {

@@ -69,7 +69,7 @@ vi.mock('@/stores/settings', () => ({
     }),
 }));
 
-describe('PopupView i18n bootstrap', () => {
+describe('user opens a popup window', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useRealTimers();
@@ -96,7 +96,7 @@ describe('PopupView i18n bootstrap', () => {
         vi.useRealTimers();
     });
 
-    it('announces popup readiness when persisted settings initialization fails', async () => {
+    it('user announces popup readiness when persisted settings initialization fails', async () => {
         const { default: PopupView } = await import('@/views/PopupView/index.vue');
         settingsInitializeMock.mockRejectedValueOnce(new Error('settings unavailable'));
 
@@ -112,7 +112,7 @@ describe('PopupView i18n bootstrap', () => {
         });
     });
 
-    it('does not wait for persisted settings before announcing popup readiness', async () => {
+    it('user does not wait for persisted settings before announcing popup readiness', async () => {
         const { default: PopupView } = await import('@/views/PopupView/index.vue');
         settingsInitializeMock.mockReturnValueOnce(new Promise(() => undefined));
 
@@ -125,7 +125,7 @@ describe('PopupView i18n bootstrap', () => {
         });
     });
 
-    it('hides an empty popup window if no popup data arrives after ready', async () => {
+    it('user hides an empty popup window if no popup data arrives after ready', async () => {
         vi.useFakeTimers();
         const hideMock = vi.fn().mockResolvedValue(undefined);
         getCurrentWindowMock.mockReturnValue({
@@ -142,7 +142,7 @@ describe('PopupView i18n bootstrap', () => {
         expect(hideMock).toHaveBeenCalledTimes(1);
     });
 
-    it('closes the current popup from a matching native search surface command', async () => {
+    it('user closes the current popup from a matching native search surface command', async () => {
         const { default: PopupView } = await import('@/views/PopupView/index.vue');
 
         mount(PopupView);

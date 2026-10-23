@@ -30,8 +30,8 @@ function createTarget(initialText = '') {
     };
 }
 
-describe('clipboardDraft', () => {
-    it('allows auto-paste only when the draft, session, and model state are all empty', () => {
+describe('when the user pastes into the search bar', () => {
+    it('user gets the clipboard pasted automatically only into an untouched draft', () => {
         expect(
             canAutoPasteIntoDraft({
                 queryText: '   ',
@@ -75,7 +75,7 @@ describe('clipboardDraft', () => {
         ).toBe(false);
     });
 
-    it('trims plain clipboard text boundaries and appends created attachments when no fragments are present', async () => {
+    it('user gets plain clipboard text trimmed with its files appended', async () => {
         const target = createTarget('Existing');
         const payload: ClipboardPayload = {
             snapshotId: 'plain-1',
@@ -102,7 +102,7 @@ describe('clipboardDraft', () => {
         ]);
     });
 
-    it('projects attachment-only fragments back to the end of the current draft when no text fragments exist', async () => {
+    it('user gets files from an attachment-only paste added after the current text', async () => {
         const target = createTarget('Draft');
         const payload: ClipboardPayload = {
             snapshotId: 'fragments-1',
@@ -135,7 +135,7 @@ describe('clipboardDraft', () => {
         ]);
     });
 
-    it('detects attachment fragments separately from plain text fragments', () => {
+    it('user gets pasted files detected separately from pasted text', () => {
         expect(
             clipboardPayloadHasAttachmentFragments({
                 snapshotId: 'text-fragments',

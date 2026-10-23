@@ -20,24 +20,24 @@ const mountButton = (props: Record<string, unknown> = {}) =>
         attachTo: document.body,
     });
 
-describe('ui/Button', () => {
-    describe('现有调用点的默认输出必须保持不变', () => {
-        it('无 props 时的 class 稳定', () => {
+describe('user sees a button', () => {
+    describe('user sees the existing buttons unchanged', () => {
+        it('user sees the default button unchanged', () => {
             expect(mountButton().classes().sort()).toMatchSnapshot();
         });
 
-        it('variant=outline 的 class 稳定', () => {
+        it('user variant=outline 的 class 稳定', () => {
             expect(mountButton({ variant: 'outline' }).classes().sort()).toMatchSnapshot();
         });
 
-        it('variant=ghost size=icon 的 class 稳定', () => {
+        it('user variant=ghost size=icon 的 class 稳定', () => {
             expect(
                 mountButton({ variant: 'ghost', size: 'icon' }).classes().sort()
             ).toMatchSnapshot();
         });
     });
 
-    describe('全部 variant 组合的 class 快照', () => {
+    describe('user sees every button variant unchanged', () => {
         const variants = [
             'default',
             'destructive',
@@ -47,19 +47,19 @@ describe('ui/Button', () => {
             'link',
         ] as const;
 
-        it.each(variants)('variant=%s', (variant) => {
+        it.each(variants)('user variant=%s', (variant) => {
             expect(mountButton({ variant }).classes().sort()).toMatchSnapshot();
         });
 
         const sizes = ['default', 'sm', 'lg', 'icon'] as const;
 
-        it.each(sizes)('size=%s', (size) => {
+        it.each(sizes)('user size=%s', (size) => {
             expect(mountButton({ size }).classes().sort()).toMatchSnapshot();
         });
     });
 
-    describe('settings 族 variant（原 .settings-button-* 类）', () => {
-        it('variant=strong 等价于 settings-button-primary', () => {
+    describe('user sees the settings buttons unchanged', () => {
+        it('user variant=strong 等价于 settings-button-primary', () => {
             const classes = mountButton({ variant: 'strong' }).classes();
             expect(classes.sort()).toMatchSnapshot();
             // 原类：bg-primary-700 hover:bg-primary-600 rounded-[9px] px-3.5 py-1.5
@@ -88,7 +88,7 @@ describe('ui/Button', () => {
             expect(classes).not.toContain('text-sm');
         });
 
-        it('variant=outline-neutral 等价于 settings-button-secondary', () => {
+        it('user variant=outline-neutral 等价于 settings-button-secondary', () => {
             const classes = mountButton({ variant: 'outline-neutral' }).classes();
             expect(classes.sort()).toMatchSnapshot();
             expect(classes).toContain('border-neutral-200/80');
@@ -97,7 +97,7 @@ describe('ui/Button', () => {
             expect(classes).not.toContain('inline-flex');
         });
 
-        it('variant=danger 等价于 settings-button-danger', () => {
+        it('user variant=danger 等价于 settings-button-danger', () => {
             const classes = mountButton({ variant: 'danger' }).classes();
             expect(classes.sort()).toMatchSnapshot();
             expect(classes).toContain('bg-red-600');
@@ -105,7 +105,7 @@ describe('ui/Button', () => {
             expect(classes).not.toContain('inline-flex');
         });
 
-        it('variant=ghost-neutral 等价于 settings-icon-button', () => {
+        it('user variant=ghost-neutral 等价于 settings-icon-button', () => {
             const classes = mountButton({ variant: 'ghost-neutral' }).classes();
             expect(classes.sort()).toMatchSnapshot();
             // 原类：flex h-8 w-8 items-center justify-center rounded-[9px]
@@ -131,7 +131,7 @@ describe('ui/Button', () => {
             expect(classes).not.toContain('font-medium');
         });
 
-        it('settings / icon 族忽略 size 轴（尺寸已含在 layout 内）', () => {
+        it('user settings / icon 族忽略 size 轴（尺寸已含在 layout 内）', () => {
             for (const variant of [
                 'strong',
                 'outline-neutral',
@@ -147,25 +147,54 @@ describe('ui/Button', () => {
         });
     });
 
-    describe('icon 尺寸变体', () => {
-        it('size=icon-sm 输出 h-7 w-7', () => {
+    describe('user sees the icon button sizes', () => {
+        it('user size=icon-sm 输出 h-7 w-7', () => {
             const classes = mountButton({ size: 'icon-sm' }).classes();
             expect(classes).toContain('h-7');
             expect(classes).toContain('w-7');
         });
 
-        it('size=icon-md 输出 h-8 w-8', () => {
+        it('user size=icon-md 输出 h-8 w-8', () => {
             const classes = mountButton({ size: 'icon-md' }).classes();
             expect(classes).toContain('h-8');
             expect(classes).toContain('w-8');
         });
     });
 
-    describe('调用点传入的 class 会被合并而非覆盖', () => {
-        it('额外 class 追加在末尾', () => {
+    describe('user sees the button keep its call-site class', () => {
+        it('user gets the call-site class alongside the variant classes', () => {
             const wrapper = mountButton({ class: 'custom-x' });
             expect(wrapper.classes()).toContain('custom-x');
             expect(wrapper.classes()).toContain('inline-flex');
+        });
+
+        it('user gets the call-site height instead of the variant height', () => {
+            const classes = mountButton({
+                variant: 'strong',
+                class: 'inline-flex h-9 items-center justify-center px-4',
+            }).classes();
+
+            expect(classes).toContain('h-9');
+            expect(classes).not.toContain('h-10');
+        });
+
+        it('user gets the call-site padding instead of the variant padding', () => {
+            const classes = mountButton({ variant: 'strong', class: 'px-3 py-1.5' }).classes();
+
+            expect(classes).toContain('px-3');
+            expect(classes).not.toContain('px-3.5');
+            expect(classes).toContain('py-1.5');
+        });
+
+        it('user keeps a full-width call-site class', () => {
+            const classes = mountButton({
+                variant: 'strong',
+                class: 'flex w-full items-center justify-center gap-2 break-words whitespace-normal',
+            }).classes();
+
+            expect(classes).toContain('w-full');
+            expect(classes).toContain('break-words');
+            expect(classes).toContain('whitespace-normal');
         });
     });
 });

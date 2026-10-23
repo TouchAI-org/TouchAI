@@ -46,8 +46,8 @@ const availableUpdate: AppUpdateCheckResult = {
     requirement: neutralRequirement,
 };
 
-describe('AppUpdateService state reducer', () => {
-    it('creates an idle state with auto-check enabled by default', () => {
+describe('user sees the update state change with each updater event', () => {
+    it('user starts with automatic checks on and no update known', () => {
         expect(createInitialAppUpdateState()).toEqual({
             status: 'idle',
             channel: 'stable',
@@ -64,7 +64,7 @@ describe('AppUpdateService state reducer', () => {
         } satisfies AppUpdateState);
     });
 
-    it('records unsupported environments without treating them as failures', () => {
+    it('user sees an unsupported-environment notice that is not an error', () => {
         const state = reduceAppUpdateState(createInitialAppUpdateState(), {
             type: 'check-completed',
             channel: 'stable',
@@ -90,7 +90,7 @@ describe('AppUpdateService state reducer', () => {
         });
     });
 
-    it('records available updates and clears stale errors', () => {
+    it('user sees the available update and the stale error cleared', () => {
         const state = reduceAppUpdateState(
             {
                 ...createInitialAppUpdateState(),
@@ -115,7 +115,7 @@ describe('AppUpdateService state reducer', () => {
         });
     });
 
-    it('records channel latest metadata when no Velopack update is available', () => {
+    it('user sees the latest release notes when the updater finds no package', () => {
         const state = reduceAppUpdateState(createInitialAppUpdateState(), {
             type: 'check-completed',
             channel: 'stable',
@@ -137,7 +137,7 @@ describe('AppUpdateService state reducer', () => {
         });
     });
 
-    it('records forced update requirements from check results', () => {
+    it('user sees a forced-update requirement', () => {
         const requirement = {
             required: true,
             minimumSupportedVersion: '0.2.1',
@@ -159,7 +159,7 @@ describe('AppUpdateService state reducer', () => {
         expect(state.updateRequirement).toEqual(requirement);
     });
 
-    it('tracks download progress and the downloaded update', () => {
+    it('user sees download progress and the finished download', () => {
         const available = reduceAppUpdateState(createInitialAppUpdateState(), {
             type: 'check-completed',
             channel: 'stable',
@@ -192,7 +192,7 @@ describe('AppUpdateService state reducer', () => {
         });
     });
 
-    it('ignores stale download progress after a download finishes', () => {
+    it('user keeps the finished download when late progress arrives', () => {
         const downloaded = reduceAppUpdateState(
             {
                 ...createInitialAppUpdateState(),
@@ -213,7 +213,7 @@ describe('AppUpdateService state reducer', () => {
         });
     });
 
-    it('ignores stale download completion after the user switches channels', () => {
+    it('user sees the new channel kept when an old download completes', () => {
         const switched = reduceAppUpdateState(
             {
                 ...createInitialAppUpdateState(),
@@ -237,7 +237,7 @@ describe('AppUpdateService state reducer', () => {
         });
     });
 
-    it('ignores stale failures after the user leaves an in-flight updater operation', () => {
+    it('user does not see an old failure after switching channels', () => {
         const switched = reduceAppUpdateState(
             {
                 ...createInitialAppUpdateState(),
@@ -258,7 +258,7 @@ describe('AppUpdateService state reducer', () => {
         });
     });
 
-    it('records installing and failed states', () => {
+    it('user sees the install start and a later failure', () => {
         const installing = reduceAppUpdateState(createInitialAppUpdateState(), {
             type: 'install-started',
         });
@@ -274,7 +274,7 @@ describe('AppUpdateService state reducer', () => {
         });
     });
 
-    it('clears stale update results when switching channels', () => {
+    it('user sees the previous channel results cleared when switching', () => {
         const available = reduceAppUpdateState(createInitialAppUpdateState(), {
             type: 'check-completed',
             channel: 'stable',
@@ -300,7 +300,7 @@ describe('AppUpdateService state reducer', () => {
         });
     });
 
-    it('ignores a completed check if the user has already switched channels', () => {
+    it('user does not see results from a check started before switching channels', () => {
         const checking = reduceAppUpdateState(createInitialAppUpdateState(), {
             type: 'check-started',
             channel: 'stable',

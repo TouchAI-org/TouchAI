@@ -27,7 +27,7 @@ vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
     },
 }));
 
-describe('useMcpConnection i18n', () => {
+describe('when an MCP server connection goes wrong', () => {
     beforeEach(() => {
         setActivePinia(createPinia());
         setLocale('zh-CN');
@@ -63,7 +63,7 @@ describe('useMcpConnection i18n', () => {
         return store;
     }
 
-    it('returns translated setup errors outside component templates', async () => {
+    it('user is told why the server setup failed', async () => {
         setLocale('en-US');
 
         const connection = useMcpConnection(ref(404));
@@ -75,7 +75,7 @@ describe('useMcpConnection i18n', () => {
         });
     });
 
-    it('returns keyed connection timeout errors outside component templates', async () => {
+    it('user is told the connection timed out', async () => {
         vi.useFakeTimers();
         setLocale('en-US');
         addServer();
@@ -94,7 +94,7 @@ describe('useMcpConnection i18n', () => {
         vi.useRealTimers();
     });
 
-    it('returns keyed disconnect timeout errors outside component templates', async () => {
+    it('user is told the disconnect timed out', async () => {
         vi.useFakeTimers();
         setLocale('en-US');
         addServer();
@@ -113,7 +113,7 @@ describe('useMcpConnection i18n', () => {
         vi.useRealTimers();
     });
 
-    it('composes keyed reconnect errors with the localized inner failure', async () => {
+    it('user is told both that reconnecting failed and why', async () => {
         vi.useFakeTimers();
         setLocale('en-US');
         addServer();

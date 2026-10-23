@@ -95,8 +95,8 @@ function seedSearch(database: SqliteDatabase) {
     `);
 }
 
-describe('normalized message parts database contract', () => {
-    it('writes and patches tool identifiers only inside data through Drizzle', async () => {
+describe('when conversations are stored as ordered message parts', () => {
+    it('user gets tool identifiers stored only inside the part data', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedSearch(database);
@@ -144,7 +144,7 @@ describe('normalized message parts database contract', () => {
         }
     });
 
-    it('updates tool state without moving the part or changing its creation time', async () => {
+    it('user sees a tool update leave the part where it was', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedSearch(database);
@@ -171,7 +171,7 @@ describe('normalized message parts database contract', () => {
         });
     });
 
-    it('writes an attachment reference in data and joins through its virtual column', async () => {
+    it('user gets attachments referenced from part data and findable by column', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedSearch(database);
@@ -196,7 +196,7 @@ describe('normalized message parts database contract', () => {
         ]);
     });
 
-    it('searches canonical tool outputs and keeps their FTS row in sync', async () => {
+    it('user finds tool output through search and stays in sync', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedSearch(database);
@@ -215,7 +215,7 @@ describe('normalized message parts database contract', () => {
         database.exec('DELETE FROM message_parts WHERE message_id = 2');
         expect(ftsIds(database, 'Replacement')).toEqual([]);
     });
-    it('updates output parts in place without rewriting tool or attachment parts', async () => {
+    it('user sees an output update leave other parts untouched', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedSearch(database);
@@ -264,13 +264,13 @@ describe('normalized message parts database contract', () => {
         expect(ftsIds(database, 'New answer')).toEqual([]);
     });
 
-    it('stores message content only in parts', () => {
+    it('user gets message text stored in one place only', () => {
         const database = openDatabase();
         const columns = database.prepare('PRAGMA table_info(messages)').all();
         expect(columns.map((column) => column.name)).not.toContain('content');
         expect(columns.map((column) => column.name)).not.toContain('reasoning');
     });
-    it('preserves legacy content and reasoning and backfills the index', () => {
+    it('user keeps old replies and reasoning through the migration', () => {
         const database = openDatabase(4);
         database.exec(`
             INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'migration', 'Migration', 'test');
@@ -290,7 +290,7 @@ describe('normalized message parts database contract', () => {
         expect(ftsIds(database, 'Existing answer')).toEqual([1]);
         expect(ftsIds(database, 'thought')).toEqual([]);
     });
-    it('cascades message deletion to its parts and search index row', () => {
+    it('user gets a deleted message removed from parts and search', () => {
         const database = openDatabase();
         seedSearch(database);
         database.exec('DELETE FROM messages WHERE id = 1');
@@ -299,7 +299,7 @@ describe('normalized message parts database contract', () => {
         );
         expect(ftsIds(database, 'First')).toEqual([]);
     });
-    it('imports ordered parts once and preserves reasoning timing and search', () => {
+    it('user gets imported conversations with their ordering and reasoning time intact', () => {
         const database = openDatabase();
         database.exec("ATTACH DATABASE ':memory:' AS imported");
         const tables = database
@@ -354,7 +354,7 @@ describe('normalized message parts database contract', () => {
             database.prepare('SELECT count(*) AS count FROM message_search_fts').get()?.count
         ).toBe(1);
     });
-    it('completes and updates an imported message without replacing existing part IDs', () => {
+    it('user sees an imported message update without losing its parts', () => {
         const database = openDatabase();
         attachImportDatabase(database);
         database.exec(`
@@ -396,7 +396,7 @@ describe('normalized message parts database contract', () => {
         expect(ftsIds(database, 'Revised answer')).toEqual([]);
     });
 
-    it('keeps chat-only turns and MCP identities when local IDs differ without copying secrets', () => {
+    it('user keeps their MCP tool identities through an import without secrets leaking', () => {
         const database = openDatabase();
         attachImportDatabase(database);
         database.exec(`
@@ -459,7 +459,7 @@ describe('normalized message parts database contract', () => {
         expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     });
 
-    it('does not bind imported historical tools to an unrelated local server after source deletion', () => {
+    it('user gets no historical tool bound to an unrelated local server', () => {
         const database = openDatabase();
         attachImportDatabase(database);
         database.exec(`
@@ -499,7 +499,7 @@ describe('normalized message parts database contract', () => {
         ).toBe(1);
     });
 
-    it('merges full settings by provider/model/server identity rather than source row IDs', () => {
+    it('user keeps their settings when importing by identity rather than row id', () => {
         const database = openDatabase();
         attachImportDatabase(database);
         database.exec(`
@@ -535,7 +535,7 @@ describe('normalized message parts database contract', () => {
         expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     });
 
-    it('remaps upgrade-model chain providers while preserving order on repeated full imports', () => {
+    it('user keeps the upgrade-model chain order on repeated imports', () => {
         const database = openDatabase();
         attachImportDatabase(database);
         database.exec(`
@@ -591,7 +591,7 @@ describe('normalized message parts database contract', () => {
         ).toBe(2);
     });
 
-    it('does not bind removed upgrade-chain providers to unrelated local row IDs', () => {
+    it('user gets no removed upgrade provider bound to an unrelated local row', () => {
         const database = openDatabase();
         attachImportDatabase(database);
         database.exec(`
@@ -613,7 +613,7 @@ describe('normalized message parts database contract', () => {
         ).toEqual({ chain: [] });
     });
 
-    it('releases import workspace tables instead of retaining copied parts on the connection', () => {
+    it('user gets the import workspace cleaned up afterwards', () => {
         const database = openDatabase();
         attachImportDatabase(database);
         const merge = readFileSync(`${databaseRoot}/artifacts/import/chat_merge.sql`, 'utf8');
@@ -625,7 +625,7 @@ describe('normalized message parts database contract', () => {
         }
     });
 
-    it('remaps imported attachment IDs without mutating source parts or duplicating messages', () => {
+    it('user gets imported attachments remapped without duplicating messages', () => {
         const database = openDatabase();
         database.exec(
             "INSERT INTO attachments (id, hash, type, original_name, origin_path) VALUES (2, 'same-hash', 'file', 'local.txt', '/local'), (7, 'other-hash', 'file', 'other.txt', '/other')"
@@ -666,7 +666,7 @@ describe('normalized message parts database contract', () => {
         );
         expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     });
-    it('derives history, previews and substring searches from ordered parts', async () => {
+    it('user sees history, previews and search built from the ordered parts', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedSearch(database);
@@ -688,7 +688,7 @@ describe('normalized message parts database contract', () => {
         expect(await listSessions({ query: 'Missing' })).toHaveLength(0);
     });
 
-    it('ignores reasoning-only assistant messages when refreshing session metadata', async () => {
+    it('user gets no empty preview from a reasoning-only reply', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         database.exec(`
@@ -715,8 +715,8 @@ describe('normalized message parts database contract', () => {
     });
 });
 
-describe('contentless-delete message search index', () => {
-    it('indexes the ordered message without a second content table or token positions', () => {
+describe('when conversation text is searched', () => {
+    it('user gets message text indexed without a second copy', () => {
         const database = openDatabase();
         seedSearch(database);
         const definition = String(
@@ -737,7 +737,7 @@ describe('contentless-delete message search index', () => {
         expect(ftsIds(database, 'First')).toEqual([1]);
         expect(ftsIds(database, 'Secret')).toEqual([]);
     });
-    it('synchronizes content, ordering, types, moves, and removal of the last text part', () => {
+    it('user gets the search index following every edit to the message text', () => {
         const database = openDatabase();
         seedSearch(database);
         database.exec(
@@ -758,7 +758,7 @@ describe('contentless-delete message search index', () => {
         database.exec("UPDATE message_parts SET type = 'text' WHERE content = 'Secret thought'");
         expect(ftsIds(database, 'Secret')).toEqual([1]);
     });
-    it('can reconstruct the contentless index from parts without another content store', () => {
+    it('user gets the search index rebuilt from the parts alone', () => {
         const database = openDatabase();
         seedSearch(database);
         database.exec(`
@@ -780,7 +780,7 @@ describe('contentless-delete message search index', () => {
         ).toBeNull();
     });
 
-    it('does not rewrite the index for reasoning, timing or unchanged text', () => {
+    it('user gets no needless index writes when nothing textual changed', () => {
         const database = openDatabase();
         seedSearch(database);
         const changes = () =>
@@ -798,7 +798,7 @@ describe('contentless-delete message search index', () => {
         expect(ftsIds(database, 'New thought')).toEqual([]);
     });
 
-    it('replaces parts atomically and rolls the index back with the source', () => {
+    it('user gets parts and index rolled back together on failure', () => {
         const database = openDatabase();
         seedSearch(database);
         database.exec(`BEGIN; DELETE FROM message_parts WHERE message_id = 1;
@@ -813,7 +813,7 @@ describe('contentless-delete message search index', () => {
         );
         expect(ftsIds(database, 'Committed')).toEqual([1]);
     });
-    it('removes index rows on message and session cascade deletion', () => {
+    it('user gets search entries removed when messages or conversations are deleted', () => {
         const database = openDatabase();
         seedSearch(database);
         database.exec('BEGIN; DELETE FROM messages WHERE id = 1; ROLLBACK;');
@@ -862,7 +862,7 @@ describe('contentless-delete message search index', () => {
             .run('中文搜索 100% _ab a"b a OR b foo* x\\y 😀中文 résumé a\u200db ab\u0301');
         expect(await listSessions({ query })).toHaveLength(matches ? 1 : 0);
     });
-    it('uses FTS candidates for long queries, verifies them against text, and falls back for short queries', async () => {
+    it('user finds matches for both long and short queries', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedSearch(database);
@@ -889,7 +889,7 @@ describe('contentless-delete message search index', () => {
         await listSessions({ query: 'Fi' });
         expect(requests().slice(-1)[0]!.sql).not.toContain('message_search_fts');
     });
-    it('returns every matching session once and applies the limit after title and content matches', async () => {
+    it('user sees each matching conversation once within the requested limit', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedSearch(database);
@@ -908,7 +908,7 @@ describe('contentless-delete message search index', () => {
         ).toEqual([3, 2]);
     });
 
-    it('keeps title matches, archived sessions and searchable roles intact', async () => {
+    it('user finds matches in titles and archived conversations', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedSearch(database);

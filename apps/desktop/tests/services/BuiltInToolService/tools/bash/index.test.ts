@@ -47,12 +47,12 @@ function fakeContext(
     };
 }
 
-describe('executeBashTool request construction', () => {
+describe('user runs a shell command from the assistant', () => {
     beforeEach(() => {
         mockBashExecute();
     });
 
-    it('passes rawOutput true to the native request', async () => {
+    it('user sees raw output on when requested', async () => {
         const config = { ...DEFAULT_BASH_TOOL_CONFIG, defaultWorkingDirectory: 'D:/project' };
         await executeBashTool({ command: 'git status', rawOutput: true }, config, fakeContext());
 
@@ -62,7 +62,7 @@ describe('executeBashTool request construction', () => {
         });
     });
 
-    it('passes rawOutput false to the native request', async () => {
+    it('user sees raw output off when requested', async () => {
         const config = { ...DEFAULT_BASH_TOOL_CONFIG, defaultWorkingDirectory: 'D:/project' };
         await executeBashTool({ command: 'git status', rawOutput: false }, config, fakeContext());
 
@@ -72,7 +72,7 @@ describe('executeBashTool request construction', () => {
         });
     });
 
-    it('defaults rawOutput to false when omitted', async () => {
+    it('user sees raw output off by default', async () => {
         const config = { ...DEFAULT_BASH_TOOL_CONFIG, defaultWorkingDirectory: 'D:/project' };
         await executeBashTool({ command: 'dir' }, config, fakeContext());
 
@@ -82,7 +82,7 @@ describe('executeBashTool request construction', () => {
         });
     });
 
-    it('passes compactOutput from config to the native request', async () => {
+    it('user sees the output compaction choice passed to the shell', async () => {
         const config = {
             ...DEFAULT_BASH_TOOL_CONFIG,
             defaultWorkingDirectory: 'D:/project',
@@ -96,7 +96,7 @@ describe('executeBashTool request construction', () => {
         });
     });
 
-    it('passes compactOutput false when disabled in config', async () => {
+    it('user sees output compaction off when the config disables it', async () => {
         const config = {
             ...DEFAULT_BASH_TOOL_CONFIG,
             defaultWorkingDirectory: 'D:/project',
@@ -110,7 +110,7 @@ describe('executeBashTool request construction', () => {
         });
     });
 
-    it('includes executionId from context', async () => {
+    it('user sees the execution id passed to the shell', async () => {
         const config = { ...DEFAULT_BASH_TOOL_CONFIG, defaultWorkingDirectory: 'D:/project' };
         await executeBashTool({ command: 'dir' }, config, fakeContext());
 
@@ -120,7 +120,7 @@ describe('executeBashTool request construction', () => {
         });
     });
 
-    it('includes timeoutMs from config', async () => {
+    it('user sees the configured timeout passed to the shell', async () => {
         const config = {
             ...DEFAULT_BASH_TOOL_CONFIG,
             defaultWorkingDirectory: 'D:/project',
@@ -134,7 +134,7 @@ describe('executeBashTool request construction', () => {
         });
     });
 
-    it('lets the model shorten the timeout within the configured ceiling', async () => {
+    it('user sees the model shorten the timeout within the ceiling', async () => {
         const config = {
             ...DEFAULT_BASH_TOOL_CONFIG,
             defaultWorkingDirectory: 'D:/project',
@@ -152,7 +152,7 @@ describe('executeBashTool request construction', () => {
         });
     });
 
-    it('caps a model request at the configured ceiling', async () => {
+    it('user sees a model request capped at the configured ceiling', async () => {
         const config = {
             ...DEFAULT_BASH_TOOL_CONFIG,
             defaultWorkingDirectory: 'D:/project',
@@ -170,7 +170,7 @@ describe('executeBashTool request construction', () => {
         });
     });
 
-    it('ignores a below-floor model request instead of killing the command after 1s', async () => {
+    it('user sees a below-minimum request ignored instead of killing the command', async () => {
         const config = {
             ...DEFAULT_BASH_TOOL_CONFIG,
             defaultWorkingDirectory: 'D:/project',
@@ -184,7 +184,7 @@ describe('executeBashTool request construction', () => {
         });
     });
 
-    it('lets the model extend up to the executor limit when the config allows it', async () => {
+    it('user sees the model extend up to the executor limit when the config allows it', async () => {
         const config = {
             ...DEFAULT_BASH_TOOL_CONFIG,
             defaultWorkingDirectory: 'D:/project',
@@ -202,7 +202,7 @@ describe('executeBashTool request construction', () => {
         });
     });
 
-    it('falls back to the configured timeout when no model request is present', async () => {
+    it('user sees the configured timeout used when the model requests nothing', async () => {
         const config = {
             ...DEFAULT_BASH_TOOL_CONFIG,
             defaultWorkingDirectory: 'D:/project',
@@ -216,7 +216,7 @@ describe('executeBashTool request construction', () => {
         });
     });
 
-    it('passes 0 through so the native layer disables the timeout', async () => {
+    it('user sees a zero timeout passed through to disable it', async () => {
         const config = {
             ...DEFAULT_BASH_TOOL_CONFIG,
             defaultWorkingDirectory: 'D:/project',
@@ -230,7 +230,7 @@ describe('executeBashTool request construction', () => {
         });
     });
 
-    it('ignores a model suggestion when the timeout is disabled', async () => {
+    it('user sees a model suggestion ignored when timeouts are disabled', async () => {
         const config = {
             ...DEFAULT_BASH_TOOL_CONFIG,
             defaultWorkingDirectory: 'D:/project',
@@ -248,7 +248,7 @@ describe('executeBashTool request construction', () => {
         });
     });
 
-    it('sends the full request shape with both compactOutput and rawOutput', async () => {
+    it('user sees the full request shape with both output options', async () => {
         const config = {
             ...DEFAULT_BASH_TOOL_CONFIG,
             defaultWorkingDirectory: 'D:/project',
@@ -275,8 +275,8 @@ describe('executeBashTool request construction', () => {
     });
 });
 
-describe('bashTool adaptive timeout ceiling', () => {
-    it('advertises the configured timeout as the ceiling', () => {
+describe('user sees how long a shell command may run', () => {
+    it('user sees the configured timeout advertised as the ceiling', () => {
         const definition = bashTool.buildToolDefinition('builtin__bash', {
             ...DEFAULT_BASH_TOOL_CONFIG,
             timeoutMs: 30000,
@@ -288,13 +288,13 @@ describe('bashTool adaptive timeout ceiling', () => {
         });
     });
 
-    it('advertises the executor limit when the config allows it', () => {
+    it('user sees the executor limit advertised when the config allows it', () => {
         const definition = bashTool.buildToolDefinition('builtin__bash', DEFAULT_BASH_TOOL_CONFIG);
 
         expect(definition.adaptiveTimeoutCeilingMs).toBe(BASH_TOOL_TIMEOUT_MAX_MS);
     });
 
-    it('does not advertise a ceiling when the timeout is disabled', () => {
+    it('user sees no ceiling advertised when timeouts are disabled', () => {
         const definition = bashTool.buildToolDefinition('builtin__bash', {
             ...DEFAULT_BASH_TOOL_CONFIG,
             timeoutMs: 0,
@@ -303,7 +303,7 @@ describe('bashTool adaptive timeout ceiling', () => {
         expect(definition.adaptiveTimeoutCeilingMs).toBeUndefined();
     });
 
-    it('does not advertise a ceiling below the shared minimum', () => {
+    it('user sees no ceiling advertised below the shared minimum', () => {
         const definition = bashTool.buildToolDefinition('builtin__bash', {
             ...DEFAULT_BASH_TOOL_CONFIG,
             timeoutMs: 500,
@@ -313,8 +313,8 @@ describe('bashTool adaptive timeout ceiling', () => {
     });
 });
 
-describe('createBashApprovalRequest', () => {
-    it('skips approval when approval mode is never', async () => {
+describe('user approves a risky shell command', () => {
+    it('user sees no approval when approval mode is never', async () => {
         await expect(
             createBashApprovalRequest(
                 {
@@ -330,7 +330,7 @@ describe('createBashApprovalRequest', () => {
         ).resolves.toBeNull();
     });
 
-    it('requests approval for high-risk commands and always mode', async () => {
+    it('user sees approval requested for risky commands and always mode', async () => {
         await expect(
             createBashApprovalRequest(
                 {
@@ -365,7 +365,7 @@ describe('createBashApprovalRequest', () => {
         });
     });
 
-    it('does not request approval for a safe command in high-risk mode', async () => {
+    it('user sees no approval for a safe command in high-risk mode', async () => {
         await expect(
             createBashApprovalRequest(
                 {
@@ -379,8 +379,8 @@ describe('createBashApprovalRequest', () => {
     });
 });
 
-describe('bashTool', () => {
-    it('delegates config parsing, semantic building, approval creation, and execution', async () => {
+describe('user runs the shell tool end to end', () => {
+    it('user sees config parsing, semantics, approval, and execution applied in one call', async () => {
         mockBashExecute();
 
         expect(bashTool.parseConfig(null)).toEqual(DEFAULT_BASH_TOOL_CONFIG);

@@ -11,12 +11,12 @@ import {
     providerDriverDefinitions,
 } from '@/services/AgentService/infrastructure/providers';
 
-describe('provider driver labels i18n', () => {
+describe('user picks a provider driver in their own language', () => {
     beforeEach(() => {
         setLocale('zh-CN');
     });
 
-    it('localizes app-owned provider driver labels for English UI', () => {
+    it('user reads provider driver labels in English', () => {
         setLocale('en-US');
 
         expect(getProviderDriverDefinition('openai-compatible').label).toBe('OpenAI compatible');
@@ -27,7 +27,7 @@ describe('provider driver labels i18n', () => {
         expect(getProviderDriverDefinition('zhipu').label).toBe('Zhipu');
     });
 
-    it('keeps provider driver labels in Chinese for the default locale', () => {
+    it('user reads provider driver labels in Chinese in the default locale', () => {
         const labels = getProviderDriverDefinitions().map((definition) => definition.label);
 
         expect(labels).toContain('OpenAI 兼容');
@@ -36,7 +36,7 @@ describe('provider driver labels i18n', () => {
         expect(labels).toContain('智谱');
     });
 
-    it('registers Xiaomi MiMo as a builtin provider driver', () => {
+    it('user can pick Xiaomi MiMo as a built-in provider driver', () => {
         expect(isProviderDriver('mimo')).toBe(true);
 
         const definition = getProviderDriverDefinition('mimo');
@@ -47,13 +47,13 @@ describe('provider driver labels i18n', () => {
         expect(getProviderDriverDefinitions().some((item) => item.driver === 'mimo')).toBe(true);
     });
 
-    it('keeps the legacy exported definition list available for non-reactive callers', () => {
+    it('user sees the exported driver list stay usable for non-reactive callers', () => {
         expect(providerDriverDefinitions.map((definition) => definition.driver)).toContain(
             'openai-compatible'
         );
     });
 
-    it('keeps the legacy exported definition list localized after a runtime locale switch', () => {
+    it('user sees the exported driver list follow a runtime locale switch', () => {
         expect(
             providerDriverDefinitions.find((definition) => definition.driver === 'alibaba')?.label
         ).toBe('阿里云百炼');
@@ -65,7 +65,7 @@ describe('provider driver labels i18n', () => {
         ).toBe('Alibaba Cloud Bailian');
     });
 
-    it('validates provider driver values and rejects unknown drivers', () => {
+    it('user cannot select an unknown provider driver', () => {
         expect(isProviderDriver('openai')).toBe(true);
         expect(isProviderDriver('unknown')).toBe(false);
         expect(parseProviderDriver('openai-compatible')).toBe('openai-compatible');
@@ -75,7 +75,7 @@ describe('provider driver labels i18n', () => {
         );
     });
 
-    it('creates every registered provider adapter without translating runtime driver ids', () => {
+    it('user sees every registered driver produce a working adapter with stable ids', () => {
         for (const definition of getProviderDriverDefinitions()) {
             const provider = createProviderFromRegistry(definition.driver, {
                 apiEndpoint: definition.placeholder,

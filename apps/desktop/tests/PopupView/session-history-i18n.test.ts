@@ -23,7 +23,7 @@ vi.mock('@services/EventService', () => ({
     },
 }));
 
-describe('SessionHistoryPopover i18n', () => {
+describe('user opens the session history', () => {
     beforeEach(() => {
         setLocale('zh-CN');
         vi.useFakeTimers();
@@ -34,7 +34,7 @@ describe('SessionHistoryPopover i18n', () => {
         vi.useRealTimers();
     });
 
-    it('renders dynamic labels in English when the active locale is English', () => {
+    it('user sees dynamic labels in English when the active locale is English', () => {
         setLocale('en-US');
 
         const wrapper = mount(SessionHistoryPopover, {
@@ -75,7 +75,7 @@ describe('SessionHistoryPopover i18n', () => {
         );
     });
 
-    it('updates status titles after switching locale without remounting', async () => {
+    it('user updates status titles after switching locale without remounting', async () => {
         const wrapper = mount(SessionHistoryPopover, {
             props: {
                 data: {
@@ -117,7 +117,7 @@ describe('SessionHistoryPopover i18n', () => {
         );
     });
 
-    it('uses keyed translations for every session status title', () => {
+    it('user uses keyed translations for every session status title', () => {
         setLocale('en-US');
 
         const wrapper = mount(SessionHistoryPopover, {
@@ -212,7 +212,7 @@ describe('SessionHistoryPopover i18n', () => {
         ]);
     });
 
-    it('renders empty and loading states in English', async () => {
+    it('user sees empty and loading states in English', async () => {
         setLocale('en-US');
 
         const wrapper = mount(SessionHistoryPopover, {
@@ -241,7 +241,7 @@ describe('SessionHistoryPopover i18n', () => {
         expect(wrapper.text()).toContain('Try a shorter keyword');
     });
 
-    it('opts session title and preview text out of global DOM localization', () => {
+    it('user opts session title and preview text out of global DOM localization', () => {
         setLocale('en-US');
 
         const wrapper = mount(SessionHistoryPopover, {
@@ -286,7 +286,7 @@ describe('SessionHistoryPopover i18n', () => {
         expect(wrapper.get('.history-session-preview').text()).toBe('关闭');
     });
 
-    it('uses the configured toggle shortcut and ignores the old default', () => {
+    it('user uses the configured toggle shortcut and ignores the old default', () => {
         const wrapper = mount(SessionHistoryPopover, {
             props: {
                 data: {
@@ -309,7 +309,7 @@ describe('SessionHistoryPopover i18n', () => {
         expect(wrapper.emitted('close')).toHaveLength(1);
     });
 
-    it('does not close from the old history shortcut when the shortcut is disabled', () => {
+    it('user does not close from the old history shortcut when the shortcut is disabled', () => {
         const wrapper = mount(SessionHistoryPopover, {
             props: {
                 data: {

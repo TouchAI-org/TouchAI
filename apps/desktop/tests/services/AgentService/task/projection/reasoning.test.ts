@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SessionTaskProjection } from '@/services/AgentService/task/projection/projection';
 import type { SessionTaskSnapshot } from '@/services/AgentService/task/types';
 
-describe('SessionTaskProjection interleaved reasoning', () => {
+describe('user watches reasoning and the answer arrive interleaved', () => {
     let snapshot: SessionTaskSnapshot;
     let projection: SessionTaskProjection;
 
@@ -31,7 +31,7 @@ describe('SessionTaskProjection interleaved reasoning', () => {
         projection.bootstrap([], 'Hello', []);
     });
 
-    it('keeps alternating reasoning and text in arrival order and merges only adjacent deltas', () => {
+    it('user sees reasoning and text kept in arrival order with only adjacent deltas merged', () => {
         for (const chunk of [
             { reasoning: 'First ', content: '' },
             { reasoning: 'thought', content: '' },
@@ -53,7 +53,7 @@ describe('SessionTaskProjection interleaved reasoning', () => {
         expect(new Set(message.parts.map((part) => part.id)).size).toBe(4);
     });
 
-    it('ends the thinking state as soon as tool arguments arrive', () => {
+    it('user sees the thinking state end as soon as tool arguments arrive', () => {
         projection.handleChunk({ content: '', reasoning: 'Need a tool', done: false });
         projection.handleChunk({
             content: '',
@@ -82,7 +82,7 @@ describe('SessionTaskProjection interleaved reasoning', () => {
         ]);
     });
 
-    it('completes reasoning-only responses without leaving a thinking indicator', () => {
+    it('user sees a reasoning-only response finish without a lingering thinking indicator', () => {
         projection.handleChunk({ content: '', reasoning: 'Finished thinking', done: false });
         projection.handleChunk({ content: '', done: true });
         expect(snapshot.sessionHistory[snapshot.sessionHistory.length - 1]!.parts).toMatchObject([
@@ -90,7 +90,7 @@ describe('SessionTaskProjection interleaved reasoning', () => {
         ]);
     });
 
-    it('keeps explicit reasoning rounds separate without intervening answer text', () => {
+    it('user sees explicit reasoning rounds kept separate without intervening answer text', () => {
         projection.handleChunk({ content: '', done: false, reasoningState: 'start' });
         const id = snapshot.sessionHistory[1]!.parts[0]!.id;
         expect(snapshot.sessionHistory[1]!.parts[0]).toMatchObject({
@@ -108,7 +108,7 @@ describe('SessionTaskProjection interleaved reasoning', () => {
         ]);
     });
 
-    it('does not extend an ended reasoning segment when a later done chunk arrives', () => {
+    it('user does not see an ended reasoning segment extended by a later done chunk', () => {
         const clock = vi.spyOn(Date, 'now');
         clock.mockReturnValue(1000);
         projection.handleChunk({ content: '', reasoning: 'Finished thinking', done: false });
@@ -123,13 +123,13 @@ describe('SessionTaskProjection interleaved reasoning', () => {
         clock.mockRestore();
     });
 
-    it('discards empty reasoning placeholders when the provider ends them', () => {
+    it('user sees empty reasoning placeholders discarded when the provider ends them', () => {
         projection.handleChunk({ content: '', done: false, reasoningState: 'start' });
         projection.handleChunk({ content: '', done: false, reasoningState: 'end' });
         expect(snapshot.sessionHistory[1]!.parts).toEqual([]);
     });
 
-    it('preserves reasoning / text / tool / reasoning / answer order', () => {
+    it('user sees reasoning, text, tool, reasoning, answer order preserved', () => {
         projection.handleChunk({ content: '', reasoning: 'Plan', done: false });
         projection.handleChunk({ content: 'Checking', done: false });
         projection.handleChunk({
@@ -168,7 +168,7 @@ describe('SessionTaskProjection interleaved reasoning', () => {
     });
 
     it.each(['completed', 'cancelled', 'failed'] as const)(
-        'settles active reasoning when the task is %s',
+        'user sees active reasoning settled when the task is %s',
         (status) => {
             projection.handleChunk({ content: '', reasoning: 'Partial thought', done: false });
             if (status === 'completed') projection.markCompleted();

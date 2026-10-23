@@ -9,12 +9,12 @@ import {
 } from '@/services/AgentService/languageContext';
 import { composePromptSnapshot } from '@/services/AgentService/prompt';
 
-describe('prompt current language context', () => {
+describe('the app language reaches the assistant', () => {
     beforeEach(() => {
         setLocale('zh-CN');
     });
 
-    it('adds the current English app language to the system prompt', async () => {
+    it('user gets English app language in the system prompt', async () => {
         setLocale('en-US');
 
         const snapshot = await composePromptSnapshot({
@@ -27,7 +27,7 @@ describe('prompt current language context', () => {
         );
     });
 
-    it('adds the current Simplified Chinese app language to the system prompt', async () => {
+    it('user gets Simplified Chinese app language in the system prompt', async () => {
         const snapshot = await composePromptSnapshot({
             prompt: '总结一下。',
         });
@@ -41,7 +41,7 @@ describe('prompt current language context', () => {
         });
     });
 
-    it('keeps language context even when platform fragments are overridden', async () => {
+    it('user keeps the language context when platform fragments are overridden', async () => {
         const snapshot = await composePromptSnapshot({
             prompt: '总结一下。',
             platform: [],
@@ -52,7 +52,7 @@ describe('prompt current language context', () => {
         );
     });
 
-    it('builds the current system and tool language context from the active locale', () => {
+    it('user sees the system and tool language context built from the active locale', () => {
         setLocale('en-US');
 
         expect(getCurrentModelLanguageContext()).toEqual({
@@ -67,7 +67,7 @@ describe('prompt current language context', () => {
         );
     });
 
-    it('deduplicates stale tool language context while preserving the base description', () => {
+    it('user sees a stale tool language note removed while the base description stays', () => {
         const description = [
             'Run a command.',
             'Current TouchAI UI language: English (en-US). Use this language for user-facing tool arguments or generated content unless the user explicitly asks otherwise.',

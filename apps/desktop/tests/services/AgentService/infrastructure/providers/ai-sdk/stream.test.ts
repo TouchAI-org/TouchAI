@@ -31,8 +31,8 @@ function toolCall(toolCallId: string, toolName: string, input: unknown): TestStr
     };
 }
 
-describe('AI SDK stream processor', () => {
-    it.each(['start', 'end'] as const)('preserves the text %s boundary', (state) => {
+describe('user sees a provider stream turned into answer chunks', () => {
+    it.each(['start', 'end'] as const)('user sees the text boundary preserved at %s', (state) => {
         const processor = createAiSdkStreamProcessor();
         expect(
             processor.consumePart({
@@ -42,7 +42,7 @@ describe('AI SDK stream processor', () => {
         ).toEqual([{ content: '', done: false, textState: state }]);
     });
 
-    it('keeps a streamed tool call when the final event omits the tool name', () => {
+    it('user keeps a streamed tool call when the final event omits the tool name', () => {
         const processor = createAiSdkStreamProcessor();
 
         processor.consumePart(toolInputStart('call_1', 'builtin__read'));
@@ -68,7 +68,7 @@ describe('AI SDK stream processor', () => {
         expect(finish.finishReason).toBe('tool_calls');
     });
 
-    it('uses the final tool call name when it differs from the streamed name', () => {
+    it('user sees the final tool-call name used when it differs from the streamed name', () => {
         const processor = createAiSdkStreamProcessor();
 
         processor.consumePart(toolInputStart('call_1', 'builtin__read'));
@@ -92,7 +92,7 @@ describe('AI SDK stream processor', () => {
         ]);
     });
 
-    it('drops final tool call events when no tool name can be resolved', () => {
+    it('user does not see a final tool call without a resolvable tool name', () => {
         const processor = createAiSdkStreamProcessor();
 
         const chunks = processor.consumePart(toolCall('call_1', '', { filePath: 'notes.txt' }));
@@ -102,7 +102,7 @@ describe('AI SDK stream processor', () => {
         expect(finish.toolCalls).toBeUndefined();
     });
 
-    it('resolves multiple streamed tool calls independently', () => {
+    it('user sees multiple streamed tool calls resolved independently', () => {
         const processor = createAiSdkStreamProcessor();
 
         processor.consumePart(toolInputStart('call_1', 'builtin__read'));
@@ -139,8 +139,8 @@ describe('AI SDK stream processor', () => {
     });
 });
 
-describe('AI SDK reasoning lifecycle', () => {
-    it('forwards reasoning boundaries even before the first text delta', () => {
+describe('user sees reasoning streamed before the answer', () => {
+    it('user sees reasoning boundaries forwarded even before the first text delta', () => {
         const processor = createAiSdkStreamProcessor();
         expect(processor.consumePart({ type: 'reasoning-start', id: 'r1' })).toEqual([
             { content: '', done: false, reasoningState: 'start' },
@@ -153,7 +153,7 @@ describe('AI SDK reasoning lifecycle', () => {
         ]);
     });
 
-    it('accumulates reasoning provider metadata across start/delta/end by itemId', () => {
+    it('user sees reasoning provider metadata accumulated by item', () => {
         const processor = createAiSdkStreamProcessor({ modelId: 'gpt-5.2' });
 
         expect(
@@ -207,7 +207,7 @@ describe('AI SDK reasoning lifecycle', () => {
         ]);
     });
 
-    it('omits reasoning provider metadata when the stream carries none', () => {
+    it('user sees no reasoning provider metadata when the stream carries none', () => {
         const processor = createAiSdkStreamProcessor();
         expect(processor.consumePart({ type: 'reasoning-delta', id: 'r1', text: 'x' })).toEqual([
             { content: '', done: false, reasoning: 'x' },

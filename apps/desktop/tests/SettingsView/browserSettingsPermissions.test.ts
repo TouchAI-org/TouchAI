@@ -8,8 +8,8 @@ import {
     requiresBrowserDescription,
 } from '@/stores/setting/sections/browserPolicy';
 
-describe('browser settings permissions', () => {
-    it('uses fixed descriptions for passive status operations only', () => {
+describe('user reviews what the browser may do', () => {
+    it('user uses fixed descriptions for passive status operations only', () => {
         expect(requiresBrowserDescription('status')).toBe(false);
         expect(requiresBrowserDescription('tabs')).toBe(false);
         expect(requiresBrowserDescription('current')).toBe(false);
@@ -24,7 +24,7 @@ describe('browser settings permissions', () => {
         expect(normalizeBrowserDescription('   ')).toBeNull();
     });
 
-    it('prioritizes blocked domains over allowed domains and action defaults', () => {
+    it('user prioritizes blocked domains over allowed domains and action defaults', () => {
         const config = {
             ...DEFAULT_BROWSER_SETTINGS,
             permissions: {
@@ -42,7 +42,7 @@ describe('browser settings permissions', () => {
         ).toMatchObject({ decision: 'deny' });
     });
 
-    it('allows configured domains when the action would otherwise ask', () => {
+    it('user allows configured domains when the action would otherwise ask', () => {
         const config = {
             ...DEFAULT_BROWSER_SETTINGS,
             permissions: {
@@ -59,7 +59,7 @@ describe('browser settings permissions', () => {
         ).toMatchObject({ decision: 'allow' });
     });
 
-    it('falls back to the operation permission for unknown domains', () => {
+    it('user falls back to the operation permission for unknown domains', () => {
         const config = {
             ...DEFAULT_BROWSER_SETTINGS,
             permissions: {
@@ -76,7 +76,7 @@ describe('browser settings permissions', () => {
         ).toMatchObject({ decision: 'deny' });
     });
 
-    it('requires user selection when multiple existing sessions are available', () => {
+    it('user requires user selection when multiple existing sessions are available', () => {
         const config = {
             ...DEFAULT_BROWSER_SETTINGS,
             permissionMode: 'allow' as const,
@@ -94,7 +94,7 @@ describe('browser settings permissions', () => {
         ).toMatchObject({ decision: 'ask' });
     });
 
-    it('honors existing session policy before global allow and deny modes', () => {
+    it('user honors existing session policy before global allow and deny modes', () => {
         expect(
             evaluateBrowserPermission(
                 {
@@ -120,7 +120,7 @@ describe('browser settings permissions', () => {
         ).toMatchObject({ decision: 'deny', reason: 'existing-browser-session-policy-deny' });
     });
 
-    it('allows all operations in global allow mode while still honoring blocked domains', () => {
+    it('user allows all operations in global allow mode while still honoring blocked domains', () => {
         const config = {
             ...DEFAULT_BROWSER_SETTINGS,
             permissionMode: 'allow' as const,
@@ -144,7 +144,7 @@ describe('browser settings permissions', () => {
         ).toMatchObject({ decision: 'deny', reason: 'domain-blocked' });
     });
 
-    it('denies browser operations in global deny mode after domain/session safety checks', () => {
+    it('user denies browser operations in global deny mode after domain/session safety checks', () => {
         const config = {
             ...DEFAULT_BROWSER_SETTINGS,
             permissionMode: 'deny' as const,

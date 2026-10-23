@@ -17,9 +17,9 @@ const mountBadge = (props: Record<string, unknown> = {}, as = 'span') =>
         attachTo: document.body,
     });
 
-describe('ui/Badge', () => {
-    describe('toggle 族（能力开关 chip）', () => {
-        it('开启态的 blue 输出原 capability chip 的类', () => {
+describe('user sees a badge', () => {
+    describe('user sees a capability chip', () => {
+        it('user sees the enabled capability chip in blue', () => {
             const classes = mountBadge({ variant: 'toggle', tone: 'blue', active: true }, 'button')
                 .classes()
                 .sort();
@@ -39,7 +39,7 @@ describe('ui/Badge', () => {
             }
         });
 
-        it('关闭态统一用 neutral，忽略 tone', () => {
+        it('user sees a disabled chip in neutral regardless of tone', () => {
             const classes = mountBadge(
                 { variant: 'toggle', tone: 'green', active: false },
                 'button'
@@ -51,7 +51,7 @@ describe('ui/Badge', () => {
         });
 
         it.each(['blue', 'green', 'purple', 'orange', 'indigo'] as const)(
-            'tone=%s 开启态稳定性',
+            'user tone=%s 开启态稳定性',
             (tone) => {
                 expect(
                     mountBadge({ variant: 'toggle', tone, active: true }, 'button').classes().sort()
@@ -59,7 +59,7 @@ describe('ui/Badge', () => {
             }
         );
 
-        it('toggle 族不携带 tag 族的换行类', () => {
+        it('user sees the toggle chip stay on one line', () => {
             const classes = mountBadge({ variant: 'toggle', tone: 'blue' }, 'button').classes();
             expect(classes).not.toContain('inline-flex');
             expect(classes).not.toContain('break-words');
@@ -67,8 +67,8 @@ describe('ui/Badge', () => {
         });
     });
 
-    describe('tag 族（能力展示标签）', () => {
-        it('size=sm 携带窄宽度与 10px 字号', () => {
+    describe('user sees a display tag', () => {
+        it('user sees the small tag at its narrow width', () => {
             const classes = mountBadge({ variant: 'tag', size: 'sm', tone: 'blue' }).classes();
             expect(classes).toContain('inline-flex');
             expect(classes).toContain('min-w-0');
@@ -80,26 +80,26 @@ describe('ui/Badge', () => {
             expect(classes).toContain('text-blue-600');
         });
 
-        it('size=md 携带 7.5rem 宽度与 xs 字号', () => {
+        it('user sees the medium tag at its fixed width', () => {
             const classes = mountBadge({ variant: 'tag', size: 'md', tone: 'purple' }).classes();
             expect(classes).toContain('max-w-[7.5rem]');
             expect(classes).toContain('text-xs');
             expect(classes).toContain('bg-purple-50');
         });
 
-        it('tag 族没有 hover 变色', () => {
+        it('user sees a display tag that does not react to hover', () => {
             const classes = mountBadge({ variant: 'tag', size: 'md', tone: 'blue' }).classes();
             expect(classes).not.toContain('hover:bg-blue-100');
         });
 
-        it('tone=gray 使用 gray 色板（toggle 族不使用这个 tone）', () => {
+        it('user tone=gray 使用 gray 色板（toggle 族不使用这个 tone）', () => {
             const classes = mountBadge({ variant: 'tag', size: 'md', tone: 'gray' }).classes();
             expect(classes).toContain('bg-gray-100');
             expect(classes).toContain('text-gray-500');
         });
 
         it.each(['blue', 'green', 'purple', 'orange', 'indigo', 'gray'] as const)(
-            'tone=%s 尺寸 sm 稳定性',
+            'user tone=%s 尺寸 sm 稳定性',
             (tone) => {
                 expect(
                     mountBadge({ variant: 'tag', size: 'sm', tone }).classes().sort()
@@ -108,8 +108,8 @@ describe('ui/Badge', () => {
         );
     });
 
-    describe('调用点附加 class 会合并', () => {
-        it('额外 class 追加', () => {
+    describe('user sees the badge keep its call-site class', () => {
+        it('user keeps the call-site class on the badge', () => {
             const classes = mountBadge({
                 variant: 'tag',
                 size: 'md',

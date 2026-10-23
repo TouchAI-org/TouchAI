@@ -32,20 +32,20 @@ const REQUIRED_KEYS = [
     'notification.shortcutRegistrationFailed.generic',
 ] as const satisfies readonly MessageKey[];
 
-describe('keyed static notifications', () => {
-    it('has notification and copy keys in every locale', () => {
+describe('user sees a notification', () => {
+    it('user has notification and copy keys in every locale', () => {
         for (const key of REQUIRED_KEYS) {
             expect(messages['zh-CN'][key], key).toBeTruthy();
             expect(messages['en-US'][key], key).toBeTruthy();
         }
     });
 
-    it('renders copy notification bodies through keyed vue-i18n messages', () => {
+    it('user sees copy notification bodies through keyed vue-i18n messages', () => {
         expect(t('common.copied')).toBe('已复制');
         expect(t('common.copyFailed')).toBe('复制失败');
     });
 
-    it('does not use source-text notification fields for static app notifications', () => {
+    it('user does not use source-text notification fields for static app notifications', () => {
         const offenders = STATIC_NOTIFICATION_FILES.flatMap((file) => {
             const source = readFileSync(resolve(repoRoot, file), 'utf8');
             const matches = [...source.matchAll(/\b(?:titleSource|bodySource)\s*:/g)].map(

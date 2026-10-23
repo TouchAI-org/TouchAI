@@ -1,215 +1,395 @@
+﻿// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
+
+/**
+ * Startup behavior.
+ *
+ * What a user observes from the boot path: a window that renders, popup and
+ * tray windows that start without the main-window warm-up, links that stay in
+ * the app, and background work whose failure never blocks the window.
+ *
+ * The router and the i18n runtime are real; the router uses in-memory history
+ * and stub screens so a click proves navigation happened without loading the
+ * real settings screens.
+ */
+import { appUpdateService } from '@services/AppUpdateService';
+import { initializeAppUpdateNotifications } from '@services/AppUpdateService/notifications';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { defineComponent, h } from 'vue';
+import { useRoute } from 'vue-router';
 
-const {
-    appUseMock,
-    appMountMock,
-    createAppMock,
-    getCurrentWindowMock,
-    settingsInitializeMock,
-    appUpdateCheckNowMock,
-    initializeAppUpdateNotificationsMock,
-    builtInToolSyncMock,
-    prewarmBashMock,
-    isLlmMetadataAliasEmptyMock,
-    isLlmMetadataEmptyMock,
-    initializeFontLoaderMock,
-    seedModelMetadataFromSnapshotMock,
-    initializeLoggerMock,
-    syncAllModelsMetadataMock,
-    refreshModelMetadataIfStaleMock,
-    originalWindowOpenMock,
-    openUrlMock,
-    routerMock,
-} = vi.hoisted(() => ({
-    appUseMock: vi.fn(),
-    appMountMock: vi.fn(),
-    createAppMock: vi.fn(),
-    getCurrentWindowMock: vi.fn(),
-    settingsInitializeMock: vi.fn(),
-    appUpdateCheckNowMock: vi.fn(),
-    initializeAppUpdateNotificationsMock: vi.fn(),
-    builtInToolSyncMock: vi.fn(),
-    prewarmBashMock: vi.fn(),
-    isLlmMetadataAliasEmptyMock: vi.fn(),
-    isLlmMetadataEmptyMock: vi.fn(),
-    initializeFontLoaderMock: vi.fn(),
-    seedModelMetadataFromSnapshotMock: vi.fn(),
-    initializeLoggerMock: vi.fn(),
-    syncAllModelsMetadataMock: vi.fn(),
-    refreshModelMetadataIfStaleMock: vi.fn(),
-    originalWindowOpenMock: vi.fn(),
-    openUrlMock: vi.fn(),
-    routerMock: {
-        push: vi.fn(),
-    },
+import { initializeApp } from '@/bootstrap';
+import router from '@/router';
+import { initializeFontLoader } from '@/utils/font';
+
+const settingsStoreMock = vi.hoisted(() => ({
+    initialize: vi.fn(),
+    usageDetailRetentionDays: 0,
 }));
 
-vi.mock('vue', () => ({
-    createApp: createAppMock,
+const metadataMock = vi.hoisted(() => ({
+    refreshModelMetadataIfStale: vi.fn(),
+    seedModelMetadataFromSnapshot: vi.fn(),
+    syncAllModelsMetadata: vi.fn(),
 }));
 
-vi.mock('pinia', () => ({
-    createPinia: () => ({ name: 'pinia' }),
+const toolServiceMock = vi.hoisted(() => ({
+    syncRegisteredTools: vi.fn(),
 }));
 
-vi.mock('@services/LoggerService', () => ({
-    initializeLogger: initializeLoggerMock,
+const prewarmBashMock = vi.hoisted(() => vi.fn());
+
+const llmMetadataMock = vi.hoisted(() => ({
+    isLlmMetadataAliasEmpty: vi.fn(),
+    isLlmMetadataEmpty: vi.fn(),
 }));
 
-vi.mock('@services/AppUpdateService', () => ({
-    appUpdateService: {
-        checkNow: appUpdateCheckNowMock,
-    },
+vi.mock('@/App.vue', () => ({
+    default: defineComponent({
+        name: 'AppStub',
+        setup() {
+            const route = useRoute();
+            return () => h('div', { 'data-testid': 'app-root' }, `route:${route.path}`);
+        },
+    }),
 }));
 
-vi.mock('@services/AppUpdateService/notifications', () => ({
-    initializeAppUpdateNotifications: initializeAppUpdateNotificationsMock,
+vi.mock('@/router', async () => {
+    const { createMemoryHistory, createRouter } = await import('vue-router');
+    const screen = defineComponent({ name: 'ScreenStub', render: () => h('div') });
+    const memoryRouter = createRouter({
+        history: createMemoryHistory(),
+        routes: [
+            { path: '/', component: screen },
+            { path: '/settings', component: screen },
+            { path: '/tray-menu', component: screen },
+            { path: '/popup', component: screen },
+        ],
+    });
+    return { default: memoryRouter };
+});
+
+vi.mock('@/stores/settings', () => ({
+    useSettingsStore: () => settingsStoreMock,
 }));
 
-vi.mock('@database/queries', () => ({
-    isLlmMetadataAliasEmpty: isLlmMetadataAliasEmptyMock,
-    isLlmMetadataEmpty: isLlmMetadataEmptyMock,
-}));
-
-vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => ({
-    refreshModelMetadataIfStale: refreshModelMetadataIfStaleMock,
-    seedModelMetadataFromSnapshot: seedModelMetadataFromSnapshotMock,
-    syncAllModelsMetadata: syncAllModelsMetadataMock,
-}));
+vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => metadataMock);
 
 vi.mock('@/services/BuiltInToolService/service', () => ({
-    builtInToolService: {
-        syncRegisteredTools: builtInToolSyncMock,
-    },
+    builtInToolService: toolServiceMock,
 }));
 
 vi.mock('@/services/BuiltInToolService/tools/bash/helper', () => ({
     prewarmBashToolRuntime: prewarmBashMock,
 }));
 
+vi.mock('@services/UsageService/maintenance', () => ({
+    runUsageMaintenance: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@database/queries', () => llmMetadataMock);
+
+vi.mock('@services/AppUpdateService', () => ({
+    appUpdateService: { checkNow: vi.fn() },
+}));
+
+vi.mock('@services/AppUpdateService/notifications', () => ({
+    initializeAppUpdateNotifications: vi.fn(),
+}));
+
+vi.mock('@services/LoggerService', () => ({
+    initializeLogger: vi.fn(),
+}));
+
 vi.mock('@tauri-apps/api/window', () => ({
-    getCurrentWindow: getCurrentWindowMock,
+    getCurrentWindow: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/plugin-opener', () => ({
-    openUrl: openUrlMock,
+    openUrl: vi.fn(),
 }));
 
 vi.mock('@/utils/font', () => ({
-    initializeFontLoader: initializeFontLoaderMock,
+    initializeFontLoader: vi.fn(),
 }));
 
-vi.mock('@/i18n', () => ({
-    installI18n: vi.fn(),
-}));
+function stubRoot(): void {
+    const root = document.createElement('div');
+    root.id = 'app';
+    document.body.append(root);
+}
 
-vi.mock('@/stores/settings', () => ({
-    useSettingsStore: () => ({
-        initialize: settingsInitializeMock,
-        usageDetailRetentionDays: 0,
-    }),
-}));
+function mainWindowAt(hash = '/'): void {
+    stubRoot();
+    window.history.replaceState(null, '', hash);
+    vi.mocked(getCurrentWindow).mockReturnValue({ label: 'main' } as never);
+}
 
-vi.mock('@/App.vue', () => ({
-    default: {
-        name: 'App',
-    },
-}));
+/** Start the app and hand back what the user sees: the mounted root element. */
+async function startApp(): Promise<HTMLElement> {
+    await initializeApp();
+    const root = document.querySelector<HTMLElement>('[data-testid="app-root"]');
+    if (!root) throw new Error('app root did not mount');
+    return root;
+}
 
-vi.mock('@/router', () => ({
-    default: routerMock,
-}));
+beforeEach(() => {
+    vi.clearAllMocks();
+    document.body.innerHTML = '';
+    vi.mocked(getCurrentWindow).mockReturnValue({ label: 'main' } as never);
+    vi.mocked(openUrl).mockResolvedValue(undefined);
+    vi.mocked(initializeAppUpdateNotifications).mockResolvedValue(undefined);
+    vi.mocked(appUpdateService.checkNow).mockResolvedValue(false);
+    vi.mocked(toolServiceMock.syncRegisteredTools).mockResolvedValue(undefined);
+    vi.mocked(prewarmBashMock).mockResolvedValue(undefined);
+    vi.mocked(llmMetadataMock.isLlmMetadataEmpty).mockResolvedValue(false);
+    vi.mocked(llmMetadataMock.isLlmMetadataAliasEmpty).mockResolvedValue(false);
+    vi.mocked(metadataMock.syncAllModelsMetadata).mockResolvedValue(undefined);
+    vi.mocked(metadataMock.seedModelMetadataFromSnapshot).mockResolvedValue(undefined);
+    vi.mocked(metadataMock.refreshModelMetadataIfStale).mockResolvedValue({ status: 'unchanged' });
+    settingsStoreMock.initialize.mockResolvedValue(undefined);
+});
 
-describe('app bootstrap i18n', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        vi.resetModules();
-        // bootstrap 会注册 6 小时一次的刷新定时器。每个用例都会重新导入模块，
-        // 真实定时器累积下来会在慢机器上真的触发，把「只调一次」的断言打破。
-        vi.useFakeTimers();
-        document.body.innerHTML = '<div id="app"></div>';
-        window.history.replaceState(null, '', '/');
-        Object.defineProperty(window, 'open', {
-            value: originalWindowOpenMock,
-            writable: true,
-            configurable: true,
-        });
+describe('user opens the main window', () => {
+    it('user sees the app rendered with routing and translations installed', async () => {
+        mainWindowAt();
 
-        appUseMock.mockReturnThis();
-        appMountMock.mockReturnValue(undefined);
-        createAppMock.mockReturnValue({
-            use: appUseMock,
-            mount: appMountMock,
-        });
-        originalWindowOpenMock.mockReturnValue({ name: 'window' });
-        openUrlMock.mockResolvedValue(undefined);
-        settingsInitializeMock.mockResolvedValue(undefined);
-        appUpdateCheckNowMock.mockResolvedValue(false);
-        initializeAppUpdateNotificationsMock.mockResolvedValue(undefined);
-        builtInToolSyncMock.mockResolvedValue(undefined);
-        prewarmBashMock.mockResolvedValue(undefined);
-        isLlmMetadataAliasEmptyMock.mockResolvedValue(false);
-        isLlmMetadataEmptyMock.mockResolvedValue(false);
-        syncAllModelsMetadataMock.mockResolvedValue(undefined);
-        seedModelMetadataFromSnapshotMock.mockResolvedValue(undefined);
-        refreshModelMetadataIfStaleMock.mockResolvedValue({ status: 'unchanged' });
-        getCurrentWindowMock.mockReturnValue({
-            label: 'main',
-        });
+        const root = await startApp();
+
+        expect(root.textContent).toBe('route:/');
     });
+
+    it('user never sees default settings because saved ones load before the window renders', async () => {
+        mainWindowAt();
+        let rootVisibleWhileLoading: boolean | null = null;
+        let finishLoading!: () => void;
+        settingsStoreMock.initialize.mockImplementation(
+            () =>
+                new Promise<void>((resolve) => {
+                    rootVisibleWhileLoading =
+                        document.querySelector('[data-testid="app-root"]') !== null;
+                    finishLoading = resolve;
+                })
+        );
+
+        const startup = initializeApp();
+        await vi.waitFor(() => expect(settingsStoreMock.initialize).toHaveBeenCalled());
+
+        expect(rootVisibleWhileLoading).toBe(false);
+
+        finishLoading();
+        await startup;
+        expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
+    });
+
+    it('user still gets a usable window when the saved settings cannot be loaded', async () => {
+        mainWindowAt();
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        settingsStoreMock.initialize.mockRejectedValue(new Error('settings unavailable'));
+
+        await expect(initializeApp()).resolves.toBeUndefined();
+
+        expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
+        consoleError.mockRestore();
+    });
+
+    it('user gets the serif font prepared for the main window', async () => {
+        mainWindowAt();
+
+        await startApp();
+
+        expect(initializeFontLoader).toHaveBeenCalledTimes(1);
+    });
+
+    it('user still gets a window when the built-in tool warm-up fails', async () => {
+        mainWindowAt();
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        toolServiceMock.syncRegisteredTools.mockRejectedValue(new Error('tool sync failed'));
+
+        await expect(initializeApp()).resolves.toBeUndefined();
+
+        expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
+        consoleWarn.mockRestore();
+    });
+});
+
+describe('user opens a popup or the tray menu', () => {
+    it.each([
+        [
+            'a popup route',
+            () => {
+                stubRoot();
+                window.history.replaceState(null, '', '/#/popup?type=session-history-popup');
+            },
+        ],
+        [
+            'the tray menu window',
+            () => {
+                stubRoot();
+                window.history.replaceState(null, '', '/');
+                vi.mocked(getCurrentWindow).mockReturnValue({ label: 'tray-menu' } as never);
+            },
+        ],
+    ])('user gets a fast window with no font or tool warm-up on %s', async (_name, arrange) => {
+        arrange();
+
+        await startApp();
+
+        expect(initializeFontLoader).not.toHaveBeenCalled();
+        expect(toolServiceMock.syncRegisteredTools).not.toHaveBeenCalled();
+        expect(metadataMock.syncAllModelsMetadata).not.toHaveBeenCalled();
+        expect(initializeAppUpdateNotifications).not.toHaveBeenCalled();
+    });
+
+    it('user sees the settings window without waiting for the main-window warm-up', async () => {
+        stubRoot();
+        window.history.replaceState(null, '', '/#/settings');
+        let releaseWarmUp!: () => void;
+        toolServiceMock.syncRegisteredTools.mockReturnValue(
+            new Promise<void>((resolve) => {
+                releaseWarmUp = resolve;
+            })
+        );
+
+        try {
+            const startup = initializeApp();
+
+            await vi.waitFor(() =>
+                expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull()
+            );
+            expect(toolServiceMock.syncRegisteredTools).not.toHaveBeenCalled();
+            releaseWarmUp();
+            await startup;
+        } finally {
+            releaseWarmUp();
+        }
+    });
+});
+
+describe('user clicks a link inside the app', () => {
+    function anchorClick(href: string): boolean {
+        const anchor = document.createElement('a');
+        anchor.href = href;
+        anchor.textContent = 'link';
+        document.body.append(anchor);
+        return anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    }
+
+    it('user stays in the app when clicking an app-relative link', async () => {
+        mainWindowAt();
+        await startApp();
+        const push = vi.spyOn(router, 'push');
+
+        expect(anchorClick('/settings')).toBe(false);
+
+        expect(push).toHaveBeenCalledWith('/settings');
+        expect(openUrl).not.toHaveBeenCalled();
+    });
+
+    it('user sees an external link open in the system browser', async () => {
+        mainWindowAt();
+        await startApp();
+
+        const anchor = document.createElement('a');
+        anchor.href = 'https://example.com/docs';
+        const child = document.createElement('span');
+        anchor.append(child);
+        document.body.append(anchor);
+
+        const dispatched = child.dispatchEvent(
+            new MouseEvent('click', { bubbles: true, cancelable: true })
+        );
+
+        expect(dispatched).toBe(false);
+        expect(openUrl).toHaveBeenCalledWith('https://example.com/docs');
+    });
+
+    it('user is not navigated by a click that is not a link', async () => {
+        mainWindowAt();
+        await startApp();
+        const push = vi.spyOn(router, 'push');
+
+        document.body.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+        expect(openUrl).not.toHaveBeenCalled();
+        expect(push).not.toHaveBeenCalled();
+    });
+});
+
+describe('user follows a link opened by app code', () => {
+    const realOpen = window.open;
+
+    /** The browser's own window.open, captured by the interceptor during startup. */
+    async function startWithBrowserOpen(): Promise<ReturnType<typeof vi.fn>> {
+        const browserOpen = vi.fn(() => ({ name: 'window' }) as unknown as Window);
+        window.open = browserOpen as unknown as typeof window.open;
+        mainWindowAt();
+        await startApp();
+        return browserOpen;
+    }
 
     afterEach(() => {
-        vi.useRealTimers();
+        window.open = realOpen;
     });
 
-    it('initializes persisted settings before mounting without starting the legacy DOM localizer', async () => {
-        const { installI18n } = await import('@/i18n');
+    it('user keeps app links in the app and sends external links to the system browser', async () => {
+        const browserOpen = await startWithBrowserOpen();
 
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
+        expect(window.open('/settings', '_self', 'noopener')).toEqual({ name: 'window' });
+        expect(window.open('https://example.com/docs', '_blank')).toBeNull();
 
-        expect(initializeLoggerMock).toHaveBeenCalledTimes(1);
-        expect(initializeFontLoaderMock).toHaveBeenCalledTimes(1);
-        expect(builtInToolSyncMock).toHaveBeenCalledTimes(1);
-        expect(appUseMock).toHaveBeenCalledWith({ name: 'pinia' });
-        expect(appUseMock).toHaveBeenCalledWith(routerMock);
-        expect(installI18n).toHaveBeenCalledWith({
-            use: appUseMock,
-            mount: appMountMock,
-        });
-        expect(settingsInitializeMock).toHaveBeenCalledTimes(1);
-        expect(appMountMock).toHaveBeenCalledWith('#app');
-        expect(initializeAppUpdateNotificationsMock).toHaveBeenCalledTimes(1);
-        const settingsInitializeOrder = settingsInitializeMock.mock.invocationCallOrder[0]!;
-        expect(settingsInitializeOrder).toBeLessThan(appMountMock.mock.invocationCallOrder[0]!);
+        expect(browserOpen).toHaveBeenCalledWith('/settings', '_self', 'noopener');
+        expect(openUrl).toHaveBeenCalledWith('https://example.com/docs');
     });
 
-    it('sleeps until 08:00 before starting hourly automatic checks', async () => {
+    it('user keeps Tauri and asset URLs inside the app window', async () => {
+        const browserOpen = await startWithBrowserOpen();
+
+        expect(window.open('tauri://localhost/settings')).toEqual({ name: 'window' });
+        expect(window.open('asset://localhost/icon.png')).toEqual({ name: 'window' });
+
+        expect(browserOpen).toHaveBeenCalledTimes(2);
+        expect(openUrl).not.toHaveBeenCalled();
+    });
+
+    it('user gets the malformed link handed to the system browser instead of a crash', async () => {
+        await startWithBrowserOpen();
+
+        expect(window.open('http://[bad')).toBeNull();
+        expect(openUrl).toHaveBeenCalledWith('http://[bad');
+    });
+});
+
+describe('user leaves the app running overnight', () => {
+    it('user gets an automatic update check once the daily window opens', async () => {
         const nowSpy = vi
             .spyOn(Date, 'now')
             .mockReturnValue(new Date(2026, 9, 18, 7, 30).getTime());
-        const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(vi.fn());
+        const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(vi.fn() as never);
         try {
-            const { initializeApp } = await import('@/bootstrap');
-            await initializeApp();
+            mainWindowAt();
+            await startApp();
             for (let index = 0; index < 12; index += 1) await Promise.resolve();
 
-            expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
+            expect(appUpdateService.checkNow).not.toHaveBeenCalled();
             const timer = timeoutSpy.mock.calls.find(([, delay]) => delay === 30 * 60 * 1000)?.[0];
             expect(timer).toBeTypeOf('function');
+
             nowSpy.mockReturnValue(new Date(2026, 9, 18, 8).getTime());
             timeoutSpy.mockClear();
             await (timer as () => Promise<void>)();
 
-            expect(appUpdateCheckNowMock).toHaveBeenCalledWith('automatic');
+            expect(appUpdateService.checkNow).toHaveBeenCalledWith('automatic');
             expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60 * 60 * 1000);
 
-            appUpdateCheckNowMock.mockClear();
+            // After midnight the window is closed again, so the next check waits for 08:00.
+            vi.mocked(appUpdateService.checkNow).mockClear();
             timeoutSpy.mockClear();
             nowSpy.mockReturnValue(new Date(2026, 9, 19, 0).getTime());
             await (timer as () => Promise<void>)();
 
-            expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
+            expect(appUpdateService.checkNow).not.toHaveBeenCalled();
             expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 8 * 60 * 60 * 1000);
         } finally {
             nowSpy.mockRestore();
@@ -217,23 +397,23 @@ describe('app bootstrap i18n', () => {
         }
     });
 
-    it('schedules the next hourly check from completion so network time cannot skip a check', async () => {
+    it('user keeps a one-hour rhythm when a check takes minutes', async () => {
         const startedAt = new Date(2026, 9, 18, 10).getTime();
         const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(startedAt);
-        const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(vi.fn());
+        const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(vi.fn() as never);
         let finishCheck!: (checked: boolean) => void;
-        appUpdateCheckNowMock.mockReturnValueOnce(
+        vi.mocked(appUpdateService.checkNow).mockReturnValueOnce(
             new Promise<boolean>((resolve) => {
                 finishCheck = resolve;
             })
         );
 
         try {
-            const { initializeApp } = await import('@/bootstrap');
-            await initializeApp();
+            mainWindowAt();
+            await startApp();
             for (let index = 0; index < 12; index += 1) await Promise.resolve();
 
-            expect(appUpdateCheckNowMock).toHaveBeenCalledOnce();
+            expect(appUpdateService.checkNow).toHaveBeenCalledOnce();
             expect(timeoutSpy).not.toHaveBeenCalled();
 
             nowSpy.mockReturnValue(startedAt + 2 * 60 * 1000);
@@ -244,275 +424,79 @@ describe('app bootstrap i18n', () => {
             const nextCheck = timeoutSpy.mock.calls[0]![0] as () => Promise<void>;
             nowSpy.mockReturnValue(startedAt + 62 * 60 * 1000);
             await nextCheck();
-            expect(appUpdateCheckNowMock).toHaveBeenCalledTimes(2);
+            expect(appUpdateService.checkNow).toHaveBeenCalledTimes(2);
         } finally {
             finishCheck(false);
             nowSpy.mockRestore();
             timeoutSpy.mockRestore();
         }
     });
+});
 
-    it('seeds bundled metadata during bootstrap when local metadata is empty', async () => {
-        isLlmMetadataEmptyMock.mockResolvedValue(true);
+describe('user starts the app for the first time', () => {
+    it('user sees bundled model metadata seeded when the local catalog is empty', async () => {
+        llmMetadataMock.isLlmMetadataEmpty.mockResolvedValue(true);
+        mainWindowAt();
 
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
+        await startApp();
 
-        expect(seedModelMetadataFromSnapshotMock).toHaveBeenCalledTimes(1);
-        expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
+        expect(metadataMock.seedModelMetadataFromSnapshot).toHaveBeenCalledTimes(1);
+        expect(metadataMock.syncAllModelsMetadata).not.toHaveBeenCalled();
     });
 
-    it('checks the remote catalog after mount without blocking startup', async () => {
-        isLlmMetadataEmptyMock.mockResolvedValue(false);
-        isLlmMetadataAliasEmptyMock.mockResolvedValue(false);
+    it('user sees the cached catalog synchronized when the local catalog exists', async () => {
+        mainWindowAt();
 
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
+        await startApp();
 
-        expect(appMountMock).toHaveBeenCalledWith('#app');
-        await vi.waitFor(() => {
-            expect(refreshModelMetadataIfStaleMock).toHaveBeenCalledTimes(1);
-        });
-
-        const refreshOrder = refreshModelMetadataIfStaleMock.mock.invocationCallOrder[0]!;
-        expect(refreshOrder).toBeGreaterThan(appMountMock.mock.invocationCallOrder[0]!);
+        expect(metadataMock.syncAllModelsMetadata).toHaveBeenCalledTimes(1);
+        expect(metadataMock.seedModelMetadataFromSnapshot).not.toHaveBeenCalled();
     });
 
-    it('syncs cached model metadata during bootstrap', async () => {
-        isLlmMetadataEmptyMock.mockResolvedValue(false);
-        isLlmMetadataAliasEmptyMock.mockResolvedValue(false);
+    it('user sees bundled metadata reseeded when the cached catalog has no aliases', async () => {
+        llmMetadataMock.isLlmMetadataAliasEmpty.mockResolvedValue(true);
+        mainWindowAt();
 
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
+        await startApp();
 
-        expect(syncAllModelsMetadataMock).toHaveBeenCalledTimes(1);
+        expect(metadataMock.seedModelMetadataFromSnapshot).toHaveBeenCalledTimes(1);
+        expect(metadataMock.syncAllModelsMetadata).not.toHaveBeenCalled();
     });
 
-    it('reseeds metadata when the cached catalog has no aliases yet', async () => {
-        isLlmMetadataEmptyMock.mockResolvedValue(false);
-        isLlmMetadataAliasEmptyMock.mockResolvedValue(true);
+    it('user still gets a window when seeding bundled metadata fails', async () => {
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        llmMetadataMock.isLlmMetadataEmpty.mockResolvedValue(true);
+        metadataMock.seedModelMetadataFromSnapshot.mockRejectedValue(
+            new Error('snapshot unavailable')
+        );
+        mainWindowAt();
 
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
-
-        expect(seedModelMetadataFromSnapshotMock).toHaveBeenCalledTimes(1);
-        expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
-    });
-
-    it('continues bootstrap when seeding the bundled snapshot fails', async () => {
-        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        isLlmMetadataEmptyMock.mockResolvedValue(true);
-        seedModelMetadataFromSnapshotMock.mockRejectedValue(new Error('snapshot unavailable'));
-
-        const { initializeApp } = await import('@/bootstrap');
         await expect(initializeApp()).resolves.toBeUndefined();
 
-        expect(appMountMock).toHaveBeenCalledWith('#app');
-        expect(consoleSpy).toHaveBeenCalledWith(
-            '[Bootstrap] Failed to seed bundled model metadata:',
-            expect.any(Error)
+        expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
+        consoleWarn.mockRestore();
+    });
+
+    it('user still gets a window when the remote catalog check fails', async () => {
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        metadataMock.refreshModelMetadataIfStale.mockRejectedValue(
+            new Error('metadata unavailable')
         );
-        consoleSpy.mockRestore();
+        mainWindowAt();
+
+        await startApp();
+
+        await vi.waitFor(() => expect(consoleWarn).toHaveBeenCalled());
+        consoleWarn.mockRestore();
     });
 
-    it('keeps running when the remote metadata check fails', async () => {
-        const metadataError = new Error('metadata unavailable');
-        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-        isLlmMetadataEmptyMock.mockResolvedValue(false);
-        isLlmMetadataAliasEmptyMock.mockResolvedValue(false);
-        refreshModelMetadataIfStaleMock.mockRejectedValue(metadataError);
+    it('user gets the remote catalog checked after the window is already usable', async () => {
+        mainWindowAt();
 
-        const { initializeApp } = await import('@/bootstrap');
-        await expect(initializeApp()).resolves.toBeUndefined();
+        await startApp();
 
-        await vi.waitFor(() => {
-            expect(consoleSpy).toHaveBeenCalledWith(
-                '[Bootstrap] Failed to refresh model metadata:',
-                metadataError
-            );
-        });
-        consoleSpy.mockRestore();
-    });
-
-    it('mounts without the legacy DOM localizer when persisted settings fail to initialize', async () => {
-        const settingsError = new Error('settings unavailable');
-        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-        settingsInitializeMock.mockRejectedValue(settingsError);
-
-        const { initializeApp } = await import('@/bootstrap');
-        await expect(initializeApp()).resolves.toBeUndefined();
-
-        expect(settingsInitializeMock).toHaveBeenCalledTimes(1);
-        expect(appMountMock).toHaveBeenCalledWith('#app');
-        expect(consoleSpy).toHaveBeenCalledWith(
-            'Failed to initialize persisted settings during bootstrap.',
-            settingsError
+        await vi.waitFor(() =>
+            expect(metadataMock.refreshModelMetadataIfStale).toHaveBeenCalledTimes(1)
         );
-        consoleSpy.mockRestore();
-    });
-
-    it('uses lightweight bootstrap for popup routes', async () => {
-        window.history.replaceState(null, '', '/#/popup?type=session-history-popup');
-
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
-
-        expect(appMountMock).toHaveBeenCalledWith('#app');
-        expect(initializeFontLoaderMock).not.toHaveBeenCalled();
-        expect(builtInToolSyncMock).not.toHaveBeenCalled();
-        expect(isLlmMetadataEmptyMock).not.toHaveBeenCalled();
-        expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
-        expect(refreshModelMetadataIfStaleMock).not.toHaveBeenCalled();
-        expect(settingsInitializeMock).not.toHaveBeenCalled();
-        expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
-        expect(initializeAppUpdateNotificationsMock).not.toHaveBeenCalled();
-    });
-
-    it('uses lightweight bootstrap for the tray menu window', async () => {
-        getCurrentWindowMock.mockReturnValue({
-            label: 'tray-menu',
-        });
-
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
-
-        expect(appMountMock).toHaveBeenCalledWith('#app');
-        expect(initializeFontLoaderMock).not.toHaveBeenCalled();
-        expect(isLlmMetadataEmptyMock).not.toHaveBeenCalled();
-        expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
-        expect(refreshModelMetadataIfStaleMock).not.toHaveBeenCalled();
-        expect(settingsInitializeMock).not.toHaveBeenCalled();
-        expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
-        expect(initializeAppUpdateNotificationsMock).not.toHaveBeenCalled();
-    });
-
-    it.each(['window-label', 'route'])(
-        'opens settings via %s without waiting for primary-window runtime initialization',
-        async (entry) => {
-            if (entry === 'window-label') {
-                getCurrentWindowMock.mockReturnValue({ label: 'settings' });
-            } else {
-                window.history.replaceState(null, '', '/#/settings');
-            }
-            let resolveRuntime!: () => void;
-            const runtimeReady = new Promise<void>((resolve) => {
-                resolveRuntime = resolve;
-            });
-            builtInToolSyncMock.mockReturnValue(runtimeReady);
-            prewarmBashMock.mockReturnValue(runtimeReady);
-            const { initializeApp } = await import('@/bootstrap');
-            const startup = initializeApp();
-            for (let index = 0; index < 12; index += 1) await Promise.resolve();
-
-            try {
-                expect(appMountMock).toHaveBeenCalledWith('#app');
-                expect(settingsInitializeMock).toHaveBeenCalledTimes(1);
-                expect(initializeFontLoaderMock).toHaveBeenCalledTimes(1);
-                expect(builtInToolSyncMock).not.toHaveBeenCalled();
-                expect(prewarmBashMock).not.toHaveBeenCalled();
-                expect(isLlmMetadataEmptyMock).not.toHaveBeenCalled();
-                expect(syncAllModelsMetadataMock).not.toHaveBeenCalled();
-                expect(refreshModelMetadataIfStaleMock).not.toHaveBeenCalled();
-                expect(initializeAppUpdateNotificationsMock).not.toHaveBeenCalled();
-                expect(appUpdateCheckNowMock).not.toHaveBeenCalled();
-                expect(settingsInitializeMock.mock.invocationCallOrder[0]).toBeLessThan(
-                    appMountMock.mock.invocationCallOrder[0]!
-                );
-            } finally {
-                resolveRuntime();
-                await startup;
-            }
-        }
-    );
-
-    it('routes app-relative anchor clicks through the Vue router', async () => {
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
-        routerMock.push.mockClear();
-
-        const anchor = document.createElement('a');
-        anchor.href = '/settings';
-        anchor.textContent = 'Settings';
-        document.body.append(anchor);
-
-        const event = new MouseEvent('click', { bubbles: true, cancelable: true });
-        const dispatched = anchor.dispatchEvent(event);
-
-        expect(dispatched).toBe(false);
-        expect(routerMock.push).toHaveBeenCalledWith('/settings');
-        expect(openUrlMock).not.toHaveBeenCalled();
-    });
-
-    it('opens external anchor clicks with the Tauri opener', async () => {
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
-        openUrlMock.mockClear();
-
-        const anchor = document.createElement('a');
-        anchor.href = 'https://example.com/docs';
-        const child = document.createElement('span');
-        anchor.append(child);
-        document.body.append(anchor);
-
-        const event = new MouseEvent('click', { bubbles: true, cancelable: true });
-        const dispatched = child.dispatchEvent(event);
-
-        expect(dispatched).toBe(false);
-        expect(openUrlMock).toHaveBeenCalledWith('https://example.com/docs');
-    });
-
-    it('ignores clicks without actionable hrefs', async () => {
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
-        openUrlMock.mockClear();
-        routerMock.push.mockClear();
-
-        document.body.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        const anchor = document.createElement('a');
-        document.body.append(anchor);
-        anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-
-        expect(openUrlMock).not.toHaveBeenCalled();
-        expect(routerMock.push).not.toHaveBeenCalled();
-    });
-
-    it('intercepts window.open for external links while preserving internal links', async () => {
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
-
-        expect(window.open('https://example.com/docs', '_blank')).toBeNull();
-        expect(openUrlMock).toHaveBeenCalledWith('https://example.com/docs');
-
-        openUrlMock.mockClear();
-        expect(window.open('/settings', '_self', 'noopener')).toEqual({ name: 'window' });
-        expect(originalWindowOpenMock).toHaveBeenCalledWith('/settings', '_self', 'noopener');
-        expect(openUrlMock).not.toHaveBeenCalled();
-    });
-
-    it('treats Tauri and asset links as internal window targets', async () => {
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
-
-        expect(window.open('tauri://localhost/settings')).toEqual({ name: 'window' });
-        expect(window.open('asset://localhost/icon.png')).toEqual({ name: 'window' });
-        expect(originalWindowOpenMock).toHaveBeenCalledWith(
-            'tauri://localhost/settings',
-            undefined,
-            undefined
-        );
-        expect(originalWindowOpenMock).toHaveBeenCalledWith(
-            'asset://localhost/icon.png',
-            undefined,
-            undefined
-        );
-    });
-
-    it('opens malformed absolute URLs externally instead of crashing', async () => {
-        const { initializeApp } = await import('@/bootstrap');
-        await initializeApp();
-
-        expect(window.open('http://[bad')).toBeNull();
-
-        expect(openUrlMock).toHaveBeenCalledWith('http://[bad');
     });
 });

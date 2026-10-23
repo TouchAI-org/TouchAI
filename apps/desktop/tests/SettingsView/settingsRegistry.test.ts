@@ -10,8 +10,8 @@ import {
 } from '@/stores/setting/sections/registry';
 import type { SearchSettingsConfig } from '@/stores/setting/sections/search';
 
-describe('settings registry', () => {
-    it('registers json-backed settings sections by persistent key', () => {
+describe('user changes a persisted setting', () => {
+    it('user registers json-backed settings sections by persistent key', () => {
         expect(JSON_SETTINGS_SECTIONS.map((section) => section.key)).toEqual([
             'browser_settings',
             'search_settings',
@@ -43,7 +43,7 @@ describe('settings registry', () => {
         expect(findJsonSettingsSection('language')).toBeNull();
     });
 
-    it('clones defaults and parses invalid persisted values through section definitions', () => {
+    it('user clones defaults and parses invalid persisted values through section definitions', () => {
         const browserSection = findJsonSettingsSection('browser_settings');
         const searchSection = findJsonSettingsSection('search_settings');
 
@@ -62,7 +62,7 @@ describe('settings registry', () => {
         expect(parseJsonSettingsValue(searchSection, '{bad json')).toEqual(searchDefault);
     });
 
-    it('serializes section values with each section normalizer', () => {
+    it('user serializes section values with each section normalizer', () => {
         const searchSection = findJsonSettingsSection('search_settings');
 
         expect(searchSection).not.toBeNull();
@@ -80,7 +80,7 @@ describe('settings registry', () => {
         });
     });
 
-    it('validates section values through a shared registry entry point', () => {
+    it('user validates section values through a shared registry entry point', () => {
         const browserSection = findJsonSettingsSection('browser_settings');
         const searchSection = findJsonSettingsSection('search_settings');
 

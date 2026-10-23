@@ -17,8 +17,8 @@ async function readAll(response: Response): Promise<string> {
     return await response.text();
 }
 
-describe('normalizeResponsesReasoningStream', () => {
-    it('rewrites non-standard reasoning deltas into summary deltas', async () => {
+describe('user sees streamed reasoning normalized', () => {
+    it('user sees non-standard reasoning deltas rewritten into summary deltas', async () => {
         const response = sseResponse([
             eventLine({
                 type: 'response.reasoning_text.delta',
@@ -46,7 +46,7 @@ describe('normalizeResponsesReasoningStream', () => {
         expect(output).toContain('data: [DONE]');
     });
 
-    it('keeps standard events and non-data lines untouched', async () => {
+    it('user sees standard events and non-data lines untouched', async () => {
         const line = eventLine({
             type: 'response.reasoning_summary_text.delta',
             summary_index: 0,
@@ -59,7 +59,7 @@ describe('normalizeResponsesReasoningStream', () => {
         expect(output).toBe(`event: message\n${line}`);
     });
 
-    it('handles events split across chunks', async () => {
+    it('user sees events split across chunks still handled', async () => {
         const payload = JSON.stringify({
             type: 'response.reasoning_text.delta',
             item_id: 'rs_2',
@@ -89,7 +89,7 @@ describe('normalizeResponsesReasoningStream', () => {
         });
     });
 
-    it('returns non event-stream responses unchanged', async () => {
+    it('user sees a non event-stream response returned unchanged', async () => {
         const response = new Response(JSON.stringify({ ok: true }), {
             status: 200,
             headers: { 'content-type': 'application/json' },
@@ -100,7 +100,7 @@ describe('normalizeResponsesReasoningStream', () => {
         expect(normalized).toBe(response);
     });
 
-    it('leaves malformed payloads untouched', async () => {
+    it('user sees malformed payloads left untouched', async () => {
         const response = sseResponse(['data: not-json\n\n']);
 
         const output = await readAll(normalizeResponsesReasoningStream(response));

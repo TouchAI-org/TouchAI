@@ -34,8 +34,8 @@ function resolveSerializedStreamChannel(payload: unknown): string {
     throw new Error('Expected built_in_tools_start_bash to receive an events channel');
 }
 
-describe('NativeService built-in bash streaming', () => {
-    it('streams incremental stdout and stderr updates before the final response resolves', async () => {
+describe('user runs a long command and watches its output', () => {
+    it('user sees stdout and stderr arrive before the command finishes', async () => {
         const request: BuiltInBashExecutionRequest = {
             executionId: 'exec-stream-1',
             command: 'Write-Output "alpha"; Write-Error "beta"',
@@ -113,7 +113,7 @@ describe('NativeService built-in bash streaming', () => {
         ]);
     });
 
-    it('stops delivering stream chunks after the bash request settles', async () => {
+    it('user stops receiving chunks once the command settles', async () => {
         const request: BuiltInBashExecutionRequest = {
             executionId: 'exec-stream-2',
             command: 'Write-Output "once"',
@@ -181,7 +181,7 @@ describe('NativeService built-in bash streaming', () => {
         ]);
     });
 
-    it('does not attach a stream channel when no output callback is provided', async () => {
+    it('user gets no stream channel when no output handler is provided', async () => {
         const request: BuiltInBashExecutionRequest = {
             executionId: 'exec-stream-3',
             command: 'Write-Output "done"',
@@ -211,7 +211,7 @@ describe('NativeService built-in bash streaming', () => {
         await expect(builtInTools.executeBash(request)).resolves.toEqual(finalResponse);
     });
 
-    it('ignores chunks from other executions and formats stderr-only output', async () => {
+    it('user does not see chunks from other executions and sees stderr-only output formatted', async () => {
         const request: BuiltInBashExecutionRequest = {
             executionId: 'exec-stream-4',
             command: 'Write-Error "boom"',
@@ -281,7 +281,7 @@ describe('NativeService built-in bash streaming', () => {
         ]);
     });
 
-    it('rejects when the backend reports a failed streaming execution', async () => {
+    it('user is told the command failed when the backend reports a failed execution', async () => {
         const request: BuiltInBashExecutionRequest = {
             executionId: 'exec-stream-5',
             command: 'Write-Error "boom"',
@@ -310,7 +310,7 @@ describe('NativeService built-in bash streaming', () => {
         expect(deltas).toEqual([]);
     });
 
-    it('preserves empty combined output when the backend emits an empty chunk', async () => {
+    it('user sees empty output preserved when the backend emits an empty chunk', async () => {
         const request: BuiltInBashExecutionRequest = {
             executionId: 'exec-stream-6',
             command: 'Write-Output ""',
@@ -369,7 +369,7 @@ describe('NativeService built-in bash streaming', () => {
         ]);
     });
 
-    it('surfaces immediate start failures from the backend', async () => {
+    it('user is told when the command cannot start', async () => {
         const request: BuiltInBashExecutionRequest = {
             executionId: 'exec-stream-7',
             command: 'Write-Output "noop"',
@@ -387,7 +387,7 @@ describe('NativeService built-in bash streaming', () => {
         ).rejects.toThrow('channel registration failed');
     });
 
-    it('rejects when no terminal event arrives before the watchdog deadline', async () => {
+    it('user is told when no terminal event arrives before the watchdog deadline', async () => {
         vi.useFakeTimers();
         const request: BuiltInBashExecutionRequest = {
             executionId: 'exec-stream-8',
@@ -409,7 +409,7 @@ describe('NativeService built-in bash streaming', () => {
         await rejectionExpectation;
     });
 
-    it('accepts a terminal event that arrives after the shell timeout but within cleanup grace', async () => {
+    it('user sees a terminal event accepted after the shell timeout but within the cleanup grace', async () => {
         vi.useFakeTimers();
         const request: BuiltInBashExecutionRequest = {
             executionId: 'exec-stream-9',
@@ -452,7 +452,7 @@ describe('NativeService built-in bash streaming', () => {
         await expect(responsePromise).resolves.toEqual(finalResponse);
     }, 30_000);
 
-    it('forwards bash cancellation to the native command bridge', async () => {
+    it('user can cancel a running command', async () => {
         mockTauriCommand('built_in_tools_cancel_bash', async (payload: unknown) => {
             expect(payload).toEqual({
                 executionId: 'exec-stream-cancel',

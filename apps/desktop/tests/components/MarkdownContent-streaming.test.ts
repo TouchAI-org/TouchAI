@@ -48,7 +48,7 @@ function mathBlocks(nodes: ParsedNode[]) {
     );
 }
 
-describe('MarkdownContent with the real streaming parser', () => {
+describe('user reads an answer while it streams', () => {
     it.each([
         ['ordinary prose', 'auto'],
         ['Inline math $x^2$', 'auto'],
@@ -60,7 +60,7 @@ describe('MarkdownContent with the real streaming parser', () => {
         ['Inline code `$$`, then \\[\nx^2\n\\]', false],
         ['$$\nx^2\n$$', false],
         ['\\[\nx^2\n\\]', false],
-    ] as const)('selects the parser strategy for %s', (content, streamParse) => {
+    ] as const)('user selects the parser strategy for %s', (content, streamParse) => {
         vi.mocked(parseMarkdownToStructure).mockClear();
         const wrapper = mount(MarkdownContent, { props: { content, final: false } });
         try {
@@ -73,7 +73,7 @@ describe('MarkdownContent with the real streaming parser', () => {
         }
     });
 
-    it('keeps headings out of math blocks across split closing delimiters', async () => {
+    it('user keeps headings out of math blocks across split closing delimiters', async () => {
         const wrapper = mount(MarkdownContent, { props: { content: '', final: false } });
         const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
         try {
@@ -94,7 +94,7 @@ describe('MarkdownContent with the real streaming parser', () => {
         }
     });
 
-    it('keeps math boundaries stable for character-sized and varied chunks', async () => {
+    it('user keeps math boundaries stable for character-sized and varied chunks', async () => {
         const wrapper = mount(MarkdownContent, { props: { content: '', final: false } });
         const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
         try {
@@ -117,7 +117,7 @@ describe('MarkdownContent with the real streaming parser', () => {
         }
     });
 
-    it('preserves bracket math, inline math, shell variables, and fenced code', async () => {
+    it('user preserves bracket math, inline math, shell variables, and fenced code', async () => {
         const content =
             'Inline math $x^2$, path $HOME/project.\n\n\\[\n\\frac{1}{2}\n\\]\n\n## After math\n\n' +
             '```sh\necho $HOME\n```';
@@ -138,7 +138,7 @@ describe('MarkdownContent with the real streaming parser', () => {
         }
     });
 
-    it('keeps code delimiters while detecting formulas later in the same message', () => {
+    it('user keeps code delimiters while detecting formulas later in the same message', () => {
         const content =
             '```sh\necho $$\necho \\[\n```\n\n' +
             'Inline markers `$$ \\[` are code.\n\n' +
@@ -169,7 +169,7 @@ describe('MarkdownContent with the real streaming parser', () => {
         }
     });
 
-    it('keeps incomplete formulas loading and completes them without waiting for final', async () => {
+    it('user keeps incomplete formulas loading and completes them without waiting for final', async () => {
         const wrapper = mount(MarkdownContent, {
             props: { content: '$$\n\\frac{1}', final: false },
         });
@@ -190,7 +190,7 @@ describe('MarkdownContent with the real streaming parser', () => {
         }
     });
 
-    it('preserves streaming code and source newlines after a math block', async () => {
+    it('user preserves streaming code and source newlines after a math block', async () => {
         const prefix = '$$\nx^2\n$$\n\n';
         const code = 'const value = "' + 'x'.repeat(300) + '";\n\nconsole.log(value);';
         const wrapper = mount(MarkdownContent, {

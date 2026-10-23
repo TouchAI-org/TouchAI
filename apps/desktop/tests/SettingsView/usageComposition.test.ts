@@ -48,8 +48,8 @@ function mountPanel(value: UsageComposition | null = composition) {
     return mount(UsageCompositionPanel, { props: { composition: value } });
 }
 
-describe('usage composition panel', () => {
-    it('renders one legend row per segment', () => {
+describe('user breaks down token usage', () => {
+    it('user sees one legend row per segment', () => {
         const wrapper = mountPanel();
 
         // 两张环图各有一组图例按钮
@@ -57,7 +57,7 @@ describe('usage composition panel', () => {
         expect(legendButtons).toHaveLength(7);
     });
 
-    it('marks estimated values with a tilde and leaves measured ones clean', () => {
+    it('user marks estimated values with a tilde and leaves measured ones clean', () => {
         const wrapper = mountPanel();
 
         const text = wrapper.text();
@@ -68,7 +68,7 @@ describe('usage composition panel', () => {
         expect(text).not.toContain('≈16万');
     });
 
-    it('shows the cache hit share as a note rather than a slice', () => {
+    it('user sees the cache hit share as a note rather than a slice', () => {
         const wrapper = mountPanel();
 
         expect(wrapper.text()).toContain('77.7%');
@@ -76,7 +76,7 @@ describe('usage composition panel', () => {
         expect(wrapper.text()).not.toContain('缓存读取');
     });
 
-    it('localizes labels together', () => {
+    it('user sees labels together', () => {
         setLocale('en-US');
         const wrapper = mountPanel();
 
@@ -85,14 +85,14 @@ describe('usage composition panel', () => {
         expect(wrapper.text()).not.toContain('系统提示词');
     });
 
-    it('renders a skeleton instead of an empty ring while loading', () => {
+    it('user sees a skeleton instead of an empty ring while loading', () => {
         const wrapper = mountPanel(null);
 
         expect(wrapper.find('.animate-pulse').exists()).toBe(true);
         expect(wrapper.findAll('figure button')).toHaveLength(0);
     });
 
-    it('shows an empty state when there is nothing to break down', () => {
+    it('user sees an empty state when there is nothing to break down', () => {
         const wrapper = mountPanel({
             tokens: { total: 0, segments: [] },
             timing: { totalMs: 0, segments: [] },

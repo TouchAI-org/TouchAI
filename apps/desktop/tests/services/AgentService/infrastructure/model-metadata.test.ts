@@ -155,7 +155,7 @@ function jsonResponse(body: unknown, headers: Record<string, string> = {}) {
     } as unknown as Response;
 }
 
-describe('model metadata refresh', () => {
+describe('user sees model metadata refreshed from the catalog', () => {
     beforeEach(() => {
         statistics.clear();
         metadataFetchMock.mockReset();
@@ -165,7 +165,7 @@ describe('model metadata refresh', () => {
         vi.restoreAllMocks();
     });
 
-    it('stores one row per canonical model and keeps prefix-distinct ids apart', async () => {
+    it('user sees one row per canonical model with prefix-distinct ids kept apart', async () => {
         metadataFetchMock.mockResolvedValue(
             jsonResponse(
                 catalog({
@@ -200,7 +200,7 @@ describe('model metadata refresh', () => {
         );
     });
 
-    it('persists relay spellings in the alias table next to the model record', async () => {
+    it('user sees the relay spellings stored as aliases beside the model', async () => {
         metadataFetchMock.mockResolvedValue(
             jsonResponse(
                 catalog(
@@ -238,7 +238,7 @@ describe('model metadata refresh', () => {
         ).toBe(true);
     });
 
-    it('applies refreshed metadata to runtime model rows in the same update', async () => {
+    it('user sees refreshed metadata applied to runtime model rows in the same update', async () => {
         metadataFetchMock.mockResolvedValue(
             jsonResponse(
                 catalog(
@@ -310,7 +310,7 @@ describe('model metadata refresh', () => {
         });
     });
 
-    it('sends the stored ETag and skips rewriting when the source is unchanged', async () => {
+    it('user sees no rewrite when the catalog has not changed', async () => {
         statistics.set('model_metadata_source_etag', 'W/"v1"');
         metadataFetchMock.mockResolvedValue({
             ok: false,
@@ -337,7 +337,7 @@ describe('model metadata refresh', () => {
         expect(statistics.get('model_metadata_last_checked_at')).toBeTruthy();
     });
 
-    it('stores the response ETag after a successful refresh', async () => {
+    it('user sees the catalog change marker stored after a successful refresh', async () => {
         metadataFetchMock.mockResolvedValue(
             jsonResponse(
                 catalog({
@@ -358,7 +358,7 @@ describe('model metadata refresh', () => {
         expect(statistics.get('model_metadata_source_etag')).toBe('W/"v2"');
     });
 
-    it('rejects an empty remote catalog without clearing cached metadata', async () => {
+    it('user keeps the cached metadata when the catalog comes back empty', async () => {
         const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         metadataFetchMock.mockResolvedValue(jsonResponse(catalog({})));
 
@@ -378,7 +378,7 @@ describe('model metadata refresh', () => {
         consoleSpy.mockRestore();
     });
 
-    it('seeds bundled snapshot metadata without marking the cache as remotely updated', async () => {
+    it('user sees the bundled snapshot seeded without marking it as remotely refreshed', async () => {
         mockMetadataTransaction();
 
         await expect(seedModelMetadataFromSnapshot()).resolves.toBeUndefined();
@@ -397,7 +397,7 @@ describe('model metadata refresh', () => {
         expect(sql.some((statement) => statement.includes('insert into "statistics"'))).toBe(false);
     });
 
-    it('coalesces concurrent checks into a single remote request', async () => {
+    it('user sees concurrent refreshes share a single catalog request', async () => {
         mockMetadataTransaction();
         metadataFetchMock.mockResolvedValue(
             jsonResponse(
@@ -417,7 +417,7 @@ describe('model metadata refresh', () => {
         expect(metadataFetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it('allows a later check after a failed one', async () => {
+    it('user sees a later refresh allowed after a failed one', async () => {
         const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         mockMetadataTransaction();
         metadataFetchMock.mockRejectedValueOnce(new Error('network down'));
@@ -435,7 +435,7 @@ describe('model metadata refresh', () => {
         consoleSpy.mockRestore();
     });
 
-    it('treats a missing or unparseable check timestamp as stale', async () => {
+    it('user sees a missing or unreadable refresh timestamp treated as stale', async () => {
         mockMetadataTransaction();
 
         await expect(shouldCheckModelMetadata()).resolves.toBe(true);
@@ -444,7 +444,7 @@ describe('model metadata refresh', () => {
         await expect(shouldCheckModelMetadata()).resolves.toBe(true);
     });
 
-    it('skips the remote request while the last check is still fresh', async () => {
+    it('user sees no catalog request while the last refresh is fresh', async () => {
         statistics.set('model_metadata_last_checked_at', new Date().toISOString());
 
         mockMetadataTransaction();
@@ -456,7 +456,7 @@ describe('model metadata refresh', () => {
         expect(metadataFetchMock).not.toHaveBeenCalled();
     });
 
-    it('checks the remote catalog once the interval has elapsed', async () => {
+    it('user sees the catalog requested again once the refresh interval has passed', async () => {
         const staleTime = new Date(Date.now() - MODEL_METADATA_CHECK_INTERVAL_MS - 1000);
         statistics.set('model_metadata_last_checked_at', staleTime.toISOString());
         metadataFetchMock.mockResolvedValue(

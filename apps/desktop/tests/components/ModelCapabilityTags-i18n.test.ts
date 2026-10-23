@@ -4,12 +4,12 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import ModelCapabilityTags from '@/components/ModelCapabilityTags.vue';
 import { setLocale } from '@/i18n';
 
-describe('ModelCapabilityTags i18n', () => {
+describe('user reads model capability tags', () => {
     beforeEach(() => {
         setLocale('zh-CN');
     });
 
-    it('renders model capability badges through the active locale', () => {
+    it('user sees model capability badges through the active locale', () => {
         setLocale('en-US');
 
         const wrapper = mount(ModelCapabilityTags, {
@@ -44,7 +44,7 @@ describe('ModelCapabilityTags i18n', () => {
         }
     });
 
-    it('localizes the fallback text badge', () => {
+    it('user sees the fallback text badge', () => {
         setLocale('en-US');
 
         const wrapper = mount(ModelCapabilityTags, {

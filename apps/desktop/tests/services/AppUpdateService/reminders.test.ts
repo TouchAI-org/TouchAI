@@ -91,8 +91,8 @@ async function flushReminder() {
     for (let index = 0; index < 15; index += 1) await Promise.resolve();
 }
 
-describe('AppUpdateReminderController', () => {
-    it('counts real elapsed time across the notification quiet hours', () => {
+describe('user is reminded about an available update', () => {
+    it('user counts only active hours when the reminder interval crosses quiet hours', () => {
         const start = localTime(18, 23);
         const quietEnd = localTime(19, 8);
         const fiveActiveHours = localTime(19, 12);
@@ -103,7 +103,7 @@ describe('AppUpdateReminderController', () => {
         expect(activeNotificationElapsedMs(localTime(18, 0), localTime(20, 8))).toBe(56 * HOUR);
     });
 
-    it('waits for an update result at 08:00 instead of notifying during quiet hours', async () => {
+    it('user is not reminded during quiet hours and is reminded at 08:00', async () => {
         const reminder = createReminder({ now: localTime(18, 7, 30) });
         await reminder.controller.initialize();
         await flushReminder();
@@ -116,7 +116,7 @@ describe('AppUpdateReminderController', () => {
         expect(reminder.show).toHaveBeenCalledTimes(1);
     });
 
-    it('sends an actionable OS notification and waits five hours before reminding again', async () => {
+    it('user is reminded again only after five active hours', async () => {
         const reminder = createReminder();
         await reminder.controller.initialize();
         await flushReminder();
@@ -139,7 +139,7 @@ describe('AppUpdateReminderController', () => {
         expect(reminder.show).toHaveBeenCalledTimes(2);
     });
 
-    it('keeps the five-hour deadline across midnight and application restarts', async () => {
+    it('user keeps the five-hour deadline across midnight and an app restart', async () => {
         const reminder = createReminder({ now: localTime(18, 23) });
         await reminder.controller.initialize();
         await flushReminder();
@@ -164,7 +164,7 @@ describe('AppUpdateReminderController', () => {
         expect(reopened.show).toHaveBeenCalledTimes(1);
     });
 
-    it('persists ignoring a version while allowing a later version to notify', async () => {
+    it('user who ignores a version is not reminded again until a newer version appears', async () => {
         const reminder = createReminder();
         await reminder.controller.initialize();
         await flushReminder();
@@ -195,7 +195,7 @@ describe('AppUpdateReminderController', () => {
         expect(reopened.show).toHaveBeenCalledWith(expect.objectContaining({ version: '1.2.4' }));
     });
 
-    it('keeps ignored and notification deadlines separate for the same version in each channel', async () => {
+    it('user is reminded once per channel even after ignoring the same version', async () => {
         const reminder = createReminder();
         await reminder.controller.initialize();
         await flushReminder();
@@ -217,7 +217,7 @@ describe('AppUpdateReminderController', () => {
         expect(reminder.show).toHaveBeenCalledTimes(3);
     });
 
-    it('opens current update details from stale notifications without ignoring another update', async () => {
+    it('user who opens a stale notification sees the current update without ignoring the newer one', async () => {
         const reminder = createReminder();
         await reminder.controller.initialize();
         await flushReminder();
@@ -244,7 +244,7 @@ describe('AppUpdateReminderController', () => {
         expect(JSON.parse(reminder.getRaw()!)['stable:1.2.3']?.ignored).not.toBe(true);
     });
 
-    it('opens update settings even while a fresh update check is running', async () => {
+    it('user who clicks the notification while a check runs still opens the update settings', async () => {
         const reminder = createReminder();
         await reminder.controller.initialize();
         await flushReminder();
@@ -256,7 +256,7 @@ describe('AppUpdateReminderController', () => {
         expect(reminder.openSettings).toHaveBeenCalledTimes(1);
     });
 
-    it('accepts a matching notification after the update has already downloaded', async () => {
+    it('user who clicks a notification after the download finished still reaches the update', async () => {
         const reminder = createReminder();
         await reminder.controller.initialize();
         await flushReminder();
@@ -286,7 +286,7 @@ describe('AppUpdateReminderController', () => {
         expect(JSON.parse(reminder.getRaw()!)['stable:1.2.3']?.ignored).toBe(true);
     });
 
-    it('does not repeat a notification for progress, failed checks, or concurrent state changes', async () => {
+    it('user is not reminded twice for progress, failures, or concurrent state changes', async () => {
         const reminder = createReminder();
         await reminder.controller.initialize();
         reminder.change();
@@ -302,7 +302,7 @@ describe('AppUpdateReminderController', () => {
         expect(reminder.show).toHaveBeenCalledTimes(1);
     });
 
-    it('does not persist the notification deadline if OS delivery fails', async () => {
+    it('user is not marked as reminded when the operating system rejects the notification', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const reminder = createReminder();
         reminder.show.mockRejectedValueOnce(new Error('notifications disabled'));
@@ -320,7 +320,7 @@ describe('AppUpdateReminderController', () => {
     });
 
     it.each(['idle', 'not_available', 'checking', 'failed', 'downloaded'] as const)(
-        'does not notify in %s state',
+        'user is not reminded while the updater is %s',
         async (status) => {
             const reminder = createReminder();
             reminder.change({ status });
@@ -330,7 +330,7 @@ describe('AppUpdateReminderController', () => {
         }
     );
 
-    it('respects disabled automatic reminders and receives native button actions only once', async () => {
+    it('user with automatic reminders disabled is never reminded but can still open the update', async () => {
         const reminder = createReminder();
         reminder.change({ autoCheckEnabled: false });
         await reminder.controller.initialize();

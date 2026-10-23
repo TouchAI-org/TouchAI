@@ -176,13 +176,13 @@ function createModel(overrides: Partial<Model> = {}): Model {
     };
 }
 
-describe('AiServices i18n and layout', () => {
+describe('user reads the provider and model settings', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('zh-CN');
     });
 
-    it('renders provider list chrome and default badge in English with wrapping-safe classes', () => {
+    it('user sees provider list chrome and default badge in English with wrapping-safe classes', () => {
         setLocale('en-US');
 
         const wrapper = mount(ProviderList, {
@@ -205,7 +205,7 @@ describe('AiServices i18n and layout', () => {
         expect(addButton.classes()).toContain('break-words');
     });
 
-    it('renders model list labels, placeholders, empty state, and refresh title in English', () => {
+    it('user sees model list labels, placeholders, empty state, and refresh title in English', () => {
         setLocale('en-US');
 
         const wrapper = mount(ModelList, {
@@ -229,7 +229,7 @@ describe('AiServices i18n and layout', () => {
         expect(wrapper.text()).not.toContain('模型列表');
     });
 
-    it('localizes model refresh validation in English', () => {
+    it('user sees model refresh validation in English', () => {
         setLocale('en-US');
 
         const wrapper = mount(ModelList, {
@@ -247,7 +247,7 @@ describe('AiServices i18n and layout', () => {
         expect(alertWarningMock).toHaveBeenCalledWith('Configure the API URL first');
     });
 
-    it('pins the default group and model without remounting collapsed groups', async () => {
+    it('user pins the default group and model without remounting collapsed groups', async () => {
         const models = [
             createModel({ id: 1, model_id: 'gpt-5-mini', name: 'GPT 5 Mini', is_default: 1 }),
             createModel({ id: 2, model_id: 'gpt-5', name: 'GPT 5' }),
@@ -313,7 +313,7 @@ describe('AiServices i18n and layout', () => {
         wrapper.unmount();
     });
 
-    it('renders add-provider dialog labels, validation, and preview in English', async () => {
+    it('user sees add-provider dialog labels, validation, and preview in English', async () => {
         setLocale('en-US');
 
         const wrapper = mount(ProviderFormDialog, { props: { mode: 'create' } });
@@ -329,7 +329,7 @@ describe('AiServices i18n and layout', () => {
         expect(wrapper.text()).not.toContain('服务商名称');
     });
 
-    it('renders edit-provider dialog labels, placeholder, validation, and preview in English', async () => {
+    it('user sees edit-provider dialog labels, placeholder, validation, and preview in English', async () => {
         setLocale('en-US');
 
         const wrapper = mount(ProviderFormDialog, {
@@ -354,7 +354,7 @@ describe('AiServices i18n and layout', () => {
         expect(wrapper.text()).not.toContain('我的自定义服务商');
     });
 
-    it('renders provider configuration copy in English and allows long API previews to break', () => {
+    it('user sees provider configuration copy in English and allows long API previews to break', () => {
         setLocale('en-US');
 
         const wrapper = mount(ProviderConfig, {
@@ -369,7 +369,7 @@ describe('AiServices i18n and layout', () => {
         expect(wrapper.text()).not.toContain('服务商配置');
     });
 
-    it('does not let the global DOM localizer rewrite dynamic provider payload text', () => {
+    it('user does not let the global DOM localizer rewrite dynamic provider payload text', () => {
         setLocale('en-US');
 
         const wrapper = mount(ProviderList, {

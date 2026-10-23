@@ -27,8 +27,8 @@ function magpieModel(overrides: Record<string, unknown> = {}) {
     };
 }
 
-describe('upstream model capabilities', () => {
-    it('maps gateway fields onto the model capability shape', () => {
+describe('user sees model capabilities read from an AI gateway', () => {
+    it('user sees gateway fields mapped onto the model capability shape', () => {
         expect(normalizeUpstreamModelCapabilities(magpieModel())).toEqual({
             contextLimit: 200_000,
             outputLimit: 200_000,
@@ -38,7 +38,7 @@ describe('upstream model capabilities', () => {
         });
     });
 
-    it('keeps the gateway-only ultra effort as its own level', () => {
+    it('user sees a gateway-only effort level kept as its own level', () => {
         const capabilities = normalizeUpstreamModelCapabilities(
             magpieModel({
                 reasoning: true,
@@ -62,7 +62,7 @@ describe('upstream model capabilities', () => {
         ]);
     });
 
-    it('reads OpenRouter style architecture, limits and tool support', () => {
+    it('user sees OpenRouter style architecture, limits and tool support read', () => {
         expect(
             normalizeUpstreamModelCapabilities({
                 id: 'anthropic/claude-3-5-haiku',
@@ -90,7 +90,7 @@ describe('upstream model capabilities', () => {
         });
     });
 
-    it('keeps TouchAI native reasoning_options from AI gateways', () => {
+    it('user sees TouchAI native reasoning options kept from AI gateways', () => {
         expect(
             normalizeUpstreamModelCapabilities({
                 id: 'openai/gpt-5-mini',
@@ -102,14 +102,14 @@ describe('upstream model capabilities', () => {
         });
     });
 
-    it('reports models without capability fields as unknown', () => {
+    it('user sees models without capability fields reported as unknown', () => {
         expect(
             normalizeUpstreamModelCapabilities({ id: 'plain-model', object: 'model' })
         ).toBeUndefined();
         expect(normalizeUpstreamModelCapabilities('plain-model')).toBeUndefined();
     });
 
-    it('honours an explicit reasoning=false declaration', () => {
+    it('user sees an explicit reasoning=false declaration honored', () => {
         expect(
             normalizeUpstreamModelCapabilities({
                 id: 'any/claude-3-5-haiku-20241022',
@@ -119,7 +119,7 @@ describe('upstream model capabilities', () => {
     });
 });
 
-describe('openai-compatible model list parsing', () => {
+describe('user sees capabilities parsed from an OpenAI-compatible model list', () => {
     function parse(payload: unknown): ModelInfo[] {
         const adapter = new OpenAICompatibleProviderAdapter({
             apiEndpoint: 'http://127.0.0.1:3425/v1',
@@ -128,7 +128,7 @@ describe('openai-compatible model list parsing', () => {
         return probe.parseModelList(payload);
     }
 
-    it('keeps the capability fields the gateway returns', () => {
+    it('user sees the capability fields the gateway returns kept', () => {
         const models = parse({
             object: 'list',
             data: [magpieModel(), { id: 'qianai/deepseek-v4.1-flash-0910', object: 'model' }],

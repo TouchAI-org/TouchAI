@@ -137,13 +137,13 @@ vi.mock('@/views/SettingsView/components/AiServices/components/ModelFormDialog.v
     }),
 }));
 
-describe('AiServices section i18n', () => {
+describe('user switches the provider menu language', () => {
     beforeEach(() => {
         capturedContextMenus.length = 0;
         setLocale('zh-CN');
     });
 
-    it('refreshes provider context menu labels after runtime locale changes', async () => {
+    it('user refreshes provider context menu labels after runtime locale changes', async () => {
         mount(AiServicesView);
 
         expect(capturedContextMenus[0]?.map((item) => item.label)).toEqual(['编辑', '删除']);

@@ -8,55 +8,55 @@ import {
 } from '@utils/promptBreakdown';
 import { describe, expect, it } from 'vitest';
 
-describe('estimateTokensFromChars', () => {
-    it('returns zero for empty or negative input', () => {
+describe('user sees an estimated token count', () => {
+    it('user gets zero for empty or negative input', () => {
         expect(estimateTokensFromChars(0)).toBe(0);
         expect(estimateTokensFromChars(-10)).toBe(0);
     });
 
-    it('grows monotonically with the character count', () => {
+    it('user grows monotonically with the character count', () => {
         expect(estimateTokensFromChars(100)).toBeLessThan(estimateTokensFromChars(1000));
     });
 
-    it('estimates more tokens for CJK-heavy text than for latin text', () => {
+    it('user estimates more tokens for CJK-heavy text than for latin text', () => {
         // 同样 300 字符，中文占的 token 明显更多
         expect(estimateTokensFromChars(300, 0.9)).toBeGreaterThan(
             estimateTokensFromChars(300, 0.05)
         );
     });
 
-    it('clamps the CJK ratio into 0..1', () => {
+    it('user clamps the CJK ratio into 0..1', () => {
         expect(estimateTokensFromChars(300, 5)).toBe(estimateTokensFromChars(300, 1));
         expect(estimateTokensFromChars(300, -5)).toBe(estimateTokensFromChars(300, 0));
     });
 });
 
-describe('estimateTokens', () => {
-    it('returns zero for an empty string', () => {
+describe('user sees an estimated token count', () => {
+    it('user gets zero for an empty string', () => {
         expect(estimateTokens('')).toBe(0);
     });
 
-    it('counts CJK characters as heavier than latin', () => {
+    it('user counts CJK characters as heavier than latin', () => {
         expect(estimateTokens('中文字符')).toBeGreaterThan(estimateTokens('abcd'));
     });
 });
 
-describe('parsePromptBreakdown', () => {
-    it('returns null for missing input', () => {
+describe('user reads the prompt breakdown', () => {
+    it('user gets null for missing input', () => {
         expect(parsePromptBreakdown(null)).toBeNull();
         expect(parsePromptBreakdown('')).toBeNull();
     });
 
-    it('returns null for malformed JSON instead of throwing', () => {
+    it('user gets null for malformed JSON instead of throwing', () => {
         expect(parsePromptBreakdown('{not json')).toBeNull();
     });
 
-    it('returns null when the fragments field is absent', () => {
+    it('user gets null when the fragments field is absent', () => {
         // 没有 fragments 说明这不是分片快照，不能当成「全 0」使用
         expect(parsePromptBreakdown(JSON.stringify({ userPrompt: 10 }))).toBeNull();
     });
 
-    it('fills missing optional fields with zero', () => {
+    it('user fills missing optional fields with zero', () => {
         const parsed = parsePromptBreakdown(JSON.stringify({ fragments: { platform: 100 } }));
 
         expect(parsed).toEqual({
@@ -70,12 +70,12 @@ describe('parsePromptBreakdown', () => {
     });
 });
 
-describe('sumFragmentChars', () => {
-    it('sums every fragment source', () => {
+describe('user reads the prompt size', () => {
+    it('user sums every fragment source', () => {
         expect(sumFragmentChars({ platform: 10, policy: 25, mode: 5 })).toBe(40);
     });
 
-    it('returns zero for an empty map', () => {
+    it('user gets zero for an empty map', () => {
         expect(sumFragmentChars({})).toBe(0);
     });
 });

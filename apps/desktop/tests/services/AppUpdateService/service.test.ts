@@ -121,8 +121,8 @@ function createDeferred<T>() {
     return { promise, resolve, reject };
 }
 
-describe('AppUpdateController', () => {
-    it('loads persisted settings before checking manually', async () => {
+describe('user checks for and installs app updates', () => {
+    it('user sees the saved settings used for the first manual check', async () => {
         const { controller, checkForUpdates, updateAppUpdateLastCheckedAt } = createController();
 
         await controller.initialize();
@@ -140,7 +140,7 @@ describe('AppUpdateController', () => {
         });
     });
 
-    it('skips automatic checks when the last check is less than an hour old', async () => {
+    it('user is not checked again automatically within the hour', async () => {
         const { controller, checkForUpdates } = createController({
             now: '2026-05-22T10:00:00.000Z',
             lastCheckedAt: '2026-05-22T09:00:01.000Z',
@@ -153,7 +153,7 @@ describe('AppUpdateController', () => {
         expect(checkForUpdates).not.toHaveBeenCalled();
     });
 
-    it('runs automatic checks when the last check is at least an hour old', async () => {
+    it('user gets an automatic check once an hour has passed', async () => {
         const { controller, checkForUpdates } = createController({
             now: '2026-05-22T10:00:00.000Z',
             lastCheckedAt: '2026-05-22T09:00:00.000Z',
@@ -166,16 +166,19 @@ describe('AppUpdateController', () => {
         expect(checkForUpdates).toHaveBeenCalledTimes(1);
     });
 
-    it.each([0, 7])('skips automatic checks at %s:00 local time', async (hour) => {
-        const { controller, checkForUpdates } = createController({
-            now: new Date(2026, 9, 18, hour).toISOString(),
-        });
+    it.each([0, 7])(
+        'user is not checked automatically at %s:00 during quiet hours',
+        async (hour) => {
+            const { controller, checkForUpdates } = createController({
+                now: new Date(2026, 9, 18, hour).toISOString(),
+            });
 
-        await expect(controller.checkNow('automatic')).resolves.toBe(false);
-        expect(checkForUpdates).not.toHaveBeenCalled();
-    });
+            await expect(controller.checkNow('automatic')).resolves.toBe(false);
+            expect(checkForUpdates).not.toHaveBeenCalled();
+        }
+    );
 
-    it('starts automatic checks at 08:00 even after a recent quiet-hours settings check', async () => {
+    it('user gets the automatic check at 08:00 even after a recent quiet-hours settings check', async () => {
         const { controller, checkForUpdates } = createController({
             now: new Date(2026, 9, 18, 8).toISOString(),
             lastCheckedAt: new Date(2026, 9, 18, 7, 30).toISOString(),
@@ -185,7 +188,7 @@ describe('AppUpdateController', () => {
         expect(checkForUpdates).toHaveBeenCalledTimes(1);
     });
 
-    it('still checks immediately when settings open during quiet hours', async () => {
+    it('user gets an immediate check when settings open during quiet hours', async () => {
         const { controller, checkForUpdates } = createController({
             now: new Date(2026, 9, 18, 2).toISOString(),
         });
@@ -194,7 +197,7 @@ describe('AppUpdateController', () => {
         expect(checkForUpdates).toHaveBeenCalledTimes(1);
     });
 
-    it('checks on settings open even when automatic checks are disabled and a check is recent', async () => {
+    it('user gets a settings-open check even with automatic checks disabled and a recent check', async () => {
         const { controller, checkForUpdates } = createController({
             autoCheckEnabled: false,
             lastCheckedAt: '2026-05-22T09:59:00.000Z',
@@ -205,7 +208,7 @@ describe('AppUpdateController', () => {
         expect(checkForUpdates).toHaveBeenCalledTimes(1);
     });
 
-    it('coalesces startup and settings-open checks during initialization', async () => {
+    it('user sees one shared check when startup and settings open at the same time', async () => {
         const deferredCheck = createDeferred<AppUpdateCheckResult>();
         const { controller, checkForUpdates } = createController();
         checkForUpdates.mockReturnValueOnce(deferredCheck.promise);
@@ -227,7 +230,7 @@ describe('AppUpdateController', () => {
         expect(controller.getState().status).toBe('available');
     });
 
-    it('keeps settings-open failures quiet while retaining a known update', async () => {
+    it('user keeps the known update when a settings-open check fails', async () => {
         const { controller, checkForUpdates } = createController();
         await controller.checkNow('manual');
         checkForUpdates.mockRejectedValueOnce(new Error('network unavailable'));
@@ -241,7 +244,7 @@ describe('AppUpdateController', () => {
         });
     });
 
-    it('surfaces a failed first settings-open check instead of restoring idle', async () => {
+    it('user is told the check failed when the very first settings-open check fails', async () => {
         const { controller } = createController({
             checkError: new Error('network unavailable'),
             lastCheckedAt: '2026-05-22T09:59:00.000Z',
@@ -255,7 +258,7 @@ describe('AppUpdateController', () => {
         });
     });
 
-    it('surfaces initial settings-open errors when joining a background check', async () => {
+    it('user is told the check failed when joining a background check that fails', async () => {
         const deferredCheck = createDeferred<AppUpdateCheckResult>();
         const { controller, checkForUpdates } = createController();
         checkForUpdates.mockReturnValueOnce(deferredCheck.promise);
@@ -275,7 +278,7 @@ describe('AppUpdateController', () => {
         });
     });
 
-    it('shares completed checks with other windows and accepts their results without another request', async () => {
+    it('user sees a completed check from another window without a second request', async () => {
         let receiveCheck!: (result: AppUpdateCheckResult, checkedAt: string) => void;
         const checkEvents = {
             listen: vi.fn(async (listener: typeof receiveCheck) => {
@@ -311,7 +314,7 @@ describe('AppUpdateController', () => {
         expect(checkForUpdates).toHaveBeenCalledTimes(1);
     });
 
-    it('preserves a downloaded update when opening settings or checking automatically', async () => {
+    it('user keeps the downloaded update when reopening settings or checking automatically', async () => {
         const { controller, checkForUpdates } = createController();
         await controller.checkNow('manual');
         await controller.download();
@@ -327,7 +330,7 @@ describe('AppUpdateController', () => {
         });
     });
 
-    it('keeps automatic check failures low-noise', async () => {
+    it('user is not alarmed when an automatic check fails', async () => {
         const { controller } = createController({
             checkError: new Error('network unavailable'),
         });
@@ -342,7 +345,7 @@ describe('AppUpdateController', () => {
         });
     });
 
-    it('waits an hour before retrying a failed automatic check', async () => {
+    it('user is not checked again for an hour after a failed automatic check', async () => {
         const { controller, checkForUpdates } = createController({
             checkError: new Error('network unavailable'),
         });
@@ -353,7 +356,7 @@ describe('AppUpdateController', () => {
         expect(checkForUpdates).toHaveBeenCalledTimes(1);
     });
 
-    it('surfaces manual check failures', async () => {
+    it('user is told the check failed when a manual check fails', async () => {
         const { controller } = createController({
             checkError: new Error('network unavailable'),
         });
@@ -368,7 +371,7 @@ describe('AppUpdateController', () => {
         });
     });
 
-    it('downloads and installs the selected update', async () => {
+    it('user sees the download and install start for the selected update', async () => {
         const { controller, downloadUpdate, installUpdate } = createController();
 
         await controller.initialize();
@@ -381,7 +384,7 @@ describe('AppUpdateController', () => {
         expect(controller.getState().status).toBe('installing');
     });
 
-    it('does not ask native to download or install without the selected update', async () => {
+    it('user sees nothing downloaded or installed when no update is selected', async () => {
         const { controller, downloadUpdate, installUpdate } = createController();
 
         await expect(controller.download()).resolves.toBe(false);
@@ -390,7 +393,7 @@ describe('AppUpdateController', () => {
         expect(installUpdate).not.toHaveBeenCalled();
     });
 
-    it('rejects a download result that differs from the requested update', async () => {
+    it('user is not told an update is ready when the download returns a different version', async () => {
         const { controller, downloadUpdate, installUpdate } = createController();
         await controller.checkNow('manual');
         downloadUpdate.mockResolvedValueOnce({ ...availableUpdate, version: '0.3.0' });
@@ -401,7 +404,7 @@ describe('AppUpdateController', () => {
         expect(installUpdate).not.toHaveBeenCalled();
     });
 
-    it('rejects a download result for a different package of the same version', async () => {
+    it('user is not told an update is ready when the download returns a different package', async () => {
         const { controller, downloadUpdate } = createController();
         await controller.checkNow('manual');
         downloadUpdate.mockResolvedValueOnce({ ...availableUpdate, fileName: 'other.nupkg' });
@@ -410,7 +413,7 @@ describe('AppUpdateController', () => {
         expect(controller.getState().status).not.toBe('downloaded');
     });
 
-    it('does not let stale download completion overwrite a changed channel', async () => {
+    it('user keeps the newly chosen channel when an old download finishes', async () => {
         const deferredDownload = createDeferred<AppUpdateInfo>();
         const { controller, downloadUpdate } = createController();
         downloadUpdate.mockReturnValueOnce(deferredDownload.promise);
@@ -435,7 +438,7 @@ describe('AppUpdateController', () => {
         });
     });
 
-    it('does not let stale download failure overwrite a changed channel', async () => {
+    it('user keeps the newly chosen channel when an old download fails', async () => {
         const deferredDownload = createDeferred<AppUpdateInfo>();
         const { controller, downloadUpdate } = createController();
         downloadUpdate.mockReturnValueOnce(deferredDownload.promise);
@@ -460,7 +463,7 @@ describe('AppUpdateController', () => {
         });
     });
 
-    it('persists auto-check changes', async () => {
+    it('user sees the automatic-check preference saved', async () => {
         const { controller, updateAppUpdateAutoCheck } = createController();
 
         await controller.initialize();
@@ -470,7 +473,7 @@ describe('AppUpdateController', () => {
         expect(controller.getState().autoCheckEnabled).toBe(false);
     });
 
-    it('runs an immediate update check when auto-check is enabled', async () => {
+    it('user gets an immediate check when automatic checks are turned on', async () => {
         const { controller, checkForUpdates, updateAppUpdateAutoCheck } = createController({
             autoCheckEnabled: false,
             lastCheckedAt: '2026-05-22T09:00:00.000Z',
@@ -487,7 +490,7 @@ describe('AppUpdateController', () => {
         });
     });
 
-    it('checks the selected update channel and persists channel changes', async () => {
+    it('user sees checks follow the chosen channel and the channel persisted', async () => {
         const {
             controller,
             checkForUpdates,

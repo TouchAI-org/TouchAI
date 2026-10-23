@@ -49,7 +49,7 @@ function createBrowserRow() {
     };
 }
 
-describe('BuiltInToolService browser execution safety', () => {
+describe('user runs a browser tool', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         createBuiltInToolLogMock.mockResolvedValue({ id: 11 });
@@ -59,7 +59,7 @@ describe('BuiltInToolService browser execution safety', () => {
         findEnabledBuiltInToolsMock.mockResolvedValue([{ tool_id: 'browser' }]);
     });
 
-    it('fails closed for missing browser operation without approval or native action', async () => {
+    it('user sees a missing browser operation refused without approval or browser access', async () => {
         const emitToolEvent = vi.fn();
         const requestToolApproval = vi.fn();
         mockTauriCommand('browser_act', { ok: true, action: 'click' });

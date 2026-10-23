@@ -83,7 +83,7 @@ vi.mock('@tauri-apps/plugin-opener', () => ({
     openUrl: vi.fn().mockResolvedValue(undefined),
 }));
 
-describe('AppUpdateRequiredGate', () => {
+describe('user must update before continuing', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('zh-CN');
@@ -94,14 +94,14 @@ describe('AppUpdateRequiredGate', () => {
         document.body.innerHTML = '';
     });
 
-    it('stays hidden when the current version is supported', async () => {
+    it('user stays hidden when the current version is supported', async () => {
         const wrapper = mount(AppUpdateRequiredGate);
         await nextTick();
 
         expect(wrapper.find('[data-testid="app-update-required-gate"]').exists()).toBe(false);
     });
 
-    it('blocks the app and downloads a satisfying required update', async () => {
+    it('user blocks the app and downloads a satisfying required update', async () => {
         appUpdateServiceMock.state = {
             ...baseState,
             status: 'available',
@@ -131,7 +131,7 @@ describe('AppUpdateRequiredGate', () => {
         expect(appUpdateServiceMock.download).toHaveBeenCalledTimes(1);
     });
 
-    it('opens the release page when no direct download is selected', async () => {
+    it('user opens the release page when no direct download is selected', async () => {
         const latestUpdateWithoutDirectDownload = {
             ...latestUpdate,
             downloads: [],
@@ -156,7 +156,7 @@ describe('AppUpdateRequiredGate', () => {
         expect(openUrl).toHaveBeenCalledWith(latestUpdateWithoutDirectDownload.releaseUrl);
     });
 
-    it('renders raw update errors only as localized details', async () => {
+    it('user sees raw update errors only as localized details', async () => {
         appUpdateServiceMock.state = {
             ...baseState,
             status: 'failed',

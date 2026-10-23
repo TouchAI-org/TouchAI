@@ -95,12 +95,12 @@ function createModel(overrides: Partial<ModelWithProvider> = {}): ModelWithProvi
     };
 }
 
-describe('AgentService attachment capability preflight', () => {
+describe('user sends attachments to a model that may not read them', () => {
     beforeEach(() => {
         mocks.findMessagesBySessionId.mockReset();
     });
 
-    it('derives image and file support from model metadata independently', () => {
+    it('user sees image and file support decided separately from model metadata', () => {
         expect(
             getModelAttachmentCapabilities({
                 modalities: JSON.stringify({ input: ['text', 'image'], output: ['text'] }),
@@ -116,7 +116,7 @@ describe('AgentService attachment capability preflight', () => {
         ).toEqual({ supportsImages: false, supportsFiles: true });
     });
 
-    it('detects unsupported current attachments without reading attachment content', () => {
+    it('user is warned about an unsupported attachment before its content is read', () => {
         expect(
             getUnsupportedAttachmentTypes(
                 [createAttachment({ type: 'image' }), createAttachment({ type: 'file' })],
@@ -125,7 +125,7 @@ describe('AgentService attachment capability preflight', () => {
         ).toEqual(['image']);
     });
 
-    it('detects unsupported historical user and tool-result attachments before transport build', async () => {
+    it('user is warned about unsupported attachments already in the conversation', async () => {
         mocks.findMessagesBySessionId.mockResolvedValue([
             createMessageRow({
                 id: 10,
@@ -161,7 +161,7 @@ describe('AgentService attachment capability preflight', () => {
         ).resolves.toEqual(['image', 'file']);
     });
 
-    it('fails a runtime before the first model attempt when history has unsupported attachments', async () => {
+    it('user is told which attachments are unsupported before the first model attempt', async () => {
         mocks.findMessagesBySessionId.mockResolvedValue([
             createMessageRow({
                 id: 10,

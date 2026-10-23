@@ -36,7 +36,7 @@ vi.mock('@/services/AgentService/infrastructure/attachments', () => ({
     createAttachment: createAttachmentMock,
 }));
 
-describe('Read approval i18n', () => {
+describe('user reads file contents and approvals in their own language', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('zh-CN');
@@ -56,7 +56,7 @@ describe('Read approval i18n', () => {
         }));
     });
 
-    it('creates an English approval request when the active locale is English', async () => {
+    it('user reads the file read approval request in English', async () => {
         setLocale('en-US');
 
         const approval = await buildReadApprovalRequest({
@@ -72,7 +72,7 @@ describe('Read approval i18n', () => {
         });
     });
 
-    it('formats fallback conversation target in English', () => {
+    it('user reads the fallback conversation target in English', () => {
         setLocale('en-US');
 
         expect(buildReadConversationSemantic({})).toMatchObject({
@@ -81,7 +81,7 @@ describe('Read approval i18n', () => {
         });
     });
 
-    it('localizes missing path and suggestions in English', async () => {
+    it('user reads missing paths and suggestions in English', async () => {
         setLocale('en-US');
         statMock.mockRejectedValueOnce(new Error('not found'));
         readDirMock.mockResolvedValueOnce([{ name: 'notes.txt.bak' }]);
@@ -93,7 +93,7 @@ describe('Read approval i18n', () => {
         );
     });
 
-    it('localizes directory pagination in English', async () => {
+    it('user reads directory pagination in English', async () => {
         setLocale('en-US');
         statMock.mockResolvedValueOnce({ isDirectory: true, size: 0 });
         readDirMock.mockResolvedValueOnce([
@@ -110,7 +110,7 @@ describe('Read approval i18n', () => {
         expect(result.result).not.toContain('已显示');
     });
 
-    it('localizes text pagination and offset errors in English', async () => {
+    it('user reads text pagination and offset errors in English', async () => {
         setLocale('en-US');
         statMock.mockResolvedValue({ isDirectory: false, size: 12 });
         openMock.mockResolvedValue({
@@ -140,7 +140,7 @@ describe('Read approval i18n', () => {
         ).rejects.toThrow('Offset 3 is out of range for this file (1 lines)');
     });
 
-    it('localizes cancellation, binary, and media results in English', async () => {
+    it('user reads cancellation, binary, and media results in English', async () => {
         setLocale('en-US');
         statMock.mockResolvedValue({ isDirectory: false, size: 12 });
         openMock.mockResolvedValueOnce({

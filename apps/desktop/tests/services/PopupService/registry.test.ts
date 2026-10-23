@@ -51,12 +51,12 @@ async function loadRegistryModule() {
     return import('@services/PopupService/registry');
 }
 
-describe('popupRegistry built-in contracts', () => {
+describe('user opens a built-in popup', () => {
     afterEach(() => {
         document.body.innerHTML = '';
     });
 
-    it('registers the Rust-facing popup config contract for the built-in popups', async () => {
+    it('user sees the built-in popups registered with the backend config contract', async () => {
         const { initializeBuiltInPopups, popupRegistry } = await loadRegistryModule();
 
         initializeBuiltInPopups();
@@ -69,7 +69,7 @@ describe('popupRegistry built-in contracts', () => {
         ]);
     });
 
-    it('positions the model dropdown against the search bar container when the below-window placement overflows', async () => {
+    it('user sees the model dropdown placed beside the search bar when below-window placement would overflow', async () => {
         const { initializeBuiltInPopups, popupRegistry } = await loadRegistryModule();
         initializeBuiltInPopups();
 
@@ -98,7 +98,7 @@ describe('popupRegistry built-in contracts', () => {
         });
     });
 
-    it('uses the search-view container placement branch for session history popups', async () => {
+    it('user sees the session history popup placed against the search view container', async () => {
         const { initializeBuiltInPopups, popupRegistry } = await loadRegistryModule();
         initializeBuiltInPopups();
 
@@ -123,7 +123,7 @@ describe('popupRegistry built-in contracts', () => {
         });
     });
 
-    it('right-aligns and clamps session history popups when they are triggered from the session panel', async () => {
+    it('user sees the session history popup right-aligned and clamped when opened from the session panel', async () => {
         const { initializeBuiltInPopups, popupRegistry } = await loadRegistryModule();
         initializeBuiltInPopups();
 

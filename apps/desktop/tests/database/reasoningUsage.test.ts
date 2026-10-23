@@ -119,8 +119,8 @@ function call(reasoning: number, output: number): PersistedCall {
 
 afterEach(() => databases.splice(0).forEach((database) => database.close()));
 
-describe('sumUsage', () => {
-    it('accumulates reasoning tokens across calls', () => {
+describe('when usage is summed across calls', () => {
+    it('user sees reasoning tokens added up across calls', () => {
         const usage = sumUsage([call(100, 300), call(50, 200)]);
 
         expect(usage.reasoningTokens).toBe(150);
@@ -128,8 +128,8 @@ describe('sumUsage', () => {
     });
 });
 
-describe('llm_call part payload', () => {
-    it('persists reasoning tokens so the ledger can show them', async () => {
+describe('when a model call stores its usage', () => {
+    it('user sees the reasoning token count in the usage ledger', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);

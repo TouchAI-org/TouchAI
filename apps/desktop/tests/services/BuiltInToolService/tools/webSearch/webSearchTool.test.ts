@@ -34,13 +34,13 @@ function lastFetchCall(): [string, RequestInit] {
     return calls[calls.length - 1] as [string, RequestInit];
 }
 
-describe('WebSearch tool', () => {
+describe('user searches the web from the assistant', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         getSettingValueMock.mockResolvedValue(null);
     });
 
-    it('exports one consolidated search tool without provider-specific tools', () => {
+    it('user sees one consolidated search tool without provider-specific tools', () => {
         expect(builtInTools.map((tool) => tool.id)).toEqual(['web_search']);
         expect(webSearchTool.inputSchema.properties).toHaveProperty('provider');
         expect(webSearchTool.inputSchema.properties.provider).toMatchObject({
@@ -61,7 +61,7 @@ describe('WebSearch tool', () => {
         });
     });
 
-    it('builds the provider list from enabled runtime settings', async () => {
+    it('user sees the provider list built from enabled runtime settings', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
@@ -86,7 +86,7 @@ describe('WebSearch tool', () => {
         expect(definition.description).toContain('exa: Semantic web discovery');
     });
 
-    it('builds concise initial presentation text', () => {
+    it('user reads concise search activity text', () => {
         const args = {
             query: 'OpenClaw latest updates',
             description: '搜索 OpenClaw 项目信息',
@@ -98,7 +98,7 @@ describe('WebSearch tool', () => {
         });
     });
 
-    it('routes academic searches to OpenAlex by default', async () => {
+    it('user sees academic searches routed to OpenAlex by default', async () => {
         tauriFetchMock.mockResolvedValueOnce(
             new Response(
                 JSON.stringify({
@@ -137,7 +137,7 @@ describe('WebSearch tool', () => {
         );
     });
 
-    it('routes technical searches to GitHub repositories', async () => {
+    it('user sees technical searches routed to GitHub repositories', async () => {
         tauriFetchMock.mockResolvedValueOnce(
             new Response(
                 JSON.stringify({
@@ -170,7 +170,7 @@ describe('WebSearch tool', () => {
         });
     });
 
-    it('lets the model explicitly choose GitHub without relying on intent routing', async () => {
+    it('user sees an explicit GitHub choice honored without intent routing', async () => {
         tauriFetchMock.mockResolvedValueOnce(
             new Response(
                 JSON.stringify({
@@ -208,7 +208,7 @@ describe('WebSearch tool', () => {
         });
     });
 
-    it('uses AnySearch for general zero-config discovery by default', async () => {
+    it('user sees AnySearch used for general zero-config discovery by default', async () => {
         tauriFetchMock.mockResolvedValueOnce(
             new Response(
                 JSON.stringify({
@@ -241,7 +241,7 @@ describe('WebSearch tool', () => {
         );
     });
 
-    it('keeps the searched provider in presentation when no results are returned', async () => {
+    it('user sees the searched provider named when no results come back', async () => {
         tauriFetchMock.mockResolvedValueOnce(
             new Response(JSON.stringify({ data: { results: [] } }), {
                 status: 200,
@@ -266,7 +266,7 @@ describe('WebSearch tool', () => {
         });
     });
 
-    it('uses search settings defaults when call arguments omit routing options', async () => {
+    it('user sees search settings defaults used when call arguments omit routing', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 defaultProvider: 'github',
@@ -308,7 +308,7 @@ describe('WebSearch tool', () => {
         expect(String(tauriFetchMock.mock.calls[0]?.[0])).toContain('per_page=4');
     });
 
-    it('routes general searches to AnySearch when selected', async () => {
+    it('user sees general searches routed to AnySearch when selected', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 defaultProvider: 'anysearch',
@@ -360,7 +360,7 @@ describe('WebSearch tool', () => {
         );
     });
 
-    it('uses Brave when the model selects an enabled Brave provider', async () => {
+    it('user sees Brave used when the model selects an enabled Brave provider', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
@@ -403,7 +403,7 @@ describe('WebSearch tool', () => {
         );
     });
 
-    it('uses Tavily when the model selects an enabled Tavily provider', async () => {
+    it('user sees Tavily used when the model selects an enabled Tavily provider', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
@@ -443,7 +443,7 @@ describe('WebSearch tool', () => {
         );
     });
 
-    it('uses Exa when the model selects an enabled Exa provider', async () => {
+    it('user sees Exa used when the model selects an enabled Exa provider', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
@@ -483,7 +483,7 @@ describe('WebSearch tool', () => {
         );
     });
 
-    it('uses Firecrawl when the model selects an enabled Firecrawl provider', async () => {
+    it('user sees Firecrawl used when the model selects an enabled Firecrawl provider', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
@@ -523,7 +523,7 @@ describe('WebSearch tool', () => {
         );
     });
 
-    it('uses the Tavily keyless mode when no API key is configured', async () => {
+    it('user sees Tavily keyless mode used when no API key is configured', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
@@ -561,7 +561,7 @@ describe('WebSearch tool', () => {
         expect(headers.Authorization).toBeUndefined();
     });
 
-    it('uses the Firecrawl keyless mode when no API key is configured', async () => {
+    it('user sees Firecrawl keyless mode used when no API key is configured', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
@@ -597,7 +597,7 @@ describe('WebSearch tool', () => {
         expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
     });
 
-    it('uses the Exa public MCP endpoint and parses SSE when no API key is configured', async () => {
+    it('user sees the Exa public MCP endpoint used with SSE when no API key is configured', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
@@ -647,7 +647,7 @@ describe('WebSearch tool', () => {
         expect((init.headers as Record<string, string>).Accept).toContain('text/event-stream');
     });
 
-    it('surfaces Exa MCP tool-level errors instead of reporting no results', async () => {
+    it('user sees Exa tool-level errors surfaced instead of an empty result', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
@@ -689,7 +689,7 @@ describe('WebSearch tool', () => {
         expect(result.result).toContain('Input validation error');
     });
 
-    it('routes academic searches to Semantic Scholar when configured', async () => {
+    it('user sees academic searches routed to Semantic Scholar when configured', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 intentRoutes: {
@@ -729,7 +729,7 @@ describe('WebSearch tool', () => {
         );
     });
 
-    it('routes searches to a configured SearXNG instance', async () => {
+    it('user sees searches routed to a configured SearXNG instance', async () => {
         getSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 defaultProvider: 'searxng',
@@ -769,7 +769,7 @@ describe('WebSearch tool', () => {
         );
     });
 
-    it('labels source cards with the real site instead of the provider brand', async () => {
+    it('user sees source cards labelled with the real site instead of the provider brand', async () => {
         // anysearch 不返回站点名字段，卡片必须回退到 URL 域名，
         // 否则每张卡都会写成 「AnySearch」。
         tauriFetchMock.mockResolvedValueOnce(
@@ -803,7 +803,7 @@ describe('WebSearch tool', () => {
         ]);
     });
 
-    it('keeps a genuine provider-supplied site name on the card', async () => {
+    it('user sees a genuine provider-supplied site name kept on the card', async () => {
         // 字段值确实区别于品牌名时应当保留（例如 DeepSeek 的 site_name）。
         tauriFetchMock.mockResolvedValueOnce(
             new Response(

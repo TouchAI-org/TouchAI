@@ -82,8 +82,8 @@ function seed(database: SqliteDatabase) {
 
 afterEach(() => databases.splice(0).forEach((database) => database.close()));
 
-describe('updateSessionTurnAttemptUsage', () => {
-    it('writes every usage column including reasoning tokens', async () => {
+describe('when a turn attempt records its usage', () => {
+    it('user sees every token and cost figure stored for the attempt', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);

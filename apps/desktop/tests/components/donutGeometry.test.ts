@@ -9,16 +9,16 @@ import {
     TAU,
 } from '@/components/ui/donut-chart/geometry';
 
-describe('n2', () => {
-    it('rounds to two decimals without trailing noise', () => {
+describe('user reads a rounded chart number', () => {
+    it('user rounds to two decimals without trailing noise', () => {
         expect(n2(1.23456)).toBe('1.23');
         expect(n2(1)).toBe('1');
         expect(n2(-0.001)).toBe('0');
     });
 });
 
-describe('layout', () => {
-    it('fills the ring in proportion to the values', () => {
+describe('user reads a donut chart', () => {
+    it('user fills the ring in proportion to the values', () => {
         const arcs = layout(
             [
                 { key: 'a', value: 50 },
@@ -31,7 +31,7 @@ describe('layout', () => {
         expect(arcs.get('b')).toEqual({ start: 0.5, end: 1 });
     });
 
-    it('gives a hidden segment zero width but keeps its slot', () => {
+    it('user gets a hidden segment zero width but keeps its slot', () => {
         const arcs = layout(
             [
                 { key: 'a', value: 50 },
@@ -45,7 +45,7 @@ describe('layout', () => {
         expect(arcs.get('b')).toEqual({ start: 0, end: 1 });
     });
 
-    it('falls back to an even split when the total is zero', () => {
+    it('user falls back to an even split when the total is zero', () => {
         const arcs = layout(
             [
                 { key: 'a', value: 0 },
@@ -59,12 +59,12 @@ describe('layout', () => {
     });
 });
 
-describe('sector', () => {
-    it('returns nothing for a zero-width arc', () => {
+describe('user reads a donut slice', () => {
+    it('user gets nothing for a zero-width arc', () => {
         expect(sector(80, 70, 50, 0.3, 0.3, 3, 5)).toBe('');
     });
 
-    it('draws a full ring as two closed circles', () => {
+    it('user draws a full ring as two closed circles', () => {
         const d = sector(80, 70, 50, 0, 1, 3, 5);
 
         // 整圈没有间隙可留，用两段弧拼出外圈和内圈
@@ -72,7 +72,7 @@ describe('sector', () => {
         expect(d.match(/Z/g)).toHaveLength(2);
     });
 
-    it('starts every sector at the same point for a given angle', () => {
+    it('user starts every sector at the same point for a given angle', () => {
         // 0 → 0.25 从 12 点扫到 3 点，起点应在正上方
         const d = sector(80, 70, 50, 0, 0.25, 3, 5);
         const match = d.match(/^M([-\d.]+) ([-\d.]+)/);
@@ -85,7 +85,7 @@ describe('sector', () => {
         expect(y).toBeLessThan(80);
     });
 
-    it('keeps the gap constant from inner to outer edge', () => {
+    it('user keeps the gap constant from inner to outer edge', () => {
         // 间隙由两侧边线的偏移量决定，与半径无关：
         // 取两段相邻扇形的边界点，横向距离应接近 gap
         const gap = 4;
@@ -99,18 +99,18 @@ describe('sector', () => {
         expect(next).toContain('A');
     });
 
-    it('drops a hairline sector instead of drawing it', () => {
+    it('user drops a hairline sector instead of drawing it', () => {
         // 极窄的一段（0.0001 圈）在 70px 半径上不足 1px
         expect(sector(80, 70, 50, 0.5, 0.5001, 3, 5)).toBe('');
     });
 });
 
-describe('breadth', () => {
-    it('reports an infinite breadth for a full ring', () => {
+describe('user reads how wide a donut slice is', () => {
+    it('user gets an infinite breadth for a full ring', () => {
         expect(breadth(70, 0, 1, 3)).toBe(Infinity);
     });
 
-    it('shrinks as the arc narrows', () => {
+    it('user shrinks as the arc narrows', () => {
         const wide = breadth(70, 0, 0.5, 3);
         const narrow = breadth(70, 0, 0.05, 3);
 
@@ -119,8 +119,8 @@ describe('breadth', () => {
     });
 });
 
-describe('groupSlices', () => {
-    it('merges slices below the threshold into one other bucket', () => {
+describe('user reads a donut with many slices', () => {
+    it('user merges slices below the threshold into one other bucket', () => {
         const result = groupSlices(
             [
                 { key: 'a', label: 'A', value: 60 },
@@ -138,7 +138,7 @@ describe('groupSlices', () => {
         expect(result[2]?.label).toBe('Other');
     });
 
-    it('caps the number of kept slices', () => {
+    it('user caps the number of kept slices', () => {
         const data = Array.from({ length: 10 }, (_, index) => ({
             key: `k${index}`,
             label: `L${index}`,
@@ -152,11 +152,11 @@ describe('groupSlices', () => {
         expect(result[3]?.value).toBe(70);
     });
 
-    it('returns an empty array for no data', () => {
+    it('user gets an empty array for no data', () => {
         expect(groupSlices([], 0.04, 6, 'Other')).toEqual([]);
     });
 
-    it('keeps everything when nothing is small', () => {
+    it('user keeps everything when nothing is small', () => {
         const result = groupSlices(
             [
                 { key: 'a', label: 'A', value: 50 },
@@ -172,8 +172,8 @@ describe('groupSlices', () => {
     });
 });
 
-describe('TAU', () => {
-    it('is a full turn', () => {
+describe('user reads a full donut ring', () => {
+    it('user is a full turn', () => {
         expect(TAU).toBeCloseTo(Math.PI * 2, 10);
     });
 });

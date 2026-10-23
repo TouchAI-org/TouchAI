@@ -77,7 +77,7 @@ function createCheckpoint(): AttemptCheckpoint {
     };
 }
 
-describe('reasoning persistence', () => {
+describe('reasoning and the answer are saved as they stream', () => {
     beforeEach(() => {
         vi.resetAllMocks();
         let messageId = 10;
@@ -88,7 +88,7 @@ describe('reasoning persistence', () => {
             id: 3,
         }));
     });
-    it('does not write temporary output to attempts while streaming', async () => {
+    it('user sees no temporary attempt output written while streaming', async () => {
         queries.updateSessionTurnAttempt.mockClear();
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
@@ -113,7 +113,7 @@ describe('reasoning persistence', () => {
     });
 
     it.each(['failed', 'cancelled'] as const)(
-        'keeps the assistant link when %s before the first reasoning delta',
+        'user keeps the assistant link when the turn is %s before the first reasoning delta',
         async (status) => {
             const projector = createProjector();
             await projector.recordTurnStart(createCheckpoint());
@@ -147,7 +147,7 @@ describe('reasoning persistence', () => {
         }
     );
 
-    it('persists ordered tool-call parts without a temporary attempt snapshot', async () => {
+    it('user sees ordered tool-call parts saved without a temporary snapshot', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
         queries.updateSessionTurnAttempt.mockClear();
@@ -182,7 +182,7 @@ describe('reasoning persistence', () => {
     });
 
     it.each(['failed', 'cancelled'] as const)(
-        'commits partial ordered output on %s without a temporary snapshot',
+        'user keeps partial ordered output when the turn is %s without a temporary snapshot',
         async (status) => {
             const projector = createProjector();
             await projector.recordTurnStart(createCheckpoint());
@@ -221,7 +221,7 @@ describe('reasoning persistence', () => {
     );
 
     it.each(['failed', 'cancelled'] as const)(
-        'preserves durable output when %s without a final snapshot',
+        'user keeps durable output when the turn is %s without a final snapshot',
         async (status) => {
             const projector = createProjector();
             await projector.recordTurnStart(createCheckpoint());
@@ -244,7 +244,7 @@ describe('reasoning persistence', () => {
         }
     );
 
-    it('persists wall-clock boundaries in the completed message', async () => {
+    it('user sees wall-clock boundaries saved in the completed message', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
         const completed = [{ content: 'Thought', startedAt: 1000, endedAt: 6500 }];
@@ -279,7 +279,7 @@ describe('reasoning persistence', () => {
         );
     });
 
-    it('reuses the streaming message when completing a turn', async () => {
+    it('user sees the streaming message reused when the turn completes', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
         const thought = {
@@ -317,7 +317,7 @@ describe('reasoning persistence', () => {
         );
     });
 
-    it('preserves streamed output when completion has no final parts', async () => {
+    it('user keeps streamed output when completion brings no final parts', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
         await projector.persistOutputProgress([
@@ -338,7 +338,7 @@ describe('reasoning persistence', () => {
         );
     });
 
-    it('reuses the streaming message as a tool-call step without leaking it into the final reply', async () => {
+    it('user sees the streaming message reused as a tool-call step without leaking into the reply', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
         const parts = [
@@ -358,7 +358,7 @@ describe('reasoning persistence', () => {
         );
     });
 
-    it('writes the tool result back into its tool-call part', async () => {
+    it('user sees the tool result written back into its tool-call part', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
         queries.mergeMessagePartData.mockResolvedValue({
@@ -382,7 +382,7 @@ describe('reasoning persistence', () => {
         expect(queries.refreshSessionMetadata).toHaveBeenLastCalledWith(1, expect.anything());
     });
 
-    it('attaches tool-result attachments with their owning call identity', async () => {
+    it('user sees tool-result attachments saved with their owning call', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
         queries.mergeMessagePartData.mockResolvedValue({
@@ -422,7 +422,7 @@ describe('reasoning persistence', () => {
         );
     });
 
-    it('recovers the tool_call part by call id instead of writing assistant text', async () => {
+    it('user sees the tool-call part recovered by call id instead of as assistant text', async () => {
         // 工具结果只能落在 tool_call 片段上。主键丢了就按 tool_call_id 反查，
         // 绝不把结果写成一条助手文本（那会在对话里渲染成大段原始工具输出）。
         queries.findToolCallPartByCallId.mockResolvedValueOnce({ id: 77 } as never);
@@ -446,7 +446,7 @@ describe('reasoning persistence', () => {
         expect(queries.appendMessagePart).not.toHaveBeenCalled();
     });
 
-    it('skips the call-id lookup when the tool-call message is unknown', async () => {
+    it('user sees no call-id lookup when the tool-call message is unknown', async () => {
         // 没有消息 id 就不做不限定的反查：`tool_call_id` 只保证在单条消息内唯一，
         // 命中了更早消息里的同 id 片段会把结果写错地方。
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -465,7 +465,7 @@ describe('reasoning persistence', () => {
         errorSpy.mockRestore();
     });
 
-    it('drops an unmatched tool result rather than storing it as assistant text', async () => {
+    it('user sees an unmatched tool result dropped rather than stored as assistant text', async () => {
         queries.findToolCallPartByCallId.mockResolvedValueOnce(undefined as never);
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const projector = createProjector();
@@ -483,7 +483,7 @@ describe('reasoning persistence', () => {
         errorSpy.mockRestore();
     });
 
-    it('ignores an unmatched empty tool result', async () => {
+    it('user sees an unmatched empty tool result ignored', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
 
@@ -496,7 +496,7 @@ describe('reasoning persistence', () => {
         expect(queries.appendMessagePart).not.toHaveBeenCalled();
     });
 
-    it('updates only the checkpoint at a safe boundary', async () => {
+    it('user sees only the checkpoint updated at a safe boundary', async () => {
         const projector = createProjector();
         const checkpoint = createCheckpoint();
         await projector.recordTurnStart(checkpoint);
@@ -508,7 +508,7 @@ describe('reasoning persistence', () => {
         });
     });
 
-    it('persists reasoning provider options into the message part data column', async () => {
+    it('user sees reasoning provider options saved into the message part', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
         await projector.markCompleted({

@@ -10,14 +10,14 @@ function depthOf(candidates: ModelIdCandidate[], candidate: string): number | un
     return candidates.find((item) => item.candidate === candidate)?.depth;
 }
 
-describe('model id candidate expansion', () => {
-    it('keeps untouched ids as a single depth-0 candidate', () => {
+describe('user gets gateway-rewritten model ids matched to catalog entries', () => {
+    it('user sees an untouched id kept as a single depth-0 candidate', () => {
         expect(expandModelIdCandidates('gpt-5-6-sol')).toEqual([
             { candidate: 'gpt-5-6-sol', depth: 0 },
         ]);
     });
 
-    it('strips date and release suffixes one layer at a time', () => {
+    it('user sees date and release suffixes stripped one layer at a time', () => {
         expect(depthOf(expandModelIdCandidates('gpt-5-2025-08-07'), 'gpt-5')).toBe(1);
         expect(
             depthOf(expandModelIdCandidates('claude-3-5-haiku-20241022'), 'claude-3-5-haiku')
@@ -33,7 +33,7 @@ describe('model id candidate expansion', () => {
         );
     });
 
-    it('strips gateway namespaces and route prefixes as independent branches', () => {
+    it('user sees gateway namespaces and route prefixes stripped as independent branches', () => {
         expect(depthOf(expandModelIdCandidates('any/claude-3-5-haiku'), 'claude-3-5-haiku')).toBe(
             1
         );
@@ -46,7 +46,7 @@ describe('model id candidate expansion', () => {
         expect(depthOf(grouped, 'gpt-5-6-sol')).toBe(2);
     });
 
-    it('combines namespace and suffix stripping without losing either branch', () => {
+    it('user sees namespace and suffix stripping combined without losing either branch', () => {
         const candidates = expandModelIdCandidates('workbuddy-ai/step-5-preview');
 
         expect(depthOf(candidates, 'workbuddy-ai/step-5')).toBe(1);
@@ -54,21 +54,21 @@ describe('model id candidate expansion', () => {
         expect(depthOf(candidates, 'step-5')).toBe(2);
     });
 
-    it('lowercases with ASCII-only semantics like the previous SQL', () => {
+    it('user sees matching stay case-insensitive without touching non-ASCII characters', () => {
         const candidates = expandModelIdCandidates('ANY/Claude-3-5-Haiku');
 
         expect(candidates[0]).toEqual({ candidate: 'any/claude-3-5-haiku', depth: 0 });
         expect(depthOf(candidates, 'claude-3-5-haiku')).toBe(1);
     });
 
-    it('stops expanding at the depth limit', () => {
+    it('user sees expansion stop at the depth limit', () => {
         const candidates = expandModelIdCandidates('x/y/z/w/v/u/t/s');
 
         expect(depthOf(candidates, 't/s')).toBe(MAX_MODEL_ID_CANDIDATE_DEPTH);
         expect(depthOf(candidates, 's')).toBeUndefined();
     });
 
-    it('keeps every candidate unique and sorted by depth', () => {
+    it('user sees every candidate unique and sorted by depth', () => {
         const candidates = expandModelIdCandidates('any/auto-gpt-5-6-sol');
         const unique = new Set(candidates.map((item) => item.candidate));
 
@@ -78,7 +78,7 @@ describe('model id candidate expansion', () => {
         );
     });
 
-    it('reaches canonical ids for realistic gateway model ids', () => {
+    it('user sees realistic gateway ids reach their canonical ids', () => {
         const expectations: Array<[string, string, number]> = [
             ['any/claude-3-5-haiku-20241022', 'claude-3-5-haiku', 2],
             ['group/auto-gpt-5-6-sol', 'gpt-5-6-sol', 2],

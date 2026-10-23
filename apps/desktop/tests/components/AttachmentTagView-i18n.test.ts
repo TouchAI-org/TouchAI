@@ -25,12 +25,12 @@ function createNode(attrs: Record<string, unknown>): NodeViewProps['node'] {
     } as unknown as NodeViewProps['node'];
 }
 
-describe('AttachmentTagView i18n boundaries', () => {
+describe('user sees an attachment tag', () => {
     beforeEach(() => {
         setLocale('zh-CN');
     });
 
-    it('marks attachment file text as not eligible for global DOM localization', () => {
+    it('user marks attachment file text as not eligible for global DOM localization', () => {
         const wrapper = mount(AttachmentTagView, {
             props: {
                 node: createNode({}),
@@ -49,7 +49,7 @@ describe('AttachmentTagView i18n boundaries', () => {
         expect(label.attributes('translate')).toBe('no');
     });
 
-    it('marks attachment image alt text as not eligible for global DOM localization', () => {
+    it('user marks attachment image alt text as not eligible for global DOM localization', () => {
         const wrapper = mount(AttachmentTagView, {
             props: {
                 node: createNode({
@@ -68,7 +68,7 @@ describe('AttachmentTagView i18n boundaries', () => {
         expect(image.attributes('translate')).toBe('no');
     });
 
-    it('localizes unsupported attachment tooltip suffix in English while preserving filename payload', () => {
+    it('user sees unsupported attachment tooltip suffix in English while preserving filename payload', () => {
         setLocale('en-US');
 
         const wrapper = mount(AttachmentTagView, {

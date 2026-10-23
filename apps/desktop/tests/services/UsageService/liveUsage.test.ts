@@ -51,16 +51,39 @@ beforeEach(() => {
     vi.useFakeTimers();
 });
 
-describe('LiveUsageTracker', () => {
-    it('emits nothing before the first content arrives', () => {
+describe('user watches live token usage while the answer streams', () => {
+    it('user sees the usage panel update while waiting for the first token', () => {
         const instance = tracker();
-        vi.advanceTimersByTime(1000);
 
-        expect(emitMock).not.toHaveBeenCalled();
-        void instance;
+        instance.start();
+        vi.advanceTimersByTime(400);
+
+        // The heartbeat keeps the plot alive while no chunk arrives, and the
+        // honest value before any output is zero rather than a blank panel.
+        expect(emitMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+        expect(lastPayload().outputTokens).toBe(0);
+        expect(lastPayload().tokensPerSecond).toBe(0);
+        expect(lastPayload().ttftMs).toBeNull();
+        instance.stop();
     });
 
-    it('emits the very first delta immediately so the panel lights up at once', () => {
+    it('user sees the speed fall back to zero while a tool call produces no output', () => {
+        const instance = tracker();
+
+        instance.start();
+        feed(instance, 'a'.repeat(400), 450);
+        feed(instance, 'a'.repeat(400), 450);
+        // The heartbeat samples the sliding window on a fixed tick.
+        vi.advanceTimersByTime(200);
+        const streamingSpeed = lastPayload().tokensPerSecond;
+        vi.advanceTimersByTime(6_000);
+
+        expect(streamingSpeed).toBeGreaterThan(0);
+        expect(lastPayload().tokensPerSecond).toBe(0);
+        instance.stop();
+    });
+
+    it('user sees the first delta pushed immediately so the panel lights up at once', () => {
         const instance = tracker();
 
         feed(instance, 'hi', 50);
@@ -69,7 +92,7 @@ describe('LiveUsageTracker', () => {
         expect(lastPayload().outputTokens).toBeGreaterThan(0);
     });
 
-    it('does not emit more often than the throttle interval', () => {
+    it('user does not see pushes more often than the throttle interval', () => {
         const instance = tracker();
 
         feed(instance, 'hello', 100);
@@ -81,7 +104,7 @@ describe('LiveUsageTracker', () => {
         expect(emitMock).toHaveBeenCalledTimes(afterFirst);
     });
 
-    it('estimates tokens from streamed characters', () => {
+    it('user sees tokens estimated from the streamed characters', () => {
         const instance = tracker();
 
         // 120 个拉丁字符 ≈ 30 token
@@ -90,7 +113,7 @@ describe('LiveUsageTracker', () => {
         expect(lastPayload().outputTokens).toBe(30);
     });
 
-    it('counts CJK characters as heavier than latin ones', () => {
+    it('user sees CJK characters count as heavier than latin ones', () => {
         const instance = tracker();
         feed(instance, '中'.repeat(12), 400);
 
@@ -98,7 +121,7 @@ describe('LiveUsageTracker', () => {
         expect(lastPayload().outputTokens).toBe(8);
     });
 
-    it('counts reasoning deltas towards throughput', () => {
+    it('user sees reasoning count towards throughput', () => {
         const instance = tracker();
 
         vi.advanceTimersByTime(400);
@@ -107,7 +130,7 @@ describe('LiveUsageTracker', () => {
         expect(lastPayload().outputTokens).toBe(20);
     });
 
-    it('records the first-token latency on the first delta', () => {
+    it('user sees the first-token latency recorded on the first delta', () => {
         const instance = tracker();
 
         vi.advanceTimersByTime(750);
@@ -117,14 +140,14 @@ describe('LiveUsageTracker', () => {
         expect(lastPayload().ttftMs).toBe(750);
     });
 
-    it('reports an active stream while streaming', () => {
+    it('user sees the stream reported as active while it runs', () => {
         const instance = tracker();
         feed(instance, 'x'.repeat(60), 400);
 
         expect(lastPayload().streaming).toBe(true);
     });
 
-    it('estimates cost from the output price', () => {
+    it('user sees cost estimated from the output price', () => {
         const instance = tracker({ estimatedOutputCostPerMillion: 15 });
 
         // 300 字符 ≈ 75 token；75 × 15 = 1125 微元
@@ -133,14 +156,14 @@ describe('LiveUsageTracker', () => {
         expect(lastPayload().estimatedCostMicros).toBe(75 * 15);
     });
 
-    it('omits cost when no price is known', () => {
+    it('user sees no cost when no price is known', () => {
         const instance = tracker({ estimatedOutputCostPerMillion: null });
         feed(instance, 'a'.repeat(300), 400);
 
         expect(lastPayload().estimatedCostMicros).toBeNull();
     });
 
-    it('accumulates speed samples internally across pushes', () => {
+    it('user sees one update per interval while output keeps flowing', () => {
         const instance = tracker();
 
         for (let index = 0; index < 5; index += 1) {
@@ -152,7 +175,7 @@ describe('LiveUsageTracker', () => {
         expect(lastPayload().tokensPerSecond).toBeGreaterThan(0);
     });
 
-    it('measures a steady stream from token counter deltas in the last five seconds', () => {
+    it('user sees the speed measured from token counter deltas in the last five seconds', () => {
         const instance = tracker();
         feed(instance, 'a'.repeat(100), 400);
         for (let index = 0; index < 20; index += 1) feed(instance, 'a'.repeat(100), 400);
@@ -161,7 +184,7 @@ describe('LiveUsageTracker', () => {
         expect(lastPayload().tokensPerSecond).toBeCloseTo(62.5, 1);
     });
 
-    it('reports no speed until the first measurable window', () => {
+    it('user sees no speed until the first measurable window', () => {
         const instance = tracker();
 
         feed(instance, 'a'.repeat(100), 50);
@@ -170,7 +193,7 @@ describe('LiveUsageTracker', () => {
         expect(lastPayload().tokensPerSecond).toBeNull();
     });
 
-    it('replaces the estimate with the measured token count on finish', () => {
+    it('user sees the estimate replaced by the measured token count on finish', () => {
         const instance = tracker();
         feed(instance, 'a'.repeat(400), 400);
         const estimated = lastPayload().outputTokens;
@@ -183,7 +206,7 @@ describe('LiveUsageTracker', () => {
         expect(final.streaming).toBe(false);
     });
 
-    it('keeps the last cost estimate when finishing without a measured cost', () => {
+    it('user keeps the last cost estimate when finishing without a measured cost', () => {
         const instance = tracker({ estimatedOutputCostPerMillion: 15 });
         feed(instance, 'a'.repeat(300), 400);
         const estimatedCost = lastPayload().estimatedCostMicros;
@@ -195,7 +218,7 @@ describe('LiveUsageTracker', () => {
         expect(lastPayload().estimatedCostMicros).toBe(estimatedCost);
     });
 
-    it('prefers a measured cost over the estimate when one is given', () => {
+    it('user sees a measured cost preferred over the estimate', () => {
         const instance = tracker({ estimatedOutputCostPerMillion: 15 });
         feed(instance, 'a'.repeat(300), 400);
 
@@ -204,7 +227,7 @@ describe('LiveUsageTracker', () => {
         expect(lastPayload().estimatedCostMicros).toBe(42);
     });
 
-    it('ignores deltas after finishing', () => {
+    it('user sees no further updates after the stream finished', () => {
         const instance = tracker();
         feed(instance, 'a'.repeat(100), 400);
         instance.finish({ outputTokens: 10, costMicros: null });
@@ -215,7 +238,7 @@ describe('LiveUsageTracker', () => {
         expect(emitMock).toHaveBeenCalledTimes(callsAfterFinish);
     });
 
-    it('stops without rewriting numbers when the run fails', () => {
+    it('user sees the numbers kept when the run fails', () => {
         const instance = tracker();
         feed(instance, 'a'.repeat(300), 400);
         const estimated = lastPayload().outputTokens;
@@ -228,7 +251,7 @@ describe('LiveUsageTracker', () => {
         expect(final.streaming).toBe(false);
     });
 
-    it('does not stop twice', () => {
+    it('user sees only one final update when the run is stopped twice', () => {
         const instance = tracker();
         feed(instance, 'a'.repeat(100), 400);
         instance.stop();

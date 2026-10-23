@@ -110,8 +110,8 @@ function seedTurn(database: SqliteDatabase, turn: TurnSeed) {
 
 afterEach(() => databases.splice(0).forEach((database) => database.close()));
 
-describe('getModelRanking', () => {
-    it('orders models by tokens by default', async () => {
+describe('when the user ranks models by usage', () => {
+    it('user sees the models that used the most tokens first', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -140,7 +140,7 @@ describe('getModelRanking', () => {
         expect(ranked[0]?.tokens).toBe(5000);
     });
 
-    it('re-orders by cost when asked', async () => {
+    it('user sees the models that cost the most first', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -170,7 +170,7 @@ describe('getModelRanking', () => {
         expect(ranked[0]?.costMicros).toBe(900);
     });
 
-    it('respects the limit', async () => {
+    it('user sees only the requested number of models', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -196,7 +196,7 @@ describe('getModelRanking', () => {
         expect(await getModelRanking(WIDE, 'tokens', 1)).toHaveLength(1);
     });
 
-    it('returns nothing for a range with no turns', async () => {
+    it('user gets no ranking for a range without usage', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -205,8 +205,8 @@ describe('getModelRanking', () => {
     });
 });
 
-describe('getSessionRanking', () => {
-    it('sums the per-turn durations rather than the wall-clock span', async () => {
+describe('when the user ranks conversations by usage', () => {
+    it('user sees the real talking time, not the time between first and last message', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -239,7 +239,7 @@ describe('getSessionRanking', () => {
         expect(ranked[0]?.tokens).toBe(200);
     });
 
-    it('carries the session title, model and last activity', async () => {
+    it('user sees the conversation title, its model and when it last ran', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -262,7 +262,7 @@ describe('getSessionRanking', () => {
         });
     });
 
-    it('orders by duration when asked', async () => {
+    it('user sees the longest running conversations first', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -291,7 +291,7 @@ describe('getSessionRanking', () => {
         expect(ranked[0]?.name).toBe('Marathon session');
     });
 
-    it('ignores turns outside the range', async () => {
+    it('user gets no conversation that ran outside the chosen range', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);

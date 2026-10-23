@@ -44,8 +44,8 @@ function selectWith(
     );
 }
 
-describe('model metadata matching', () => {
-    it('prefers the candidate with the fewest stripping steps', () => {
+describe('user sees model metadata matched to the catalog', () => {
+    it('user sees the candidate with the fewest stripping steps win', () => {
         const selections = selectWith(
             { id: 1, modelId: 'any/claude-3-5-haiku' },
             {
@@ -59,7 +59,7 @@ describe('model metadata matching', () => {
         expect(selections[0]!.metadata.modelId).toBe('gateway/claude-3-5-haiku');
     });
 
-    it('prefers richer metadata when stripping depth is equal', () => {
+    it('user sees the richer metadata win when stripping depth is equal', () => {
         const aliasTargets = {
             'workbuddy-ai/step-5': 'vendor/step-5',
             'step-5-preview': 'vendor/step-5-preview',
@@ -86,7 +86,7 @@ describe('model metadata matching', () => {
         expect(preferOther[0]!.metadata.modelId).toBe('vendor/step-5');
     });
 
-    it('prefers longer canonical ids and stays deterministic on full ties', () => {
+    it('user sees the longer canonical id win and ties resolved deterministically', () => {
         const longer = selectWith(
             { id: 1, modelId: 'workbuddy-ai/step-5-preview' },
             {
@@ -108,7 +108,7 @@ describe('model metadata matching', () => {
         expect(tieBreak[0]!.metadata.modelId).toBe('aaa');
     });
 
-    it('skips aliases whose metadata row is missing and rows without matches', () => {
+    it('user sees aliases without a metadata row skipped', () => {
         const selections = selectModelMetadata(
             [
                 { id: 1, modelId: 'any/claude-3-5-haiku' },
@@ -127,7 +127,7 @@ describe('model metadata matching', () => {
     });
 });
 
-describe('resolveModelMetadataRow', () => {
+describe('user sees the metadata row resolved for a model', () => {
     const fallback = metadata('openai/gpt-5-6-sol', {
         attachment: 0,
         reasoning: 1,
@@ -136,7 +136,7 @@ describe('resolveModelMetadataRow', () => {
         outputLimit: 32000,
     });
 
-    it('prefers recorded upstream declarations over the models.dev fallback', () => {
+    it('user sees recorded upstream declarations preferred over the catalog fallback', () => {
         const row = resolveModelMetadataRow(
             {
                 id: 1,
@@ -156,7 +156,7 @@ describe('resolveModelMetadataRow', () => {
         });
     });
 
-    it('falls back to models.dev and keeps existing values when nothing is declared', () => {
+    it('user sees the catalog fallback used and existing values kept when nothing is declared', () => {
         const row = resolveModelMetadataRow(
             { id: 1, modelId: 'group/auto-gpt-5-6-sol', upstreamMetadata: null },
             fallback
@@ -178,7 +178,7 @@ describe('resolveModelMetadataRow', () => {
     });
 });
 
-describe('syncAllModelsMetadata', () => {
+describe('user sees every model synced in one pass', () => {
     const MODEL_ROW = { id: 1, model_id: 'group/auto-gpt-5-6-sol', upstream_metadata: null };
     const METADATA_ROW = {
         model_id: 'openai/gpt-5-6-sol',
@@ -194,7 +194,7 @@ describe('syncAllModelsMetadata', () => {
         limit: '{"context":400000,"output":128000}',
     };
 
-    it('reads candidates, matches in memory and writes one bulk update', async () => {
+    it('user sees candidates matched in memory and written in one bulk update', async () => {
         interceptTauriInvoke((call) => {
             if (call.cmd !== 'database_query') {
                 return undefined;
@@ -260,7 +260,7 @@ describe('syncAllModelsMetadata', () => {
         ]);
     });
 
-    it('writes nothing when no candidate matches the alias table', async () => {
+    it('user sees no write when no candidate matches the alias table', async () => {
         interceptTauriInvoke((call) => {
             if (call.cmd !== 'database_query') {
                 return undefined;
@@ -286,7 +286,7 @@ describe('syncAllModelsMetadata', () => {
         expect(runCalls).toHaveLength(0);
     });
 
-    it('does not touch the database when there are no non-custom models', async () => {
+    it('user sees no database work when there are no non-custom models', async () => {
         interceptTauriInvoke((call) => {
             if (call.cmd !== 'database_query') {
                 return undefined;

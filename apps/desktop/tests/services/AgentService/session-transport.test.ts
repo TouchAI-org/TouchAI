@@ -29,12 +29,12 @@ function callPart(id: number, kind: 'builtin' | 'mcp', callId: string, result?: 
     });
 }
 
-describe('AgentService session transport', () => {
+describe('a saved conversation is replayed to the model', () => {
     beforeEach(() => {
         mocks.findMessagesBySessionId.mockReset();
     });
 
-    it('reads multiple tool calls from one message and emits each result after its call', async () => {
+    it('user sees multiple tool calls from one message with each result after its call', async () => {
         mocks.findMessagesBySessionId.mockResolvedValue([
             createMessageRow({ id: 10, content: 'run both' }),
             createMessageRow({
@@ -72,7 +72,7 @@ describe('AgentService session transport', () => {
         expect(mocks.findMessagesBySessionId).toHaveBeenCalledExactlyOnceWith(1);
     });
 
-    it('inserts placeholder results for an interrupted call with no persisted result', async () => {
+    it('user sees a placeholder result for an interrupted call with no saved result', async () => {
         mocks.findMessagesBySessionId.mockResolvedValue([
             createMessageRow({ id: 10, content: 'run a tool' }),
             createMessageRow({
@@ -99,7 +99,7 @@ describe('AgentService session transport', () => {
         ]);
     });
 
-    it('keeps reasoning and text on a tool-call message beside its call parts', async () => {
+    it('user sees reasoning and text kept on a tool-call message beside its call parts', async () => {
         mocks.findMessagesBySessionId.mockResolvedValue([
             createMessageRow({
                 id: 11,
@@ -142,7 +142,7 @@ describe('AgentService session transport', () => {
         ]);
     });
 
-    it('preserves text and reasoning order directly from parts', async () => {
+    it('user sees text and reasoning replayed in their original order', async () => {
         mocks.findMessagesBySessionId.mockResolvedValue([
             createMessageRow({
                 role: 'assistant',
@@ -172,7 +172,7 @@ describe('AgentService session transport', () => {
         ]);
     });
 
-    it('restores reasoning provider options from the persisted part data', async () => {
+    it('user sees reasoning provider options restored from the saved part', async () => {
         mocks.findMessagesBySessionId.mockResolvedValue([
             createMessageRow({
                 role: 'assistant',
@@ -207,7 +207,7 @@ describe('AgentService session transport', () => {
         ]);
     });
 
-    it('ignores malformed reasoning part data', async () => {
+    it('user sees malformed reasoning part data ignored', async () => {
         mocks.findMessagesBySessionId.mockResolvedValue([
             createMessageRow({
                 role: 'assistant',
@@ -227,7 +227,7 @@ describe('AgentService session transport', () => {
         ]);
     });
 
-    it('omits blank text and reasoning parts from provider transport', async () => {
+    it('user does not see blank text and reasoning parts sent to the model', async () => {
         mocks.findMessagesBySessionId.mockResolvedValue([
             createMessageRow({
                 role: 'assistant',
@@ -256,7 +256,7 @@ describe('AgentService session transport', () => {
         ]);
     });
 
-    it('skips assistant rows that have no renderable transport content', async () => {
+    it('user does not see assistant rows with no renderable content sent', async () => {
         mocks.findMessagesBySessionId.mockResolvedValue([
             createMessageRow({ id: 10, content: 'Question' }),
             createMessageRow({
@@ -281,7 +281,7 @@ describe('AgentService session transport', () => {
         ]);
     });
 
-    it('returns no history without querying when there is no session', async () => {
+    it('user sees no history queried when there is no session', async () => {
         expect(await loadSessionTransportMessages({})).toEqual([]);
         expect(mocks.findMessagesBySessionId).not.toHaveBeenCalled();
     });

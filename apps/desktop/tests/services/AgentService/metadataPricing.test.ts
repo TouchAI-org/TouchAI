@@ -50,8 +50,8 @@ const catalogFixture = {
     },
 };
 
-describe('buildMetadataList pricing', () => {
-    it('keeps the per-million cost fields from the catalog', () => {
+describe('user sees model pricing from the catalog', () => {
+    it('user sees the per-million cost fields from the catalog', () => {
         const { metadataList } = buildMetadataList(catalogFixture);
         const deepseek = metadataList.find((row) => row.model_id === 'deepseek-v4-flash');
 
@@ -64,7 +64,7 @@ describe('buildMetadataList pricing', () => {
         expect(deepseek!.cost_currency).toBe('USD');
     });
 
-    it('keeps all four prices when the vendor reports them', () => {
+    it('user sees all four prices when the vendor reports them', () => {
         const { metadataList } = buildMetadataList(catalogFixture);
         const claude = metadataList.find((row) => row.model_id === 'claude-sonnet-4-5');
 
@@ -74,7 +74,7 @@ describe('buildMetadataList pricing', () => {
         expect(claude!.cache_write_cost_per_million).toBe('3.75');
     });
 
-    it('leaves pricing empty for a model the catalog does not price', () => {
+    it('user sees empty pricing for a model the catalog does not price', () => {
         const { metadataList } = buildMetadataList(catalogFixture);
         const free = metadataList.find((row) => row.model_id === 'no-price-model');
 
@@ -84,7 +84,7 @@ describe('buildMetadataList pricing', () => {
         expect(free!.cost_currency).toBeNull();
     });
 
-    it('does not invent a price of zero for an unpriced model', () => {
+    it('user sees no invented zero price for an unpriced model', () => {
         const { metadataList } = buildMetadataList(catalogFixture);
         const free = metadataList.find((row) => row.model_id === 'no-price-model');
 

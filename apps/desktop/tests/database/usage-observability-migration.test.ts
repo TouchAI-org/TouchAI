@@ -155,8 +155,8 @@ function refreshTurnTotals(db: InstanceType<typeof DatabaseSync>, turnId: number
     ).run(turnId, turnId, turnId, turnId, turnId, turnId, turnId, turnId, turnId, turnId);
 }
 
-describe('usage observability migration', () => {
-    it('applies every migration in the journal without error', () => {
+describe('when the app upgrades an existing database', () => {
+    it('user gets an upgraded database without errors', () => {
         const db = migrated();
         try {
             const applied = db.prepare('SELECT count(*) AS count FROM sqlite_master').get() as {
@@ -168,7 +168,7 @@ describe('usage observability migration', () => {
         }
     });
 
-    it('adds the usage columns to session_turns', () => {
+    it('user gets usage columns on the turn table', () => {
         const db = migrated();
         try {
             const columns = (
@@ -202,7 +202,7 @@ describe('usage observability migration', () => {
         }
     });
 
-    it('adds the usage columns to session_turn_attempts', () => {
+    it('user gets usage columns on the attempt table', () => {
         const db = migrated();
         try {
             const columns = (
@@ -227,7 +227,7 @@ describe('usage observability migration', () => {
         }
     });
 
-    it('adds the pricing columns to llm_metadata', () => {
+    it('user gets pricing columns on the call metadata', () => {
         const db = migrated();
         try {
             const columns = (
@@ -248,7 +248,7 @@ describe('usage observability migration', () => {
         }
     });
 
-    it('creates usage_daily_rollups with a composite primary key', () => {
+    it('user gets a daily rollup table keyed by day and model', () => {
         const db = migrated();
         try {
             const columns = (
@@ -274,7 +274,7 @@ describe('usage observability migration', () => {
      * never be edited, so this guards against the merging going further than
      * the last unreleased step.
      */
-    it('folds the usage ledger into the last migration only', () => {
+    it('user gets the usage ledger added by the latest migration only', () => {
         expect(journal.entries.map((entry) => entry.tag)).toEqual([
             '0000_lyrical_toad',
             '0001_silent_reasoning',
@@ -284,7 +284,7 @@ describe('usage observability migration', () => {
         ]);
     });
 
-    it('accepts the new llm_call part type and exposes it through the partial index', () => {
+    it('user gets model calls stored as their own part type', () => {
         const db = migrated();
         try {
             seed(db);
@@ -323,7 +323,7 @@ describe('usage observability migration', () => {
         }
     });
 
-    it('keeps turn totals equal to the sum of their attempts', () => {
+    it('user sees turn totals matching the sum of their attempts', () => {
         const db = migrated();
         try {
             seed(db);
@@ -381,7 +381,7 @@ describe('usage observability migration', () => {
         }
     });
 
-    it('keeps llm_call parts out of message text extraction', () => {
+    it('user never sees model call payloads leak into the message text', () => {
         const db = migrated();
         try {
             seed(db);

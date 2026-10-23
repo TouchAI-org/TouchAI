@@ -25,12 +25,12 @@ function getToolDescription(toolSet: ToolSet | undefined, name: string): string 
     return toolDefinition?.description ?? '';
 }
 
-describe('AI SDK tool language context', () => {
+describe('the app language is shown to the model', () => {
     beforeEach(() => {
         setLocale('zh-CN');
     });
 
-    it('adds the current English app language to model-facing tool descriptions', () => {
+    it('user gets English app language in model-facing tool descriptions', () => {
         setLocale('en-US');
         const tool = createTool();
 
@@ -45,7 +45,7 @@ describe('AI SDK tool language context', () => {
         expect(tool.description).toBe('Run a command.');
     });
 
-    it('adds the current Simplified Chinese app language without translating tool descriptions', () => {
+    it('user gets Simplified Chinese app language in the tools without translated descriptions', () => {
         const toolSet = buildToolSet([createTool()]);
         const description = getToolDescription(toolSet, 'test_tool');
 
@@ -53,7 +53,7 @@ describe('AI SDK tool language context', () => {
         expect(description).toContain('Current TouchAI UI language: Simplified Chinese (zh-CN).');
     });
 
-    it('does not duplicate the current language context when a description already includes it', () => {
+    it('user sees no duplicated language note when a description already carries it', () => {
         const descriptionWithContext = [
             'Run a command.',
             'Current TouchAI UI language: Simplified Chinese (zh-CN). Use this language for user-facing tool arguments or generated content unless the user explicitly asks otherwise.',
@@ -65,7 +65,7 @@ describe('AI SDK tool language context', () => {
         expect(description.match(/Current TouchAI UI language/g)).toHaveLength(1);
     });
 
-    it('replaces stale language context instead of appending a conflicting one', () => {
+    it('user sees a stale language note replaced instead of a conflicting second one', () => {
         const descriptionWithStaleContext = [
             'Run a command.',
             'Current TouchAI UI language: English (en-US). Use this language for user-facing tool arguments or generated content unless the user explicitly asks otherwise.',
@@ -80,7 +80,7 @@ describe('AI SDK tool language context', () => {
         expect(description.match(/Current TouchAI UI language/g)).toHaveLength(1);
     });
 
-    it('uses the turn-frozen prompt language even if the UI locale changes before tool conversion', async () => {
+    it('user keeps the language frozen at turn start even after the UI locale changes', async () => {
         const snapshot = await composePromptSnapshot({
             prompt: '总结一下。',
         });
@@ -94,8 +94,8 @@ describe('AI SDK tool language context', () => {
     });
 });
 
-describe('AI SDK tool result messages', () => {
-    it('maps placeholder tool results into model-facing tool-result parts', async () => {
+describe('tool results are replayed to the model', () => {
+    it('user sees placeholder tool results become model-facing tool-result parts', async () => {
         const placeholderResult = 'Tool result is missing for historical tool call call_missing.';
 
         const { messages } = await buildModelMessages({
@@ -139,7 +139,7 @@ describe('AI SDK tool result messages', () => {
         });
     });
 
-    it('keeps sibling tool results together before hoisted tool-result attachments', async () => {
+    it('user sees sibling tool results kept together before hoisted attachments', async () => {
         const { messages } = await buildModelMessages({
             providerDriver: 'openai',
             modelId: 'gpt-4.1',
@@ -230,8 +230,8 @@ describe('AI SDK tool result messages', () => {
     });
 });
 
-describe('AI SDK reasoning replay', () => {
-    it('preserves reasoning provider options when replaying assistant content', async () => {
+describe('earlier reasoning is replayed to the model', () => {
+    it('user sees reasoning provider options preserved when replaying assistant content', async () => {
         const providerOptions = {
             openai: { itemId: 'rs_1', reasoningEncryptedContent: 'enc' },
         };
@@ -261,7 +261,7 @@ describe('AI SDK reasoning replay', () => {
         });
     });
 
-    it('keeps reasoning parts even when metadata reports no reasoning support (R9)', async () => {
+    it('user keeps reasoning parts even when metadata reports no reasoning support', async () => {
         const { messages } = await buildModelMessages({
             providerDriver: 'openai',
             modelId: 'gpt-4.1',

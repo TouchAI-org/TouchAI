@@ -38,8 +38,8 @@ function makeToolCall(overrides: Partial<ToolCallInfo>): ToolCallInfo {
     };
 }
 
-describe('ToolCallItem web search card gating', () => {
-    it('renders the skeleton card while web_search is executing', () => {
+describe('user sees the web search card while a search runs', () => {
+    it('user sees the skeleton card while web_search is executing', () => {
         const wrapper = mount(ToolCallItem, {
             props: {
                 toolCall: makeToolCall({
@@ -52,7 +52,7 @@ describe('ToolCallItem web search card gating', () => {
         expect(wrapper.findAll('[data-slot="web-search-skeleton"]')).toHaveLength(4);
     });
 
-    it('does not render the skeleton card for other builtin tools while executing', () => {
+    it('user does not render the skeleton card for other builtin tools while executing', () => {
         // 回归：曾经任何内置工具在 executing 时都会被渲染成搜索骨架卡，
         // 导致 web_fetch / bash 在运行中变成一排 loading 占位。
         for (const toolId of ['web_fetch', 'bash', 'read', 'file_search']) {
@@ -70,7 +70,7 @@ describe('ToolCallItem web search card gating', () => {
         }
     });
 
-    it('renders source cards for a finished web_search with a payload', () => {
+    it('user sees source cards for a finished web_search with a payload', () => {
         const wrapper = mount(ToolCallItem, {
             props: {
                 toolCall: makeToolCall({

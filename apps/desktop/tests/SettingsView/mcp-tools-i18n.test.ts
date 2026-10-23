@@ -138,7 +138,7 @@ async function flushMountedPromises() {
     }
 }
 
-describe('MCP settings i18n and long text layout', () => {
+describe('user configures MCP servers', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('en-US');
@@ -146,7 +146,7 @@ describe('MCP settings i18n and long text layout', () => {
         findMcpToolsByServerIdMock.mockResolvedValue([]);
     });
 
-    it('renders section tabs, buttons, and empty states in English', async () => {
+    it('user sees section tabs, buttons, and empty states in English', async () => {
         const wrapper = mountWithPinia(McpToolsSection);
 
         await flushMountedPromises();
@@ -159,7 +159,7 @@ describe('MCP settings i18n and long text layout', () => {
         expect(wrapper.text()).not.toContain('暂无服务器');
     });
 
-    it('renders configuration labels, placeholders, and transport descriptions in English', () => {
+    it('user sees configuration labels, placeholders, and transport descriptions in English', () => {
         const wrapper = mountWithPinia(McpServerConfig, {
             props: { server },
         });
@@ -179,7 +179,7 @@ describe('MCP settings i18n and long text layout', () => {
         expect(wrapper.text()).not.toContain('服务器配置');
     });
 
-    it('renders tool filters, empty states, parameter labels, and wrapping classes in English', async () => {
+    it('user sees tool filters, empty states, parameter labels, and wrapping classes in English', async () => {
         findMcpToolsByServerIdMock.mockResolvedValue([
             {
                 created_at: '2026-05-20T00:00:00.000Z',
@@ -221,7 +221,7 @@ describe('MCP settings i18n and long text layout', () => {
         expect(wrapper.find('td').classes()).toContain('break-all');
     });
 
-    it('does not let the global DOM localizer rewrite dynamic MCP tool payload text', async () => {
+    it('user does not let the global DOM localizer rewrite dynamic MCP tool payload text', async () => {
         findMcpToolsByServerIdMock.mockResolvedValue([
             {
                 created_at: '2026-05-20T00:00:00.000Z',
@@ -269,7 +269,7 @@ describe('MCP settings i18n and long text layout', () => {
         wrapper.unmount();
     });
 
-    it('renders log filters and header dates in English without iteration labels', async () => {
+    it('user sees log filters and header dates in English without iteration labels', async () => {
         findMcpToolLogsByServerIdMock.mockResolvedValue([
             {
                 created_at: '2026-05-20T08:30:00.000Z',

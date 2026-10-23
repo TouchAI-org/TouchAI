@@ -56,7 +56,7 @@ function createNativePayload(overrides: Partial<ClipboardPayload>): ClipboardPay
     };
 }
 
-describe('ClipboardService explicit paste', () => {
+describe('user pastes into the search box', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         createPersistedAttachmentFromDataMock.mockImplementation(
@@ -67,7 +67,7 @@ describe('ClipboardService explicit paste', () => {
         );
     });
 
-    it('falls back to the paste event text when native clipboard reads fail', async () => {
+    it('user still gets the pasted text when the native clipboard read fails', async () => {
         readClipboardPayloadMock.mockRejectedValue(new Error('clipboard busy'));
 
         const payload = await clipboardService.readExplicitPastePayload(
@@ -80,7 +80,7 @@ describe('ClipboardService explicit paste', () => {
         expect(payload?.fragments).toEqual([{ type: 'text', text: 'Line one\nLine two' }]);
     });
 
-    it('uses paste event table text as plain rows while keeping native attachments', async () => {
+    it('user gets pasted table text as plain rows with native attachments kept', async () => {
         readClipboardPayloadMock.mockResolvedValue(
             createNativePayload({
                 imagePaths: ['D:/clip/image.png'],
@@ -104,7 +104,7 @@ describe('ClipboardService explicit paste', () => {
         ]);
     });
 
-    it('preserves explicit paste boundary whitespace from the browser paste event', async () => {
+    it('user gets the exact whitespace they pasted', async () => {
         readClipboardPayloadMock.mockRejectedValue(new Error('clipboard busy'));
 
         const payload = await clipboardService.readExplicitPastePayload(
@@ -117,7 +117,7 @@ describe('ClipboardService explicit paste', () => {
         expect(payload?.fragments).toEqual([{ type: 'text', text: '  keep me  ' }]);
     });
 
-    it('falls back to persisted browser paste-event files when native clipboard reads fail', async () => {
+    it('user gets files from the browser paste when the native clipboard read fails', async () => {
         readClipboardPayloadMock.mockRejectedValue(new Error('clipboard busy'));
         const imageFile = new File([new Uint8Array([1, 2, 3])], 'pasted.png', {
             type: 'image/png',
@@ -142,7 +142,7 @@ describe('ClipboardService explicit paste', () => {
         ]);
     });
 
-    it('emits fragments for file-only browser paste-event attachments', async () => {
+    it('user gets fragments for a paste that only contained files', async () => {
         readClipboardPayloadMock.mockRejectedValue(new Error('clipboard busy'));
         const file = new File([new Uint8Array([1, 2, 3])], 'report.pdf', {
             type: 'application/pdf',

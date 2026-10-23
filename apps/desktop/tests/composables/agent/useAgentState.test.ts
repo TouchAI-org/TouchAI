@@ -75,13 +75,13 @@ function createSnapshot(toolCall: ToolCallInfo): SessionTaskSnapshot {
     };
 }
 
-describe('useAgentState', () => {
+describe('when a tool streams output into the conversation', () => {
     afterEach(() => {
         vi.clearAllMocks();
         document.body.innerHTML = '';
     });
 
-    it('updates session history with streaming bash output before the tool call completes', async () => {
+    it('user sees the tool output as it streams, before the tool finishes', async () => {
         let listener: ((snapshot: SessionTaskSnapshot) => void) | null = null;
         subscribeTaskMock.mockImplementation(
             (_taskId: string, callback: (snapshot: SessionTaskSnapshot) => void) => {

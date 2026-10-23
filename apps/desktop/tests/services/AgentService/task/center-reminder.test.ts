@@ -27,13 +27,13 @@ function createSnapshot(overrides: Partial<SessionTaskSnapshot> = {}): SessionTa
     };
 }
 
-describe('SessionTaskCenter status reminders', () => {
+describe('user is reminded when a background task needs them', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         i18n.setLocale('en-US');
     });
 
-    it('treats non-US english locales as english for reminder separators', () => {
+    it('user sees English separators in non-US English locales', () => {
         vi.spyOn(i18n, 'getLocale').mockImplementation(
             () => 'en-GB' as ReturnType<typeof i18n.getLocale>
         );
@@ -57,7 +57,7 @@ describe('SessionTaskCenter status reminders', () => {
         expect(reminder?.body).toBe('Step, Result; lint, passed; test, passed');
     });
 
-    it('creates an open reminder when a background task waits for a user question', () => {
+    it('user is asked a question when a background task waits for an answer', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'waiting_approval',
@@ -84,7 +84,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('sanitizes markdown from completed assistant summaries before notifying', () => {
+    it('user sees markdown flattened in completed-task summaries', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'completed',
@@ -111,7 +111,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('preserves escaped formatting as literal assistant text', () => {
+    it('user sees escaped formatting kept as literal assistant text', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'completed',
@@ -138,7 +138,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('preserves Markdown syntax in literal failure output', () => {
+    it('user sees Markdown syntax kept in literal failure output', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'failed',
@@ -156,7 +156,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('keeps inline angle-bracket diagnostics in failure notifications', () => {
+    it('user sees angle-bracket diagnostics kept in failure notifications', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'failed',
@@ -174,7 +174,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('preserves HTML syntax in literal failure output', () => {
+    it('user sees HTML syntax kept in literal failure output', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'failed',
@@ -192,7 +192,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('preserves script and style diagnostics as notification text', () => {
+    it('user sees script and style diagnostics kept as notification text', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'failed',
@@ -210,7 +210,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('preserves unpaired HTML diagnostics as notification text', () => {
+    it('user sees unpaired HTML diagnostics kept as notification text', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'failed',
@@ -228,7 +228,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('sanitizes approval reminders while keeping a literal command preview', () => {
+    it('user sees approval reminders cleaned while the command preview stays literal', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'waiting_approval',
@@ -261,7 +261,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('keeps command previews visible when approval reasons are long', () => {
+    it('user keeps command previews visible when approval reasons are long', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'waiting_approval',
@@ -286,7 +286,7 @@ describe('SessionTaskCenter status reminders', () => {
         expect(reminder?.body?.length).toBeLessThanOrEqual(220);
     });
 
-    it('keeps bracketed log prefixes that are not markdown reference links', () => {
+    it('user keeps bracketed log prefixes that are not markdown reference links', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'failed',
@@ -304,7 +304,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('preserves code-formatted paths and literal commands in approval content', () => {
+    it('user sees code-formatted paths and literal commands kept in approvals', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'waiting_approval',
@@ -337,7 +337,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('preserves code-formatted scoped package paths in approval content', () => {
+    it('user sees code-formatted scoped package paths kept in approvals', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'waiting_approval',
@@ -370,7 +370,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('preserves code-formatted Windows paths in approval content', () => {
+    it('user sees code-formatted Windows paths kept in approvals', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'waiting_approval',
@@ -404,7 +404,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('keeps shell pipelines intact in command previews', () => {
+    it('user sees shell pipelines intact in command previews', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'waiting_approval',
@@ -437,7 +437,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('preserves markdown-looking shell syntax in command previews', () => {
+    it('user sees markdown-looking shell syntax kept in command previews', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'waiting_approval',
@@ -470,7 +470,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('still flattens markdown table rows into readable notification text', () => {
+    it('user sees markdown table rows flattened into readable notification text', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'completed',
@@ -497,7 +497,7 @@ describe('SessionTaskCenter status reminders', () => {
         });
     });
 
-    it('turns markdown-heavy completion output into plain-text notification content', () => {
+    it('user sees markdown-heavy completion output as plain notification text', () => {
         const reminder = buildSessionStatusReminder(
             createSnapshot({
                 status: 'completed',

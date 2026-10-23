@@ -175,7 +175,7 @@ vi.mock('@services/AppUpdateService', () => ({
     appUpdateService: appUpdateServiceMock,
 }));
 
-describe('SettingsGeneralSection', () => {
+describe('user changes general settings', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setPlatform('Win32');
@@ -191,7 +191,7 @@ describe('SettingsGeneralSection', () => {
         setPlatform(originalPlatform);
         document.body.innerHTML = '';
     });
-    it('renders the general settings groups and row controls', async () => {
+    it('user sees the general settings groups and row controls', async () => {
         const wrapper = mount(GeneralSection);
 
         await flushPromises();
@@ -231,7 +231,7 @@ describe('SettingsGeneralSection', () => {
         expect(rowLabels.length).toBeGreaterThanOrEqual(5);
     });
 
-    it('keeps the latest-version state compact after a manual check', async () => {
+    it('user keeps the latest-version state compact after a manual check', async () => {
         appUpdateServiceMock.state = {
             ...appUpdateServiceMock.createState(),
             status: 'not_available',
@@ -264,16 +264,21 @@ describe('SettingsGeneralSection', () => {
         );
     });
 
-    it('delegates auto-check toggle changes', async () => {
+    it('user turns automatic update checks off', async () => {
         const wrapper = mount(GeneralSection);
 
         await flushPromises();
-        await wrapper.get('[data-testid="settings-update-auto-check-toggle"]').trigger('click');
+        const toggle = wrapper.get('[data-testid="settings-update-auto-check-toggle"]');
+        expect(toggle.attributes('aria-checked')).toBe('true');
 
+        await toggle.trigger('click');
+        await flushPromises();
+
+        // The update service owns the setting; the call is the contract.
         expect(appUpdateServiceMock.setAutoCheckEnabled).toHaveBeenCalledWith(false);
     });
 
-    it('checks for updates after changing the update channel', async () => {
+    it('user checks for updates after changing the update channel', async () => {
         const wrapper = mount(GeneralSection);
 
         await flushPromises();
@@ -287,7 +292,7 @@ describe('SettingsGeneralSection', () => {
         expect(appUpdateServiceMock.checkNow).toHaveBeenCalledWith('settings-open');
     });
 
-    it('shows update details and delegates update actions', async () => {
+    it('user sees update details and delegates update actions', async () => {
         appUpdateServiceMock.state = {
             ...appUpdateServiceMock.state,
             status: 'available',
@@ -340,7 +345,7 @@ describe('SettingsGeneralSection', () => {
         expect(appUpdateServiceMock.download).toHaveBeenCalledTimes(1);
     });
 
-    it('shows failed update state and retries with a manual check', async () => {
+    it('user sees failed update state and retries with a manual check', async () => {
         appUpdateServiceMock.state = {
             ...appUpdateServiceMock.createState(),
             status: 'failed',
@@ -364,7 +369,7 @@ describe('SettingsGeneralSection', () => {
         expect(appUpdateServiceMock.install).not.toHaveBeenCalled();
     });
 
-    it('shows unsupported update state without exposing download or install actions', async () => {
+    it('user sees unsupported update state without exposing download or install actions', async () => {
         appUpdateServiceMock.state = {
             ...appUpdateServiceMock.createState(),
             status: 'unsupported',
@@ -387,7 +392,7 @@ describe('SettingsGeneralSection', () => {
         expect(appUpdateServiceMock.install).not.toHaveBeenCalled();
     });
 
-    it('keeps required available updates on the in-app download path', async () => {
+    it('user keeps required available updates on the in-app download path', async () => {
         appUpdateServiceMock.state = {
             ...appUpdateServiceMock.createState(),
             status: 'available',
@@ -433,7 +438,7 @@ describe('SettingsGeneralSection', () => {
         expect(appUpdateServiceMock.install).not.toHaveBeenCalled();
     });
 
-    it('shows downloading progress in the details dialog and disables the action', async () => {
+    it('user sees downloading progress in the details dialog and disables the action', async () => {
         appUpdateServiceMock.state = {
             ...appUpdateServiceMock.createState(),
             status: 'available',
@@ -468,7 +473,7 @@ describe('SettingsGeneralSection', () => {
         expect(dialogPrimary.attributes('disabled')).toBeDefined();
     });
 
-    it('shows installing state in the details dialog and disables the action', async () => {
+    it('user sees installing state in the details dialog and disables the action', async () => {
         appUpdateServiceMock.state = {
             ...appUpdateServiceMock.createState(),
             status: 'downloaded',
@@ -503,7 +508,7 @@ describe('SettingsGeneralSection', () => {
         expect(dialogPrimary.attributes('disabled')).toBeDefined();
     });
 
-    it('falls back to empty release-note text when latest metadata has no notes', async () => {
+    it('user falls back to empty release-note text when latest metadata has no notes', async () => {
         appUpdateServiceMock.state = {
             ...appUpdateServiceMock.createState(),
             status: 'available',

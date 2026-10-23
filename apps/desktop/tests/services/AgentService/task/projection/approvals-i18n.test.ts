@@ -14,13 +14,13 @@ function createAssistantMessage(): SessionMessage {
     };
 }
 
-describe('ProjectionUserPrompts i18n defaults', () => {
+describe('user answers an approval prompt in their own language', () => {
     beforeEach(() => {
         setLocale('zh-CN');
         vi.spyOn(crypto, 'randomUUID').mockReturnValue('00000000-0000-4000-8000-000000000001');
     });
 
-    it('keeps default approval fields as source text when the active locale is English', () => {
+    it('user sees default approval fields as source text in English', () => {
         setLocale('en-US');
         const approvals = new ProjectionUserPrompts();
         const history = [createAssistantMessage()];
@@ -52,7 +52,7 @@ describe('ProjectionUserPrompts i18n defaults', () => {
         });
     });
 
-    it('keeps omitted default approval labels as source text for live locale rendering', () => {
+    it('user sees omitted default approval labels rendered in the live locale', () => {
         setLocale('en-US');
         const approvals = new ProjectionUserPrompts();
         const history = [createAssistantMessage()];
@@ -76,7 +76,7 @@ describe('ProjectionUserPrompts i18n defaults', () => {
         expect(history[0]?.parts).toMatchObject([{ type: 'approval', callId: 'call-1' }]);
     });
 
-    it('canonicalizes translated app-owned payload labels back to source text', () => {
+    it('user sees translated app-owned payload labels resolved back to source text', () => {
         setLocale('en-US');
         const approvals = new ProjectionUserPrompts();
         const history = [createAssistantMessage()];
@@ -105,7 +105,7 @@ describe('ProjectionUserPrompts i18n defaults', () => {
         });
     });
 
-    it('canonicalizes translated setting approval text back to source text', () => {
+    it('user sees translated setting approval text resolved back to source text', () => {
         setLocale('en-US');
         const approvals = new ProjectionUserPrompts();
         const history = [createAssistantMessage()];
@@ -133,7 +133,7 @@ describe('ProjectionUserPrompts i18n defaults', () => {
         });
     });
 
-    it('settles approval with source-key default resolution text', async () => {
+    it('user sees an approval settled with source-key default text', async () => {
         setLocale('en-US');
         const approvals = new ProjectionUserPrompts();
         const history = [createAssistantMessage()];

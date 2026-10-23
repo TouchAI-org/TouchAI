@@ -15,13 +15,13 @@ vi.mock('@services/NativeService', () => ({
     native: nativeMock,
 }));
 
-describe('FileSearch i18n', () => {
+describe('user reads file search results in their own language', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('zh-CN');
     });
 
-    it('formats successful file search payload in the active locale', async () => {
+    it('user reads successful file search results in the active language', async () => {
         setLocale('en-US');
         nativeMock.quickSearch.searchFiles.mockResolvedValue([
             {
@@ -51,7 +51,7 @@ describe('FileSearch i18n', () => {
         expect(result.result).not.toContain('路径:');
     });
 
-    it('formats empty and error file search payloads in the active locale', async () => {
+    it('user reads empty and failed file search results in the active language', async () => {
         setLocale('en-US');
 
         const { executeFileSearchTool } =
@@ -95,7 +95,7 @@ describe('FileSearch i18n', () => {
         expect(errorResult.result).not.toContain('原因:');
     });
 
-    it('localizes the default conversation semantic target', async () => {
+    it('user reads the default conversation target in the active language', async () => {
         setLocale('en-US');
 
         const { fileSearchTool } = await import('@/services/BuiltInToolService/tools/fileSearch');

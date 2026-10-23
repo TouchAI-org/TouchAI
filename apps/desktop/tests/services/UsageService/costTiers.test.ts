@@ -1,7 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import type { ModelPricing } from '@database/queries/llmMetadata';
-import { computeCost } from '@services/UsageService/cost';
+import { addCostBreakdown, computeCost, microsToAmount } from '@services/UsageService/cost';
 import { describe, expect, it } from 'vitest';
 
 function pricing(partial: Partial<ModelPricing> = {}): ModelPricing {
@@ -36,15 +36,15 @@ function usage(
     };
 }
 
-describe('computeCost basics', () => {
-    it('returns an unpriced breakdown when no pricing is known', () => {
+describe('user sees what a request costs', () => {
+    it('user sees no price when pricing is unknown', () => {
         const cost = computeCost(usage({ input: 1000 }), null);
 
         expect(cost.priced).toBe(false);
         expect(cost.totalCostMicros).toBe(0);
     });
 
-    it('multiplies tokens by the per-million price to get micro units', () => {
+    it('user sees tokens priced at the per-million rate', () => {
         const cost = computeCost(usage({ input: 1000, output: 500 }), pricing());
 
         // 微元 = token 数 × 每百万价
@@ -53,27 +53,117 @@ describe('computeCost basics', () => {
         expect(cost.totalCostMicros).toBe(7000);
     });
 
-    it('charges cache reads at their own price', () => {
+    it('user sees cache reads priced at their own rate', () => {
         const cost = computeCost(usage({ cacheRead: 100_000 }), pricing());
 
         expect(cost.cacheReadCostMicros).toBe(20_000);
     });
 
-    it('applies the relay multiplier', () => {
+    it('user sees every token category priced and added to the total', () => {
+        const cost = computeCost(
+            usage({ input: 1000, output: 500, cacheRead: 2000, cacheWrite: 300 }),
+            pricing({
+                inputPerMillion: '3',
+                outputPerMillion: '15',
+                cacheReadPerMillion: '0.3',
+                cacheWritePerMillion: '3.75',
+            })
+        );
+
+        // 1000×3 + 500×15 + 2000×0.3 + 300×3.75
+        expect(cost.inputCostMicros).toBe(3000);
+        expect(cost.outputCostMicros).toBe(7500);
+        expect(cost.cacheReadCostMicros).toBe(600);
+        expect(cost.cacheWriteCostMicros).toBe(1125);
+        expect(cost.totalCostMicros).toBe(12_225);
+    });
+
+    it('user sees the relay multiplier applied', () => {
         const cost = computeCost(usage({ input: 1000 }), pricing(), 0.5);
 
         expect(cost.inputCostMicros).toBe(1000);
     });
 
-    it('falls back to unpriced when a base price is not a number', () => {
+    it('user is not overcharged when the relay multiplier is invalid', () => {
+        const base = computeCost(usage({ input: 1_000_000 }), pricing({ inputPerMillion: '3' }));
+
+        for (const multiplier of [Number.NaN, 0, -2]) {
+            expect(
+                computeCost(
+                    usage({ input: 1_000_000 }),
+                    pricing({ inputPerMillion: '3' }),
+                    multiplier
+                ).totalCostMicros
+            ).toBe(base.totalCostMicros);
+        }
+    });
+
+    it('user sees unpriced when a base price is not a number', () => {
         const cost = computeCost(usage({ input: 1000 }), pricing({ inputPerMillion: 'abc' }));
 
         expect(cost.priced).toBe(false);
+        expect(cost.totalCostMicros).toBe(0);
+    });
+
+    it('user sees a free model priced at zero rather than unknown', () => {
+        const cost = computeCost(
+            usage({ input: 1_000_000, output: 1_000_000 }),
+            pricing({
+                inputPerMillion: '0',
+                outputPerMillion: '0',
+                cacheReadPerMillion: '0',
+                cacheWritePerMillion: '0',
+                reasoningPerMillion: '0',
+            })
+        );
+
+        expect(cost.priced).toBe(true);
+        expect(cost.totalCostMicros).toBe(0);
     });
 });
 
-describe('reasoning tokens', () => {
-    it('does not double-charge reasoning tokens that are already inside output', () => {
+describe('user sees the cost of a whole conversation', () => {
+    it('user sees the per-call costs added together', () => {
+        const first = computeCost(usage({ input: 1000 }), pricing());
+        const second = computeCost(usage({ output: 500 }), pricing());
+
+        const total = addCostBreakdown(first, second);
+
+        expect(total.inputCostMicros).toBe(first.inputCostMicros);
+        expect(total.outputCostMicros).toBe(second.outputCostMicros);
+        expect(total.totalCostMicros).toBe(first.totalCostMicros + second.totalCostMicros);
+        expect(total.priced).toBe(true);
+    });
+
+    it('user does not see a tier claimed when the calls landed in different tiers', () => {
+        const tiered = pricing({
+            inputPerMillion: '1',
+            tiers: [
+                {
+                    above: 1000,
+                    inputPerMillion: '2',
+                    outputPerMillion: '',
+                    cacheReadPerMillion: '',
+                    cacheWritePerMillion: '',
+                    reasoningPerMillion: '',
+                },
+            ],
+        });
+        const belowTier = computeCost(usage({ input: 500 }), tiered);
+        const aboveTier = computeCost(usage({ input: 5000 }), tiered);
+
+        expect(addCostBreakdown(belowTier, aboveTier).appliedTierAbove).toBeNull();
+        expect(addCostBreakdown(aboveTier, aboveTier).appliedTierAbove).toBe(1000);
+    });
+
+    it('user reads micro units as a currency amount', () => {
+        expect(microsToAmount(3_000_000)).toBe(3);
+        expect(microsToAmount(12_345)).toBeCloseTo(0.012345, 6);
+    });
+});
+
+describe('user sees reasoning priced separately', () => {
+    it('user is not charged twice for reasoning already inside the output', () => {
         // output 100 里含 40 推理：60 × 10 + 40 × 10 = 1000，而不是 100 + 400
         const cost = computeCost(
             usage({ output: 100, reasoning: 40 }),
@@ -85,7 +175,7 @@ describe('reasoning tokens', () => {
         expect(cost.totalCostMicros).toBe(1000);
     });
 
-    it('charges a different reasoning price when the vendor gives one', () => {
+    it('user is charged the vendor reasoning price when one is given', () => {
         const cost = computeCost(
             usage({ output: 100, reasoning: 40 }),
             pricing({ outputPerMillion: '10', reasoningPerMillion: '20' })
@@ -96,7 +186,7 @@ describe('reasoning tokens', () => {
         expect(cost.totalCostMicros).toBe(1400);
     });
 
-    it('charges nothing for reasoning when the vendor prices it at zero', () => {
+    it('user is charged nothing for reasoning the vendor prices at zero', () => {
         // 真实情形：kilo/stealth 系列 reasoning = 0
         const cost = computeCost(
             usage({ output: 100, reasoning: 40 }),
@@ -107,7 +197,7 @@ describe('reasoning tokens', () => {
         expect(cost.reasoningCostMicros).toBe(0);
     });
 
-    it('never counts more reasoning than the reported output', () => {
+    it('user is never charged for more reasoning than the reported output', () => {
         const cost = computeCost(
             usage({ output: 50, reasoning: 999 }),
             pricing({ outputPerMillion: '10', reasoningPerMillion: '10' })
@@ -118,7 +208,7 @@ describe('reasoning tokens', () => {
         expect(cost.reasoningCostMicros).toBe(500);
     });
 
-    it('falls back to the output price when no reasoning price is given', () => {
+    it('user sees the output price used when no reasoning price is given', () => {
         const cost = computeCost(
             usage({ output: 100, reasoning: 40 }),
             pricing({ outputPerMillion: '10', reasoningPerMillion: '' })
@@ -128,7 +218,7 @@ describe('reasoning tokens', () => {
     });
 });
 
-describe('context tiers', () => {
+describe('user sees a long conversation priced by context tier', () => {
     const tiered = pricing({
         inputPerMillion: '2',
         outputPerMillion: '10',
@@ -145,14 +235,14 @@ describe('context tiers', () => {
         ],
     });
 
-    it('uses the base price below the threshold', () => {
+    it('user sees the base price below the tier threshold', () => {
         const cost = computeCost(usage({ input: 100_000, output: 1000 }), tiered);
 
         expect(cost.inputCostMicros).toBe(200_000);
         expect(cost.appliedTierAbove).toBeNull();
     });
 
-    it('switches the whole request to the higher tier once input exceeds it', () => {
+    it('user sees the whole request move to the higher tier once input exceeds it', () => {
         const cost = computeCost(usage({ input: 200_001, output: 1000 }), tiered);
 
         // 不是「超出部分加价」，而是整个请求切档
@@ -161,7 +251,7 @@ describe('context tiers', () => {
         expect(cost.appliedTierAbove).toBe(200_000);
     });
 
-    it('counts cached tokens towards the tier threshold', () => {
+    it('user sees cached tokens count towards the tier threshold', () => {
         // 新鲜输入很小，但缓存读把总输入推过阈值
         const cost = computeCost(usage({ input: 1000, cacheRead: 250_000 }), tiered);
 
@@ -169,13 +259,13 @@ describe('context tiers', () => {
         expect(cost.cacheReadCostMicros).toBe(250_000 * 0.4);
     });
 
-    it('treats the boundary as exclusive', () => {
+    it('user sees the tier boundary treated as exclusive', () => {
         const cost = computeCost(usage({ input: 200_000 }), tiered);
 
         expect(cost.appliedTierAbove).toBeNull();
     });
 
-    it('picks the highest matching tier when several are defined', () => {
+    it('user sees the highest matching tier chosen when several are defined', () => {
         const multi = pricing({
             inputPerMillion: '1',
             tiers: [
@@ -203,7 +293,7 @@ describe('context tiers', () => {
         expect(computeCost(usage({ input: 200_000 }), multi).inputCostMicros).toBe(200_000 * 3);
     });
 
-    it('inherits the base price for fields the tier leaves out', () => {
+    it('user sees the base price inherited for fields a tier leaves out', () => {
         const partial = pricing({
             inputPerMillion: '1',
             outputPerMillion: '10',

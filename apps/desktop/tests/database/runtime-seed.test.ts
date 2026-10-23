@@ -7,14 +7,14 @@ import { describe, expect, it } from 'vitest';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const runtimeSeedPath = path.resolve(__dirname, '../../src/database/artifacts/runtime/seed.sql');
 
-describe('runtime seed defaults', () => {
-    it('does not preseed a language row so first-launch locale detection can persist it', async () => {
+describe('when the app starts for the first time', () => {
+    it('user gets a language chosen from their system instead of a hard-coded default', async () => {
         const seedSql = await readFile(runtimeSeedPath, 'utf8');
 
         expect(seedSql).not.toMatch(/SELECT\s+'language'\s*,/i);
     });
 
-    it('seeds the consolidated web discovery and browser control tools', async () => {
+    it('user sees the web discovery and browser control tools available', async () => {
         const seedSql = await readFile(runtimeSeedPath, 'utf8');
 
         expect(seedSql).toContain("SELECT 'web_search', 'WebSearch'");
@@ -25,7 +25,7 @@ describe('runtime seed defaults', () => {
         expect(seedSql).not.toContain("SELECT 'browser_act'");
     });
 
-    it('keeps bash enabled with high-risk approval defaults', async () => {
+    it('user can run shell commands but is asked first for risky ones', async () => {
         const seedSql = await readFile(runtimeSeedPath, 'utf8');
 
         expect(seedSql).toMatch(/SELECT\s+'bash',\s+'Bash',[\s\S]*?,\s+1,\s+'high'/);

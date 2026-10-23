@@ -123,8 +123,8 @@ const magpieModels: ModelInfo[] = [
     },
 ];
 
-describe('persistRefreshedModels', () => {
-    it('creates missing rows and keeps upstream declarations across syncs', async () => {
+describe('user sees upstream model declarations persisted', () => {
+    it('user sees missing rows created and declarations kept across syncs', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedGateway(database);
@@ -178,7 +178,7 @@ describe('persistRefreshedModels', () => {
         });
     });
 
-    it('leaves custom rows and other providers untouched', async () => {
+    it('user sees custom rows and other providers left untouched', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedGateway(database);

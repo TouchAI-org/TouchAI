@@ -72,7 +72,7 @@ function createAttempt(
     };
 }
 
-describe('AgentService session history i18n', () => {
+describe('user reopens a conversation and reads it in their own language', () => {
     beforeEach(() => {
         setLocale('zh-CN');
         let uuidIndex = 0;
@@ -81,7 +81,7 @@ describe('AgentService session history i18n', () => {
         );
     });
 
-    it('localizes derived failed, retry, and cancelled statuses while preserving payload text', async () => {
+    it('user reads failed, retry, and cancelled statuses in the active language with payload text preserved', async () => {
         setLocale('en-US');
 
         const history = await buildSessionHistory({
@@ -143,7 +143,7 @@ describe('AgentService session history i18n', () => {
         );
     });
 
-    it('rebuilds unsupported file endpoint errors as friendly model capability messages', async () => {
+    it('user sees unsupported file endpoint errors rebuilt as friendly model capability messages', async () => {
         setLocale('zh-CN');
 
         const history = await buildSessionHistory({
@@ -173,7 +173,7 @@ describe('AgentService session history i18n', () => {
         });
     });
 
-    it('localizes restored built-in tool presentation verbs in English history', async () => {
+    it('user reads restored built-in tool verbs in English', async () => {
         setLocale('en-US');
 
         const history = await buildSessionHistory({
@@ -217,8 +217,8 @@ describe('AgentService session history i18n', () => {
     });
 });
 
-describe('AgentService interleaved reasoning history', () => {
-    it('restores each reasoning block beside its own text and tool calls', async () => {
+describe('user reopens a reply that mixed reasoning and tools', () => {
+    it('user sees each reasoning block beside its own text and tool calls', async () => {
         const history = await buildSessionHistory({
             messages: [
                 createMessageRow({ id: 1, role: 'user', content: 'Question' }),
@@ -324,7 +324,7 @@ describe('AgentService interleaved reasoning history', () => {
         expect(assistant.reasoning).toBe('PlanReview');
     });
 
-    it('does not render a trailing tool result as assistant prose', async () => {
+    it('user never sees a trailing tool result rendered as assistant prose', async () => {
         // `tool_call` 行尾部的 text 是工具结果的旧存储形式，
         // 它必须回到工具调用上，而不是混进助手正文。
         const history = await buildSessionHistory({
@@ -386,8 +386,8 @@ describe('AgentService interleaved reasoning history', () => {
     });
 });
 
-describe('uncommitted output history', () => {
-    it('does not invent assistant content for an in-progress attempt without a saved message', async () => {
+describe('user reopens a conversation whose turn never finished', () => {
+    it('user does not see invented assistant content for an in-progress attempt without a saved message', async () => {
         const history = await buildSessionHistory({
             messages: [createMessageRow({ id: 10, role: 'user', content: 'Question' })],
             turns: [createTurn({ prompt_message_id: 10, status: 'streaming' })],
@@ -398,8 +398,8 @@ describe('uncommitted output history', () => {
     });
 });
 
-describe('reasoning wall-clock history', () => {
-    it('freezes interrupted reasoning at the last durable timestamp, not reopen time', async () => {
+describe('user reopens a reply whose reasoning was interrupted', () => {
+    it('user sees interrupted reasoning frozen at the last durable time, not reopen time', async () => {
         const startedAt = Date.parse(BASE_TIME);
         const history = await buildSessionHistory({
             messages: [
@@ -437,7 +437,7 @@ describe('reasoning wall-clock history', () => {
         });
     });
 
-    it('keeps segment start and end times when restoring a completed message', async () => {
+    it('user keeps segment start and end times when a completed message is restored', async () => {
         const history = await buildSessionHistory({
             messages: [
                 createMessageRow({

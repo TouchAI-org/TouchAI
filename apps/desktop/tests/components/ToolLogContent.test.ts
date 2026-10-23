@@ -25,13 +25,13 @@ const bashInput = JSON.stringify({
 const bashOutput =
     'Shell: powershell\nWorking directory: D:/actual\nExit code: 0\nDuration: 42ms\n\nfile content';
 
-describe('tool log content', () => {
+describe('user reads a tool log entry', () => {
     beforeEach(() => {
         setLocale('zh-CN');
         vi.mocked(clipboardService.writeText).mockClear();
     });
 
-    it('places the actual working directory above the command and removes it from the result', async () => {
+    it('user places the actual working directory above the command and removes it from the result', async () => {
         const wrapper = mount(ToolLogContent, {
             props: { input: bashInput, output: bashOutput, isBash: true },
         });
@@ -56,7 +56,7 @@ describe('tool log content', () => {
         expect(clipboardService.writeText).toHaveBeenLastCalledWith('file content');
     });
 
-    it('preserves other tools and unrecognized Bash output verbatim', () => {
+    it('user preserves other tools and unrecognized Bash output verbatim', () => {
         const plain = mount(ToolLogContent, {
             props: { input: '{"name":"test"}', output: '{"ok":true}' },
         });
@@ -79,7 +79,7 @@ describe('tool log content', () => {
         );
     });
 
-    it('keeps errors visible in a separate section when execution fails before output', () => {
+    it('user keeps errors visible in a separate section when execution fails before output', () => {
         const wrapper = mount(ToolLogContent, {
             props: { input: bashInput, error: 'Permission denied', isBash: true },
         });
@@ -90,7 +90,7 @@ describe('tool log content', () => {
         expect(wrapper.text()).not.toContain('PowerShell');
     });
 
-    it('keeps the recorded shell and hides an unavailable exit code after a timeout', () => {
+    it('user keeps the recorded shell and hides an unavailable exit code after a timeout', () => {
         const wrapper = mount(ToolLogContent, {
             props: {
                 input: bashInput,
@@ -107,7 +107,7 @@ describe('tool log content', () => {
         );
     });
 
-    it('does not repeat the same error when the output already includes it', () => {
+    it('user does not repeat the same error when the output already includes it', () => {
         const wrapper = mount(ToolLogContent, {
             props: {
                 input: '{}',
@@ -123,7 +123,7 @@ describe('tool log content', () => {
         expect(wrapper.find('[data-testid="tool-log-error-label"]').exists()).toBe(false);
     });
 
-    it('does not duplicate a Bash error that is part of the formatted result', () => {
+    it('user does not duplicate a Bash error that is part of the formatted result', () => {
         const wrapper = mount(ToolLogContent, {
             props: {
                 input: bashInput,
@@ -140,7 +140,7 @@ describe('tool log content', () => {
         expect(wrapper.find('[data-testid="tool-log-error-label"]').exists()).toBe(false);
     });
 
-    it('recognizes a compressed Bash result while preserving its output', () => {
+    it('user recognizes a compressed Bash result while preserving its output', () => {
         const output = bashOutput.replace('\n\n', '\nCompressed: true\n\n');
         expect(parseBashLogOutput(output)).toMatchObject({
             workingDirectory: 'D:/actual',

@@ -83,8 +83,8 @@ const mouseEvent = (x = 20, y = 30) =>
         clientY: y,
     }) as unknown as MouseEvent;
 
-describe('context menu motion lifecycle', () => {
-    it('uses a per-instance selector and keeps keyboard controls active until close starts', async () => {
+describe('user opens a context menu', () => {
+    it('user uses a per-instance selector and keeps keyboard controls active until close starts', async () => {
         const { wrapper, menu, onClose } = mountMenu();
         menu.open(mouseEvent());
         await nextTick();
@@ -114,7 +114,7 @@ describe('context menu motion lifecycle', () => {
         wrapper.unmount();
     });
 
-    it('replaces a menu without notifying close and notifies once when the new menu closes', async () => {
+    it('user replaces a menu without notifying close and notifies once when the new menu closes', async () => {
         const { wrapper, menu, onClose } = mountMenu();
         menu.open(mouseEvent(10, 12));
         await nextTick();

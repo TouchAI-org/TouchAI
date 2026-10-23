@@ -63,13 +63,13 @@ function createContext(currentModel?: ModelWithProvider): BaseBuiltInToolExecuti
     };
 }
 
-describe('UpgradeModel i18n', () => {
+describe('user is offered a stronger model when the current one runs out', () => {
     beforeEach(() => {
         setLocale('zh-CN');
         vi.clearAllMocks();
     });
 
-    it('creates an English approval request for the resolved target model', async () => {
+    it('user reads the upgrade approval request in English for the resolved target model', async () => {
         setLocale('en-US');
         const currentModel = createModel({
             id: 10,
@@ -111,7 +111,7 @@ describe('UpgradeModel i18n', () => {
         });
     });
 
-    it('formats reachable execute result strings in English while returning the model switch signal', async () => {
+    it('user reads the upgrade result in English while the model switch signal is returned', async () => {
         setLocale('en-US');
         const targetModel = createModel({
             id: 20,
@@ -146,7 +146,7 @@ describe('UpgradeModel i18n', () => {
         );
     });
 
-    it('formats reachable error result strings in English when no target is available', async () => {
+    it('user reads the upgrade error in English when no target is available', async () => {
         setLocale('en-US');
 
         const result = await executeUpgradeModelTool({}, { chain: [] }, createContext());
@@ -164,7 +164,7 @@ describe('UpgradeModel i18n', () => {
         );
     });
 
-    it('formats upgrade chain validation errors in English', () => {
+    it('user reads upgrade chain validation errors in English', () => {
         setLocale('en-US');
 
         expect(() =>

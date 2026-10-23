@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
  *
  * 这些用例锁住修复后的行为：以数据库返回行自身的键顺序为准。
  */
-describe('database driver projection mapping', () => {
+describe('when a query result is mapped back to its selected columns', () => {
     beforeEach(() => {
         installTauriMocks();
     });
@@ -34,7 +34,7 @@ describe('database driver projection mapping', () => {
         });
     }
 
-    it('reads an aliased-free aggregate expression by its real column name', async () => {
+    it('user gets the aggregate value under the column the query asked for', async () => {
         // SQLite 用表达式原文当列名；SQL 文本解析会错认成 "sort_order"。
         respondRows([{ 'coalesce(max("message_parts"."sort_order"), -1)': 7 }]);
 
@@ -47,7 +47,7 @@ describe('database driver projection mapping', () => {
         expect(row?.value).toBe(7);
     });
 
-    it('keeps column order for multi-column selects with expressions', async () => {
+    it('user gets multi-column results in the order the query asked for', async () => {
         respondRows([
             {
                 'count(*)': 3,
@@ -68,7 +68,7 @@ describe('database driver projection mapping', () => {
         expect(row).toEqual({ requests: 3, inputTokens: 1200, outputTokens: 450 });
     });
 
-    it('still honours parsed aliases when the driver returns fewer keys than the projection', async () => {
+    it('user gets aliased values even when the driver returns fewer keys than asked', async () => {
         // LEFT JOIN 缺列等场景由 SQL 解析结果兜底：缺的列补 null。
         respondRows([{ id: 1 }]);
 

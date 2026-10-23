@@ -31,8 +31,8 @@ function dayKey(daysAgo: number): string {
     ].join('-');
 }
 
-describe('usage heatmap year grid', () => {
-    it('always renders a full year of weeks regardless of the filter range', () => {
+describe('user reads the activity heatmap', () => {
+    it('user always renders a full year of weeks regardless of the filter range', () => {
         setLocale('zh-CN');
         const wrapper = mount(UsageHeatmap, {
             props: { days: [cell(dayKey(0), 9, 100), cell(dayKey(0), 14, 200)] },
@@ -46,7 +46,7 @@ describe('usage heatmap year grid', () => {
         expect(wrapper.text()).toContain('300');
     });
 
-    it('ignores days outside the past year so the summary matches the grid', () => {
+    it('user ignores days outside the past year so the summary matches the grid', () => {
         const wrapper = mount(UsageHeatmap, {
             props: { days: [cell('2000-01-01', 9, 999_999), cell(dayKey(0), 9, 100)] },
         });
@@ -56,7 +56,7 @@ describe('usage heatmap year grid', () => {
         expect(wrapper.text()).not.toContain('99.9万');
     });
 
-    it('keeps day totals identical no matter which hour the data arrives in', () => {
+    it('user keeps day totals identical no matter which hour the data arrives in', () => {
         const single = mount(UsageHeatmap, { props: { days: [cell(dayKey(0), 9, 500)] } });
         const split = mount(UsageHeatmap, {
             props: { days: [cell(dayKey(0), 9, 250), cell(dayKey(0), 20, 250)] },

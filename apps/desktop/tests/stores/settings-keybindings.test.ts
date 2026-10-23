@@ -52,7 +52,7 @@ function mockSettings(values: Record<string, string | null>) {
     }));
 }
 
-describe('settings search keybindings state', () => {
+describe('user changes the search shortcuts', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         eventHandlers.clear();
@@ -60,7 +60,7 @@ describe('settings search keybindings state', () => {
         windowMock.label = 'settings';
     });
 
-    it('persists default search keybindings when the row is missing', async () => {
+    it('user persists default search keybindings when the row is missing', async () => {
         mockSettings({});
 
         const { useSettingsStore } = await import('@/stores/settings');
@@ -77,7 +77,7 @@ describe('settings search keybindings state', () => {
         });
     });
 
-    it('keeps initialization usable when default keybinding persistence fails', async () => {
+    it('user keeps initialization usable when default keybinding persistence fails', async () => {
         mockSettings({});
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         setSettingMock.mockImplementation(
@@ -106,7 +106,7 @@ describe('settings search keybindings state', () => {
         expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('search_keybindings'));
     });
 
-    it('loads persisted search keybindings and merges missing defaults', async () => {
+    it('user loads persisted search keybindings and merges missing defaults', async () => {
         mockSettings({
             search_keybindings: JSON.stringify({
                 'search.history.open': 'Mod+Y',
@@ -140,7 +140,7 @@ describe('settings search keybindings state', () => {
         );
     });
 
-    it('updates search keybindings, persists them, and broadcasts the change', async () => {
+    it('user updates search keybindings, persists them, and broadcasts the change', async () => {
         mockSettings({});
 
         const { useSettingsStore } = await import('@/stores/settings');

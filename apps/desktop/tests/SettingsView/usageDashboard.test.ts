@@ -56,8 +56,8 @@ function mountDashboard(value: UsageSummary = summary) {
 beforeEach(() => setLocale('zh-CN'));
 afterEach(() => wrappers.splice(0).forEach((wrapper) => wrapper.unmount()));
 
-describe('usage dashboard paired metrics', () => {
-    it('pairs cache read with hit rate and active duration with distinct active days', async () => {
+describe('user reads the usage dashboard', () => {
+    it('user pairs cache read with hit rate and active duration with distinct active days', async () => {
         const wrapper = mountDashboard();
         await flushPromises();
 
@@ -86,7 +86,7 @@ describe('usage dashboard paired metrics', () => {
         );
     });
 
-    it('updates the paired values when the filtered summary changes', async () => {
+    it('user updates the paired values when the filtered summary changes', async () => {
         const wrapper = mountDashboard();
         await wrapper.setProps({
             summary: {
@@ -109,7 +109,7 @@ describe('usage dashboard paired metrics', () => {
         );
     });
 
-    it('derives mean RPM from active minutes so it stays informative', async () => {
+    it('user derives mean RPM from active minutes so it stays informative', async () => {
         const wrapper = mountDashboard({
             ...summary,
             requestCount: 60,
@@ -127,7 +127,7 @@ describe('usage dashboard paired metrics', () => {
         expect(wrapper.get('[data-testid="settings-usage-metric-rpm"]').text()).toContain('—');
     });
 
-    it('localizes the units and supporting labels together', async () => {
+    it('user sees the units and supporting labels together', async () => {
         setLocale('en-US');
         const wrapper = mountDashboard();
         await flushPromises();

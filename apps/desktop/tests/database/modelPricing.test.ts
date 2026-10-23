@@ -87,8 +87,8 @@ function insertAlias(database: SqliteDatabase, alias: string, modelId: string) {
 
 afterEach(() => databases.splice(0).forEach((database) => database.close()));
 
-describe('findModelPricing', () => {
-    it('matches a model id that is present verbatim', async () => {
+describe('when the app prices a model call', () => {
+    it('user gets a price for a model id listed verbatim', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         insertMetadata(database, 'claude-sonnet-4-5', { input: '3', output: '15' });
@@ -98,7 +98,7 @@ describe('findModelPricing', () => {
         expect(pricing).toMatchObject({ inputPerMillion: '3', outputPerMillion: '15' });
     });
 
-    it('matches through a stripped route prefix', async () => {
+    it('user gets a price when the id carries a route prefix', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         insertMetadata(database, 'deepseek-v4-flash', { input: '0.22', output: '0.66' });
@@ -108,7 +108,7 @@ describe('findModelPricing', () => {
         expect(pricing?.inputPerMillion).toBe('0.22');
     });
 
-    it('matches through the alias table for a relay spelling', async () => {
+    it('user gets a price for a relay spelling of the model id', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         // 上游记录用的是点号版本号，中转用连字符
@@ -128,7 +128,7 @@ describe('findModelPricing', () => {
         });
     });
 
-    it('prefers a direct hit over an alias hit', async () => {
+    it('user gets the direct price when both a direct and an alias match exist', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         insertMetadata(database, 'deepseek-v4-flash', { input: '1', output: '2' });
@@ -140,14 +140,14 @@ describe('findModelPricing', () => {
         expect(pricing?.inputPerMillion).toBe('1');
     });
 
-    it('returns null when the model has no price at all', async () => {
+    it('user gets no price when the model is not listed', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
 
         await expect(findModelPricing('unknown-model')).resolves.toBeNull();
     });
 
-    it('skips records that only carry one side of the price', async () => {
+    it('user gets no price from a record missing one side of the cost', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         // 只有 input 没有 output：算出来的成本会低估，不能当定价用
@@ -156,7 +156,7 @@ describe('findModelPricing', () => {
         await expect(findModelPricing('half-priced')).resolves.toBeNull();
     });
 
-    it('fills missing cache prices with zero instead of dropping the record', async () => {
+    it('user still gets a price when only the cache cost is missing', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         insertMetadata(database, 'no-cache-price', { input: '1', output: '2' });
@@ -170,7 +170,7 @@ describe('findModelPricing', () => {
         });
     });
 
-    it('treats a genuine zero price as priced', async () => {
+    it('user gets a zero cost instead of an unpriced call for a free model', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         insertMetadata(database, 'free-model', { input: '0', output: '0' });

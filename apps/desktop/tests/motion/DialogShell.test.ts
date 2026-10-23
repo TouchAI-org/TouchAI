@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 
 import DialogShell from '@/components/DialogShell.vue';
 
-describe('DialogShell exit presence', () => {
-    it('makes retained content inert immediately on close and interactive on reopen', async () => {
+describe('user closes a dialog', () => {
+    it('user makes retained content inert immediately on close and interactive on reopen', async () => {
         const wrapper = mount(DialogShell, {
             props: { open: true },
             slots: { default: '<button>Create</button>' },

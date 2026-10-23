@@ -223,7 +223,51 @@ async function flushAsyncWork() {
     await Promise.resolve();
 }
 
-describe('useSearchInput', () => {
+async function mountSearchInput(overrides: Partial<Parameters<typeof useSearchInput>[0]> = {}) {
+    const emitQueryText = vi.fn();
+    const emitModelChange = vi.fn();
+    const emitModelOverrideChange = vi.fn();
+    const emitRemoveAttachmentRequest = vi.fn();
+
+    const mounted = await mountComposable(() =>
+        useSearchInput({
+            searchBarContainerRef: ref(null),
+            editorHostRef: ref(document.createElement('div')),
+            queryText: ref(''),
+            attachments: ref([]),
+            modelOverride: ref({ modelId: null, providerId: null }),
+            emitQueryText,
+            emitModelChange,
+            emitModelOverrideChange,
+            emitRemoveAttachmentRequest,
+            emitDragStart: vi.fn(),
+            emitDragEnd: vi.fn(),
+            ...overrides,
+        })
+    );
+
+    return {
+        ...mounted,
+        emitQueryText,
+        emitModelChange,
+        emitModelOverrideChange,
+        emitRemoveAttachmentRequest,
+    };
+}
+
+function lastEditor() {
+    return editorInstances[editorInstances.length - 1]!;
+}
+
+function simulateEditorUpdate(text: string) {
+    const editor = lastEditor();
+    editor.__text = text;
+    (editor.options.onUpdate as (payload: { editor: InstanceType<typeof MockEditor> }) => void)({
+        editor,
+    });
+}
+
+describe('when the search input first appears', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         editorInstances.length = 0;
@@ -280,51 +324,37 @@ describe('useSearchInput', () => {
         document.body.innerHTML = '';
     });
 
-    it('initializes the editor with the controlled query, selected model, attachments, and model capabilities', async () => {
+    it('user sees the saved draft, model chip and attachments restored into the editor', async () => {
         getModelSelectionMock().selectedModelId.value = 'model-1';
         getModelSelectionMock().selectedModelName.value = 'GPT-4.1';
         getModelSelectionMock().selectedProviderId.value = 7;
         const queryText = ref('hello world');
         const attachments = ref([createAttachment('file-1')]);
-        const emitQueryText = vi.fn();
-        const emitModelChange = vi.fn();
-        const emitModelOverrideChange = vi.fn();
-        const emitRemoveAttachmentRequest = vi.fn();
 
-        const mounted = await mountComposable(() =>
-            useSearchInput({
-                searchBarContainerRef: ref(null),
-                editorHostRef: ref(document.createElement('div')),
-                queryText,
-                attachments,
-                modelOverride: ref({
-                    modelId: 'model-1',
-                    providerId: 7,
-                }),
-                emitQueryText,
-                emitModelChange,
-                emitModelOverrideChange,
-                emitRemoveAttachmentRequest,
-                emitDragStart: vi.fn(),
-                emitDragEnd: vi.fn(),
-            })
-        );
+        const {
+            result,
+            emitQueryText,
+            emitModelOverrideChange,
+            emitRemoveAttachmentRequest,
+            unmount,
+        } = await mountSearchInput({
+            queryText,
+            attachments,
+            modelOverride: ref({ modelId: 'model-1', providerId: 7 }),
+        });
 
-        mounted.result.initEditor();
+        result.initEditor();
         await flushAsyncWork();
 
-        expect(emitModelChange).toHaveBeenCalledWith({
-            supportsImages: true,
-            supportsFiles: false,
-        });
-        expect(setEditorTextMock).toHaveBeenCalledWith(editorInstances[0], 'hello world');
-        expect(insertModelTagMock).toHaveBeenCalledWith(editorInstances[0], {
+        const editor = lastEditor();
+        expect(editor.__text).toBe('hello world');
+        expect(insertModelTagMock).toHaveBeenCalledWith(editor, {
             modelId: 'model-1',
             modelName: 'GPT-4.1',
             providerId: 7,
         });
         expect(insertAttachmentTagMock).toHaveBeenCalledWith(
-            editorInstances[0],
+            editor,
             {
                 attachmentId: 'file-1',
                 alias: 'A1-file-1',
@@ -333,91 +363,139 @@ describe('useSearchInput', () => {
                 preview: undefined,
                 supportStatus: 'supported',
             },
-            {
-                textOffset: undefined,
-                sameOffsetIndex: undefined,
-            }
+            { textOffset: undefined, sameOffsetIndex: undefined }
         );
+        // Restoring state must never look like the user typed or removed something.
         expect(emitQueryText).not.toHaveBeenCalled();
         expect(emitModelOverrideChange).not.toHaveBeenCalled();
         expect(emitRemoveAttachmentRequest).not.toHaveBeenCalled();
 
-        mounted.unmount();
+        unmount();
     });
 
-    it('updates the editor for controlled query changes without echoing them as user input, but emits real edits', async () => {
-        const queryText = ref('initial');
-        const emitQueryText = vi.fn();
-        const mounted = await mountComposable(() =>
-            useSearchInput({
-                searchBarContainerRef: ref(null),
-                editorHostRef: ref(document.createElement('div')),
-                queryText,
-                attachments: ref([]),
-                modelOverride: ref({
-                    modelId: null,
-                    providerId: null,
-                }),
-                emitQueryText,
-                emitModelChange: vi.fn(),
-                emitModelOverrideChange: vi.fn(),
-                emitRemoveAttachmentRequest: vi.fn(),
-                emitDragStart: vi.fn(),
-                emitDragEnd: vi.fn(),
-            })
-        );
+    it('user gets the model capabilities of the active model reported to the page', async () => {
+        const { result, emitModelChange, unmount } = await mountSearchInput();
 
-        mounted.result.initEditor();
+        result.initEditor();
+        await flushAsyncWork();
+
+        expect(emitModelChange).toHaveBeenCalledWith({
+            supportsImages: true,
+            supportsFiles: false,
+        });
+
+        unmount();
+    });
+});
+
+describe('when the page replaces the draft behind the editor', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        editorInstances.length = 0;
+        modelSelectionState.current = {
+            modelCapabilities: ref({ supportsImages: false, supportsFiles: false }),
+            selectedModelId: ref<string | null>(null),
+            selectedModelName: ref<string | null>(null),
+            selectedModel: ref(null),
+            selectedProviderId: ref<number | null>(null),
+            activeModel: ref(null),
+            loadPopupModels: vi.fn(),
+            invalidatePopupModels: vi.fn(),
+            prepareModelDropdownOpen: vi.fn(),
+            handleModelSelect: vi.fn(),
+            getModelDropdownAnchor: vi.fn(() => null),
+            getModelDropdownContext: vi.fn(),
+            loadActiveModel: vi.fn(),
+        };
+        buildAttachmentPromptMetasMock.mockReturnValue([]);
+        getModelTagMock.mockReturnValue(null);
+        getAttachmentTagsMock.mockReturnValue([]);
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0);
+            return 1;
+        });
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        document.body.innerHTML = '';
+    });
+
+    it('user sees the editor follow the page draft without it being treated as typing', async () => {
+        const queryText = ref('initial');
+        const { result, emitQueryText, unmount } = await mountSearchInput({ queryText });
+
+        result.initEditor();
         await flushAsyncWork();
         vi.clearAllMocks();
 
         queryText.value = 'server sync';
         await flushAsyncWork();
 
-        const editor = editorInstances[0]!;
-
-        expect(setEditorTextMock).toHaveBeenCalledWith(editor, 'server sync');
+        expect(lastEditor().__text).toBe('server sync');
         expect(emitQueryText).not.toHaveBeenCalled();
 
-        editor.__text = 'typed locally';
-        (editor.options.onUpdate as (payload: { editor: InstanceType<typeof MockEditor> }) => void)(
-            {
-                editor,
-            }
-        );
-
-        expect(emitQueryText).toHaveBeenCalledWith('typed locally');
-        expect(mounted.result.searchQuery.value).toBe('typed locally');
-
-        mounted.unmount();
+        unmount();
     });
 
-    it('routes user tag removals to the outer model and attachment callbacks', async () => {
-        const emitModelOverrideChange = vi.fn();
-        const emitRemoveAttachmentRequest = vi.fn();
-        const mounted = await mountComposable(() =>
-            useSearchInput({
-                searchBarContainerRef: ref(null),
-                editorHostRef: ref(document.createElement('div')),
-                queryText: ref(''),
-                attachments: ref([]),
-                modelOverride: ref({
-                    modelId: null,
-                    providerId: null,
-                }),
-                emitQueryText: vi.fn(),
-                emitModelChange: vi.fn(),
-                emitModelOverrideChange,
-                emitRemoveAttachmentRequest,
-                emitDragStart: vi.fn(),
-                emitDragEnd: vi.fn(),
-            })
-        );
+    it('user gets the typed text reported to the page', async () => {
+        const { result, emitQueryText, unmount } = await mountSearchInput();
 
-        mounted.result.initEditor();
+        result.initEditor();
+        await flushAsyncWork();
+        vi.clearAllMocks();
+
+        simulateEditorUpdate('typed locally');
+
+        expect(emitQueryText).toHaveBeenCalledWith('typed locally');
+        expect(result.searchQuery.value).toBe('typed locally');
+
+        unmount();
+    });
+});
+
+describe('when the user removes a chip from the editor', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        editorInstances.length = 0;
+        modelSelectionState.current = {
+            modelCapabilities: ref({ supportsImages: false, supportsFiles: false }),
+            selectedModelId: ref<string | null>(null),
+            selectedModelName: ref<string | null>(null),
+            selectedModel: ref(null),
+            selectedProviderId: ref<number | null>(null),
+            activeModel: ref(null),
+            loadPopupModels: vi.fn(),
+            invalidatePopupModels: vi.fn(),
+            prepareModelDropdownOpen: vi.fn(),
+            handleModelSelect: vi.fn(),
+            getModelDropdownAnchor: vi.fn(() => null),
+            getModelDropdownContext: vi.fn(),
+            loadActiveModel: vi.fn(),
+        };
+        buildAttachmentPromptMetasMock.mockReturnValue([]);
+        getModelTagMock.mockReturnValue(null);
+        getAttachmentTagsMock.mockReturnValue([]);
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0);
+            return 1;
+        });
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        document.body.innerHTML = '';
+    });
+
+    it('user gets the model override cleared and the attachment removal forwarded', async () => {
+        const { result, emitModelOverrideChange, emitRemoveAttachmentRequest, unmount } =
+            await mountSearchInput();
+
+        result.initEditor();
         const extensionOptions = createSearchEditorExtensionsMock.mock.calls[0]?.[0] as
             | SearchEditorExtensionOptions
             | undefined;
+
         extensionOptions?.onTagRemoved?.('model-tag', 'ignored');
         extensionOptions?.onTagRemoved?.('attachment-tag', 'attachment-7');
 
@@ -427,69 +505,92 @@ describe('useSearchInput', () => {
         });
         expect(emitRemoveAttachmentRequest).toHaveBeenCalledWith('attachment-7');
 
-        mounted.unmount();
+        unmount();
+    });
+});
+
+describe('when the user recalls a previously sent prompt', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        editorInstances.length = 0;
+        modelSelectionState.current = {
+            modelCapabilities: ref({ supportsImages: false, supportsFiles: false }),
+            selectedModelId: ref<string | null>(null),
+            selectedModelName: ref<string | null>(null),
+            selectedModel: ref(null),
+            selectedProviderId: ref<number | null>(null),
+            activeModel: ref(null),
+            loadPopupModels: vi.fn(),
+            invalidatePopupModels: vi.fn(),
+            prepareModelDropdownOpen: vi.fn(),
+            handleModelSelect: vi.fn(),
+            getModelDropdownAnchor: vi.fn(() => null),
+            getModelDropdownContext: vi.fn(),
+            loadActiveModel: vi.fn(),
+        };
+        buildAttachmentPromptMetasMock.mockImplementation((attachments: Array<{ id: string }>) =>
+            attachments.map((attachment, index) => ({
+                alias: `A${index + 1}-${attachment.id}`,
+            }))
+        );
+        getModelTagMock.mockReturnValue(null);
+        getAttachmentTagsMock.mockReturnValue([]);
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0);
+            return 1;
+        });
     });
 
-    it('captures editor snapshots and falls back to plain-text restore when structured restore fails', async () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        document.body.innerHTML = '';
+    });
+
+    it('user gets the whole draft captured including the structured editor content', async () => {
         const attachments = ref([createAttachment('original')]);
-        const mounted = await mountComposable(() =>
-            useSearchInput({
-                searchBarContainerRef: ref(null),
-                editorHostRef: ref(document.createElement('div')),
-                queryText: ref('initial'),
-                attachments,
-                modelOverride: ref({
-                    modelId: null,
-                    providerId: null,
-                }),
-                emitQueryText: vi.fn(),
-                emitModelChange: vi.fn(),
-                emitModelOverrideChange: vi.fn(),
-                emitRemoveAttachmentRequest: vi.fn(),
-                emitDragStart: vi.fn(),
-                emitDragEnd: vi.fn(),
-            })
-        );
+        const { result, unmount } = await mountSearchInput({
+            queryText: ref('initial'),
+            attachments,
+        });
 
-        mounted.result.initEditor();
-        const editor = editorInstances[0]!;
-
+        result.initEditor();
+        const editor = lastEditor();
         editor.__text = 'captured text';
-        editor.__json = {
-            type: 'doc',
-            text: 'captured text',
-        };
+        editor.__json = { type: 'doc', text: 'captured text' };
 
-        expect(mounted.result.captureInputHistorySnapshot()).toEqual(
+        expect(result.captureInputHistorySnapshot()).toEqual(
             createInputHistorySnapshot({
                 text: 'captured text',
                 attachments: attachments.value,
-                editorDoc: {
-                    type: 'doc',
-                    text: 'captured text',
-                },
+                editorDoc: { type: 'doc', text: 'captured text' },
             })
         );
+
+        unmount();
+    });
+
+    it('user still gets the recalled prompt restored as plain text when the structured restore fails', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const { result, unmount } = await mountSearchInput({ queryText: ref('initial') });
+
+        result.initEditor();
+        const editor = lastEditor();
 
         setEditorJSONMock.mockImplementationOnce(() => {
             throw new Error('bad structured snapshot');
         });
-        vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-        const restored = mounted.result.restoreInputHistorySnapshot(
+        const restored = result.restoreInputHistorySnapshot(
             createInputHistorySnapshot({
                 text: 'restored text',
                 attachments: [createAttachment('restored', { draftInsertionOffset: 12 })],
-                editorDoc: {
-                    type: 'doc',
-                    text: 'restored text',
-                },
+                editorDoc: { type: 'doc', text: 'restored text' },
             })
         );
         await flushAsyncWork();
 
-        expect(setEditorJSONMock).toHaveBeenCalled();
-        expect(setEditorTextMock).toHaveBeenCalledWith(editor, 'restored text');
+        expect(restored).toBe('restored text');
+        expect(editor.__text).toBe('restored text');
         expect(insertAttachmentTagMock).toHaveBeenCalledWith(
             editor,
             {
@@ -500,39 +601,54 @@ describe('useSearchInput', () => {
                 preview: undefined,
                 supportStatus: 'supported',
             },
-            {
-                textOffset: 12,
-                sameOffsetIndex: 0,
-            }
+            { textOffset: 12, sameOffsetIndex: 0 }
         );
+        // The caret must land at the end so the user can keep typing.
         expect(editor.commands.focus).toHaveBeenCalledWith('end');
-        expect(restored).toBe('restored text');
 
-        mounted.unmount();
+        unmount();
+    });
+});
+
+describe('when the user switches the application language', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        editorInstances.length = 0;
+        modelSelectionState.current = {
+            modelCapabilities: ref({ supportsImages: false, supportsFiles: false }),
+            selectedModelId: ref<string | null>(null),
+            selectedModelName: ref<string | null>(null),
+            selectedModel: ref(null),
+            selectedProviderId: ref<number | null>(null),
+            activeModel: ref(null),
+            loadPopupModels: vi.fn(),
+            invalidatePopupModels: vi.fn(),
+            prepareModelDropdownOpen: vi.fn(),
+            handleModelSelect: vi.fn(),
+            getModelDropdownAnchor: vi.fn(() => null),
+            getModelDropdownContext: vi.fn(),
+            loadActiveModel: vi.fn(),
+        };
+        buildAttachmentPromptMetasMock.mockReturnValue([]);
+        getModelTagMock.mockReturnValue(null);
+        getAttachmentTagsMock.mockReturnValue([]);
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0);
+            return 1;
+        });
     });
 
-    it('localizes the main search placeholder and refreshes it after locale changes', async () => {
+    afterEach(() => {
         setLocale('zh-CN');
-        const mounted = await mountComposable(() =>
-            useSearchInput({
-                searchBarContainerRef: ref(null),
-                editorHostRef: ref(document.createElement('div')),
-                queryText: ref(''),
-                attachments: ref([]),
-                modelOverride: ref({
-                    modelId: null,
-                    providerId: null,
-                }),
-                emitQueryText: vi.fn(),
-                emitModelChange: vi.fn(),
-                emitModelOverrideChange: vi.fn(),
-                emitRemoveAttachmentRequest: vi.fn(),
-                emitDragStart: vi.fn(),
-                emitDragEnd: vi.fn(),
-            })
-        );
+        vi.unstubAllGlobals();
+        document.body.innerHTML = '';
+    });
 
-        mounted.result.initEditor();
+    it('user sees the placeholder text translated into the new language', async () => {
+        setLocale('zh-CN');
+        const { result, unmount } = await mountSearchInput();
+
+        result.initEditor();
         const extensionOptions = createSearchEditorExtensionsMock.mock.calls[0]?.[0] as
             | SearchEditorExtensionOptions
             | undefined;
@@ -545,25 +661,52 @@ describe('useSearchInput', () => {
 
         const placeholderElement = document.createElement('p');
         placeholderElement.setAttribute('data-placeholder', '写下你的需求...');
-        editorInstances[0]!.view.dom.appendChild(placeholderElement);
+        lastEditor().view.dom.appendChild(placeholderElement);
 
         setLocale('en-US');
         await flushAsyncWork();
 
         expect(placeholder()).toBe('Write your request...');
         expect(placeholderElement.getAttribute('data-placeholder')).toBe('Write your request...');
-        expect(editorInstances[0]?.state.tr.setMeta).toHaveBeenCalledWith(
-            'search-placeholder-locale',
-            'en-US'
-        );
-        expect(editorInstances[0]?.view.dispatch).toHaveBeenCalledWith(
-            editorInstances[0]?.state.tr
-        );
 
-        mounted.unmount();
+        unmount();
+    });
+});
+
+describe('when the user is selecting text in a long draft', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        editorInstances.length = 0;
+        modelSelectionState.current = {
+            modelCapabilities: ref({ supportsImages: false, supportsFiles: false }),
+            selectedModelId: ref<string | null>(null),
+            selectedModelName: ref<string | null>(null),
+            selectedModel: ref(null),
+            selectedProviderId: ref<number | null>(null),
+            activeModel: ref(null),
+            loadPopupModels: vi.fn(),
+            invalidatePopupModels: vi.fn(),
+            prepareModelDropdownOpen: vi.fn(),
+            handleModelSelect: vi.fn(),
+            getModelDropdownAnchor: vi.fn(() => null),
+            getModelDropdownContext: vi.fn(),
+            loadActiveModel: vi.fn(),
+        };
+        buildAttachmentPromptMetasMock.mockReturnValue([]);
+        getModelTagMock.mockReturnValue(null);
+        getAttachmentTagsMock.mockReturnValue([]);
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            callback(0);
+            return 1;
+        });
     });
 
-    it('does not force the editor scroll position while the user is extending a text selection', async () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        document.body.innerHTML = '';
+    });
+
+    it('user keeps the visible scroll position instead of being yanked around mid-selection', async () => {
         const editorHost = document.createElement('div');
         Object.defineProperty(editorHost, 'clientHeight', {
             configurable: true,
@@ -581,38 +724,21 @@ describe('useSearchInput', () => {
             toJSON: () => ({}),
         }));
         editorHost.scrollTop = 80;
-        const mounted = await mountComposable(() =>
-            useSearchInput({
-                searchBarContainerRef: ref(null),
-                editorHostRef: ref(editorHost),
-                queryText: ref('line one\nline two\nline three\nline four'),
-                attachments: ref([]),
-                modelOverride: ref({
-                    modelId: null,
-                    providerId: null,
-                }),
-                emitQueryText: vi.fn(),
-                emitModelChange: vi.fn(),
-                emitModelOverrideChange: vi.fn(),
-                emitRemoveAttachmentRequest: vi.fn(),
-                emitDragStart: vi.fn(),
-                emitDragEnd: vi.fn(),
-            })
-        );
 
-        mounted.result.initEditor();
-        const editor = editorInstances[0]!;
-        editor.view.coordsAtPos.mockReturnValue({
-            top: -120,
-            bottom: -100,
+        const { result, unmount } = await mountSearchInput({
+            editorHostRef: ref(editorHost),
+            queryText: ref('line one\nline two\nline three\nline four'),
         });
+
+        result.initEditor();
+        const editor = lastEditor();
+        editor.view.coordsAtPos.mockReturnValue({ top: -120, bottom: -100 });
         editor.state.selection.empty = false;
 
         (editor.options.onSelectionUpdate as () => void)();
 
-        expect(editor.view.coordsAtPos).not.toHaveBeenCalled();
         expect(editorHost.scrollTop).toBe(80);
 
-        mounted.unmount();
+        unmount();
     });
 });

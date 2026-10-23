@@ -22,12 +22,12 @@ describe('favicon candidates', () => {
         setRemoteFaviconServicesEnabled(false);
     });
 
-    it('extracts the host, keeping www', () => {
+    it('user extracts the host, keeping www', () => {
         expect(faviconHost('https://www.example.com/a/b')).toBe('www.example.com');
         expect(faviconHost('not a url')).toBe('');
     });
 
-    it('prefers the provider-supplied icon, then the site favicon', () => {
+    it('user prefers the provider-supplied icon, then the site favicon', () => {
         const host = uniqueHost();
         const candidates = buildFaviconCandidates({
             url: `https://${host}/post`,
@@ -38,7 +38,7 @@ describe('favicon candidates', () => {
         expect(candidates).toContain(`https://${host}/favicon.ico`);
     });
 
-    it('does not contact third-party icon services by default', () => {
+    it('user does not contact third-party icon services by default', () => {
         const host = uniqueHost();
         const candidates = buildFaviconCandidates({ url: `https://${host}/post` });
 
@@ -49,7 +49,7 @@ describe('favicon candidates', () => {
         expect(hosts).not.toContain('icons.duckduckgo.com');
     });
 
-    it('uses third-party services only when explicitly enabled', () => {
+    it('user uses third-party services only when explicitly enabled', () => {
         setRemoteFaviconServicesEnabled(true);
         const host = uniqueHost();
         const candidates = buildFaviconCandidates({ url: `https://${host}/post` });
@@ -62,7 +62,7 @@ describe('favicon candidates', () => {
         );
     });
 
-    it('returns only the resolved icon once a host succeeded', () => {
+    it('user gets only the resolved icon once a host succeeded', () => {
         const host = uniqueHost();
         const resolved = `https://${host}/favicon.ico`;
         rememberFavicon(host, resolved);
@@ -70,7 +70,7 @@ describe('favicon candidates', () => {
         expect(buildFaviconCandidates({ url: `https://${host}/other` })).toEqual([resolved]);
     });
 
-    it('ignores empty resolution and tolerates urls without a host', () => {
+    it('user ignores empty resolution and tolerates urls without a host', () => {
         rememberFavicon('', 'https://example.com/icon.png');
         expect(buildFaviconCandidates({ url: 'not a url' })).toEqual([]);
     });

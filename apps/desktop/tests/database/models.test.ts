@@ -7,8 +7,8 @@ function getRequest(payload: InvokeArgs | undefined) {
     return (payload as { request?: { sql: string; params?: unknown[]; method: string } })?.request;
 }
 
-describe('model database queries', () => {
-    it('switches the default model without emitting a CASE update through sqlite-proxy', async () => {
+describe('when the app changes which model is in use', () => {
+    it('user gets exactly one default model after switching', async () => {
         interceptTauriInvoke((call) => {
             if (call.cmd === 'database_tx_begin') {
                 return 'tx_issue_72';
@@ -60,7 +60,7 @@ describe('model database queries', () => {
         ]);
     });
 
-    it('records upstream declarations only onto non-custom rows of the refreshed provider', async () => {
+    it('user keeps their own model edits while refreshing a provider', async () => {
         interceptTauriInvoke((call) => {
             if (call.cmd === 'database_query') {
                 return { rows: [], rowsAffected: 1, lastInsertId: null };
@@ -104,7 +104,7 @@ describe('model database queries', () => {
         ]);
     });
 
-    it('skips the upstream declaration when there is nothing to record', async () => {
+    it('user gets no upstream record written when the provider declares nothing', async () => {
         interceptTauriInvoke((call) => {
             if (call.cmd === 'database_query') {
                 return { rows: [], rowsAffected: 1, lastInsertId: null };

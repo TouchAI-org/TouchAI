@@ -49,8 +49,8 @@ function mountConfirm() {
     return { wrapper, api: wrapper.vm as unknown as ConfirmApi };
 }
 
-describe('confirm dialog motion lifecycle', () => {
-    it('resolves immediately on confirm and disposes after exit completion', async () => {
+describe('user answers a confirmation dialog', () => {
+    it('user resolves immediately on confirm and disposes after exit completion', async () => {
         const { wrapper, api } = mountConfirm();
         const promise = api.confirm({ message: 'Proceed?' });
         const container = document.querySelector('[data-testid="confirm-dialog"]')?.parentElement;
@@ -65,7 +65,7 @@ describe('confirm dialog motion lifecycle', () => {
         wrapper.unmount();
     });
 
-    it('settles replaced requests as cancelled and resolves an active request on scope disposal', async () => {
+    it('user settles replaced requests as cancelled and resolves an active request on scope disposal', async () => {
         const { wrapper, api } = mountConfirm();
         const first = api.confirm({ message: 'First?' });
         const second = api.confirm({ message: 'Second?' });

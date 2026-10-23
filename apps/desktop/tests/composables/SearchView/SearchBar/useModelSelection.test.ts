@@ -47,7 +47,7 @@ async function flushAsyncWork() {
     await Promise.resolve();
 }
 
-describe('useModelSelection', () => {
+describe('when the search bar picks the model for the next request', () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
@@ -56,7 +56,7 @@ describe('useModelSelection', () => {
         document.body.innerHTML = '';
     });
 
-    it('loads the active model on mount and derives its capabilities and popup context', async () => {
+    it('user sees the active model capabilities and dropdown context without asking again', async () => {
         const activeModel = createModel(1, {
             model_id: 'gpt-5-vision',
             provider_id: 10,
@@ -110,7 +110,7 @@ describe('useModelSelection', () => {
         mounted.unmount();
     });
 
-    it('deduplicates concurrent popup-model loads and re-fetches only after cache invalidation', async () => {
+    it('user gets one model list request even when the dropdown asks twice at once', async () => {
         const models = [createModel(2), createModel(3)];
         const deps = {
             findModels: vi.fn().mockResolvedValue(models),
@@ -151,7 +151,7 @@ describe('useModelSelection', () => {
         mounted.unmount();
     });
 
-    it('resolves explicit overrides and maps model selection back to page-level override state', async () => {
+    it('user gets the picked model remembered as the override for this draft', async () => {
         const activeModel = createModel(10, {
             model_id: 'default-model',
             provider_id: 1,

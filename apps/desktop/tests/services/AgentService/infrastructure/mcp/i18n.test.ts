@@ -11,13 +11,13 @@ vi.mock('@/services/AgentService/infrastructure/attachments', () => ({
     createPersistedAttachmentFromData: vi.fn(),
 }));
 
-describe('MCP infrastructure i18n', () => {
+describe('user reads MCP tool results in their own language', () => {
     beforeEach(() => {
         vi.useRealTimers();
         setLocale('zh-CN');
     });
 
-    it('localizes image and resource fallback tool response text in English', () => {
+    it('user reads fallback image and resource text in English', () => {
         setLocale('en-US');
 
         const result = formatMcpToolResponse({
@@ -32,7 +32,7 @@ describe('MCP infrastructure i18n', () => {
         expect(result).toBe('[Image: image/png]\n[Resource: file:///tmp/report.pdf]');
     });
 
-    it('localizes timeout and cancellation errors in English', async () => {
+    it('user reads timeout and cancellation failures in English', async () => {
         setLocale('en-US');
         vi.useFakeTimers();
 

@@ -139,8 +139,8 @@ function seedPart(
 
 afterEach(() => databases.splice(0).forEach((database) => database.close()));
 
-describe('getUsageComposition tokens', () => {
-    it('splits the prompt breakdown into content categories', async () => {
+describe('when the user looks at what filled the context', () => {
+    it('user sees the prompt split into its content categories', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -167,7 +167,7 @@ describe('getUsageComposition tokens', () => {
         expect(byKey.get('systemPrompt')?.estimated).toBe(true);
     });
 
-    it('hides categories with no data instead of drawing zero-width slices', async () => {
+    it('user gets no empty slices for categories without data', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -183,7 +183,7 @@ describe('getUsageComposition tokens', () => {
         expect(result.tokens.segments.map((segment) => segment.key)).not.toContain('toolResults');
     });
 
-    it('counts conversation and tool output from stored part lengths', async () => {
+    it('user sees conversation and tool output counted in the split', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -201,7 +201,7 @@ describe('getUsageComposition tokens', () => {
         );
     });
 
-    it('reports the cache read share separately from the content split', async () => {
+    it('user sees the cache read share reported separately from the content split', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -220,8 +220,8 @@ describe('getUsageComposition tokens', () => {
     });
 });
 
-describe('getUsageComposition timing', () => {
-    it('splits wait, thinking, reply and tool run from real timings', async () => {
+describe('when the user looks at where the time went', () => {
+    it('user sees wait, thinking, reply and tool time split apart', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -244,7 +244,7 @@ describe('getUsageComposition timing', () => {
         );
     });
 
-    it('never reports a negative remainder when parts overlap the turn duration', async () => {
+    it('user never sees a negative slice when the timings overlap', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);
@@ -260,7 +260,7 @@ describe('getUsageComposition timing', () => {
         expect(result.timing.segments.every((segment) => segment.value >= 0)).toBe(true);
     });
 
-    it('returns empty segments for a range without usage', async () => {
+    it('user gets an empty split for a range with no usage', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seed(database);

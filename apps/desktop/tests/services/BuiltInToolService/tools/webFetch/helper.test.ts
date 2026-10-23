@@ -8,8 +8,8 @@ import {
     parseWebFetchRequest,
 } from '@/services/BuiltInToolService/tools/webFetch/helper';
 
-describe('parseWebFetchRequest', () => {
-    it('rejects non-http URL schemes before fetching', () => {
+describe('user asks the assistant to read a URL', () => {
+    it('user sees non-http schemes rejected before fetching', () => {
         setLocale('en-US');
         expect(() =>
             parseWebFetchRequest({
@@ -20,7 +20,7 @@ describe('parseWebFetchRequest', () => {
         ).toThrow('WebFetch tool only supports http:// and https:// URLs.');
     });
 
-    it('rejects IPv4-mapped IPv6 hosts for private network addresses', () => {
+    it('user sees IPv4-mapped IPv6 private hosts rejected', () => {
         setLocale('en-US');
         const privateMappedHosts = [
             'http://[::ffff:0.0.0.0]/',
@@ -44,7 +44,7 @@ describe('parseWebFetchRequest', () => {
         }
     });
 
-    it('allows IPv4-mapped IPv6 hosts for public addresses', () => {
+    it('user sees IPv4-mapped IPv6 public hosts allowed', () => {
         const request = parseWebFetchRequest({
             url: 'https://[::ffff:8.8.8.8]/dns-query',
             mode: 'page_markdown',
@@ -55,8 +55,8 @@ describe('parseWebFetchRequest', () => {
     });
 });
 
-describe('buildPageMarkdown', () => {
-    it('removes dangerous resource URL schemes while preserving safe absolute links', () => {
+describe('user gets readable text from a fetched page', () => {
+    it('user sees dangerous resource URL schemes removed while safe absolute links stay', () => {
         const markdown = buildPageMarkdown(
             [
                 '<a href="vbscript:alert(1)">script link</a>',
@@ -73,7 +73,7 @@ describe('buildPageMarkdown', () => {
         expect(markdown).toContain('[docs](https://example.com/docs)');
     });
 
-    it('preserves meaningful lazy-loaded image URLs for research reports', () => {
+    it('user sees meaningful lazy-loaded image URLs kept for research reports', () => {
         const markdown = buildPageMarkdown(
             [
                 '<article>',
@@ -97,8 +97,8 @@ describe('buildPageMarkdown', () => {
     });
 });
 
-describe('formatFetchResult', () => {
-    it('includes original webpage image candidates for ordinary fetch research', () => {
+describe('user reads a formatted fetch result', () => {
+    it('user sees original webpage image candidates included in an ordinary fetch', () => {
         const request = {
             url: new URL('https://example.com/research/report'),
             mode: 'reader',

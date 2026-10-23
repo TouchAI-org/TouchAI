@@ -84,7 +84,7 @@ function getPopupDataEmitCalls() {
     });
 }
 
-describe('popupManager', () => {
+describe('user opens a popup next to the search bar', () => {
     beforeEach(() => {
         installTauriMocks();
         document.body.innerHTML = '';
@@ -95,7 +95,7 @@ describe('popupManager', () => {
         resetTauriMocks();
     });
 
-    it('replays the latest show payload whenever a popup window reports ready', async () => {
+    it('user sees the latest popup content once the popup window is ready', async () => {
         const popupManager = createPopupManager();
         const anchor = buildAnchor();
 
@@ -171,7 +171,7 @@ describe('popupManager', () => {
         });
     });
 
-    it('only hides the active popup when the requested identity still matches the current session', async () => {
+    it('user sees only the popup they opened hidden by an outdated request', async () => {
         const popupManager = createPopupManager();
         const anchor = buildAnchor();
         const firstPopupId = await popupManager.show(
@@ -221,7 +221,7 @@ describe('popupManager', () => {
         });
     });
 
-    it('delivers close callbacks for every popup close event while keeping stale close events from clearing the current session', async () => {
+    it('user sees every popup close reported without a stale close clearing the open popup', async () => {
         const popupManager = createPopupManager();
         const anchor = buildAnchor();
         const onClose = vi.fn();
@@ -264,7 +264,7 @@ describe('popupManager', () => {
         unlisten();
     });
 
-    it('rolls back the failed popup session so the next show can open a fresh version', async () => {
+    it('user can reopen a popup after the previous one failed to show', async () => {
         const popupManager = createPopupManager();
         const anchor = buildAnchor();
         let shouldFailFirstShow = true;
@@ -307,7 +307,7 @@ describe('popupManager', () => {
         expect(getPopupDataEmitCalls()).toHaveLength(1);
     });
 
-    it('only forwards popup interaction events for the current popup session', async () => {
+    it('user sees interaction events only from the popup they currently have open', async () => {
         const popupManager = createPopupManager();
         const anchor = buildAnchor();
         const onModelSelect = vi.fn();

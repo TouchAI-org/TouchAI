@@ -54,8 +54,8 @@ function migrated() {
     return db;
 }
 
-describe('complete parts migration', () => {
-    it('derives read-only indexed tool identifiers from data', () => {
+describe('when the app migrates older conversation storage', () => {
+    it('user gets tool identifiers derived from the stored data', () => {
         const db = migrated();
         try {
             const columns = db.prepare('PRAGMA table_xinfo(message_parts)').all();
@@ -112,7 +112,7 @@ describe('complete parts migration', () => {
         }
     });
 
-    it('enforces attachment references and cascades deletion using the virtual projection', () => {
+    it('user gets attachment references enforced and cleaned up on delete', () => {
         const db = migrated();
         try {
             db.exec(`
@@ -151,14 +151,14 @@ describe('complete parts migration', () => {
         }
     });
 
-    it('keeps the published baseline intact and ships a snapshot for every later migration', () => {
+    it('user gets a migration snapshot for every shipped migration', () => {
         const pending = journal.entries.slice(4);
         expect(pending[0]!.tag).toMatch(/^0004_/);
 
         const snapshotIndexes = pendingSnapshotFiles().map((file) => file.slice(0, 4));
         expect(snapshotIndexes).toEqual(pending.map((entry) => entry.tag.slice(0, 4)));
     });
-    it('rolls back the consolidated schema and backfill together on failure', () => {
+    it('user keeps their old data when the migration fails halfway', () => {
         const db = new DatabaseSync(':memory:');
         db.exec('PRAGMA foreign_keys=ON');
         applyMigrations(db, 0, PARTS_MIGRATION_INDEX);
@@ -190,7 +190,7 @@ describe('complete parts migration', () => {
         }
     });
 
-    it('removes duplicated output and provider credentials from legacy checkpoints', () => {
+    it('user gets duplicated output and credentials stripped from old checkpoints', () => {
         const db = new DatabaseSync(':memory:');
         applyMigrations(db, 0, PARTS_MIGRATION_INDEX);
         const checkpoint = {
@@ -233,7 +233,7 @@ describe('complete parts migration', () => {
         }
     });
 
-    it('does not guess ambiguous legacy result identities', () => {
+    it('user gets no guessed identity for ambiguous legacy results', () => {
         const db = new DatabaseSync(':memory:');
         db.exec('PRAGMA foreign_keys=ON');
         applyMigrations(db, 0, PARTS_MIGRATION_INDEX);
@@ -310,7 +310,7 @@ describe('complete parts migration', () => {
         }
     });
 
-    it('moves result attachments and text onto the owning tool call', () => {
+    it('user sees old tool results attached to the right call', () => {
         const db = new DatabaseSync(':memory:');
         db.exec('PRAGMA foreign_keys=ON');
         applyMigrations(db, 0, PARTS_MIGRATION_INDEX);
@@ -374,7 +374,7 @@ describe('complete parts migration', () => {
         }
     });
 
-    it('removes legacy message references and separate content tables', () => {
+    it('user gets the old content tables removed after migration', () => {
         const db = migrated();
         try {
             const columns = db
@@ -402,7 +402,7 @@ describe('complete parts migration', () => {
         }
     });
 
-    it('migrates legacy tools and attachments before removing their tables', () => {
+    it('user keeps their old tools and attachments through the migration', () => {
         const db = new DatabaseSync(':memory:');
         db.exec('PRAGMA foreign_keys=ON');
         applyMigrations(db, 0, PARTS_MIGRATION_INDEX);

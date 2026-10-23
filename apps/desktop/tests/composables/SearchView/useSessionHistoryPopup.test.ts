@@ -38,7 +38,7 @@ vi.mock('@services/PopupService', () => ({
     },
 }));
 
-describe('useSessionHistoryPopup', () => {
+describe('when the user opens the session history panel', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         Object.assign(popupManagerState, {
@@ -59,7 +59,7 @@ describe('useSessionHistoryPopup', () => {
         document.body.innerHTML = '';
     });
 
-    it('opens the popup and reports the active popup session only when popupManager confirms the same live session', async () => {
+    it('user sees the panel open and the page told which popup is live', async () => {
         const onPopupSessionStart = vi.fn();
         const onPopupSessionEnd = vi.fn();
         const anchor = document.createElement('button');
@@ -95,7 +95,7 @@ describe('useSessionHistoryPopup', () => {
         mounted.unmount();
     });
 
-    it('rejects a popup session that is already stale by the time open resolves', async () => {
+    it('user gets no panel when it went stale before it finished opening', async () => {
         Object.assign(popupManagerState, {
             currentPopupId: 'popup-session-history-popup:2',
             currentPopupSessionVersion: 2,
@@ -124,7 +124,7 @@ describe('useSessionHistoryPopup', () => {
         mounted.unmount();
     });
 
-    it('ignores stale popup close events and only notifies close for the active session', async () => {
+    it('user keeps the panel open when a stale popup reports that it closed', async () => {
         let onCloseListener:
             | ((payload: {
                   popupId: string;
@@ -177,7 +177,7 @@ describe('useSessionHistoryPopup', () => {
         mounted.unmount();
     });
 
-    it('closes the local popup session without notifying the page when session history is no longer active', async () => {
+    it('user gets the panel closed without the page being told when history is no longer active', async () => {
         let onCloseListener:
             | ((payload: {
                   popupId: string;
@@ -220,7 +220,7 @@ describe('useSessionHistoryPopup', () => {
         mounted.unmount();
     });
 
-    it('hides the current popup session on unmount when the popup is still open', async () => {
+    it('user does not get a leftover popup window after leaving the search view', async () => {
         const onPopupSessionEnd = vi.fn();
         const mounted = await mountComposable(() =>
             useSessionHistoryPopup({
@@ -241,7 +241,7 @@ describe('useSessionHistoryPopup', () => {
         expect(onPopupSessionEnd).toHaveBeenCalled();
     });
 
-    it('cleans up a late popup listener registration if the composable unmounts first', async () => {
+    it('user does not get a leaked popup listener when leaving before it finished registering', async () => {
         let resolveListen: ((cleanup: () => void) => void) | undefined;
         const lateCleanup = vi.fn();
         vi.mocked(popupManager.listen).mockImplementation(

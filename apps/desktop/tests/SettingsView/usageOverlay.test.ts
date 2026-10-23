@@ -52,8 +52,8 @@ const live: SessionTaskUsageProgressEvent = {
     streaming: true,
 };
 
-describe('usage live overlay reconciliation', () => {
-    it('adds only unpersisted output and duration without counting the request/session twice', () => {
+describe('user watches live usage against saved history', () => {
+    it('user adds only unpersisted output and duration without counting the request/session twice', () => {
         const result = mergeLiveUsage(summary, [baseline], [live]);
         expect(result.requestCount).toBe(3);
         expect(result.sessionCount).toBe(2);
@@ -64,17 +64,17 @@ describe('usage live overlay reconciliation', () => {
         expect(result.totalCostMicros).toBe(200);
     });
 
-    it('ignores events whose tasks do not match the database filter', () => {
+    it('user ignores events whose tasks do not match the database filter', () => {
         expect(mergeLiveUsage(summary, [], [live])).toEqual(summary);
     });
 
-    it('stops overlaying terminal rows even when a late streaming event arrives', () => {
+    it('user stops overlaying terminal rows even when a late streaming event arrives', () => {
         const finished = { ...baseline, status: 'completed' };
         expect(mergeLiveUsage(summary, [finished], [live])).toEqual(summary);
         expect(mergeLiveUsage(summary, [finished], [])).toEqual(summary);
     });
 
-    it('reconciles two concurrent tasks independently as one finishes', () => {
+    it('user reconciles two concurrent tasks independently as one finishes', () => {
         const second = { ...baseline, taskId: 'b', outputTokens: 0, durationMs: null };
         const otherLive = { ...live, taskId: 'b', outputTokens: 40, estimatedCostMicros: null };
         const result = mergeLiveUsage(
@@ -89,13 +89,13 @@ describe('usage live overlay reconciliation', () => {
     });
 });
 
-describe('usage curve with stable historical buckets', () => {
+describe('user watches a live answer after saved history', () => {
     const points: UsageTrendPoint[] = [
         { key: '2026-05-01', tokens: 200, requests: 3, costMicros: 100, segments: [] },
     ];
     const range = { preset: 'custom', from: '2026-05-01 00:00:00', to: '2026-05-03 23:59:59' };
 
-    it('updates the existing day bucket instead of appending differently sized time intervals', () => {
+    it('user updates the existing day bucket instead of appending differently sized time intervals', () => {
         const history = buildUsageCurve(points, 'day', range, [], []);
         const current = buildUsageCurve(points, 'day', range, [baseline], [live]);
         expect(current.map((point) => point.key)).toEqual(history.map((point) => point.key));
@@ -103,7 +103,7 @@ describe('usage curve with stable historical buckets', () => {
         expect(current.find((point) => point.key === '2026-05-02')?.value).toBe(0);
     });
 
-    it('extends the live tail along real time instead of stacking on one x', () => {
+    it('user extends the live tail along real time instead of stacking on one x', () => {
         // 区间是 UTC 字符串，now 也用 UTC 构造，避免测试受本机时区影响
         const now = Date.parse('2026-05-01T10:30:00Z');
         const hourRange = {
@@ -133,7 +133,7 @@ describe('usage curve with stable historical buckets', () => {
         expect(livePoints[2]!.value).toBeGreaterThan(livePoints[0]!.value);
     });
 
-    it('reports the live rate per second rather than a running total', () => {
+    it('user gets the live rate per second rather than a running total', () => {
         const now = Date.parse('2026-05-01T10:30:00Z');
         const rate = buildLiveCurve(
             [
@@ -152,7 +152,7 @@ describe('usage curve with stable historical buckets', () => {
         }
     });
 
-    it('holds the last known speed instead of sawtoothing to zero', () => {
+    it('user holds the last known speed instead of sawtoothing to zero', () => {
         // The tracker pushes only when tokens arrive, and gaps over 200ms are
         // normal. Holding the last value avoids a jump up from zero each gap.
         const now = Date.parse('2026-05-01T10:30:00Z');
@@ -168,7 +168,7 @@ describe('usage curve with stable historical buckets', () => {
         expect(rate[rate.length - 1]!.value).toBe(40);
     });
 
-    it('drops points older than the window instead of drawing them', () => {
+    it('user drops points older than the window instead of drawing them', () => {
         const now = Date.parse('2026-05-01T10:30:00Z');
         const rate = buildLiveCurve(
             [
@@ -183,7 +183,7 @@ describe('usage curve with stable historical buckets', () => {
         expect(rate).toEqual([]);
     });
 
-    it('does not double-count after persistence catches up', () => {
+    it('user does not double-count after persistence catches up', () => {
         const current = buildUsageCurve(
             points,
             'day',

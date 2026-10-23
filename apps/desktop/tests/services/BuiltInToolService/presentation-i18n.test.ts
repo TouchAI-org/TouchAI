@@ -38,8 +38,8 @@ vi.mock('@/services/BuiltInToolService/registry', () => ({
     },
 }));
 
-describe('BuiltInToolService presentation i18n', () => {
-    it('localizes folded built-in tool verbs for the active runtime locale', async () => {
+describe('user reads tool activity in their own language', () => {
+    it('user reads built-in tool verbs in the active runtime language', async () => {
         const { buildBuiltInToolConversationPresentation } =
             await import('@/services/BuiltInToolService/presentation');
 
@@ -80,7 +80,7 @@ describe('BuiltInToolService presentation i18n', () => {
         }
     }, 20_000);
 
-    it('normalizes prefixed and display-name tool identifiers', async () => {
+    it('user sees prefixed and display-name tool identifiers recognized', async () => {
         setLocale('en-US');
         const { buildBuiltInToolConversationPresentation } =
             await import('@/services/BuiltInToolService/presentation');
@@ -96,7 +96,7 @@ describe('BuiltInToolService presentation i18n', () => {
         expect(buildBuiltInToolConversationPresentation('Ghost', {}, 'completed')).toBeNull();
     });
 
-    it('uses explicit semantic hints before default tool semantics', async () => {
+    it('user sees explicit semantic hints preferred over default tool semantics', async () => {
         setLocale('en-US');
         const { buildBuiltInToolConversationPresentation, resolveBuiltInToolConversationSemantic } =
             await import('@/services/BuiltInToolService/presentation');
@@ -129,7 +129,7 @@ describe('BuiltInToolService presentation i18n', () => {
         });
     });
 
-    it('returns null when a resolved tool has no semantic presentation', async () => {
+    it('user sees no presentation when a resolved tool has no semantic meaning', async () => {
         const { buildBuiltInToolConversationPresentation, resolveBuiltInToolConversationSemantic } =
             await import('@/services/BuiltInToolService/presentation');
 

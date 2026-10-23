@@ -24,8 +24,8 @@ function createAssistantMessage(overrides: Partial<SessionMessage> = {}): Sessio
     };
 }
 
-describe('autoShrinkPolicy', () => {
-    it('returns null when there is no active session or settled assistant output to read', () => {
+describe('when the search window considers shrinking itself', () => {
+    it('user gets no shrink while there is nothing settled to measure', () => {
         expect(buildLatestCompletedMessageMarker(null, [])).toBeNull();
         expect(
             buildLatestCompletedMessageMarker(7, [
@@ -46,7 +46,7 @@ describe('autoShrinkPolicy', () => {
         ).toBeNull();
     });
 
-    it('changes the marker when the latest assistant output changes terminal presentation on the same message id', () => {
+    it('user gets a new shrink marker when the same reply changes its final presentation', () => {
         const baseMessage = createAssistantMessage();
         const completedMarker = buildLatestCompletedMessageMarker(7, [baseMessage]);
         const failedMarker = buildLatestCompletedMessageMarker(7, [
@@ -61,7 +61,7 @@ describe('autoShrinkPolicy', () => {
         expect(completedMarker).not.toBe(failedMarker);
     });
 
-    it('treats streaming assistant output as unsettled and withholds the marker', () => {
+    it('user gets no shrink while the reply is still streaming', () => {
         const streamingMessage = createAssistantMessage({
             isStreaming: true,
         });
@@ -70,7 +70,7 @@ describe('autoShrinkPolicy', () => {
         expect(buildLatestCompletedMessageMarker(7, [streamingMessage])).toBeNull();
     });
 
-    it('treats pending approvals or executing tools as unsettled', () => {
+    it('user gets no shrink while a tool or approval is still pending', () => {
         const approvalPendingMessage = createAssistantMessage({
             approvals: [
                 {
@@ -114,7 +114,7 @@ describe('autoShrinkPolicy', () => {
         expect(buildLatestCompletedMessageMarker(7, [executingToolMessage])).toBeNull();
     });
 
-    it('requires every assistant message in the visible history to be settled', () => {
+    it('user gets no shrink until every visible reply has settled', () => {
         const settledMessage = createAssistantMessage({
             id: 'assistant-1',
             timestamp: 1,
@@ -142,7 +142,7 @@ describe('autoShrinkPolicy', () => {
         expect(buildLatestCompletedMessageMarker(7, [settledMessage, unsettledMessage])).toBeNull();
     });
 
-    it('only allows timed auto-shrink after inactivity when the session is idle and the latest completed message marker was already seen', () => {
+    it('user gets the timed shrink only when idle and the last reply was already shown', () => {
         const marker = buildLatestCompletedMessageMarker(7, [createAssistantMessage()]);
 
         expect(

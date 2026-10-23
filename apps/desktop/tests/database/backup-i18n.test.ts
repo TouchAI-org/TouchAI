@@ -23,7 +23,7 @@ vi.mock('@services/NativeService', () => ({
     },
 }));
 
-describe('database backup native dialog i18n', () => {
+describe('when the user exports or imports a settings backup', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('zh-CN');
@@ -33,7 +33,7 @@ describe('database backup native dialog i18n', () => {
         importBackupMock.mockResolvedValue(undefined);
     });
 
-    it('uses English save dialog title and filter labels when exporting in English', async () => {
+    it('user sees the save dialog in English when the app is in English', async () => {
         setLocale('en-US');
         const { databaseBackup } = await import('@/database/backup');
         const onProgress = vi.fn();
@@ -50,7 +50,7 @@ describe('database backup native dialog i18n', () => {
         expect(onProgress).toHaveBeenNthCalledWith(2, 'Export complete', 100);
     });
 
-    it('uses English open dialog title and filter labels when importing in English', async () => {
+    it('user sees the open dialog in English when the app is in English', async () => {
         setLocale('en-US');
         const { databaseBackup } = await import('@/database/backup');
         const onProgress = vi.fn();
@@ -69,7 +69,7 @@ describe('database backup native dialog i18n', () => {
         expect(onProgress).toHaveBeenNthCalledWith(2, 'Import complete', 100);
     });
 
-    it('throws an English cancellation error when export is cancelled in English', async () => {
+    it('user gets a recognisable cancellation error when dismissing the save dialog', async () => {
         setLocale('en-US');
         saveMock.mockResolvedValueOnce(null);
         const { databaseBackup, isDatabaseBackupCancelledError } =
@@ -87,7 +87,7 @@ describe('database backup native dialog i18n', () => {
         expect(isDatabaseBackupCancelledError(new Error('other'))).toBe(false);
     });
 
-    it('returns false when the import dialog is cancelled', async () => {
+    it('user gets nothing imported when dismissing the open dialog', async () => {
         openMock.mockResolvedValueOnce(null);
         const { databaseBackup } = await import('@/database/backup');
 

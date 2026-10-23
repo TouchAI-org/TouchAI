@@ -5,15 +5,15 @@ function localTime(day: number, hour: number, minute = 0): number {
     return new Date(2026, 9, day, hour, minute).getTime();
 }
 
-describe('app update check timing', () => {
-    it('allows automatic checks only from 08:00 until midnight', () => {
+describe('user is checked for updates only during active hours', () => {
+    it('user is eligible for automatic checks only from 08:00 until midnight', () => {
         expect(isWithinAppUpdateHours(localTime(18, 0))).toBe(false);
         expect(isWithinAppUpdateHours(localTime(18, 7, 59))).toBe(false);
         expect(isWithinAppUpdateHours(localTime(18, 8))).toBe(true);
         expect(isWithinAppUpdateHours(localTime(18, 23, 59))).toBe(true);
     });
 
-    it('waits until 08:00 during quiet hours and checks hourly during active hours', () => {
+    it('user sees the next check at 08:00 during quiet hours and hourly otherwise', () => {
         expect(getNextAppUpdateCheckAt(localTime(18, 0))).toBe(localTime(18, 8));
         expect(getNextAppUpdateCheckAt(localTime(18, 7, 30))).toBe(localTime(18, 8));
         expect(getNextAppUpdateCheckAt(localTime(18, 8))).toBe(localTime(18, 9));

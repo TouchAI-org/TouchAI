@@ -18,18 +18,18 @@ function setPlatform(platform: string) {
     });
 }
 
-describe('search keybinding configuration', () => {
+describe('user changes the search shortcuts', () => {
     afterEach(() => {
         setPlatform(originalPlatform);
     });
 
-    it('keeps action ids and definitions in sync', () => {
+    it('user keeps action ids and definitions in sync', () => {
         expect(SEARCH_KEYBINDING_DEFINITIONS.map((definition) => definition.id)).toEqual(
             SEARCH_KEYBINDING_ACTION_IDS
         );
     });
 
-    it('returns definitions for known actions and rejects unknown actions', () => {
+    it('user gets definitions for known actions and rejects unknown actions', () => {
         expect(getSearchKeybindingDefinition('search.window.maximize')).toMatchObject({
             id: 'search.window.maximize',
             defaultShortcut: 'F11',
@@ -41,7 +41,7 @@ describe('search keybinding configuration', () => {
         ).toThrow('Unknown search keybinding action: search.request.cancel');
     });
 
-    it('creates the default keybinding map from definitions', () => {
+    it('user creates the default keybinding map from definitions', () => {
         const defaults = createDefaultSearchKeybindings();
 
         expect(defaults).toEqual({
@@ -57,7 +57,7 @@ describe('search keybinding configuration', () => {
         });
     });
 
-    it('normalizes persisted shortcuts and preserves disabled actions', () => {
+    it('user normalizes persisted shortcuts and preserves disabled actions', () => {
         expect(
             normalizeSearchKeybindings({
                 'search.history.open': ' ctrl + shift + h ',
@@ -78,7 +78,7 @@ describe('search keybinding configuration', () => {
         });
     });
 
-    it('rejects persisted shortcuts that bypass capture policy', () => {
+    it('user rejects persisted shortcuts that bypass capture policy', () => {
         expect(
             normalizeSearchKeybindings({
                 'search.history.open': 'H',
@@ -93,7 +93,7 @@ describe('search keybinding configuration', () => {
         });
     });
 
-    it('rejects persisted macOS system-reserved shortcuts', () => {
+    it('user rejects persisted macOS system-reserved shortcuts', () => {
         setPlatform('MacIntel');
 
         expect(
@@ -108,7 +108,7 @@ describe('search keybinding configuration', () => {
         });
     });
 
-    it('rejects persisted shortcut duplicates while preserving disabled actions', () => {
+    it('user rejects persisted shortcut duplicates while preserving disabled actions', () => {
         expect(
             normalizeSearchKeybindings({
                 'search.history.open': 'Ctrl+Y',
@@ -124,7 +124,7 @@ describe('search keybinding configuration', () => {
         });
     });
 
-    it('does not let duplicate fallback defaults steal later persisted shortcuts', () => {
+    it('user does not let duplicate fallback defaults steal later persisted shortcuts', () => {
         expect(
             normalizeSearchKeybindings({
                 'search.history.open': 'Ctrl+Y',
@@ -139,7 +139,7 @@ describe('search keybinding configuration', () => {
         });
     });
 
-    it('preserves persisted shortcuts when they conflict with newly added defaults', () => {
+    it('user preserves persisted shortcuts when they conflict with newly added defaults', () => {
         expect(
             normalizeSearchKeybindings({
                 'search.window.pin': 'Mod+G',
@@ -151,7 +151,7 @@ describe('search keybinding configuration', () => {
         });
     });
 
-    it('keeps normalized key order stable for persistence', () => {
+    it('user keeps normalized key order stable for persistence', () => {
         expect(
             Object.keys(
                 normalizeSearchKeybindings({
@@ -161,7 +161,7 @@ describe('search keybinding configuration', () => {
         ).toEqual(SEARCH_KEYBINDING_ACTION_IDS);
     });
 
-    it('falls back to defaults for invalid persisted payloads', () => {
+    it('user falls back to defaults for invalid persisted payloads', () => {
         const defaults = createDefaultSearchKeybindings();
 
         expect(normalizeSearchKeybindings(null)).toEqual(defaults);

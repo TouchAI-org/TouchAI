@@ -157,8 +157,8 @@ function formatMissing(missing: Array<{ file: string; text: string }>): string {
         .join('\n');
 }
 
-describe('i18n source coverage guard', () => {
-    it('has English mappings for user-facing Chinese strings in Vue templates', () => {
+describe('user reads a screen in English', () => {
+    it('user has English mappings for user-facing Chinese strings in Vue templates', () => {
         const missing: Array<{ file: string; text: string }> = [];
 
         for (const file of SOURCE_FILES) {
@@ -173,7 +173,7 @@ describe('i18n source coverage guard', () => {
         expect(formatMissing(missing)).toBe('');
     });
 
-    it('has English mappings for explicit runtime Chinese messages', () => {
+    it('user has English mappings for explicit runtime Chinese messages', () => {
         const missing: Array<{ file: string; text: string }> = [];
 
         for (const file of CODE_SOURCE_FILES) {

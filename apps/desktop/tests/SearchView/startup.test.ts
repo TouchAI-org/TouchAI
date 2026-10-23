@@ -10,8 +10,8 @@ function deferred() {
     return { promise, resolve };
 }
 
-describe('initializeSearchViewForFirstPaint', () => {
-    it('marks the view ready after settings initialize without waiting for popup or MCP warmup', async () => {
+describe('when the search view opens for the first time', () => {
+    it('user sees the search bar before the popup and MCP warmup finish', async () => {
         const popupWarmup = deferred();
         const mcpWarmup = deferred();
         const readyStates: boolean[] = [];
@@ -33,7 +33,7 @@ describe('initializeSearchViewForFirstPaint', () => {
         mcpWarmup.resolve();
     });
 
-    it('keeps the view hidden when the critical settings load fails', async () => {
+    it('user gets no search bar when the settings cannot be loaded', async () => {
         const error = new Error('settings failed');
         const logError = vi.fn();
         const readyStates: boolean[] = [];

@@ -29,7 +29,7 @@ vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => ({ label: 'settings' }),
 }));
 
-describe('search settings config', () => {
+describe('user edits the search settings', () => {
     beforeEach(() => {
         settingsValues.clear();
         setSettingMock.mockClear();
@@ -37,7 +37,7 @@ describe('search settings config', () => {
         setActivePinia(createPinia());
     });
 
-    it('normalizes defaults and invalid json', async () => {
+    it('user normalizes defaults and invalid json', async () => {
         const {
             DEFAULT_SEARCH_SETTINGS,
             parseSearchSettingsConfig,
@@ -59,7 +59,7 @@ describe('search settings config', () => {
         });
     });
 
-    it('trims provider keys and preserves intent routing', async () => {
+    it('user trims provider keys and preserves intent routing', async () => {
         const { parseSearchSettingsConfig } = await import('@/stores/setting/sections/search');
 
         expect(
@@ -105,7 +105,7 @@ describe('search settings config', () => {
         });
     });
 
-    it('does not enable required-key providers without API keys', async () => {
+    it('user does not enable required-key providers without API keys', async () => {
         const { parseSearchSettingsConfig } = await import('@/stores/setting/sections/search');
 
         expect(
@@ -135,7 +135,7 @@ describe('search settings config', () => {
         });
     });
 
-    it('trims the DeepSeek key and keeps provider configs minimal', async () => {
+    it('user trims the DeepSeek key and keeps provider configs minimal', async () => {
         const { parseSearchSettingsConfig, serializeSearchSettingsConfig } =
             await import('@/stores/setting/sections/search');
 
@@ -161,7 +161,7 @@ describe('search settings config', () => {
         });
     });
 
-    it('does not enable the DeepSeek provider without an API key', async () => {
+    it('user does not enable the DeepSeek provider without an API key', async () => {
         const { parseSearchSettingsConfig } = await import('@/stores/setting/sections/search');
 
         expect(
@@ -177,7 +177,7 @@ describe('search settings config', () => {
         });
     });
 
-    it('loads and saves search settings through the existing settings store', async () => {
+    it('user loads and saves search settings through the existing settings store', async () => {
         const { useSettingsStore } = await import('@/stores/settings');
         settingsValues.set(
             'search_settings',

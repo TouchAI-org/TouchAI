@@ -25,8 +25,8 @@ function mountSelect() {
     return wrapper;
 }
 
-describe('searchable select exit presence', () => {
-    it('ignores Enter after Escape while the dropdown is retained for its exit', async () => {
+describe('user closes a searchable list', () => {
+    it('user ignores Enter after Escape while the dropdown is retained for its exit', async () => {
         const wrapper = mountSelect();
         await wrapper.find('button').trigger('click');
         const input = wrapper.find('input');
@@ -38,7 +38,7 @@ describe('searchable select exit presence', () => {
         expect(wrapper.emitted('update:modelValue')).toBeUndefined();
     });
 
-    it('makes leaving content inert and restores keyboard selection on immediate reopen', async () => {
+    it('user makes leaving content inert and restores keyboard selection on immediate reopen', async () => {
         const wrapper = mountSelect();
         await wrapper.find('button').trigger('click');
         const input = wrapper.find('input');

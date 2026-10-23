@@ -40,7 +40,7 @@ vi.mock('@services/PopupService', () => ({
     },
 }));
 
-describe('useModelDropdownPopup', () => {
+describe('when the user opens the model dropdown', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         Object.assign(popupManagerState, {
@@ -61,7 +61,7 @@ describe('useModelDropdownPopup', () => {
         document.body.innerHTML = '';
     });
 
-    it('opens the popup and reports a live session when popupManager confirms the same session', async () => {
+    it('user sees the dropdown open and the page told which popup is live', async () => {
         const onPopupSessionStart = vi.fn();
         const mounted = await mountComposable(() =>
             useModelDropdownPopup({
@@ -88,7 +88,7 @@ describe('useModelDropdownPopup', () => {
         mounted.unmount();
     });
 
-    it('rejects a popup session that is already stale by the time open resolves', async () => {
+    it('user gets no dropdown when it went stale before it finished opening', async () => {
         Object.assign(popupManagerState, {
             currentPopupId: 'popup-model-dropdown-popup:2',
             currentPopupSessionVersion: 2,
@@ -120,7 +120,7 @@ describe('useModelDropdownPopup', () => {
         mounted.unmount();
     });
 
-    it('ignores stale popup close events and preserves the live session until the active popup closes', async () => {
+    it('user keeps the dropdown open when a stale popup reports that it closed', async () => {
         let onCloseListener:
             | ((payload: {
                   popupId: string;
@@ -173,7 +173,7 @@ describe('useModelDropdownPopup', () => {
         mounted.unmount();
     });
 
-    it('closes the local popup session without notifying the page when the model dropdown is no longer active', async () => {
+    it('user gets the dropdown closed without the page being told when it is no longer active', async () => {
         let onCloseListener:
             | ((payload: {
                   popupId: string;
@@ -216,7 +216,7 @@ describe('useModelDropdownPopup', () => {
         mounted.unmount();
     });
 
-    it('closes the active popup session with the current identity', async () => {
+    it('user gets the dropdown window closed with the identity of the session on screen', async () => {
         const onPopupSessionEnd = vi.fn();
         const mounted = await mountComposable(() =>
             useModelDropdownPopup({
@@ -244,7 +244,7 @@ describe('useModelDropdownPopup', () => {
         mounted.unmount();
     });
 
-    it('cleans up a late popup listener registration if the composable unmounts first', async () => {
+    it('user does not get a leaked popup listener when leaving before it finished registering', async () => {
         let resolveListen: ((cleanup: () => void) => void) | undefined;
         const lateCleanup = vi.fn();
         vi.mocked(popupManager.listen).mockImplementation(

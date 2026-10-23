@@ -37,7 +37,7 @@ function createPointerEvent(type: string, clientX: number, pointerId = 11) {
     return event;
 }
 
-describe('NavigationSidebar', () => {
+describe('user navigates the settings sections', () => {
     let originalInnerWidth: number;
 
     beforeEach(() => {
@@ -56,7 +56,7 @@ describe('NavigationSidebar', () => {
         document.body.style.userSelect = '';
     });
 
-    it('renders compact system-style navigation without a back button, overview page, or group descriptions', () => {
+    it('user sees compact system-style navigation without a back button, overview page, or group descriptions', () => {
         const wrapper = mount(NavigationSidebar, {
             props: {
                 activeSection: 'general',
@@ -74,7 +74,7 @@ describe('NavigationSidebar', () => {
         expect(wrapper.text()).not.toContain('Provider、模型、默认模型和密钥');
     });
 
-    it('shows a version badge beside the settings title and keeps external links at the bottom', async () => {
+    it('user sees a version badge beside the settings title and keeps external links at the bottom', async () => {
         const wrapper = mount(NavigationSidebar, {
             props: {
                 activeSection: 'general',
@@ -103,7 +103,7 @@ describe('NavigationSidebar', () => {
         );
     });
 
-    it('handles external link opener failures without throwing', async () => {
+    it('user handles external link opener failures without throwing', async () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         openUrlMock.mockRejectedValueOnce(new Error('opener unavailable'));
         const wrapper = mount(NavigationSidebar, {
@@ -122,7 +122,7 @@ describe('NavigationSidebar', () => {
         warnSpy.mockRestore();
     });
 
-    it('emits navigation requests when a section is clicked', async () => {
+    it('user sees navigation requests when a section is clicked', async () => {
         const wrapper = mount(NavigationSidebar, {
             props: {
                 activeSection: 'general',
@@ -134,7 +134,7 @@ describe('NavigationSidebar', () => {
         expect(wrapper.emitted('navigate')?.[0]).toEqual(['general']);
     });
 
-    it('emits an update-section navigation request when the version is clicked', async () => {
+    it('user sees an update-section navigation request when the version is clicked', async () => {
         const wrapper = mount(NavigationSidebar, {
             props: {
                 activeSection: 'general',
@@ -146,7 +146,7 @@ describe('NavigationSidebar', () => {
         expect(wrapper.emitted('show-update-settings')).toEqual([[{ checkAndOpen: true }]]);
     });
 
-    it('lets users drag the sidebar width while respecting minimum and maximum bounds', async () => {
+    it('user lets users drag the sidebar width while respecting minimum and maximum bounds', async () => {
         const wrapper = mount(NavigationSidebar, {
             props: {
                 activeSection: 'general',
@@ -190,7 +190,7 @@ describe('NavigationSidebar', () => {
         expect(document.body.style.userSelect).toBe('');
     });
 
-    it('captures pointer and restores previous body styles when dragging is lost', async () => {
+    it('user captures pointer and restores previous body styles when dragging is lost', async () => {
         const wrapper = mount(NavigationSidebar, {
             props: {
                 activeSection: 'general',
@@ -233,7 +233,7 @@ describe('NavigationSidebar', () => {
         expect(document.body.style.userSelect).toBe('text');
     });
 
-    it('ignores unrelated resize pointers and handles window-level cancellation', async () => {
+    it('user ignores unrelated resize pointers and handles window-level cancellation', async () => {
         const wrapper = mount(NavigationSidebar, {
             props: {
                 activeSection: 'general',
@@ -279,7 +279,7 @@ describe('NavigationSidebar', () => {
         expect(document.body.style.userSelect).toBe('text');
     });
 
-    it('ignores overlapping pointerdown events while a sidebar resize is active', async () => {
+    it('user ignores overlapping pointerdown events while a sidebar resize is active', async () => {
         const wrapper = mount(NavigationSidebar, {
             props: {
                 activeSection: 'general',
@@ -316,7 +316,7 @@ describe('NavigationSidebar', () => {
         expect(document.body.style.userSelect).toBe('text');
     });
 
-    it('ignores non-primary pointerdown events for the sidebar resize handle', async () => {
+    it('user ignores non-primary pointerdown events for the sidebar resize handle', async () => {
         const wrapper = mount(NavigationSidebar, {
             props: {
                 activeSection: 'general',
@@ -339,7 +339,7 @@ describe('NavigationSidebar', () => {
         expect(document.body.style.userSelect).toBe('');
     });
 
-    it('restores body styles when unmounted during sidebar resize', async () => {
+    it('user restores body styles when unmounted during sidebar resize', async () => {
         const wrapper = mount(NavigationSidebar, {
             props: {
                 activeSection: 'general',
@@ -360,7 +360,7 @@ describe('NavigationSidebar', () => {
         expect(document.body.style.userSelect).toBe('text');
     });
 
-    it('reclamps the sidebar when entering a three-column settings page at the minimum width', async () => {
+    it('user reclamps the sidebar when entering a three-column settings page at the minimum width', async () => {
         Object.defineProperty(window, 'innerWidth', {
             configurable: true,
             value: SETTINGS_LAYOUT_MIN_WIDTH,
@@ -404,7 +404,7 @@ describe('NavigationSidebar', () => {
         expect(resizer.attributes('aria-valuemax')).toBe(String(effectiveMax));
     });
 
-    it('supports keyboard resizing from the sidebar separator', async () => {
+    it('user supports keyboard resizing from the sidebar separator', async () => {
         const wrapper = mount(NavigationSidebar, {
             props: {
                 activeSection: 'general',

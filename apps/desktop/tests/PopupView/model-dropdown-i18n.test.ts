@@ -46,12 +46,12 @@ vi.mock('@services/NativeService', () => ({
     },
 }));
 
-describe('ModelDropdownPopup i18n', () => {
+describe('user opens the model picker', () => {
     beforeEach(() => {
         setLocale('zh-CN');
     });
 
-    it('renders search placeholder and model badges in English without truncating badge text', () => {
+    it('user sees search placeholder and model badges in English without truncating badge text', () => {
         setLocale('en-US');
 
         const wrapper = mount(ModelDropdownPopup, {
@@ -99,7 +99,7 @@ describe('ModelDropdownPopup i18n', () => {
         }
     });
 
-    it('renders the empty setup prompt in natural English', () => {
+    it('user sees the empty setup prompt in natural English', () => {
         setLocale('en-US');
 
         const wrapper = mount(ModelDropdownPopup, {
@@ -127,7 +127,7 @@ describe('ModelDropdownPopup i18n', () => {
         expect(normalizedText).not.toContain('Configure models inSettingsfirst');
     });
 
-    it('uses the configured toggle shortcut and ignores the old default', () => {
+    it('user uses the configured toggle shortcut and ignores the old default', () => {
         const wrapper = mount(ModelDropdownPopup, {
             props: {
                 data: {
@@ -153,7 +153,7 @@ describe('ModelDropdownPopup i18n', () => {
         expect(wrapper.emitted('close')).toHaveLength(1);
     });
 
-    it('does not close from the old toggle shortcut when the shortcut is disabled', () => {
+    it('user does not close from the old toggle shortcut when the shortcut is disabled', () => {
         const wrapper = mount(ModelDropdownPopup, {
             props: {
                 data: {

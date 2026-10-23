@@ -46,7 +46,7 @@ vi.mock('@components/CustomSelect.vue', () => ({
     },
 }));
 
-describe('Search settings section', () => {
+describe('user edits the search settings', () => {
     beforeEach(() => {
         setActivePinia(createPinia());
         vi.useFakeTimers();
@@ -84,7 +84,7 @@ describe('Search settings section', () => {
         vi.useRealTimers();
     });
 
-    it('renders dedicated search controls using browser-settings style and auto-saves edits', async () => {
+    it('user sees dedicated search controls using browser-settings style and auto-saves edits', async () => {
         const wrapper = mount(SearchSettingsView);
         await Promise.resolve();
 
@@ -144,7 +144,7 @@ describe('Search settings section', () => {
         );
     });
 
-    it('toggles the web_search built-in tool from the search tab', async () => {
+    it('user toggles the web_search built-in tool from the search tab', async () => {
         const wrapper = mount(SearchSettingsView);
         await Promise.resolve();
 
@@ -153,7 +153,7 @@ describe('Search settings section', () => {
         expect(updateBuiltInToolMock).toHaveBeenCalledWith(7, { enabled: 0 });
     });
 
-    it('uses compact switch controls for advanced boolean settings', async () => {
+    it('user uses compact switch controls for advanced boolean settings', async () => {
         const wrapper = mount(SearchSettingsView);
         await Promise.resolve();
 
@@ -174,7 +174,7 @@ describe('Search settings section', () => {
         );
     });
 
-    it('only shows enabled providers in routing and resets routes when a provider is disabled', async () => {
+    it('user only shows enabled providers in routing and resets routes when a provider is disabled', async () => {
         const wrapper = mount(SearchSettingsView);
         await Promise.resolve();
 
@@ -209,7 +209,7 @@ describe('Search settings section', () => {
         );
     });
 
-    it('enables optional-key providers without an API key', async () => {
+    it('user enables optional-key providers without an API key', async () => {
         const wrapper = mount(SearchSettingsView);
         await Promise.resolve();
         updateSearchSettingsMock.mockClear();
@@ -252,7 +252,7 @@ describe('Search settings section', () => {
         );
     });
 
-    it('requires an API key before the DeepSeek provider can be enabled', async () => {
+    it('user requires an API key before the DeepSeek provider can be enabled', async () => {
         const wrapper = mount(SearchSettingsView);
         await Promise.resolve();
 
@@ -307,7 +307,7 @@ describe('Search settings section', () => {
         ).toBe(false);
     });
 
-    it('keeps no-key provider inputs disabled even when the providers are enabled', async () => {
+    it('user keeps no-key provider inputs disabled even when the providers are enabled', async () => {
         const wrapper = mount(SearchSettingsView);
         await Promise.resolve();
 

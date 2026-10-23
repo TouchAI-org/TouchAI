@@ -12,13 +12,13 @@ vi.mock('@/services/AgentService/infrastructure/providers', () => ({
     createTauriFetch: () => tauriFetchMock,
 }));
 
-describe('executeWebFetchTool', () => {
+describe('user reads a web page through the fetch tool', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('en-US');
     });
 
-    it('rejects redirects to private network hosts before following them', async () => {
+    it('user sees redirects to private network hosts rejected before they are followed', async () => {
         tauriFetchMock.mockResolvedValueOnce(
             new Response('', {
                 status: 302,
@@ -50,7 +50,7 @@ describe('executeWebFetchTool', () => {
         );
     });
 
-    it('follows safe same-origin redirects and reports the final URL', async () => {
+    it('user sees a safe same-origin redirect followed with the final URL reported', async () => {
         tauriFetchMock
             .mockResolvedValueOnce(
                 new Response('', {
@@ -92,7 +92,7 @@ describe('executeWebFetchTool', () => {
         );
     });
 
-    it('reports a clear error when the redirect limit is exceeded', async () => {
+    it('user sees a clear error when too many redirects happen', async () => {
         for (let index = 0; index <= MAX_WEB_FETCH_REDIRECTS; index += 1) {
             tauriFetchMock.mockResolvedValueOnce(
                 new Response('', {

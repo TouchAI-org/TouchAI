@@ -21,19 +21,19 @@ function createTool(id: number, toolId: string): BuiltInToolEntity {
     };
 }
 
-describe('settings browser built-in tool group logic', () => {
+describe('user selects a tool to toggle', () => {
     const tools = [createTool(1, 'browser'), createTool(2, 'bash')];
 
-    it('selects the consolidated browser automation row', () => {
+    it('user selects the consolidated browser automation row', () => {
         expect(getBrowserAutomationTools(tools).map((tool) => tool.tool_id)).toEqual(['browser']);
         expect(getBuiltInToolUpdateTargets(tools, tools[0]).map((tool) => tool.id)).toEqual([1]);
     });
 
-    it('selects only the current row for non-browser tools', () => {
+    it('user selects only the current row for non-browser tools', () => {
         expect(getBuiltInToolUpdateTargets(tools, tools[1]).map((tool) => tool.id)).toEqual([2]);
     });
 
-    it('returns no targets when no tool is selected', () => {
+    it('user gets no targets when no tool is selected', () => {
         expect(getBuiltInToolUpdateTargets(tools, null)).toEqual([]);
     });
 });

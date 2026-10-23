@@ -72,12 +72,12 @@ beforeEach(() => {
     browserSettingsValues.clear();
 });
 
-describe('browser built-in tool group', () => {
-    it('exports one consolidated model-visible browser tool', () => {
+describe('user controls a browser through one tool', () => {
+    it('user sees one consolidated model-visible browser tool', () => {
         expect(builtInTools.map((tool) => tool.id).sort()).toEqual(['browser']);
     });
 
-    it('does not expose raw CDP, debug, extract, or evaluate tools', () => {
+    it('user does not see raw CDP, debug, extract, or evaluate tools', () => {
         const ids = builtInTools.map((tool) => tool.id);
 
         expect(ids).not.toContain('browser_cdp');
@@ -86,7 +86,7 @@ describe('browser built-in tool group', () => {
         expect(ids).not.toContain('browser_evaluate');
     });
 
-    it('declares the required operation sets in schemas', () => {
+    it('user sees the required operations declared in the schema', () => {
         expect(browserTool.inputSchema.properties.operation).toEqual(
             expect.objectContaining({
                 enum: [
@@ -174,7 +174,7 @@ describe('browser built-in tool group', () => {
         );
     });
 
-    it('builds concise conversation semantics for each browser tool', () => {
+    it('user reads a short description of each browser action in the conversation', () => {
         expect(
             browserTool.buildConversationSemantic({
                 operation: ' start ',
@@ -208,7 +208,7 @@ describe('browser built-in tool group', () => {
         });
     });
 
-    it('requires semantic descriptions except fixed passive status operations', async () => {
+    it('user sees a description required except for fixed passive status operations', async () => {
         mockTauriCommand('browser_status', { status: 'disconnected' });
 
         await expect(
@@ -234,7 +234,7 @@ describe('browser built-in tool group', () => {
         });
     });
 
-    it('routes the consolidated browser tool to the underlying native action command', async () => {
+    it('user sees the browser tool route to the native browser action command', async () => {
         mockTauriCommand('browser_act', { ok: true, action: 'click' });
 
         await expect(
@@ -259,7 +259,7 @@ describe('browser built-in tool group', () => {
         });
     });
 
-    it('delegates approval requests through the tool instances', async () => {
+    it('user sees approval requests delegated through the tool instances', async () => {
         await expect(
             browserTool.buildApprovalRequest({ operation: 'click', ref: 'submit-button' })
         ).resolves.toEqual(expect.objectContaining({ command: 'click submit-button' }));
@@ -281,15 +281,15 @@ describe('browser built-in tool group', () => {
     });
 });
 
-describe('browser operation descriptions', () => {
-    it('normalizes operation values and falls back for semantic labels', () => {
+describe('user reads browser operation names', () => {
+    it('user sees operation values normalized with a fallback label', () => {
         expect(parseBrowserOperation({ operation: '  navigate   page  ' })).toBe('navigate page');
         expect(parseBrowserOperation({ operation: '' })).toBeNull();
         expect(browserOperationForSemantic({ operation: ' tabs ' }, 'current')).toBe('tabs');
         expect(browserOperationForSemantic({}, 'current')).toBe('current');
     });
 
-    it('uses fixed labels, provided descriptions, and fallback operations safely', () => {
+    it('user sees fixed labels, provided descriptions, and unknown operations handled safely', () => {
         expect(resolveBrowserOperationDescription({ operation: 'tabs' }, 'current')).toBe(
             '查看浏览器标签页'
         );
@@ -311,8 +311,8 @@ describe('browser operation descriptions', () => {
     });
 });
 
-describe('browser tool redaction', () => {
-    it('redacts URLs, emails, secrets, one-time codes, and credential fields', () => {
+describe('user keeps browsing secrets out of transcripts', () => {
+    it('user sees URLs, emails, secrets, one-time codes, and credential fields redacted', () => {
         const redacted = redactBrowserValue({
             url: 'https://example.test/login?token=secret#hash',
             email: 'alice@example.test',
@@ -329,7 +329,7 @@ describe('browser tool redaction', () => {
         expect(JSON.stringify(redacted)).not.toContain('abcdef1234567890abcdef1234567890');
     });
 
-    it('redacts text, nested arrays, screenshot payloads, credential-like field values, and URL fragments', () => {
+    it('user sees text, nested arrays, screenshot payloads, credential-like values, and URL fragments redacted', () => {
         expect(
             redactUrl('Open https://example.test/reset?token=secret#code before continuing')
         ).toBe('Open https://example.test/reset before continuing');
@@ -363,7 +363,7 @@ describe('browser tool redaction', () => {
         expect(serialized).toContain('[redacted]');
     });
 
-    it('redacts credential values based on field hints and formats redacted JSON', () => {
+    it('user sees credential values redacted by field hint with JSON formatted safely', () => {
         expect(redactCredentialFieldValue(undefined, 'plain visible text')).toBe(
             'plain visible text'
         );
@@ -374,8 +374,8 @@ describe('browser tool redaction', () => {
     });
 });
 
-describe('browser tool config', () => {
-    it('returns defensive default config for empty or invalid persisted config', () => {
+describe('user has browser tool settings that are stored and read', () => {
+    it('user sees defensive defaults for empty or invalid stored settings', () => {
         expect(parseBrowserAutomationToolConfig(null)).toEqual(
             DEFAULT_BROWSER_AUTOMATION_TOOL_CONFIG
         );
@@ -387,7 +387,7 @@ describe('browser tool config', () => {
         );
     });
 
-    it('parses only startup URL config and ignores legacy browser selection fields', () => {
+    it('user sees only the startup URL parsed and legacy selection fields ignored', () => {
         expect(
             parseBrowserAutomationToolConfig(
                 JSON.stringify({
@@ -404,7 +404,7 @@ describe('browser tool config', () => {
         });
     });
 
-    it('serializes trimmed config and validates startup URLs', () => {
+    it('user sees trimmed settings serialized and startup URLs validated', () => {
         expect(
             serializeBrowserAutomationToolConfig({
                 mode: 'custom',
@@ -441,8 +441,8 @@ describe('browser tool config', () => {
     });
 });
 
-describe('browser tool approval', () => {
-    it('does not request approval for routine status and observe operations', async () => {
+describe('user approves risky browser actions', () => {
+    it('user sees no approval for routine status and observe operations', async () => {
         await expect(
             createBrowserApprovalRequest('browser_session', { operation: 'status' })
         ).resolves.toBeNull();
@@ -451,7 +451,7 @@ describe('browser tool approval', () => {
         ).resolves.toBeNull();
     });
 
-    it('skips approval prompts when browser permissions allow the operation', async () => {
+    it('user sees no prompt when browser permissions already allow the operation', async () => {
         browserSettingsValues.set(
             'browser_settings',
             JSON.stringify({
@@ -503,7 +503,7 @@ describe('browser tool approval', () => {
         ).resolves.toBeNull();
     });
 
-    it('requests approval for navigation with a redacted target', async () => {
+    it('user sees approval requested for navigation with a redacted target', async () => {
         const approval = await createBrowserApprovalRequest('browser_act', {
             operation: 'navigate',
             url: 'https://example.test/login?token=secret#hash',
@@ -518,7 +518,7 @@ describe('browser tool approval', () => {
         expect(JSON.stringify(approval)).not.toContain('#hash');
     });
 
-    it('requests approval for credential-like fill operations without leaking values', async () => {
+    it('user sees approval requested for credential-like fill operations without leaking values', async () => {
         const approval = await createBrowserApprovalRequest('browser_act', {
             operation: 'fill',
             ref: 'password-field',
@@ -534,7 +534,7 @@ describe('browser tool approval', () => {
         expect(JSON.stringify(approval)).not.toContain('super-secret-password');
     });
 
-    it('requests approval for high-impact browser actions while allowing low-impact observation', async () => {
+    it('user sees approval for high-impact actions while low-impact observation runs', async () => {
         await expect(
             createBrowserApprovalRequest('browser_session', { operation: 'start' })
         ).resolves.toEqual(expect.objectContaining({ command: 'start' }));
@@ -549,7 +549,7 @@ describe('browser tool approval', () => {
         ).resolves.toEqual(expect.objectContaining({ command: 'reload selected tab' }));
     });
 
-    it('requests approval for existing-session and browser-read operations when policy asks', async () => {
+    it('user sees approval for existing-session and browser-read operations when policy asks', async () => {
         browserSettingsValues.set(
             'browser_settings',
             JSON.stringify({
@@ -581,7 +581,7 @@ describe('browser tool approval', () => {
         ).resolves.toEqual(expect.objectContaining({ command: 'Read page structure' }));
     });
 
-    it('covers all approval command shapes without exposing selector secrets', async () => {
+    it('user sees every approval shape covered without exposing selector secrets', async () => {
         await expect(createBrowserApprovalRequest('browser_act', {})).resolves.toBeNull();
         await expect(
             createBrowserApprovalRequest('browser_act', { operation: 'scroll' })
@@ -630,8 +630,8 @@ describe('browser tool approval', () => {
     });
 });
 
-describe('browser tool execution formatting', () => {
-    it('routes only managed status and stop session operations', async () => {
+describe('user runs browser actions and reads their results', () => {
+    it('user sees only managed status and stop session operations routed', async () => {
         mockTauriCommand('browser_status', { status: 'disconnected' });
         mockTauriCommand('browser_stop', { status: 'disconnected' });
 
@@ -652,7 +652,7 @@ describe('browser tool execution formatting', () => {
         expect(getLastTauriInvokeCall('browser_list_browsers')).toBeUndefined();
     });
 
-    it('rejects missing browser_session operation before invoking native browser code', async () => {
+    it('user sees a missing session operation rejected before native browser code runs', async () => {
         mockTauriCommand('browser_status', { status: 'connected' });
 
         const result = await executeBrowserSessionTool({}, defaultBrowserConfig, fakeContext());
@@ -662,7 +662,7 @@ describe('browser tool execution formatting', () => {
         expect(getLastTauriInvokeCall('browser_status')).toBeUndefined();
     });
 
-    it('normalizes session operations to the matching NativeService command and safe serde names', async () => {
+    it('user sees session operations mapped to the right native command and safe names', async () => {
         mockTauriCommand('browser_start', { status: 'connected' });
 
         const result = await executeBrowserSessionTool(
@@ -688,7 +688,7 @@ describe('browser tool execution formatting', () => {
         });
     });
 
-    it('falls back to legacy url argument and omits blank custom config during start', async () => {
+    it('user sees the legacy url argument used and blank custom config omitted on start', async () => {
         mockTauriCommand('browser_start', { status: 'connected' });
 
         const result = await executeBrowserSessionTool(
@@ -714,7 +714,7 @@ describe('browser tool execution formatting', () => {
         });
     });
 
-    it('uses persisted safe browser config for managed start', async () => {
+    it('user sees the stored safe browser config used for a managed start', async () => {
         mockTauriCommand('browser_start', { status: 'connected' });
 
         const result = await browserSessionTool.execute(
@@ -743,7 +743,7 @@ describe('browser tool execution formatting', () => {
         });
     });
 
-    it('uses browser settings default homepage and executable path for managed start', async () => {
+    it('user sees the settings homepage and executable path used for a managed start', async () => {
         mockTauriCommand('browser_start', { status: 'connected' });
         browserSettingsValues.set(
             'browser_settings',
@@ -775,7 +775,7 @@ describe('browser tool execution formatting', () => {
         });
     });
 
-    it('passes balanced fingerprint settings to managed browser start', async () => {
+    it('user sees balanced fingerprint settings passed to a managed start', async () => {
         mockTauriCommand('browser_start', { status: 'connected' });
         browserSettingsValues.set(
             'browser_settings',
@@ -809,7 +809,7 @@ describe('browser tool execution formatting', () => {
         });
     });
 
-    it('derives enhanced fingerprint profile for managed browser start', async () => {
+    it('user sees an enhanced fingerprint profile derived for a managed start', async () => {
         mockTauriCommand('browser_start', { status: 'connected' });
         browserSettingsValues.set(
             'browser_settings',
@@ -839,7 +839,7 @@ describe('browser tool execution formatting', () => {
         });
     });
 
-    it('blocks browser actions when browser settings deny the target domain', async () => {
+    it('user sees actions blocked when browser settings deny the target domain', async () => {
         mockTauriCommand('browser_navigate', { ok: true });
         browserSettingsValues.set(
             'browser_settings',
@@ -864,7 +864,7 @@ describe('browser tool execution formatting', () => {
         expect(getLastTauriInvokeCall('browser_navigate')).toBeUndefined();
     });
 
-    it('asks for browser permission and continues when the user approves', async () => {
+    it('user sees a permission prompt followed by the action when they approve', async () => {
         mockTauriCommand('browser_navigate', { ok: true });
         const requestUserQuestionsImpl: RequestUserQuestions = async (
             _callId: Parameters<RequestUserQuestions>[0],
@@ -904,7 +904,7 @@ describe('browser tool execution formatting', () => {
         });
     });
 
-    it('stops browser permission-gated actions when approval is unavailable or rejected', async () => {
+    it('user sees permission-gated actions stop when approval is unavailable or rejected', async () => {
         mockTauriCommand('browser_navigate', { ok: true });
         const unavailable = await executeBrowserActTool(
             {
@@ -959,7 +959,7 @@ describe('browser tool execution formatting', () => {
         expect(getLastTauriInvokeCall('browser_navigate')).toBeUndefined();
     });
 
-    it('reports when no existing browser session is discoverable', async () => {
+    it('user is told when no existing browser session can be found', async () => {
         mockTauriCommand('browser_discover_existing', []);
 
         const result = await executeBrowserSessionTool(
@@ -972,7 +972,7 @@ describe('browser tool execution formatting', () => {
         expect(result.result).toContain('No connectable existing browser session was found');
     });
 
-    it('denies existing browser connection when policy is deny', async () => {
+    it('user sees an existing browser connection denied when policy says deny', async () => {
         mockTauriCommand('browser_discover_existing', [
             {
                 id: '127.0.0.1:9222',
@@ -1003,7 +1003,7 @@ describe('browser tool execution formatting', () => {
         expect(getLastTauriInvokeCall('browser_connect_existing')).toBeUndefined();
     });
 
-    it('auto-connects a single existing browser session when policy allows it', async () => {
+    it('user sees a single existing browser session connected automatically', async () => {
         mockTauriCommand('browser_discover_existing', [
             {
                 id: '127.0.0.1:9222',
@@ -1041,7 +1041,7 @@ describe('browser tool execution formatting', () => {
         });
     });
 
-    it('discovers and connects an existing browser session after user selection', async () => {
+    it('user sees an existing browser session connected after they choose it', async () => {
         mockTauriCommand('browser_discover_existing', [
             {
                 id: '127.0.0.1:9222',
@@ -1070,7 +1070,7 @@ describe('browser tool execution formatting', () => {
         });
     });
 
-    it('requires explicit selection for multiple existing browser sessions', async () => {
+    it('user is asked to choose when several existing browser sessions are found', async () => {
         mockTauriCommand('browser_discover_existing', [
             {
                 id: '127.0.0.1:9222',
@@ -1121,7 +1121,7 @@ describe('browser tool execution formatting', () => {
         });
     });
 
-    it('handles cancelled or invalid existing browser session selections safely', async () => {
+    it('user sees a cancelled or invalid session choice handled safely', async () => {
         const sessions = [
             {
                 id: '127.0.0.1:9222',
@@ -1172,7 +1172,7 @@ describe('browser tool execution formatting', () => {
         expect(getLastTauriInvokeCall('browser_connect_existing')).toBeUndefined();
     });
 
-    it('rejects hidden session operation aliases and raw attach/list operations', async () => {
+    it('user sees hidden session aliases and raw attach/list operations rejected', async () => {
         const listAlias = await executeBrowserSessionTool(
             { operation: 'list_browsers' },
             { mode: 'default', startupUrl: '' },
@@ -1204,7 +1204,7 @@ describe('browser tool execution formatting', () => {
         expect(attach.result).toContain('Unsupported browser_session operation');
     });
 
-    it('routes page navigation through browser_act instead of browser_session', async () => {
+    it('user sees page navigation routed through the act operation', async () => {
         mockTauriCommand('browser_navigate', {
             ok: true,
             url: 'https://example.test/dashboard?token=secret#hash',
@@ -1228,7 +1228,7 @@ describe('browser tool execution formatting', () => {
         expect(result.result).not.toContain('token=secret');
     });
 
-    it('normalizes current, tabs, and dom observe payloads', async () => {
+    it('user sees current, tabs, and dom observation payloads normalized', async () => {
         mockTauriCommand('browser_observe', { ok: true, tabId: 'tab-1' });
 
         await executeBrowserObserveTool(
@@ -1260,7 +1260,7 @@ describe('browser tool execution formatting', () => {
         });
     });
 
-    it('rejects unsupported observe operations before invoking native browser code', async () => {
+    it('user sees unsupported observe operations rejected before native browser code runs', async () => {
         mockTauriCommand('browser_observe', { ok: true, tabId: 'tab-1' });
 
         const result = await executeBrowserObserveTool(
@@ -1274,7 +1274,7 @@ describe('browser tool execution formatting', () => {
         expect(getLastTauriInvokeCall('browser_observe')).toBeUndefined();
     });
 
-    it('rejects missing observe operation and hidden observe fields before invoking native browser code', async () => {
+    it('user sees a missing observe operation and hidden fields rejected before native browser code runs', async () => {
         mockTauriCommand('browser_observe', { ok: true, tabId: 'tab-1' });
 
         const missingOperation = await executeBrowserObserveTool(
@@ -1315,7 +1315,7 @@ describe('browser tool execution formatting', () => {
         expect(getLastTauriInvokeCall('browser_observe')).toBeUndefined();
     });
 
-    it('passes stale ref payload fields through to the native act command', async () => {
+    it('user sees stale ref fields passed through to the native act command', async () => {
         mockTauriCommand('browser_act', {
             ok: false,
             action: 'click',
@@ -1348,7 +1348,7 @@ describe('browser tool execution formatting', () => {
         expect(result.result).toContain('stale');
     });
 
-    it('routes observe through the tool instance and redacts observe errors', async () => {
+    it('user sees observe routed through the tool instance with errors redacted', async () => {
         mockTauriCommand('browser_observe', () => {
             throw new Error(
                 'console contained password=secret and https://example.test/?token=secret#hash'
@@ -1372,7 +1372,7 @@ describe('browser tool execution formatting', () => {
         expect(result.result).not.toContain('token=secret');
     });
 
-    it('passes supported action payload fields and drops invalid optional fields', async () => {
+    it('user sees supported action fields passed and invalid optional fields dropped', async () => {
         mockTauriCommand('browser_act', { ok: true, action: 'fill_form' });
 
         const result = await browserActTool.execute(
@@ -1422,7 +1422,7 @@ describe('browser tool execution formatting', () => {
         });
     });
 
-    it('rejects unsupported act operations before invoking native browser code', async () => {
+    it('user sees unsupported act operations rejected before native browser code runs', async () => {
         mockTauriCommand('browser_act', { ok: true, action: 'unknown' });
 
         const result = await executeBrowserActTool(
@@ -1436,7 +1436,7 @@ describe('browser tool execution formatting', () => {
         expect(getLastTauriInvokeCall('browser_act')).toBeUndefined();
     });
 
-    it('rejects missing act operation before invoking native browser code', async () => {
+    it('user sees a missing act operation rejected before native browser code runs', async () => {
         mockTauriCommand('browser_act', { ok: true, action: 'click' });
 
         const result = await executeBrowserActTool(
@@ -1450,7 +1450,7 @@ describe('browser tool execution formatting', () => {
         expect(getLastTauriInvokeCall('browser_act')).toBeUndefined();
     });
 
-    it('preserves valid form field arrays for native fill_form actions', async () => {
+    it('user sees form field arrays preserved for a fill action', async () => {
         mockTauriCommand('browser_act', { ok: true, action: 'fill_form' });
 
         await executeBrowserActTool(
@@ -1477,7 +1477,7 @@ describe('browser tool execution formatting', () => {
         });
     });
 
-    it('preserves empty and whitespace text values for native typing actions', async () => {
+    it('user sees empty and whitespace text preserved when typing', async () => {
         mockTauriCommand('browser_act', { ok: true, action: 'fill' });
 
         await executeBrowserActTool(
@@ -1521,7 +1521,7 @@ describe('browser tool execution formatting', () => {
         });
     });
 
-    it('returns redacted error results when native commands fail', async () => {
+    it('user sees redacted error results when native browser commands fail', async () => {
         mockTauriCommand('browser_navigate', () => {
             throw new Error(
                 'navigation failed with token=secret at https://example.test/path?token=secret#hash'
@@ -1550,7 +1550,7 @@ describe('browser tool execution formatting', () => {
         expect(result.result).not.toContain('#hash');
     });
 
-    it('routes history actions to native commands and rejects screenshot as an action', async () => {
+    it('user sees history actions routed to native commands and screenshot rejected as an action', async () => {
         mockTauriCommand('browser_back', { ok: true });
         mockTauriCommand('browser_forward', { ok: true });
         mockTauriCommand('browser_reload', { ok: true });
@@ -1591,7 +1591,7 @@ describe('browser tool execution formatting', () => {
         expect(screenshot.result).toContain('Unsupported browser_act operation');
     });
 
-    it('suppresses screenshot base64 in model-visible output', async () => {
+    it('user does not see screenshot image data in the model-visible output', async () => {
         mockTauriCommand('browser_observe', {
             operation: 'screenshot',
             mimeType: 'image/png',
@@ -1615,7 +1615,7 @@ describe('browser tool execution formatting', () => {
         expect(result.attachments).toBeUndefined();
     });
 
-    it('strips screenshot payload fields from generic observe output', async () => {
+    it('user sees screenshot payload fields stripped from generic observation output', async () => {
         mockTauriCommand('browser_observe', {
             operation: 'state',
             status: { status: 'connected' },
@@ -1639,7 +1639,7 @@ describe('browser tool execution formatting', () => {
         expect(result.result).not.toContain('dataUrl');
     });
 
-    it('returns a real image attachment when screenshot response includes a file path', async () => {
+    it('user gets a real image attachment when a screenshot is saved to a file', async () => {
         mockTauriCommand('browser_observe', {
             operation: 'screenshot',
             url: 'https://example.test/releases',
@@ -1675,7 +1675,7 @@ describe('browser tool execution formatting', () => {
         ]);
     });
 
-    it('formats screenshot response aliases and non-record responses safely', () => {
+    it('user sees screenshot response aliases and non-record responses formatted safely', () => {
         const screenshot = formatBrowserToolResult('screenshot', {
             path: 'G:\\TouchAI\\browser\\shot.jpeg',
             mime_type: 'image/jpeg',
@@ -1697,7 +1697,7 @@ describe('browser tool execution formatting', () => {
         expect(text.result).toBe('"https://example.test/"');
     });
 
-    it('strips runtime implementation details from model-visible status output', () => {
+    it('user does not see runtime implementation details in model-visible status output', () => {
         const status = formatBrowserToolResult('status', {
             status: 'connected',
             endpoint: 'http://127.0.0.1:50123',
@@ -1710,7 +1710,7 @@ describe('browser tool execution formatting', () => {
         expect(status.result).not.toContain('50123');
     });
 
-    it('formats screenshot metadata without dimensions, base64, or filename', () => {
+    it('user sees screenshot metadata without dimensions, image data, or filename', () => {
         const screenshot = formatBrowserToolResult('screenshot', {
             file_path: 'G:\\TouchAI\\browser\\',
             width: 320,

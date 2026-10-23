@@ -20,12 +20,12 @@ vi.mock('@tauri-apps/api/window', () => ({
     }),
 }));
 
-describe('window chrome i18n', () => {
+describe('user reads the window chrome', () => {
     beforeEach(() => {
         setLocale('zh-CN');
     });
 
-    it('localizes title bar tooltips and accessibility labels', () => {
+    it('user sees title bar tooltips and accessibility labels', () => {
         setLocale('en-US');
 
         const wrapper = mount(TitleBar);
@@ -42,7 +42,7 @@ describe('window chrome i18n', () => {
         expect(buttons[1]?.attributes('aria-label')).toBe('Close');
     });
 
-    it('localizes password visibility accessibility labels', async () => {
+    it('user sees password visibility accessibility labels', async () => {
         setLocale('en-US');
 
         const wrapper = mount(PasswordInput, {

@@ -5,8 +5,8 @@ import {
     toUpstreamModelMetadataPatch,
 } from '@/services/AgentService/infrastructure/modelMetadata/upstreamEntries';
 
-describe('toUpstreamModelMetadataPatch', () => {
-    it('maps domain capabilities onto the model columns', () => {
+describe('user sees upstream capability declarations turned into model metadata', () => {
+    it('user sees domain capabilities mapped onto the model columns', () => {
         expect(
             toUpstreamModelMetadataPatch({
                 contextLimit: 400_000,
@@ -28,20 +28,20 @@ describe('toUpstreamModelMetadataPatch', () => {
         });
     });
 
-    it('maps explicit false declarations to zero bits', () => {
+    it('user sees explicit false declarations mapped to zero bits', () => {
         expect(
             toUpstreamModelMetadataPatch({ reasoning: false, toolCall: false, attachment: false })
         ).toEqual({ reasoning: 0, tool_call: 0, attachment: 0 });
     });
 
-    it('drops patches without any declared field', () => {
+    it('user sees patches without any declared field dropped', () => {
         expect(toUpstreamModelMetadataPatch({})).toBeUndefined();
         expect(toUpstreamModelMetadataPatch({ reasoningOptions: [] })).toBeUndefined();
     });
 });
 
-describe('toUpstreamModelMetadataEntries', () => {
-    it('keeps models that declare capabilities and skips the rest', () => {
+describe('user sees upstream entries listed for models', () => {
+    it('user sees only models that declare capabilities kept', () => {
         expect(
             toUpstreamModelMetadataEntries([
                 {

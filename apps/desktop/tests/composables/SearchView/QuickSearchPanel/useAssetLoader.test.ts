@@ -137,7 +137,7 @@ function createLoaderContext(
     };
 }
 
-describe('useAssetLoader', () => {
+describe('when the quick search panel loads icons and previews', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useFakeTimers();
@@ -148,7 +148,7 @@ describe('useAssetLoader', () => {
         document.body.innerHTML = '';
     });
 
-    it('prioritizes shortcut icons before file icons in the current viewport', async () => {
+    it('user gets the icons of the visible rows requested, shortcuts first', async () => {
         const items = [
             createItem('Top File', 'D:/top/file-1.txt', 'file'),
             createItem('Top Shortcut', 'D:/top/shortcut-1.lnk'),
@@ -190,7 +190,7 @@ describe('useAssetLoader', () => {
         });
     });
 
-    it('replays pending image loads after the search settles and continues remaining batches', async () => {
+    it('user gets thumbnails only after the search settles, in batches of two', async () => {
         const firstBatch = deferred<Record<string, string>>();
         const context = createLoaderContext({
             items: [
@@ -246,7 +246,7 @@ describe('useAssetLoader', () => {
         });
     });
 
-    it('does not merge stale icon batches after a newer request supersedes the current one', async () => {
+    it('user never sees icons from a superseded search', async () => {
         const iconBatch = deferred<Record<string, string>>();
         const context = createLoaderContext({
             items: [createItem('Doc', 'D:/docs/report.txt', 'file')],
@@ -268,7 +268,7 @@ describe('useAssetLoader', () => {
         expect(context.loader.iconMap.value).toEqual({});
     });
 
-    it('prunes stale cached icons and previews while keeping assets for current results', () => {
+    it('user sees cached icons and previews dropped for results that are gone', () => {
         const context = createLoaderContext({
             items: [
                 createItem('Current Icon', 'D:/keep/icon.lnk'),
@@ -295,7 +295,7 @@ describe('useAssetLoader', () => {
         });
     });
 
-    it('caps repeated icon retries and allows a clean retry after resetLoadingState', async () => {
+    it('user does not get endless icon retries after a lookup keeps failing', async () => {
         const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const context = createLoaderContext({
             items: [createItem('Retry Me', 'D:/retry/me.txt', 'file')],
@@ -327,7 +327,7 @@ describe('useAssetLoader', () => {
         expect(context.deps.getShortcutIcons).toHaveBeenCalledTimes(3);
     });
 
-    it('cancels queued timers when the loader state is reset before a delayed run fires', async () => {
+    it('user gets no icon work for a search that was reset before it started', async () => {
         const context = createLoaderContext({
             items: [createItem('Delayed', 'D:/delayed/shortcut.lnk')],
         });

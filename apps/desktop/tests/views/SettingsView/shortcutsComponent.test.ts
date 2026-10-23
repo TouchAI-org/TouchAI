@@ -137,7 +137,7 @@ vi.mock('@components/CustomSelect.vue', () => ({
     },
 }));
 
-describe('SettingsShortcutsSection', () => {
+describe('user configures keyboard shortcuts', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setPlatform('Win32');
@@ -157,7 +157,7 @@ describe('SettingsShortcutsSection', () => {
         document.body.innerHTML = '';
     });
 
-    it('renders the shortcuts settings groups in the browser settings layout', async () => {
+    it('user sees the shortcuts settings groups in the browser settings layout', async () => {
         const wrapper = mount(GeneralSection);
 
         await flushPromises();
@@ -241,7 +241,7 @@ describe('SettingsShortcutsSection', () => {
         expect(rowLabels.length).toBeGreaterThanOrEqual(10);
     });
 
-    it('opens global shortcut presets from the shortcut field and saves a preset', async () => {
+    it('user opens global shortcut presets from the shortcut field and saves a preset', async () => {
         const wrapper = mount(GeneralSection);
 
         await flushPromises();
@@ -274,7 +274,7 @@ describe('SettingsShortcutsSection', () => {
         );
     });
 
-    it('uses macOS shortcut labels and omits input-method-conflicting presets', async () => {
+    it('user uses macOS shortcut labels and omits input-method-conflicting presets', async () => {
         setPlatform('MacIntel');
         const wrapper = mount(GeneralSection);
 
@@ -311,7 +311,7 @@ describe('SettingsShortcutsSection', () => {
         expect((input.element as HTMLInputElement).value).toBe('Option+Shift+Space');
     });
 
-    it('blocks macOS system-reserved global shortcuts before registration', async () => {
+    it('user blocks macOS system-reserved global shortcuts before registration', async () => {
         setPlatform('MacIntel');
         const wrapper = mount(GeneralSection);
 
@@ -342,7 +342,7 @@ describe('SettingsShortcutsSection', () => {
         expect((input.element as HTMLInputElement).value).toBe('Option+Space');
     });
 
-    it('rejects macOS system-reserved search shortcuts', async () => {
+    it('user rejects macOS system-reserved search shortcuts', async () => {
         setPlatform('MacIntel');
         const wrapper = mount(GeneralSection);
 
@@ -373,7 +373,7 @@ describe('SettingsShortcutsSection', () => {
         expect((input.element as HTMLInputElement).value).toBe('Cmd+H');
     });
 
-    it('saves the global shortcut immediately after a shortcut is pressed', async () => {
+    it('user saves the global shortcut immediately after a shortcut is pressed', async () => {
         settingsStoreMock.settings.value.searchKeybindings['search.session.new'] = 'Mod+Shift+N';
         const wrapper = mount(GeneralSection);
 
@@ -393,7 +393,7 @@ describe('SettingsShortcutsSection', () => {
         );
     });
 
-    it('captures Ctrl+Space from the global shortcut input before the preset menu handles Space', async () => {
+    it('user captures Ctrl+Space from the global shortcut input before the preset menu handles Space', async () => {
         const wrapper = mount(GeneralSection);
 
         await flushPromises();
@@ -415,7 +415,7 @@ describe('SettingsShortcutsSection', () => {
         expect(settingsStoreMock.settings.value.globalShortcut).toBe('Ctrl+Space');
     });
 
-    it('does not capture navigation keys while global shortcut presets are open', async () => {
+    it('user does not capture navigation keys while global shortcut presets are open', async () => {
         const wrapper = mount(GeneralSection);
 
         await flushPromises();
@@ -438,7 +438,7 @@ describe('SettingsShortcutsSection', () => {
         wrapper.unmount();
     });
 
-    it('reports invalid global shortcut attempts only once through the capture stack', async () => {
+    it('user gets invalid global shortcut attempts only once through the capture stack', async () => {
         const wrapper = mount(GeneralSection, {
             attachTo: document.body,
         });
@@ -467,7 +467,7 @@ describe('SettingsShortcutsSection', () => {
         wrapper.unmount();
     });
 
-    it('does not save a global shortcut that duplicates a search shortcut', async () => {
+    it('user does not save a global shortcut that duplicates a search shortcut', async () => {
         settingsStoreMock.settings.value.searchKeybindings['search.history.open'] = 'Mod+A';
         const wrapper = mount(GeneralSection);
 
@@ -484,7 +484,7 @@ describe('SettingsShortcutsSection', () => {
         expect(settingsStoreMock.updateGlobalShortcut).not.toHaveBeenCalled();
         expect((input.element as HTMLInputElement).value).toBe('Alt+Space');
     });
-    it('accepts modifierless function keys for configurable search shortcuts', async () => {
+    it('user accepts modifierless function keys for configurable search shortcuts', async () => {
         settingsStoreMock.settings.value.searchKeybindings['search.history.open'] = 'Mod+Shift+H';
         const wrapper = mount(GeneralSection);
 
@@ -502,9 +502,10 @@ describe('SettingsShortcutsSection', () => {
             ...settingsStoreMock.settings.value.searchKeybindings,
             'search.history.open': 'F1',
         });
+        expect((input.element as HTMLInputElement).value).toBe('F1');
     });
 
-    it('captures Windows system key events while editing a search shortcut', async () => {
+    it('user captures Windows system key events while editing a search shortcut', async () => {
         settingsStoreMock.settings.value.globalShortcut = 'Ctrl+Space';
         settingsStoreMock.settings.value.searchKeybindings['search.history.open'] = 'Mod+Shift+H';
         const wrapper = mount(GeneralSection);
@@ -531,7 +532,7 @@ describe('SettingsShortcutsSection', () => {
         });
     });
 
-    it('captures a function-row key by keyboard code when the key value is not an F-key', async () => {
+    it('user captures a function-row key by keyboard code when the key value is not an F-key', async () => {
         settingsStoreMock.settings.value.searchKeybindings['search.history.open'] = 'Mod+Shift+H';
         const wrapper = mount(GeneralSection);
 
@@ -549,9 +550,10 @@ describe('SettingsShortcutsSection', () => {
             ...settingsStoreMock.settings.value.searchKeybindings,
             'search.history.open': 'F2',
         });
+        expect((input.element as HTMLInputElement).value).toBe('F2');
     });
 
-    it('does not capture navigation keys while editing a search shortcut', async () => {
+    it('user does not capture navigation keys while editing a search shortcut', async () => {
         settingsStoreMock.settings.value.searchKeybindings['search.history.open'] = 'Mod+Shift+H';
         const wrapper = mount(GeneralSection);
 
@@ -569,6 +571,8 @@ describe('SettingsShortcutsSection', () => {
 
         expect(event.defaultPrevented).toBe(false);
         expect(settingsStoreMock.updateSearchKeybindings).not.toHaveBeenCalled();
+        // Navigation keys leave the field in capture mode, still asking for a shortcut.
+        expect((input.element as HTMLInputElement).value).toBe('请按下快捷键...');
 
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F1' }));
         await flushPromises();
@@ -577,9 +581,10 @@ describe('SettingsShortcutsSection', () => {
             ...settingsStoreMock.settings.value.searchKeybindings,
             'search.history.open': 'F1',
         });
+        expect((input.element as HTMLInputElement).value).toBe('F1');
     });
 
-    it('keeps search shortcut capture active after a validation failure', async () => {
+    it('user keeps search shortcut capture active after a validation failure', async () => {
         const wrapper = mount(GeneralSection);
 
         await flushPromises();
@@ -603,7 +608,7 @@ describe('SettingsShortcutsSection', () => {
         });
     });
 
-    it('captures shifted punctuation shortcuts through their physical key code', async () => {
+    it('user captures shifted punctuation shortcuts through their physical key code', async () => {
         const wrapper = mount(GeneralSection);
 
         await flushPromises();
@@ -631,7 +636,7 @@ describe('SettingsShortcutsSection', () => {
         expect((input.element as HTMLInputElement).value).toBe('Ctrl+Shift+=');
     });
 
-    it('reports unsupported mac command search shortcuts without showing the Windows key warning', async () => {
+    it('user gets unsupported mac command search shortcuts without showing the Windows key warning', async () => {
         setPlatform('MacIntel');
         const wrapper = mount(GeneralSection);
 
@@ -656,7 +661,7 @@ describe('SettingsShortcutsSection', () => {
         wrapper.unmount();
     });
 
-    it('shows fixed search shortcuts as unsupported for editing', async () => {
+    it('user sees fixed search shortcuts as unsupported for editing', async () => {
         const wrapper = mount(GeneralSection);
 
         await flushPromises();
@@ -674,7 +679,7 @@ describe('SettingsShortcutsSection', () => {
         expect((input.element as HTMLInputElement).value).toBe('Enter');
     });
 
-    it('uses an inline x icon to clear a default search shortcut', async () => {
+    it('user uses an inline x icon to clear a default search shortcut', async () => {
         const wrapper = mount(GeneralSection);
 
         await flushPromises();
@@ -705,7 +710,7 @@ describe('SettingsShortcutsSection', () => {
         });
     });
 
-    it('uses an inline undo icon to restore non-default search shortcuts', async () => {
+    it('user uses an inline undo icon to restore non-default search shortcuts', async () => {
         settingsStoreMock.settings.value.searchKeybindings['search.history.open'] = 'Mod+Shift+H';
         const wrapper = mount(GeneralSection);
 
@@ -726,7 +731,7 @@ describe('SettingsShortcutsSection', () => {
         });
     });
 
-    it('restores the default search shortcut from the cleared state', async () => {
+    it('user restores the default search shortcut from the cleared state', async () => {
         const clearedSearchKeybindings = {
             ...settingsStoreMock.settings.value.searchKeybindings,
             'search.history.open': null,
@@ -758,7 +763,7 @@ describe('SettingsShortcutsSection', () => {
         });
     });
 
-    it('localizes the cleared search shortcut fallback', async () => {
+    it('user sees the cleared search shortcut fallback', async () => {
         setLocale('en-US');
         settingsStoreMock.settings.value.language = 'en-US';
         settingsStoreMock.settings.value.searchKeybindings = {
@@ -778,7 +783,7 @@ describe('SettingsShortcutsSection', () => {
         ).toBe('None');
     });
 
-    it('shows a compact occupied-shortcut indicator inside the fixed-width control area', async () => {
+    it('user sees a compact occupied-shortcut indicator inside the fixed-width control area', async () => {
         nativeMock.shortcut.getShortcutStatus.mockResolvedValueOnce([true, 'occupied']);
         const wrapper = mount(GeneralSection);
 

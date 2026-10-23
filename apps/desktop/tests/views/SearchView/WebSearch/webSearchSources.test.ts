@@ -38,12 +38,12 @@ async function settleFrames(count = 40): Promise<void> {
     }
 }
 
-describe('WebSearchSourcesCard', () => {
+describe('user sees the sources under an answer', () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
 
-    it('keeps the original builtin tool line above the cards', () => {
+    it('user keeps the original builtin tool line above the cards', () => {
         const wrapper = mount(WebSearchSourcesCard, {
             props: { ...BASE_PROPS, sources: makeSources(3) },
         });
@@ -54,7 +54,7 @@ describe('WebSearchSourcesCard', () => {
         expect(line).toContain('(611ms)');
     });
 
-    it('renders the search engine as its own tag and drops it from the summary', () => {
+    it('user sees the search engine as its own tag and drops it from the summary', () => {
         const wrapper = mount(WebSearchSourcesCard, {
             props: { ...BASE_PROPS, sources: makeSources(3), providerName: 'DeepSeek' },
         });
@@ -67,7 +67,7 @@ describe('WebSearchSourcesCard', () => {
         expect(wrapper.get('.tool-call-log-line').text()).toContain('(611ms)');
     });
 
-    it('keeps the summary untouched when it does not carry the engine suffix', () => {
+    it('user keeps the summary untouched when it does not carry the engine suffix', () => {
         const wrapper = mount(WebSearchSourcesCard, {
             props: {
                 ...BASE_PROPS,
@@ -81,7 +81,7 @@ describe('WebSearchSourcesCard', () => {
         expect(wrapper.get('.web-search-sources__engine').text()).toBe('AnySearch');
     });
 
-    it('lays every source out in a single horizontal rail', () => {
+    it('user lays every source out in a single horizontal rail', () => {
         const wrapper = mount(WebSearchSourcesCard, {
             props: { ...BASE_PROPS, sources: makeSources(10) },
         });
@@ -95,7 +95,7 @@ describe('WebSearchSourcesCard', () => {
         );
     });
 
-    it('shows skeleton placeholders with a shimmer while searching', () => {
+    it('user sees skeleton placeholders with a shimmer while searching', () => {
         // 结果到位前轨道不能是空的，否则看着像「搜索没反应」。
         const wrapper = mount(WebSearchSourcesCard, {
             props: { ...BASE_PROPS, sources: [], searching: true },
@@ -106,7 +106,7 @@ describe('WebSearchSourcesCard', () => {
         expect(wrapper.find('.web-search-sources__skeleton-shine').exists()).toBe(true);
     });
 
-    it('drops the skeletons once the results arrive', async () => {
+    it('user drops the skeletons once the results arrive', async () => {
         const wrapper = mount(WebSearchSourcesCard, {
             props: { ...BASE_PROPS, sources: [], searching: true },
         });
@@ -118,7 +118,7 @@ describe('WebSearchSourcesCard', () => {
         expect(wrapper.findAll('[data-slot="web-search-source"]')).toHaveLength(3);
     });
 
-    it('does not show skeletons once the search finished without results', () => {
+    it('user does not show skeletons once the search finished without results', () => {
         const wrapper = mount(WebSearchSourcesCard, {
             props: { ...BASE_PROPS, sources: [], searching: false },
         });
@@ -126,7 +126,7 @@ describe('WebSearchSourcesCard', () => {
         expect(wrapper.findAll('[data-slot="web-search-skeleton"]')).toHaveLength(0);
     });
 
-    it('is expanded by default and collapses on trigger click', async () => {
+    it('user is expanded by default and collapses on trigger click', async () => {
         const wrapper = mount(WebSearchSourcesCard, {
             props: { ...BASE_PROPS, sources: makeSources(3) },
         });
@@ -144,7 +144,7 @@ describe('WebSearchSourcesCard', () => {
         expect(wrapper.findAll('[data-slot="web-search-source"]')).toHaveLength(0);
     });
 
-    it('does not fade either edge while the rail is not scrollable', () => {
+    it('user does not fade either edge while the rail is not scrollable', () => {
         const wrapper = mount(WebSearchSourcesCard, {
             props: { ...BASE_PROPS, sources: makeSources(2) },
         });
@@ -154,7 +154,7 @@ describe('WebSearchSourcesCard', () => {
         expect(wrapper.find('.web-search-sources__fade--end').exists()).toBe(false);
     });
 
-    it('fades the leading edge once the rail is scrolled away from the start', async () => {
+    it('user fades the leading edge once the rail is scrolled away from the start', async () => {
         const wrapper = mount(WebSearchSourcesCard, {
             props: { ...BASE_PROPS, sources: makeSources(10) },
         });
@@ -175,7 +175,7 @@ describe('WebSearchSourcesCard', () => {
         );
     });
 
-    it('scales the leading fade with the actual scrolled distance', async () => {
+    it('user scales the leading fade with the actual scrolled distance', async () => {
         // 卡片几乎贴着轨道左缘，固定 40px 的渐隐只要残留几像素滚动
         // 就会把整张首卡抹掉，所以宽度必须跟着实际滚过的像素量走。
         const wrapper = mount(WebSearchSourcesCard, {
@@ -193,7 +193,7 @@ describe('WebSearchSourcesCard', () => {
         );
     });
 
-    it('drops the trailing fade once the rail reaches the end', async () => {
+    it('user drops the trailing fade once the rail reaches the end', async () => {
         const wrapper = mount(WebSearchSourcesCard, {
             props: { ...BASE_PROPS, sources: makeSources(10) },
         });
@@ -210,7 +210,7 @@ describe('WebSearchSourcesCard', () => {
         expect(wrapper.find('.web-search-sources__fade--end').exists()).toBe(false);
     });
 
-    it('clears the leading fade when the rail returns to the start', async () => {
+    it('user clears the leading fade when the rail returns to the start', async () => {
         // 往回滑到底后，首卡必须完全可见
         const wrapper = mount(WebSearchSourcesCard, {
             props: { ...BASE_PROPS, sources: makeSources(10) },
@@ -228,7 +228,7 @@ describe('WebSearchSourcesCard', () => {
         );
     });
 
-    it('turns a vertical wheel into damped horizontal scrolling', async () => {
+    it('user turns a vertical wheel into damped horizontal scrolling', async () => {
         // 浏览器不会把 deltaY 当成横向滚动，不转化的话用户会觉得「滑不动」；
         // 同时要阻尼：一格 120px 直接跳过去太粗暴。
         const wrapper = mount(WebSearchSourcesCard, {
@@ -248,7 +248,7 @@ describe('WebSearchSourcesCard', () => {
         expect(Math.round(rail.scrollLeft)).toBe(60);
     });
 
-    it('gives the wheel back to the page at the end of the rail', async () => {
+    it('user gets the wheel back to the page at the end of the rail', async () => {
         const wrapper = mount(WebSearchSourcesCard, {
             props: { ...BASE_PROPS, sources: makeSources(10) },
         });
@@ -265,7 +265,7 @@ describe('WebSearchSourcesCard', () => {
         expect(rail.scrollLeft).toBe(600);
     });
 
-    it('clamps the final wheel step to the end instead of dropping it', async () => {
+    it('user clamps the final wheel step to the end instead of dropping it', async () => {
         // 最后一档经常会越过末端；直接丢掉会让轨道永远差几十像素滑不到尽头，
         // 最后一张卡片就会一直停在渐隐里。
         const wrapper = mount(WebSearchSourcesCard, {

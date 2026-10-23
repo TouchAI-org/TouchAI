@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { setLocale } from '@/i18n';
 import { formatDateTime, formatMonthDay, formatShortDate, formatTime } from '@/i18n/format';
 
-describe('i18n format helpers', () => {
-    it('formats dates with the active locale by default', () => {
+describe('user reads a formatted date', () => {
+    it('user formats dates with the active locale by default', () => {
         const date = new Date('2026-05-20T08:09:10');
 
         setLocale('en-US');
@@ -18,7 +18,7 @@ describe('i18n format helpers', () => {
         expect(formatDateTime(date)).toContain('2026');
     });
 
-    it('accepts string timestamps and handles invalid input consistently', () => {
+    it('user accepts string timestamps and handles invalid input consistently', () => {
         setLocale('en-US');
 
         expect(formatShortDate('2026-05-20T08:09:10')).not.toBe('');
@@ -29,7 +29,7 @@ describe('i18n format helpers', () => {
         expect(formatShortDate('not-a-date')).toBe('');
     });
 
-    it('uses an explicit locale without changing the active locale', () => {
+    it('user uses an explicit locale without changing the active locale', () => {
         const date = new Date('2026-05-20T08:09:10');
 
         setLocale('zh-CN');

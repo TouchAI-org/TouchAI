@@ -25,8 +25,8 @@ function provider(overrides: Partial<ProviderEntity>): ProviderEntity {
     };
 }
 
-describe('provider database queries', () => {
-    it('sorts enabled custom providers first, then builtin providers by display priority', async () => {
+describe('when the user opens the provider list', () => {
+    it('user sees enabled custom providers first, then the builtin ones', async () => {
         const rows = [
             provider({ id: 1, name: 'Xiaomi MiMo', driver: 'mimo', enabled: 1 }),
             provider({ id: 2, name: 'DeepSeek', driver: 'deepseek', enabled: 1 }),

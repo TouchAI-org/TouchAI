@@ -31,60 +31,60 @@ afterEach(() => {
     setLocale('zh-CN');
 });
 
-describe('parseBashToolConfig', () => {
-    it('returns default config when input is null', () => {
+describe('user has shell tool settings that are read', () => {
+    it('user sees the default config when no settings are stored', () => {
         const config = parseBashToolConfig(null);
         expect(config.compactOutput).toBe(false);
         expect(config.approvalMode).toBe('high_risk');
         expect(config.timeoutMs).toBe(DEFAULT_BASH_TOOL_CONFIG.timeoutMs);
     });
 
-    it('keeps the 0 sentinel instead of falling back to the default', () => {
+    it('user sees the no-timeout sentinel kept instead of the default', () => {
         const config = parseBashToolConfig(JSON.stringify({ timeoutMs: 0 }));
         expect(config.timeoutMs).toBe(0);
     });
 
-    it('parses compactOutput true from JSON string', () => {
+    it('user sees output compaction turned on from stored settings', () => {
         const config = parseBashToolConfig(JSON.stringify({ compactOutput: true }));
         expect(config.compactOutput).toBe(true);
     });
 
-    it('parses compactOutput false from JSON string', () => {
+    it('user sees output compaction turned off from stored settings', () => {
         const config = parseBashToolConfig(JSON.stringify({ compactOutput: false }));
         expect(config.compactOutput).toBe(false);
     });
 
-    it('defaults compactOutput to false when not in JSON', () => {
+    it('user sees output compaction off when the stored settings omit it', () => {
         const config = parseBashToolConfig(JSON.stringify({ approvalMode: 'always' }));
         expect(config.compactOutput).toBe(false);
     });
 
-    it('falls back to defaults on invalid JSON', () => {
+    it('user sees defaults restored from unreadable stored settings', () => {
         const config = parseBashToolConfig('not-json');
         expect(config.compactOutput).toBe(false);
         expect(config).toEqual(DEFAULT_BASH_TOOL_CONFIG);
     });
 });
 
-describe('resolveCommandContext', () => {
+describe('user has a shell command context that is resolved', () => {
     const baseConfig = { ...DEFAULT_BASH_TOOL_CONFIG, defaultWorkingDirectory: 'D:/project' };
 
-    it('returns rawOutput false when not provided', async () => {
+    it('user sees raw output off when it is not requested', async () => {
         const ctx = await resolveCommandContext({ command: 'dir' }, baseConfig);
         expect(ctx.rawOutput).toBe(false);
     });
 
-    it('returns rawOutput true when explicitly set', async () => {
+    it('user sees raw output on when it is requested', async () => {
         const ctx = await resolveCommandContext({ command: 'dir', rawOutput: true }, baseConfig);
         expect(ctx.rawOutput).toBe(true);
     });
 
-    it('returns rawOutput false when explicitly set', async () => {
+    it('user sees raw output off when it is explicitly off', async () => {
         const ctx = await resolveCommandContext({ command: 'dir', rawOutput: false }, baseConfig);
         expect(ctx.rawOutput).toBe(false);
     });
 
-    it('passes through command and workingDirectory', async () => {
+    it('user sees the command and working directory passed through', async () => {
         const ctx = await resolveCommandContext(
             { command: 'git status', workingDirectory: 'D:/other' },
             baseConfig
@@ -93,19 +93,19 @@ describe('resolveCommandContext', () => {
         expect(ctx.workingDirectory).toBe('D:/other');
     });
 
-    it('falls back to defaultWorkingDirectory when not specified', async () => {
+    it('user sees the configured working directory used when none is given', async () => {
         const ctx = await resolveCommandContext({ command: 'dir' }, baseConfig);
         expect(ctx.workingDirectory).toBe('D:/project');
     });
 
-    it('falls back to desktop directory when defaultWorkingDirectory is empty', async () => {
+    it('user sees the desktop folder used when no working directory is configured', async () => {
         desktopDirMock.mockResolvedValue('C:\\Users\\test\\Desktop');
         const config = { ...DEFAULT_BASH_TOOL_CONFIG, defaultWorkingDirectory: '' };
         const ctx = await resolveCommandContext({ command: 'dir' }, config);
         expect(ctx.workingDirectory).toBe('C:\\Users\\test\\Desktop');
     });
 
-    it('rejects command outside allowed directories', async () => {
+    it('user sees a command outside the allowed folders rejected', async () => {
         setLocale('en-US');
         const config = {
             ...baseConfig,
@@ -116,7 +116,7 @@ describe('resolveCommandContext', () => {
         ).rejects.toThrow('Working directory is outside the allowed scope');
     });
 
-    it('accepts command inside allowed directories', async () => {
+    it('user sees a command inside the allowed folders accepted', async () => {
         const config = {
             ...baseConfig,
             allowedWorkingDirectories: ['D:/project'],
@@ -128,13 +128,13 @@ describe('resolveCommandContext', () => {
         expect(ctx.workingDirectory).toBe('D:/project/sub');
     });
 
-    it('rejects empty command', async () => {
+    it('user sees an empty command rejected', async () => {
         await expect(resolveCommandContext({ command: '' }, baseConfig)).rejects.toThrow();
     });
 });
 
-describe('bash helper working directory cache', () => {
-    it('caches desktop directory lookups when using the default working directory', async () => {
+describe('user sees shell commands resolve a working directory', () => {
+    it('user sees the desktop folder looked up once and reused', async () => {
         desktopDirMock.mockResolvedValue('C:\\Users\\Tester\\Desktop\\');
         const { resolveCommandContext: resolveFreshContext } = await loadBashHelper();
         const { DEFAULT_BASH_TOOL_CONFIG: freshConfig } = await loadBashConstants();
@@ -145,7 +145,7 @@ describe('bash helper working directory cache', () => {
         expect(desktopDirMock).toHaveBeenCalledTimes(1);
     });
 
-    it('retries desktop directory lookup after a previous failure', async () => {
+    it('user sees the desktop folder lookup retried after a failure', async () => {
         desktopDirMock
             .mockRejectedValueOnce(new Error('desktop unavailable'))
             .mockResolvedValueOnce('C:\\Users\\Tester\\Desktop');
@@ -165,7 +165,7 @@ describe('bash helper working directory cache', () => {
         expect(desktopDirMock).toHaveBeenCalledTimes(2);
     });
 
-    it('reuses an in-flight desktop directory prewarm for the first command resolution', async () => {
+    it('user sees an in-flight desktop folder lookup shared with the first command', async () => {
         let resolveDesktopPath: ((value: string) => void) | null = null;
         desktopDirMock.mockImplementation(
             () =>
@@ -196,24 +196,24 @@ describe('bash helper working directory cache', () => {
     });
 });
 
-describe('truncateOutput', () => {
-    it('returns output unchanged when under limit', () => {
+describe('user sees long command output shortened', () => {
+    it('user sees short output kept unchanged', () => {
         expect(truncateOutput('short', 100)).toBe('short');
     });
 
-    it('truncates output exceeding the limit', () => {
+    it('user sees output over the limit truncated', () => {
         const result = truncateOutput('a'.repeat(150), 100);
         expect(result).toContain('a'.repeat(100));
         expect(result).toContain('150');
     });
 
-    it('returns output at exact limit unchanged', () => {
+    it('user sees output exactly at the limit kept unchanged', () => {
         const output = 'a'.repeat(100);
         expect(truncateOutput(output, 100)).toBe(output);
     });
 });
 
-describe('formatBashToolResult', () => {
+describe('user reads the result of a shell command', () => {
     const response: BuiltInBashExecutionResponse = {
         command: 'dir',
         shell: 'powershell',
@@ -228,7 +228,7 @@ describe('formatBashToolResult', () => {
         combinedOutput: 'file.txt',
     };
 
-    it('includes shell, working directory, exit code, and duration', () => {
+    it('user sees shell, working directory, exit code, and duration in the result', () => {
         const result = formatBashToolResult(
             response,
             {
@@ -244,7 +244,7 @@ describe('formatBashToolResult', () => {
         expect(result).toContain('42ms');
     });
 
-    it('shows placeholder for empty output', () => {
+    it('user sees a placeholder when the command printed nothing', () => {
         const empty = { ...response, combinedOutput: '' };
         const result = formatBashToolResult(
             empty,
@@ -258,7 +258,7 @@ describe('formatBashToolResult', () => {
         expect(result).toContain('[命令无输出]');
     });
 
-    it('uses none when exitCode is null', () => {
+    it('user sees no exit code shown when the process reported none', () => {
         const noExit = { ...response, exitCode: null };
         const result = formatBashToolResult(
             noExit,
@@ -273,8 +273,8 @@ describe('formatBashToolResult', () => {
     });
 });
 
-describe('parseBashToolResult', () => {
-    it('returns null fields for empty input', () => {
+describe('user sees the shell result read back from stored text', () => {
+    it('user sees empty fields for empty stored text', () => {
         expect(parseBashToolResult(undefined)).toEqual({
             shell: null,
             duration: null,
@@ -283,7 +283,7 @@ describe('parseBashToolResult', () => {
         });
     });
 
-    it('parses shell and duration from header', () => {
+    it('user sees shell and duration read from the stored header', () => {
         const input =
             'Shell: powershell\nWorking directory: D:/p\nExit code: 0\nDuration: 42ms\n\nfile content';
         const result = parseBashToolResult(input);
@@ -293,14 +293,14 @@ describe('parseBashToolResult', () => {
         expect(result.compressed).toBe(false);
     });
 
-    it('treats no-header output as raw output', () => {
+    it('user sees headerless output treated as raw output', () => {
         const result = parseBashToolResult('just some output');
         expect(result.shell).toBeNull();
         expect(result.output).toBe('just some output');
         expect(result.compressed).toBe(false);
     });
 
-    it('parses Compressed: true from header', () => {
+    it('user sees a compressed marker read from the stored header', () => {
         const input =
             'Shell: powershell\nWorking directory: D:/p\nExit code: 0\nDuration: 42ms\nCompressed: true\n\nfiltered output';
         const result = parseBashToolResult(input);
@@ -308,7 +308,7 @@ describe('parseBashToolResult', () => {
         expect(result.output).toBe('filtered output');
     });
 
-    it('includes Compressed line in formatBashToolResult when compressed', () => {
+    it('user sees the compressed marker included in a compressed result', () => {
         const compressedResponse: BuiltInBashExecutionResponse = {
             command: 'rtk git status',
             shell: 'powershell',
@@ -333,7 +333,7 @@ describe('parseBashToolResult', () => {
         expect(parsed.compressed).toBe(true);
     });
 
-    it('does not include Compressed line when not compressed', () => {
+    it('user sees no compressed marker on an uncompressed result', () => {
         const base: BuiltInBashExecutionResponse = {
             command: 'dir',
             shell: 'powershell',

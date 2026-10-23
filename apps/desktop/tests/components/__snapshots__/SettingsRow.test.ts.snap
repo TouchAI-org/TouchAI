@@ -1,18 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`SettingsRow > class 稳定性 > 无描述 + auto 宽度（开关行） 1`] = `
-[
-  "gap-4",
-  "grid",
-  "min-w-0",
-  "px-5",
-  "py-4",
-  "sm:grid-cols-[minmax(0,1fr)_auto]",
-  "sm:items-center",
-]
-`;
-
-exports[`SettingsRow > class 稳定性 > 有描述 + 320 宽度（输入行） 1`] = `
+exports[`user reads a settings row > user sees the row keep its look > user sees the input row layout when a row has a description 1`] = `
 [
   "gap-4",
   "grid",
@@ -20,6 +8,18 @@ exports[`SettingsRow > class 稳定性 > 有描述 + 320 宽度（输入行） 1
   "px-5",
   "py-4",
   "sm:grid-cols-[minmax(0,1fr)_320px]",
+  "sm:items-center",
+]
+`;
+
+exports[`user reads a settings row > user sees the row keep its look > user sees the toggle row layout when a row has no description 1`] = `
+[
+  "gap-4",
+  "grid",
+  "min-w-0",
+  "px-5",
+  "py-4",
+  "sm:grid-cols-[minmax(0,1fr)_auto]",
   "sm:items-center",
 ]
 `;

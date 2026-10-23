@@ -1,77 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`ui/Button > settings 族 variant（原 .settings-button-* 类） > variant=danger 等价于 settings-button-danger 1`] = `
-[
-  "bg-red-600",
-  "disabled:cursor-not-allowed",
-  "disabled:opacity-50",
-  "font-medium",
-  "hover:bg-red-700",
-  "px-3.5",
-  "py-1.5",
-  "rounded-[9px]",
-  "shadow-none",
-  "text-[12px]",
-  "text-white",
-  "transition-colors",
-]
-`;
-
-exports[`ui/Button > settings 族 variant（原 .settings-button-* 类） > variant=ghost-neutral 等价于 settings-icon-button 1`] = `
-[
-  "disabled:cursor-not-allowed",
-  "disabled:opacity-50",
-  "flex",
-  "h-8",
-  "hover:bg-neutral-100",
-  "hover:text-neutral-700",
-  "items-center",
-  "justify-center",
-  "rounded-[9px]",
-  "text-neutral-400",
-  "transition-colors",
-  "w-8",
-]
-`;
-
-exports[`ui/Button > settings 族 variant（原 .settings-button-* 类） > variant=outline-neutral 等价于 settings-button-secondary 1`] = `
-[
-  "bg-white",
-  "border",
-  "border-neutral-200/80",
-  "disabled:cursor-not-allowed",
-  "disabled:opacity-50",
-  "font-medium",
-  "hover:bg-neutral-50",
-  "hover:border-neutral-300/80",
-  "px-3.5",
-  "py-1.5",
-  "rounded-[9px]",
-  "shadow-none",
-  "text-[12px]",
-  "text-neutral-700",
-  "transition-colors",
-]
-`;
-
-exports[`ui/Button > settings 族 variant（原 .settings-button-* 类） > variant=strong 等价于 settings-button-primary 1`] = `
-[
-  "bg-primary-700",
-  "disabled:cursor-not-allowed",
-  "disabled:opacity-50",
-  "font-medium",
-  "hover:bg-primary-600",
-  "px-3.5",
-  "py-1.5",
-  "rounded-[9px]",
-  "shadow-none",
-  "text-[12px]",
-  "text-white",
-  "transition-colors",
-]
-`;
-
-exports[`ui/Button > 全部 variant 组合的 class 快照 > size=default 1`] = `
+exports[`user sees a button > user sees every button variant unchanged > user size=default 1`] = `
 [
   "bg-primary-500",
   "disabled:opacity-50",
@@ -93,7 +22,7 @@ exports[`ui/Button > 全部 variant 组合的 class 快照 > size=default 1`] = 
 ]
 `;
 
-exports[`ui/Button > 全部 variant 组合的 class 快照 > size=icon 1`] = `
+exports[`user sees a button > user sees every button variant unchanged > user size=icon 1`] = `
 [
   "bg-primary-500",
   "disabled:opacity-50",
@@ -114,7 +43,7 @@ exports[`ui/Button > 全部 variant 组合的 class 快照 > size=icon 1`] = `
 ]
 `;
 
-exports[`ui/Button > 全部 variant 组合的 class 快照 > size=lg 1`] = `
+exports[`user sees a button > user sees every button variant unchanged > user size=lg 1`] = `
 [
   "bg-primary-500",
   "disabled:opacity-50",
@@ -135,7 +64,7 @@ exports[`ui/Button > 全部 variant 组合的 class 快照 > size=lg 1`] = `
 ]
 `;
 
-exports[`ui/Button > 全部 variant 组合的 class 快照 > size=sm 1`] = `
+exports[`user sees a button > user sees every button variant unchanged > user size=sm 1`] = `
 [
   "bg-primary-500",
   "disabled:opacity-50",
@@ -156,7 +85,7 @@ exports[`ui/Button > 全部 variant 组合的 class 快照 > size=sm 1`] = `
 ]
 `;
 
-exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=default 1`] = `
+exports[`user sees a button > user sees every button variant unchanged > user variant=default 1`] = `
 [
   "bg-primary-500",
   "disabled:opacity-50",
@@ -178,7 +107,7 @@ exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=default 1`]
 ]
 `;
 
-exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=destructive 1`] = `
+exports[`user sees a button > user sees every button variant unchanged > user variant=destructive 1`] = `
 [
   "bg-red-500",
   "disabled:opacity-50",
@@ -200,7 +129,7 @@ exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=destructive
 ]
 `;
 
-exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=ghost 1`] = `
+exports[`user sees a button > user sees every button variant unchanged > user variant=ghost 1`] = `
 [
   "disabled:opacity-50",
   "disabled:pointer-events-none",
@@ -221,7 +150,7 @@ exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=ghost 1`] =
 ]
 `;
 
-exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=link 1`] = `
+exports[`user sees a button > user sees every button variant unchanged > user variant=link 1`] = `
 [
   "disabled:opacity-50",
   "disabled:pointer-events-none",
@@ -243,7 +172,7 @@ exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=link 1`] = 
 ]
 `;
 
-exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=outline 1`] = `
+exports[`user sees a button > user sees every button variant unchanged > user variant=outline 1`] = `
 [
   "bg-white",
   "border",
@@ -267,7 +196,7 @@ exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=outline 1`]
 ]
 `;
 
-exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=secondary 1`] = `
+exports[`user sees a button > user sees every button variant unchanged > user variant=secondary 1`] = `
 [
   "bg-gray-100",
   "disabled:opacity-50",
@@ -289,7 +218,29 @@ exports[`ui/Button > 全部 variant 组合的 class 快照 > variant=secondary 1
 ]
 `;
 
-exports[`ui/Button > 现有调用点的默认输出必须保持不变 > variant=ghost size=icon 的 class 稳定 1`] = `
+exports[`user sees a button > user sees the existing buttons unchanged > user sees the default button unchanged 1`] = `
+[
+  "bg-primary-500",
+  "disabled:opacity-50",
+  "disabled:pointer-events-none",
+  "font-medium",
+  "gap-2",
+  "h-9",
+  "hover:bg-primary-600",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "px-4",
+  "py-2",
+  "rounded-md",
+  "t-press",
+  "text-sm",
+  "text-white",
+  "whitespace-nowrap",
+]
+`;
+
+exports[`user sees a button > user sees the existing buttons unchanged > user variant=ghost size=icon 的 class 稳定 1`] = `
 [
   "disabled:opacity-50",
   "disabled:pointer-events-none",
@@ -309,7 +260,7 @@ exports[`ui/Button > 现有调用点的默认输出必须保持不变 > variant=
 ]
 `;
 
-exports[`ui/Button > 现有调用点的默认输出必须保持不变 > variant=outline 的 class 稳定 1`] = `
+exports[`user sees a button > user sees the existing buttons unchanged > user variant=outline 的 class 稳定 1`] = `
 [
   "bg-white",
   "border",
@@ -333,24 +284,73 @@ exports[`ui/Button > 现有调用点的默认输出必须保持不变 > variant=
 ]
 `;
 
-exports[`ui/Button > 现有调用点的默认输出必须保持不变 > 无 props 时的 class 稳定 1`] = `
+exports[`user sees a button > user sees the settings buttons unchanged > user variant=danger 等价于 settings-button-danger 1`] = `
 [
-  "bg-primary-500",
+  "bg-red-600",
+  "disabled:cursor-not-allowed",
   "disabled:opacity-50",
-  "disabled:pointer-events-none",
   "font-medium",
-  "gap-2",
-  "h-9",
-  "hover:bg-primary-600",
-  "inline-flex",
+  "hover:bg-red-700",
+  "px-3.5",
+  "py-1.5",
+  "rounded-[9px]",
+  "shadow-none",
+  "text-[12px]",
+  "text-white",
+  "transition-colors",
+]
+`;
+
+exports[`user sees a button > user sees the settings buttons unchanged > user variant=ghost-neutral 等价于 settings-icon-button 1`] = `
+[
+  "disabled:cursor-not-allowed",
+  "disabled:opacity-50",
+  "flex",
+  "h-8",
+  "hover:bg-neutral-100",
+  "hover:text-neutral-700",
   "items-center",
   "justify-center",
-  "px-4",
-  "py-2",
-  "rounded-md",
-  "t-press",
-  "text-sm",
+  "rounded-[9px]",
+  "text-neutral-400",
+  "transition-colors",
+  "w-8",
+]
+`;
+
+exports[`user sees a button > user sees the settings buttons unchanged > user variant=outline-neutral 等价于 settings-button-secondary 1`] = `
+[
+  "bg-white",
+  "border",
+  "border-neutral-200/80",
+  "disabled:cursor-not-allowed",
+  "disabled:opacity-50",
+  "font-medium",
+  "hover:bg-neutral-50",
+  "hover:border-neutral-300/80",
+  "px-3.5",
+  "py-1.5",
+  "rounded-[9px]",
+  "shadow-none",
+  "text-[12px]",
+  "text-neutral-700",
+  "transition-colors",
+]
+`;
+
+exports[`user sees a button > user sees the settings buttons unchanged > user variant=strong 等价于 settings-button-primary 1`] = `
+[
+  "bg-primary-700",
+  "disabled:cursor-not-allowed",
+  "disabled:opacity-50",
+  "font-medium",
+  "hover:bg-primary-600",
+  "px-3.5",
+  "py-1.5",
+  "rounded-[9px]",
+  "shadow-none",
+  "text-[12px]",
   "text-white",
-  "whitespace-nowrap",
+  "transition-colors",
 ]
 `;

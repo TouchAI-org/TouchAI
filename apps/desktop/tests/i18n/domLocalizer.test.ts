@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { setLocale } from '@/i18n';
 import { createDomLocalizer } from '@/i18n/domLocalizer';
 
-describe('DOM localizer', () => {
+describe('user reads translated page text', () => {
     let localizer: ReturnType<typeof createDomLocalizer> | null = null;
 
     afterEach(() => {
@@ -13,7 +13,7 @@ describe('DOM localizer', () => {
         setLocale('zh-CN');
     });
 
-    it('translates text nodes and user-facing attributes while preserving whitespace', () => {
+    it('user translates text nodes and user-facing attributes while preserving whitespace', () => {
         document.body.innerHTML = `
             <main>
                 <h1> 设置 </h1>
@@ -46,7 +46,7 @@ describe('DOM localizer', () => {
         expect(document.querySelector('img')?.getAttribute('alt')).toBe('设置');
     });
 
-    it('translates empty-text and search-placeholder attributes', () => {
+    it('user translates empty-text and search-placeholder attributes', () => {
         document.body.innerHTML = `
             <section>
                 <searchable-select empty-text="没有可选服务商" search-placeholder="搜索服务商"></searchable-select>
@@ -62,7 +62,7 @@ describe('DOM localizer', () => {
         expect(select?.getAttribute('search-placeholder')).toBe('Search providers');
     });
 
-    it('translates dynamically inserted nodes when observing', async () => {
+    it('user translates dynamically inserted nodes when observing', async () => {
         const root = document.createElement('div');
         document.body.appendChild(root);
 
@@ -77,7 +77,7 @@ describe('DOM localizer', () => {
         expect(root.querySelector('button')?.getAttribute('title')).toBe('Minimize');
     });
 
-    it('tracks updated original attributes on reused elements', async () => {
+    it('user tracks updated original attributes on reused elements', async () => {
         const root = document.createElement('div');
         root.innerHTML = '<input placeholder="搜索标题或消息内容" />';
         document.body.appendChild(root);
@@ -99,7 +99,7 @@ describe('DOM localizer', () => {
         expect(input.getAttribute('placeholder')).toBe('搜索模型名称、ID 或供应商');
     });
 
-    it('keeps whitespace-only text nodes unchanged when localizing the document', () => {
+    it('user keeps whitespace-only text nodes unchanged when localizing the document', () => {
         document.body.innerHTML = '<main>   <span>设置</span>   </main>';
 
         setLocale('en-US');
@@ -110,7 +110,7 @@ describe('DOM localizer', () => {
         expect(document.querySelector('span')?.textContent).toBe('Settings');
     });
 
-    it('tracks updated original text on reused text nodes', async () => {
+    it('user tracks updated original text on reused text nodes', async () => {
         const root = document.createElement('div');
         root.textContent = '设置';
         document.body.appendChild(root);
@@ -131,7 +131,7 @@ describe('DOM localizer', () => {
         expect(root.textContent).toBe('关闭');
     });
 
-    it('skips code-like and editable content', () => {
+    it('user skips code-like and editable content', () => {
         document.body.innerHTML = `
             <pre>设置</pre>
             <code>关闭</code>
@@ -151,7 +151,7 @@ describe('DOM localizer', () => {
         expect(document.querySelector('p')?.textContent).toBe('Settings');
     });
 
-    it('skips explicitly opted-out content while translating nearby UI', () => {
+    it('user skips explicitly opted-out content while translating nearby UI', () => {
         document.body.innerHTML = `
             <section>
                 <button title="关闭">设置</button>
@@ -177,7 +177,7 @@ describe('DOM localizer', () => {
         expect(document.querySelector('[translate="no"]')?.textContent).toBe('最小化');
     });
 
-    it('leaves nested opt-out subtrees untouched while translating sibling text', () => {
+    it('user leaves nested opt-out subtrees untouched while translating sibling text', () => {
         document.body.innerHTML = `
             <section>
                 <div data-no-i18n>

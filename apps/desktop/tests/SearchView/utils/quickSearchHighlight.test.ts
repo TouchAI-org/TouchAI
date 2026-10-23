@@ -5,8 +5,8 @@ import {
     splitNameByTokens,
 } from '@/views/SearchView/components/QuickSearchPanel/utils/quickSearchHighlight';
 
-describe('quickSearchHighlight', () => {
-    it('normalizes query tokens by trimming, deduplicating, and sorting longer matches first', () => {
+describe('when the quick search panel highlights what the user typed', () => {
+    it('user sees duplicate and padded query words treated as one', () => {
         expect(buildMatchTokens('  Touch   AI  touch assistant  ')).toEqual([
             'assistant',
             'touch',
@@ -14,7 +14,7 @@ describe('quickSearchHighlight', () => {
         ]);
     });
 
-    it('returns the original name as a single unmatched segment when there are no tokens', () => {
+    it('user sees the whole name unhighlighted when the query is empty', () => {
         expect(splitNameByTokens('TouchAI Desktop', [])).toEqual([
             {
                 text: 'TouchAI Desktop',
@@ -23,7 +23,7 @@ describe('quickSearchHighlight', () => {
         ]);
     });
 
-    it('marks all token matches case-insensitively and merges overlapping ranges into stable segments', () => {
+    it('user sees every matching part of the name highlighted regardless of case', () => {
         expect(splitNameByTokens('TouchAI Assistant', ['touch', 'ai', 'assistant'])).toEqual([
             {
                 text: 'TouchAI',
@@ -40,7 +40,7 @@ describe('quickSearchHighlight', () => {
         ]);
     });
 
-    it('highlights repeated token occurrences without creating duplicate empty segments', () => {
+    it('user sees repeated matches highlighted without empty gaps', () => {
         expect(splitNameByTokens('todo-tool-todo', ['todo'])).toEqual([
             {
                 text: 'todo',

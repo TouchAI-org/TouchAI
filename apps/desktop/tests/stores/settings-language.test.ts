@@ -63,7 +63,7 @@ function mockSettings(values: Record<string, string | null>) {
     }));
 }
 
-describe('settings language state', () => {
+describe('user changes the app language', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         eventHandlers.clear();
@@ -73,7 +73,7 @@ describe('settings language state', () => {
         mockSystemLanguage('zh-CN');
     });
 
-    it('loads persisted language and applies it to the i18n runtime', async () => {
+    it('user loads persisted language and applies it to the i18n runtime', async () => {
         mockSettings({
             global_shortcut: 'Alt+Space',
             start_on_boot: 'false',
@@ -95,7 +95,7 @@ describe('settings language state', () => {
         );
     }, 15000);
 
-    it('persists zh-CN when the language row is missing and the system language is Chinese', async () => {
+    it('user persists zh-CN when the language row is missing and the system language is Chinese', async () => {
         mockSettings({});
         mockSystemLanguage('zh-TW', ['zh-TW', 'en-US']);
 
@@ -109,7 +109,7 @@ describe('settings language state', () => {
         expect(setSettingMock).toHaveBeenCalledWith({ key: 'language', value: 'zh-CN' });
     });
 
-    it('persists en-US when the language row is missing and the system language is not Chinese', async () => {
+    it('user persists en-US when the language row is missing and the system language is not Chinese', async () => {
         mockSettings({});
         mockSystemLanguage('en-GB', ['en-GB', 'fr-FR']);
 
@@ -123,7 +123,7 @@ describe('settings language state', () => {
         expect(setSettingMock).toHaveBeenCalledWith({ key: 'language', value: 'en-US' });
     });
 
-    it('falls back to zh-CN for invalid language values without overwriting the row', async () => {
+    it('user falls back to zh-CN for invalid language values without overwriting the row', async () => {
         mockSettings({
             language: 'fr-FR',
         });
@@ -140,7 +140,7 @@ describe('settings language state', () => {
         );
     });
 
-    it('updates language, persists it, applies it, and broadcasts the change', async () => {
+    it('user updates language, persists it, applies it, and broadcasts the change', async () => {
         mockSettings({});
 
         const { useSettingsStore } = await import('@/stores/settings');
@@ -160,7 +160,7 @@ describe('settings language state', () => {
         });
     });
 
-    it('does not apply language when persisting the language update fails', async () => {
+    it('user does not apply language when persisting the language update fails', async () => {
         mockSettings({ language: 'zh-CN' });
 
         const { useSettingsStore } = await import('@/stores/settings');
@@ -177,7 +177,7 @@ describe('settings language state', () => {
         expect(eventServiceMock.emit).not.toHaveBeenCalled();
     });
 
-    it('rolls back non-language setting state when persisting the update fails', async () => {
+    it('user rolls back non-language setting state when persisting the update fails', async () => {
         mockSettings({
             output_scroll_behavior: 'follow_output',
         });
@@ -197,7 +197,7 @@ describe('settings language state', () => {
         expect(eventServiceMock.emit).not.toHaveBeenCalled();
     });
 
-    it('applies language changes from another window without rebroadcasting', async () => {
+    it('user applies language changes from another window without rebroadcasting', async () => {
         mockSettings({
             language: 'zh-CN',
         });

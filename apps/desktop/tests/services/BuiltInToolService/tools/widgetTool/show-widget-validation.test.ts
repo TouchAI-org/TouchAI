@@ -12,7 +12,7 @@ function createContext(): BaseBuiltInToolExecutionContext {
     };
 }
 
-describe('ShowWidget design validation', () => {
+describe('user asks for a widget and gets a visible one', () => {
     it.each([
         ['style', '<style>.root{display:grid}</style><section class="root">content</section>'],
         ['script', '<script>window.__probe = true</script><section>content</section>'],
@@ -30,20 +30,23 @@ describe('ShowWidget design validation', () => {
             'comment-prefixed script',
             '<!-- preface --><script>window.__probe = true</script><section>content</section>',
         ],
-    ])('rejects leading %s blocks before the visible root element', async (_label, widgetCode) => {
-        await expect(
-            executeShowWidgetTool(
-                {
-                    i_have_seen_read_me: true,
-                    widget_code: widgetCode,
-                },
-                {},
-                createContext()
-            )
-        ).rejects.toThrow('ShowWidget widget_code must start with a visible root element');
-    });
+    ])(
+        'user sees leading %s blocks rejected before the visible root element',
+        async (_label, widgetCode) => {
+            await expect(
+                executeShowWidgetTool(
+                    {
+                        i_have_seen_read_me: true,
+                        widget_code: widgetCode,
+                    },
+                    {},
+                    createContext()
+                )
+            ).rejects.toThrow('ShowWidget widget_code must start with a visible root element');
+        }
+    );
 
-    it('allows comments when the first real element is visible', async () => {
+    it('user sees comments allowed when the first real element is visible', async () => {
         await expect(
             executeShowWidgetTool(
                 {
@@ -62,7 +65,7 @@ describe('ShowWidget design validation', () => {
             'unquoted',
             '<svg viewBox="0 0 100 60"><rect width="100" height="60" filter=none /></svg>',
         ],
-    ])('allows %s SVG filter none attributes', async (_label, widgetCode) => {
+    ])('user sees %s SVG filter none attributes allowed', async (_label, widgetCode) => {
         await expect(
             executeShowWidgetTool(
                 {
@@ -92,16 +95,19 @@ describe('ShowWidget design validation', () => {
             'SVG patterns',
             '<svg viewBox="0 0 100 60"><defs><pattern id="p" width="4" height="4" patternUnits="userSpaceOnUse"><circle r="1"/></pattern></defs><rect width="100" height="60" fill="url(#p)"/></svg>',
         ],
-    ])('rejects %s that conflict with flat visual rules', async (_label, widgetCode) => {
-        await expect(
-            executeShowWidgetTool(
-                {
-                    i_have_seen_read_me: true,
-                    widget_code: widgetCode,
-                },
-                {},
-                createContext()
-            )
-        ).rejects.toThrow('ShowWidget design validation failed');
-    });
+    ])(
+        'user sees %s rejected when it conflicts with the flat visual rules',
+        async (_label, widgetCode) => {
+            await expect(
+                executeShowWidgetTool(
+                    {
+                        i_have_seen_read_me: true,
+                        widget_code: widgetCode,
+                    },
+                    {},
+                    createContext()
+                )
+            ).rejects.toThrow('ShowWidget design validation failed');
+        }
+    );
 });

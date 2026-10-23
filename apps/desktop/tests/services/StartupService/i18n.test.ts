@@ -18,7 +18,7 @@ vi.mock('@services/NotificationService', () => ({
     notify: notifyMock,
 }));
 
-describe('StartupService i18n', () => {
+describe('user is told the import succeeded when the app starts again', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('zh-CN');
@@ -26,7 +26,7 @@ describe('StartupService i18n', () => {
         getMetaMock.mockResolvedValue(null);
     });
 
-    it('localizes persisted import-success notifications after startup settings have loaded', async () => {
+    it('user reads the import success notice in their own language', async () => {
         setLocale('en-US');
         getMetaMock.mockResolvedValue(
             JSON.stringify({
@@ -47,7 +47,7 @@ describe('StartupService i18n', () => {
         });
     });
 
-    it('localizes chat-only import-success notifications from the persisted startup payload', async () => {
+    it('user reads the chat-only import success notice in the active language', async () => {
         setLocale('en-US');
         getMetaMock.mockResolvedValue(
             JSON.stringify({
@@ -66,7 +66,7 @@ describe('StartupService i18n', () => {
         });
     });
 
-    it('serializes structured startup import-success payloads', async () => {
+    it('user sees the import success marker saved with its mode', async () => {
         const { serializeImportSuccessStartupPayload } = await import('@services/StartupService');
 
         expect(JSON.parse(serializeImportSuccessStartupPayload('chat_only'))).toEqual({
@@ -76,7 +76,7 @@ describe('StartupService i18n', () => {
         });
     });
 
-    it('falls back to raw notification text for malformed structured payloads', async () => {
+    it('user sees an unreadable import marker shown as written', async () => {
         setLocale('en-US');
         const payload = JSON.stringify({
             type: 'import-success',
@@ -94,7 +94,7 @@ describe('StartupService i18n', () => {
         });
     });
 
-    it('falls back to raw notification text when import mode is unsupported', async () => {
+    it('user sees an unsupported import mode shown as written', async () => {
         setLocale('en-US');
         const payload = JSON.stringify({
             type: 'import-success',
@@ -112,7 +112,7 @@ describe('StartupService i18n', () => {
         });
     });
 
-    it('logs startup task failures without throwing', async () => {
+    it('user can still start the app when a startup task fails', async () => {
         getMetaMock.mockRejectedValueOnce(new Error('metadata unavailable'));
         const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const { runStartupTasks } = await import('@services/StartupService');
@@ -126,7 +126,7 @@ describe('StartupService i18n', () => {
         consoleSpy.mockRestore();
     });
 
-    it('keeps legacy raw import-success messages working', async () => {
+    it('user sees an old import notice shown as written', async () => {
         setLocale('en-US');
         getMetaMock.mockResolvedValue('数据导入成功（覆盖设置，差量导入对话数据）');
         const { runStartupTasks } = await import('@services/StartupService');

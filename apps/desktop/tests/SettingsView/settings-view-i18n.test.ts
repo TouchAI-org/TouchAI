@@ -140,7 +140,7 @@ async function flushMountedPromises() {
     }
 }
 
-describe('SettingsView lazy loading i18n', () => {
+describe('user waits for a settings section', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         asyncViewControls.resolveAll();
@@ -151,7 +151,7 @@ describe('SettingsView lazy loading i18n', () => {
         asyncViewControls.resolveAll();
     });
 
-    it('keeps lazy-loading indicators silent while localizing window chrome', async () => {
+    it('user keeps lazy-loading indicators silent while localizing window chrome', async () => {
         setLocale('en-US');
 
         const wrapper = mount(SettingsView, {

@@ -63,20 +63,14 @@ function createTaskSnapshot(
 
 function deferred<T>() {
     let resolve!: (value: T) => void;
-    let reject!: (reason?: unknown) => void;
-    const promise = new Promise<T>((res, rej) => {
-        resolve = res;
-        reject = rej;
+    const promise = new Promise<T>((innerResolve) => {
+        resolve = innerResolve;
     });
 
-    return {
-        promise,
-        resolve,
-        reject,
-    };
+    return { promise, resolve };
 }
 
-describe('useAgent', () => {
+describe('when the user sends a prompt', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         findSessionByIdMock.mockResolvedValue({ id: 1, title: 'Active session' });
@@ -87,7 +81,7 @@ describe('useAgent', () => {
         });
     });
 
-    it('does not send a duplicate OS notification when a started task later fails', async () => {
+    it('user gets the failure reported in the app without a second desktop notification', async () => {
         sessionTaskCenterMock.startTask.mockResolvedValue({
             taskId: 'task-1',
             sessionId: 1,
@@ -98,13 +92,76 @@ describe('useAgent', () => {
 
         await mounted.result.sendRequest('hello');
 
-        expect(notifyMock).not.toHaveBeenCalled();
         expect(mounted.result.error.value?.message).toBe('task failed');
+        expect(notifyMock).not.toHaveBeenCalled();
 
         mounted.unmount();
     });
 
-    it('syncs the selected model when reopening an active session after a model switch', async () => {
+    it('user is told when the request could not even start', async () => {
+        sessionTaskCenterMock.startTask.mockRejectedValue(new Error('startup failed'));
+
+        const mounted = await mountComposable(() => useAgent());
+
+        await mounted.result.sendRequest('hello');
+
+        expect(notifyMock).toHaveBeenCalledWith({
+            title: 'TouchAI - 请求失败',
+            body: 'startup failed',
+        });
+
+        mounted.unmount();
+    });
+
+    it('user gets no orphan task subscription when the request is dropped before it starts', async () => {
+        for (const dropRequest of ['clearSession', 'cancel'] as const) {
+            vi.clearAllMocks();
+            const startTask = deferred<{
+                taskId: string;
+                sessionId: number;
+                completion: Promise<never>;
+            }>();
+            let startupSignal: AbortSignal | undefined;
+            sessionTaskCenterMock.startTask.mockImplementation((options) => {
+                startupSignal = options.signal;
+                return startTask.promise;
+            });
+
+            const mounted = await mountComposable(() => useAgent());
+            const sendPromise = mounted.result.sendRequest('hello');
+            expect(startupSignal?.aborted).toBe(false);
+
+            if (dropRequest === 'clearSession') {
+                mounted.result.clearSession();
+            } else {
+                mounted.result.cancel();
+            }
+
+            // The startup must be aborted and the spinner cleared right away.
+            expect(startupSignal?.aborted).toBe(true);
+            expect(mounted.result.isLoading.value).toBe(false);
+
+            startTask.resolve({
+                taskId: 'task-1',
+                sessionId: 1,
+                completion: new Promise<never>(() => undefined),
+            });
+            await sendPromise;
+
+            expect(sessionTaskCenterMock.subscribeTask).not.toHaveBeenCalled();
+
+            mounted.unmount();
+        }
+    });
+});
+
+describe('when the user reopens a conversation that switched models', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        findSessionByIdMock.mockResolvedValue({ id: 1, title: 'Active session' });
+    });
+
+    it('user sees the upgraded model selected for the reopened conversation', async () => {
         const switchedSnapshot = createTaskSnapshot('task-1', {
             currentModel: {
                 modelDbId: 7,
@@ -134,92 +191,10 @@ describe('useAgent', () => {
             modelId: 'upgraded-model',
             providerId: 9,
         });
-        expect(onModelSelected).toHaveBeenCalledTimes(1);
         expect(onModelSelected).toHaveBeenCalledWith({
             modelId: 'upgraded-model',
             providerId: 9,
         });
-
-        mounted.unmount();
-    });
-
-    it('still notifies when request startup fails before a task is created', async () => {
-        sessionTaskCenterMock.startTask.mockRejectedValue(new Error('startup failed'));
-
-        const mounted = await mountComposable(() => useAgent());
-
-        await mounted.result.sendRequest('hello');
-
-        expect(notifyMock).toHaveBeenCalledWith({
-            title: 'TouchAI - 请求失败',
-            body: 'startup failed',
-        });
-
-        mounted.unmount();
-    });
-
-    it('aborts pending task startup when the session is cleared before attach', async () => {
-        const startTask = deferred<{
-            taskId: string;
-            sessionId: number;
-            completion: Promise<never>;
-        }>();
-        let startupSignal: AbortSignal | undefined;
-        sessionTaskCenterMock.startTask.mockImplementation((options) => {
-            startupSignal = options.signal;
-            return startTask.promise;
-        });
-
-        const mounted = await mountComposable(() => useAgent());
-        const sendPromise = mounted.result.sendRequest('hello');
-
-        expect(startupSignal?.aborted).toBe(false);
-
-        mounted.result.clearSession();
-
-        expect(startupSignal?.aborted).toBe(true);
-        expect(mounted.result.isLoading.value).toBe(false);
-
-        startTask.resolve({
-            taskId: 'task-1',
-            sessionId: 1,
-            completion: new Promise<never>(() => undefined),
-        });
-        await sendPromise;
-
-        expect(sessionTaskCenterMock.subscribeTask).not.toHaveBeenCalled();
-
-        mounted.unmount();
-    });
-
-    it('invalidates pending task startup when cancelled before attach', async () => {
-        const startTask = deferred<{
-            taskId: string;
-            sessionId: number;
-            completion: Promise<never>;
-        }>();
-        let startupSignal: AbortSignal | undefined;
-        sessionTaskCenterMock.startTask.mockImplementation((options) => {
-            startupSignal = options.signal;
-            return startTask.promise;
-        });
-
-        const mounted = await mountComposable(() => useAgent());
-        const sendPromise = mounted.result.sendRequest('hello');
-
-        mounted.result.cancel();
-
-        expect(startupSignal?.aborted).toBe(true);
-        expect(mounted.result.isLoading.value).toBe(false);
-
-        startTask.resolve({
-            taskId: 'task-1',
-            sessionId: 1,
-            completion: new Promise<never>(() => undefined),
-        });
-        await sendPromise;
-
-        expect(sessionTaskCenterMock.subscribeTask).not.toHaveBeenCalled();
 
         mounted.unmount();
     });

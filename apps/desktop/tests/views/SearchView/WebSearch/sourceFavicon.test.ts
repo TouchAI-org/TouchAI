@@ -30,8 +30,8 @@ async function failAllImages(wrapper: ReturnType<typeof mount>): Promise<void> {
     }
 }
 
-describe('SourceFavicon streaming stability', () => {
-    it('rebuilds candidates only when the url or favicon value changes', async () => {
+describe('user sees a stable source icon while an answer streams', () => {
+    it('user rebuilds candidates only when the url or favicon value changes', async () => {
         const source = makeSource();
         const wrapper = mount(SourceFavicon, { props: { source, size: 16 } });
         const expected = buildFaviconCandidates(source);
@@ -45,7 +45,7 @@ describe('SourceFavicon streaming stability', () => {
         expect(image.attributes('src')).toBe(expected[0]);
     });
 
-    it('stays on the letter fallback after a failed icon across streaming chunks', async () => {
+    it('user stays on the letter fallback after a failed icon across streaming chunks', async () => {
         // 回归 #584
         const source = makeSource();
         const wrapper = mount(SourceFavicon, { props: { source, size: 16 } });
@@ -59,7 +59,7 @@ describe('SourceFavicon streaming stability', () => {
         }
     });
 
-    it('does not re-show a failed icon when the source genuinely changes', async () => {
+    it('user does not re-show a failed icon when the source genuinely changes', async () => {
         const source = makeSource();
         const wrapper = mount(SourceFavicon, { props: { source, size: 16 } });
 

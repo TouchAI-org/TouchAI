@@ -18,7 +18,7 @@ function unsupportedState(version: string) {
     };
 }
 
-describe('getAvailableAppUpdateVersion', () => {
+describe('user is offered the newest release version', () => {
     it.each([
         ['1.2.3', '1.2.2', '1.2.3'],
         ['1.2.2', '1.2.2', null],
@@ -28,11 +28,14 @@ describe('getAvailableAppUpdateVersion', () => {
         ['1.2.2-beta.10', '1.2.2-beta.9', '1.2.2-beta.10'],
         ['1.2.2-beta.1', '1.2.2-beta.1.1', null],
         ['1.2.2+build.2', '1.2.2+build.1', null],
-    ])('compares feed version %s with current version %s', (version, current, expected) => {
-        expect(getAvailableAppUpdateVersion(unsupportedState(version), current)).toBe(expected);
-    });
+    ])(
+        'user is offered %s only when it is newer than the installed %s',
+        (version, current, expected) => {
+            expect(getAvailableAppUpdateVersion(unsupportedState(version), current)).toBe(expected);
+        }
+    );
 
-    it('retains the available version while a background check is running', () => {
+    it('user keeps seeing the known update while a background check runs', () => {
         expect(
             getAvailableAppUpdateVersion({
                 ...createInitialAppUpdateState(),
@@ -47,7 +50,7 @@ describe('getAvailableAppUpdateVersion', () => {
         ).toBe('1.2.3');
     });
 
-    it('does not advertise an update when the updater reports none is available', () => {
+    it('user is not offered an update when the updater reports none', () => {
         expect(
             getAvailableAppUpdateVersion(
                 {

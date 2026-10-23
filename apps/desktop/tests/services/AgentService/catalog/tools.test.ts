@@ -27,14 +27,14 @@ function tool(name: string, extra: Record<string, unknown> = {}) {
     };
 }
 
-describe('resolveToolDefinitions adaptive timeout schema', () => {
+describe('user lets the model ask a tool for more time', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         getEnabledMcpToolsMock.mockResolvedValue([]);
         getEnabledToolDefinitionsMock.mockResolvedValue([]);
     });
 
-    it('returns undefined for models that do not support tool calls', async () => {
+    it('user sees no tool list when the model cannot call tools', async () => {
         const { resolveToolDefinitions } = await import('@/services/AgentService/catalog/tools');
 
         await expect(
@@ -42,7 +42,7 @@ describe('resolveToolDefinitions adaptive timeout schema', () => {
         ).resolves.toBeUndefined();
     });
 
-    it('injects _meta only for tools that declare an adaptive timeout ceiling', async () => {
+    it('user sees the timeout hint only on tools that accept it', async () => {
         getEnabledToolDefinitionsMock.mockResolvedValue([
             tool('builtin__bash', { adaptiveTimeoutCeilingMs: 120000 }),
             tool('builtin__read'),
@@ -56,7 +56,7 @@ describe('resolveToolDefinitions adaptive timeout schema', () => {
         expect(byName['builtin__read']?.input_schema.properties).not.toHaveProperty('_meta');
     });
 
-    it('marks only the tools whose schema actually received the _meta parameter', async () => {
+    it('user sees the timeout hint stripped from the arguments the model writes', async () => {
         getEnabledToolDefinitionsMock.mockResolvedValue([
             tool('builtin__bash', { adaptiveTimeoutCeilingMs: 120000 }),
             tool('builtin__read'),
@@ -72,7 +72,7 @@ describe('resolveToolDefinitions adaptive timeout schema', () => {
         expect(byName['builtin__read']).not.toHaveProperty('adaptiveTimeoutCeilingMs');
     });
 
-    it('keeps the ceiling out of the provider-facing input schema', async () => {
+    it('user sees the timeout hint absent from the schema the model reads', async () => {
         getEnabledToolDefinitionsMock.mockResolvedValue([
             tool('builtin__bash', { adaptiveTimeoutCeilingMs: 120000 }),
         ]);
@@ -88,7 +88,7 @@ describe('resolveToolDefinitions adaptive timeout schema', () => {
         }
     });
 
-    it('skips adaptive timeout when the tool already declares a _meta property', async () => {
+    it('user sees no timeout hint on a tool that already takes its own', async () => {
         getEnabledMcpToolsMock.mockResolvedValue([
             {
                 name: 'mcp__1__custom',
@@ -111,7 +111,7 @@ describe('resolveToolDefinitions adaptive timeout schema', () => {
         expect(custom).not.toHaveProperty('adaptiveTimeoutCeilingMs');
     });
 
-    it('skips adaptive timeout when _meta is a required tool argument', async () => {
+    it('user sees no timeout hint on a tool whose own argument must stay required', async () => {
         getEnabledMcpToolsMock.mockResolvedValue([
             {
                 name: 'mcp__1__required-meta',
@@ -134,7 +134,7 @@ describe('resolveToolDefinitions adaptive timeout schema', () => {
         expect(definition).not.toHaveProperty('adaptiveTimeoutCeilingMs');
     });
 
-    it('exposes each tool-specific ceiling instead of a shared upper bound', async () => {
+    it('user sees each tool get its own timeout ceiling instead of one shared value', async () => {
         getEnabledMcpToolsMock.mockResolvedValue([
             tool('mcp__1__search', { adaptiveTimeoutCeilingMs: TOOL_TIMEOUT_MAX_MS }),
         ]);
@@ -165,7 +165,7 @@ describe('resolveToolDefinitions adaptive timeout schema', () => {
         });
     });
 
-    it('drops excluded tool names before augmenting schemas', async () => {
+    it('user does not see excluded tools offered to the model', async () => {
         getEnabledToolDefinitionsMock.mockResolvedValue([
             tool('builtin__bash', { adaptiveTimeoutCeilingMs: 120000 }),
             tool('builtin__read'),

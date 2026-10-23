@@ -9,7 +9,7 @@ const data = [
 ];
 const series = [{ key: 's', label: 'S' }];
 
-describe('BarChart entry animation', () => {
+describe('user opens a bar chart', () => {
     beforeEach(() => {
         vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
             callback(0);
@@ -21,7 +21,7 @@ describe('BarChart entry animation', () => {
         vi.unstubAllGlobals();
     });
 
-    it('unmounts without leaving a pending frame behind', () => {
+    it('user unmounts without leaving a pending frame behind', () => {
         const cancel = vi.fn();
         vi.stubGlobal('requestAnimationFrame', () => 42);
         vi.stubGlobal('cancelAnimationFrame', cancel);
@@ -33,7 +33,7 @@ describe('BarChart entry animation', () => {
         expect(cancel).toHaveBeenCalledWith(42);
     });
 
-    it('renders one path per visible segment', () => {
+    it('user sees one path per visible segment', () => {
         const wrapper = mount(BarChart, { props: { data, series, label: 'test' } });
 
         expect(wrapper.findAll('svg path')).toHaveLength(data.length * series.length);

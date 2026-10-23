@@ -24,7 +24,7 @@ async function flushAsyncWork() {
     await Promise.resolve();
 }
 
-describe('useLayout', () => {
+describe('when the quick search panel lays out its results', () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
@@ -33,7 +33,7 @@ describe('useLayout', () => {
         document.body.innerHTML = '';
     });
 
-    it('computes grid columns and max height from the available width', () => {
+    it('user sees more columns as the panel gets wider', () => {
         const isOpen = ref(true);
         const results = ref([
             createShortcut(1),
@@ -77,7 +77,7 @@ describe('useLayout', () => {
         });
     });
 
-    it('expands visible rows when keyboard navigation moves beyond the collapsed area', async () => {
+    it('user sees the panel grow when moving the highlight below the collapsed rows', async () => {
         const isOpen = ref(true);
         const results = ref([
             createShortcut(1),
@@ -129,7 +129,7 @@ describe('useLayout', () => {
         expect(highlightedIndex.value).toBe(-1);
     });
 
-    it('resets layout state when the panel is closed or has no results', () => {
+    it('user sees the panel collapse back when it closes or finds nothing', () => {
         const isOpen = ref(false);
         const results = ref<QuickShortcutItem[]>([]);
         const highlightedIndex = ref(3);
@@ -151,7 +151,7 @@ describe('useLayout', () => {
         expect(layout.selectionMaxHeight.value).toBe(200);
     });
 
-    it('toggleViewMode switches between grid and list', () => {
+    it('user can switch the results between a grid and a list', () => {
         const isOpen = ref(true);
         const results = ref([createShortcut(1), createShortcut(2)]);
         const highlightedIndex = ref(-1);
@@ -173,7 +173,7 @@ describe('useLayout', () => {
         expect(layout.viewMode.value).toBe('grid');
     });
 
-    it('toggleViewMode preserves expanded state', () => {
+    it('user keeps the expanded rows when switching between grid and list', () => {
         const isOpen = ref(true);
         const results = ref(Array.from({ length: 20 }, (_, i) => createShortcut(i)));
         const highlightedIndex = ref(-1);
@@ -201,7 +201,7 @@ describe('useLayout', () => {
         expect(layout.visibleRows.value).toBe(4);
     });
 
-    it('selectionMaxHeight reacts to viewMode changes', () => {
+    it('user gets a different visible height in list mode than in grid mode', () => {
         const isOpen = ref(true);
         const results = ref(Array.from({ length: 20 }, (_, i) => createShortcut(i)));
         const highlightedIndex = ref(-1);
@@ -224,7 +224,7 @@ describe('useLayout', () => {
         expect(listHeight).toBeGreaterThan(0);
     });
 
-    it('selectionMaxHeight returns collapsed default when panel is closed', () => {
+    it('user gets the collapsed height when the panel is closed', () => {
         const isOpen = ref(false);
         const results = ref([createShortcut(1)]);
         const highlightedIndex = ref(-1);
@@ -241,7 +241,7 @@ describe('useLayout', () => {
         expect(layout.selectionMaxHeight.value).toBeGreaterThan(0);
     });
 
-    it('selectionMaxHeight grows when results increase', () => {
+    it('user gets more visible rows as results arrive', () => {
         const isOpen = ref(true);
         const results = ref([createShortcut(1), createShortcut(2)]);
         const highlightedIndex = ref(-1);
@@ -272,7 +272,7 @@ describe('useLayout', () => {
         expect(layout.selectionMaxHeight.value).toBeGreaterThanOrEqual(initialHeight);
     });
 
-    it('moveSelection in list mode uses single column', () => {
+    it('user moves one row at a time in list mode', () => {
         const isOpen = ref(true);
         const results = ref(Array.from({ length: 10 }, (_, i) => createShortcut(i)));
         const highlightedIndex = ref(-1);
@@ -312,7 +312,7 @@ describe('useLayout', () => {
         expect(highlightedIndex.value).toBe(-1);
     });
 
-    it('resetLayoutState in list mode uses list collapsed rows', () => {
+    it('user gets the list collapsed height after a reset in list mode', () => {
         const isOpen = ref(true);
         const results = ref(Array.from({ length: 20 }, (_, i) => createShortcut(i)));
         const highlightedIndex = ref(-1);
@@ -333,7 +333,7 @@ describe('useLayout', () => {
         expect(layout.visibleRows.value).toBe(8);
     });
 
-    it('syncLayout calls updateLayout after nextTick and rAF', async () => {
+    it('user sees the layout measured after the panel renders', async () => {
         const isOpen = ref(true);
         const results = ref([createShortcut(1), createShortcut(2)]);
         const highlightedIndex = ref(-1);
@@ -360,7 +360,7 @@ describe('useLayout', () => {
         expect(layout.gridColumns.value).toBeGreaterThanOrEqual(1);
     });
 
-    it('scrollHighlightedIntoView does nothing when highlight is -1', async () => {
+    it('user gets no scrolling when nothing is highlighted', async () => {
         const isOpen = ref(true);
         const results = ref([createShortcut(1)]);
         const highlightedIndex = ref(-1);
@@ -377,7 +377,7 @@ describe('useLayout', () => {
         layout.scrollHighlightedIntoView();
     });
 
-    it('scrollHighlightedIntoView scrolls down when highlight is below viewport', async () => {
+    it('user sees the highlighted row scrolled into view', async () => {
         const isOpen = ref(true);
         const results = ref(Array.from({ length: 20 }, (_, i) => createShortcut(i)));
         const highlightedIndex = ref(0);
@@ -410,7 +410,7 @@ describe('useLayout', () => {
         // but the function should not throw).
     });
 
-    it('moveSelection right and left within a row', () => {
+    it('user moves sideways along a row and wraps at its edges', () => {
         const isOpen = ref(true);
         const results = ref(Array.from({ length: 10 }, (_, i) => createShortcut(i)));
         const highlightedIndex = ref(0);
@@ -446,7 +446,7 @@ describe('useLayout', () => {
         expect(highlightedIndex.value).toBe(0);
     });
 
-    it('moveSelection does nothing when highlight is -1 for left/right/up', () => {
+    it('user gets no movement before anything is highlighted', () => {
         const isOpen = ref(true);
         const results = ref([createShortcut(1), createShortcut(2)]);
         const highlightedIndex = ref(-1);

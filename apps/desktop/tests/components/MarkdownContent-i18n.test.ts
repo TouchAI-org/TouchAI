@@ -94,7 +94,7 @@ function requiredTextNode(nodes: NodeListOf<Element>, index: number): Text {
     return textNode as Text;
 }
 
-describe('MarkdownContent i18n', () => {
+describe('user reads a markdown answer', () => {
     beforeEach(async () => {
         vi.clearAllMocks();
         for (const key of Object.keys(languageMapMock)) {
@@ -105,7 +105,7 @@ describe('MarkdownContent i18n', () => {
         setLocale('zh-CN');
     });
 
-    it('preserves the original code typography and the File/Diff theme order', async () => {
+    it('user preserves the original code typography and the File/Diff theme order', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: { content: '```javascript\nconst value = 1;\n```', final: true },
@@ -125,7 +125,7 @@ describe('MarkdownContent i18n', () => {
     });
 
     it.each(['default', 'reasoning'] as const)(
-        'disables soft wrapping for streaming and finalized code/diff blocks in %s messages',
+        'user disables soft wrapping for streaming and finalized code/diff blocks in %s messages',
         async (variant) => {
             const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
             const content = '```text\n' + 'long code line '.repeat(100) + '\nsecond line';
@@ -150,7 +150,7 @@ describe('MarkdownContent i18n', () => {
         }
     );
 
-    it('passes the TouchAI scrollbar skin into the File/Diff Shadow DOM', async () => {
+    it('user passes the TouchAI scrollbar skin into the File/Diff Shadow DOM', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: { content: '```javascript\nconst value = 1;\n```', final: true },
@@ -165,7 +165,7 @@ describe('MarkdownContent i18n', () => {
         expect(styles).toContain('display: none');
     });
 
-    it('bypasses self-root viewport deferral without disabling batched rendering', async () => {
+    it('user bypasses self-root viewport deferral without disabling batched rendering', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: { content: '```javascript\n' + 'x'.repeat(900) + '\n```', final: true },
@@ -179,7 +179,7 @@ describe('MarkdownContent i18n', () => {
         expect(wrapper.findComponent({ name: 'MarkdownRender' }).props('maxLiveNodes')).toBe(320);
     });
 
-    it('configures markstream labels for English locale', async () => {
+    it('user configures markstream labels for English locale', async () => {
         const { setLocale } = await import('@/i18n');
         setLocale('en-US');
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
@@ -201,7 +201,7 @@ describe('MarkdownContent i18n', () => {
         expect(languageMapMock.mermaid).toBe('Diagram');
     });
 
-    it('escapes shell variables so KaTeX does not treat them as inline math', async () => {
+    it('user escapes shell variables so KaTeX does not treat them as inline math', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
 
         mount(MarkdownContent, {
@@ -218,7 +218,7 @@ describe('MarkdownContent i18n', () => {
         );
     });
 
-    it('enables hard line breaks in the markdown parser for bubble text', async () => {
+    it('user enables hard line breaks in the markdown parser for bubble text', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
 
         mount(MarkdownContent, {
@@ -238,7 +238,7 @@ describe('MarkdownContent i18n', () => {
         );
     });
 
-    it('updates markstream labels when locale changes after mount', async () => {
+    it('user updates markstream labels when locale changes after mount', async () => {
         const { setLocale } = await import('@/i18n');
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
 
@@ -264,7 +264,7 @@ describe('MarkdownContent i18n', () => {
         );
     });
 
-    it('re-parses rendered markdown after the locale changes so existing controls refresh', async () => {
+    it('user re-parses rendered markdown after the locale changes so existing controls refresh', async () => {
         parseMarkdownToStructureMock.mockImplementation(() => [
             {
                 type: 'code_block',
@@ -290,7 +290,7 @@ describe('MarkdownContent i18n', () => {
         expect(wrapper.get('[data-testid="markdown-render"]').text()).toBe('Plain text');
     });
 
-    it('keeps the markdown renderer mounted when streaming content becomes final', async () => {
+    it('user keeps the markdown renderer mounted when streaming content becomes final', async () => {
         parseMarkdownToStructureMock.mockImplementation(() => [
             {
                 type: 'text',
@@ -312,7 +312,7 @@ describe('MarkdownContent i18n', () => {
         expect(markdownRenderUnmountedMock).not.toHaveBeenCalled();
     });
 
-    it('disables Monaco initial auto-scroll for completed markdown restored from history', async () => {
+    it('user disables Monaco initial auto-scroll for completed markdown restored from history', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
 
         const wrapper = mount(MarkdownContent, {
@@ -326,7 +326,7 @@ describe('MarkdownContent i18n', () => {
         expect(renderer.attributes('data-code-block-auto-scroll-initial')).toBe('false');
     });
 
-    it('keeps Monaco initial auto-scroll enabled while markdown is still streaming', async () => {
+    it('user keeps Monaco initial auto-scroll enabled while markdown is still streaming', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
 
         const wrapper = mount(MarkdownContent, {
@@ -340,7 +340,7 @@ describe('MarkdownContent i18n', () => {
         expect(renderer.attributes('data-code-block-auto-scroll-initial')).toBe('true');
     });
 
-    it('marks rendered markdown as not eligible for global DOM localization', async () => {
+    it('user marks rendered markdown as not eligible for global DOM localization', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
 
         const wrapper = mount(MarkdownContent, {
@@ -353,7 +353,7 @@ describe('MarkdownContent i18n', () => {
         expect(wrapper.attributes('translate')).toBe('no');
     });
 
-    it('uses keyed localized notifications for inline code copy', async () => {
+    it('user uses keyed localized notifications for inline code copy', async () => {
         const { setLocale } = await import('@/i18n');
         setLocale('en-US');
         parseMarkdownToStructureMock.mockReturnValue([]);
@@ -381,7 +381,7 @@ describe('MarkdownContent i18n', () => {
         wrapper.unmount();
     });
 
-    it('copies selected tables as Word-compatible grid table clipboard HTML', async () => {
+    it('user copies selected tables as Word-compatible grid table clipboard HTML', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
@@ -441,7 +441,7 @@ describe('MarkdownContent i18n', () => {
         wrapper.unmount();
     });
 
-    it('preserves inline semantics inside copied table cell HTML', async () => {
+    it('user preserves inline semantics inside copied table cell HTML', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
@@ -498,7 +498,7 @@ describe('MarkdownContent i18n', () => {
         wrapper.unmount();
     });
 
-    it('preserves surrounding selected text when cleaning copied table HTML', async () => {
+    it('user preserves surrounding selected text when cleaning copied table HTML', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
@@ -554,7 +554,7 @@ describe('MarkdownContent i18n', () => {
         wrapper.unmount();
     });
 
-    it('clips copied selections to the markdown container bounds', async () => {
+    it('user clips copied selections to the markdown container bounds', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
@@ -602,7 +602,7 @@ describe('MarkdownContent i18n', () => {
         wrapper.unmount();
     });
 
-    it('copies mixed markdown selections as clean semantic clipboard HTML and readable plain text', async () => {
+    it('user copies mixed markdown selections as clean semantic clipboard HTML and readable plain text', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
@@ -656,7 +656,7 @@ describe('MarkdownContent i18n', () => {
         wrapper.unmount();
     });
 
-    it('flattens paragraph wrappers inside copied list items for Word-compatible list HTML', async () => {
+    it('user flattens paragraph wrappers inside copied list items for Word-compatible list HTML', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
@@ -710,7 +710,7 @@ describe('MarkdownContent i18n', () => {
         wrapper.unmount();
     });
 
-    it('flattens nested renderer wrappers inside copied list items for Word-compatible list HTML', async () => {
+    it('user flattens nested renderer wrappers inside copied list items for Word-compatible list HTML', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
@@ -786,7 +786,7 @@ describe('MarkdownContent i18n', () => {
         wrapper.unmount();
     });
 
-    it('wraps partially selected list items in their list parent for Word-compatible clipboard HTML', async () => {
+    it('user wraps partially selected list items in their list parent for Word-compatible clipboard HTML', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
@@ -840,7 +840,7 @@ describe('MarkdownContent i18n', () => {
         wrapper.unmount();
     });
 
-    it('preserves ordered list numbering when a copied list selection starts after the first item', async () => {
+    it('user preserves ordered list numbering when a copied list selection starts after the first item', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
@@ -891,7 +891,7 @@ describe('MarkdownContent i18n', () => {
         wrapper.unmount();
     });
 
-    it('preserves link targets and document structure in copied plain text fallbacks', async () => {
+    it('user preserves link targets and document structure in copied plain text fallbacks', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
@@ -942,7 +942,7 @@ describe('MarkdownContent i18n', () => {
         wrapper.unmount();
     });
 
-    it('drops unsafe clipboard URL schemes while preserving safe image data URLs', async () => {
+    it('user drops unsafe clipboard URL schemes while preserving safe image data URLs', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
@@ -1000,7 +1000,7 @@ describe('MarkdownContent i18n', () => {
         wrapper.unmount();
     });
 
-    it('preserves inline spacing while skipping non-content clipboard artifacts', async () => {
+    it('user preserves inline spacing while skipping non-content clipboard artifacts', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {

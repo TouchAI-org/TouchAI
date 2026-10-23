@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { formatCompactDuration, parseMillisecondDurationLabel } from '@/utils/duration';
 
-describe('formatCompactDuration', () => {
-    it('formats durations with seconds as the minimum unit and days as the maximum unit', () => {
+describe('user reads a compact duration', () => {
+    it('user formats durations with seconds as the minimum unit and days as the maximum unit', () => {
         const durationMs = (((10 * 24 + 20) * 60 + 30) * 60 + 20) * 1000;
 
         expect(
@@ -23,7 +23,7 @@ describe('formatCompactDuration', () => {
         ).toBe('1h 1m 5s');
     });
 
-    it('supports floor rounding for live elapsed timers and millisecond labels when requested', () => {
+    it('user supports floor rounding for live elapsed timers and millisecond labels when requested', () => {
         expect(
             formatCompactDuration(1_999, {
                 minimumUnit: 'second',
@@ -33,7 +33,7 @@ describe('formatCompactDuration', () => {
         expect(formatCompactDuration(420)).toBe('420ms');
     });
 
-    it('can clamp settled sub-second durations to one second', () => {
+    it('user can clamp settled sub-second durations to one second', () => {
         expect(
             formatCompactDuration(900, {
                 minimumUnit: 'second',
@@ -43,8 +43,8 @@ describe('formatCompactDuration', () => {
     });
 });
 
-describe('parseMillisecondDurationLabel', () => {
-    it('parses millisecond duration labels and rejects non-millisecond formats', () => {
+describe('user reads a millisecond label', () => {
+    it('user parses millisecond duration labels and rejects non-millisecond formats', () => {
         expect(parseMillisecondDurationLabel('900ms')).toBe(900);
         expect(parseMillisecondDurationLabel(' 1200ms ')).toBe(1200);
         expect(parseMillisecondDurationLabel('1m 2s')).toBeNull();

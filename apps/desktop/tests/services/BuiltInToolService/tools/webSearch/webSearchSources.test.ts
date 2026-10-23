@@ -9,20 +9,20 @@ import {
     normalizeCitationUrl,
 } from '@/views/SearchView/components/WebSearch/citations';
 
-describe('web search source naming', () => {
-    it('strips www and falls back to the raw value for invalid urls', () => {
+describe('user sees readable search source names', () => {
+    it('user sees www stripped and the raw value kept for invalid urls', () => {
         expect(webSearchHostname('https://www.example.com/a')).toBe('example.com');
         expect(webSearchHostname('not a url')).toBe('not a url');
     });
 
-    it('derives a human site name from the hostname', () => {
+    it('user sees a human site name derived from the hostname', () => {
         expect(webSearchSiteName('https://developer.mozilla.org/en-US')).toBe('mozilla');
         expect(webSearchSiteName('https://cctv.cn/news')).toBe('cctv');
     });
 });
 
-describe('citation url matching', () => {
-    it('ignores protocol, www, trailing slash and hash', () => {
+describe('user sees citations matched to the pages they came from', () => {
+    it('user sees protocol, www, trailing slash and hash ignored when matching', () => {
         const expected = normalizeCitationUrl('https://example.com/a/b');
         expect(normalizeCitationUrl('http://example.com/a/b')).toBe(expected);
         expect(normalizeCitationUrl('https://www.example.com/a/b/')).toBe(expected);
@@ -30,13 +30,13 @@ describe('citation url matching', () => {
         expect(normalizeCitationUrl('//example.com/a/b')).toBe(expected);
     });
 
-    it('keeps query strings distinct', () => {
+    it('user sees query strings kept distinct', () => {
         expect(normalizeCitationUrl('https://example.com/a?id=1')).not.toBe(
             normalizeCitationUrl('https://example.com/a?id=2')
         );
     });
 
-    it('only treats external http links as citation candidates', () => {
+    it('user sees only external http links treated as citation candidates', () => {
         expect(isExternalHttpUrl('https://example.com')).toBe(true);
         expect(isExternalHttpUrl('//example.com')).toBe(true);
         expect(isExternalHttpUrl('#section')).toBe(false);

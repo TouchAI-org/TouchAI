@@ -23,7 +23,7 @@ function setPlatform(platform: string) {
     });
 }
 
-describe('shortcut utilities', () => {
+describe('user presses a keyboard shortcut', () => {
     beforeEach(() => {
         setPlatform('Win32');
     });
@@ -32,7 +32,7 @@ describe('shortcut utilities', () => {
         setPlatform(originalPlatform);
     });
 
-    it('normalizes shortcut strings with aliases and stable modifier ordering', () => {
+    it('user normalizes shortcut strings with aliases and stable modifier ordering', () => {
         expect(normalizeLocalShortcutString('mod+h')).toBe('Mod+H');
         expect(normalizeLocalShortcutString(' shift + cmd + option + k ')).toBe('Mod+Alt+Shift+K');
         expect(normalizeLocalShortcutString('control+delete')).toBe('Mod+Del');
@@ -58,7 +58,7 @@ describe('shortcut utilities', () => {
         expect(normalizeLocalShortcutString('control+delete')).toBe('Ctrl+Del');
     });
 
-    it('formats display shortcuts for the current platform', () => {
+    it('user formats display shortcuts for the current platform', () => {
         expect(formatShortcutForDisplay('Mod+Shift+H')).toBe('Ctrl+Shift+H');
         expect(formatShortcutForDisplay(null)).toBeTruthy();
 
@@ -68,7 +68,7 @@ describe('shortcut utilities', () => {
         expect(formatShortcutForDisplay('Alt+Space')).toBe('Option+Space');
     });
 
-    it('resolves keyboard event keys from display key aliases and function-row codes', () => {
+    it('user resolves keyboard event keys from display key aliases and function-row codes', () => {
         expect(resolveKeyboardEventShortcutKey('ArrowUp')).toBe('Up');
         expect(resolveKeyboardEventShortcutKey(' ', null)).toBe('Space');
         expect(resolveKeyboardEventShortcutKey('BrightnessUp', 'F2')).toBe('F2');
@@ -87,7 +87,7 @@ describe('shortcut utilities', () => {
         expect(resolveKeyboardEventShortcutKey(undefined, undefined)).toBeNull();
     });
 
-    it('matches shortcuts using platform-specific Mod behavior', () => {
+    it('user matches shortcuts using platform-specific Mod behavior', () => {
         expect(matchShortcut('Mod+H', { key: 'h', ctrlKey: true })).toBe(true);
         expect(matchShortcut('Mod+H', { key: 'h', metaKey: true })).toBe(false);
         expect(matchShortcut('Ctrl+H', { key: 'h', ctrlKey: true })).toBe(true);
@@ -122,7 +122,7 @@ describe('shortcut utilities', () => {
         expect(matchShortcut('Mod+Ctrl+H', { key: 'h', metaKey: true, ctrlKey: true })).toBe(true);
     });
 
-    it('captures shortcuts from keyboard events and ignores unsupported key presses', () => {
+    it('user captures shortcuts from keyboard events and ignores unsupported key presses', () => {
         expect(
             captureShortcutFromKeyboardEvent(new KeyboardEvent('keydown', { key: 'Control' }))
         ).toBeNull();
@@ -178,7 +178,7 @@ describe('shortcut utilities', () => {
         });
     });
 
-    it('classifies reserved, modifierless, and conflicting shortcuts', () => {
+    it('user classifies reserved, modifierless, and conflicting shortcuts', () => {
         expect(isReservedLocalShortcut('Enter')).toBe(true);
         expect(isReservedLocalShortcut('Mod+Backspace')).toBe(true);
         expect(isReservedLocalShortcut('Ctrl+Delete')).toBe(true);
@@ -214,7 +214,7 @@ describe('shortcut utilities', () => {
         expect(findShortcutConflict('', entries)).toBeNull();
     });
 
-    it('classifies macOS system global shortcut conflicts', () => {
+    it('user classifies macOS system global shortcut conflicts', () => {
         expect(isReservedGlobalShortcut('Mod+Space')).toBe(false);
         expect(isReservedGlobalShortcut('Ctrl+Space')).toBe(false);
 

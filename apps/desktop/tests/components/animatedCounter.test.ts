@@ -23,8 +23,8 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
-describe('AnimatedCounter', () => {
-    it('renders the value with prefix and suffix', () => {
+describe('user reads an animated number', () => {
+    it('user sees the value with prefix and suffix', () => {
         const wrapper = mount(AnimatedCounter, {
             props: { value: 12.63, prefix: '¥', decimals: 2, locale: 'en-US' },
         });
@@ -32,7 +32,7 @@ describe('AnimatedCounter', () => {
         expect(wrapper.text()).toContain('¥12.63');
     });
 
-    it('exposes the final value for tests and assistive tech', () => {
+    it('user exposes the final value for tests and assistive tech', () => {
         const wrapper = mount(AnimatedCounter, {
             props: { value: 1234, suffix: '万', locale: 'en-US' },
         });
@@ -40,7 +40,7 @@ describe('AnimatedCounter', () => {
         expect(wrapper.get('[data-value]').attributes('data-value')).toBe('1,234万');
     });
 
-    it('never renders an intermediate value as the readable value', async () => {
+    it('user never renders an intermediate value as the readable value', async () => {
         const wrapper = mount(AnimatedCounter, {
             props: { value: 10, locale: 'en-US' },
         });
@@ -51,7 +51,7 @@ describe('AnimatedCounter', () => {
         expect(wrapper.get('[data-value]').attributes('data-value')).toBe('99');
     });
 
-    it('formats fractions with the requested decimals', () => {
+    it('user formats fractions with the requested decimals', () => {
         const wrapper = mount(AnimatedCounter, {
             props: { value: 5, decimals: 2, locale: 'en-US' },
         });
@@ -59,7 +59,7 @@ describe('AnimatedCounter', () => {
         expect(wrapper.text()).toContain('5.00');
     });
 
-    it('shows the given text verbatim when text is provided', () => {
+    it('user sees the given text verbatim when text is provided', () => {
         const wrapper = mount(AnimatedCounter, {
             props: { value: 0, text: '41分' },
         });

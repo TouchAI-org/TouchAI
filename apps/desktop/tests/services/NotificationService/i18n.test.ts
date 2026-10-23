@@ -14,7 +14,7 @@ vi.mock('@tauri-apps/plugin-notification', () => ({
     sendNotification: sendNotificationMock,
 }));
 
-describe('NotificationService i18n', () => {
+describe('user gets notifications in their own language', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('zh-CN');
@@ -22,7 +22,7 @@ describe('NotificationService i18n', () => {
         requestPermissionMock.mockResolvedValue('granted');
     });
 
-    it('requests notification permission when it has not been granted yet', async () => {
+    it('user is asked for notification permission when the app does not have it', async () => {
         isPermissionGrantedMock.mockResolvedValueOnce(false);
         requestPermissionMock.mockResolvedValueOnce('granted');
         const { initNotificationPermission } = await import('@services/NotificationService');
@@ -33,7 +33,7 @@ describe('NotificationService i18n', () => {
         expect(requestPermissionMock).toHaveBeenCalled();
     });
 
-    it('skips permission request when notification permission already exists', async () => {
+    it('user is not asked again when notification permission is already granted', async () => {
         isPermissionGrantedMock.mockResolvedValueOnce(true);
         const { initNotificationPermission } = await import('@services/NotificationService');
 
@@ -43,7 +43,7 @@ describe('NotificationService i18n', () => {
         expect(requestPermissionMock).not.toHaveBeenCalled();
     });
 
-    it('keeps notification initialization non-fatal when permission checks fail', async () => {
+    it('user can still use the app when the permission check fails', async () => {
         isPermissionGrantedMock.mockRejectedValueOnce(new Error('permission backend down'));
         const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const { initNotificationPermission } = await import('@services/NotificationService');
@@ -57,7 +57,7 @@ describe('NotificationService i18n', () => {
         consoleSpy.mockRestore();
     });
 
-    it('translates notification title and body for the active locale', async () => {
+    it('user reads the notification title and body in the active language', async () => {
         setLocale('en-US');
         const { notify } = await import('@services/NotificationService');
 
@@ -72,7 +72,7 @@ describe('NotificationService i18n', () => {
         });
     });
 
-    it('keeps Chinese notifications unchanged in the default locale', async () => {
+    it('user reads the notification unchanged in the default locale', async () => {
         const { notify } = await import('@services/NotificationService');
 
         notify({
@@ -86,7 +86,7 @@ describe('NotificationService i18n', () => {
         });
     });
 
-    it('translates notification source templates with params for dynamic content', async () => {
+    it('user reads notification templates with their values filled in', async () => {
         setLocale('en-US');
         const { notify } = await import('@services/NotificationService');
 
@@ -104,7 +104,7 @@ describe('NotificationService i18n', () => {
         });
     });
 
-    it('does not translate raw runtime notification text implicitly', async () => {
+    it('user sees runtime text left exactly as written', async () => {
         setLocale('en-US');
         const { notify } = await import('@services/NotificationService');
 
@@ -119,7 +119,7 @@ describe('NotificationService i18n', () => {
         });
     });
 
-    it('warns but still sends when notification permission is unavailable', async () => {
+    it('user still gets the notification when permission was declined', async () => {
         isPermissionGrantedMock.mockResolvedValueOnce(false);
         requestPermissionMock.mockResolvedValueOnce('denied');
         const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -142,7 +142,7 @@ describe('NotificationService i18n', () => {
         consoleSpy.mockRestore();
     });
 
-    it('logs notification send failures without throwing', async () => {
+    it('user is not interrupted when the system rejects a notification', async () => {
         sendNotificationMock.mockImplementationOnce(() => {
             throw new Error('notification backend down');
         });

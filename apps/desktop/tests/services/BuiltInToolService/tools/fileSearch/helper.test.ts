@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { buildEverythingQuery } from '@/services/BuiltInToolService/tools/fileSearch/helper';
 
-describe('buildEverythingQuery', () => {
-    it('escapes quotes and backslashes inside quoted search values', () => {
+describe('user searches file names containing special characters', () => {
+    it('user sees quotes and backslashes escaped inside quoted search values', () => {
         const { everythingQuery } = buildEverythingQuery({
             query: '*',
             limit: 10,

@@ -22,8 +22,8 @@ function createState(patch: Partial<AppUpdateState> = {}): AppUpdateState {
     };
 }
 
-describe('update notification text', () => {
-    it('turns markdown release notes into a concise notification summary', () => {
+describe('user reads the update notification', () => {
+    it('user sees a one-line summary instead of raw markdown release notes', () => {
         expect(
             summarizeUpdateReleaseNotes(
                 '## 更新内容\n\n- 修复 [设置窗口](https://example.com) 问题\n- `Ctrl+K` 可用'
@@ -31,7 +31,7 @@ describe('update notification text', () => {
         ).toBe('更新内容 · 修复 设置窗口 问题 · Ctrl+K 可用');
     });
 
-    it('uses package notes before release notes', () => {
+    it('user sees the package notes when both note sources exist', () => {
         setLocale('zh-CN');
         const state = createState({
             availableUpdate: {
@@ -54,7 +54,7 @@ describe('update notification text', () => {
         expect(createUpdateNotificationBody(state)).toBe('修复安装问题');
     });
 
-    it('falls back to release notes and keeps the no-notes message useful', () => {
+    it('user sees release notes when package notes are missing and a clear message when there are none', () => {
         setLocale('en-US');
         const state = createState({
             availableUpdate: null,

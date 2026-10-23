@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { smoothThrough } from '@/views/SettingsView/components/Usage/utils/smoothCurve';
 
-describe('smoothThrough', () => {
-    it('keeps the original endpoints', () => {
+describe('user reads a smoothed curve', () => {
+    it('user keeps the original endpoints', () => {
         const points = smoothThrough([
             [0, 10],
             [0.5, 50],
@@ -14,7 +14,7 @@ describe('smoothThrough', () => {
         expect(points[points.length - 1]![1]).toBeCloseTo(20, 5);
     });
 
-    it('never overshoots a segment, so a spike has no fake dip', () => {
+    it('user never overshoots a segment, so a spike has no fake dip', () => {
         const points = smoothThrough([
             [0, 0],
             [0.25, 0],
@@ -29,7 +29,7 @@ describe('smoothThrough', () => {
         }
     });
 
-    it('drops duplicate x so the tangent division stays finite', () => {
+    it('user drops duplicate x so the tangent division stays finite', () => {
         const points = smoothThrough([
             [0, 5],
             [0.5, 10],
@@ -42,14 +42,14 @@ describe('smoothThrough', () => {
         }
     });
 
-    it('returns a flat line for a single point', () => {
+    it('user gets a flat line for a single point', () => {
         expect(smoothThrough([[0, 42]])).toEqual([
             [0, 42],
             [1, 42],
         ]);
     });
 
-    it('returns nothing for no input', () => {
+    it('user gets nothing for no input', () => {
         expect(smoothThrough([])).toEqual([]);
     });
 });

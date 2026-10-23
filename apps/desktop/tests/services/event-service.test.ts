@@ -7,8 +7,8 @@ import { emit } from '@tauri-apps/api/event';
 import { getLastTauriInvokeCall, interceptTauriInvoke } from '@tests/utils/tauri';
 import { describe, expect, it, vi } from 'vitest';
 
-describe('EventService', () => {
-    it('emits typed application events through the tauri event plugin', async () => {
+describe('user receives app events across windows', () => {
+    it('user sees an app event delivered through the native event channel', async () => {
         const payload: SettingsGeneralUpdatedEvent = {
             sourceId: 'settings-view',
             windowLabel: 'main',
@@ -27,7 +27,7 @@ describe('EventService', () => {
         });
     });
 
-    it('delivers listened payloads through the public callback and stops after unlisten', async () => {
+    it('user stops receiving an event after they unsubscribe', async () => {
         const callback = vi.fn();
         const payload: SearchSurfaceShownEvent = {
             source: 'shortcut',
@@ -46,7 +46,7 @@ describe('EventService', () => {
         expect(callback).toHaveBeenCalledTimes(1);
     });
 
-    it('delivers one-shot listeners only once', async () => {
+    it('user receives a one-shot event exactly once', async () => {
         const callback = vi.fn();
 
         await eventService.once(AppEvent.FONT_READY, callback);
@@ -57,7 +57,7 @@ describe('EventService', () => {
         expect(callback).toHaveBeenCalledWith({});
     });
 
-    it('rethrows emit failures after logging them', async () => {
+    it('user sees an event emit failure instead of a silent drop', async () => {
         const backendError = new Error('emit failed');
         const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
@@ -73,7 +73,7 @@ describe('EventService', () => {
         expect(consoleErrorSpy).toHaveBeenCalled();
     });
 
-    it('rethrows listener registration failures after logging them', async () => {
+    it('user sees a subscription failure instead of a silent no-op', async () => {
         const backendError = new Error('listen failed');
         const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 

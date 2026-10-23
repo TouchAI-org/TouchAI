@@ -20,12 +20,12 @@ function attachment(supportStatus: AttachmentIndex['supportStatus']): Attachment
     };
 }
 
-describe('AgentService attachment support i18n', () => {
+describe('user reads attachment capability messages in their language', () => {
     beforeEach(() => {
         setLocale('zh-CN');
     });
 
-    it('localizes app-owned unsupported attachment messages', () => {
+    it('user reads the unsupported-attachment message in the active language', () => {
         setLocale('en-US');
 
         expect(getAttachmentSupportMessage(attachment('unsupported-image'))).toBe(
@@ -37,7 +37,7 @@ describe('AgentService attachment support i18n', () => {
         expect(getAttachmentSupportMessage(attachment('supported'))).toBeNull();
     });
 
-    it('keeps support status logic independent from display language', () => {
+    it('user sees the same support verdict whatever the display language is', () => {
         setLocale('en-US');
 
         expect(

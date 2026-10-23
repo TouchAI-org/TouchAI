@@ -26,8 +26,8 @@ function installTransactionMocks() {
     mockTauriCommand('database_tx_rollback', null);
 }
 
-describe('database transaction behavior', () => {
-    it('opens write transactions as immediate by default', async () => {
+describe('when the app writes several rows together', () => {
+    it('user gets a write transaction that locks immediately by default', async () => {
         installTransactionMocks();
         const db = createDrizzleDb();
 
@@ -39,7 +39,7 @@ describe('database transaction behavior', () => {
         });
     });
 
-    it('still honours an explicit behavior override', async () => {
+    it('user gets the requested transaction mode when one is asked for', async () => {
         installTransactionMocks();
         const db = createDrizzleDb();
 
@@ -50,7 +50,7 @@ describe('database transaction behavior', () => {
         });
     });
 
-    it('commits on success and rolls back on failure', async () => {
+    it('user keeps all or none of a batch of changes', async () => {
         installTransactionMocks();
         const db = createDrizzleDb();
 
@@ -65,7 +65,7 @@ describe('database transaction behavior', () => {
         expect(getLastTauriInvokeCall('database_tx_rollback')?.cmd).toBe('database_tx_rollback');
     });
 
-    it('routes in-transaction queries through the tracked transaction id', async () => {
+    it('user gets in-transaction reads served by the same transaction', async () => {
         installTransactionMocks();
         const db = createDrizzleDb();
 

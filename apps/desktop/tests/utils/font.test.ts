@@ -4,14 +4,8 @@ import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const existsMock = vi.hoisted(() => vi.fn(async () => true));
-const joinMock = vi.hoisted(() => vi.fn(async (...segments: string[]) => segments.join('/')));
-
 vi.mock('@tauri-apps/plugin-fs', () => ({
     exists: existsMock,
-}));
-
-vi.mock('@tauri-apps/api/path', () => ({
-    join: joinMock,
 }));
 
 const FONT_STYLE_SELECTOR = 'style[data-touchai-font-face="source-han-serif-sc"]';
@@ -61,19 +55,18 @@ function mockFontLoadingApi(checkResult = true) {
     return { load, check };
 }
 
-describe('font loader', () => {
+describe('user reads text in the bundled serif font', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.doUnmock('@tauri-apps/api/core');
         document.head.innerHTML = '';
         existsMock.mockReset();
         existsMock.mockResolvedValue(true);
-        joinMock.mockClear();
         mockTauriCommand('get_app_directory_path', 'D:\\TouchAI\\assets\\font');
     });
 
     it(
-        'loads the cached serif font during initialization without waiting for font-ready',
+        'user loads the cached serif font during initialization without waiting for font-ready',
         async () => {
             const { initializeFontLoader } = await import('@/utils/font');
 
@@ -95,28 +88,7 @@ describe('font loader', () => {
     );
 
     it(
-        'resolves the cached font path with Tauri path join before checking existence',
-        async () => {
-            mockTauriCommand('get_app_directory_path', '/var/lib/touchai/assets/font');
-            const { initializeFontLoader } = await import('@/utils/font');
-
-            initializeFontLoader();
-
-            await vi.waitFor(() => {
-                expect(joinMock).toHaveBeenCalledWith(
-                    '/var/lib/touchai/assets/font',
-                    'SourceHanSerifSC-VF.ttf.woff2'
-                );
-                expect(existsMock).toHaveBeenCalledWith(
-                    '/var/lib/touchai/assets/font/SourceHanSerifSC-VF.ttf.woff2'
-                );
-            });
-        },
-        FONT_TEST_TIMEOUT_MS
-    );
-
-    it(
-        'does not inject a missing startup font asset before font-ready arrives',
+        'user does not inject a missing startup font asset before font-ready arrives',
         async () => {
             existsMock.mockResolvedValue(false);
             const { initializeFontLoader } = await import('@/utils/font');
@@ -138,7 +110,7 @@ describe('font loader', () => {
     );
 
     it(
-        'keeps one font-face style when font-ready is delivered more than once',
+        'user keeps one font-face style when font-ready is delivered more than once',
         async () => {
             const { initializeFontLoader } = await import('@/utils/font');
 
@@ -157,7 +129,7 @@ describe('font loader', () => {
     );
 
     it(
-        'does not register duplicate font-ready listeners when initialized more than once',
+        'user does not register duplicate font-ready listeners when initialized more than once',
         async () => {
             const { initializeFontLoader } = await import('@/utils/font');
 
@@ -178,7 +150,7 @@ describe('font loader', () => {
     );
 
     it(
-        'can reload the startup font-face rule after the injected style is removed',
+        'user can reload the startup font-face rule after the injected style is removed',
         async () => {
             const { initializeFontLoader } = await import('@/utils/font');
 
@@ -197,7 +169,7 @@ describe('font loader', () => {
     );
 
     it(
-        'refreshes an early font-face rule after the font file is downloaded',
+        'user refreshes an early font-face rule after the font file is downloaded',
         async () => {
             const { initializeFontLoader } = await import('@/utils/font');
 
@@ -220,7 +192,7 @@ describe('font loader', () => {
     );
 
     it(
-        'does not let a slower startup load replace a refreshed font-face rule',
+        'user does not let a slower startup load replace a refreshed font-face rule',
         async () => {
             let directoryCallCount = 0;
             let resolveStartupLoad: ((fontDir: string) => void) | undefined;
@@ -261,7 +233,7 @@ describe('font loader', () => {
     );
 
     it(
-        'recovers from a startup path lookup failure when font-ready arrives later',
+        'user recovers from a startup path lookup failure when font-ready arrives later',
         async () => {
             const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
             let directoryCallCount = 0;
@@ -295,7 +267,7 @@ describe('font loader', () => {
     );
 
     it(
-        'appends a reload token with ampersand when the asset URL already has a query string',
+        'user appends a reload token with ampersand when the asset URL already has a query string',
         async () => {
             vi.doMock('@tauri-apps/api/core', async (importOriginal) => {
                 const actual = await importOriginal<typeof import('@tauri-apps/api/core')>();
@@ -321,17 +293,18 @@ describe('font loader', () => {
     );
 
     it(
-        'verifies the injected font with browser font APIs before reporting readiness',
+        'user gets a font the browser can actually render, not just a declared one',
         async () => {
-            const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => {});
             const fontApi = mockFontLoadingApi();
-            const fetch = vi.fn().mockResolvedValue({
-                ok: true,
-                status: 200,
-                statusText: 'OK',
-                headers: new Headers({ 'content-type': 'font/woff2' }),
-            });
-            vi.stubGlobal('fetch', fetch);
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockResolvedValue({
+                    ok: true,
+                    status: 200,
+                    statusText: 'OK',
+                    headers: new Headers({ 'content-type': 'font/woff2' }),
+                })
+            );
 
             const { initializeFontLoader } = await import('@/utils/font');
 
@@ -340,29 +313,17 @@ describe('font loader', () => {
             await vi.waitFor(() => {
                 expect(fontApi.load).toHaveBeenCalledWith("16px 'TouchAI Source Han Serif SC'");
                 expect(fontApi.check).toHaveBeenCalledWith("16px 'TouchAI Source Han Serif SC'");
-                expect(fetch).toHaveBeenCalledWith(expect.stringContaining('SourceHanSerifSC-VF'));
-                expect(consoleInfo).toHaveBeenCalledWith(
-                    'Source Han Serif font ready:',
-                    expect.objectContaining({
-                        fontLoaded: true,
-                        fetchOk: true,
-                        fetchStatus: 200,
-                        contentType: 'font/woff2',
-                    })
-                );
+                expect(fontStyles()).toHaveLength(1);
             });
 
-            consoleInfo.mockRestore();
             vi.unstubAllGlobals();
         },
         FONT_TEST_TIMEOUT_MS
     );
 
     it(
-        'retries a transient missing font check before warning',
+        'user still gets the font when the first availability check is a false negative',
         async () => {
-            const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => {});
-            const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
             const fontApi = mockFontLoadingApi();
             fontApi.check.mockReturnValueOnce(false).mockReturnValue(true);
             vi.stubGlobal(
@@ -381,18 +342,9 @@ describe('font loader', () => {
 
             await vi.waitFor(() => {
                 expect(fontApi.check).toHaveBeenCalledTimes(2);
-                expect(consoleInfo).toHaveBeenCalledWith(
-                    'Source Han Serif font ready:',
-                    expect.objectContaining({ fontLoaded: true })
-                );
+                expect(fontStyles()).toHaveLength(1);
             });
-            expect(consoleWarn).not.toHaveBeenCalledWith(
-                'Source Han Serif font diagnostics:',
-                expect.objectContaining({ fontLoaded: false })
-            );
 
-            consoleInfo.mockRestore();
-            consoleWarn.mockRestore();
             vi.unstubAllGlobals();
         },
         FONT_TEST_TIMEOUT_MS

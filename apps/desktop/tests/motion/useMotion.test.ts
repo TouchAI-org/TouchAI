@@ -27,14 +27,14 @@ const mediaQuery = (matches = false) => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe('motion composable', () => {
-    it('converts CSS time tokens to seconds', () => {
+describe('user sees motion follow the system preference', () => {
+    it('user converts CSS time tokens to seconds', () => {
         expect(motionSeconds('150ms')).toBe(0.15);
         expect(motionSeconds('0.4s')).toBe(0.4);
         expect(motionSeconds('invalid')).toBe(0);
     });
 
-    it('tracks reduced-motion changes and removes the listener with the scope', () => {
+    it('user tracks reduced-motion changes and removes the listener with the scope', () => {
         const query = mediaQuery();
         vi.stubGlobal(
             'matchMedia',

@@ -11,10 +11,10 @@ import {
  * Recording a sample only when the cumulative total changed left the tool-call
  * stretch with no points at all, so the plot went blank.
  */
-describe('buildLiveCurve with idle samples', () => {
+describe('user watches a live answer', () => {
     const now = Date.parse('2026-05-01T10:30:00Z');
 
-    it('keeps drawing a flat line while the rate is zero', () => {
+    it('user keeps drawing a flat line while the rate is zero', () => {
         const samples = Array.from({ length: 40 }, (_, index) => ({
             atMs: now - 8000 + index * 200,
             tokens: 500,
@@ -27,7 +27,7 @@ describe('buildLiveCurve with idle samples', () => {
         expect(curve.every((point) => point.value === 0)).toBe(true);
     });
 
-    it('shows a dip and recovery across a tool call', () => {
+    it('user sees a dip and recovery across a tool call', () => {
         const samples = [
             { atMs: now - 6000, tokens: 100, speed: 40 },
             { atMs: now - 5000, tokens: 140, speed: 40 },
@@ -48,7 +48,7 @@ describe('buildLiveCurve with idle samples', () => {
         expect(curve.length).toBeGreaterThan(3);
     });
 
-    it('keeps samples that arrive at the very edge of the window', () => {
+    it('user keeps samples that arrive at the very edge of the window', () => {
         const samples = [
             { atMs: now - LIVE_WINDOW_MS + 10, tokens: 10, speed: 12 },
             { atMs: now - 1000, tokens: 90, speed: 30 },

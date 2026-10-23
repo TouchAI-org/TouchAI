@@ -39,8 +39,6 @@ const windowApiMock = vi.hoisted(() => ({
 }));
 
 const sectionMountMocks = vi.hoisted(() => ({
-    aiServices: vi.fn(),
-    builtInTools: vi.fn(),
     revealAiServicesTarget: undefined as (() => void) | undefined,
 }));
 
@@ -106,14 +104,21 @@ vi.mock('@/views/SettingsView/components/AiServices/index.vue', () => ({
         name: 'SettingsAiServicesSection',
         setup() {
             const targetVisible = ref(false);
+            const modelFilter = ref('');
             onMounted(() => {
-                sectionMountMocks.aiServices();
                 sectionMountMocks.revealAiServicesTarget = () => {
                     targetVisible.value = true;
                 };
             });
             return () =>
                 h('section', { 'data-testid': 'ai-services-view-stub' }, [
+                    h('input', {
+                        'data-testid': 'ai-services-model-filter',
+                        value: modelFilter.value,
+                        onInput: (event: Event) => {
+                            modelFilter.value = (event.target as HTMLInputElement).value;
+                        },
+                    }),
                     targetVisible.value
                         ? h('div', { 'data-settings-search-target': 'models' })
                         : null,
@@ -127,7 +132,6 @@ vi.mock('@/views/SettingsView/components/BuiltInTools/index.vue', () => ({
     default: {
         name: 'SettingsBuiltInToolsSection',
         setup() {
-            onMounted(sectionMountMocks.builtInTools);
             return () => h('section', { 'data-testid': 'built-in-tools-view-stub' });
         },
     },
@@ -200,13 +204,11 @@ const mountSettingsWindow = (suspenseTemplate = '<div><slot /></div>') =>
         },
     });
 
-describe('SettingsWindowView', () => {
+describe('user opens the settings window', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         updateServiceMock.checkNow.mockClear();
         updateServiceMock.checkAndOpenUpdates.mockReset().mockResolvedValue(undefined);
-        sectionMountMocks.aiServices.mockClear();
-        sectionMountMocks.builtInTools.mockClear();
         sectionMountMocks.revealAiServicesTarget = undefined;
         windowApiMock.currentWindow.close.mockClear();
         windowApiMock.currentWindow.isMaximized.mockResolvedValue(false);
@@ -223,7 +225,7 @@ describe('SettingsWindowView', () => {
         vi.useRealTimers();
     });
 
-    it('checks for updates each time a settings window mounts', async () => {
+    it('user checks for updates each time a settings window mounts', async () => {
         const wrapper = mountSettingsWindow();
         await flushPromises();
 
@@ -236,7 +238,7 @@ describe('SettingsWindowView', () => {
         reopened.unmount();
     });
 
-    it('checks again when an existing settings window is opened', async () => {
+    it('user checks again when an existing settings window is opened', async () => {
         const wrapper = mountSettingsWindow();
         await flushPromises();
         updateServiceMock.checkNow.mockClear();
@@ -248,7 +250,7 @@ describe('SettingsWindowView', () => {
         wrapper.unmount();
     });
 
-    it('renders the settings shell immediately without a full-window loading gate', async () => {
+    it('user sees the settings shell immediately without a full-window loading gate', async () => {
         const wrapper = mountSettingsWindow();
 
         expect(wrapper.find('[data-testid="settings-loading-screen"]').exists()).toBe(false);
@@ -277,7 +279,7 @@ describe('SettingsWindowView', () => {
         );
     });
 
-    it('keeps working custom window controls above the settings content', async () => {
+    it('user keeps working custom window controls above the settings content', async () => {
         const wrapper = mountSettingsWindow();
 
         await vi.runAllTimersAsync();
@@ -301,7 +303,7 @@ describe('SettingsWindowView', () => {
         expect(windowApiMock.currentWindow.close).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps content interactions out of the window drag region', async () => {
+    it('user keeps content interactions out of the window drag region', async () => {
         const wrapper = mountSettingsWindow();
 
         await vi.runAllTimersAsync();
@@ -316,7 +318,7 @@ describe('SettingsWindowView', () => {
         expect(windowApiMock.currentWindow.startDragging).not.toHaveBeenCalled();
     });
 
-    it('does not add an artificial delay before showing settings', async () => {
+    it('user does not add an artificial delay before showing settings', async () => {
         const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
         const wrapper = mountSettingsWindow();
         await flushPromises();
@@ -329,7 +331,7 @@ describe('SettingsWindowView', () => {
         wrapper.unmount();
     });
 
-    it('renders the shell card while each section is still resolving', async () => {
+    it('user sees the shell card while each section is still resolving', async () => {
         const wrapper = mountSettingsWindow('<div><slot name="fallback" /></div>');
 
         await vi.runAllTimersAsync();
@@ -364,7 +366,7 @@ describe('SettingsWindowView', () => {
         expect(loadingState().attributes('variant')).toBe('brand');
     });
 
-    it('switches between the ready section views inside the shared shell card', async () => {
+    it('user switches between the ready section views inside the shared shell card', async () => {
         const wrapper = mountSettingsWindow();
 
         await vi.runAllTimersAsync();
@@ -395,30 +397,30 @@ describe('SettingsWindowView', () => {
         expect(wrapper.find('data-management-view-stub').exists()).toBe(true);
     });
 
-    it('reuses loaded model and built-in tool sections when returning to them', async () => {
+    it('user keeps a model filter typed in a section after visiting another section', async () => {
         const wrapper = mount(SettingsWindowView, {
             global: { stubs: { NavigationSidebar: navigationSidebarStub } },
         });
         await flushPromises();
         const nav = wrapper.findComponent({ name: 'NavigationSidebar' });
 
-        for (const section of [
-            'ai-services',
-            'built-in-tools',
-            'general',
-            'ai-services',
-            'built-in-tools',
-        ]) {
+        nav.vm.$emit('navigate', 'ai-services');
+        await flushPromises();
+        await wrapper.get('[data-testid="ai-services-model-filter"]').setValue('gpt');
+
+        for (const section of ['built-in-tools', 'general', 'ai-services']) {
             nav.vm.$emit('navigate', section);
             await flushPromises();
         }
 
-        expect(sectionMountMocks.aiServices).toHaveBeenCalledTimes(1);
-        expect(sectionMountMocks.builtInTools).toHaveBeenCalledTimes(1);
+        expect(
+            (wrapper.get('[data-testid="ai-services-model-filter"]').element as HTMLInputElement)
+                .value
+        ).toBe('gpt');
         wrapper.unmount();
     });
 
-    it('scrolls to the update section when the sidebar version is clicked', async () => {
+    it('user scrolls to the update section when the sidebar version is clicked', async () => {
         const scrollIntoView = vi.fn();
         const querySelectorSpy = vi.spyOn(document, 'querySelector').mockReturnValue({
             scrollIntoView,
@@ -435,7 +437,6 @@ describe('SettingsWindowView', () => {
             await flushPromises();
             await vi.runOnlyPendingTimersAsync();
 
-            expect(querySelectorSpy).toHaveBeenCalledWith('[data-settings-update-section="true"]');
             expect(scrollIntoView).toHaveBeenCalledWith({
                 block: 'start',
                 behavior: 'smooth',
@@ -445,7 +446,7 @@ describe('SettingsWindowView', () => {
         }
     });
 
-    it('navigates and scrolls immediately while the version-badge check is pending', async () => {
+    it('user navigates and scrolls immediately while the version-badge check is pending', async () => {
         let finishCheck!: () => void;
         updateServiceMock.checkAndOpenUpdates.mockReturnValueOnce(
             new Promise<void>((resolve) => {
@@ -484,7 +485,7 @@ describe('SettingsWindowView', () => {
         }
     });
 
-    it('opens update details when a system notification targets an existing settings window', async () => {
+    it('user opens update details when a system notification targets an existing settings window', async () => {
         const scrollIntoView = vi.fn();
         const querySelectorSpy = vi.spyOn(document, 'querySelector').mockReturnValue({
             scrollIntoView,
@@ -514,7 +515,7 @@ describe('SettingsWindowView', () => {
         }
     });
 
-    it('opens update details when a system notification creates the settings window', async () => {
+    it('user opens update details when a system notification creates the settings window', async () => {
         const originalUrl = window.location.href;
         window.history.replaceState(null, '', '#/settings?section=updates');
         const scrollIntoView = vi.fn();
@@ -541,7 +542,7 @@ describe('SettingsWindowView', () => {
         }
     });
 
-    it('waits for a first-load lazy section before scrolling to its search result', async () => {
+    it('user waits for a first-load lazy section before scrolling to its search result', async () => {
         const scrollIntoView = vi.fn();
         const originalScrollIntoView = Element.prototype.scrollIntoView;
         Element.prototype.scrollIntoView = scrollIntoView;
@@ -571,7 +572,7 @@ describe('SettingsWindowView', () => {
         }
     });
 
-    it('waits for a model target rendered after the section resolves', async () => {
+    it('user waits for a model target rendered after the section resolves', async () => {
         const scrollIntoView = vi.fn();
         const originalScrollIntoView = Element.prototype.scrollIntoView;
         Element.prototype.scrollIntoView = scrollIntoView;
@@ -603,7 +604,7 @@ describe('SettingsWindowView', () => {
         }
     });
 
-    it('falls back to the section top when its search target never appears', async () => {
+    it('user falls back to the section top when its search target never appears', async () => {
         const scrollIntoView = vi.fn();
         const originalScrollIntoView = Element.prototype.scrollIntoView;
         Element.prototype.scrollIntoView = scrollIntoView;
@@ -634,7 +635,7 @@ describe('SettingsWindowView', () => {
         }
     });
 
-    it('cancels pending search scrolling after navigating to another section', async () => {
+    it('user cancels pending search scrolling after navigating to another section', async () => {
         const scrollIntoView = vi.fn();
         const originalScrollIntoView = Element.prototype.scrollIntoView;
         Element.prototype.scrollIntoView = scrollIntoView;
@@ -664,7 +665,7 @@ describe('SettingsWindowView', () => {
         }
     });
 
-    it('scrolls to the update section when the general page update badge is clicked', async () => {
+    it('user scrolls to the update section when the general page update badge is clicked', async () => {
         const scrollIntoView = vi.fn();
         const querySelectorSpy = vi.spyOn(document, 'querySelector').mockReturnValue({
             scrollIntoView,

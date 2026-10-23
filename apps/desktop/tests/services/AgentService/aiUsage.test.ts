@@ -21,8 +21,8 @@ function usage(partial: Partial<LanguageModelUsage>): LanguageModelUsage {
     } as LanguageModelUsage;
 }
 
-describe('normalizeAiUsage', () => {
-    it('优先使用 SDK 归一的 noCacheTokens', () => {
+describe('user receives token usage from the provider', () => {
+    it('user sees the provider normalized input count used when the SDK reports it', () => {
         const result = normalizeAiUsage(
             usage({
                 inputTokens: 2000,
@@ -46,7 +46,7 @@ describe('normalizeAiUsage', () => {
         });
     });
 
-    it('noCacheTokens 缺失时反推新鲜输入', () => {
+    it('user sees fresh input inferred when the provider only reports the total', () => {
         const result = normalizeAiUsage(
             usage({
                 inputTokens: 2000,
@@ -63,7 +63,7 @@ describe('normalizeAiUsage', () => {
         expect(result?.inputTokens).toBe(1000);
     });
 
-    it('反推为负时钳到 0（部分中转把 prompt_tokens 当新鲜输入报）', () => {
+    it('user never sees a negative fresh-input count', () => {
         const result = normalizeAiUsage(
             usage({
                 inputTokens: 500,
@@ -80,11 +80,11 @@ describe('normalizeAiUsage', () => {
         expect(result?.inputTokens).toBe(0);
     });
 
-    it('usage 为 undefined 时返回 undefined', () => {
+    it('user sees no usage when the provider reports none', () => {
         expect(normalizeAiUsage(undefined)).toBeUndefined();
     });
 
-    it('完全缺失 token 字段时全部为 0，而不是 undefined', () => {
+    it('user sees zeroed counters instead of blanks when every token field is missing', () => {
         const result = normalizeAiUsage(usage({}));
 
         expect(result).toEqual({
@@ -98,7 +98,7 @@ describe('normalizeAiUsage', () => {
         });
     });
 
-    it('从 raw 提取供应商自称的模型名', () => {
+    it('user sees the model name the provider claims it served', () => {
         const result = normalizeAiUsage(
             usage({
                 inputTokens: 100,
@@ -110,7 +110,7 @@ describe('normalizeAiUsage', () => {
         expect(result?.servedModel).toBe('claude-sonnet-4-5-20250929');
     });
 
-    it('raw 无模型名时不编造', () => {
+    it('user sees no invented model name when the provider reports none', () => {
         const result = normalizeAiUsage(
             usage({ inputTokens: 100, outputTokens: 50, raw: { other: 1 } })
         );
@@ -119,8 +119,8 @@ describe('normalizeAiUsage', () => {
     });
 });
 
-describe('addAiUsage', () => {
-    it('累加所有 token 分类', () => {
+describe('user sees usage accumulated across calls', () => {
+    it('user sees every token category added together', () => {
         const left = {
             ...emptyAiUsage(),
             inputTokens: 100,
@@ -147,7 +147,7 @@ describe('addAiUsage', () => {
         });
     });
 
-    it('servedModel 取非空值', () => {
+    it('user sees the last non-empty served model kept', () => {
         const withModel = { ...emptyAiUsage(), servedModel: 'a' };
         const other = { ...emptyAiUsage(), servedModel: 'b' };
 
@@ -155,7 +155,7 @@ describe('addAiUsage', () => {
         expect(addAiUsage(other, withModel).servedModel).toBe('a');
     });
 
-    it('servedModel 都为空时保持为空', () => {
+    it('user sees an empty served model when the provider names none', () => {
         expect(addAiUsage(emptyAiUsage(), emptyAiUsage()).servedModel).toBeUndefined();
     });
 });

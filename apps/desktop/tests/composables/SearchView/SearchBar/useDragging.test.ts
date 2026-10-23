@@ -65,7 +65,7 @@ function asMouseEvent(event: Partial<MouseEvent>): MouseEvent {
     return event as unknown as MouseEvent;
 }
 
-describe('useDragging', () => {
+describe('when the user drags the search window by its empty area', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useFakeTimers();
@@ -79,7 +79,7 @@ describe('useDragging', () => {
         document.body.innerHTML = '';
     });
 
-    it('starts window dragging from the empty container surface and ignores logo-area clicks', async () => {
+    it('user moves the window when dragging empty space but not from the logo', async () => {
         const emitDragStart = vi.fn();
         const emitDragEnd = vi.fn();
         const dragging = useDragging({
@@ -116,7 +116,7 @@ describe('useDragging', () => {
         expect(emitDragEnd).toHaveBeenCalledTimes(1);
     });
 
-    it('starts a drag after crossing the editor drag threshold and suppresses the next click once', async () => {
+    it('user moves the window after dragging the editor past the threshold without a stray click', async () => {
         const emitDragStart = vi.fn();
         const emitDragEnd = vi.fn();
         const target = document.createElement('div');
@@ -148,7 +148,7 @@ describe('useDragging', () => {
         expect(dragging.consumeEditorClickAfterDrag()).toBe(false);
     });
 
-    it('does not treat blank-area clicks near selectable text as a window drag gesture', async () => {
+    it('user gets no window drag when clicking near selectable text', async () => {
         const target = document.createElement('div');
         resolveMouseEventTargetMock.mockReturnValue(target);
         isBlankEditorAreaTargetMock.mockReturnValue(true);
@@ -188,7 +188,7 @@ describe('useDragging', () => {
         expect(startDraggingMock).not.toHaveBeenCalled();
     });
 
-    it('clears the deferred click-suppression state when the composable is reset', async () => {
+    it('user gets a normal click again after the drag state is reset', async () => {
         const target = document.createElement('div');
         resolveMouseEventTargetMock.mockReturnValue(target);
         const dragging = useDragging({

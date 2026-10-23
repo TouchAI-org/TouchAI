@@ -12,8 +12,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@components/ui/popover'
 import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 
-describe('ui/Popover', () => {
-    it('as-child 的触发元素保持原有标签', () => {
+describe('user opens a popover', () => {
+    it('user as-child 的触发元素保持原有标签', () => {
         const wrapper = mount({
             components: { Popover, PopoverTrigger },
             template: `
@@ -27,7 +27,7 @@ describe('ui/Popover', () => {
         expect(wrapper.get('[data-testid="trigger"]').element.tagName).toBe('BUTTON');
     });
 
-    it('content 携带既有弹层卡片样式', async () => {
+    it('user content 携带既有弹层卡片样式', async () => {
         mount(
             {
                 components: { Popover, PopoverContent, PopoverTrigger },

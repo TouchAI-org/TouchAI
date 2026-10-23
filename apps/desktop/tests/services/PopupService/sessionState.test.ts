@@ -38,8 +38,8 @@ function closePayload(
     };
 }
 
-describe('createPopupSessionState', () => {
-    it('replays the pending payload after the popup window becomes ready', () => {
+describe('user opens a popup window', () => {
+    it('user sees the pending content replayed once the popup window is ready', () => {
         const state = createPopupSessionState();
         const session = state.openSession('session-history-popup');
         const initialPayload = sessionPayload(
@@ -58,7 +58,7 @@ describe('createPopupSessionState', () => {
         expect(state.markWindowReady(session.windowLabel)).toEqual(initialPayload);
     });
 
-    it('replays the latest current payload when an already-ready popup reports ready again', () => {
+    it('user sees the latest content replayed when a ready popup reports ready again', () => {
         const state = createPopupSessionState();
         const session = state.openSession('model-dropdown-popup');
         const initialPayload = sessionPayload(
@@ -84,7 +84,7 @@ describe('createPopupSessionState', () => {
         expect(state.markWindowReady(session.windowLabel)).toEqual(updatedPayload);
     });
 
-    it('keeps the initial show marker when the same session receives an update before ready', () => {
+    it('user sees the popup still shown when it is updated before it becomes ready', () => {
         const state = createPopupSessionState();
         const session = state.openSession('model-dropdown-popup');
         const initialPayload = sessionPayload(
@@ -112,7 +112,7 @@ describe('createPopupSessionState', () => {
         });
     });
 
-    it('ignores stale close events but clears the active session when the current session closes', () => {
+    it('user sees stale close events ignored while the open popup is cleared when it closes', () => {
         const state = createPopupSessionState();
         const firstSession = state.openSession('session-history-popup');
         const secondSession = state.openSession('session-history-popup');
@@ -149,7 +149,7 @@ describe('createPopupSessionState', () => {
         expect(nextSession.popupSessionVersion).toBe(3);
     });
 
-    it('drops queued popup data when the current session is reset before the popup becomes ready', () => {
+    it('user sees queued content dropped when the popup is reset before it becomes ready', () => {
         const state = createPopupSessionState();
         const session = state.openSession('session-history-popup');
         const pendingPayload = sessionPayload(

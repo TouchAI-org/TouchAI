@@ -4,12 +4,12 @@ import { setLocale } from '@/i18n';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import { mapHttpStatusToAiError } from '@/services/AgentService/infrastructure/providers/ai-sdk/base';
 
-describe('AiError display localization', () => {
+describe('user reads request failures in their own language', () => {
     beforeEach(() => {
         setLocale('zh-CN');
     });
 
-    it('localizes app-generated default messages for the active locale', () => {
+    it('user reads app-generated failure text in the active language', () => {
         setLocale('en-US');
 
         expect(new AiError(AiErrorCode.NO_ACTIVE_MODEL).getDisplayMessage()).toBe(
@@ -26,7 +26,7 @@ describe('AiError display localization', () => {
         );
     });
 
-    it('keeps provider and API payload messages raw when a custom message is supplied', () => {
+    it('user sees provider-supplied failure text exactly as the provider sent it', () => {
         setLocale('en-US');
 
         const error = new AiError(AiErrorCode.API_ERROR, undefined, 'provider raw payload');
@@ -34,7 +34,7 @@ describe('AiError display localization', () => {
         expect(error.getDisplayMessage()).toBe('provider raw payload');
     });
 
-    it('normalizes unsupported input endpoint errors from plain Error objects', () => {
+    it('user sees an unsupported-endpoint failure explained for an input the model cannot take', () => {
         const error = new Error('No endpoints found that support image input');
 
         expect(AiError.getDisplayMessage(error)).toBe(
@@ -42,7 +42,7 @@ describe('AiError display localization', () => {
         );
     });
 
-    it('normalizes unsupported endpoint errors when other capabilities are listed too', () => {
+    it('user sees an unsupported-endpoint failure explained when other capabilities are listed too', () => {
         const error = new AiError(
             AiErrorCode.API_ERROR,
             undefined,
@@ -52,7 +52,7 @@ describe('AiError display localization', () => {
         expect(error.getDisplayMessage()).toBe(AiError.getMessage(AiErrorCode.UNSUPPORTED_INPUT));
     });
 
-    it('keeps default Error.message stable while exposing localized display text', () => {
+    it('user sees a stable technical message with a localized one for display', () => {
         setLocale('en-US');
         const error = new AiError(AiErrorCode.NO_ACTIVE_MODEL);
 
@@ -62,13 +62,13 @@ describe('AiError display localization', () => {
         );
     });
 
-    it('classifies localized cancellation messages as request cancellation', () => {
+    it('user sees a cancelled request recognized whatever the language', () => {
         const error = AiError.fromError(new Error('\u8bf7\u6c42\u5df2\u53d6\u6d88'));
 
         expect(error.is(AiErrorCode.REQUEST_CANCELLED)).toBe(true);
     });
 
-    it('shows the default localized network message for transport failures', () => {
+    it('user sees a friendly network failure instead of a transport dump', () => {
         setLocale('en-US');
 
         const rawError = new Error(
@@ -84,7 +84,7 @@ describe('AiError display localization', () => {
         expect(error.details).toBe(rawError);
     });
 
-    it('uses the default localized message for generic HTTP status errors', () => {
+    it('user sees a friendly message for an unexplained HTTP failure', () => {
         setLocale('en-US');
 
         const error = mapHttpStatusToAiError(401, 'HTTP 401');

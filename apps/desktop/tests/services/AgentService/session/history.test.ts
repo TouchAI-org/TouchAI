@@ -1,9 +1,13 @@
 import type { MessageRow } from '@database/queries/messages';
 import type { SessionTurnAttemptHistoryRow } from '@database/queries/sessionTurnAttempts';
 import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
+import { createMessagePart, createMessageRow } from '@tests/utils/messages';
 import { describe, expect, it, vi } from 'vitest';
 
-import { buildSessionHistoryFromData } from '@/services/AgentService/session/history';
+import {
+    buildSessionHistory,
+    buildSessionHistoryFromData,
+} from '@/services/AgentService/session/history';
 import { parseDbDateTimestamp } from '@/utils/date';
 import { selectToolCalls } from '@/utils/session';
 
@@ -14,6 +18,8 @@ const { findAllMcpServersMock } = vi.hoisted(() => ({
 vi.mock('@database/queries/mcpServers', () => ({
     findAllMcpServers: findAllMcpServersMock,
 }));
+
+const BASE_TIME = '2026-05-22T10:00:00.000Z';
 
 function createToolCallRow(messageCreatedAt: string, toolLogCreatedAt: string): MessageRow {
     return {
@@ -51,8 +57,111 @@ function createToolCallRow(messageCreatedAt: string, toolLogCreatedAt: string): 
     };
 }
 
-describe('buildSessionHistoryFromData', () => {
-    it('restores builtin tool call startedAt from the persisted tool log timestamp', async () => {
+function builtinToolPart(options: {
+    id: number;
+    sortOrder: number;
+    toolId: string;
+    callId: string;
+    input?: Record<string, unknown>;
+    output?: string | null;
+    status?: string;
+    durationMs?: number | null;
+    conversationSemantic?: Record<string, unknown> | null;
+    structuredPayload?: Record<string, unknown> | null;
+}) {
+    return createMessagePart({
+        id: options.id,
+        message_id: 2,
+        type: 'tool_call',
+        content: '',
+        sort_order: options.sortOrder,
+        tool_call_id: options.callId,
+        tool_kind: 'builtin',
+        data: JSON.stringify({
+            toolCallId: options.callId,
+            toolKind: 'builtin',
+            tool_id: options.toolId,
+            input: JSON.stringify(options.input ?? {}),
+            output: options.output ?? null,
+            status: options.status ?? 'success',
+            duration_ms: options.durationMs ?? null,
+            error_message: null,
+            approval_state: 'none',
+            approval_summary: null,
+            conversation_semantic_json: options.conversationSemantic
+                ? JSON.stringify(options.conversationSemantic)
+                : null,
+            structured_payload_json: options.structuredPayload
+                ? JSON.stringify(options.structuredPayload)
+                : null,
+        }),
+    });
+}
+
+function mcpToolPart(options: {
+    id: number;
+    sortOrder: number;
+    callId: string;
+    toolName: string;
+    serverId: number;
+    output?: string | null;
+    status?: string;
+}) {
+    return createMessagePart({
+        id: options.id,
+        message_id: 2,
+        type: 'tool_call',
+        content: '',
+        sort_order: options.sortOrder,
+        tool_call_id: options.callId,
+        tool_kind: 'mcp',
+        data: JSON.stringify({
+            toolCallId: options.callId,
+            toolKind: 'mcp',
+            server_id: options.serverId,
+            tool_name: options.toolName,
+            input: JSON.stringify({ path: 'README.md' }),
+            output: options.output ?? null,
+            status: options.status ?? 'success',
+            duration_ms: 12,
+            error_message: null,
+        }),
+    });
+}
+
+function textPart(id: number, sortOrder: number, content: string) {
+    return createMessagePart({
+        id,
+        message_id: 2,
+        type: 'text',
+        content,
+        sort_order: sortOrder,
+    });
+}
+
+function userRow(id: number, content: string): MessageRow {
+    return createMessageRow({ id, role: 'user', content });
+}
+
+function toolCallRow(id: number, parts: MessageRow['parts']): MessageRow {
+    return createMessageRow({ id, role: 'tool_call', parts });
+}
+
+function assistantRow(id: number, content: string): MessageRow {
+    return createMessageRow({ id, role: 'assistant', content });
+}
+
+async function build(
+    messages: MessageRow[],
+    turns: SessionTurnHistoryRow[] = [],
+    attempts: SessionTurnAttemptHistoryRow[] = [],
+    resolveServerName: (serverId: number | null) => string = () => ''
+) {
+    return buildSessionHistory({ messages, turns, attempts, resolveServerName });
+}
+
+describe('user reopens a conversation that had a running tool', () => {
+    it('user sees a builtin tool call restored with the time it started', async () => {
         findAllMcpServersMock.mockResolvedValue([]);
         const messageCreatedAt = '2026-05-29T00:00:00.000Z';
         const toolLogCreatedAt = '2026-05-29T00:00:03.000Z';
@@ -81,5 +190,442 @@ describe('buildSessionHistoryFromData', () => {
                 toolCall: expect.objectContaining({ id: 'call-bash-1' }),
             }),
         ]);
+    });
+});
+
+describe('user reopens a conversation that used tools', () => {
+    it('user sees the prose before a tool call kept as text and the call beside it', async () => {
+        const history = await build(
+            [
+                userRow(1, 'run it'),
+                toolCallRow(2, [
+                    textPart(1, 0, 'Let me check.'),
+                    builtinToolPart({
+                        id: 2,
+                        sortOrder: 1,
+                        toolId: 'bash',
+                        callId: 'call-1',
+                        input: { command: 'dir' },
+                        output: 'file.txt',
+                    }),
+                ]),
+            ],
+            [],
+            [],
+            () => ''
+        );
+
+        expect(history[1]).toMatchObject({ role: 'assistant', content: 'Let me check.' });
+        expect(history[1]?.parts.map((part) => part.type)).toEqual(['text', 'tool_call']);
+        expect(selectToolCalls(history[1]!)[0]).toMatchObject({
+            id: 'call-1',
+            name: 'bash',
+            status: 'completed',
+            result: 'file.txt',
+        });
+    });
+
+    it('user never sees a tool result replayed as assistant prose', async () => {
+        const history = await build([
+            userRow(1, 'run it'),
+            toolCallRow(2, [
+                builtinToolPart({
+                    id: 1,
+                    sortOrder: 0,
+                    toolId: 'bash',
+                    callId: 'call-1',
+                    output: null,
+                }),
+                textPart(2, 1, 'file.txt'),
+            ]),
+        ]);
+
+        const assistant = history[1]!;
+        expect(assistant.content).toBe('');
+        // The trailing text is the tool result, so it belongs to the call, not the reply.
+        expect(selectToolCalls(assistant)[0]?.result).toBe('file.txt');
+        expect(assistant.parts.filter((part) => part.type === 'text')).toHaveLength(0);
+    });
+
+    it('user sees a tool result that was never stored left empty instead of borrowed from another call', async () => {
+        const history = await build([
+            userRow(1, 'run both'),
+            toolCallRow(2, [
+                builtinToolPart({ id: 1, sortOrder: 0, toolId: 'bash', callId: 'call-1' }),
+                builtinToolPart({ id: 2, sortOrder: 1, toolId: 'bash', callId: 'call-2' }),
+                textPart(3, 2, 'shared output'),
+            ]),
+        ]);
+
+        const toolCalls = selectToolCalls(history[1]!);
+
+        expect(toolCalls).toHaveLength(2);
+        expect(toolCalls.map((call) => call.result ?? null)).toEqual([null, null]);
+    });
+
+    it('user sees an interrupted tool call restored as still running', async () => {
+        const history = await build([
+            userRow(1, 'run it'),
+            toolCallRow(2, [
+                builtinToolPart({
+                    id: 1,
+                    sortOrder: 0,
+                    toolId: 'bash',
+                    callId: 'call-1',
+                    status: 'pending',
+                }),
+            ]),
+        ]);
+
+        expect(selectToolCalls(history[1]!)[0]?.status).toBe('executing');
+    });
+
+    it('user sees a failed tool call marked as an error with its message kept', async () => {
+        const history = await build([
+            userRow(1, 'run it'),
+            toolCallRow(2, [
+                builtinToolPart({
+                    id: 1,
+                    sortOrder: 0,
+                    toolId: 'bash',
+                    callId: 'call-1',
+                    status: 'error',
+                    output: 'Command failed with exit code 1',
+                }),
+            ]),
+        ]);
+
+        expect(selectToolCalls(history[1]!)[0]).toMatchObject({
+            status: 'error',
+            isError: true,
+            result: 'Command failed with exit code 1',
+        });
+    });
+
+    it('user sees a tool call the user cancelled restored as cancelled rather than failed', async () => {
+        const history = await build([
+            userRow(1, 'run it'),
+            toolCallRow(2, [
+                builtinToolPart({
+                    id: 1,
+                    sortOrder: 0,
+                    toolId: 'bash',
+                    callId: 'call-1',
+                    status: 'error',
+                    output: 'Request cancelled',
+                }),
+            ]),
+        ]);
+
+        expect(selectToolCalls(history[1]!)[0]).toMatchObject({
+            status: 'cancelled',
+            isError: false,
+        });
+    });
+
+    it('user sees an MCP tool call named after its server', async () => {
+        const history = await build(
+            [
+                userRow(1, 'read a file'),
+                toolCallRow(2, [
+                    mcpToolPart({
+                        id: 1,
+                        sortOrder: 0,
+                        callId: 'call-1',
+                        toolName: 'read_file',
+                        serverId: 7,
+                        output: 'contents',
+                    }),
+                ]),
+            ],
+            [],
+            [],
+            (serverId) => (serverId === 7 ? 'filesystem' : 'unknown')
+        );
+
+        expect(selectToolCalls(history[1]!)[0]).toMatchObject({
+            id: 'call-1',
+            name: 'read_file',
+            namespacedName: 'mcp__7__read_file',
+            source: 'mcp',
+            serverId: 7,
+            serverName: 'filesystem',
+            result: 'contents',
+        });
+    });
+
+    it('user sees the stored search sources replayed with the tool result', async () => {
+        const sources = {
+            kind: 'web_search_sources',
+            sources: [
+                { id: 's1', title: 'TouchAI docs', url: 'https://example.test/docs' },
+                { id: 's2', title: 'broken', url: 'javascript:alert(1)' },
+            ],
+        };
+
+        const history = await build([
+            userRow(1, 'search'),
+            toolCallRow(2, [
+                builtinToolPart({
+                    id: 1,
+                    sortOrder: 0,
+                    toolId: 'web_search',
+                    callId: 'call-1',
+                    output: 'results',
+                    structuredPayload: sources,
+                }),
+            ]),
+        ]);
+
+        const payload = selectToolCalls(history[1]!)[0]?.structuredPayload;
+        expect(payload).toMatchObject({ kind: 'web_search_sources' });
+        expect(payload && 'sources' in payload ? payload.sources : []).toHaveLength(1);
+    });
+});
+
+describe('user reopens a conversation that generated a widget', () => {
+    function widgetRow(
+        id: number,
+        callId: string,
+        args: Record<string, unknown>,
+        status = 'success'
+    ): MessageRow {
+        return toolCallRow(id, [
+            builtinToolPart({
+                id: id * 10,
+                sortOrder: 0,
+                toolId: 'show_widget',
+                callId,
+                input: args,
+                output: null,
+                status,
+            }),
+        ]);
+    }
+
+    it('user sees a generated widget restored in the reply that created it', async () => {
+        const history = await build([
+            userRow(1, 'draw a chart'),
+            widgetRow(2, 'call-1', {
+                widgetId: 'w1',
+                title: 'Sales',
+                description: 'by region',
+                widget_code: '<div>chart</div>',
+            }),
+        ]);
+
+        const widgets = history[1]?.widgets ?? [];
+        expect(widgets).toHaveLength(1);
+        expect(widgets[0]).toMatchObject({
+            widgetId: 'w1',
+            title: 'Sales',
+            description: 'by region',
+            html: '<div>chart</div>',
+            phase: 'ready',
+        });
+        // The widget tool call itself stays out of the visible tool list.
+        expect(selectToolCalls(history[1]!)).toHaveLength(0);
+        expect(history[1]?.parts.filter((part) => part.type === 'widget')).toHaveLength(1);
+    });
+
+    it('user sees the widget removed when a later turn removed it', async () => {
+        const history = await build([
+            userRow(1, 'draw a chart'),
+            widgetRow(2, 'call-1', {
+                widgetId: 'w1',
+                title: 'Sales',
+                widget_code: '<div>chart</div>',
+            }),
+            userRow(3, 'remove it'),
+            widgetRow(4, 'call-2', { widgetId: 'w1', mode: 'remove' }),
+        ]);
+
+        expect(history[1]?.widgets ?? []).toHaveLength(0);
+        expect(history[1]?.parts.filter((part) => part.type === 'widget')).toHaveLength(0);
+    });
+
+    it('user does not see a widget whose generation failed', async () => {
+        const history = await build([
+            userRow(1, 'draw a chart'),
+            widgetRow(
+                2,
+                'call-1',
+                { widgetId: 'w1', title: 'Sales', widget_code: '<div>chart</div>' },
+                'error'
+            ),
+        ]);
+
+        expect(history[1]?.widgets ?? []).toHaveLength(0);
+    });
+});
+
+describe('user reopens a conversation whose turn was cancelled', () => {
+    it('user sees the running tool call marked cancelled and the reply kept', async () => {
+        const history = await build(
+            [
+                userRow(1, 'run it'),
+                toolCallRow(2, [
+                    textPart(1, 0, 'Working on it'),
+                    builtinToolPart({
+                        id: 2,
+                        sortOrder: 1,
+                        toolId: 'bash',
+                        callId: 'call-1',
+                        status: 'pending',
+                    }),
+                ]),
+            ],
+            [
+                {
+                    id: 1,
+                    session_id: 1,
+                    task_id: 'task-1',
+                    execution_mode: 'foreground',
+                    prompt_snapshot_json: '{}',
+                    prompt_message_id: 1,
+                    response_message_id: 2,
+                    status: 'cancelled',
+                    error_message: null,
+                    created_at: BASE_TIME,
+                    updated_at: BASE_TIME,
+                } as SessionTurnHistoryRow,
+            ]
+        );
+
+        const assistant = history[1]!;
+        expect(selectToolCalls(assistant)[0]?.status).toBe('cancelled');
+        expect(assistant.statusText).toBeTruthy();
+    });
+
+    it('user sees a failed turn with nothing visible shown as a failure message', async () => {
+        const history = await build(
+            [userRow(1, 'run it')],
+            [
+                {
+                    id: 1,
+                    session_id: 1,
+                    task_id: 'task-1',
+                    execution_mode: 'foreground',
+                    prompt_snapshot_json: '{}',
+                    prompt_message_id: 1,
+                    response_message_id: null,
+                    status: 'failed',
+                    error_message: 'Provider returned 500',
+                    created_at: BASE_TIME,
+                    updated_at: BASE_TIME,
+                } as SessionTurnHistoryRow,
+            ]
+        );
+
+        expect(history[1]).toMatchObject({ role: 'assistant', isError: true });
+        expect(history[1]?.content).toContain('Provider returned 500');
+    });
+
+    it('user does not see an error message for a turn that failed without a reason', async () => {
+        const history = await build(
+            [userRow(1, 'run it'), assistantRow(2, 'done')],
+            [
+                {
+                    id: 1,
+                    session_id: 1,
+                    task_id: 'task-1',
+                    execution_mode: 'foreground',
+                    prompt_snapshot_json: '{}',
+                    prompt_message_id: 1,
+                    response_message_id: 2,
+                    status: 'failed',
+                    error_message: null,
+                    created_at: BASE_TIME,
+                    updated_at: BASE_TIME,
+                } as SessionTurnHistoryRow,
+            ]
+        );
+
+        expect(history).toHaveLength(2);
+        expect(history[1]?.statusText).toBeUndefined();
+    });
+});
+
+describe('user reopens a conversation with pasted attachments', () => {
+    it('user sees the draft they sent restored with its text and attachments', async () => {
+        const history = await build(
+            [
+                createMessageRow({
+                    id: 1,
+                    role: 'user',
+                    content: 'see attached',
+                    attachments: [
+                        {
+                            id: 9,
+                            hash: 'abc',
+                            type: 'image',
+                            original_name: 'chart.png',
+                            origin_path: 'C:/tmp/chart.png',
+                            mime_type: 'image/png',
+                            size: 12,
+                            created_at: BASE_TIME,
+                            message_id: 1,
+                            sort_order: 0,
+                            tool_call_id: null,
+                            tool_kind: null,
+                        },
+                    ],
+                }),
+            ],
+            [
+                {
+                    id: 1,
+                    session_id: 1,
+                    task_id: 'task-1',
+                    execution_mode: 'foreground',
+                    prompt_snapshot_json: JSON.stringify({
+                        systemPrompt: '',
+                        userPrompt: 'see attached',
+                        inputSnapshot: {
+                            editorDoc: { type: 'doc', content: [] },
+                            excludeFromHistory: true,
+                        },
+                    }),
+                    prompt_message_id: 1,
+                    response_message_id: null,
+                    status: 'completed',
+                    error_message: null,
+                    created_at: BASE_TIME,
+                    updated_at: BASE_TIME,
+                } as SessionTurnHistoryRow,
+            ]
+        );
+
+        expect(history[0]).toMatchObject({ role: 'user', content: 'see attached' });
+        expect(history[0]?.attachments?.[0]?.name).toBe('chart.png');
+        expect(history[0]?.inputSnapshot).toMatchObject({
+            text: 'see attached',
+            excludeFromHistory: true,
+            editorDoc: { type: 'doc' },
+        });
+    });
+
+    it('user sees an unreadable prompt snapshot ignored instead of breaking the conversation', async () => {
+        const history = await build(
+            [userRow(1, 'hello')],
+            [
+                {
+                    id: 1,
+                    session_id: 1,
+                    task_id: 'task-1',
+                    execution_mode: 'foreground',
+                    prompt_snapshot_json: 'not json',
+                    prompt_message_id: 1,
+                    response_message_id: null,
+                    status: 'completed',
+                    error_message: null,
+                    created_at: BASE_TIME,
+                    updated_at: BASE_TIME,
+                } as SessionTurnHistoryRow,
+            ]
+        );
+
+        expect(history[0]).toMatchObject({ role: 'user', content: 'hello' });
+        expect(history[0]?.inputSnapshot?.text).toBe('hello');
     });
 });

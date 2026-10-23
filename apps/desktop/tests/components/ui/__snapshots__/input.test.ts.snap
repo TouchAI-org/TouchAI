@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`ui/Input > class 稳定性 > 无 props 时的 class 稳定 1`] = `
+exports[`user sees an input > user sees the row keep its look > user sees the same default classes as before 1`] = `
 [
   "[box-shadow:none]",
   "bg-white",

@@ -120,7 +120,7 @@ async function mountSection(tools = createBrowserTools()) {
     return wrapper;
 }
 
-describe('settings built-in browser tool group behavior', () => {
+describe('user toggles the browser automation tool', () => {
     beforeEach(() => {
         setLocale('en-US');
         vi.clearAllMocks();
@@ -137,7 +137,7 @@ describe('settings built-in browser tool group behavior', () => {
         vi.unstubAllGlobals();
     });
 
-    it('toggles the consolidated browser automation row', async () => {
+    it('user toggles the consolidated browser automation row', async () => {
         const wrapper = await mountSection();
         const toolList = wrapper.getComponent({ name: 'BuiltInToolList' });
 
@@ -150,7 +150,7 @@ describe('settings built-in browser tool group behavior', () => {
         expect(mocks.updateBuiltInToolsMock).not.toHaveBeenCalled();
     });
 
-    it('does not show built-in tool config for browser rows because configuration lives in Browser settings', async () => {
+    it('user does not show built-in tool config for browser rows because configuration lives in Browser settings', async () => {
         const wrapper = await mountSection();
 
         expect(wrapper.findComponent({ name: 'BuiltInToolConfig' }).exists()).toBe(false);
@@ -160,7 +160,7 @@ describe('settings built-in browser tool group behavior', () => {
         expect(mocks.updateBuiltInToolMock).not.toHaveBeenCalled();
     });
 
-    it('does not fan out unrelated tool config updates', async () => {
+    it('user does not fan out unrelated tool config updates', async () => {
         const tools = createBrowserTools();
         const wrapper = await mountSection(tools);
         const toolList = wrapper.getComponent({ name: 'BuiltInToolList' });
@@ -179,7 +179,7 @@ describe('settings built-in browser tool group behavior', () => {
         expect(mocks.updateBuiltInToolsMock).not.toHaveBeenCalled();
     });
 
-    it('reports browser update failures', async () => {
+    it('user gets browser update failures', async () => {
         const wrapper = await mountSection();
         const toolList = wrapper.getComponent({ name: 'BuiltInToolList' });
         mocks.updateBuiltInToolMock.mockRejectedValue(new Error('browser update failed'));

@@ -104,7 +104,7 @@ async function flushMountedPromises() {
     }
 }
 
-describe('Settings data management i18n and layout', () => {
+describe('user manages the app data', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('zh-CN');
@@ -117,7 +117,7 @@ describe('Settings data management i18n and layout', () => {
         setMetaMock.mockResolvedValue(undefined);
     });
 
-    it('renders model metadata last-updated text in English with localized date formatting', async () => {
+    it('user sees model metadata last-updated text in English with localized date formatting', async () => {
         setLocale('en-US');
 
         const wrapper = mount(DataManagement, {
@@ -151,7 +151,7 @@ describe('Settings data management i18n and layout', () => {
         expect(wrapper.text()).not.toContain('数据管理');
     });
 
-    it('keeps the built-in provider badge localized without truncating longer labels', () => {
+    it('user keeps the built-in provider badge localized without truncating longer labels', () => {
         setLocale('en-US');
 
         const wrapper = mount(BadgedLogo, {
@@ -171,7 +171,7 @@ describe('Settings data management i18n and layout', () => {
         expect(badge.classes()).not.toContain('max-w-[4.5rem]');
     });
 
-    it('renders import mode dialog in English with wrapping-safe option buttons', () => {
+    it('user sees import mode dialog in English with wrapping-safe option buttons', () => {
         setLocale('en-US');
 
         const wrapper = mount(ImportModeDialog, {
@@ -190,7 +190,7 @@ describe('Settings data management i18n and layout', () => {
         expect(modeButtons[1]?.classes()).toContain('whitespace-normal');
     });
 
-    it('allows long progress messages and paths to break in the progress dialog', () => {
+    it('user allows long progress messages and paths to break in the progress dialog', () => {
         const wrapper = mount(ProgressDialog, {
             props: {
                 title: 'Database exported',
@@ -210,7 +210,7 @@ describe('Settings data management i18n and layout', () => {
         expect(wrapper.text()).toContain('42%');
     });
 
-    it('persists import-success startup notification as a source payload instead of translated text', async () => {
+    it('user persists import-success startup notification as a source payload instead of translated text', async () => {
         setLocale('en-US');
         vi.useFakeTimers();
 

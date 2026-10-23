@@ -125,7 +125,7 @@ function createExecutionOptions(signal?: AbortSignal) {
     };
 }
 
-describe('BuiltInToolService i18n', () => {
+describe('user reads built-in tool activity in their own language', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('zh-CN');
@@ -148,7 +148,7 @@ describe('BuiltInToolService i18n', () => {
         findEnabledBuiltInToolsMock.mockResolvedValue([]);
     });
 
-    it('syncs registered built-in tools into existing databases without overwriting existing rows', async () => {
+    it('user sees registered built-in tools synced into an existing database without overwriting rows', async () => {
         findAllBuiltInToolsMock.mockResolvedValueOnce([
             {
                 id: 1,
@@ -185,7 +185,7 @@ describe('BuiltInToolService i18n', () => {
         );
     });
 
-    it('exposes only the consolidated browser tool to the model', async () => {
+    it('user sees only the consolidated browser tool offered to the model', async () => {
         findEnabledBuiltInToolsMock.mockResolvedValueOnce([
             { tool_id: 'browser' },
             { tool_id: 'setting' },
@@ -198,7 +198,7 @@ describe('BuiltInToolService i18n', () => {
         ]);
     });
 
-    it('exposes the ask-user built-in tool to the model when enabled', async () => {
+    it('user sees the ask-user tool offered when it is enabled', async () => {
         findEnabledBuiltInToolsMock.mockResolvedValueOnce([{ tool_id: 'ask_user_question' }]);
 
         const definitions = await builtInToolService.getEnabledToolDefinitions();
@@ -207,7 +207,7 @@ describe('BuiltInToolService i18n', () => {
         expect(definitions[0]?.name).toBe('builtin__ask_user_question');
     });
 
-    it('does not resolve unregistered partial browser tool calls', async () => {
+    it('user sees unregistered partial browser tool calls left unresolved', async () => {
         findBuiltInToolByToolIdMock.mockResolvedValueOnce({
             id: 21,
             tool_id: 'browser_act',
@@ -226,7 +226,7 @@ describe('BuiltInToolService i18n', () => {
         ).resolves.toBeNull();
     });
 
-    it('localizes generic execution failures before storing tool output', async () => {
+    it('user reads generic execution failures in the active language before they are stored', async () => {
         fakeTool.execute.mockRejectedValueOnce(new Error('boom'));
 
         const result = await builtInToolService.executeTool(createExecutionOptions());
@@ -245,7 +245,7 @@ describe('BuiltInToolService i18n', () => {
         );
     });
 
-    it('localizes cancellation errors stored in built-in tool logs', async () => {
+    it('user reads cancellation errors stored in built-in tool logs in the active language', async () => {
         const controller = new AbortController();
         fakeTool.execute.mockImplementationOnce(() => {
             controller.abort();

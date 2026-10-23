@@ -5,8 +5,8 @@ import {
     type PersistedOutputPart,
 } from '@/services/AgentService/contracts/protocol';
 
-describe('persisted output parts', () => {
-    it('keeps a durable reasoning-start marker without accepting empty text', () => {
+describe('a saved answer keeps its parts and timings', () => {
+    it('user sees a durable reasoning-start marker without empty text', () => {
         expect(
             normalizeOutputParts([
                 { type: 'reasoning', content: '', startedAt: 1000 },
@@ -16,7 +16,7 @@ describe('persisted output parts', () => {
         ).toEqual([{ type: 'reasoning', content: '', startedAt: 1000 }]);
     });
 
-    it('serializes and restores ordered message parts with wall-clock boundaries', () => {
+    it('user sees ordered parts restored with their wall-clock boundaries', () => {
         const parts: PersistedOutputPart[] = [
             { type: 'reasoning', content: 'Plan', startedAt: 1_000, endedAt: 2_000 },
             { type: 'text', content: 'First answer' },
@@ -26,7 +26,7 @@ describe('persisted output parts', () => {
         expect(normalizeOutputParts(parts)).toEqual(parts);
     });
 
-    it('preserves valid reasoning provider options', () => {
+    it('user sees valid reasoning provider options preserved', () => {
         const parts: PersistedOutputPart[] = [
             {
                 type: 'reasoning',
@@ -37,7 +37,7 @@ describe('persisted output parts', () => {
         expect(normalizeOutputParts(parts)).toEqual(parts);
     });
 
-    it('drops malformed reasoning provider options', () => {
+    it('user sees malformed reasoning provider options dropped', () => {
         expect(
             normalizeOutputParts([
                 { type: 'reasoning', content: 'Plan', providerOptions: 'nope' },

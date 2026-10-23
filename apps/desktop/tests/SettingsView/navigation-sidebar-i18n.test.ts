@@ -17,12 +17,12 @@ vi.mock('@components/AppIcon.vue', () => ({
     },
 }));
 
-describe('Settings navigation sidebar i18n', () => {
+describe('user navigates the settings sections', () => {
     beforeEach(() => {
         setLocale('zh-CN');
     });
 
-    it('localizes icon-only navigation titles', () => {
+    it('user sees icon-only navigation titles', () => {
         setLocale('en-US');
 
         const wrapper = mount(NavigationSidebar, {
@@ -58,7 +58,7 @@ describe('Settings navigation sidebar i18n', () => {
         expect(wrapper.find('[data-testid="settings-nav-about"]').exists()).toBe(false);
     });
 
-    it('keeps navigation labels and descriptions reactive to locale changes', () => {
+    it('user keeps navigation labels and descriptions reactive to locale changes', () => {
         setLocale('en-US');
 
         expect(settingsNavigationGroups[0]?.label).toBe('Basics');

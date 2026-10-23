@@ -71,14 +71,14 @@ function createModel(overrides = {}) {
     };
 }
 
-describe('ModelCard i18n', () => {
+describe('user reads a model card', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         confirmMock.mockResolvedValue(false);
         setLocale('zh-CN');
     });
 
-    it.each(['zh-CN', 'en-US'] as const)('hides last-used metadata in %s', (locale) => {
+    it.each(['zh-CN', 'en-US'] as const)('user hides last-used metadata in %s', (locale) => {
         setLocale(locale);
 
         const wrapper = mount(ModelCard, {
@@ -94,7 +94,7 @@ describe('ModelCard i18n', () => {
         expect(wrapper.text()).not.toContain('2026');
     });
 
-    it('localizes action titles and delete confirmation in English', async () => {
+    it('user sees action titles and delete confirmation in English', async () => {
         setLocale('en-US');
 
         const wrapper = mount(ModelCard, {
@@ -120,7 +120,7 @@ describe('ModelCard i18n', () => {
         });
     });
 
-    it('emits the default selection from the model action', async () => {
+    it('user sees the default selection from the model action', async () => {
         const wrapper = mount(ModelCard, {
             props: {
                 model: createModel(),
@@ -133,7 +133,7 @@ describe('ModelCard i18n', () => {
         expect(wrapper.emitted('set-default')).toEqual([[]]);
     });
 
-    it('shows the default badge on the model logo without a default action button', async () => {
+    it('user sees the default badge on the model logo without a default action button', async () => {
         const wrapper = mount(ModelCard, {
             props: {
                 model: createModel(),
@@ -170,7 +170,7 @@ describe('ModelCard i18n', () => {
         expect(wrapper.emitted('set-default')).toEqual([[]]);
     });
 
-    it('localizes default-model delete validation in English', async () => {
+    it('user sees default-model delete validation in English', async () => {
         setLocale('en-US');
 
         const wrapper = mount(ModelCard, {
@@ -187,7 +187,7 @@ describe('ModelCard i18n', () => {
         );
     });
 
-    it('does not let the global DOM localizer rewrite dynamic model payload text', () => {
+    it('user does not let the global DOM localizer rewrite dynamic model payload text', () => {
         setLocale('en-US');
 
         const wrapper = mount(ModelCard, {

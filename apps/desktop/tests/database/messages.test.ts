@@ -8,8 +8,8 @@ function request(payload: InvokeArgs | undefined) {
     return (payload as { request: { sql: string } }).request;
 }
 
-describe('message part reads', () => {
-    it('returns one message once even when it contains multiple tool calls, without text projections or log queries', async () => {
+describe('when the user reopens a conversation', () => {
+    it('user sees each message once with all its tool calls', async () => {
         const row = {
             id: 11,
             session_id: 1,
@@ -49,7 +49,7 @@ describe('message part reads', () => {
         expect(queries.every((sql) => !sql.includes('"tool_kind" ='))).toBe(true);
     });
 
-    it('does not load parts or attachments when the session has no messages', async () => {
+    it('user gets an empty conversation without extra lookups', async () => {
         interceptTauriInvoke((call) =>
             call.cmd === 'database_query'
                 ? { rows: [], rowsAffected: 0, lastInsertId: null }

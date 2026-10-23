@@ -23,8 +23,8 @@ function schemaSnapshot() {
     );
 }
 
-describe('Built-in tool model schema i18n boundary', () => {
-    it('keeps model-facing tool schemas stable across UI locales', () => {
+describe('user gets the same tool behaviour whatever the UI language is', () => {
+    it('user sees model-facing tool schemas stay stable across UI locales', () => {
         setLocale('zh-CN');
         const zhSnapshot = schemaSnapshot();
 
@@ -34,7 +34,7 @@ describe('Built-in tool model schema i18n boundary', () => {
         expect(enSnapshot).toEqual(zhSnapshot);
     });
 
-    it('keeps model-facing tool descriptions in English instead of UI-localized Chinese', () => {
+    it('user sees model-facing tool descriptions stay in English', () => {
         expect(JSON.stringify(schemaSnapshot())).not.toMatch(CHINESE_TEXT_RE);
     });
 });

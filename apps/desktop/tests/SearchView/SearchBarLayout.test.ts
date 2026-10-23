@@ -65,7 +65,7 @@ vi.mock('@/views/SearchView/components/SearchBar/composables/useSearchLogic', ()
 
 import SearchBar from '@/views/SearchView/components/SearchBar/index.vue';
 
-describe('SearchBar layout', () => {
+describe('when the user types into the search bar', () => {
     beforeEach(() => {
         isMultiLine.value = false;
         useSearchInputMock.mockClear();
@@ -84,7 +84,7 @@ describe('SearchBar layout', () => {
         });
     }
 
-    it('centers the search bar row vertically while the editor is single-line', () => {
+    it('user sees a single-line draft vertically centred in the window', () => {
         const wrapper = mountSearchBar();
 
         const searchBar = wrapper.get('[data-testid="search-bar"]');
@@ -93,7 +93,7 @@ describe('SearchBar layout', () => {
         expect(searchBar.classes()).not.toContain('items-start');
     });
 
-    it('top-aligns the search bar row when the editor becomes multiline', async () => {
+    it('user sees the draft top-aligned once it wraps to several lines', async () => {
         const wrapper = mountSearchBar();
 
         isMultiLine.value = true;
@@ -106,7 +106,7 @@ describe('SearchBar layout', () => {
         expect(searchBar.classes()).not.toContain('items-center');
     });
 
-    it('allows the input editor to grow up to seven text lines', () => {
+    it('user gets at most seven visible lines before the draft scrolls', () => {
         const wrapper = mountSearchBar();
 
         const editorHost = wrapper.get('[data-testid="search-editor-host"]');

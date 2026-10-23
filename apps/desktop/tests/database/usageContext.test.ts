@@ -64,8 +64,8 @@ function respondWith(rows: Array<Record<string, unknown>>) {
     });
 }
 
-describe('getContextProfiles', () => {
-    it('returns an empty result when there is no sampled turn', async () => {
+describe('when the user looks at how full the context gets', () => {
+    it('user gets nothing to show when no turn was sampled', async () => {
         respondWith([]);
 
         const result = await getContextProfiles(FILTER);
@@ -74,7 +74,7 @@ describe('getContextProfiles', () => {
         expect(result.models).toEqual([]);
     });
 
-    it('uses the provider-reported prompt tokens for medians, not the estimate', async () => {
+    it('user sees the provider-reported prompt size, not an estimate', async () => {
         respondWith([
             sampleRow({
                 turnId: 3,
@@ -98,7 +98,7 @@ describe('getContextProfiles', () => {
         expect(overall?.peakFill).toBeCloseTo(0.05, 5);
     });
 
-    it('computes the cache reuse rate from cached and fresh input', async () => {
+    it('user sees how much of the input was served from cache', async () => {
         respondWith([
             sampleRow({
                 turnId: 1,
@@ -120,7 +120,7 @@ describe('getContextProfiles', () => {
         expect(overall?.cacheReuseRate).toBeCloseTo(0.75, 5);
     });
 
-    it('detects a compaction when the prompt collapses after a large turn', async () => {
+    it('user sees a compaction flagged when the prompt suddenly shrinks', async () => {
         respondWith([
             sampleRow({
                 turnId: 1,
@@ -153,7 +153,7 @@ describe('getContextProfiles', () => {
         expect(overall?.compactCount).toBe(1);
     });
 
-    it('does not treat a small drop as a compaction', async () => {
+    it('user gets no compaction flag for a small drop', async () => {
         respondWith([
             sampleRow({
                 turnId: 1,
@@ -186,7 +186,7 @@ describe('getContextProfiles', () => {
         expect(overall?.compactCount).toBe(0);
     });
 
-    it('keeps the same prompt token figure inside one model bucket', async () => {
+    it('user sees one consistent prompt size per model', async () => {
         respondWith([
             sampleRow({
                 turnId: 1,
@@ -222,7 +222,7 @@ describe('getContextProfiles', () => {
         expect(models.find((item) => item.modelName === 'Model B')?.promptMedian).toBe(3_000);
     });
 
-    it('keeps all four score dimensions within their weights', async () => {
+    it('user sees each score dimension stay within its weight', async () => {
         respondWith([
             sampleRow({
                 turnId: 1,
@@ -254,7 +254,7 @@ describe('getContextProfiles', () => {
         expect(overall?.score).toBe(total);
     });
 
-    it('attributes the stacked segments to the right buckets', async () => {
+    it('user sees each stacked segment counted in the right bucket', async () => {
         respondWith([
             sampleRow({
                 turnId: 1,
@@ -285,8 +285,8 @@ describe('getContextProfiles', () => {
     });
 });
 
-describe('getContextTurnPoints', () => {
-    it('orders points chronologically and flags the compaction turn', async () => {
+describe('when the user follows the context size turn by turn', () => {
+    it('user sees the turns in time order with the compaction marked', async () => {
         respondWith([
             sampleRow({
                 turnId: 2,
@@ -321,7 +321,7 @@ describe('getContextTurnPoints', () => {
         expect(points[1]?.isCompaction).toBe(true);
     });
 
-    it('ignores a compaction when the model changed between turns', async () => {
+    it('user gets no compaction flag when the model changed', async () => {
         respondWith([
             sampleRow({
                 turnId: 1,

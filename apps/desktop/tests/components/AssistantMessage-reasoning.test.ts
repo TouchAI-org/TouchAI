@@ -58,8 +58,8 @@ afterEach(() => {
     wrappers.splice(0).forEach((wrapper) => wrapper.unmount());
 });
 
-describe('AssistantMessage interleaved reasoning', () => {
-    it('renders reasoning in timeline order without duplicating the aggregate field', async () => {
+describe('user reads the reasoning behind an answer', () => {
+    it('user sees reasoning in timeline order without duplicating the aggregate field', async () => {
         const wrapper = render({
             content: 'First answer',
             reasoning: 'First thoughtSecond thought',
@@ -100,7 +100,7 @@ describe('AssistantMessage interleaved reasoning', () => {
         expect(sections[1]!.find('.markdown').attributes('data-final')).toBe('true');
     });
 
-    it('previews the beginning of collapsed reasoning and shows the full text on expansion', async () => {
+    it('user previews the beginning of collapsed reasoning and shows the full text on expansion', async () => {
         const wrapper = render({
             parts: [
                 {
@@ -138,7 +138,7 @@ describe('AssistantMessage interleaved reasoning', () => {
         );
     });
 
-    it('keeps the elapsed time at the end of a truncated collapsed preview', async () => {
+    it('user keeps the elapsed time at the end of a truncated collapsed preview', async () => {
         const wrapper = render({
             parts: [
                 {
@@ -165,7 +165,7 @@ describe('AssistantMessage interleaved reasoning', () => {
         expect(button.find('.reasoning-duration').text()).toBe('(2s)');
     });
 
-    it('updates a manually collapsed thinking preview as streaming content arrives', async () => {
+    it('user updates a manually collapsed thinking preview as streaming content arrives', async () => {
         const wrapper = render({
             isStreaming: true,
             parts: [{ id: 'r1', type: 'reasoning', content: 'First', isStreaming: true }],
@@ -191,7 +191,7 @@ describe('AssistantMessage interleaved reasoning', () => {
         expect(button.find('.reasoning-preview').text()).toBe('First, then second');
     });
 
-    it('renders only canonical parts without duplicating an aggregate reasoning field', () => {
+    it('user sees only canonical parts without duplicating an aggregate reasoning field', () => {
         const wrapper = render({
             reasoning: 'Legacy thought',
             content: 'Answer',
@@ -201,7 +201,7 @@ describe('AssistantMessage interleaved reasoning', () => {
         expect(wrapper.findAll('.markdown').map((node) => node.text())).toEqual(['Answer']);
     });
 
-    it('stops shimmer at the reasoning end, even while the message is streaming', async () => {
+    it('user stops shimmer at the reasoning end, even while the message is streaming', async () => {
         const wrapper = render({
             isStreaming: true,
             parts: [{ id: 'r1', type: 'reasoning', content: 'Thought', isStreaming: true }],
@@ -217,7 +217,7 @@ describe('AssistantMessage interleaved reasoning', () => {
         expect(wrapper.find('.reasoning-section .reasoning-label-content').text()).toBe('已思考');
     });
 
-    it('updates the in-progress elapsed seconds and shows the final duration', async () => {
+    it('user updates the in-progress elapsed seconds and shows the final duration', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date(1_000));
         const wrapper = render({
@@ -259,7 +259,7 @@ describe('AssistantMessage interleaved reasoning', () => {
         expect(wrapper.find('.reasoning-section .reasoning-label-content').text()).toBe('已思考');
         expect(wrapper.find('.reasoning-section .reasoning-duration').text()).toBe('(2s)');
     });
-    it('does not invent a duration when a completed part only has a start timestamp', () => {
+    it('user does not invent a duration when a completed part only has a start timestamp', () => {
         const wrapper = render({
             isStreaming: false,
             parts: [
@@ -277,7 +277,7 @@ describe('AssistantMessage interleaved reasoning', () => {
         expect(wrapper.find('.reasoning-section .reasoning-duration').exists()).toBe(false);
     });
 
-    it('opens a completed reasoning block at the bottom when it has not been manually scrolled', async () => {
+    it('user opens a completed reasoning block at the bottom when it has not been manually scrolled', async () => {
         const wrapper = render({
             isStreaming: false,
             parts: [{ id: 'r1', type: 'reasoning', content: 'Thought', isStreaming: false }],
@@ -303,7 +303,7 @@ describe('AssistantMessage interleaved reasoning', () => {
         expect(scrollTop).toBe(480);
     });
 
-    it('stops following a completed reasoning block after a manual upward scroll', async () => {
+    it('user stops following a completed reasoning block after a manual upward scroll', async () => {
         const wrapper = render({
             isStreaming: false,
             parts: [{ id: 'r1', type: 'reasoning', content: 'Thought', isStreaming: false }],
@@ -346,7 +346,7 @@ describe('AssistantMessage interleaved reasoning', () => {
 
         expect(scrollTop).toBe(120);
     });
-    it('does not treat collapsing an unopened block as a manual scroll', async () => {
+    it('user does not treat collapsing an unopened block as a manual scroll', async () => {
         const wrapper = render({
             isStreaming: false,
             parts: [{ id: 'r1', type: 'reasoning', content: 'Thought', isStreaming: false }],
@@ -385,7 +385,7 @@ describe('AssistantMessage interleaved reasoning', () => {
 
         expect(scrollTop).toBe(480);
     });
-    it('localizes thinking labels and gives each disclosure a unique target', () => {
+    it('user sees thinking labels and gives each disclosure a unique target', () => {
         setLocale('en-US');
         const wrapper = render({
             isStreaming: true,

@@ -97,7 +97,7 @@ function createExecutionContext(): Parameters<typeof executeSettingTool>[2] {
     };
 }
 
-describe('Setting built-in tool i18n', () => {
+describe('user changes app settings through the assistant', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setPlatform('Win32');
@@ -113,7 +113,7 @@ describe('Setting built-in tool i18n', () => {
         setPlatform(originalPlatform);
     });
 
-    it('formats list and get outputs in English when active locale is English', async () => {
+    it('user reads setting list and get results in English', async () => {
         setLocale('en-US');
 
         const listOutput = await listSupportedSettings(settingsStore);
@@ -127,7 +127,7 @@ describe('Setting built-in tool i18n', () => {
         expect(getOutput).toContain('Global shortcut (global_shortcut): Alt+Space');
     });
 
-    it('formats setting updates, approval cards, and registration errors in English', () => {
+    it('user reads setting updates, approval cards, and registration errors in English', () => {
         setLocale('en-US');
 
         expect(formatSingleUpdate('start_minimized', true)).toBe(
@@ -162,7 +162,7 @@ describe('Setting built-in tool i18n', () => {
         });
     });
 
-    it('formats conversation semantics in English', () => {
+    it('user reads setting conversation summaries in English', () => {
         setLocale('en-US');
 
         expect(settingTool.buildConversationSemantic({ action: 'list' })).toMatchObject({
@@ -184,7 +184,7 @@ describe('Setting built-in tool i18n', () => {
         });
     });
 
-    it('formats failed setting updates and successful rollback in English', async () => {
+    it('user reads failed setting updates and successful rollbacks in English', async () => {
         setLocale('en-US');
         mockRegisterGlobalShortcut.mockRejectedValueOnce(new Error('invalid shortcut'));
         mockRegisterGlobalShortcut.mockResolvedValueOnce(undefined);
@@ -211,7 +211,7 @@ describe('Setting built-in tool i18n', () => {
         );
     });
 
-    it('rejects global shortcuts that duplicate search shortcuts before registration', async () => {
+    it('user sees a shortcut that duplicates a search shortcut rejected before registration', async () => {
         setLocale('en-US');
         mockSettingsStore.settings.searchKeybindings = {
             ...createDefaultSearchKeybindings(),
@@ -237,7 +237,7 @@ describe('Setting built-in tool i18n', () => {
         expect(mockRegisterGlobalShortcut).not.toHaveBeenCalledWith('Ctrl+K');
     });
 
-    it('rejects macOS system-reserved global shortcuts before registration', async () => {
+    it('user sees a macOS system-reserved shortcut rejected before registration', async () => {
         setLocale('en-US');
         setPlatform('MacIntel');
 
@@ -260,7 +260,7 @@ describe('Setting built-in tool i18n', () => {
         expect(mockRegisterGlobalShortcut).not.toHaveBeenCalledWith('Cmd+Space');
     });
 
-    it('formats failed rollback in English', async () => {
+    it('user reads failed rollbacks in English', async () => {
         setLocale('en-US');
         mockRegisterGlobalShortcut
             .mockRejectedValueOnce(new Error('invalid shortcut'))
@@ -283,7 +283,7 @@ describe('Setting built-in tool i18n', () => {
         );
     });
 
-    it('exposes language in list, get, schema, approval, and set flows', async () => {
+    it('user sees the language setting exposed in list, get, schema, approval, and set flows', async () => {
         setLocale('en-US');
 
         const listOutput = await listSupportedSettings(settingsStore);
@@ -330,7 +330,7 @@ describe('Setting built-in tool i18n', () => {
         expect(mockUpdateLanguage).toHaveBeenCalledWith('en-US');
     });
 
-    it('localizes invalid setting values while preserving validation details', () => {
+    it('user reads invalid setting values in the active language with validation details kept', () => {
         setLocale('en-US');
 
         expect(() =>

@@ -67,7 +67,7 @@ function installExternalScriptLoadMock(): void {
     } as typeof Node.prototype.appendChild);
 }
 
-describe('show widget renderer i18n opt-out', () => {
+describe('user views an interactive widget in the conversation', () => {
     afterEach(() => {
         vi.restoreAllMocks();
         Node.prototype.replaceChild = nativeReplaceChild;
@@ -84,7 +84,7 @@ describe('show widget renderer i18n opt-out', () => {
             .__touchaiChartConstructed;
     });
 
-    it('marks the renderer host and root as not eligible for global DOM localization', () => {
+    it('user sees the widget host and root left out of global DOM localization', () => {
         const host = document.createElement('div');
         document.body.appendChild(host);
 
@@ -99,7 +99,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('executes ready-phase inline widget initializers after sanitizing the inert markup', async () => {
+    it('user sees ready-phase widget initializers run after the markup is sanitized', async () => {
         const host = document.createElement('div');
         document.body.appendChild(host);
 
@@ -133,7 +133,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('preserves widget style blocks and inline styles during ready rendering', async () => {
+    it('user sees widget style blocks and inline styles kept when the widget renders', async () => {
         const host = document.createElement('div');
         document.body.appendChild(host);
 
@@ -171,7 +171,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('preserves style blocks from full document head markup', async () => {
+    it('user sees style blocks kept from a full document head', async () => {
         const host = document.createElement('div');
         document.body.appendChild(host);
 
@@ -210,7 +210,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('keeps runtime-injected base styles aligned with flat visual rules', () => {
+    it('user sees injected base styles follow the flat visual rules', () => {
         const css = createShowWidgetBaseStyles('[data-touchai-widget-host="probe"]');
 
         expect(css).not.toMatch(/\bbox-shadow\s*:/i);
@@ -218,7 +218,7 @@ describe('show widget renderer i18n opt-out', () => {
         expect(css).not.toMatch(/\bfilter\s*:\s*(?!none\b)/i);
     });
 
-    it('caps rendered widgets at the designed visualization width', () => {
+    it('user sees rendered widgets capped at the designed visualization width', () => {
         const css = createShowWidgetBaseStyles('[data-touchai-widget-host="probe"]');
         const host = document.createElement('div');
         document.body.appendChild(host);
@@ -239,7 +239,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('dispatches widget prompt actions from data attributes and safe legacy onclick handlers', async () => {
+    it('user sees widget prompt actions work from data attributes and safe legacy handlers', async () => {
         const sendPrompt = vi.fn();
         (window as Window & { sendPrompt?: (text: string) => void }).sendPrompt = sendPrompt;
 
@@ -279,7 +279,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('ignores unsafe data-open-link action URLs', async () => {
+    it('user sees unsafe open-link URLs ignored', async () => {
         const openLink = vi.fn();
         (window as Window & { openLink?: (url: string) => void }).openLink = openLink;
 
@@ -313,7 +313,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('leaves relative anchor links for the host router', async () => {
+    it('user sees relative anchor links left for the host router', async () => {
         const openLink = vi.fn();
         (window as Window & { openLink?: (url: string) => void }).openLink = openLink;
 
@@ -346,7 +346,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('hardens external anchor fallback opens without an opener reference', async () => {
+    it('user sees external anchors opened without an opener reference', async () => {
         const open = vi.spyOn(window, 'open').mockImplementation(() => null);
         const host = document.createElement('div');
         document.body.appendChild(host);
@@ -375,7 +375,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('keeps script-bound widget interactions available for internal calculations', async () => {
+    it('user sees script-bound widget interactions available for internal calculations', async () => {
         const host = document.createElement('div');
         document.body.appendChild(host);
 
@@ -407,7 +407,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('scopes direct document body, documentElement, and this.document access to the widget root', async () => {
+    it('user sees direct document access scoped to the widget root', async () => {
         const host = document.createElement('div');
         document.body.appendChild(host);
 
@@ -446,7 +446,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('runs button-bound inline calculations that auto-trigger on render', async () => {
+    it('user sees button-bound inline calculations run when the widget renders', async () => {
         const host = document.createElement('div');
         document.body.appendChild(host);
 
@@ -488,7 +488,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('binds duplicate-id widget scripts to their own rendered root', async () => {
+    it('user sees duplicate-id widget scripts bound to their own root', async () => {
         const firstHost = document.createElement('div');
         const secondHost = document.createElement('div');
         document.body.append(firstHost, secondHost);
@@ -539,7 +539,7 @@ describe('show widget renderer i18n opt-out', () => {
         secondRenderer.destroy();
     });
 
-    it('keeps sample-style onclick timers scoped when duplicate widgets are rendered', async () => {
+    it('user sees sample-style inline timers scoped when duplicate widgets render', async () => {
         const firstHost = document.createElement('div');
         const secondHost = document.createElement('div');
         document.body.append(firstHost, secondHost);
@@ -629,7 +629,7 @@ describe('show widget renderer i18n opt-out', () => {
         secondRenderer.destroy();
     });
 
-    it('keeps sample-style addEventListener SVG actions interactive', async () => {
+    it('user sees sample-style SVG actions stay interactive', async () => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const host = document.createElement('div');
         document.body.appendChild(host);
@@ -695,7 +695,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('keeps reported coin-change controls, SVG updates, and timers interactive', async () => {
+    it('user sees reported interactive controls, SVG updates, and timers work', async () => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const host = document.createElement('div');
         document.body.appendChild(host);
@@ -848,7 +848,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('does not execute non-classic inline script payloads', async () => {
+    it('user does not see non-classic inline scripts executed', async () => {
         const host = document.createElement('div');
         document.body.appendChild(host);
 
@@ -874,7 +874,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('does not load unsafe external widget script URLs captured before sanitization', async () => {
+    it('user does not see unsafe external widget scripts loaded', async () => {
         const appendedScriptUrls: string[] = [];
         vi.spyOn(Node.prototype, 'appendChild').mockImplementation(function (
             this: Node,
@@ -919,7 +919,7 @@ describe('show widget renderer i18n opt-out', () => {
         renderer.destroy();
     });
 
-    it('waits for an allowed external widget script before running the following initializer', async () => {
+    it('user sees the following initializer wait for an allowed external script', async () => {
         installExternalScriptLoadMock();
 
         const host = document.createElement('div');

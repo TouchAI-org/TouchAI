@@ -36,12 +36,12 @@ function collectSchemaDescriptions(value: unknown): string[] {
     ];
 }
 
-describe('ShowWidget generated summaries i18n', () => {
+describe('user reads widget summaries in their own language', () => {
     beforeEach(() => {
         setLocale('zh-CN');
     });
 
-    it('localizes rendered summary labels in English mode while preserving model-provided fields', () => {
+    it('user reads rendered summary labels in English while model-provided fields stay as written', () => {
         setLocale('en-US');
 
         const result = buildShowWidgetSummary(createPayload());
@@ -57,7 +57,7 @@ describe('ShowWidget generated summaries i18n', () => {
         expect(result).not.toContain('说明:');
     });
 
-    it('localizes removed summary labels in English mode', () => {
+    it('user reads removed summary labels in English', () => {
         setLocale('en-US');
 
         const result = buildShowWidgetSummary(
@@ -73,7 +73,7 @@ describe('ShowWidget generated summaries i18n', () => {
         expect(result).not.toContain('自定义可视化已移除');
     });
 
-    it('localizes draft fallback title and description in English mode', () => {
+    it('user reads the draft fallback title and description in English', () => {
         setLocale('en-US');
 
         const draft = buildShowWidgetDraftFromArgumentsBuffer('call-1', '{"widget_code":"<div>');
@@ -85,7 +85,7 @@ describe('ShowWidget generated summaries i18n', () => {
         });
     });
 
-    it('localizes visualize_read_me conversation summary target in English mode', () => {
+    it('user reads the guideline summary target in English', () => {
         setLocale('en-US');
 
         expect(visualizeReadMeTool.buildConversationSemantic({})).toMatchObject({
@@ -94,7 +94,7 @@ describe('ShowWidget generated summaries i18n', () => {
         });
     });
 
-    it('localizes show_widget fallback conversation summary target in English mode', () => {
+    it('user reads the widget summary fallback target in English', () => {
         setLocale('en-US');
 
         expect(showWidgetTool.buildConversationSemantic({})).toMatchObject({
@@ -103,14 +103,14 @@ describe('ShowWidget generated summaries i18n', () => {
         });
     });
 
-    it('does not instruct Chart.js widgets to rely on stripped onload attributes', () => {
+    it('user is not told to rely on stripped onload attributes in chart widgets', () => {
         const guidelines = readShowWidgetGuidelines(['chart']);
 
         expect(guidelines.markdown).toContain('Chart.js');
         expect(guidelines.markdown).not.toContain('onload=');
     });
 
-    it('tells the model to call show_widget instead of answering with plain text after loading guidelines', () => {
+    it('user sees the model told to draw a widget instead of answering in plain text after reading guidelines', () => {
         const result = buildGuidelineResult(readShowWidgetGuidelines(['diagram']));
 
         expect(result).toContain(
@@ -121,7 +121,7 @@ describe('ShowWidget generated summaries i18n', () => {
         );
     });
 
-    it('uses namespaced widget tool names in model-facing tool instructions', () => {
+    it('user sees namespaced widget tool names in model-facing instructions', () => {
         const modelFacingDescriptions = [
             showWidgetTool.description,
             visualizeReadMeTool.description,
@@ -137,7 +137,7 @@ describe('ShowWidget generated summaries i18n', () => {
         expect(withoutNamespacedNames).not.toMatch(/\b(?:show_widget|visualize_read_me)\b/);
     });
 
-    it('does not leak bare widget tool names in returned guideline text', () => {
+    it('user does not see bare widget tool names leak into guideline text', () => {
         const result = buildGuidelineResult(
             readShowWidgetGuidelines(['diagram', 'interactive', 'chart'])
         );
@@ -148,7 +148,7 @@ describe('ShowWidget generated summaries i18n', () => {
         expect(withoutNamespacedNames).not.toMatch(/\b(?:show_widget|visualize_read_me|read_me)\b/);
     });
 
-    it('does not include guideline examples that contradict flat visual rules', () => {
+    it('user does not see guideline examples that contradict the flat visual rules', () => {
         const result = buildGuidelineResult(
             readShowWidgetGuidelines(['diagram', 'interactive', 'art'])
         );
@@ -160,7 +160,7 @@ describe('ShowWidget generated summaries i18n', () => {
         expect(result).not.toMatch(/glows amber|glowing warm/i);
     });
 
-    it('does not tell the model to delay the visible root element behind leading CSS', () => {
+    it('user is not told to delay the visible root element behind leading CSS', () => {
         const result = buildGuidelineResult(readShowWidgetGuidelines(['interactive']));
         const modelFacingDescriptions = [
             showWidgetTool.description,
@@ -177,7 +177,7 @@ describe('ShowWidget generated summaries i18n', () => {
         expect(modelFacingDescriptions).not.toMatch(/```html\s*<script\b/i);
     });
 
-    it('does not mention legacy artifact tool names that TouchAI does not expose', () => {
+    it('user does not see legacy artifact tool names that TouchAI does not expose', () => {
         const result = buildGuidelineResult(
             readShowWidgetGuidelines(['diagram', 'interactive', 'mockup', 'art'])
         );
@@ -187,7 +187,7 @@ describe('ShowWidget generated summaries i18n', () => {
         expect(result).not.toMatch(/\bClaude\b|claude\.ai/i);
     });
 
-    it('does not recommend custom UI tags that the widget runtime does not implement', () => {
+    it('user does not see custom UI tags recommended that the widget runtime does not implement', () => {
         const result = buildGuidelineResult(readShowWidgetGuidelines(['interactive', 'mockup']));
 
         expect(result).not.toMatch(/<\/?ui-(?:card|badge|button|input)\b/i);
@@ -196,7 +196,7 @@ describe('ShowWidget generated summaries i18n', () => {
         expect(result).not.toMatch(/host app'?s component layer/i);
     });
 
-    it('does not recommend sanitizer-stripped inline event attributes for interactions', () => {
+    it('user does not see sanitizer-stripped inline event attributes recommended for interactions', () => {
         const result = buildGuidelineResult(
             readShowWidgetGuidelines(['diagram', 'interactive', 'mockup', 'chart'])
         );
@@ -208,7 +208,7 @@ describe('ShowWidget generated summaries i18n', () => {
         expect(result).toContain('addEventListener');
     });
 
-    it('keeps Mermaid ERD guidance compatible with classic inline widget scripts', () => {
+    it('user sees Mermaid ERD guidance that works with classic inline widget scripts', () => {
         const result = buildGuidelineResult(readShowWidgetGuidelines(['diagram']));
 
         expect(result).not.toContain('<script type="module">');

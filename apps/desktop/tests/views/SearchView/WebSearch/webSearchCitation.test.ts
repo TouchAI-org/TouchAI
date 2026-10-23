@@ -109,7 +109,7 @@ function previewMetric(name: 'left' | 'top' | 'max-width' | 'max-height'): numbe
     return Number(match?.[1] ?? '0');
 }
 
-describe('WebSearchCitation layout', () => {
+describe('user sees a source chip and its preview', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         viewport = { width: 750, height: 600 };
@@ -126,7 +126,7 @@ describe('WebSearchCitation layout', () => {
         document.body.innerHTML = '';
     });
 
-    it('shows the page title capped at 8 characters on the chip', () => {
+    it('user sees the page title capped at 8 characters on the chip', () => {
         const wrapper = mount(WebSearchCitation, {
             props: {
                 source: { ...source, title: 'A very long page title here' },
@@ -136,7 +136,7 @@ describe('WebSearchCitation layout', () => {
         expect(wrapper.get('.web-search-citation__label').text()).toBe('A very l…');
     });
 
-    it('keeps a short title as-is', () => {
+    it('user keeps a short title as-is', () => {
         const wrapper = mount(WebSearchCitation, {
             props: { source: { ...source, title: 'Short' } },
         });
@@ -144,7 +144,7 @@ describe('WebSearchCitation layout', () => {
         expect(wrapper.get('.web-search-citation__label').text()).toBe('Short');
     });
 
-    it('falls back to the site name when the title is missing', () => {
+    it('user falls back to the site name when the title is missing', () => {
         const wrapper = mount(WebSearchCitation, {
             props: { source: { ...source, title: '' } },
         });
@@ -152,7 +152,7 @@ describe('WebSearchCitation layout', () => {
         expect(wrapper.get('.web-search-citation__label').text()).toBe('example');
     });
 
-    it('shows only the favicon on a circular background', () => {
+    it('user sees only the favicon on a circular background', () => {
         const wrapper = mount(WebSearchCitation, { props: { source } });
 
         const chip = wrapper.get('.web-search-citation__chip');
@@ -160,7 +160,7 @@ describe('WebSearchCitation layout', () => {
         expect(wrapper.find('.web-search-citation__index').exists()).toBe(false);
     });
 
-    it('renders the preview into body so clipping ancestors cannot cut it', async () => {
+    it('user sees the preview into body so clipping ancestors cannot cut it', async () => {
         // 这是本轮的核心回归：预览必须脱离会话面板的 overflow 裁剪。
         const panel = document.createElement('div');
         panel.style.overflow = 'hidden';
@@ -177,7 +177,7 @@ describe('WebSearchCitation layout', () => {
         expect(document.body.contains(preview)).toBe(true);
     });
 
-    it('positions the preview with fixed coordinates', async () => {
+    it('user positions the preview with fixed coordinates', async () => {
         chipRect = rect(100, 100, 18, 18);
         const wrapper = mount(WebSearchCitation, { props: { source } });
 
@@ -187,7 +187,7 @@ describe('WebSearchCitation layout', () => {
         expect(previewMetric('top')).toBe(118 + 8);
     });
 
-    it('pulls the preview back inside the viewport on the right', async () => {
+    it('user pulls the preview back inside the viewport on the right', async () => {
         // chip 贴近视口右缘：预览必须左移，右缘不越界
         chipRect = rect(700, 100, 18, 18);
         const wrapper = mount(WebSearchCitation, { props: { source } });
@@ -199,7 +199,7 @@ describe('WebSearchCitation layout', () => {
         expect(left).toBeLessThan(chipRect.left);
     });
 
-    it('keeps the preview inside the content column instead of the viewport edge', async () => {
+    it('user keeps the preview inside the content column instead of the viewport edge', async () => {
         // 正文列比视口窄：卡片右缘不能伸进正文右侧的留白。
         chipRect = rect(519, 100, 18, 18);
         columnRect = rect(40, 0, 670, 600);
@@ -214,7 +214,7 @@ describe('WebSearchCitation layout', () => {
         expect(previewMetric('left') + PREVIEW_SIZE.width).toBe(698);
     });
 
-    it('shrinks the preview to the content column when the column is narrow', async () => {
+    it('user shrinks the preview to the content column when the column is narrow', async () => {
         chipRect = rect(150, 100, 18, 18);
         columnRect = rect(40, 0, 200, 600);
         const host = document.createElement('div');
@@ -228,7 +228,7 @@ describe('WebSearchCitation layout', () => {
         expect(previewMetric('max-width')).toBe(228 - 40);
     });
 
-    it('caps the preview height when neither side has enough room', async () => {
+    it('user caps the preview height when neither side has enough room', async () => {
         // 窗口很矮：上下都放不下时必须收窄高度，否则卡片底部被视口切掉。
         viewport = { width: 750, height: 160 };
         chipRect = rect(100, 70, 18, 18);
@@ -243,7 +243,7 @@ describe('WebSearchCitation layout', () => {
         expect(previewMetric('top') + maxHeight).toBeLessThanOrEqual(160);
     });
 
-    it('flips the preview above when there is no room below', async () => {
+    it('user flips the preview above when there is no room below', async () => {
         // 贴近视口底部，下方只剩 8px
         viewport = { width: 750, height: 600 };
         chipRect = rect(100, 574, 18, 18);
@@ -259,7 +259,7 @@ describe('WebSearchCitation layout', () => {
         expect(top + height).toBeLessThanOrEqual(chipRect.top);
     });
 
-    it('defers clamping instead of guessing when the preview has no measured size yet', async () => {
+    it('user defers clamping instead of guessing when the preview has no measured size yet', async () => {
         // 首帧拿不到尺寸时不猜宽度，等 ResizeObserver 量到再算。
         chipRect = rect(600, 100, 18, 18);
         previewMeasuresZero = true;
@@ -270,7 +270,7 @@ describe('WebSearchCitation layout', () => {
         expect(previewStyleText()).not.toContain('max-width');
     });
 
-    it('clamps with the measured preview width instead of a hardcoded constant', async () => {
+    it('user clamps with the measured preview width instead of a hardcoded constant', async () => {
         // 夹取必须用实测宽度：写死常量会和 CSS 脱钩。
         previewSize = { width: 400, height: 96 };
         chipRect = rect(600, 100, 18, 18);

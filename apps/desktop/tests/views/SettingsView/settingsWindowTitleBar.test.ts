@@ -22,14 +22,14 @@ vi.mock('@components/AppIcon.vue', () => ({
     default: { props: ['name'], template: '<span :data-name="name" />' },
 }));
 
-describe('SettingsWindowTitleBar', () => {
+describe('user controls the settings window', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         windowApiMock.currentWindow.isMaximized.mockReset().mockResolvedValue(false);
         windowApiMock.currentWindow.onResized.mockReset().mockResolvedValue(() => undefined);
     });
 
-    it('reflects an already maximized window on mount', async () => {
+    it('user reflects an already maximized window on mount', async () => {
         windowApiMock.currentWindow.isMaximized.mockResolvedValue(true);
         const wrapper = mount(SettingsWindowTitleBar);
         try {
@@ -43,7 +43,7 @@ describe('SettingsWindowTitleBar', () => {
         }
     });
 
-    it('tracks external resize/maximize changes and releases its listener', async () => {
+    it('user tracks external resize/maximize changes and releases its listener', async () => {
         const unlisten = vi.fn();
         let notifyResized: (() => void) | undefined;
         windowApiMock.currentWindow.onResized.mockImplementation((listener: () => void) => {
@@ -68,7 +68,7 @@ describe('SettingsWindowTitleBar', () => {
         expect(unlisten).toHaveBeenCalledOnce();
     });
 
-    it('leaves titlebar double-click maximization to the native drag region', async () => {
+    it('user leaves titlebar double-click maximization to the native drag region', async () => {
         const wrapper = mount(SettingsWindowTitleBar);
         try {
             await flushPromises();
@@ -85,13 +85,21 @@ describe('SettingsWindowTitleBar', () => {
         }
     });
 
-    it('toggles maximization from the explicit window control', async () => {
+    it('user toggles maximization from the explicit window control', async () => {
         const wrapper = mount(SettingsWindowTitleBar);
         try {
             await flushPromises();
+            expect(
+                wrapper.get('[data-testid="settings-window-maximize"]').attributes('aria-label')
+            ).toBe('最大化');
+
             await wrapper.get('[data-testid="settings-window-maximize"]').trigger('click');
             await flushPromises();
             expect(windowApiMock.currentWindow.maximize).toHaveBeenCalledOnce();
+            // The control now offers the opposite action.
+            expect(
+                wrapper.get('[data-testid="settings-window-maximize"]').attributes('aria-label')
+            ).toBe('还原');
 
             windowApiMock.currentWindow.isMaximized.mockResolvedValue(true);
             await wrapper.get('[data-testid="settings-window-maximize"]').trigger('click');

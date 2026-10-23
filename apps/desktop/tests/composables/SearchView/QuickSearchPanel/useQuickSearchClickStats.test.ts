@@ -26,7 +26,7 @@ async function flushAsyncWork() {
     await Promise.resolve();
 }
 
-describe('useQuickSearchClickStats', () => {
+describe('when the quick search panel ranks results by what the user clicks', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         findQuickSearchClicksByQueryMock.mockResolvedValue([]);
@@ -37,7 +37,7 @@ describe('useQuickSearchClickStats', () => {
         document.body.innerHTML = '';
     });
 
-    it('loads normalized click stats once and reorders results by click count while keeping ties stable', async () => {
+    it('user sees the most clicked results first while equally clicked ones keep their order', async () => {
         const stats = useQuickSearchClickStats();
         const alpha = createShortcut('Alpha', 'D:/Alpha.lnk');
         const beta = createShortcut('Beta', 'D:/Beta.lnk');
@@ -61,7 +61,7 @@ describe('useQuickSearchClickStats', () => {
         expect(secondRank).toEqual([alpha, beta, gamma]);
     });
 
-    it('records normalized clicks into the in-memory cache and persists them asynchronously', async () => {
+    it('user gets the click remembered for the next search', async () => {
         const stats = useQuickSearchClickStats();
         const foo = createShortcut('Foo', 'D:/Tools/Foo.lnk');
         const bar = createShortcut('Bar', 'D:/Tools/Bar.lnk');
@@ -80,7 +80,7 @@ describe('useQuickSearchClickStats', () => {
         expect(ranked).toEqual([foo, bar]);
     });
 
-    it('falls back to the original order when loading click stats fails', async () => {
+    it('user still sees results in their original order when click history cannot be read', async () => {
         const stats = useQuickSearchClickStats();
         const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const alpha = createShortcut('Alpha', 'D:/Alpha.lnk');

@@ -132,7 +132,7 @@ function collectToolEvents() {
     };
 }
 
-describe('AiRequestExecutor adaptive tool timeout wiring', () => {
+describe('user lets the model extend a tool call timeout', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         executeBuiltInToolMock.mockResolvedValue(null);
@@ -145,7 +145,7 @@ describe('AiRequestExecutor adaptive tool timeout wiring', () => {
         resolveToolDefinitionsMock.mockResolvedValue([adaptiveToolDefinition(MCP_TOOL_NAME)]);
     });
 
-    it('forwards the requested timeout to the MCP executor and strips _meta from arguments', async () => {
+    it('user sees the requested timeout reach the tool executor without leaking into the arguments', async () => {
         streamToolCallThenFinish(JSON.stringify({ query: 'hi', _meta: { timeoutMs: 45000 } }));
 
         const result = await new AiRequestExecutor().runAttempt({
@@ -164,7 +164,7 @@ describe('AiRequestExecutor adaptive tool timeout wiring', () => {
         );
     });
 
-    it('keeps _meta out of the MCP call_start event and tool log input', async () => {
+    it('user never sees the timeout hint in the tool-call transcript or log', async () => {
         streamToolCallThenFinish(JSON.stringify({ query: 'hi', _meta: { timeoutMs: 45000 } }));
         const { events, onChunk } = collectToolEvents();
 
@@ -183,7 +183,7 @@ describe('AiRequestExecutor adaptive tool timeout wiring', () => {
         );
     });
 
-    it('does not forward a timeout when the model omits _meta', async () => {
+    it('user sees the server timeout kept when the model asks for no extension', async () => {
         streamToolCallThenFinish(JSON.stringify({ query: 'hi' }));
 
         await new AiRequestExecutor().runAttempt({
@@ -198,7 +198,7 @@ describe('AiRequestExecutor adaptive tool timeout wiring', () => {
         );
     });
 
-    it('discards malformed _meta while preserving valid business arguments', async () => {
+    it('user sees malformed timeout hints ignored while the real arguments survive', async () => {
         streamToolCallThenFinish(JSON.stringify({ query: 'hi', _meta: 'not-an-object' }));
 
         await new AiRequestExecutor().runAttempt({
@@ -213,7 +213,7 @@ describe('AiRequestExecutor adaptive tool timeout wiring', () => {
         );
     });
 
-    it('preserves a business _meta argument for tools that do not support adaptive timeouts', async () => {
+    it('user sees the original argument preserved when that tool has no adaptive timeout', async () => {
         resolveToolDefinitionsMock.mockResolvedValue([plainToolDefinition(MCP_TOOL_NAME)]);
         streamToolCallThenFinish(JSON.stringify({ query: 'hi', _meta: { timeoutMs: 45000 } }));
 

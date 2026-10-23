@@ -38,8 +38,8 @@ const EXPECTED_GENERAL_SETTING_KEYS: GeneralSettingKey[] = [
     'search_settings',
 ];
 
-describe('setting registry', () => {
-    it('declares every persisted general setting key in one registry', () => {
+describe('user changes a persisted setting', () => {
+    it('user declares every persisted general setting key in one registry', () => {
         expect(GENERAL_SETTING_DEFINITIONS.map((definition) => definition.key)).toEqual(
             EXPECTED_GENERAL_SETTING_KEYS
         );
@@ -49,19 +49,19 @@ describe('setting registry', () => {
         expect(getGeneralSettingDefinition('missing' as GeneralSettingKey)).toBeNull();
     });
 
-    it('keeps definition keys unique so store load order is unambiguous', () => {
+    it('user keeps definition keys unique so store load order is unambiguous', () => {
         const keys = GENERAL_SETTING_DEFINITIONS.map((definition) => definition.key);
 
         expect(new Set(keys).size).toBe(keys.length);
     });
 
-    it('derives json-backed general settings from the json settings registry', () => {
+    it('user derives json-backed general settings from the json settings registry', () => {
         expect(JSON_GENERAL_SETTING_DEFINITIONS.map((definition) => definition.key)).toEqual(
             JSON_SETTINGS_SECTIONS.map((section) => section.key)
         );
     });
 
-    it('applies, serializes, and exposes event values through definitions', () => {
+    it('user applies, serializes, and exposes event values through definitions', () => {
         const settings = createDefaultGeneralSettings();
 
         applyGeneralSettingValue(settings, 'start_on_boot', 'true');
@@ -84,7 +84,7 @@ describe('setting registry', () => {
         );
     });
 
-    it('normalizes invalid persisted scalar values back to declarative defaults', () => {
+    it('user normalizes invalid persisted scalar values back to declarative defaults', () => {
         const settings = createDefaultGeneralSettings();
 
         applyPersistedGeneralSettingValue(settings, 'output_scroll_behavior', 'invalid');
@@ -97,13 +97,13 @@ describe('setting registry', () => {
         expect(settings.appUpdateAutoCheck).toBe(false);
     });
 
-    it('keeps language as a persisted-before-apply setting', () => {
+    it('user keeps language as a persisted-before-apply setting', () => {
         expect(getGeneralSettingDefinition('language')).toMatchObject({
             persistBeforeApply: true,
         });
     });
 
-    it('clones nested settings without sharing mutable references', () => {
+    it('user clones nested settings without sharing mutable references', () => {
         const settings = createDefaultGeneralSettings();
         const clone = cloneGeneralSettingsSnapshot(settings);
 
@@ -114,7 +114,7 @@ describe('setting registry', () => {
         expect(settings.searchSettings.providers.anysearch.enabled).toBe(true);
     });
 
-    it('declares stable computed and updater bindings in the settings registry', () => {
+    it('user declares stable computed and updater bindings in the settings registry', () => {
         expect(GENERAL_SETTING_COMPUTED_BINDINGS.map((binding) => binding.exposedName)).toEqual([
             'globalShortcut',
             'outputScrollBehavior',
@@ -147,7 +147,7 @@ describe('setting registry', () => {
         ]);
     });
 
-    it('creates computed refs from declared state bindings', () => {
+    it('user creates computed refs from declared state bindings', () => {
         const settings = ref(createDefaultGeneralSettings());
         const computedRefs = createGeneralSettingsComputedRefs(settings);
 
@@ -158,7 +158,7 @@ describe('setting registry', () => {
         expect(computedRefs.globalShortcut.value).toBe('Ctrl+Space');
     });
 
-    it('creates updater methods from declared key bindings', async () => {
+    it('user creates updater methods from declared key bindings', async () => {
         const updateSetting = vi.fn(async (key: GeneralSettingKey, value: GeneralSettingValue) => {
             void key;
             void value;

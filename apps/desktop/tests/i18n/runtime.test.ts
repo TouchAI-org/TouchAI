@@ -17,15 +17,15 @@ import {
 import { messages } from '@/i18n/messages';
 import { hasTextTranslation } from '@/i18n/textMap';
 
-describe('i18n runtime', () => {
-    it('keeps locale message dictionaries complete', () => {
+describe('user switches the app language', () => {
+    it('user keeps locale message dictionaries complete', () => {
         const zhKeys = Object.keys(messages['zh-CN']).sort();
         const enKeys = Object.keys(messages['en-US']).sort();
 
         expect(enKeys).toEqual(zhKeys);
     });
 
-    it('normalizes unsupported locales to the default locale', () => {
+    it('user normalizes unsupported locales to the default locale', () => {
         expect(DEFAULT_LOCALE).toBe('zh-CN');
         expect(isSupportedLocale('en-US')).toBe(true);
         expect(isSupportedLocale('fr-FR')).toBe(false);
@@ -33,7 +33,7 @@ describe('i18n runtime', () => {
         expect(normalizeLocale(null)).toBe('zh-CN');
     });
 
-    it('maps first-launch system locales to the supported app locales', () => {
+    it('user maps first-launch system locales to the supported app locales', () => {
         Object.defineProperty(window.navigator, 'language', {
             configurable: true,
             value: 'en-GB',
@@ -52,7 +52,7 @@ describe('i18n runtime', () => {
         );
     });
 
-    it('translates structured messages and interpolates params', () => {
+    it('user translates structured messages and interpolates params', () => {
         setLocale('en-US');
 
         expect(t('settings.general.title')).toBe('General settings');
@@ -60,7 +60,7 @@ describe('i18n runtime', () => {
         expect(t('common.count', { count: 3 })).toBe('3 items');
     });
 
-    it('uses vue-i18n pluralization for keyed messages', () => {
+    it('user uses vue-i18n pluralization for keyed messages', () => {
         setLocale('en-US');
 
         expect(tp('settings.ai.modelSearchPlaceholder', 1)).toBe('Search 1 model...');
@@ -70,7 +70,7 @@ describe('i18n runtime', () => {
         expect(tp('settings.ai.modelSearchPlaceholder', 2)).toBe('搜索2个模型...');
     });
 
-    it('keeps keyed vue-i18n messages separate from the legacy source-text bridge', () => {
+    it('user keeps keyed vue-i18n messages separate from the legacy source-text bridge', () => {
         setLocale('en-US');
 
         expect(i18n.mode).toBe('composition');
@@ -85,7 +85,7 @@ describe('i18n runtime', () => {
         expect(i18n.global.te('设置')).toBe(false);
     });
 
-    it('translates exact Chinese UI text and preserves unknown text', () => {
+    it('user translates exact Chinese UI text and preserves unknown text', () => {
         setLocale('en-US');
 
         expect(hasTextTranslation('设置')).toBe(true);
@@ -97,7 +97,7 @@ describe('i18n runtime', () => {
         expect(tt('不存在的产品文案')).toBe('不存在的产品文案');
     });
 
-    it('switches back to Chinese and preserves interpolation', () => {
+    it('user switches back to Chinese and preserves interpolation', () => {
         setLocale('en-US');
         expect(t('settings.language.changed', { language: 'English' })).toBe(
             'Language changed to English'
@@ -109,7 +109,7 @@ describe('i18n runtime', () => {
         );
     });
 
-    it('updates document language when setting the locale', () => {
+    it('user updates document language when setting the locale', () => {
         document.documentElement.lang = '';
 
         expect(setLocale('en-US')).toBe('en-US');
@@ -119,7 +119,7 @@ describe('i18n runtime', () => {
         expect(document.documentElement.lang).toBe('zh-CN');
     });
 
-    it('installs vue-i18n and the $tt compatibility global property', () => {
+    it('user installs vue-i18n and the $tt compatibility global property', () => {
         const app = {
             config: {
                 globalProperties: {},

@@ -48,7 +48,7 @@ function never<T>(): Promise<T> {
     return new Promise<T>(() => undefined);
 }
 
-describe('McpManager.executeTool adaptive timeout', () => {
+describe('user lets the model choose how long an MCP tool may run', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useFakeTimers();
@@ -65,7 +65,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         return new McpManager();
     }
 
-    it('uses the server timeout when the model requests nothing', async () => {
+    it('user sees the server timeout used when the model asks for no change', async () => {
         callToolMock.mockReturnValue(never());
         const mcpManager = await manager();
 
@@ -83,7 +83,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         await assertion;
     });
 
-    it('applies a shorter model-requested timeout at exactly the requested deadline', async () => {
+    it('user sees a shorter timeout end the call at exactly the requested deadline', async () => {
         callToolMock.mockReturnValue(never());
         const mcpManager = await manager();
 
@@ -106,7 +106,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         await assertion;
     });
 
-    it('caps a model-requested timeout at the server-configured ceiling', async () => {
+    it('user never sees a model-requested timeout exceed the server ceiling', async () => {
         callToolMock.mockReturnValue(never());
         const mcpManager = await manager();
 
@@ -133,7 +133,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, RESOLVED.toolTimeout);
     });
 
-    it('ignores a below-floor request and keeps the configured timeout', async () => {
+    it('user sees a below-minimum request ignored instead of cutting the call short', async () => {
         callToolMock.mockReturnValue(never());
         const mcpManager = await manager();
 
@@ -161,7 +161,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, RESOLVED.toolTimeout);
     });
 
-    it('forwards the effective timeout to the native call so the server can be cancelled', async () => {
+    it('user sees the effective timeout passed to the server so the call can be cancelled', async () => {
         callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
         const mcpManager = await manager();
 
@@ -177,7 +177,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, 5000);
     });
 
-    it('forwards the server-configured timeout when the model requests nothing', async () => {
+    it('user sees the server timeout passed when the model asks for no change', async () => {
         callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
         const mcpManager = await manager();
 
@@ -186,7 +186,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, RESOLVED.toolTimeout);
     });
 
-    it('resolves with the tool result when the native call finishes first', async () => {
+    it('user gets the tool result when it arrives before the deadline', async () => {
         callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
         const mcpManager = await manager();
 
@@ -203,7 +203,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
     });
 
     it.each([0, -1])(
-        'treats a configured timeout of %i as disabled and keeps it out of the native u64 boundary',
+        'user sees a timeout of %i treated as disabled and kept away from the native boundary',
         async (toolTimeout) => {
             callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
             const mcpManager = await manager();
@@ -222,7 +222,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         }
     );
 
-    it('ignores a model-requested timeout when the server disables it', async () => {
+    it('user sees no model timeout honored when the server disables timeouts', async () => {
         callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
         const mcpManager = await manager();
 
@@ -238,7 +238,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         expect(callToolMock).toHaveBeenCalledWith(1, 'search', {}, undefined);
     });
 
-    it('localizes the native timeout error before it reaches the caller', async () => {
+    it('user reads the timeout failure in their own language', async () => {
         callToolMock.mockRejectedValue(new Error('Tool execution timed out (5000ms)'));
         const mcpManager = await manager();
 
@@ -254,7 +254,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         ).rejects.toThrow('工具执行超时（5000ms）');
     });
 
-    it('reports a positive timeout above the safe integer range as a config error', async () => {
+    it('user sees an out-of-range timeout reported as a configuration error', async () => {
         callToolMock.mockResolvedValue(SUCCESS_RESPONSE);
         const mcpManager = await manager();
 
@@ -271,7 +271,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
         expect(callToolMock).not.toHaveBeenCalled();
     });
 
-    it('does not fire the local guard early for a timeout beyond the timer range', async () => {
+    it('user is not cut off early by the local guard for a very long timeout', async () => {
         // 2^31 ms overflows setTimeout: a naive timer would reject almost immediately.
         callToolMock.mockReturnValue(never());
         const mcpManager = await manager();
@@ -291,7 +291,7 @@ describe('McpManager.executeTool adaptive timeout', () => {
     });
 });
 
-describe('McpManager.getEnabledToolDefinitions adaptive timeout ceiling', () => {
+describe('user sees each MCP tool advertise its own timeout ceiling', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         findEnabledMcpToolsByServerIdMock.mockResolvedValue([
@@ -336,15 +336,15 @@ describe('McpManager.getEnabledToolDefinitions adaptive timeout ceiling', () => 
         return definitions[0]?.adaptiveTimeoutCeilingMs;
     }
 
-    it('exposes the server-configured timeout as the ceiling', async () => {
+    it('user sees the server timeout advertised as the ceiling', async () => {
         await expect(ceilingFor(30000)).resolves.toBe(30000);
     });
 
-    it('omits the _meta envelope when the server disables its timeout', async () => {
+    it('user sees no timeout hint when the server disables timeouts', async () => {
         await expect(ceilingFor(0)).resolves.toBeUndefined();
     });
 
-    it('omits the _meta envelope when the configured timeout leaves no valid range', async () => {
+    it('user sees no timeout hint when the configured timeout leaves no valid range', async () => {
         // 500ms < 1s minimum: advertising [1s, 500ms] would be an invalid schema.
         await expect(ceilingFor(500)).resolves.toBeUndefined();
     });

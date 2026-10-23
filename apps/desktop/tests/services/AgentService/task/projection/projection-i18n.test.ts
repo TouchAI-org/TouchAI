@@ -31,7 +31,7 @@ function createProjection(snapshot = createSnapshot()): SessionTaskProjection {
     return new SessionTaskProjection(snapshot, vi.fn());
 }
 
-describe('SessionTaskProjection i18n statuses', () => {
+describe('user reads live task statuses in their own language', () => {
     beforeEach(() => {
         setLocale('zh-CN');
         let uuidIndex = 0;
@@ -40,7 +40,7 @@ describe('SessionTaskProjection i18n statuses', () => {
         );
     });
 
-    it('uses English failed request status when the active locale is English', () => {
+    it('user reads the failed request status in English', () => {
         setLocale('en-US');
         const snapshot = createSnapshot();
         const projection = createProjection(snapshot);
@@ -59,7 +59,7 @@ describe('SessionTaskProjection i18n statuses', () => {
         ]);
     });
 
-    it('localizes known app-generated AiError default text received through task failed events', () => {
+    it('user reads known app-generated failure text in the active language', () => {
         setLocale('en-US');
         const snapshot = createSnapshot();
         const projection = createProjection(snapshot);
@@ -84,7 +84,7 @@ describe('SessionTaskProjection i18n statuses', () => {
         );
     });
 
-    it('replaces unsupported image endpoint errors with a friendly model capability message', () => {
+    it('user sees unsupported image endpoint errors replaced with a friendly capability message', () => {
         setLocale('zh-CN');
         const snapshot = createSnapshot();
         const projection = createProjection(snapshot);
@@ -106,7 +106,7 @@ describe('SessionTaskProjection i18n statuses', () => {
         expect(snapshot.error).toBe('当前模型不支持图片/文件输入，请选择合适模型继续。');
     });
 
-    it('uses English cancelled request status when the active locale is English', () => {
+    it('user reads the cancelled request status in English', () => {
         setLocale('en-US');
         const snapshot = createSnapshot();
         const projection = createProjection(snapshot);
@@ -125,7 +125,7 @@ describe('SessionTaskProjection i18n statuses', () => {
         ]);
     });
 
-    it('uses English pending approval cancellation text when clearing approvals', async () => {
+    it('user reads the pending approval cancellation text in English', async () => {
         setLocale('en-US');
         const snapshot = createSnapshot();
         const projection = createProjection(snapshot);
@@ -147,7 +147,7 @@ describe('SessionTaskProjection i18n statuses', () => {
         });
     });
 
-    it('updates built-in tool presentation from structured call_end semantic', () => {
+    it('user sees built-in tool presentation updated from a structured call end', () => {
         setLocale('zh-CN');
         const snapshot = createSnapshot();
         const projection = createProjection(snapshot);

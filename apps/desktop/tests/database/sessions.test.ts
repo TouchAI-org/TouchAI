@@ -7,8 +7,8 @@ function getRequest(payload: InvokeArgs | undefined) {
     return (payload as { request?: { sql: string; params?: unknown[]; method: string } })?.request;
 }
 
-describe('session database queries', () => {
-    it('retains the current provider when metadata refresh runs before the first turn exists', async () => {
+describe('when a conversation records its model', () => {
+    it('user keeps the provider they picked before the first message is sent', async () => {
         interceptTauriInvoke((call) => {
             if (call.cmd === 'database_query') {
                 return { rows: [], rowsAffected: 1, lastInsertId: null };

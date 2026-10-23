@@ -21,8 +21,8 @@ function createTool(patch: Partial<BuiltInToolEntity> = {}): BuiltInToolEntity {
     };
 }
 
-describe('browser automation built-in tool configuration', () => {
-    it('does not render browser-specific configuration inside built-in tools', () => {
+describe('user configures the browser tool', () => {
+    it('user does not render browser-specific configuration inside built-in tools', () => {
         setLocale('en-US');
 
         const wrapper = mount(BuiltInToolConfig, {

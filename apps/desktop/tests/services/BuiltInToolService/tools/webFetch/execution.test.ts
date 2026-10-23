@@ -20,13 +20,13 @@ function createExecutionContext(): Parameters<typeof executeWebFetchTool>[2] {
     };
 }
 
-describe('WebFetch execution', () => {
+describe('user asks the assistant to read a web page', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('en-US');
     });
 
-    it('sends browser-like headers for ordinary page fetches', async () => {
+    it('user sees browser-like headers sent for ordinary page fetches', async () => {
         tauriFetchMock.mockResolvedValueOnce(
             new Response('<main>Official page</main>', {
                 status: 200,
@@ -54,7 +54,7 @@ describe('WebFetch execution', () => {
         );
     });
 
-    it('fetches repeated identical requests freshly instead of reusing stale content', async () => {
+    it('user sees repeated identical fetches return fresh content', async () => {
         tauriFetchMock
             .mockResolvedValueOnce(
                 new Response('<main>First page version</main>', {
@@ -80,7 +80,7 @@ describe('WebFetch execution', () => {
         expect(tauriFetchMock).toHaveBeenCalledTimes(2);
     });
 
-    it('does not fall back to Jina Reader without explicit opt-in', async () => {
+    it('user does not get a reader fallback unless they opted in', async () => {
         tauriFetchMock.mockResolvedValueOnce(
             new Response('Forbidden', {
                 status: 403,
@@ -100,7 +100,7 @@ describe('WebFetch execution', () => {
         expect(tauriFetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it('falls back to Jina Reader when explicitly opted in and the ordinary fetch path is blocked', async () => {
+    it('user gets the reader fallback when opted in and the ordinary fetch is blocked', async () => {
         tauriFetchMock
             .mockResolvedValueOnce(
                 new Response('Forbidden', {
@@ -136,7 +136,7 @@ describe('WebFetch execution', () => {
         );
     });
 
-    it('can still read an explicitly provided search result URL', async () => {
+    it('user can still read an explicitly provided search result URL', async () => {
         tauriFetchMock.mockResolvedValueOnce(
             new Response('<main>Search result page explicitly requested</main>', {
                 status: 200,

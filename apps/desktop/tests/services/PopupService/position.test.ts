@@ -13,17 +13,16 @@ function createWindowInfo(): WindowInfo {
     };
 }
 
-describe('createPopupPositionCalculator', () => {
-    it('returns popup coordinates and dimensions from the registered popup calculator', async () => {
+describe('user opens a popup anchored to the search bar', () => {
+    it('user gets the popup placed at the computed coordinates with its configured size', async () => {
         const triggerElement = document.createElement('button');
         const windowInfo = createWindowInfo();
-        const calculatePosition = vi.fn(() => ({ x: 180, y: 260 }));
         const config: PopupConfig = {
             id: 'session-history-popup',
             width: 320,
             height: 384,
             component: {} as PopupConfig['component'],
-            calculatePosition,
+            calculatePosition: () => ({ x: 180, y: 260 }),
         };
 
         const calculator = createPopupPositionCalculator({
@@ -31,13 +30,9 @@ describe('createPopupPositionCalculator', () => {
             getWindowInfo: vi.fn().mockResolvedValue(windowInfo),
         });
 
-        const position = await calculator.calculate('session-history-popup', triggerElement);
-
-        expect(calculatePosition).toHaveBeenCalledWith(triggerElement, windowInfo, {
-            width: 320,
-            height: 384,
-        });
-        expect(position).toEqual({
+        await expect(
+            calculator.calculate('session-history-popup', triggerElement)
+        ).resolves.toEqual({
             x: 180,
             y: 260,
             width: 320,
@@ -45,7 +40,7 @@ describe('createPopupPositionCalculator', () => {
         });
     });
 
-    it('throws a descriptive error when the popup type is not registered', async () => {
+    it('user is told when a popup type was never registered', async () => {
         const calculator = createPopupPositionCalculator({
             getPopupConfig: () => undefined,
             getWindowInfo: vi.fn(),

@@ -27,8 +27,8 @@ function createSnapshot(): SessionTaskSnapshot {
     };
 }
 
-describe('SessionTaskProjection tool result deltas', () => {
-    it('updates the existing tool call result while the tool is still running', () => {
+describe('user watches a tool call while it runs', () => {
+    it('user sees the running tool call result updated in place', () => {
         const snapshot = createSnapshot();
         const publish = vi.fn();
         const projection = new SessionTaskProjection(snapshot, publish);

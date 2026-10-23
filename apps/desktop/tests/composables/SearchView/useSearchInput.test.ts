@@ -53,7 +53,7 @@ function createAttachmentIndex(
     };
 }
 
-describe('useSearchAttachments', () => {
+describe('when the user adds files to the draft', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         createAttachmentMock.mockImplementation(async (type: Index['type'], path: string) =>
@@ -61,7 +61,7 @@ describe('useSearchAttachments', () => {
         );
     });
 
-    it('syncs attachment support states from the active model capabilities', () => {
+    it('user sees each file marked as unsupported when the model cannot read it', () => {
         const image = createAttachmentIndex('image', 'image');
         const file = createAttachmentIndex('file', 'file');
         const attachmentsRef = ref<Index[]>([image, file]);
@@ -89,7 +89,7 @@ describe('useSearchAttachments', () => {
         expect(attachments.getUnsupportedAttachmentMessage()).toBeNull();
     });
 
-    it('normalizes clipboard attachments and exposes removal helpers', async () => {
+    it('user gets pasted files normalised and can remove them again', async () => {
         const attachmentsRef = ref<Index[]>([
             createAttachmentIndex('keep', 'image'),
             createAttachmentIndex('remove', 'file'),
@@ -114,12 +114,12 @@ describe('useSearchAttachments', () => {
     });
 });
 
-describe('useSearchDraftController', () => {
+describe('when the draft is replaced or cleared', () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
 
-    it('clears the current draft and optionally preserves the model override', () => {
+    it('user gets the draft cleared while the model chip can stay', () => {
         const queryText = ref('touchai');
         const attachments = ref<Index[]>([createAttachmentIndex('draft-file', 'file')]);
         const modelOverride = ref({
@@ -155,7 +155,7 @@ describe('useSearchDraftController', () => {
         });
     });
 
-    it('imports ordered clipboard fragments into the draft with trimmed text boundaries', async () => {
+    it('user gets pasted text and files placed in their original order', async () => {
         let attachmentSequence = 0;
         const queryText = ref('Existing');
         const attachments = ref<Index[]>([]);

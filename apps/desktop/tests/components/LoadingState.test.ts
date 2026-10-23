@@ -4,12 +4,12 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
 
-describe('LoadingState', () => {
+describe('user waits for content', () => {
     beforeEach(() => {
         setLocale('zh-CN');
     });
 
-    it('uses the supplied cursor outline without a logo image or visible loading text', () => {
+    it('user uses the supplied cursor outline without a logo image or visible loading text', () => {
         const wrapper = mount(LoadingState, {
             props: { variant: 'brand', message: '正在加载模型服务设置...' },
         });
@@ -28,7 +28,7 @@ describe('LoadingState', () => {
         wrapper.unmount();
     });
 
-    it('keeps sweep gradients unique when multiple loading indicators are mounted', () => {
+    it('user keeps sweep gradients unique when multiple loading indicators are mounted', () => {
         const wrapper = mount({
             components: { LoadingState },
             template: '<div><LoadingState variant="brand" /><LoadingState variant="brand" /></div>',
@@ -47,7 +47,7 @@ describe('LoadingState', () => {
         wrapper.unmount();
     });
 
-    it('localizes the accessible loading label without adding visible copy', () => {
+    it('user sees the accessible loading label without adding visible copy', () => {
         setLocale('en-US');
         const wrapper = mount(LoadingState);
 
