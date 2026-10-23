@@ -38,7 +38,9 @@ describe('settings-button-* → Button variant 迁移等价性', () => {
         expect(classes).toContain('rounded-action');
         expect(classes).toContain('px-3.5');
         expect(classes).toContain('py-1.5');
-        expect(classes).toContain('text-xs');
+        // text-dense, not text-xs: the original rule set font-size 12px without a
+        // line-height, and text-xs would add 16px, changing the button height.
+        expect(classes).toContain('text-dense');
         expect(classes).toContain('font-medium');
         expect(classes).toContain('text-white');
         expect(classes).toContain('shadow-none');

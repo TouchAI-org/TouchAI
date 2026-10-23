@@ -18,7 +18,7 @@
      * 项目里有三族按钮，它们的「基础类」就不同，不只是颜色不同：
      *   - default 族（ui/button 既有）：inline-flex / rounded-md / text-sm /
      *     disabled:pointer-events-none
-     *   - settings 族（原 .settings-button-*）：rounded-action / text-xs /
+     *   - settings 族（原 .settings-button-*）：rounded-action / text-dense /
      *     px-3.5 py-1.5 / disabled:cursor-not-allowed
      *   - icon 族（原 .settings-icon-button）：flex h-8 w-8 /
      *     rounded-action / 无字号 / 无内边距
@@ -35,7 +35,7 @@
                 default:
                     'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium t-press disabled:pointer-events-none disabled:opacity-50',
                 settings:
-                    'rounded-action px-3.5 py-1.5 text-xs font-medium shadow-none transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                    'rounded-action px-3.5 py-1.5 text-dense font-medium shadow-none transition-colors disabled:cursor-not-allowed disabled:opacity-50',
                 icon: 'flex h-8 w-8 items-center justify-center rounded-action transition-colors disabled:cursor-not-allowed disabled:opacity-50',
             },
             variant: {

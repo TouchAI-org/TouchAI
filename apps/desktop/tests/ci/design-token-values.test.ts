@@ -74,8 +74,36 @@ describe('primitive tokens', () => {
         expect(tokenValue(primitiveCss, '--text-3xs')).toBe('9px');
         expect(tokenValue(primitiveCss, '--text-2xs')).toBe('10px');
         expect(tokenValue(primitiveCss, '--text-caption')).toBe('11px');
+        /*
+         * 12px has its own step rather than reusing Tailwind's `text-xs`, because
+         * `text-xs` also sets a line-height (16px) while `text-[12px]` inherits.
+         * The settings button relies on the inherited value; switching it to
+         * `text-xs` made every settings button 16px tall instead of following its
+         * own line box.
+         */
+        expect(tokenValue(primitiveCss, '--text-dense')).toBe('12px');
         expect(tokenValue(primitiveCss, '--text-compact')).toBe('13px');
         expect(tokenValue(primitiveCss, '--text-reading')).toBe('15px');
+    });
+
+    it('does not declare line heights for the custom type steps', () => {
+        /*
+         * Every step above must set font-size only. Declaring `--text-*--line-height`
+         * would silently change element heights across the app, which is exactly
+         * the regression `--text-dense` exists to avoid.
+         */
+        for (const step of [
+            '3xs',
+            '2xs',
+            'caption',
+            'dense',
+            'compact',
+            'reading',
+            'subtitle',
+            'title',
+        ]) {
+            expect(primitiveCss).not.toMatch(new RegExp(`--text-${step}--line-height`));
+        }
     });
 
     it('keeps the radius values the existing call sites depend on', () => {

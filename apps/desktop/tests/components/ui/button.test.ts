@@ -63,15 +63,19 @@ describe('ui/Button', () => {
             const classes = mountButton({ variant: 'strong' }).classes();
             expect(classes.sort()).toMatchSnapshot();
             // 原类：bg-primary-700 hover:bg-primary-600 rounded-action px-3.5 py-1.5
-            // text-xs font-medium text-white shadow-none transition-colors
+            // text-dense font-medium text-white shadow-none transition-colors
             // disabled:cursor-not-allowed disabled:opacity-50
+            //
+            // text-dense (12px) rather than text-xs: text-xs also sets a 16px
+            // line-height, while the original text-[12px] inherited one. Using
+            // text-xs made every settings button 16px tall.
             for (const expected of [
                 'bg-primary-700',
                 'hover:bg-primary-600',
                 'rounded-action',
                 'px-3.5',
                 'py-1.5',
-                'text-xs',
+                'text-dense',
                 'font-medium',
                 'text-white',
                 'shadow-none',
@@ -127,7 +131,7 @@ describe('ui/Button', () => {
             // icon 族不得携带 settings 族的内边距与字号
             expect(classes).not.toContain('px-3.5');
             expect(classes).not.toContain('py-1.5');
-            expect(classes).not.toContain('text-xs');
+            expect(classes).not.toContain('text-dense');
             expect(classes).not.toContain('font-medium');
         });
 

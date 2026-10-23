@@ -11,8 +11,8 @@ exports[`ui/Button > settings 族 variant（原 .settings-button-* 类） > vari
   "py-1.5",
   "rounded-action",
   "shadow-none",
+  "text-dense",
   "text-white",
-  "text-xs",
   "transition-colors",
 ]
 `;
@@ -48,8 +48,8 @@ exports[`ui/Button > settings 族 variant（原 .settings-button-* 类） > vari
   "py-1.5",
   "rounded-action",
   "shadow-none",
+  "text-dense",
   "text-neutral-700",
-  "text-xs",
   "transition-colors",
 ]
 `;
@@ -65,8 +65,8 @@ exports[`ui/Button > settings 族 variant（原 .settings-button-* 类） > vari
   "py-1.5",
   "rounded-action",
   "shadow-none",
+  "text-dense",
   "text-white",
-  "text-xs",
   "transition-colors",
 ]
 `;
