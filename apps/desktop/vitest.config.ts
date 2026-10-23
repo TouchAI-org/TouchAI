@@ -33,6 +33,15 @@ export default defineConfig({
         'src/components/appIconMap.ts',
       ],
       thresholds: {
+        // Global floor. It stops a change from quietly trading covered behavior for
+        // uncovered code; it is a regression guard, not a target to game.
+        // These keys must stay at the top level: vitest reads the global floor from
+        // thresholds.<metric> and treats a nested "global" object as a glob pattern
+        // that matches no file, which would leave the gate silently inert.
+        statements: 75,
+        branches: 64,
+        functions: 73,
+        lines: 75,
         'src/services/EventService/**/*.ts': {
           statements: 90,
           branches: 100,
