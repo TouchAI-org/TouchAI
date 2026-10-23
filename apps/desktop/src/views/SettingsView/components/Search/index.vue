@@ -616,13 +616,13 @@
                             v-for="row in advancedRows"
                             :key="row.key"
                             :data-settings-search-target="`search-${row.key}`"
-                            control-width="320"
+                            control-width="auto"
                             :label="row.label"
                             :description="row.description"
                         >
                             <Switch
                                 size="lg"
-                                class="ml-auto shrink-0"
+                                class="shrink-0"
                                 :data-testid="`search-advanced-toggle-${row.key}`"
                                 :aria-label="row.label"
                                 :model-value="draft[row.key]"

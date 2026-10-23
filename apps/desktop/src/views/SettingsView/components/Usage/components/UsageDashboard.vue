@@ -229,6 +229,18 @@
                 ...rawCount(value.outputTokens),
                 raw: value.outputTokens,
             },
+            /*
+             * Always rendered, even at zero. Hiding it when the provider reports no
+             * reasoning tokens left the fixed seven-column grid one cell short, so a
+             * blank card appeared on the right. A dash for "not reported" is also
+             * more honest than silently dropping the metric.
+             */
+            {
+                key: 'reasoning',
+                label: t('settings.usage.metric.reasoning'),
+                ...rawCount(value.reasoningTokens),
+                raw: value.reasoningTokens,
+            },
             {
                 key: 'cacheWrite',
                 label: t('settings.usage.metric.cacheWrite'),
@@ -257,13 +269,6 @@
                 unit: t('settings.usage.metric.rpmUnit'),
             },
         ];
-        if (value.reasoningTokens > 0)
-            items.splice(2, 0, {
-                key: 'reasoning',
-                label: t('settings.usage.metric.reasoning'),
-                ...rawCount(value.reasoningTokens),
-                raw: value.reasoningTokens,
-            });
         return items;
     });
 
