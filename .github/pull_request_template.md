@@ -32,7 +32,15 @@ List the commands you ran and the results you observed.
 - Desktop startup / window / search / popup / settings / E2E harness / workflow changes: `pnpm test:e2e`
 - If any command could not run locally, state the exact blocker and rely on CI evidence before merge.
 
-Did you follow TDD (test-first) for feature and fix work? Strongly recommended. See [docs/testing/testing.md](../docs/testing/testing.md).
+Acceptance scenario (Given / When / Then), written before the code for feature and fix work:
+
+```text
+Given <the context the user is in>
+When <the action the user takes>
+Then <the outcome the user observes>
+```
+
+Did you follow BDD then TDD for feature and fix work? Required. Test names start with `user` and read as Given / When / Then. See [docs/testing/testing.md](../docs/testing/testing.md).
 
 ```text
 pnpm test:pr
@@ -45,6 +53,7 @@ pnpm test:e2e
 - `AgentService`, runtime, MCP, or schema impact:
 - database baseline or migration impact:
 - release or packaging impact:
+- hand-rolled instead of an existing library or utility, and why:
 
 ## Screenshots or recordings
 
@@ -62,5 +71,8 @@ Include UI evidence here when the change affects the interface.
 - [ ] I ran `pnpm test:pr` for this code PR, or this is a docs-only change.
 - [ ] If I changed Rust behavior or tests, I reviewed `pnpm test:coverage:rust` or relied on CI coverage evidence.
 - [ ] If I changed desktop startup/window/search/popup/settings/E2E paths, I ran `pnpm test:e2e` locally or documented why CI is the first valid proof.
+- [ ] I wrote the acceptance scenario (Given / When / Then) before the code for feature and fix work.
+- [ ] I named every test in the `user` + Given / When / Then convention, with no internal symbol, function, or file name.
+- [ ] I asserted behavior, not implementation: a rewrite behind the same public contract would keep these tests green.
 - [ ] I added tests or explained why tests are not appropriate.
 - [ ] I updated docs when behavior changed.

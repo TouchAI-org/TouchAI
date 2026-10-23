@@ -127,15 +127,33 @@ When a new primitive is needed:
 
 Styles that are genuinely one-off (a single complex animation, a bespoke layout) should stay inline. The goal is to remove duplicated primitives, not to route every element through a shared component.
 
-## Testing and TDD
+## Testing, BDD, and TDD
 
 For detailed testing guidelines, principles, and coverage requirements, see [docs/testing/testing.md](docs/testing/testing.md).
 
-We strongly recommend **Test-Driven Development (TDD)** for all `feat` and `fix` work:
+Feature and fix work uses **BDD on top of TDD**. Acceptance scenarios come first, then the failing test, then the code:
 
-1. **Red** -- Write a failing test that describes the desired behavior.
-2. **Green** -- Write the minimum code to make the test pass.
-3. **Refactor** -- Clean up the code while keeping tests green.
+1. **Acceptance scenario** -- Write the Given / When / Then scenario a user or PM can read, before writing code. It is the shared definition of done.
+2. **Red** -- Write a failing test that expresses that scenario.
+3. **Green** -- Write the minimum code to make the test pass.
+4. **Refactor** -- Clean up the code while keeping tests green.
+
+Every test name follows one convention:
+
+- The `describe` block names the **Given** context.
+- The `it(...)` description begins with the lowercase word `user`, then names the **When** and the **Then** outcome.
+- No test name contains an internal symbol name, a function name, or a file name.
+
+```ts
+describe('user submits a prompt', () => {
+    // Given the editor holds text and no request is running
+    it('user sees the prompt sent when pressing Enter', async () => {
+        // ...
+    });
+});
+```
+
+Test behavior, not implementation. If you rewrite the implementation behind the same public contract and the test still passes, the test is right; if it breaks, it was testing implementation.
 
 Before opening a PR, run the single validation command:
 
@@ -158,6 +176,7 @@ A good pull request should:
 - link the related issue or RFC
 - explain the user-facing impact
 - stay focused on one problem
+- include the acceptance scenario (Given / When / Then) for feature and fix work
 - include screenshots when UI changes are involved
 - include tests or explain why tests are not appropriate
 - explain database schema impact, baseline resets, or migration rewrites when relevant

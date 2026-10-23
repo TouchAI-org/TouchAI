@@ -24,6 +24,27 @@ Choose the simplest solution that meets the verified requirements.
 - Complexity is a cost every future change pays; a shortcut that creates a second source of truth is not simple.
 - "Simple" means easy to reason about, not short to write.
 
+## Libraries before hand-rolled code
+
+> Implement with a mature library or framework, especially one already installed, instead of hand-rolling it. Hand-roll only when a significant reason proves it is the better option.
+
+Occam's razor cuts toward the library that already exists: less code we own, fewer bugs to fix, and behavior the ecosystem already exercises. Hand-rolled code is the larger mechanism, not the smaller one.
+
+Before writing the code yourself, check in this order:
+
+1. **An installed dependency.** Search `package.json`, `pnpm-lock.yaml`, and `apps/desktop/src-tauri/Cargo.toml` for a package or crate that already solves it, and read its source under `node_modules` or the vendored crate to confirm the API. The dependency is already in the build, already reviewed, and already shipped.
+2. **An existing repository utility or service.** Search `apps/desktop/src/utils/`, `apps/desktop/src/services/`, and `apps/desktop/src-tauri/src/` for an existing implementation, wrapper, or contract before adding a second one.
+3. **A mature upstream package** when nothing is installed yet. Apply the new-dependency rules below: reason, license check, lockfile review.
+
+Hand-rolling is the right call only for a significant reason, for example:
+
+- The library's behavior conflicts with a hard requirement: bundle size, startup or IPC latency, license, platform support, CSP or sandbox constraints.
+- The library cannot meet an invariant this project must own, such as local-first storage, offline behavior, or a security boundary.
+- The library is unmaintained, archived, or has an open vulnerability with no fix path.
+- The needed surface is a few lines of a well-understood algorithm and the dependency would cost more than it saves.
+
+When you hand-roll, state the reason in the PR under risk notes: what was checked, what was rejected, and what breaks if the hand-rolled code is wrong. "I did not check" is not a reason.
+
 ## Issue and worktree
 
 1. **Issue first.** Classify the work (feature, bug, refactor, docs, RFC, CI/tooling, release). Search existing issues and reuse the matching one; otherwise create one from the repository template with the right labels (`kind:bug`, `kind:feature`, `status:triage`, or an architecture RFC for high-risk work). No code without an issue number; only pure wording, link, or comment-only docs changes may skip this, and only when the user scopes them that way.
@@ -42,7 +63,7 @@ git worktree add .worktrees/<issue-number>-<slug> -b <issue-number>-<slug> main
 
 - Read the relevant source in full, not search snippets.
 - Read the nearest tests and `docs/testing/testing.md`.
-- For `feat` and `fix`, write the failing test first; if TDD does not fit, say why in the PR.
+- For `feat` and `fix`, write the acceptance scenario first, then the failing test, then the code. If BDD and TDD do not fit, say why in the PR.
 - Keep the diff inside the issue. A side fix gets its own issue and commit.
 - If the requirement is ambiguous or touches an RFC-first area, stop and ask.
 
@@ -66,7 +87,7 @@ A red test on `main` is a bug to fix now or a separate issue with evidence, not 
 - Vue 3 Composition API with existing composable patterns; clean up listeners, observers, timers, and subscriptions on unmount and window close.
 - Rust: explicit errors, no `unwrap()` on user input or I/O, no blocking work in async paths without justification.
 - Never swallow errors. If a failure changes what the user sees or stores, surface it, log it with context, and define the recovery path.
-- Reuse existing utilities and services. Check `node_modules` or crate sources for external API types instead of guessing.
+- Reuse existing utilities and services. Check `node_modules` or crate sources for external API types instead of guessing. See [Libraries before hand-rolled code](#libraries-before-hand-rolled-code).
 - New dependencies need a reason, a license check, and lockfile review.
 - Logs must not contain API keys, tokens, passwords, full prompts, clipboard contents, or file contents.
 
@@ -84,9 +105,10 @@ Comments explain only what the code cannot express, and stay brief. Write them i
 | --- | --- |
 | `pnpm test:pr` | Full PR gate: quality checks, unit tests, Rust tests, frontend coverage, site build |
 | `pnpm test:e2e` | Desktop E2E smoke; required for startup, window, search, popup, settings, and E2E harness changes |
-| `pnpm test:coverage:rust` | Local Rust coverage only; CI does not run it, so never claim CI coverage evidence |
+| `pnpm test:coverage:rust` | Rust coverage locally; CI runs the same command in the Rust coverage job, so reproduce a CI coverage failure with it |
 
-- Test behavior, not implementation: return values, state changes, emitted events, visible DOM. Not private variables or call counts.
+- BDD then TDD: acceptance scenario first, then the failing test, then the code. Name tests in the `user` + Given / When / Then convention in [testing.md § Naming Tests](../testing/testing.md#naming-tests).
+- Test behavior, not implementation: return values, state changes, emitted events, visible DOM. Not private variables or call counts. If a rewrite behind the same public contract keeps the test green, it was testing behavior; if it breaks, it was testing implementation.
 - Mock only system boundaries: Tauri IPC, network, OS services.
 - Every fix ships a regression test that fails without it; every feature covers happy path, edge case, and error path.
 - Frontend tests live under `apps/desktop/tests/`, mirroring `apps/desktop/src/`. Rust unit tests live in `#[cfg(test)]`; Rust integration tests in `apps/desktop/src-tauri/tests/`.
