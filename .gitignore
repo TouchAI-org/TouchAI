@@ -41,6 +41,8 @@ apps/desktop/cache/
 .e2e-tools/
 coverage/
 .coverage/
+# The bare coverage/ rule above also matches the CI coverage summarizer directory.
+!apps/desktop/scripts/ci/coverage/
 apps/*/.astro/
 tmp-cargo-target/
 tmp-cargo-temp/
