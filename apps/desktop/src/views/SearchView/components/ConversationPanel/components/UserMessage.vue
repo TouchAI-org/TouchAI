@@ -1,9 +1,9 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
     <div class="mb-4 flex flex-col items-end">
-        <div class="bg-primary-100 max-w-[80%] rounded-lg px-4 py-2 break-words">
-            <div class="text-[15px] leading-[1.6]">
+        <div class="max-w-[80%] rounded-lg bg-primary-100 px-4 py-2 break-words">
+            <div class="text-reading leading-[1.6]">
                 <!-- 文本内容 -->
                 <div
                     v-if="message.content"

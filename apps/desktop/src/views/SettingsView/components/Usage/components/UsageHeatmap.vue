@@ -93,7 +93,7 @@
     <section class="space-y-3" data-testid="settings-usage-heatmap">
         <div class="flex flex-wrap items-baseline justify-between gap-2">
             <h2 class="settings-section-title">{{ t('settings.usage.heatmap.title') }}</h2>
-            <span class="text-[11px] text-neutral-500">
+            <span class="text-caption text-neutral-500">
                 {{
                     t('settings.usage.heatmap.yearSummary', {
                         days: activeDays,

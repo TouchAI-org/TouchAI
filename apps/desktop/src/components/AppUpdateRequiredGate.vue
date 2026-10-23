@@ -207,7 +207,7 @@
                     :aria-label="t('settings.update.downloadProgress')"
                 >
                     <div
-                        class="t-progress bg-primary-600 h-full rounded-full"
+                        class="t-progress h-full rounded-full bg-primary-600"
                         :style="{ width: `${updateState.downloadProgress ?? 0}%` }"
                     />
                 </div>
@@ -234,7 +234,7 @@
 
             <div class="mt-6 flex flex-wrap justify-end gap-2">
                 <button
-                    class="hover:border-primary-300 hover:text-primary-700 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 font-serif text-sm text-gray-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                    class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 font-serif text-sm text-gray-700 transition-colors hover:border-primary-300 hover:text-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
                     :disabled="isBusy"
                     data-testid="app-update-required-check"
                     @click="checkAgain"
@@ -243,7 +243,7 @@
                     {{ t('settings.update.action.recheck') }}
                 </button>
                 <button
-                    class="bg-primary-600 hover:bg-primary-700 inline-flex items-center gap-2 rounded-lg px-4 py-2 font-serif text-sm text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                    class="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 font-serif text-sm text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
                     :disabled="isBusy"
                     data-testid="app-update-required-primary"
                     @click="runPrimaryAction"

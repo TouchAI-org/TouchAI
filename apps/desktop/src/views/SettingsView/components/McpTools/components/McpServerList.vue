@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import type { McpServerEntity } from '@database/types';
@@ -126,7 +126,7 @@
         <div v-else class="space-y-2">
             <!-- 新服务器编辑卡片 -->
             <div v-if="newServer" class="settings-item-selected rounded-lg border p-4">
-                <p class="text-[15px] font-normal text-neutral-950">
+                <p class="text-reading font-normal text-neutral-950">
                     {{ t('settings.mcp.servers.new') }}
                 </p>
                 <p class="mt-1 text-xs text-neutral-500">

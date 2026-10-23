@@ -1,4 +1,4 @@
-﻿<!--
+<!--
   - Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
   -->
 
@@ -112,7 +112,7 @@
                 v-if="isLoadingMore"
                 class="inline-block h-3 w-3 animate-spin rounded-full border border-gray-300 border-t-gray-600"
             ></span>
-            <span class="quick-search-status-text text-[11px] leading-none text-gray-400">
+            <span class="quick-search-status-text text-caption leading-none text-gray-400">
                 {{ statusText }}
             </span>
             <button

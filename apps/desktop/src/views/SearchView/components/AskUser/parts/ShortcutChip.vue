@@ -6,7 +6,7 @@
     <kbd
         aria-hidden
         :class="[
-            'inline-flex h-[18px] min-w-[18px] items-center justify-center gap-0.5 px-1 text-[11px] leading-none tracking-wide',
+            'inline-flex h-[18px] min-w-[18px] items-center justify-center gap-0.5 px-1 text-caption leading-none tracking-wide',
             tone === 'inverted'
                 ? 'bg-foreground text-background'
                 : 'bg-foreground/10 text-muted-foreground',

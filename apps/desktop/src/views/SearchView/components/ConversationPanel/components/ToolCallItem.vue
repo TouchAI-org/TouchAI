@@ -734,7 +734,7 @@
         padding: 0;
         border: 0;
         background: transparent;
-        font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+        font-family: var(--font-mono);
         font-size: 12px;
         line-height: 1.6;
         color: var(--color-primary-700);

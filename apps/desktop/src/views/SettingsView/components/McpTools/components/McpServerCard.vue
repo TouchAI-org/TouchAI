@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import { Switch } from '@components/ui/switch';
@@ -121,7 +121,7 @@
     >
         <div class="flex items-start justify-between gap-2">
             <div class="min-w-0 flex-1">
-                <h3 class="truncate text-[13px] font-normal text-neutral-950">
+                <h3 class="truncate text-compact font-normal text-neutral-950">
                     {{ server.name }}
                 </h3>
                 <div class="mt-1 flex items-center gap-2">

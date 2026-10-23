@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
@@ -534,7 +534,7 @@
                                         />
                                         <div
                                             v-else
-                                            class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
+                                            class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-2xs font-semibold text-neutral-500"
                                             data-no-i18n="true"
                                             translate="no"
                                         >
@@ -566,7 +566,7 @@
                                         />
                                         <div
                                             v-else
-                                            class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-[10px] font-semibold text-neutral-500"
+                                            class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded bg-neutral-100 text-2xs font-semibold text-neutral-500"
                                             data-no-i18n="true"
                                             translate="no"
                                         >

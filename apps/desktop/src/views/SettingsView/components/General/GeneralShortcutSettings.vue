@@ -341,7 +341,7 @@
             >
                 <label
                     data-testid="settings-general-row-label"
-                    class="text-[13px] leading-6 font-normal text-neutral-900"
+                    class="text-compact leading-6 font-normal text-neutral-900"
                 >
                     <div>{{ t('settings.general.activationShortcut') }}</div>
                     <div class="text-[12px] leading-5 text-neutral-500">
@@ -351,7 +351,7 @@
                 <div class="min-w-0 justify-self-end">
                     <div
                         data-testid="settings-shortcut-control-row"
-                        class="flex min-w-0 items-center justify-end text-[11px]"
+                        class="flex min-w-0 items-center justify-end text-caption"
                     >
                         <div data-testid="settings-general-control" class="w-[220px]">
                             <div

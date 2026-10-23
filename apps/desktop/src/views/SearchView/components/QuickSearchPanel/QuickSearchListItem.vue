@@ -7,7 +7,7 @@
         type="button"
         :class="[
             'quick-search-list-item grid w-full cursor-pointer items-center px-2 outline-none',
-            highlighted ? 'bg-primary-100 rounded-lg' : 'rounded-lg hover:bg-gray-100',
+            highlighted ? 'rounded-lg bg-primary-100' : 'rounded-lg hover:bg-gray-100',
         ]"
         :style="{
             height: `${rowHeight}px`,
@@ -21,7 +21,7 @@
             <img v-if="iconSrc" :src="iconSrc" :alt="name" class="h-4 w-4 rounded object-contain" />
             <div v-else class="h-4 w-4 rounded-sm bg-gray-200"></div>
         </div>
-        <span class="truncate text-left text-[13px] leading-4 text-gray-700">
+        <span class="truncate text-left text-compact leading-4 text-gray-700">
             <span
                 v-for="(segment, i) in nameSegments"
                 :key="i"

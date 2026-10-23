@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
@@ -42,7 +42,7 @@
 
 <template>
     <div
-        class="flex h-10 w-full items-center justify-between bg-[#f7f7f6] px-4 select-none"
+        class="flex h-10 w-full items-center justify-between bg-canvas px-4 select-none"
         data-testid="app-titlebar"
         data-tauri-drag-region
     >

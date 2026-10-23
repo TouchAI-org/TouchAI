@@ -25,7 +25,7 @@
      * 新增与编辑服务商的表单原本是两个文件，名称 / 类型 / 基址预览三段
      * 逐字相同，差异全部由 mode 决定：
      *
-     *   1. 标题          新增 text-base font-bold / 编辑 text-[15px] font-medium
+     *   1. 标题          新增 text-base font-bold / 编辑 text-reading font-medium
      *   2. 提交按钮文案   create / save
      *   3. 字段集合       新增多出 API Key 与「创建后启用」；编辑只改名称与类型
      *   4. 基址预览来源   新增取表单输入 / 编辑取已保存的 provider
@@ -180,7 +180,7 @@
     const titleClass = computed(() =>
         props.mode === 'create'
             ? 'mb-5 text-base font-bold text-neutral-950'
-            : 'mb-5 text-[15px] font-medium text-neutral-950'
+            : 'mb-5 text-reading font-medium text-neutral-950'
     );
 
     const submitLabel = computed(() =>
@@ -298,7 +298,7 @@
 
         <div class="mt-6 flex gap-3">
             <Button
-                class="bg-primary-700 hover:bg-primary-600 flex-1 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors"
+                class="flex-1 rounded-lg bg-primary-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-600"
                 @click="handleSave"
             >
                 {{ submitLabel }}

@@ -17,7 +17,7 @@
             <div
                 v-for="index in 6"
                 :key="index"
-                class="flex flex-col gap-1 rounded-[10px] bg-neutral-50/80 px-4 py-3"
+                class="flex flex-col gap-1 rounded-control bg-neutral-50/80 px-4 py-3"
             >
                 <div class="h-3 w-16 animate-pulse rounded bg-neutral-200/70" />
                 <div class="h-6 w-20 animate-pulse rounded bg-neutral-200/70" />
@@ -29,7 +29,7 @@
             <div
                 v-for="index in 7"
                 :key="index"
-                class="flex flex-col gap-0.5 rounded-[9px] bg-neutral-50/60 px-3 py-2"
+                class="flex flex-col gap-0.5 rounded-action bg-neutral-50/60 px-3 py-2"
             >
                 <div class="h-2.5 w-12 animate-pulse rounded bg-neutral-200/70" />
                 <div class="h-4 w-16 animate-pulse rounded bg-neutral-200/70" />

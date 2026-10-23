@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
     import CustomSelect from '@components/CustomSelect.vue';
     import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
@@ -365,7 +365,7 @@
 
                 <div class="settings-row-group p-4" data-settings-search-target="data-stats">
                     <div class="grid grid-cols-3 gap-3">
-                        <div class="rounded-[10px] bg-neutral-50/80 p-4 text-center">
+                        <div class="rounded-control bg-neutral-50/80 p-4 text-center">
                             <div class="text-lg font-semibold text-neutral-950">
                                 {{ stats.sessions }}
                             </div>
@@ -373,7 +373,7 @@
                                 {{ t('settings.dataManagement.sessions') }}
                             </div>
                         </div>
-                        <div class="rounded-[10px] bg-neutral-50/80 p-4 text-center">
+                        <div class="rounded-control bg-neutral-50/80 p-4 text-center">
                             <div class="text-lg font-semibold text-neutral-950">
                                 {{ stats.messages }}
                             </div>
@@ -381,7 +381,7 @@
                                 {{ t('settings.dataManagement.messages') }}
                             </div>
                         </div>
-                        <div class="rounded-[10px] bg-neutral-50/80 p-4 text-center">
+                        <div class="rounded-control bg-neutral-50/80 p-4 text-center">
                             <div class="text-lg font-semibold text-neutral-950">
                                 {{ stats.sessionTurns }}
                             </div>

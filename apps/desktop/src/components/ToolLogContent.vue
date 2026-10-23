@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
@@ -75,7 +75,7 @@
                 </span>
                 <span
                     v-if="shell"
-                    class="text-[11px] text-neutral-500"
+                    class="text-caption text-neutral-500"
                     data-no-i18n="true"
                     translate="no"
                 >
@@ -85,7 +85,7 @@
                     <button
                         v-if="bashInput"
                         type="button"
-                        class="rounded-md px-2 py-1 text-[11px] text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+                        class="rounded-md px-2 py-1 text-caption text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
                         :aria-pressed="showRawInput"
                         @click="showRawInput = !showRawInput"
                     >
@@ -105,7 +105,7 @@
                     </Tooltip>
                 </div>
             </div>
-            <div v-if="workingDirectory" class="mb-2 text-[11px] leading-5 text-neutral-500">
+            <div v-if="workingDirectory" class="mb-2 text-caption leading-5 text-neutral-500">
                 {{ t('toolLog.workingDirectory') }}
                 <code
                     class="font-mono break-all text-neutral-700"
@@ -137,7 +137,7 @@
                 >
                     {{ isError ? t('toolLog.error') : t('toolLog.result') }}
                 </span>
-                <span v-if="exitCode" class="text-[11px] text-neutral-500">
+                <span v-if="exitCode" class="text-caption text-neutral-500">
                     {{ t('toolLog.exitCode') }} {{ exitCode }}
                 </span>
                 <Tooltip :text="t('toolLog.copyOutput')">

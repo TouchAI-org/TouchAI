@@ -63,7 +63,7 @@
     const fallbackTextClass = computed(() => {
         switch (props.size) {
             case 'sm':
-                return 'text-[10px]';
+                return 'text-2xs';
             case 'lg':
                 return 'text-sm';
             default:

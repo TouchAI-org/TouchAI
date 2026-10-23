@@ -25,7 +25,7 @@
         :class="[
             'flex items-center justify-center p-6',
             props.fill === 'screen'
-                ? 'h-screen w-screen bg-[#f7f7f6]'
+                ? 'h-screen w-screen bg-canvas'
                 : props.fill === 'min'
                   ? 'min-h-full w-full bg-white'
                   : 'h-full w-full bg-white',
@@ -35,7 +35,7 @@
         <div
             v-else
             aria-hidden="true"
-            class="border-primary-100 border-t-primary-500 h-10 w-10 animate-spin rounded-full border-3"
+            class="h-10 w-10 animate-spin rounded-full border-3 border-primary-100 border-t-primary-500"
         ></div>
     </div>
 </template>

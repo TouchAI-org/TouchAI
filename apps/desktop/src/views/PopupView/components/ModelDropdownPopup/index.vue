@@ -10,7 +10,7 @@
     >
         <div class="border-b border-stone-200/80 px-3 py-2.5">
             <label
-                class="history-search-field focus-within:border-primary-300 flex items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 transition-colors focus-within:bg-white"
+                class="history-search-field flex items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 transition-colors focus-within:border-primary-300 focus-within:bg-white"
             >
                 <AppIcon name="search" class="h-3.5 w-3.5 text-stone-400" />
                 <input
@@ -59,7 +59,7 @@
                                     {{ model.name }}
                                 </span>
                                 <span
-                                    class="min-w-0 truncate text-[11px] text-stone-500"
+                                    class="min-w-0 truncate text-caption text-stone-500"
                                     data-no-i18n="true"
                                     translate="no"
                                 >
@@ -73,7 +73,7 @@
                                     model.modelId === selectedModelId &&
                                     model.providerId === selectedProviderId
                                 "
-                                class="model-dropdown-state-badge inline-flex min-w-[3.25rem] justify-center rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] leading-tight whitespace-nowrap text-gray-600 shadow-sm"
+                                class="model-dropdown-state-badge inline-flex min-w-[3.25rem] justify-center rounded border border-gray-300 bg-white px-1.5 py-0.5 text-2xs leading-tight whitespace-nowrap text-gray-600 shadow-sm"
                             >
                                 {{ t('common.current') }}
                             </span>
@@ -82,7 +82,7 @@
                                     model.modelId === activeModelId &&
                                     model.providerId === activeProviderId
                                 "
-                                class="model-dropdown-state-badge inline-flex min-w-[3.25rem] justify-center rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] leading-tight whitespace-nowrap text-gray-600 shadow-sm"
+                                class="model-dropdown-state-badge inline-flex min-w-[3.25rem] justify-center rounded border border-gray-300 bg-white px-1.5 py-0.5 text-2xs leading-tight whitespace-nowrap text-gray-600 shadow-sm"
                             >
                                 {{ t('common.default') }}
                             </span>
@@ -104,7 +104,7 @@
                             <span>{{ emptySettingsPrompt.prefix }}</span>
                             <button
                                 type="button"
-                                class="text-primary-600 hover:text-primary-700 decoration-primary-300 cursor-pointer font-medium underline underline-offset-2 transition-colors"
+                                class="cursor-pointer font-medium text-primary-600 underline decoration-primary-300 underline-offset-2 transition-colors hover:text-primary-700"
                                 @click="openSettingsFromEmptyState"
                             >
                                 {{ t('popup.modelDropdown.settingsCenter') }}

@@ -353,7 +353,7 @@ describe('Search settings section', () => {
             'font-serif'
         );
         expect(wrapper.get('[data-testid="search-searxng-api-key-input"]').classes()).toContain(
-            'bg-[#f0f0ef]'
+            'bg-surface-sunken'
         );
     });
 });

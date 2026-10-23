@@ -77,10 +77,10 @@ describe('SettingsRow', () => {
 
     describe('标签与描述', () => {
         it('标签默认渲染为 div 且携带原字号', () => {
-            const label = mountRow().get('.text-\\[13px\\]');
+            const label = mountRow().get('.text-compact');
             expect(label.element.tagName).toBe('DIV');
             for (const expected of [
-                'text-[13px]',
+                'text-compact',
                 'leading-6',
                 'font-normal',
                 'text-neutral-900',

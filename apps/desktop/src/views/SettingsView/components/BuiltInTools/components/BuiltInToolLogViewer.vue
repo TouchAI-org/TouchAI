@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
@@ -119,10 +119,10 @@
                         :key="status"
                         type="button"
                         :class="[
-                            'rounded-[10px] px-3 py-1.5 text-sm transition-colors',
+                            'rounded-control px-3 py-1.5 text-sm transition-colors',
                             filterStatus === status
-                                ? 'bg-[#e9e9e7] text-neutral-950'
-                                : 'bg-transparent text-neutral-600 hover:bg-[#f1f1ef]',
+                                ? 'bg-surface-selected text-neutral-950'
+                                : 'bg-transparent text-neutral-600 hover:bg-surface-hover',
                         ]"
                         @click="filterStatus = status"
                     >

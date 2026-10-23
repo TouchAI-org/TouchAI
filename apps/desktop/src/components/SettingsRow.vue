@@ -97,7 +97,7 @@
     });
 
     const labelClasses = computed(() =>
-        cn('text-[13px] leading-6 font-normal text-neutral-900', props.labelClass)
+        cn('text-compact leading-6 font-normal text-neutral-900', props.labelClass)
     );
 </script>
 

@@ -1,13 +1,13 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
     <div class="flex justify-start" :class="message.isStreaming ? 'mb-0' : 'mb-4'">
         <div class="w-full break-words">
-            <div class="text-[15px] leading-[1.8]">
+            <div class="text-reading leading-[1.8]">
                 <!-- 请求状态消息 -->
                 <div
                     v-if="isRequestStateMessage"
-                    class="font-serif text-[13px] leading-[1.6] text-gray-500"
+                    class="font-serif text-compact leading-[1.6] text-gray-500"
                 >
                     {{ message.content }}
                 </div>

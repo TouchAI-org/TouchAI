@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
@@ -121,10 +121,10 @@
                 <div class="flex gap-2">
                     <button
                         :class="[
-                            'rounded-[10px] px-3 py-1.5 text-sm transition-colors',
+                            'rounded-control px-3 py-1.5 text-sm transition-colors',
                             filterStatus === 'all'
-                                ? 'bg-[#e9e9e7] text-neutral-950'
-                                : 'bg-transparent text-neutral-600 hover:bg-[#f1f1ef]',
+                                ? 'bg-surface-selected text-neutral-950'
+                                : 'bg-transparent text-neutral-600 hover:bg-surface-hover',
                         ]"
                         @click="filterStatus = 'all'"
                     >
@@ -132,10 +132,10 @@
                     </button>
                     <button
                         :class="[
-                            'rounded-[10px] px-3 py-1.5 text-sm transition-colors',
+                            'rounded-control px-3 py-1.5 text-sm transition-colors',
                             filterStatus === 'enabled'
-                                ? 'bg-[#e9e9e7] text-neutral-950'
-                                : 'bg-transparent text-neutral-600 hover:bg-[#f1f1ef]',
+                                ? 'bg-surface-selected text-neutral-950'
+                                : 'bg-transparent text-neutral-600 hover:bg-surface-hover',
                         ]"
                         @click="filterStatus = 'enabled'"
                     >
@@ -143,10 +143,10 @@
                     </button>
                     <button
                         :class="[
-                            'rounded-[10px] px-3 py-1.5 text-sm transition-colors',
+                            'rounded-control px-3 py-1.5 text-sm transition-colors',
                             filterStatus === 'disabled'
-                                ? 'bg-[#e9e9e7] text-neutral-950'
-                                : 'bg-transparent text-neutral-600 hover:bg-[#f1f1ef]',
+                                ? 'bg-surface-selected text-neutral-950'
+                                : 'bg-transparent text-neutral-600 hover:bg-surface-hover',
                         ]"
                         @click="filterStatus = 'disabled'"
                     >
@@ -211,7 +211,7 @@
                             <div class="min-w-0 flex-1">
                                 <div class="flex items-center gap-2">
                                     <h3
-                                        class="text-[15px] font-medium break-words text-neutral-950"
+                                        class="text-reading font-medium break-words text-neutral-950"
                                         data-no-i18n="true"
                                         translate="no"
                                     >
