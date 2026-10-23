@@ -1,9 +1,14 @@
 /**
- * 用量可观测性的端到端验证。
+ * End-to-end check for usage observability.
  *
- * 这条用例走完整链路：真实对话 → AgentService 采集 → 落库 → 设置页渲染。
- * 它依赖本机的 magpie 网关（http://127.0.0.1:3425/v1），
- * 因为「供应商到底返不返回 usage」只能在真实请求里验证。
+ * Covers the whole chain: a real conversation, AgentService capture, the write
+ * path, and the settings page render. It requires a local magpie gateway at
+ * `http://127.0.0.1:3425/v1`, because whether a provider returns usage can only
+ * be settled against a real request.
+ *
+ * CI does not run this spec: `wdio.conf.js` lists only the smoke specs, and the
+ * gateway does not exist on CI. Run it locally with
+ * `pnpm test:e2e --spec test/specs/usage-observability.e2e.js`.
  */
 
 const MAGPIE_ENDPOINT = 'http://127.0.0.1:3425/v1';
