@@ -85,6 +85,7 @@ export const usageMessagesZhCN = {
     // Trend chart with distribution
     'settings.usage.chart.title': '使用趋势与分布',
     'settings.usage.chart.other': '其他',
+    'settings.usage.chart.total': '合计',
 
     // Live panel
     'settings.usage.live.activeSessions': '{count} 个会话',
@@ -226,6 +227,7 @@ export const usageMessagesEnUS = {
 
     'settings.usage.chart.title': 'Trend and breakdown',
     'settings.usage.chart.other': 'Other',
+    'settings.usage.chart.total': 'Total',
 
     'settings.usage.live.activeSessions': '{count} sessions',
 

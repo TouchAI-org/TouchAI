@@ -15,6 +15,8 @@
      */
     import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
+    import { t } from '@/i18n';
+
     import { columnPath, fittingLabels, niceScale } from './geometry';
 
     interface Series {
@@ -433,7 +435,7 @@
                     v-if="visible.length > 1"
                     class="mt-1 flex items-center justify-between gap-2 border-t border-neutral-100 pt-1 text-[11px]"
                 >
-                    <span class="text-neutral-400">合计</span>
+                    <span class="text-neutral-400">{{ t('settings.usage.chart.total') }}</span>
                     <span class="text-neutral-900 tabular-nums">
                         {{ formatValue(activeIndex === null ? 0 : (totals[activeIndex] ?? 0)) }}
                     </span>
