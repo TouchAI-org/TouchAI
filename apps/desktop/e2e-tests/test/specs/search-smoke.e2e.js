@@ -1,20 +1,59 @@
-describe('TouchAI search smoke', () => {
-    it('opens the quick-search panel after typing into the search editor', async () => {
+/**
+ * User flows for quick search: typing shows file matches, and the panel closes
+ * again when nothing matches, without leaving the search window unusable.
+ */
+import {
+    assertVisible,
+    findElementByTestId,
+    waitForE2eBridge,
+    waitForTestIdDisplayed,
+    waitForTestIdNotDisplayed,
+} from '../support/desktop.js';
+
+async function typeQuery(query) {
+    await waitForE2eBridge();
+    await browser.execute((text) => {
+        window.__TOUCHAI_E2E__.setSearchQuery(text);
+    }, query);
+}
+
+describe('user searches for a local file', () => {
+    it('user sees a results panel when the query matches an indexed file', async () => {
         const editor = await $("[data-testid='search-editor-host'] .ProseMirror");
-        const quickSearchPanel = await $("[data-testid='quick-search-panel']");
-
         await editor.waitForDisplayed();
-        await browser.waitUntil(async () => {
-            return browser.execute(() => Boolean(window.__TOUCHAI_E2E__));
-        });
-        await browser.execute((text) => {
-            window.__TOUCHAI_E2E__.setSearchQuery(text);
-        }, 'touchai');
 
-        await quickSearchPanel.waitForDisplayed();
-        const editorText = await editor.getText();
-        if (!editorText.includes('touchai')) {
-            throw new Error(`Expected editor text to contain "touchai", received "${editorText}"`);
-        }
+        await typeQuery('touchai');
+
+        const quickSearchPanel = await waitForTestIdDisplayed('quick-search-panel');
+        assertVisible(await quickSearchPanel.isDisplayed(), 'The results panel was not visible.');
+
+        await browser.waitUntil(async () => (await editor.getText()).includes('touchai'), {
+            timeoutMsg: 'The prompt field did not reflect the typed query.',
+        });
+    });
+
+    it('user sees the results panel close when the query matches nothing', async () => {
+        await waitForTestIdDisplayed('quick-search-panel');
+
+        await typeQuery('zzzz-no-such-file-zzzz');
+
+        await waitForTestIdNotDisplayed('quick-search-panel');
+    });
+
+    it('user keeps a usable search window after clearing the query', async () => {
+        const editor = await $("[data-testid='search-editor-host'] .ProseMirror");
+
+        await typeQuery('touchai');
+        await waitForTestIdDisplayed('quick-search-panel');
+
+        await typeQuery('');
+        await waitForTestIdNotDisplayed('quick-search-panel');
+
+        const searchView = await findElementByTestId('search-view');
+        assertVisible(
+            await searchView.isDisplayed(),
+            'The search window disappeared after clearing the query.'
+        );
+        assertVisible(await editor.isDisplayed(), 'The prompt field was no longer visible.');
     });
 });
