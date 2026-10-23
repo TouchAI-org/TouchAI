@@ -4,7 +4,6 @@
     /**
      * Activity calendar heatmap.
      *
-     * Ported from uiarc's activity-heatmap:
      * - weeks as columns, weekdays as rows, starting Monday; missing days count as 0
      * - five levels split at 25/50/75% of the busiest day
      * - cells fade in column by column on mount

@@ -2,14 +2,15 @@
 
 <script setup lang="ts">
     /**
-     * 会数上去的数字。
+     * Numerals that count to their value.
      *
-     * 参考 uiarc 的 animated-counter：数值变化时不是整块跳变，而是
-     * 用弹簧从旧值推到新值，读起来像仪表在走字。
+     * A changed value is not swapped in one frame: a spring drives it from the
+     * old number to the new one, so it reads like a gauge settling.
      *
-     * 这里没有采用参考实现的「逐位滚轮」。滚轮在数值中途会同时露出
-     * 相邻两位，静态截图或慢速刷新时看起来像重影；而用量卡片的价值在于
-     * 随时都能一眼读准，动画只是陪衬。所以保留弹簧计数，去掉滚轮。
+     * Per-digit wheels are deliberately not used. A wheel shows two adjacent
+     * digits mid-turn, which looks like double exposure in a still screenshot
+     * or on a slow repaint, and a usage card has to be readable at a glance at
+     * any moment.
      */
     import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
@@ -17,13 +18,13 @@
         value: number;
         prefix?: string;
         suffix?: string;
-        /** 固定小数位 */
+        /** Fixed decimal places. */
         decimals?: number;
-        /** 首次进入视口时从 0 数上来 */
+        /** Count up from zero the first time it enters the viewport. */
         animateOnView?: boolean;
-        /** 数字格式化区域 */
+        /** Number locale. */
         locale?: string;
-        /** 直接给一个格式化好的文本，此时不做数字动画 */
+        /** Pre-formatted text; when set no counting animation runs. */
         text?: string;
     }
 
@@ -38,7 +39,7 @@
 
     defineOptions({ name: 'AnimatedCounter' });
 
-    // ===== 弹簧 =====
+    // ===== Spring =====
 
     const STIFFNESS = 210;
     const DAMPING = 28;
@@ -50,7 +51,7 @@
 
     function step(): void {
         const delta = props.value - display.value;
-        // 半隐式欧拉：先更新速度再更新位置，比显式欧拉稳定
+        // Semi-implicit Euler: update velocity before position, which is more stable than explicit.
         velocity += (STIFFNESS * delta - DAMPING * velocity) * (1 / 60);
         display.value += velocity * (1 / 60);
 
@@ -82,14 +83,14 @@
         { immediate: true }
     );
 
-    // ===== 进入视口时从 0 数上来 =====
+    // ===== Count up on entering the viewport =====
 
     const root = ref<HTMLElement | null>(null);
     let observer: IntersectionObserver | null = null;
     const armed = ref(props.animateOnView);
 
     onMounted(() => {
-        // jsdom 没有 matchMedia，测试环境里当作没有开启减弱动效
+        // jsdom has no matchMedia; under test treat reduced motion as off.
         reducedMotion.value =
             typeof window.matchMedia === 'function'
                 ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -123,11 +124,11 @@
         observer = null;
     });
 
-    // ===== 渲染 =====
+    // ===== Render =====
 
     const plain = computed(() => props.text !== undefined);
 
-    /** 动画中的数值：按同样的规则格式化，位数变化时不会跳动 */
+    /** In-flight value formatted by the same rules, so digit count changes do not jump. */
     const shown = computed(() =>
         new Intl.NumberFormat(props.locale, {
             minimumFractionDigits: props.decimals,
@@ -135,7 +136,7 @@
         }).format(armed.value ? 0 : display.value)
     );
 
-    /** 读屏用：直接读最终值，不读动画中间态 */
+    /** Screen readers get the final value, never an intermediate frame. */
     const spoken = computed(() =>
         plain.value
             ? (props.text ?? '')

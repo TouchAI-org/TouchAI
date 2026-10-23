@@ -4,8 +4,8 @@
     /**
      * Stacked bar chart.
      *
-     * Ported from uiarc's bar-chart and extended to stacking, because a
-     * distribution needs the composition of each column:
+     * Stacking shows the composition of each column, which a distribution
+     * needs:
      * - Only the top segment gets rounded corners; the baseline side stays
      *   square so a column reads as one bar rather than stacked blocks.
      * - The newest bar stays pinned right; a longer range zooms out to the left.

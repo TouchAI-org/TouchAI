@@ -3,10 +3,10 @@
 /**
  * Calendar model for the activity heatmap.
  *
- * Ported from uiarc's activity-heatmap: lays one value per day onto a calendar
- * of weeks by weekdays and buckets values into five levels. Levels split at
- * quarters of the busiest day rather than by quantile, because the reader is
- * after relative intensity, not a ranking.
+ * Lays one value per day onto a calendar of weeks by weekdays and buckets
+ * values into five levels. Levels split at quarters of the busiest day rather
+ * than by quantile, because the reader is after relative intensity, not a
+ * ranking.
  */
 
 export interface ActivityDay {

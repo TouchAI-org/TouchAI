@@ -1,10 +1,11 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 /**
- * 堆叠柱的几何与刻度。
+ * Geometry and scale for the stacked bar chart.
  *
- * 移植自 uiarc 的 bar-chart：柱顶是「数据端」——圆角只给最后一段，
- * 基线一侧保持方角，这样堆叠的柱子看起来是一根整体的柱，而不是几块积木。
+ * The top of a column is the data end: only the last segment gets rounded
+ * corners while the baseline side stays square, so a stacked column reads as
+ * one bar rather than a pile of blocks.
  */
 
 export type Segment = { key: string; value: number; color: string };
@@ -12,19 +13,19 @@ export type Segment = { key: string; value: number; color: string };
 export interface Column {
     key: string;
     label: string;
-    /** 轴上的短标签，缺省时不显示 */
+    /** Short axis label; omitted when absent. */
     axisLabel?: string;
     segments: Segment[];
 }
 
-/** 柱顶圆角的最大值 */
+/** Maximum corner radius at the top of a column. */
 const RADIUS = 4;
 
 /**
- * 一根柱子的路径。
+ * Path for one column.
  *
- * 最后一段（最上面那段）带圆角，其余段是方角矩形，
- * 段与段之间留一点缝，让堆叠关系看得出来。
+ * The last (topmost) segment is rounded while the rest stay square, and a small
+ * gap between segments keeps the stacking readable.
  */
 export function columnPath(
     x: number,
@@ -54,10 +55,11 @@ export function columnPath(
 }
 
 /**
- * 「好看」的刻度。
+ * A "nice" scale.
  *
- * 与折线图同一套步长（1/2/2.5/5 × 10^n），保证两张图的纵轴读起来一致。
- * 返回上限与刻度数组：刻度都是步长的整数倍，不会出现 0/75/150 这种读数。
+ * Uses steps of 1/2/2.5/5 x 10^n so the y axis reads the same as the line
+ * chart. Returns the top plus the tick list: every tick is a multiple of the
+ * step, so labels never come out as 0/75/150.
  */
 export function niceScale(value: number): { max: number; ticks: number[] } {
     if (!Number.isFinite(value) || value <= 0) return { max: 1, ticks: [0, 1] };
@@ -79,16 +81,16 @@ export function niceScale(value: number): { max: number; ticks: number[] } {
     return { max: Math.ceil(value), ticks: [0, Math.ceil(value)] };
 }
 
-/** 只取上限，供调用点算比例 */
+/** Top only, for call sites that just need a ratio. */
 export function niceMax(value: number): number {
     return niceScale(value).max;
 }
 
 /**
- * 只显示放得下的轴标签。
+ * Axis labels that actually fit.
  *
- * 从最新一根往左数，保证最新的那个一定有标签（读者最关心它），
- * 间距也保持均匀。
+ * Counts back from the newest bar so the latest one is always labelled (it is
+ * what the reader cares about) while spacing stays even.
  */
 export function fittingLabels(count: number, availableWidth: number, labelWidth = 34): number[] {
     if (count <= 0) return [];

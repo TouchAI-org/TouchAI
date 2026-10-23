@@ -4,8 +4,6 @@
     /**
      * Donut chart.
      *
-     * Ported from uiarc's donut-chart (React + motion upstream), keeping its
-     * core mechanics:
      * - Rounded annular sectors with a constant pixel gap, so segments separate
      *   without relying on stroke-dasharray.
      * - Colour follows the key, so an item keeps its colour across data changes.

@@ -1,16 +1,17 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 /**
- * 环形扇形几何。
+ * Annular sector geometry.
  *
- * 移植自 uiarc 的 donut-chart：用「像素间隙 + 圆角环形扇形」而不是
- * stroke-dasharray。后者画不出段与段之间的空隙，段之间会粘连；
- * 这里两侧边线沿半径方向各偏移 gap/2，所以从内径到外径的间隙是恒定的。
+ * Uses pixel gaps plus rounded sectors rather than stroke-dasharray, which
+ * cannot express a gap between segments and leaves them touching. Both edges
+ * are offset by gap/2 along the radius, so the gap is constant from the inner
+ * radius to the outer one.
  */
 
 export const TAU = Math.PI * 2;
 
-/** 数值保留两位小数：SVG path 里再高的精度没有意义，反而让字符串变长 */
+/** Two decimals: more precision in an SVG path only lengthens the string. */
 export function n2(value: number): string {
     return (Math.round(value * 100) / 100).toString();
 }
@@ -21,10 +22,10 @@ export interface Arc {
 }
 
 /**
- * 把各段的值铺成 0–1 的弧区间。
+ * Lay the slice values out as arc ranges in 0..1.
  *
- * 隐藏的段宽度为 0 但仍占位：这样重新显示时能回到原位，
- * 其余段也不会因为索引变化而重排。
+ * A hidden slice keeps its slot at zero width, so it returns to the same place
+ * when shown again and the other slices do not reflow.
  */
 export function layout(
     slices: ReadonlyArray<{ key: string; value: number }>,
@@ -43,10 +44,10 @@ export function layout(
 }
 
 /**
- * 扇形外缘的半宽（像素）。
+ * Half the breadth of a sector's outer edge, in pixels.
  *
- * 细到只剩一两个像素时不再画发丝线，而是整体淡出，
- * 避免出现视觉噪点。
+ * Below a pixel or two the sector fades out instead of drawing a hairline that
+ * only adds visual noise.
  */
 export function breadth(R: number, t0: number, t1: number, gap: number): number {
     const turns = t1 - t0;
@@ -58,15 +59,15 @@ export function breadth(R: number, t0: number, t1: number, gap: number): number 
 }
 
 /**
- * 一段带圆角的环形扇形。
+ * One rounded annular sector.
  *
- * @param c 圆心坐标（viewBox 是正方形，x/y 相同）
- * @param R 外半径
- * @param r 内半径
- * @param t0 起始位置，0–1，从 12 点顺时针
- * @param t1 结束位置
- * @param gap 相邻段之间的像素间隙
- * @param corner 圆角半径
+ * @param c centre coordinate; the viewBox is square, so x and y match
+ * @param R outer radius
+ * @param r inner radius
+ * @param t0 start position in 0..1, clockwise from twelve o'clock
+ * @param t1 end position
+ * @param gap pixel gap between neighbouring slices
+ * @param corner corner radius
  */
 export function sector(
     c: number,
@@ -83,7 +84,7 @@ export function sector(
     const at = (radius: number, angle: number) =>
         `${n2(c + radius * Math.cos(angle))} ${n2(c + radius * Math.sin(angle))}`;
 
-    // 整圈：直接画两个完整的圆，不需要间隙
+    // Full circle: two complete rings, no gap needed.
     if (turns >= 1 - 1e-6) {
         return (
             `M${at(R, -Math.PI / 2)}A${n2(R)} ${n2(R)} 0 1 1 ${at(R, Math.PI / 2)}` +
@@ -93,16 +94,16 @@ export function sector(
         );
     }
 
-    // 两侧各留一半间隙；只剩一段时它会自动合拢成整圈，不会跳变
+    // Half a gap on each side; a lone slice closes into a full ring without a jump.
     const p = Math.min(gap / 2, ((1 - turns) * TAU * R) / 2);
     const a0 = t0 * TAU - Math.PI / 2;
     const a1 = t1 * TAU - Math.PI / 2;
     const half = (a1 - a0) / 2;
     const s = Math.sin(Math.min(half, Math.PI / 2));
-    // 太窄了：让调用方淡出，而不是画一条线
+    // Too narrow to draw: let the caller fade it out instead of drawing a line.
     if (s * R <= p + 1e-6) return '';
 
-    /** 沿半径方向偏移 p 的边线端点 */
+    /** Endpoint of an edge line offset by `p` along the radius. */
     const side = (t: number, angle: number, sign: number) =>
         `${n2(c + t * Math.cos(angle) - sign * p * Math.sin(angle))} ` +
         `${n2(c + t * Math.sin(angle) + sign * p * Math.cos(angle))}`;
@@ -132,7 +133,7 @@ export function sector(
         d += `A${n2(r)} ${n2(r)} 0 ${bigI} 0 ${at(r, a0 + dI)}`;
         if (ri > 0.01) d += `A${n2(ri)} ${n2(ri)} 0 0 1 ${side(tI, a0, 1)}`;
     } else {
-        // 内缘太窄，收成一个尖角
+        // The inner edge is too narrow, so it collapses to a point.
         d += `L${at(p / s, (a0 + a1) / 2)}`;
     }
 
@@ -140,9 +141,10 @@ export function sector(
 }
 
 /**
- * 分组：占比过小的段合并成「其他」。
+ * Grouping: slices below the threshold merge into "other".
  *
- * 不合并的话，长尾会把环切成十几条发丝，既看不出比例也点不中。
+ * Without it a long tail cuts the ring into a dozen hairlines that show no
+ * proportion and cannot be clicked.
  */
 export function groupSlices<
     T extends { key: string; label: string; value: number; color?: string },
