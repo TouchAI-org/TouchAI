@@ -127,6 +127,13 @@ When a new primitive is needed:
 
 Styles that are genuinely one-off (a single complex animation, a bespoke layout) should stay inline. The goal is to remove duplicated primitives, not to route every element through a shared component.
 
+### Tokens and drift guards
+
+Colour, type and radius values come from tokens, not literals. The layer model, the naming rules and the three automated guards are documented in [docs/agents/design-system.md](docs/agents/design-system.md) — read it before touching `apps/desktop/src/styles/` or adding a variant.
+
+`pnpm design:check` runs the token contract and the drift budget locally. Both also run in CI, and the budget runs on commit.
+
+
 ## Testing and TDD
 
 For detailed testing guidelines, principles, and coverage requirements, see [docs/testing/testing.md](docs/testing/testing.md).
