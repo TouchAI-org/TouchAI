@@ -1,0 +1,19 @@
+{
+    "$comment": "Design-system drift ratchet. Counts may only go DOWN. Lower a number in the same PR that removes the occurrences. Never raise one without an approved RFC.",
+    "measuredAt": "79e2422c",
+    "measuredOn": "2026-10-23",
+    "budget": {
+        "arbitraryHexColor": 0,
+        "arbitraryPixelValue": 66,
+        "arbitraryTextSize": 27,
+        "bgWhite": 53,
+        "textBlack": 0,
+        "neutralUtility": 515,
+        "grayUtility": 140,
+        "stoneUtility": 23,
+        "rawButton": 85,
+        "rawInput": 10,
+        "rawLabel": 28,
+        "hardcodedMonoStack": 1
+    }
+}
