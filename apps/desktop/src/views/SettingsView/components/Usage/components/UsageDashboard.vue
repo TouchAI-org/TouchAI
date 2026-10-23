@@ -341,7 +341,15 @@
         zoomRaf = requestAnimationFrame(step);
     }
 
-    watch(liveMode, (active) => animateZoom(active ? 1 : 0), { immediate: true });
+    watch(
+        liveMode,
+        (active) => {
+            // Stop scheduling frames once the component is gone.
+            if (disposed) return;
+            animateZoom(active ? 1 : 0);
+        },
+        { immediate: true }
+    );
 
     /**
      * Seconds covered by one bucket.
@@ -477,11 +485,6 @@
             if (next > 0) plotWidth.value = next;
         });
         plotObserver.observe(el);
-    });
-
-    onUnmounted(() => {
-        plotObserver?.disconnect();
-        plotObserver = null;
     });
 
     /**
@@ -733,9 +736,13 @@
     onUnmounted(() => {
         disposed = true;
         if (timer) clearInterval(timer);
+        timer = null;
         if (zoomRaf) cancelAnimationFrame(zoomRaf);
         zoomRaf = 0;
+        plotObserver?.disconnect();
+        plotObserver = null;
         unlisten?.();
+        unlisten = null;
     });
 </script>
 

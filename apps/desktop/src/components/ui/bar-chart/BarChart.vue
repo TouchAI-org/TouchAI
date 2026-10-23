@@ -13,7 +13,7 @@
      * - Hovering highlights the whole column with a breakdown; arrow keys work.
      * - Bars grow from the baseline on the first frame, staggered left to right.
      */
-    import { computed, onMounted, ref } from 'vue';
+    import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
     import { columnPath, fittingLabels, niceScale } from './geometry';
 
@@ -165,13 +165,20 @@
 
     /** 0 to 1: the whole plot grows from the baseline. */
     const grown = ref(false);
+    let entryFrame = 0;
 
     onMounted(() => {
         // Wait a frame before enabling the transition, so the first paint does
         // not animate from 0.
-        requestAnimationFrame(() => {
+        entryFrame = requestAnimationFrame(() => {
+            entryFrame = 0;
             grown.value = true;
         });
+    });
+
+    onBeforeUnmount(() => {
+        if (entryFrame) cancelAnimationFrame(entryFrame);
+        entryFrame = 0;
     });
 
     /** Per-bar entry delay: staggered left to right, capped at 240ms. */

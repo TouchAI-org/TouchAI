@@ -2,15 +2,15 @@
 
 <script setup lang="ts">
     /**
-     * 活动日历热力图。
+     * Activity calendar heatmap.
      *
-     * 移植自 uiarc 的 activity-heatmap：
-     * - 周为列、星期为行，周一开头；缺的日子按 0 计
-     * - 五档：无 / 1 / 2 / 3 / 4，默认按最忙那天的 25/50/75% 切分
-     * - 入场按列波形浮现，而不是整块一起淡入
-     * - 一个气泡在格子之间滑动（不是每格一个原生 title）
-     * - 图例可悬停预览、点击固定，并说明这一档有多少天
-     * - 方向键按天/周移动，Home / End 到首尾
+     * Ported from uiarc's activity-heatmap:
+     * - weeks as columns, weekdays as rows, starting Monday; missing days count as 0
+     * - five levels split at 25/50/75% of the busiest day
+     * - cells fade in column by column on mount
+     * - one bubble glides between cells instead of a native title per cell
+     * - the legend previews on hover, pins on click, and reports days per level
+     * - arrow keys move by day and week, Home and End jump to the ends
      */
     import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
@@ -21,16 +21,16 @@
     interface Props {
         days: ActivityDay[];
         label: string;
-        /** 固定的一年窗口：`true` 时右端对齐到本周，左侧补齐整年 */
+        /** Pin a full-year window: right edge on this week, padded back a year. */
         yearWindow?: boolean;
-        /** 绘图区高度（不含月份与图例） */
+        /** Plot height, excluding the month row and the legend. */
         height?: number;
         weekStartsOn?: 0 | 1;
-        /** 每格的单位名，用于气泡与图例 */
+        /** Unit names used in the bubble and the legend. */
         unit?: { one: string; other: string };
         formatValue?: (value: number) => string;
         formatDate?: (date: Date) => string;
-        /** 悬停格的附加说明（如 token 数与成本） */
+        /** Extra detail for the hovered day, such as tokens and cost. */
         detailOf?: (date: string) => string | null;
     }
 
@@ -53,10 +53,10 @@
     const WAVE = 520;
 
     /**
-     * 补齐到固定一年窗口。
+     * Pad to a fixed one-year window.
      *
-     * 查询只返回有数据的日子，直接用它建模型的话，热力图的跨度会
-     * 跟着数据走——第一笔用量到今天，而不是「最近一年」。
+     * The query returns only days with data, so building the model from it
+     * would make the heatmap span first-usage to today rather than the last year.
      */
     const days = computed<ActivityDay[]>(() => {
         if (!props.yearWindow) return props.days;
@@ -66,7 +66,7 @@
         today.setHours(0, 0, 0, 0);
 
         const end = new Date(today);
-        // 对齐到本周最后一天，最后一行才完整
+        // Align the end to the last day of this week so the final row is complete.
         const tail = (7 - ((end.getDay() - props.weekStartsOn + 7) % 7) - 1) % 7;
         end.setDate(end.getDate() + tail);
 
@@ -101,7 +101,7 @@
     const naturalWidth = computed(() => GUTTER + model.value.weeks * STEP);
     const naturalHeight = computed(() => HEADER + 7 * STEP);
 
-    /** 格子放大：容器够宽就整体放大，最多 1.5 倍 */
+    /** Cells scale with the container, capped at 1.5x. */
     const containerRef = ref<HTMLElement | null>(null);
     const containerWidth = ref(0);
     const renderWidth = computed(() => {
@@ -111,7 +111,7 @@
     const scale = computed(() => renderWidth.value / naturalWidth.value);
     const renderHeight = computed(() => naturalHeight.value * scale.value);
 
-    // ===== 入场：按列波形 =====
+    // ===== Entry: a wave across columns =====
 
     const revealed = ref(false);
     let timer = 0;
@@ -150,12 +150,12 @@
         window.clearTimeout(hideTimer);
     });
 
-    /** 每格的过渡延迟：按列递增，形成从左到右的波 */
+    /** Per-cell delay grows by column, producing a left-to-right wave. */
     function delayOf(column: number): string {
         return `${Math.min(column * 10, WAVE)}ms`;
     }
 
-    // ===== 图例：悬停预览、点击固定 =====
+    // ===== Legend: preview on hover, pin on click =====
 
     const preview = ref<number | null>(null);
     const pinned = ref<number | null>(null);
@@ -177,10 +177,10 @@
         pinned.value = pinned.value === level ? null : level;
     }
 
-    /** 每档的天数，图例里用来说明 */
+    /** Days per level, reported by the legend. */
     const levelDays = computed(() => model.value.perLevel);
 
-    // ===== 气泡 =====
+    // ===== Bubble =====
 
     const focusIndex = ref<number | null>(null);
 
@@ -212,7 +212,7 @@
         };
     });
 
-    /** 日期文案：优先用调用方给的格式化器 */
+    /** Date label, preferring the caller-supplied formatter. */
     function dateText(iso: string): string {
         const date = new Date(toUtc(iso));
         if (props.formatDate) return props.formatDate(date);
@@ -228,11 +228,11 @@
         (activeCell.value?.count ?? 0) === 1 ? props.unit.one : props.unit.other
     );
 
-    /** 图例前缀与「天」的文案 */
+    /** Legend prefix and the day unit. */
     const unitLabel = computed(() => t('settings.usage.heatmap.legendUnit'));
     const dayLabel = computed(() => t('settings.usage.heatmap.legendDay'));
 
-    // ===== 键盘 =====
+    // ===== Keyboard =====
 
     function onKeydown(event: KeyboardEvent): void {
         const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
@@ -246,7 +246,7 @@
         focusIndex.value = moveIndex(model.value, current, event.key);
     }
 
-    // ===== 渲染辅助 =====
+    // ===== Render helpers =====
 
     const LEVEL_FILL = [
         'fill-neutral-100',
@@ -268,7 +268,7 @@
             weekday: 'narrow',
             timeZone: 'UTC',
         });
-        // 只标 1/3/5 行，全标会盖住格子
+        // Label rows 1, 3, and 5 only; labelling every row covers the cells.
         return [1, 3, 5].map((row) => ({
             row,
             text: formatter.format(new Date(Date.UTC(2026, 0, 4 + row))),

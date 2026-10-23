@@ -1,12 +1,12 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 /**
- * 活动热力图的日历模型。
+ * Calendar model for the activity heatmap.
  *
- * 移植自 uiarc 的 activity-heatmap：把「每天一个数」铺成
- * 「周为列、星期为行」的日历，并把数值分成 0–4 五档。
- * 与参考实现一致，档位默认按「最忙那天的四分之一」切分，
- * 而不是按分位数——读者一眼看到的是相对强度，不是排名。
+ * Ported from uiarc's activity-heatmap: lays one value per day onto a calendar
+ * of weeks by weekdays and buckets values into five levels. Levels split at
+ * quarters of the busiest day rather than by quantile, because the reader is
+ * after relative intensity, not a ranking.
  */
 
 export interface ActivityDay {
@@ -16,11 +16,11 @@ export interface ActivityDay {
 }
 
 export interface ActivityModel {
-    /** 首日的 UTC 毫秒 */
+    /** UTC milliseconds of the first day. */
     start: number;
-    /** 覆盖的天数 */
+    /** Number of days covered. */
     length: number;
-    /** 第一行之前的空格数 */
+    /** Empty cells before the first day. */
     lead: number;
     weeks: number;
     total: number;
@@ -28,13 +28,13 @@ export interface ActivityModel {
     levels: number[];
     thresholds: [number, number, number];
     months: Array<{ column: number; label: string }>;
-    /** 每档各有多少天 */
+    /** Days sitting at each level. */
     perLevel: number[];
 }
 
 const DAY = 86_400_000;
 
-/** 把 YYYY-MM-DD 解析成 UTC 毫秒，避免本地时区把日期挪一天 */
+/** Parse YYYY-MM-DD as UTC milliseconds so a local zone cannot shift the day. */
 export function toUtc(date: string): number {
     const [year, month, day] = date.split('-').map(Number);
     if (!year || !month || !day) return NaN;
@@ -51,12 +51,12 @@ export function toIso(ms: number): string {
 }
 
 /**
- * 建出日历模型。
+ * Build the calendar model.
  *
- * @param days 每天一条，缺的日子按 0 计
- * @param weekStartsOn 0 = 周日，1 = 周一
- * @param thresholds 自定义三档上界；不传则按最忙那天的 25/50/75%
- * @param monthName 月份短名格式化
+ * @param days one entry per day; missing days count as 0
+ * @param weekStartsOn 0 for Sunday, 1 for Monday
+ * @param thresholds upper bounds for the first three levels; defaults to 25/50/75% of the busiest day
+ * @param monthName short month formatter
  */
 export function buildModel(
     days: readonly ActivityDay[],
@@ -106,7 +106,7 @@ export function buildModel(
             });
         }
     }
-    // 首月不完整时，只有与下个月至少隔 3 列才留标签，否则两个标签会叠在一起
+    // A partial first month keeps its label only with three columns of room.
     if (months.length > 1 && months[1]!.column - months[0]!.column < 3) months.shift();
 
     const perLevel = [0, 0, 0, 0, 0];
@@ -126,22 +126,20 @@ export function buildModel(
     };
 }
 
-/** 某一格在网格里的列与行 */
+/** Grid column and row for one day index. */
 export function slotOf(model: ActivityModel, index: number): { column: number; row: number } {
     const offset = model.lead + index;
     return { column: Math.floor(offset / 7), row: offset % 7 };
 }
 
-/** 网格尺寸（列 × 行） */
+/** Grid size in columns and rows. */
 export function gridSize(model: ActivityModel): { columns: number; rows: number } {
     return { columns: Math.max(1, model.weeks), rows: 7 };
 }
 
 /**
- * 键盘导航的步长。
- *
- * 左右按天、上下按周，与日历的直觉一致；
- * Home / End 跳到首尾。
+ * Index step for keyboard navigation: left and right move by day, up and down
+ * by week, matching a calendar. Home and End jump to the ends.
  */
 export function moveIndex(model: ActivityModel, index: number, key: string): number {
     const last = model.length - 1;

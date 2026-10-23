@@ -88,7 +88,7 @@ export class LiveUsageTracker {
      * while idle and rise again when output resumes.
      */
     start(): void {
-        if (this.heartbeat) return;
+        if (this.heartbeat || this.finished) return;
         this.heartbeat = setInterval(() => {
             if (this.finished) return;
             this.pushSample(Date.now() - this.startedAt);
