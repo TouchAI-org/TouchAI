@@ -1,0 +1,197 @@
+/*
+ * Copyright (c) 2026. 千诚. Licensed under GPL v3.
+ */
+
+/*
+ * Layer 1 — primitive tokens.
+ *
+ * Raw values only: palettes, families, sizes, radii. Nothing in this file knows
+ * what a "surface" or a "card" is, and nothing here should be referenced from a
+ * component. Components read semantic tokens (see semantic.css), which point back
+ * at these values.
+ *
+ * Every entry lives in `@theme`, because Tailwind v4 only generates utilities for
+ * custom properties declared there. A variable declared in `:root` produces no
+ * utility and silently does nothing when used as a class name.
+ */
+
+@theme {
+    --default-transition-duration: var(--duration-quick);
+    --default-transition-timing-function: var(--ease-smooth-out);
+
+    /* ── Typography families ─────────────────────────────────────────────── */
+
+    --font-sans:
+        -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --font-serif: 'TouchAI Source Han Serif SC', 'Noto Serif SC', serif;
+    /*
+     * Previously absent, which meant the 28 `font-mono` usages fell back to
+     * Tailwind's default stack while 6 places hard-coded JetBrains Mono by hand.
+     * Declaring it here is what makes those two agree.
+     */
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+
+    /*
+     * ── Type scale ────────────────────────────────────────────────────────
+     *
+     * The steps below are the sizes actually present in the app, measured from
+     * the arbitrary `text-[Npx]` utilities plus the Tailwind steps already in
+     * use. Four steps reuse Tailwind's built-in names because their values are
+     * identical (xs 12px, sm 14px, base 16px, lg 18px); the rest are declared
+     * here to fill the gaps that had no token at all.
+     *
+     * Line heights are deliberately omitted so these utilities set font-size
+     * only, matching the behaviour of the arbitrary values they replace.
+     */
+    --text-3xs: 9px;
+    --text-2xs: 10px;
+    --text-caption: 11px;
+    --text-compact: 13px;
+    --text-reading: 15px;
+    --text-subtitle: 20px;
+    --text-title: 22px;
+
+    /*
+     * ── Line height ───────────────────────────────────────────────────────
+     *
+     * Intentionally empty. Markdown owns its reading rhythm through
+     * `--touchai-markdown-body-leading` in markdown.css (2.05), and that value
+     * applies to one surface only. Hoisting it here would create a global
+     * `leading-reading` utility with a single consumer, which is the "token
+     * exists, nobody uses it" shape this refactor is removing.
+     */
+
+    /*
+     * ── Letter spacing ────────────────────────────────────────────────────
+     *
+     * Intentionally empty. The three arbitrary tracking values in the codebase
+     * (`-0.005em`, `0`, `0.02em`) live in three places, and declaring
+     * `--tracking-*` here would overwrite Tailwind's defaults — `tracking-wide`
+     * is already in use at `ShortcutChip.vue` and would silently change from
+     * 0.025em to 0.02em. Introducing the tokens has to start by migrating those
+     * call sites, which is a visual decision, not a rename.
+     */
+
+    /* ── Interface neutrals ──────────────────────────────────────────────── */
+    /*
+     * The near-white ladder the app's chrome is built from. These are raw values:
+     * semantic.css maps them to roles (canvas, surface, hover, active). They exist
+     * separately so a future theme change touches this file only.
+     *
+     * The steps differ by 1-3 RGB units and were kept exactly as they were
+     * measured. Collapsing them into fewer steps is a visual decision, not a
+     * cleanup: it belongs in its own change with before/after screenshots.
+     */
+    --color-ui-50: #f8f8f8;
+    --color-ui-100: #f7f7f6;
+    --color-ui-200: #f4f4f2;
+    --color-ui-300: #f1f1ef;
+    --color-ui-400: #f0f0ef;
+    --color-ui-500: #eeeeec;
+    --color-ui-600: #ececea;
+    --color-ui-700: #e9e9e7;
+    --color-ui-800: #e2e2df;
+
+    /* ── Radius ──────────────────────────────────────────────────────────── */
+    /*
+     * The existing sm/md/lg entries are kept at their current values (8/10/12px)
+     * because 62 `rounded-lg` call sites depend on them; changing a value here
+     * would move every one of them at once. The names below add the steps the
+     * scale was missing instead.
+     */
+    --radius-sm: 0.5rem;
+    --radius-md: 0.625rem;
+    --radius-lg: 0.75rem;
+
+    --radius-xs: 0.25rem;
+    --radius-control: 0.625rem;
+    /*
+     * 9px, kept only because the settings and icon button families use it today.
+     * It is one pixel off `--radius-control` and should be folded into it during
+     * the visual-change pass; it exists here so that adopting tokens does not
+     * move a single pixel.
+     */
+    --radius-action: 0.5625rem;
+    --radius-card: 0.75rem;
+    --radius-panel: 1rem;
+
+    /* ── Brand ramp (warm brown) ─────────────────────────────────────────── */
+
+    --color-primary-50: #f7f5f3;
+    --color-primary-100: #ebe7e3;
+    --color-primary-200: #d9d3cc;
+    --color-primary-300: #b8afa5;
+    --color-primary-400: #968b7d;
+    --color-primary-500: #6b5f54;
+    --color-primary-600: #5a4f45;
+    --color-primary-700: #4a4039;
+
+    /*
+     * ── Status ramps ──────────────────────────────────────────────────────
+     *
+     * These are kept so existing `var(--color-error-700)` style references keep
+     * resolving. New code should not reach for a ramp step directly: semantic.css
+     * exposes the status roles, and that is the only layer components should use.
+     *
+     * Their gaps are deliberate. `secondary` is missing 200-400, `success` is
+     * missing 200-400, `danger` only has 50/600/700, and each of `error`,
+     * `warning` and `info` is missing 200-400. Filling them in with Tailwind's
+     * default values would add roughly thirty tokens with no consumer — the audit
+     * found that 29 of the 32 existing status ramp tokens were already unused, and
+     * adding more would recreate exactly the "token exists, nobody uses it"
+     * problem this refactor is removing.
+     *
+     * The audit also found the app expresses status through Tailwind's own
+     * palette: 63 uses of `red-*` against 3 uses of the brand status colours.
+     * So the right fix is not a complete ramp; it is to either migrate those 63
+     * call sites onto status roles, or delete the ramps. That decision needs a
+     * visual review of each status surface, so it is left to its own change.
+     */
+    --color-secondary-50: #faf5ff;
+    --color-secondary-100: #f3e8ff;
+    --color-secondary-500: #a855f7;
+    --color-secondary-600: #9333ea;
+    --color-secondary-700: #7e22ce;
+
+    --color-success-50: #f0fdf4;
+    --color-success-100: #dcfce7;
+    --color-success-500: #22c55e;
+    --color-success-600: #16a34a;
+    --color-success-700: #15803d;
+    --color-success-800: #166534;
+
+    --color-danger-50: #fef2f2;
+    --color-danger-600: #dc2626;
+    --color-danger-700: #b91c1c;
+
+    --color-error-50: #fef2f2;
+    --color-error-100: #fee2e2;
+    --color-error-500: #ef4444;
+    --color-error-600: #dc2626;
+    --color-error-700: #b91c1c;
+    --color-error-800: #991b1b;
+
+    --color-warning-50: #fffbeb;
+    --color-warning-100: #fef3c7;
+    --color-warning-500: #f59e0b;
+    --color-warning-600: #d97706;
+    --color-warning-700: #b45309;
+    --color-warning-800: #92400e;
+
+    --color-info-50: #eff6ff;
+    --color-info-100: #dbeafe;
+    --color-info-500: #3b82f6;
+    --color-info-600: #2563eb;
+    --color-info-700: #1d4ed8;
+    --color-info-800: #1e40af;
+
+    /* ── Provider brand colours ──────────────────────────────────────────── */
+
+    --color-openai-light: #dcfce7;
+    --color-openai: #16a34a;
+    --color-openai-dark: #166534;
+
+    --color-claude-light: #f3e8ff;
+    --color-claude: #9333ea;
+    --color-claude-dark: #6b21a8;
+}
