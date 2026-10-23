@@ -8,6 +8,7 @@
     "vueIndentScriptAndStyle": true,
     "htmlWhitespaceSensitivity": "ignore",
     "plugins": ["prettier-plugin-astro", "prettier-plugin-tailwindcss"],
+    "tailwindStylesheet": "apps/desktop/src/styles/tailwind.css",
     "overrides": [
         {
             "files": "*.vue",
