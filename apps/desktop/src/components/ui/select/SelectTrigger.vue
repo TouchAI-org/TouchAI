@@ -28,7 +28,7 @@
         v-bind="forwarded"
         :class="
             cn(
-                'focus:border-primary-400 flex h-9 w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-left font-serif text-sm text-gray-900 transition-colors disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400',
+                'flex h-9 w-full items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-left font-serif text-sm text-gray-900 transition-colors focus:border-primary-400 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400',
                 props.class
             )
         "

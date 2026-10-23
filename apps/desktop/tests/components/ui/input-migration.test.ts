@@ -10,6 +10,11 @@
  *
  * 这里覆盖代码库中实际出现的每一种附加 class 组合（共 5 类），
  * 逐一断言「被覆盖的属性只剩调用点那一个值」。
+ *
+ * 断言对象是 token 类名而不是字面值。原 `.settings-input` 的视觉值保留在
+ * tokens/primitive.css 与 tokens/semantic.css 里，由
+ * tests/ci/design-token-values.test.ts 守住数值，这里只守「filled 变体确实
+ * 引用了那几个 token」。
  */
 import Input from '@components/ui/input/Input.vue';
 import { mount } from '@vue/test-utils';
@@ -26,17 +31,17 @@ const classList = (props: Record<string, unknown> = {}) => mountInput(props).cla
 describe('settings-input → Input variant="filled" 迁移等价性', () => {
     it('filled 携带 .settings-input 的全部属性', () => {
         const classes = classList({ variant: 'filled' });
-        // 原 .settings-input 的 @apply 内容
+        // 原 .settings-input 的 @apply 内容，逐条映射到 token
         expect(classes).toContain('focus:border-primary-300');
-        expect(classes).toContain('rounded-[10px]');
+        expect(classes).toContain('rounded-control'); // 原 rounded-[10px]
         expect(classes).toContain('border-transparent');
-        expect(classes).toContain('bg-[#f0f0ef]');
+        expect(classes).toContain('bg-surface-sunken'); // 原 bg-[#f0f0ef]
         expect(classes).toContain('px-3');
         expect(classes).toContain('py-2');
-        expect(classes).toContain('text-[13px]');
+        expect(classes).toContain('text-compact'); // 原 text-[13px]
         expect(classes).toContain('text-neutral-900');
         expect(classes).toContain('shadow-none');
-        expect(classes).toContain('hover:bg-[#ececea]');
+        expect(classes).toContain('hover:bg-surface-active'); // 原 hover:bg-[#ececea]
         expect(classes).toContain('focus:bg-white');
         expect(classes).toContain('focus:outline-none');
     });
@@ -47,6 +52,16 @@ describe('settings-input → Input variant="filled" 迁移等价性', () => {
         expect(classes).not.toContain('border-gray-200');
         expect(classes).not.toContain('text-sm');
         expect(classes).not.toContain('rounded-lg');
+    });
+
+    it('filled 不再包含任何任意值', () => {
+        const classes = classList({ variant: 'filled' });
+
+        for (const className of classes) {
+            expect(className, `arbitrary value left in filled: ${className}`).not.toMatch(
+                /-\[[^\]]+\]/
+            );
+        }
     });
 
     describe('调用点附加 class 的覆盖行为', () => {
@@ -94,14 +109,14 @@ describe('settings-input → Input variant="filled" 迁移等价性', () => {
             expect(classes).not.toContain('disabled:bg-gray-50');
         });
 
-        // 组合 5：设置页搜索框 —— h-9 w-full pr-8 pl-8 text-[12px]
-        it('text-[12px] 覆盖 filled 的 text-[13px]', () => {
+        // 组合 5：设置页搜索框 —— h-9 w-full pr-8 pl-8 text-xs
+        it('text-xs 覆盖 filled 的 text-compact', () => {
             const classes = classList({
                 variant: 'filled',
-                class: 'h-9 w-full pr-8 pl-8 text-[12px]',
+                class: 'h-9 w-full pr-8 pl-8 text-xs',
             });
-            expect(classes).toContain('text-[12px]');
-            expect(classes).not.toContain('text-[13px]');
+            expect(classes).toContain('text-xs');
+            expect(classes).not.toContain('text-compact');
         });
     });
 });

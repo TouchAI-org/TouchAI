@@ -345,7 +345,7 @@
             <!-- 一个气泡跟住当前格子 -->
             <div
                 v-if="activeCell"
-                class="pointer-events-none absolute z-10 rounded-[9px] border border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] whitespace-nowrap shadow-sm"
+                class="pointer-events-none absolute z-10 rounded-action border border-neutral-200 bg-white px-2.5 py-1.5 text-caption whitespace-nowrap shadow-sm"
                 :style="bubbleStyle"
                 data-testid="activity-heatmap-tooltip"
             >
@@ -364,7 +364,7 @@
         </div>
 
         <!-- 图例：悬停预览、点击固定，并说明这一档有多少天 -->
-        <figcaption class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-500">
+        <figcaption class="mt-2 flex flex-wrap items-center gap-1.5 text-caption text-neutral-500">
             <span class="mr-0.5">{{ unitLabel }}</span>
             <button
                 v-for="(className, index) in LEVEL_BG"

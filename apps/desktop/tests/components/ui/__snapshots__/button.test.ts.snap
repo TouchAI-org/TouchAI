@@ -9,10 +9,10 @@ exports[`ui/Button > settings 族 variant（原 .settings-button-* 类） > vari
   "hover:bg-red-700",
   "px-3.5",
   "py-1.5",
-  "rounded-[9px]",
+  "rounded-action",
   "shadow-none",
-  "text-[12px]",
   "text-white",
+  "text-xs",
   "transition-colors",
 ]
 `;
@@ -27,7 +27,7 @@ exports[`ui/Button > settings 族 variant（原 .settings-button-* 类） > vari
   "hover:text-neutral-700",
   "items-center",
   "justify-center",
-  "rounded-[9px]",
+  "rounded-action",
   "text-neutral-400",
   "transition-colors",
   "w-8",
@@ -46,10 +46,10 @@ exports[`ui/Button > settings 族 variant（原 .settings-button-* 类） > vari
   "hover:border-neutral-300/80",
   "px-3.5",
   "py-1.5",
-  "rounded-[9px]",
+  "rounded-action",
   "shadow-none",
-  "text-[12px]",
   "text-neutral-700",
+  "text-xs",
   "transition-colors",
 ]
 `;
@@ -63,10 +63,10 @@ exports[`ui/Button > settings 族 variant（原 .settings-button-* 类） > vari
   "hover:bg-primary-600",
   "px-3.5",
   "py-1.5",
-  "rounded-[9px]",
+  "rounded-action",
   "shadow-none",
-  "text-[12px]",
   "text-white",
+  "text-xs",
   "transition-colors",
 ]
 `;

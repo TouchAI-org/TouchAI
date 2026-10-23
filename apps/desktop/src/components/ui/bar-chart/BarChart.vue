@@ -257,7 +257,7 @@
                 v-for="(line, index) in series"
                 :key="line.key"
                 type="button"
-                class="flex items-center gap-1.5 text-[11px] transition-opacity"
+                class="flex items-center gap-1.5 text-caption transition-opacity"
                 :class="hidden.includes(line.key) ? 'opacity-40' : 'opacity-100'"
                 :aria-pressed="!hidden.includes(line.key)"
                 @click="toggle(line.key)"
@@ -282,7 +282,7 @@
         <div v-else class="relative flex gap-2">
             <!-- 纵轴刻度放在图外，与折线图、构成环一致 -->
             <div
-                class="flex w-9 shrink-0 flex-col justify-between text-right text-[9px] text-neutral-400 tabular-nums"
+                class="flex w-9 shrink-0 flex-col justify-between text-right text-3xs text-neutral-400 tabular-nums"
                 :style="{
                     height: `${height}px`,
                     paddingTop: `${PAD.top}px`,
@@ -409,11 +409,11 @@
             <!-- tooltip：悬停列的明细 -->
             <div
                 v-if="activeDatum"
-                class="pointer-events-none absolute top-0 z-10 min-w-36 rounded-[10px] border border-neutral-200 bg-white px-3 py-2 text-xs shadow-sm"
+                class="pointer-events-none absolute top-0 z-10 min-w-36 rounded-control border border-neutral-200 bg-white px-3 py-2 text-xs shadow-sm"
                 :style="tooltipStyle"
                 data-testid="bar-chart-tooltip"
             >
-                <div class="mb-1 text-[11px] font-medium text-neutral-900">
+                <div class="mb-1 text-caption font-medium text-neutral-900">
                     {{ activeDatum.label }}
                 </div>
                 <div class="space-y-0.5">
@@ -433,7 +433,7 @@
                 </div>
                 <div
                     v-if="visible.length > 1"
-                    class="mt-1 flex items-center justify-between gap-2 border-t border-neutral-100 pt-1 text-[11px]"
+                    class="mt-1 flex items-center justify-between gap-2 border-t border-neutral-100 pt-1 text-caption"
                 >
                     <span class="text-neutral-400">{{ t('settings.usage.chart.total') }}</span>
                     <span class="text-neutral-900 tabular-nums">

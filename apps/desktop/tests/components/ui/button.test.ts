@@ -62,16 +62,16 @@ describe('ui/Button', () => {
         it('variant=strong 等价于 settings-button-primary', () => {
             const classes = mountButton({ variant: 'strong' }).classes();
             expect(classes.sort()).toMatchSnapshot();
-            // 原类：bg-primary-700 hover:bg-primary-600 rounded-[9px] px-3.5 py-1.5
-            // text-[12px] font-medium text-white shadow-none transition-colors
+            // 原类：bg-primary-700 hover:bg-primary-600 rounded-action px-3.5 py-1.5
+            // text-xs font-medium text-white shadow-none transition-colors
             // disabled:cursor-not-allowed disabled:opacity-50
             for (const expected of [
                 'bg-primary-700',
                 'hover:bg-primary-600',
-                'rounded-[9px]',
+                'rounded-action',
                 'px-3.5',
                 'py-1.5',
-                'text-[12px]',
+                'text-xs',
                 'font-medium',
                 'text-white',
                 'shadow-none',
@@ -108,7 +108,7 @@ describe('ui/Button', () => {
         it('variant=ghost-neutral 等价于 settings-icon-button', () => {
             const classes = mountButton({ variant: 'ghost-neutral' }).classes();
             expect(classes.sort()).toMatchSnapshot();
-            // 原类：flex h-8 w-8 items-center justify-center rounded-[9px]
+            // 原类：flex h-8 w-8 items-center justify-center rounded-action
             // text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700
             for (const expected of [
                 'flex',
@@ -116,7 +116,7 @@ describe('ui/Button', () => {
                 'w-8',
                 'items-center',
                 'justify-center',
-                'rounded-[9px]',
+                'rounded-action',
                 'text-neutral-400',
                 'transition-colors',
                 'hover:bg-neutral-100',
@@ -127,7 +127,7 @@ describe('ui/Button', () => {
             // icon 族不得携带 settings 族的内边距与字号
             expect(classes).not.toContain('px-3.5');
             expect(classes).not.toContain('py-1.5');
-            expect(classes).not.toContain('text-[12px]');
+            expect(classes).not.toContain('text-xs');
             expect(classes).not.toContain('font-medium');
         });
 
