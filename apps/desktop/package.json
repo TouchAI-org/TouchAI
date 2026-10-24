@@ -18,7 +18,7 @@
         "test:e2e": "node ./scripts/run-e2e-command.mjs",
         "test:pr": "pnpm check && pnpm test:unit && pnpm test:rust && pnpm test:coverage",
         "test:rust": "node ./scripts/run-rust-command.mjs test",
-        "test:coverage:rust": "cargo tarpaulin --manifest-path src-tauri/Cargo.toml --all-targets --out xml",
+        "test:coverage:rust": "cargo llvm-cov --manifest-path src-tauri/Cargo.toml --all-targets --json --summary-only --output-path src-tauri/coverage.json",
         "test:typecheck": "node ./scripts/run-node-command.mjs vue-tsc -p tsconfig.vitest.json --noEmit",
         "test:ui": "vitest --configLoader runner --ui",
         "test:run": "pnpm test:unit",

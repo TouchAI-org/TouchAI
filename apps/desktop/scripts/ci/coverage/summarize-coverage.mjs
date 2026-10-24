@@ -32,12 +32,13 @@ function formatPercentTable(rows) {
 }
 
 function formatRustTable(coverage) {
-    const rows = [['Lines', coverage.lines]];
-
-    // cargo-tarpaulin does not implement branch coverage (its `--branch` flag is documented
-    // as "NOT IMPLEMENTED" and the Cobertura writer hardcodes zero branch totals), so a
-    // Branches row would report 0.00% for a metric that was never measured. Only show it
-    // when a future version actually emits branch data.
+    // Line and region coverage are always reported by cargo-llvm-cov. Branch coverage is
+    // only present when the run used a nightly toolchain with --branch, so render it only
+    // when it was actually measured rather than printing a zero for a missing measurement.
+    const rows = [
+        ['Lines', coverage.lines],
+        ['Regions', coverage.regions],
+    ];
     if (coverage.branches.total > 0) {
         rows.push(['Branches', coverage.branches]);
     }
@@ -60,64 +61,74 @@ function formatRustTable(coverage) {
     ];
 }
 
-function readCount(attributes, name) {
-    if (!attributes.has(name)) {
-        return null;
-    }
+function readLlmCovTotal(totals, key, { required = true } = {}) {
+    const entry = totals?.[key];
 
-    const value = Number(attributes.get(name));
-    return Number.isFinite(value) ? value : null;
-}
-
-function readMetric(attributes, rateName, coveredName, totalName, { required = true } = {}) {
-    if (!attributes.has(rateName)) {
+    if (!entry || typeof entry !== 'object') {
         if (!required) {
             return { percent: 0, covered: 0, total: 0 };
         }
 
-        throw new Error(
-            `Rust coverage report is missing the ${rateName} attribute on the <coverage> element.`
-        );
+        throw new Error(`Rust coverage report is missing totals.${key}.`);
     }
 
-    const rate = Number(attributes.get(rateName));
-    if (!Number.isFinite(rate)) {
-        throw new Error(
-            `Rust coverage report has a non-numeric ${rateName} attribute: ${attributes.get(rateName)}.`
-        );
+    const percent = Number(entry.percent);
+    if (!Number.isFinite(percent)) {
+        throw new Error(`Rust coverage report has a non-numeric totals.${key}.percent.`);
     }
 
     return {
-        percent: rate * 100,
-        covered: readCount(attributes, coveredName),
-        total: readCount(attributes, totalName),
+        percent,
+        covered: Number(entry.covered),
+        total: Number(entry.count),
     };
 }
 
-export function parseCoberturaCoverage(xml) {
-    if (typeof xml !== 'string' || !xml.trim()) {
+/**
+ * cargo-llvm-cov --json emits one entry per crate in `data`, each carrying its own `totals`
+ * with lines/regions/branches/functions as {count, covered, percent}. A workspace with a lib
+ * and a bin target yields more than one entry, so the totals are summed rather than taking
+ * the first crate, and the percentage is derived from the summed counts.
+ */
+export function parseLlvmCovCoverage(json) {
+    if (typeof json !== 'string' || !json.trim()) {
         throw new Error('Rust coverage report is empty.');
     }
 
-    // Only the root element carries the aggregate rates; nested <class> elements repeat
-    // line-rate/branch-rate per file and would otherwise win the match.
-    const rootElement = xml.match(/<coverage\b([\s\S]*?)>/);
-    if (!rootElement) {
-        throw new Error('Rust coverage report is missing the <coverage> root element.');
+    let report;
+    try {
+        report = JSON.parse(json);
+    } catch (error) {
+        throw new Error(`Cannot parse Rust coverage report: ${error.message}`);
     }
 
-    const attributes = new Map();
-    for (const match of rootElement[1].matchAll(/([A-Za-z][A-Za-z0-9-]*)="([^"]*)"/g)) {
-        attributes.set(match[1], match[2]);
+    const entries = Array.isArray(report?.data) ? report.data : [];
+    if (entries.length === 0) {
+        throw new Error('Rust coverage report has no "data" entries.');
     }
+
+    const totals = entries.map((entry) => entry?.totals);
+    if (totals.some((total) => !total || typeof total !== 'object')) {
+        throw new Error('Rust coverage report is missing a "totals" object.');
+    }
+
+    const sum = (key, required = true) => {
+        const perEntry = totals.map((total) => readLlmCovTotal(total, key, { required }));
+        const count = perEntry.reduce((acc, metric) => acc + (metric.total || 0), 0);
+        const covered = perEntry.reduce((acc, metric) => acc + (metric.covered || 0), 0);
+
+        return {
+            percent: count > 0 ? (covered / count) * 100 : 0,
+            covered,
+            total: count,
+        };
+    };
 
     return {
-        lines: readMetric(attributes, 'line-rate', 'lines-covered', 'lines-valid'),
-        // Optional: cargo-tarpaulin omits branch data entirely, and a report without it is
-        // a valid line-coverage report rather than a malformed one.
-        branches: readMetric(attributes, 'branch-rate', 'branches-covered', 'branches-valid', {
-            required: false,
-        }),
+        lines: sum('lines'),
+        regions: sum('regions'),
+        // Branch coverage requires a nightly toolchain plus --branch; absent is normal.
+        branches: sum('branches', false),
     };
 }
 
@@ -139,14 +150,14 @@ export function formatFrontendCoverage(summary) {
     return ['## Frontend Coverage', '', ...formatPercentTable(rows), ''].join('\n');
 }
 
-export function formatRustCoverage(xml) {
-    const coverage = parseCoberturaCoverage(xml);
+export function formatRustCoverage(json) {
+    const coverage = parseLlvmCovCoverage(json);
     const lines = ['## Rust Coverage', '', ...formatRustTable(coverage)];
 
     if (coverage.branches.total === 0) {
         lines.push(
             '',
-            '_Line coverage only: cargo-tarpaulin does not implement branch coverage, so it reports no branch totals and `--branch` is a no-op. There is no branch percentage to show for Rust._'
+            '_Branch coverage requires a nightly toolchain with `--branch`, so this run reports line and region coverage only._'
         );
     }
 
@@ -187,14 +198,13 @@ function readFrontendSummary(inputPath) {
 }
 
 /**
- * cargo-tarpaulin writes cobertura.xml into `Config::output_dir()`, which defaults to the
- * Cargo workspace root (`--manifest-path` resolves it) but has historically been reported at
- * the working directory instead. `test:coverage:rust` runs from apps/desktop with
- * `--manifest-path src-tauri/Cargo.toml`, so both are plausible; probe both rather than guess.
- * TOUCHAI_COVERAGE_ROOT lets CI (and tests) point the probe at another checkout root.
+ * `test:coverage:rust` passes an explicit `--output-path`, so unlike the previous
+ * cargo-tarpaulin setup the report location is not ambiguous. The candidate list is kept so
+ * a caller can still probe a moved report, and TOUCHAI_COVERAGE_ROOT lets CI (and tests)
+ * point the probe at another checkout root.
  */
 export function resolveRustCoverageCandidates(root = process.env.TOUCHAI_COVERAGE_ROOT || desktopRoot) {
-    return [join(root, 'src-tauri', 'cobertura.xml'), join(root, 'cobertura.xml')];
+    return [join(root, 'src-tauri', 'coverage.json'), join(root, 'coverage.json')];
 }
 
 export function resolveRustCoverageReport(candidates) {
@@ -206,7 +216,7 @@ export function resolveRustCoverageReport(candidates) {
     if (!found) {
         throw new Error(
             [
-                'No Rust coverage report found. cargo-tarpaulin did not produce a cobertura.xml.',
+                'No Rust coverage report found. cargo-llvm-cov did not produce a coverage.json.',
                 'Looked in:',
                 ...candidates.map((candidate) => `  - ${candidate}`),
             ].join('\n')

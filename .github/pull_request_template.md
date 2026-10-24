@@ -28,7 +28,7 @@ If AI tools materially assisted this contribution, disclose that here or point t
 List the commands you ran and the results you observed.
 
 - Every code PR: `pnpm test:pr` (includes type check, lint, format, all tests, and frontend coverage)
-- Rust behavior / test changes: `pnpm test:coverage:rust` (requires cargo-tarpaulin, or rely on CI)
+- Rust behavior / test changes: `pnpm test:coverage:rust` (requires cargo-llvm-cov, or rely on CI)
 - Desktop startup / window / search / popup / settings / E2E harness / workflow changes: `pnpm test:e2e`
 - If any command could not run locally, state the exact blocker and rely on CI evidence before merge.
 

@@ -30,7 +30,7 @@ async function createWorkspace() {
         root,
         summaryPath: join(root, 'step-summary.md'),
         frontendPath: join(root, 'coverage-summary.json'),
-        rustPath: join(root, 'cobertura.xml'),
+        rustPath: join(root, 'coverage.json'),
     };
 }
 
@@ -49,13 +49,38 @@ const frontendSummary = {
     },
 };
 
-const coberturaXml = [
-    '<?xml version="1.0"?>',
-    '<coverage lines-covered="13" lines-valid="16" line-rate="0.8125" branches-covered="0" branches-valid="0" branch-rate="0" complexity="0" version="1.9" timestamp="0">',
-    '  <sources><source>/repo/apps/desktop/src-tauri/src</source></sources>',
-    '  <packages><package name="src" line-rate="0.5" branch-rate="0" complexity="0"><classes><class name="lib" filename="src/lib.rs" line-rate="0.25" branch-rate="0" complexity="0"><methods /><lines><line number="1" hits="3" /></lines></class></classes></package></packages>',
-    '</coverage>',
-].join('\n');
+type Counts = [covered: number, total: number];
+
+function llvmCovTotals({
+    lines,
+    regions,
+    branches,
+}: {
+    lines: Counts;
+    regions: Counts;
+    branches?: Counts;
+}) {
+    const metric = ([covered, count]: Counts) => ({
+        count,
+        covered,
+        percent: count > 0 ? (covered / count) * 100 : 0,
+    });
+
+    return {
+        lines: metric(lines),
+        regions: metric(regions),
+        ...(branches ? { branches: metric(branches) } : {}),
+        functions: metric([4, 8]),
+    };
+}
+
+const llvmCovReport = JSON.stringify({
+    data: [{ totals: llvmCovTotals({ lines: [13, 16], regions: [15, 20] }) }],
+});
+
+const llvmCovReportWithBranches = JSON.stringify({
+    data: [{ totals: llvmCovTotals({ lines: [13, 16], regions: [15, 20], branches: [3, 4] }) }],
+});
 
 describe('user reads the frontend coverage table in the job summary', () => {
     it('user sees the frontend coverage percentages when the summary file is present', async () => {
@@ -134,9 +159,9 @@ describe('user reads the frontend coverage table in the job summary', () => {
 });
 
 describe('user reads the Rust coverage table in the job summary', () => {
-    it('user sees only line coverage when tarpaulin reports no branch totals', async () => {
+    it('user sees line and region coverage when the run reports no branches', async () => {
         const workspace = await createWorkspace();
-        await writeFile(workspace.rustPath, coberturaXml, 'utf8');
+        await writeFile(workspace.rustPath, llvmCovReport, 'utf8');
 
         const markdown = summarizeCoverageFile({
             kind: 'rust',
@@ -146,35 +171,40 @@ describe('user reads the Rust coverage table in the job summary', () => {
 
         expect(markdown).toContain('## Rust Coverage');
         expect(markdown).toContain('| Lines | 81.25% | 13 | 16 |');
+        expect(markdown).toContain('| Regions | 75.00% | 15 | 20 |');
         expect(markdown).not.toContain('| Branches |');
-        expect(markdown).not.toContain('25.00%');
         expect(await readFile(workspace.summaryPath, 'utf8')).toContain('| Lines | 81.25% |');
     });
 
-    it('user is told Rust branch coverage does not exist rather than shown a zero', () => {
-        const markdown = formatRustCoverage(coberturaXml);
+    it('user is told branch coverage needs a nightly toolchain rather than shown a zero', () => {
+        const markdown = formatRustCoverage(llvmCovReport);
 
-        expect(markdown).toContain('does not implement branch coverage');
+        expect(markdown).toContain('requires a nightly toolchain');
         expect(markdown).not.toContain('| Branches | 0.00% |');
     });
 
-    it('user sees a branch percentage when a future tarpaulin reports branch totals', () => {
-        const markdown = formatRustCoverage(
-            '<coverage lines-covered="10" lines-valid="20" line-rate="0.5" branches-covered="3" branches-valid="4" branch-rate="0.75"></coverage>'
-        );
+    it('user sees a branch percentage when the nightly run reports branch totals', () => {
+        const markdown = formatRustCoverage(llvmCovReportWithBranches);
 
         expect(markdown).toContain('| Branches | 75.00% | 3 | 4 |');
-        expect(markdown).not.toContain('does not implement branch coverage');
+        expect(markdown).not.toContain('requires a nightly toolchain');
     });
 
-    it('user sees the rate percentages when the report omits the covered and total counts', () => {
-        const markdown = formatRustCoverage('<coverage line-rate="0.5"></coverage>');
+    it('user sees summed totals when the run covers more than one crate target', () => {
+        const markdown = formatRustCoverage(
+            JSON.stringify({
+                data: [
+                    { totals: llvmCovTotals({ lines: [5, 10], regions: [5, 10] }) },
+                    { totals: llvmCovTotals({ lines: [5, 10], regions: [5, 10] }) },
+                ],
+            })
+        );
 
-        expect(markdown).toContain('| Lines | 50.00% |');
-        expect(markdown).not.toContain('Covered');
+        expect(markdown).toContain('| Lines | 50.00% | 10 | 20 |');
+        expect(markdown).toContain('| Regions | 50.00% | 10 | 20 |');
     });
 
-    it('user gets a clear failure when the cobertura file is missing', async () => {
+    it('user gets a clear failure when the coverage file is missing', async () => {
         const workspace = await createWorkspace();
 
         expect(() =>
@@ -186,7 +216,7 @@ describe('user reads the Rust coverage table in the job summary', () => {
         ).toThrow(`Missing rust coverage report: ${workspace.rustPath}`);
     });
 
-    it('user gets a clear failure when the cobertura file has no coverage element', async () => {
+    it('user gets a clear failure when the coverage file is not JSON', async () => {
         const workspace = await createWorkspace();
         await writeFile(workspace.rustPath, '<html><body>not a report</body></html>', 'utf8');
 
@@ -196,39 +226,45 @@ describe('user reads the Rust coverage table in the job summary', () => {
                 inputPath: workspace.rustPath,
                 summaryPath: workspace.summaryPath,
             })
-        ).toThrow('Rust coverage report is missing the <coverage> root element.');
+        ).toThrow('Cannot parse Rust coverage report');
     });
 
-    it('user gets a clear failure when the coverage element has no line rate', () => {
-        expect(() => formatRustCoverage('<coverage branch-rate="0"></coverage>')).toThrow(
-            'Rust coverage report is missing the line-rate attribute on the <coverage> element.'
+    it('user gets a clear failure when the report has no data entries', () => {
+        expect(() => formatRustCoverage(JSON.stringify({ data: [] }))).toThrow(
+            'Rust coverage report has no "data" entries.'
         );
+    });
+
+    it('user gets a clear failure when the report has no line totals', () => {
+        expect(() =>
+            formatRustCoverage(JSON.stringify({ data: [{ totals: { regions: { percent: 1 } } }] }))
+        ).toThrow('Rust coverage report is missing totals.lines.');
     });
 });
 
-describe('user finds the Rust report wherever tarpaulin wrote it', () => {
-    it('user sees the Rust report found when tarpaulin writes it beside the manifest', async () => {
+describe('user finds the Rust coverage report', () => {
+    it('user sees the Rust report found when it sits beside the manifest', async () => {
         const workspace = await createWorkspace();
-        const besideManifest = join(workspace.root, 'src-tauri', 'cobertura.xml');
+        const besideManifest = join(workspace.root, 'src-tauri', 'coverage.json');
         await mkdir(dirname(besideManifest), { recursive: true });
-        await writeFile(besideManifest, coberturaXml, 'utf8');
+        await writeFile(besideManifest, llvmCovReport, 'utf8');
 
         expect(resolveRustCoverageReport(resolveRustCoverageCandidates(workspace.root))).toBe(
             besideManifest
         );
     });
 
-    it('user sees the Rust report found when tarpaulin writes it in the working directory', async () => {
+    it('user sees the Rust report found when it sits in the working directory', async () => {
         const workspace = await createWorkspace();
-        const inWorkingDirectory = join(workspace.root, 'cobertura.xml');
-        await writeFile(inWorkingDirectory, coberturaXml, 'utf8');
+        const inWorkingDirectory = join(workspace.root, 'coverage.json');
+        await writeFile(inWorkingDirectory, llvmCovReport, 'utf8');
 
         expect(resolveRustCoverageReport(resolveRustCoverageCandidates(workspace.root))).toBe(
             inWorkingDirectory
         );
     });
 
-    it('user gets a clear failure naming both candidate paths when tarpaulin produced no report', async () => {
+    it('user gets a clear failure naming every candidate path when no report was produced', async () => {
         const workspace = await createWorkspace();
         const candidates = resolveRustCoverageCandidates(workspace.root);
 
@@ -250,15 +286,15 @@ describe('user finds the Rust report wherever tarpaulin wrote it', () => {
         const candidates = resolveRustCoverageCandidates();
 
         expect(candidates).toEqual([
-            join(desktopRoot, 'src-tauri', 'cobertura.xml'),
-            join(desktopRoot, 'cobertura.xml'),
+            join(desktopRoot, 'src-tauri', 'coverage.json'),
+            join(desktopRoot, 'coverage.json'),
         ]);
     });
 
     it('user sees the report path printed when resolving from the command line', async () => {
         const workspace = await createWorkspace();
-        const reportPath = join(workspace.root, 'cobertura.xml');
-        await writeFile(reportPath, coberturaXml, 'utf8');
+        const reportPath = join(workspace.root, 'coverage.json');
+        await writeFile(reportPath, llvmCovReport, 'utf8');
 
         const resolved = execFileSync(process.execPath, [summarizerPath, '--resolve-rust'], {
             encoding: 'utf8',
@@ -282,8 +318,8 @@ describe('user finds the Rust report wherever tarpaulin wrote it', () => {
         }
 
         expect(failure?.status).toBe(1);
-        expect(failure?.stderr).toContain(join(workspace.root, 'src-tauri', 'cobertura.xml'));
-        expect(failure?.stderr).toContain(join(workspace.root, 'cobertura.xml'));
+        expect(failure?.stderr).toContain(join(workspace.root, 'src-tauri', 'coverage.json'));
+        expect(failure?.stderr).toContain(join(workspace.root, 'coverage.json'));
     });
 });
 
@@ -345,7 +381,7 @@ describe('user opens the CI gate for a desktop change', () => {
             'node apps/desktop/scripts/ci/coverage/summarize-coverage.mjs --kind frontend --input apps/desktop/.coverage/unit/coverage-summary.json'
         );
         expect(workflow).toContain(
-            'node apps/desktop/scripts/ci/coverage/summarize-coverage.mjs --kind rust --input "$RUST_COVERAGE_XML"'
+            'node apps/desktop/scripts/ci/coverage/summarize-coverage.mjs --kind rust --input "$RUST_COVERAGE_REPORT"'
         );
     });
 
@@ -354,19 +390,21 @@ describe('user opens the CI gate for a desktop change', () => {
 
         expect(workflow).toContain('    rust-coverage:');
         expect(workflow).toContain('name: rust-coverage-report');
-        expect(workflow).toContain('path: ${{ env.RUST_COVERAGE_XML }}');
+        expect(workflow).toContain('path: ${{ env.RUST_COVERAGE_REPORT }}');
+        expect(workflow).toContain('taiki-e/install-action');
+        expect(workflow).toContain('llvm-tools-preview');
         expect(workflow).toContain("RUST_COVERAGE_RESULT: ${{ needs['rust-coverage'].result }}");
         expect(workflow).toContain('required+=("rust-coverage:$RUST_COVERAGE_RESULT")');
         expect(workflow).toContain('"rust-coverage:$RUST_COVERAGE_RESULT"');
     });
 
-    it('user is told which paths were searched when tarpaulin produced no report in CI', async () => {
+    it('user is told which paths were searched when the coverage run produced no report', async () => {
         const workflow = await readFile(workflowPath, 'utf8');
 
         expect(workflow).toContain(
             'node apps/desktop/scripts/ci/coverage/summarize-coverage.mjs --resolve-rust'
         );
-        expect(workflow).toContain('RUST_COVERAGE_XML=$report_path');
-        expect(workflow).toContain('cargo-tarpaulin produced no cobertura.xml');
+        expect(workflow).toContain('RUST_COVERAGE_REPORT=$report_path');
+        expect(workflow).toContain('cargo-llvm-cov produced no coverage.json');
     });
 });

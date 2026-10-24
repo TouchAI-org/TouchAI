@@ -73,13 +73,13 @@ For Rust:
 cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
 cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 pnpm test:rust                          # Run Rust tests
-pnpm test:coverage:rust                 # Run Rust tests with coverage (requires cargo-tarpaulin)
+pnpm test:coverage:rust                 # Run Rust tests with coverage (requires cargo-llvm-cov)
 ```
 
 CI runs both coverage gates on every desktop change:
 
 - Frontend coverage in the `frontend-tests` job: `pnpm test:coverage`, summarized from `coverage-summary.json`, uploaded as `frontend-coverage-report`.
-- Rust coverage in the `rust-coverage` job: `pnpm test:coverage:rust` (cargo tarpaulin), summarized from the cobertura XML, uploaded as `rust-coverage-report`.
+- Rust coverage in the `rust-coverage` job: `pnpm test:coverage:rust` (cargo-llvm-cov), summarized from the JSON report, uploaded as `rust-coverage-report`.
 
 Each report is summarized in the GitHub step summary, and each failure blocks the required `CI Required` check.
 
@@ -100,7 +100,11 @@ The floor sits about one point under what the suite reaches, so it blocks a regr
 
 Rust coverage runs in CI as a report, not a gate: it has no threshold yet, so a drop there is visible in the job summary but does not fail the build.
 
-Rust coverage is **line coverage only**. cargo-tarpaulin does not implement branch coverage: its `--branch` flag is documented as "NOT IMPLEMENTED", the Cobertura writer hardcodes zero branch totals, and the `lcov` reporter still carries a `TODO: add support for branching`. The summarizer therefore omits a branch row rather than printing a `0.00%` for something never measured, and `test:coverage:rust` no longer passes `--branch`. If a future tarpaulin release emits branch data, the row appears on its own; no code change is needed.
+Rust coverage comes from **cargo-llvm-cov**, which uses rustc's own `-C instrument-coverage` rather than a ptrace debugger, and reports **line and region** coverage. Region coverage is the finer-grained signal: it flags an expression that was only partly evaluated, which line coverage cannot see.
+
+Branch coverage is **not** collected. `cargo llvm-cov --branch` requires a nightly toolchain, and this job runs stable. The summarizer renders a Branches row automatically if a branch-enabled run ever feeds it one, so turning it on later means changing the toolchain in that one job, not touching the script.
+
+The previous tool, cargo-tarpaulin, was replaced here (#598). Its `--branch` flag was documented as "NOT IMPLEMENTED", the Cobertura writer hardcoded zero branch totals, and its `lcov` reporter still carried `TODO: add support for branching`, so the branch dimension was never measurable. The original choice in #192 was justified by "tarpaulin is simpler to set up on Linux CI and does not require nightly Rust"; the nightly caveat only ever applied to branch coverage, and llvm-cov needs one rustup component plus one install action.
 
 - Per-file thresholds in `apps/desktop/vitest.config.ts` are the enforced frontend contract; do not lower one to land a change.
 - New modules start at the minimum in [Test Layers](#test-layers) and keep it.
