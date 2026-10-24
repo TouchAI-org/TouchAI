@@ -18,10 +18,10 @@
      * 项目里有三族按钮，它们的「基础类」就不同，不只是颜色不同：
      *   - default 族（ui/button 既有）：inline-flex / rounded-md / text-sm /
      *     disabled:pointer-events-none
-     *   - settings 族（原 .settings-button-*）：rounded-[9px] / text-[12px] /
+     *   - settings 族（原 .settings-button-*）：rounded-action / text-dense /
      *     px-3.5 py-1.5 / disabled:cursor-not-allowed
      *   - icon 族（原 .settings-icon-button）：flex h-8 w-8 /
-     *     rounded-[9px] / 无字号 / 无内边距
+     *     rounded-action / 无字号 / 无内边距
      *
      * 若把它们塞进同一个 base，会产生十几处声明冲突，且 disabled:pointer-events-none
      * 会让 disabled:cursor-not-allowed 永久失效（光标由指针下方元素决定）。
@@ -35,8 +35,8 @@
                 default:
                     'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium t-press disabled:pointer-events-none disabled:opacity-50',
                 settings:
-                    'rounded-[9px] px-3.5 py-1.5 text-[12px] font-medium shadow-none transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-                icon: 'flex h-8 w-8 items-center justify-center rounded-[9px] transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                    'rounded-action px-3.5 py-1.5 text-dense font-medium shadow-none transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                icon: 'flex h-8 w-8 items-center justify-center rounded-action transition-colors disabled:cursor-not-allowed disabled:opacity-50',
             },
             variant: {
                 default: 'bg-primary-500 text-white hover:bg-primary-600',

@@ -9,5 +9,3 @@
         <AppUpdateRequiredGate />
     </MotionConfig>
 </template>
-
-<style></style>

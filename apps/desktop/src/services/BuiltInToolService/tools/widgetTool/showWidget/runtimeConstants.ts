@@ -53,6 +53,19 @@ export const SHOW_WIDGET_DRAFT_MIN_INTERVAL_MS = 150;
 export const SHOW_WIDGET_FADE_IN_ANIMATION =
     'touchai-widget-fade-in var(--touchai-widget-duration-fast, 250ms) var(--touchai-widget-ease, cubic-bezier(0.22, 1, 0.36, 1))';
 export const SHOW_WIDGET_MAX_WIDTH_PX = 680;
+/**
+ * Last-resort values for the widget theme variables.
+ *
+ * Every name here now resolves against a real token in
+ * `apps/desktop/src/styles/tokens/`, so in practice the runtime copies the app's
+ * values and these entries are never used. They stay as a guard for the case
+ * where the stylesheet failed to load, and they are kept numerically identical to
+ * the tokens so a fallback can never look different from the real thing.
+ *
+ * `tests/ci/design-widget-contract.test.ts` fails if a name listed here stops
+ * existing in the token layer, which is what previously allowed this contract to
+ * drift into a second, parallel palette.
+ */
 export const SHOW_WIDGET_THEME_FALLBACKS: Record<ShowWidgetThemeVarName, string> = {
     '--color-background-primary': 'rgba(251, 251, 246, 0.98)',
     '--color-background-secondary': 'rgba(246, 243, 238, 0.98)',
@@ -61,9 +74,9 @@ export const SHOW_WIDGET_THEME_FALLBACKS: Record<ShowWidgetThemeVarName, string>
     '--color-background-danger': '#fef2f2',
     '--color-background-success': '#f0fdf4',
     '--color-background-warning': '#fffbeb',
-    '--color-text-primary': '#2c2c2a',
-    '--color-text-secondary': '#5f5e5a',
-    '--color-text-tertiary': '#888780',
+    '--color-text-primary': '#4a4039',
+    '--color-text-secondary': '#6b5f54',
+    '--color-text-tertiary': '#968b7d',
     '--color-text-info': '#0c447c',
     '--color-text-danger': '#791f1f',
     '--color-text-success': '#27500a',
@@ -81,7 +94,7 @@ export const SHOW_WIDGET_THEME_FALLBACKS: Record<ShowWidgetThemeVarName, string>
         "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif",
     '--font-serif': "'TouchAI Source Han Serif SC', 'Noto Serif SC', serif",
     '--font-mono': "'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace",
-    '--border-radius-md': '8px',
+    '--border-radius-md': '10px',
     '--border-radius-lg': '12px',
     '--border-radius-xl': '16px',
 };

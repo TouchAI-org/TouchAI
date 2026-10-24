@@ -131,10 +131,10 @@
                     :key="option"
                     type="button"
                     :class="[
-                        'rounded-[10px] px-2.5 py-1 text-[11px] transition-colors',
+                        'rounded-control px-2.5 py-1 text-caption transition-colors',
                         dimension === option
-                            ? 'bg-[#e9e9e7] text-neutral-950'
-                            : 'bg-transparent text-neutral-600 hover:bg-[#f1f1ef]',
+                            ? 'bg-surface-selected text-neutral-950'
+                            : 'bg-transparent text-neutral-600 hover:bg-surface-hover',
                     ]"
                     :aria-pressed="dimension === option"
                     @click="emit('update:dimension', option)"
@@ -149,10 +149,10 @@
                     :key="option"
                     type="button"
                     :class="[
-                        'rounded-[10px] px-2.5 py-1 text-[11px] transition-colors',
+                        'rounded-control px-2.5 py-1 text-caption transition-colors',
                         metric === option
-                            ? 'bg-[#e9e9e7] text-neutral-950'
-                            : 'bg-transparent text-neutral-600 hover:bg-[#f1f1ef]',
+                            ? 'bg-surface-selected text-neutral-950'
+                            : 'bg-transparent text-neutral-600 hover:bg-surface-hover',
                     ]"
                     :aria-pressed="metric === option"
                     @click="metric = option"

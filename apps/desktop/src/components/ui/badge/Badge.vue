@@ -34,7 +34,7 @@
                 tag: 'inline-flex min-w-0 items-center rounded text-center font-medium break-words whitespace-normal',
             },
             size: {
-                sm: 'max-w-[5.75rem] px-1 py-0.5 text-[10px] leading-tight',
+                sm: 'max-w-[5.75rem] px-1 py-0.5 text-2xs leading-tight',
                 md: 'max-w-[7.5rem] px-1.5 py-0.5 text-xs leading-tight',
                 // toggle 族的尺寸已写在 variant 里，size=auto 时不追加任何尺寸类
                 auto: '',

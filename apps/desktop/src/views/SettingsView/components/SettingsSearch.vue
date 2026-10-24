@@ -73,7 +73,7 @@
     <button
         v-if="collapsed"
         type="button"
-        class="mx-auto mb-4 flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] text-neutral-600 hover:bg-[#eeeeec]"
+        class="mx-auto mb-4 flex h-10 w-10 shrink-0 items-center justify-center rounded-control text-neutral-600 hover:bg-surface-hover-soft"
         :title="t('settings.sidebar.searchPlaceholder')"
         :aria-label="t('settings.sidebar.searchPlaceholder')"
         @click="focusInput"
@@ -139,17 +139,17 @@
                 role="option"
                 :aria-selected="activeIndex === index"
                 :class="[
-                    'flex w-full items-start gap-2.5 rounded-[10px] px-3 py-2.5 text-left transition-colors',
+                    'flex w-full items-start gap-2.5 rounded-control px-3 py-2.5 text-left transition-colors',
                     activeIndex === index
-                        ? 'bg-[#e9e9e7] text-neutral-950'
-                        : 'text-neutral-700 hover:bg-[#eeeeec]',
+                        ? 'bg-surface-selected text-neutral-950'
+                        : 'text-neutral-700 hover:bg-surface-hover-soft',
                 ]"
                 @click="selectResult(result)"
             >
                 <AppIcon :name="result.icon" class="mt-0.5 h-4 w-4 shrink-0 text-neutral-500" />
                 <span class="min-w-0">
-                    <span class="block text-[13px] leading-5 break-words">{{ result.label }}</span>
-                    <span class="mt-0.5 block text-[11px] leading-4 text-neutral-500">
+                    <span class="block text-compact leading-5 break-words">{{ result.label }}</span>
+                    <span class="mt-0.5 block text-caption leading-4 text-neutral-500">
                         {{ result.sectionLabel }}
                     </span>
                 </span>

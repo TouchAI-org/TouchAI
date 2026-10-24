@@ -40,7 +40,7 @@
             variants: {
                 variant: {
                     default: '',
-                    filled: 'focus:border-primary-300 rounded-[10px] border-transparent bg-[#f0f0ef] px-3 py-2 text-[13px] text-neutral-900 hover:bg-[#ececea] focus:bg-white',
+                    filled: 'focus:border-primary-300 rounded-control border-transparent bg-surface-sunken px-3 py-2 text-compact text-neutral-900 hover:bg-surface-active focus:bg-white',
                 },
             },
             defaultVariants: {

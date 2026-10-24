@@ -195,7 +195,10 @@ describe('user watches the usage curve', () => {
         wrapper.unmount();
     });
 
-    it('user sees a reasoning row only when reasoning tokens were used', async () => {
+    it('user always sees the reasoning metric, reading zero when none was reported', async () => {
+        // The metric card is always rendered so the fixed seven-column grid never leaves a
+        // blank cell on the right. Zero reads as "none reported", which is more honest than
+        // silently dropping the metric when a provider does not return reasoning tokens.
         const withReasoning = mountDashboard();
         await flushPromises();
         expect(withReasoning.find('[data-testid="settings-usage-metric-reasoning"]').exists()).toBe(
@@ -205,9 +208,9 @@ describe('user watches the usage curve', () => {
 
         const withoutReasoning = mountDashboard({ summary: { ...summary, reasoningTokens: 0 } });
         await flushPromises();
-        expect(
-            withoutReasoning.find('[data-testid="settings-usage-metric-reasoning"]').exists()
-        ).toBe(false);
+        const card = withoutReasoning.find('[data-testid="settings-usage-metric-reasoning"]');
+        expect(card.exists()).toBe(true);
+        expect(card.text()).toContain('0');
         withoutReasoning.unmount();
     });
 

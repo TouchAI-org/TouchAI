@@ -10,7 +10,7 @@
     >
         <div class="border-b border-stone-200/80 px-3 py-2.5">
             <label
-                class="history-search-field focus-within:border-primary-300 flex items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 transition-colors focus-within:bg-white"
+                class="history-search-field flex items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 transition-colors focus-within:border-primary-300 focus-within:bg-white"
             >
                 <AppIcon name="search" class="h-3.5 w-3.5 text-stone-400" />
                 <input
@@ -68,7 +68,7 @@
             <template v-else>
                 <section v-for="group in groupedSessions" :key="group.label" class="py-1">
                     <div
-                        class="px-3 py-1.5 text-[10px] font-semibold tracking-[0.12em] text-stone-400 uppercase"
+                        class="px-3 py-1.5 text-2xs font-semibold tracking-[0.12em] text-stone-400 uppercase"
                     >
                         {{ group.label }}
                     </div>
@@ -130,7 +130,7 @@
 
                                 <p
                                     v-if="session.last_message_preview"
-                                    class="history-session-preview mt-1 text-[11px] text-stone-500"
+                                    class="history-session-preview mt-1 text-caption text-stone-500"
                                     data-no-i18n="true"
                                     translate="no"
                                 >
@@ -144,9 +144,7 @@
                                         {{ segment.text }}
                                     </span>
                                 </p>
-                                <div
-                                    class="mt-1.5 flex items-center gap-2 text-[10px] text-stone-400"
-                                >
+                                <div class="mt-1.5 flex items-center gap-2 text-2xs text-stone-400">
                                     <span>
                                         {{
                                             formatSessionTime(

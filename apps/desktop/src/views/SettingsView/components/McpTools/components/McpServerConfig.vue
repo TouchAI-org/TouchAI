@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import CustomSelect from '@components/CustomSelect.vue';
@@ -233,7 +233,7 @@
         <!-- 配置详情 -->
         <div class="space-y-4">
             <div class="flex items-center justify-between">
-                <h2 class="text-[15px] font-medium text-neutral-950">
+                <h2 class="text-reading font-medium text-neutral-950">
                     {{ t('settings.mcp.config.title') }}
                 </h2>
             </div>

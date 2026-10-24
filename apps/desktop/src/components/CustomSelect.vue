@@ -110,9 +110,10 @@
     >
         <SelectTrigger
             v-bind="attrs"
-            class="w-full rounded-[10px] border px-3 py-2 text-left font-serif text-sm shadow-none [box-shadow:none] transition-colors select-none"
+            class="w-full rounded-control border px-3 py-2 text-left font-serif text-sm shadow-none [box-shadow:none] transition-colors select-none"
             :class="{
-                'border-transparent bg-[#f0f0ef] text-gray-900 hover:bg-[#ececea]': !disabled,
+                'border-transparent bg-surface-sunken text-gray-900 hover:bg-surface-active':
+                    !disabled,
                 'cursor-not-allowed border-transparent bg-gray-50 text-gray-400': disabled,
                 'border-primary-300 bg-white': isOpen,
             }"
@@ -158,7 +159,7 @@
         <SelectContent
             :data-testid="contentTestId || undefined"
             :disable-portal="disablePortal"
-            class="w-[var(--reka-select-trigger-width)] min-w-[var(--reka-select-trigger-width)] rounded-[10px] border border-gray-200 bg-white py-1 shadow-lg"
+            class="w-[var(--reka-select-trigger-width)] min-w-[var(--reka-select-trigger-width)] rounded-control border border-gray-200 bg-white py-1 shadow-lg"
         >
             <EmptyState
                 v-if="options.length === 0"

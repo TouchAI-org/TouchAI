@@ -15,13 +15,13 @@
         <div
             ref="rootRef"
             tabindex="-1"
-            class="ask-user-questions-root bg-card border-border relative w-full max-w-[700px] min-w-0 overflow-hidden rounded-t-2xl border border-b-0"
+            class="ask-user-questions-root relative w-full max-w-[700px] min-w-0 overflow-hidden rounded-t-2xl border border-b-0 border-border bg-card"
             @keydown="handleRootKey"
         >
             <!-- Header -->
             <div
                 v-if="total > 1"
-                class="ask-content-x text-muted-foreground flex items-center pt-5 pb-2 text-[12px]"
+                class="ask-content-x flex items-center pt-5 pb-2 text-[12px] text-muted-foreground"
             >
                 <span>{{ safeIndex + 1 }} / {{ total }}</span>
             </div>
@@ -45,7 +45,7 @@
                         <!-- Question title -->
                         <h3
                             :id="`${uid}-${qId}-title`"
-                            class="text-foreground pt-1 pb-1 text-[14px] leading-snug"
+                            class="pt-1 pb-1 text-[14px] leading-snug text-foreground"
                             :style="{ fontWeight: fontWeights.semibold }"
                         >
                             {{ question?.title }}
@@ -54,7 +54,7 @@
                         <!-- Optional subtitle / reason -->
                         <p
                             v-if="question?.subtitle"
-                            class="text-muted-foreground -mt-2 text-[13px] leading-relaxed"
+                            class="-mt-2 text-compact leading-relaxed text-muted-foreground"
                         >
                             {{ question.subtitle }}
                         </p>
@@ -62,7 +62,7 @@
                         <!-- Optional command preview -->
                         <pre
                             v-if="question?.commandPreview"
-                            class="custom-scrollbar-thin border-border bg-accent/40 text-foreground -mt-1 max-h-[8rem] overflow-auto rounded-lg border px-3 py-2 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap"
+                            class="custom-scrollbar-thin -mt-1 max-h-[8rem] overflow-auto rounded-lg border border-border bg-accent/40 px-3 py-2 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap text-foreground"
                             >{{ question.commandPreview }}</pre
                         >
 
@@ -88,7 +88,7 @@
                                     key="other-input"
                                     aria-hidden
                                     :class="[
-                                        'bg-card ring-border pointer-events-none absolute ring-1 ring-inset',
+                                        'pointer-events-none absolute bg-card ring-1 ring-border ring-inset',
                                         shape.bg,
                                     ]"
                                     :initial="{
@@ -119,7 +119,7 @@
                                     v-if="activeRect"
                                     :key="`hover-${sessionRef}`"
                                     aria-hidden
-                                    :class="['bg-hover pointer-events-none absolute', shape.bg]"
+                                    :class="['pointer-events-none absolute bg-hover', shape.bg]"
                                     :initial="{
                                         opacity: 0,
                                         top: activeRect.top,
@@ -148,7 +148,7 @@
                                     v-for="group in selectedGroups"
                                     :key="`selected-${group.id}`"
                                     aria-hidden
-                                    :class="['bg-active pointer-events-none absolute', shape.bg]"
+                                    :class="['pointer-events-none absolute bg-active', shape.bg]"
                                     :initial="false"
                                     :animate="{
                                         top: itemRects[group.start]?.top ?? 0,
@@ -233,7 +233,7 @@
                                     </span>
                                     <span
                                         v-if="opt.description"
-                                        class="text-muted-foreground truncate text-[12px] leading-snug"
+                                        class="truncate text-[12px] leading-snug text-muted-foreground"
                                     >
                                         {{ opt.description }}
                                     </span>
@@ -305,7 +305,7 @@
                                             question?.otherPlaceholder ??
                                             'Describe in your own words'
                                         "
-                                        class="text-foreground placeholder:text-muted-foreground col-start-1 row-start-1 w-full bg-transparent text-[13px] outline-none"
+                                        class="col-start-1 row-start-1 w-full bg-transparent text-compact text-foreground outline-none placeholder:text-muted-foreground"
                                         :style="{ fontWeight: fontWeights.medium }"
                                         @input="
                                             (e) =>

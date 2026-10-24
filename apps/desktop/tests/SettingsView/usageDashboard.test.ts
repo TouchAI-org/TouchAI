@@ -143,4 +143,21 @@ describe('user reads the usage dashboard', () => {
         expect(activity.text()).toContain('1 active day');
         expect(activity.text()).not.toContain('1 active days');
     });
+
+    it('always renders all seven secondary metrics so the grid has no gap', async () => {
+        /*
+         * The reasoning block used to be omitted when the provider reported zero
+         * reasoning tokens. The grid is a fixed seven columns, so omitting one left
+         * an empty card on the right — visible as a blank box in the usage panel.
+         *
+         * Asserting the count rather than the grid class: the count is the
+         * invariant, and it holds regardless of how the columns are declared.
+         */
+        const wrapper = mountDashboard({ ...summary, reasoningTokens: 0 });
+        await flushPromises();
+
+        const blocks = wrapper.findAll('[data-testid^="settings-usage-metric-"]');
+        expect(blocks).toHaveLength(7);
+        expect(wrapper.find('[data-testid="settings-usage-metric-reasoning"]').exists()).toBe(true);
+    });
 });

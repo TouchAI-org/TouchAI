@@ -1,5 +1,6 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
     import CustomSelect from '@components/CustomSelect.vue';
+    import { Button } from '@components/ui/button';
     import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
     import {
@@ -365,7 +366,7 @@
 
                 <div class="settings-row-group p-4" data-settings-search-target="data-stats">
                     <div class="grid grid-cols-3 gap-3">
-                        <div class="rounded-[10px] bg-neutral-50/80 p-4 text-center">
+                        <div class="rounded-control bg-neutral-50/80 p-4 text-center">
                             <div class="text-lg font-semibold text-neutral-950">
                                 {{ stats.sessions }}
                             </div>
@@ -373,7 +374,7 @@
                                 {{ t('settings.dataManagement.sessions') }}
                             </div>
                         </div>
-                        <div class="rounded-[10px] bg-neutral-50/80 p-4 text-center">
+                        <div class="rounded-control bg-neutral-50/80 p-4 text-center">
                             <div class="text-lg font-semibold text-neutral-950">
                                 {{ stats.messages }}
                             </div>
@@ -381,7 +382,7 @@
                                 {{ t('settings.dataManagement.messages') }}
                             </div>
                         </div>
-                        <div class="rounded-[10px] bg-neutral-50/80 p-4 text-center">
+                        <div class="rounded-control bg-neutral-50/80 p-4 text-center">
                             <div class="text-lg font-semibold text-neutral-950">
                                 {{ stats.sessionTurns }}
                             </div>
@@ -412,13 +413,13 @@
                                 {{ t('settings.dataManagement.clearAllSessionsDescription') }}
                             </div>
                         </div>
-                        <button
-                            class="settings-button-danger"
+                        <Button
+                            variant="danger"
                             :disabled="isLoading || stats.sessions === 0"
                             @click="handleClearSessions"
                         >
                             {{ t('common.clear') }}
-                        </button>
+                        </Button>
                     </div>
 
                     <div
@@ -434,13 +435,13 @@
                                 {{ t('settings.dataManagement.clearAllMessagesDescription') }}
                             </div>
                         </div>
-                        <button
-                            class="settings-button-danger"
+                        <Button
+                            variant="danger"
                             :disabled="isLoading || stats.messages === 0"
                             @click="handleClearMessages"
                         >
                             {{ t('common.clear') }}
-                        </button>
+                        </Button>
                     </div>
 
                     <div
@@ -456,13 +457,13 @@
                                 {{ t('settings.dataManagement.clearSessionTurnsDescription') }}
                             </div>
                         </div>
-                        <button
-                            class="settings-button-danger"
+                        <Button
+                            variant="danger"
                             :disabled="isLoading || stats.sessionTurns === 0"
                             @click="handleClearSessionTurns"
                         >
                             {{ t('common.clear') }}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </section>
@@ -524,13 +525,13 @@
                                 {{ modelMetadataUpdatedText }}
                             </div>
                         </div>
-                        <button
-                            class="settings-button-primary"
+                        <Button
+                            variant="strong"
                             :disabled="isLoading"
                             @click="handleUpdateModelMetadata"
                         >
                             {{ t('common.update') }}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </section>
@@ -553,13 +554,13 @@
                                 {{ t('settings.dataManagement.exportSettingsDescription') }}
                             </div>
                         </div>
-                        <button
-                            class="settings-button-primary"
+                        <Button
+                            variant="strong"
                             :disabled="isLoading"
                             @click="handleExportSettings"
                         >
                             {{ t('common.export') }}
-                        </button>
+                        </Button>
                     </div>
 
                     <div
@@ -575,13 +576,13 @@
                                 {{ t('settings.dataManagement.importSettingsDescription') }}
                             </div>
                         </div>
-                        <button
-                            class="settings-button-primary"
+                        <Button
+                            variant="strong"
                             :disabled="isLoading"
                             @click="openImportModeDialog"
                         >
                             {{ t('common.import') }}
-                        </button>
+                        </Button>
                     </div>
                 </div>
             </section>

@@ -69,7 +69,7 @@
                 <h2 class="settings-section-title">
                     {{ t('settings.usage.composition.tokenTitle') }}
                 </h2>
-                <span class="text-[11px] text-neutral-400">
+                <span class="text-caption text-neutral-400">
                     {{
                         t('settings.usage.composition.cacheNote', {
                             rate: formatPercent(composition?.cacheReadShare ?? 0),
@@ -113,7 +113,7 @@
                 <h2 class="settings-section-title">
                     {{ t('settings.usage.composition.timingTitle') }}
                 </h2>
-                <span class="text-[11px] text-neutral-400">
+                <span class="text-caption text-neutral-400">
                     {{ t('settings.usage.composition.timingNote') }}
                 </span>
             </div>

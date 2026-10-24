@@ -59,7 +59,7 @@
 }
 
 .quick-search-name-match {
-    @apply text-primary-600 font-semibold;
+    @apply font-semibold text-primary-600;
 }
 
 .quick-search-image-thumbnail {

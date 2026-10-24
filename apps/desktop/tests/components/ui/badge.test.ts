@@ -75,7 +75,7 @@ describe('user sees a badge', () => {
             expect(classes).toContain('break-words');
             expect(classes).toContain('whitespace-normal');
             expect(classes).toContain('max-w-[5.75rem]');
-            expect(classes).toContain('text-[10px]');
+            expect(classes).toContain('text-2xs');
             expect(classes).toContain('bg-blue-50');
             expect(classes).toContain('text-blue-600');
         });

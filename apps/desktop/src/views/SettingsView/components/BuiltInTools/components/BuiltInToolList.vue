@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import EmptyState from '@components/EmptyState.vue';
@@ -50,7 +50,7 @@
             <div class="flex items-start justify-between gap-2">
                 <div class="min-w-0 flex-1">
                     <h3
-                        class="truncate text-[13px] font-normal text-neutral-950"
+                        class="truncate text-compact font-normal text-neutral-950"
                         data-no-i18n="true"
                         translate="no"
                     >

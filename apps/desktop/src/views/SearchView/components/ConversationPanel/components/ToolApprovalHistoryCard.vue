@@ -141,7 +141,7 @@
         border: 1px solid rgba(229, 231, 235, 0.95);
         background: rgba(249, 250, 251, 0.9);
         padding: 0.72rem 0.8rem;
-        font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+        font-family: var(--font-mono);
         font-size: 12px;
         line-height: 1.65;
         color: rgb(31, 41, 55);

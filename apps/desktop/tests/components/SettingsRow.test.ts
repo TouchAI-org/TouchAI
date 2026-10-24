@@ -77,10 +77,10 @@ describe('user reads a settings row', () => {
 
     describe('user reads the row label and description', () => {
         it('user sees the label in the default text style', () => {
-            const label = mountRow().get('.text-\\[13px\\]');
+            const label = mountRow().get('.text-compact');
             expect(label.element.tagName).toBe('DIV');
             for (const expected of [
-                'text-[13px]',
+                'text-compact',
                 'leading-6',
                 'font-normal',
                 'text-neutral-900',
