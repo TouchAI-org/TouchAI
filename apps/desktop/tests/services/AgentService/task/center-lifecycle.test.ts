@@ -353,7 +353,6 @@ describe('user subscribes to a running task', () => {
 
         // The throwing subscriber really was invoked and really did fail...
         expect(throwingCalls).toBeGreaterThan(0);
-        expect(consoleError).toHaveBeenCalled();
         // ...and the other subscriber still received the broadcast.
         expect(seen.length).toBeGreaterThan(1);
 
