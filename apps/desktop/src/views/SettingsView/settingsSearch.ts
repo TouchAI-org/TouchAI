@@ -2,6 +2,7 @@ import type { AppIconName } from '@components/appIconMap';
 
 import { SEARCH_KEYBINDING_DEFINITIONS } from '@/config/searchKeybindings';
 import { type MessageKey, t } from '@/i18n';
+import { messages } from '@/i18n/messages';
 
 import { flattenSettingsNavigation, type NavigationSection } from './settingsNavigation';
 
@@ -13,12 +14,27 @@ export interface SettingsSearchResult {
     description: string;
     sectionLabel: string;
     icon: AppIconName;
+    /** All translations plus the section label; searched but never rendered. */
+    haystack: string;
 }
 
 interface SearchItemDefinition {
     labelKey: MessageKey;
     descriptionKey?: MessageKey;
     targetId: string;
+}
+
+/**
+ * Every translation of a message key, so a search matches what the user typed even when it
+ * is not in the active interface language. Someone reading the Chinese UI still knows the
+ * setting as "start minimized", and the reverse holds too.
+ */
+function translationsOf(key: MessageKey | undefined): string[] {
+    if (!key) return [];
+
+    return Object.values(messages)
+        .map((dictionary) => dictionary[key])
+        .filter((text): text is string => typeof text === 'string' && text.length > 0);
 }
 
 const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition[]>> = {
@@ -112,6 +128,7 @@ export function searchSettings(query: string): SettingsSearchResult[] {
             id: section.id,
             label: section.label,
             description: section.description,
+            haystack: `${section.label} ${section.description}`,
         };
         return [
             sectionResult,
@@ -121,6 +138,13 @@ export function searchSettings(query: string): SettingsSearchResult[] {
                 targetId: definition.targetId,
                 label: t(definition.labelKey),
                 description: definition.descriptionKey ? t(definition.descriptionKey) : '',
+                // Every translation joins the searchable text, so a query typed in another
+                // language still finds the row that is displayed in the active one.
+                haystack: [
+                    ...translationsOf(definition.labelKey),
+                    ...translationsOf(definition.descriptionKey),
+                    section.label,
+                ].join(' '),
             })),
         ];
     });
@@ -128,10 +152,8 @@ export function searchSettings(query: string): SettingsSearchResult[] {
     return results
         .map((result) => {
             const label = result.label.normalize('NFKC').toLocaleLowerCase();
-            const text = `${label} ${result.description} ${result.sectionLabel}`
-                .normalize('NFKC')
-                .toLocaleLowerCase();
-            const score = tokens.every((token) => text.includes(token))
+            const haystack = result.haystack.normalize('NFKC').toLocaleLowerCase();
+            const score = tokens.every((token) => haystack.includes(token))
                 ? tokens.reduce((total, token) => total + (label.includes(token) ? 2 : 1), 0)
                 : 0;
             return { result, score };
