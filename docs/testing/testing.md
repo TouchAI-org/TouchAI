@@ -87,6 +87,8 @@ Each report is summarized in the GitHub step summary, and each failure blocks th
 
 Coverage is a floor that stops regressions, not a target to game. A test added only to raise a number is noise: it still has to encode a behavior a user or caller can observe. **The floor never goes down, and the goal is 85% on every metric.** Get there by covering real behavior, never by asserting on mocks or restating the implementation.
 
+How the work is sequenced, and why the Rust target is harder than the frontend one, is in [coverage-roadmap.md](./coverage-roadmap.md).
+
 Frontend coverage is enforced in `apps/desktop/vitest.config.ts` as a global floor:
 
 | Metric | Floor | Reached today | Target |
