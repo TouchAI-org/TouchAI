@@ -168,7 +168,7 @@ async function createConversationRuntimeEnvironment(): Promise<ConversationRunti
  * - 协调任务生命周期、审批与取消
  * - 向页面层发布只读快照
  */
-class SessionTaskCenter {
+export class SessionTaskCenter {
     private readonly tasks = new Map<string, MutableSessionTask>();
     private readonly sessionActiveTaskIndex = new Map<number, string>();
     private readonly executor = new AiRequestExecutor();
