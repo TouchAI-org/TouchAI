@@ -1,3 +1,4 @@
 pnpm run check:rust &&
 pnpm run type:check &&
+pnpm run design:check:staged &&
 npx lint-staged

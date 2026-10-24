@@ -197,6 +197,11 @@ jobs:
 
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               if: needs.changes.outputs.docs_only != 'true'
+              with:
+                  # The design drift budget diffs the pull request against its base.
+                  # The default depth of 1 leaves no parent commit and no branch
+                  # refs, which made every candidate base revision unreachable.
+                  fetch-depth: 0
 
             - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
               if: needs.changes.outputs.docs_only != 'true'
@@ -226,6 +231,16 @@ jobs:
             - name: Format check
               if: needs.changes.outputs.docs_only != 'true'
               run: pnpm format:check
+
+            - name: Design system contract
+              if: needs.changes.outputs.docs_only != 'true'
+              run: pnpm design:contract
+
+            - name: Design system drift budget
+              if: needs.changes.outputs.docs_only != 'true'
+              env:
+                  DESIGN_BUDGET_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+              run: pnpm design:budget
 
     frontend-tests:
         name: Frontend Tests
