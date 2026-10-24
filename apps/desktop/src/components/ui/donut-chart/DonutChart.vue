@@ -421,13 +421,13 @@
                 </span>
                 <span
                     v-if="centerLabel"
-                    class="mt-1 block w-full truncate text-[10px] leading-4 text-neutral-400"
+                    class="mt-1 block w-full truncate text-2xs leading-4 text-neutral-400"
                 >
                     {{ centerLabel }}
                 </span>
                 <span
                     v-if="centerMeta"
-                    class="block w-full truncate text-[10px] leading-4 text-neutral-400 tabular-nums"
+                    class="block w-full truncate text-2xs leading-4 text-neutral-400 tabular-nums"
                 >
                     {{ centerMeta }}
                 </span>
@@ -438,7 +438,7 @@
             <li v-for="item in slices" :key="item.key">
                 <button
                     type="button"
-                    class="flex w-full min-w-0 items-center gap-2.5 rounded-[9px] px-2 py-1.5 text-left transition-colors"
+                    class="flex w-full min-w-0 items-center gap-2.5 rounded-action px-2 py-1.5 text-left transition-colors"
                     :class="
                         activeKey === item.key
                             ? 'bg-neutral-900/[0.05]'
@@ -460,7 +460,7 @@
                     >
                         {{ item.label }}
                     </span>
-                    <span class="shrink-0 text-[11px] text-neutral-400 tabular-nums">
+                    <span class="shrink-0 text-caption text-neutral-400 tabular-nums">
                         {{ valueText(item.key, item.value) }}
                     </span>
                     <span

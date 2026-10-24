@@ -35,10 +35,12 @@ describe('settings-button-* → Button variant 迁移等价性', () => {
         // 原类在 @layer components 中定义的属性
         expect(classes).toContain('bg-primary-700');
         expect(classes).toContain('hover:bg-primary-600');
-        expect(classes).toContain('rounded-[9px]');
+        expect(classes).toContain('rounded-action');
         expect(classes).toContain('px-3.5');
         expect(classes).toContain('py-1.5');
-        expect(classes).toContain('text-[12px]');
+        // text-dense, not text-xs: the original rule set font-size 12px without a
+        // line-height, and text-xs would add 16px, changing the button height.
+        expect(classes).toContain('text-dense');
         expect(classes).toContain('font-medium');
         expect(classes).toContain('text-white');
         expect(classes).toContain('shadow-none');
@@ -49,7 +51,7 @@ describe('settings-button-* → Button variant 迁移等价性', () => {
 
     it('settings-button-secondary 的等效 variant 是 outline-neutral', () => {
         const classes = classList(mountButton({ variant: 'outline-neutral' }));
-        expect(classes).toContain('rounded-[9px]');
+        expect(classes).toContain('rounded-action');
         expect(classes).toContain('border');
         expect(classes).toContain('border-neutral-200/80');
         expect(classes).toContain('bg-white');
@@ -62,7 +64,7 @@ describe('settings-button-* → Button variant 迁移等价性', () => {
         const classes = classList(mountButton({ variant: 'danger' }));
         expect(classes).toContain('bg-red-600');
         expect(classes).toContain('hover:bg-red-700');
-        expect(classes).toContain('rounded-[9px]');
+        expect(classes).toContain('rounded-action');
         expect(classes).toContain('text-white');
     });
 
@@ -73,7 +75,7 @@ describe('settings-button-* → Button variant 迁移等价性', () => {
         expect(classes).toContain('w-8');
         expect(classes).toContain('items-center');
         expect(classes).toContain('justify-center');
-        expect(classes).toContain('rounded-[9px]');
+        expect(classes).toContain('rounded-action');
         expect(classes).toContain('text-neutral-400');
         expect(classes).toContain('hover:bg-neutral-100');
         expect(classes).toContain('hover:text-neutral-700');
