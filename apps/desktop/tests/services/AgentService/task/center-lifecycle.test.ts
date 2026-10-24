@@ -212,7 +212,10 @@ describe('user watches a task reach its end', () => {
         const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
 
         await expect(started.completion).rejects.toBeInstanceOf(AiError);
-        expect(center.getTaskSnapshot(started.taskId)?.status).toBe('failed');
+
+        const snapshot = center.getTaskSnapshot(started.taskId);
+        expect(snapshot?.status).toBe('failed');
+        expect(snapshot?.error).toBe(new AiError(AiErrorCode.STREAM_ERROR, {}).getDisplayMessage());
     });
 
     it('user sees the task cancelled rather than failed when they cancel it', async () => {
@@ -245,15 +248,24 @@ describe('user watches a task reach its end', () => {
         expect(center.listActiveTasks()).toEqual([]);
     });
 
-    it('user keeps seeing the task snapshot briefly after it finishes', async () => {
-        runtimeState.run.mockImplementation(completesInSession(1));
+    it('user keeps seeing the task snapshot briefly after it finishes, then it is released', async () => {
+        vi.useFakeTimers();
+        try {
+            runtimeState.run.mockImplementation(completesInSession(1));
 
-        const center = createCenter();
-        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
-        await started.completion;
+            const center = createCenter();
+            const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+            await started.completion;
 
-        // A page that opens late must still be able to read the final state.
-        expect(center.getTaskSnapshot(started.taskId)?.status).toBe('completed');
+            // A page that opens late must still be able to read the final state.
+            expect(center.getTaskSnapshot(started.taskId)?.status).toBe('completed');
+
+            // After the retention window the task is gone, so memory does not grow forever.
+            await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1);
+            expect(center.getTaskSnapshot(started.taskId)).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('user cannot cancel a task that is already gone', () => {
@@ -317,16 +329,20 @@ describe('user subscribes to a running task', () => {
 
     it('user still sees updates when one subscriber throws during a broadcast', async () => {
         runtimeState.run.mockImplementation(staysRunningInSession(1));
+        // The center logs a throwing subscriber; keep the test output readable.
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
         const center = createCenter();
         const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
 
         const seen: string[] = [];
+        let throwingCalls = 0;
         let throws = false;
         // The immediate snapshot on subscribe is delivered straight through, so the
         // subscriber only starts failing once it has been accepted.
         center.subscribeTask(started.taskId, () => {
             if (throws) {
+                throwingCalls += 1;
                 throw new Error('subscriber blew up');
             }
         });
@@ -335,8 +351,13 @@ describe('user subscribes to a running task', () => {
         throws = true;
         center.cancelTask(started.taskId);
 
-        // The throwing subscriber must not stop the other one from receiving updates.
+        // The throwing subscriber really was invoked and really did fail...
+        expect(throwingCalls).toBeGreaterThan(0);
+        expect(consoleError).toHaveBeenCalled();
+        // ...and the other subscriber still received the broadcast.
         expect(seen.length).toBeGreaterThan(1);
+
+        consoleError.mockRestore();
     });
 });
 
