@@ -6738,7 +6738,7 @@ checksum = "06bdbd8cfc056b8d2e2e85f29b56a3bdbecb527cef81eb39e3e7b98af4652770"
 
 [[package]]
 name = "touchai"
-version = "1.2.2"
+version = "1.3.0"
 dependencies = [
  "base64 0.23.1",
  "block2 0.6.2",
