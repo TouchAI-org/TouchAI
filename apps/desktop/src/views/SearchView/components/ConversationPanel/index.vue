@@ -23,7 +23,7 @@
         <div
             ref="conversationContainer"
             tabindex="0"
-            class="conversation-container bg-background-primary min-h-0 w-full overflow-y-auto px-10 pt-[4.5rem] pb-5 focus:outline-none"
+            class="conversation-container min-h-0 w-full overflow-y-auto bg-background-primary px-10 pt-[4.5rem] pb-5 focus:outline-none"
             :class="props.fillAvailableHeight ? 'h-full' : ''"
             :style="conversationContainerStyle"
             @scroll="handleScroll"

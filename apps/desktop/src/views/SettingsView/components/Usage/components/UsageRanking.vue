@@ -128,10 +128,10 @@
                     :key="option.value"
                     type="button"
                     :class="[
-                        'rounded-[10px] px-2.5 py-1 text-[11px] transition-colors',
+                        'rounded-control px-2.5 py-1 text-caption transition-colors',
                         metric === option.value
-                            ? 'bg-[#e9e9e7] text-neutral-950'
-                            : 'bg-transparent text-neutral-600 hover:bg-[#f1f1ef]',
+                            ? 'bg-surface-selected text-neutral-950'
+                            : 'bg-transparent text-neutral-600 hover:bg-surface-hover',
                     ]"
                     :aria-pressed="metric === option.value"
                     @click="emit('update:metric', option.value)"
@@ -171,7 +171,7 @@
                     :key="item.id"
                     type="button"
                     data-testid="settings-usage-ranking-row"
-                    class="flex w-full items-center gap-2.5 rounded-[9px] px-2 text-left transition-colors"
+                    class="flex w-full items-center gap-2.5 rounded-action px-2 text-left transition-colors"
                     :class="
                         selectedId === item.id
                             ? 'bg-neutral-900/[0.06]'

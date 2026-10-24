@@ -127,7 +127,7 @@
                 <div
                     v-for="index in 4"
                     :key="index"
-                    class="flex flex-col gap-1 rounded-[10px] bg-neutral-50/80 px-4 py-3"
+                    class="flex flex-col gap-1 rounded-control bg-neutral-50/80 px-4 py-3"
                 >
                     <div class="h-3 w-14 animate-pulse rounded bg-neutral-200/70" />
                     <div class="h-5 w-16 animate-pulse rounded bg-neutral-200/70" />
@@ -161,33 +161,33 @@
         <template v-else>
             <!-- 指标：与首屏同样的独立浅底小卡，不套大卡壳 -->
             <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <div class="flex flex-col gap-0.5 rounded-[10px] bg-neutral-50/80 px-4 py-3">
-                    <span class="text-[11px] text-neutral-500">
+                <div class="flex flex-col gap-0.5 rounded-control bg-neutral-50/80 px-4 py-3">
+                    <span class="text-caption text-neutral-500">
                         {{ t('settings.usage.tools.total') }}
                     </span>
                     <span
-                        class="font-serif text-[20px] leading-tight font-semibold text-neutral-950 tabular-nums"
+                        class="font-serif text-subtitle leading-tight font-semibold text-neutral-950 tabular-nums"
                     >
                         {{ formatInt(stats.totalCount) }}
                     </span>
                 </div>
-                <div class="flex flex-col gap-0.5 rounded-[10px] bg-neutral-50/80 px-4 py-3">
-                    <span class="text-[11px] text-neutral-500">
+                <div class="flex flex-col gap-0.5 rounded-control bg-neutral-50/80 px-4 py-3">
+                    <span class="text-caption text-neutral-500">
                         {{ t('settings.usage.tools.distinct') }}
                     </span>
                     <span
-                        class="font-serif text-[20px] leading-tight font-semibold text-neutral-950 tabular-nums"
+                        class="font-serif text-subtitle leading-tight font-semibold text-neutral-950 tabular-nums"
                     >
                         {{ formatInt(stats.distinctTools) }}
                     </span>
                 </div>
-                <div class="flex flex-col gap-0.5 rounded-[10px] bg-neutral-50/80 px-4 py-3">
-                    <span class="text-[11px] text-neutral-500">
+                <div class="flex flex-col gap-0.5 rounded-control bg-neutral-50/80 px-4 py-3">
+                    <span class="text-caption text-neutral-500">
                         {{ t('settings.usage.tools.errorRate') }}
                     </span>
                     <span
                         :class="[
-                            'font-serif text-[20px] leading-tight font-semibold tabular-nums',
+                            'font-serif text-subtitle leading-tight font-semibold tabular-nums',
                             stats.errorCount > 0 ? 'text-red-600' : 'text-neutral-950',
                         ]"
                     >
@@ -198,12 +198,12 @@
                         }}
                     </span>
                 </div>
-                <div class="flex flex-col gap-0.5 rounded-[10px] bg-neutral-50/80 px-4 py-3">
-                    <span class="text-[11px] text-neutral-500">
+                <div class="flex flex-col gap-0.5 rounded-control bg-neutral-50/80 px-4 py-3">
+                    <span class="text-caption text-neutral-500">
                         {{ t('settings.usage.tools.meanDuration') }}
                     </span>
                     <span
-                        class="font-serif text-[20px] leading-tight font-semibold text-neutral-950 tabular-nums"
+                        class="font-serif text-subtitle leading-tight font-semibold text-neutral-950 tabular-nums"
                     >
                         {{ formatDuration(stats.meanDurationMs) }}
                     </span>
@@ -247,7 +247,7 @@
                 </section>
             </div>
 
-            <p v-if="hasOther" class="text-[11px] text-neutral-400">
+            <p v-if="hasOther" class="text-caption text-neutral-400">
                 {{ t('settings.usage.tools.more', { count: hidden.length }) }}
             </p>
         </template>

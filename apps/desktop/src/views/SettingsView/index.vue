@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import LoadingState from '@components/LoadingState.vue';
@@ -333,7 +333,7 @@
 
 <template>
     <div
-        class="relative h-screen w-screen overflow-hidden bg-[#f4f4f2] font-serif text-[13px]"
+        class="relative h-screen w-screen overflow-hidden bg-canvas-sunken font-serif text-compact"
         data-testid="settings-view"
     >
         <div class="flex h-full w-full flex-col overflow-hidden" data-testid="settings-shell-frame">
@@ -348,7 +348,7 @@
                 />
 
                 <main
-                    class="relative my-2 mr-2 min-h-0 min-w-0 flex-1 overflow-hidden rounded-[12px] border border-neutral-200/70 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.03)]"
+                    class="relative my-2 mr-2 min-h-0 min-w-0 flex-1 overflow-hidden rounded-card border border-neutral-200/70 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.03)]"
                     data-testid="settings-content-shell"
                 >
                     <div

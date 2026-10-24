@@ -9,6 +9,10 @@
  *
  * 它同时守住分层边界：primitive 层不应出现语义名，semantic 层不应出现字面
  * 颜色值（必须 var() 指向 primitive）。这条边界是后续做暗色模式的前提。
+ *
+ * 位置说明：这里测的是 token 的取值本身，不涉及任何 CI 守卫脚本，所以放在
+ * tests/styles/ 而不是 tests/ci/。tests/ci/ 下的设计系统测试都是守卫脚本的
+ * 自测（drift 预算、token 契约、ESLint 规则），与这个文件无关。
  */
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';

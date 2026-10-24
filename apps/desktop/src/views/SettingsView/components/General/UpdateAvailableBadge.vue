@@ -17,7 +17,7 @@
     <button
         v-if="availableVersion"
         type="button"
-        class="t-press inline-flex min-h-7 shrink-0 cursor-pointer items-center gap-2 rounded-[8px] bg-[#f0f0ef] px-2.5 py-1 text-[12px] leading-5 font-normal text-neutral-700 transition-colors hover:bg-[#e9e9e7] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400"
+        class="t-press inline-flex min-h-7 shrink-0 cursor-pointer items-center gap-2 rounded-sm bg-surface-sunken px-2.5 py-1 text-[12px] leading-5 font-normal text-neutral-700 transition-colors hover:bg-surface-selected focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400"
         data-testid="settings-update-available-badge"
         aria-controls="settings-update-section"
         @click="$emit('click')"

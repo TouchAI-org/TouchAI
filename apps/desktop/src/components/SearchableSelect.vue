@@ -362,7 +362,7 @@
                             ref="searchInputRef"
                             v-model="searchQuery"
                             type="text"
-                            class="focus:border-primary-400 h-9 w-full rounded-lg border border-gray-200 bg-white pr-3 pl-9 font-serif text-sm text-gray-900 transition-colors focus:outline-none"
+                            class="h-9 w-full rounded-lg border border-gray-200 bg-white pr-3 pl-9 font-serif text-sm text-gray-900 transition-colors focus:border-primary-400 focus:outline-none"
                             :placeholder="resolvedSearchPlaceholder"
                             @keydown="handleSearchKeydown"
                         />
@@ -387,7 +387,7 @@
                             index === highlightedIndex
                                 ? 'bg-primary-50 text-primary-700'
                                 : option.value === modelValue
-                                  ? 'bg-primary-50/80 text-primary-700 ring-primary-100 ring-1'
+                                  ? 'bg-primary-50/80 text-primary-700 ring-1 ring-primary-100'
                                   : 'text-gray-900 hover:bg-gray-50',
                         ]"
                         @mouseenter="highlightedIndex = index"

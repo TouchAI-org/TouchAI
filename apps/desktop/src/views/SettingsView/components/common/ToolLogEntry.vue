@@ -32,7 +32,7 @@
 </script>
 
 <template>
-    <article class="overflow-hidden rounded-[10px] border border-neutral-200/70 bg-white">
+    <article class="overflow-hidden rounded-control border border-neutral-200/70 bg-white">
         <button
             type="button"
             class="w-full px-5 py-4 text-left transition-colors hover:bg-neutral-50/70"

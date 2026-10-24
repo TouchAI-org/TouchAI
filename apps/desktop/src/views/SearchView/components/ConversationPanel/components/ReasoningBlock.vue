@@ -359,7 +359,7 @@
         background-color: var(--color-gray-100);
         padding: 0.15em 0.35em;
         color: var(--color-gray-500);
-        font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+        font-family: var(--font-mono);
         font-size: 0.9em;
     }
 

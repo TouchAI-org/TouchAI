@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
@@ -148,8 +148,8 @@
                     :class="[
                         'rounded-lg border px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60',
                         modelValue.approvalMode === option.value
-                            ? 'border-transparent bg-[#e9e9e7] shadow-none'
-                            : 'border-transparent bg-transparent hover:bg-[#f1f1ef]',
+                            ? 'border-transparent bg-surface-selected shadow-none'
+                            : 'border-transparent bg-transparent hover:bg-surface-hover',
                     ]"
                     @click="patch({ approvalMode: option.value })"
                 >

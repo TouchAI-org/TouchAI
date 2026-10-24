@@ -24,7 +24,7 @@
     >
         <span
             :class="[
-                'min-w-0 flex-1 text-[13px] leading-snug',
+                'min-w-0 flex-1 text-compact leading-snug',
                 bodyLayout === 'stacked'
                     ? 'flex flex-col gap-0.5'
                     : 'inline-flex items-center gap-0',
@@ -37,12 +37,12 @@
             <span
                 aria-hidden
                 :class="[
-                    'absolute inline-flex h-5 w-5 items-center justify-center text-[11px] transition-opacity duration-(--duration-quick)',
+                    'absolute inline-flex h-5 w-5 items-center justify-center text-caption transition-opacity duration-(--duration-quick)',
                     isMulti ? shape.bg : '',
                     isMulti
                         ? chipFilled
                             ? 'bg-foreground text-background'
-                            : 'border-border text-muted-foreground border'
+                            : 'border border-border text-muted-foreground'
                         : chipFilled
                           ? 'text-foreground'
                           : 'text-muted-foreground',
@@ -59,7 +59,7 @@
                     :aria-hidden="!onArrowClick ? 'true' : 'false'"
                     :role="onArrowClick ? 'button' : undefined"
                     :class="[
-                        'bg-foreground text-background absolute inset-0 inline-flex items-center justify-center',
+                        'absolute inset-0 inline-flex items-center justify-center bg-foreground text-background',
                         shape.bg,
                         onArrowClick ? 'cursor-pointer' : '',
                     ]"

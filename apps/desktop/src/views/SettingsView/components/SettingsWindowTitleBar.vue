@@ -83,7 +83,7 @@
 
 <template>
     <header
-        class="flex h-9 w-full shrink-0 items-center justify-end bg-[#f4f4f2] select-none"
+        class="flex h-9 w-full shrink-0 items-center justify-end bg-canvas-sunken select-none"
         data-testid="settings-window-titlebar"
         data-tauri-drag-region
     >

@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
     import CustomSelect from '@components/CustomSelect.vue';
     import PasswordInput from '@components/PasswordInput.vue';
     import SettingsRow from '@components/SettingsRow.vue';
@@ -517,7 +517,7 @@
                                 <span
                                     v-if="provider.quotaLabel"
                                     :data-testid="`search-provider-quota-${provider.id}`"
-                                    class="shrink-0 rounded border border-neutral-300 bg-white px-1 py-0.5 text-[9px] leading-none whitespace-nowrap text-neutral-600 shadow-sm"
+                                    class="shrink-0 rounded border border-neutral-300 bg-white px-1 py-0.5 text-3xs leading-none whitespace-nowrap text-neutral-600 shadow-sm"
                                 >
                                     {{ provider.quotaLabel }}
                                 </span>
@@ -541,7 +541,7 @@
                                     v-if="providerRequiresEndpoint(provider.id)"
                                     :value="providerCredentialValue(provider.id)"
                                     :data-testid="`search-${provider.id}-api-key-input`"
-                                    class="focus:border-primary-300 min-w-0 flex-1 rounded-[10px] border border-transparent bg-[#f0f0ef] px-3 py-2 font-serif text-[13px] text-neutral-900 shadow-none transition-colors placeholder:text-neutral-400 hover:bg-[#ececea] focus:bg-white disabled:cursor-not-allowed disabled:bg-neutral-50 disabled:text-gray-400"
+                                    class="min-w-0 flex-1 rounded-control border border-transparent bg-surface-sunken px-3 py-2 font-serif text-compact text-neutral-900 shadow-none transition-colors placeholder:text-neutral-400 hover:bg-surface-active focus:border-primary-300 focus:bg-white disabled:cursor-not-allowed disabled:bg-neutral-50 disabled:text-gray-400"
                                     :class="
                                         shouldHighlightProviderApiKey(provider.id)
                                             ? 'border-red-300 bg-red-50 text-red-600'
@@ -567,7 +567,7 @@
                                         :input-test-id="`search-${provider.id}-api-key-input`"
                                         :input-class="
                                             [
-                                                'h-auto rounded-[10px] border-transparent bg-[#f0f0ef] px-3 py-2 pr-10 text-[13px] text-neutral-900 shadow-none hover:bg-[#ececea] focus:border-primary-300 focus:bg-white disabled:bg-neutral-50 disabled:text-gray-400',
+                                                'h-auto rounded-control border-transparent bg-surface-sunken px-3 py-2 pr-10 text-compact text-neutral-900 shadow-none hover:bg-surface-active focus:border-primary-300 focus:bg-white disabled:bg-neutral-50 disabled:text-gray-400',
                                                 shouldHighlightProviderApiKey(provider.id)
                                                     ? 'border-red-300 bg-red-50 text-red-600'
                                                     : '',
@@ -616,13 +616,13 @@
                             v-for="row in advancedRows"
                             :key="row.key"
                             :data-settings-search-target="`search-${row.key}`"
-                            control-width="320"
+                            control-width="auto"
                             :label="row.label"
                             :description="row.description"
                         >
                             <Switch
                                 size="lg"
-                                class="ml-auto shrink-0"
+                                class="shrink-0"
                                 :data-testid="`search-advanced-toggle-${row.key}`"
                                 :aria-label="row.label"
                                 :model-value="draft[row.key]"

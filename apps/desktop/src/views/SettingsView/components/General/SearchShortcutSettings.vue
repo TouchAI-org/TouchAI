@@ -451,7 +451,7 @@
             >
                 <div
                     data-testid="settings-general-row-label"
-                    class="min-w-0 text-[13px] leading-6 font-normal text-neutral-900"
+                    class="min-w-0 text-compact leading-6 font-normal text-neutral-900"
                 >
                     <div>{{ row.label }}</div>
                     <div v-if="row.description" class="text-[12px] leading-5 text-neutral-500">
@@ -467,12 +467,12 @@
                                 type="text"
                                 readonly
                                 :class="[
-                                    'shortcut-capture-input w-full rounded-[10px] border px-9 py-2 text-center text-[12px] shadow-none [box-shadow:none] transition-colors select-none focus:shadow-none focus:[box-shadow:none] focus:outline-none',
+                                    'shortcut-capture-input w-full rounded-control border px-9 py-2 text-center text-[12px] shadow-none [box-shadow:none] transition-colors select-none focus:shadow-none focus:[box-shadow:none] focus:outline-none',
                                     row.hasError
                                         ? 'border-red-300 bg-red-50 text-red-600'
                                         : row.isCapturing
                                           ? 'border-primary-300 bg-white text-neutral-950'
-                                          : 'focus:border-primary-300 border-transparent bg-[#f0f0ef] text-neutral-900 hover:bg-[#ececea]',
+                                          : 'border-transparent bg-surface-sunken text-neutral-900 hover:bg-surface-active focus:border-primary-300',
                                     isSaving
                                         ? 'cursor-wait opacity-50'
                                         : row.shortcutAction

@@ -229,6 +229,18 @@
                 ...rawCount(value.outputTokens),
                 raw: value.outputTokens,
             },
+            /*
+             * Always rendered, even at zero. Hiding it when the provider reports no
+             * reasoning tokens left the fixed seven-column grid one cell short, so a
+             * blank card appeared on the right. A dash for "not reported" is also
+             * more honest than silently dropping the metric.
+             */
+            {
+                key: 'reasoning',
+                label: t('settings.usage.metric.reasoning'),
+                ...rawCount(value.reasoningTokens),
+                raw: value.reasoningTokens,
+            },
             {
                 key: 'cacheWrite',
                 label: t('settings.usage.metric.cacheWrite'),
@@ -257,13 +269,6 @@
                 unit: t('settings.usage.metric.rpmUnit'),
             },
         ];
-        if (value.reasoningTokens > 0)
-            items.splice(2, 0, {
-                key: 'reasoning',
-                label: t('settings.usage.metric.reasoning'),
-                ...rawCount(value.reasoningTokens),
-                raw: value.reasoningTokens,
-            });
         return items;
     });
 
@@ -754,11 +759,11 @@
                 :key="card.key"
                 :data-testid="`settings-usage-card-${card.key}`"
                 :title="card.description"
-                class="flex min-w-0 flex-col gap-1 rounded-[10px] bg-neutral-50/80 px-4 py-3"
+                class="flex min-w-0 flex-col gap-1 rounded-control bg-neutral-50/80 px-4 py-3"
             >
                 <span class="truncate text-xs text-neutral-500">{{ card.label }}</span>
                 <span
-                    class="truncate font-serif text-[22px] leading-tight font-semibold text-neutral-950 tabular-nums"
+                    class="truncate font-serif text-title leading-tight font-semibold text-neutral-950 tabular-nums"
                     :title="`${card.prefix ?? ''}${card.value}`"
                 >
                     <template v-if="card.counter">
@@ -776,7 +781,7 @@
                             class="mr-1.5 inline-flex items-baseline gap-0.5 last:mr-0"
                         >
                             {{ part.value }}
-                            <span class="text-[15px] font-normal text-neutral-400">
+                            <span class="text-reading font-normal text-neutral-400">
                                 {{ part.unit }}
                             </span>
                         </span>
@@ -784,7 +789,7 @@
                     <template v-else>{{ card.prefix }}{{ card.value }}</template>
                 </span>
                 <span
-                    class="truncate text-[11px]"
+                    class="truncate text-caption"
                     :class="card.warn ? 'text-amber-600' : 'text-neutral-400'"
                 >
                     {{ card.note }}
@@ -801,12 +806,12 @@
                 :key="item.key"
                 :data-testid="`settings-usage-metric-${item.key}`"
                 :title="item.note"
-                class="flex min-w-0 flex-col gap-0.5 rounded-[9px] bg-neutral-50/60 px-3 py-2"
+                class="flex min-w-0 flex-col gap-0.5 rounded-action bg-neutral-50/60 px-3 py-2"
             >
-                <span class="truncate text-[11px] text-neutral-500">{{ item.label }}</span>
-                <span class="truncate text-[13px] text-neutral-900 tabular-nums">
+                <span class="truncate text-caption text-neutral-500">{{ item.label }}</span>
+                <span class="truncate text-compact text-neutral-900 tabular-nums">
                     {{ item.value }}
-                    <span v-if="item.unit" class="ml-0.5 text-[11px] text-neutral-400">
+                    <span v-if="item.unit" class="ml-0.5 text-caption text-neutral-400">
                         {{ item.unit }}
                     </span>
                 </span>
@@ -816,11 +821,11 @@
         <div class="mt-3 rounded-[11px] bg-neutral-50/80 p-3">
             <div class="flex items-start justify-between gap-3">
                 <div class="flex flex-col gap-0.5">
-                    <span class="text-[10px] tracking-wide text-neutral-400 uppercase">
+                    <span class="text-2xs tracking-wide text-neutral-400 uppercase">
                         {{ t('settings.usage.dashboardCurveTitle') }}
                     </span>
                     <!-- 有流时只说明当前窗口，不再重复写单位（右上角已有） -->
-                    <span v-if="liveMode" class="text-[10px] text-neutral-400">
+                    <span v-if="liveMode" class="text-2xs text-neutral-400">
                         {{ t('settings.usage.curve.liveWindow') }}
                     </span>
                 </div>
@@ -829,14 +834,14 @@
                 <div class="flex flex-col items-end gap-0.5">
                     <div class="flex items-baseline gap-1.5">
                         <span
-                            class="font-serif text-[22px] leading-none font-semibold tabular-nums"
+                            class="font-serif text-title leading-none font-semibold tabular-nums"
                             :class="anyStreaming ? 'text-neutral-950' : 'text-neutral-400'"
                         >
                             {{ speedDisplay }}
                         </span>
-                        <span class="text-[11px] text-neutral-400">tok/s</span>
+                        <span class="text-caption text-neutral-400">tok/s</span>
                     </div>
-                    <span class="text-[10px] text-neutral-400">
+                    <span class="text-2xs text-neutral-400">
                         {{
                             anyStreaming
                                 ? t('settings.usage.curve.liveSpeed')
@@ -859,7 +864,7 @@
                     用 justify-between 会把它们按均分摆放，与曲线对不上。
                 -->
                 <div
-                    class="relative w-9 shrink-0 text-right text-[9px] text-neutral-400 tabular-nums"
+                    class="relative w-9 shrink-0 text-right text-3xs text-neutral-400 tabular-nums"
                     :style="{ height: `${HEIGHT}px` }"
                     aria-hidden="true"
                 >
@@ -957,11 +962,11 @@
                 -->
                     <div
                         v-if="activePoint"
-                        class="pointer-events-none absolute top-0 z-10 min-w-28 rounded-[10px] border border-neutral-200 bg-white px-3 py-2 text-xs shadow-sm"
+                        class="pointer-events-none absolute top-0 z-10 min-w-28 rounded-control border border-neutral-200 bg-white px-3 py-2 text-xs shadow-sm"
                         :style="tooltipStyle"
                         data-testid="usage-curve-tooltip"
                     >
-                        <div class="mb-1 text-[11px] font-medium text-neutral-900">
+                        <div class="mb-1 text-caption font-medium text-neutral-900">
                             {{ formatPointTime(activePoint.at) }}
                         </div>
                         <div class="flex items-center gap-2">
@@ -981,7 +986,7 @@
             </div>
 
             <!-- 左下角：会话数（有流时是活跃路数，空闲时是区间会话数） -->
-            <div class="mt-3 flex items-center gap-1.5 text-[11px] text-neutral-500">
+            <div class="mt-3 flex items-center gap-1.5 text-caption text-neutral-500">
                 <span
                     class="h-1.5 w-1.5 rounded-full"
                     :class="anyStreaming ? 'animate-pulse bg-sky-500' : 'bg-neutral-300'"

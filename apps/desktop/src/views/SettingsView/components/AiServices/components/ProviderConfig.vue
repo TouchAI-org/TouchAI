@@ -85,7 +85,7 @@
 
 <template>
     <div class="space-y-4">
-        <h2 class="text-[15px] font-medium text-neutral-950">
+        <h2 class="text-reading font-medium text-neutral-950">
             {{ t('settings.ai.providerConfigTitle') }}
         </h2>
 

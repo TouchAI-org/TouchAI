@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
     import DialogShell from '@components/DialogShell.vue';
     import { Button } from '@components/ui/button';
     import { type ImportMode } from '@database/backup';
@@ -21,7 +21,7 @@
 
 <template>
     <DialogShell :open="props.open" dismissible @close="emit('close')" @closed="emit('closed')">
-        <h3 class="text-[15px] font-medium text-neutral-950">
+        <h3 class="text-reading font-medium text-neutral-950">
             {{ t('settings.dataManagement.importMode.title') }}
         </h3>
         <p class="mt-2 text-sm text-neutral-600">

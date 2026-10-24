@@ -86,7 +86,7 @@ describe('NavigationSidebar', () => {
         const versionBadge = brand.get('[data-testid="settings-sidebar-version"]');
         expect(versionBadge.text()).toBe(`V${desktopPackageJson.version}`);
         expect(versionBadge.classes()).toEqual(
-            expect.arrayContaining(['ml-auto', 'rounded-[6px]', 'bg-[#e9e9e7]'])
+            expect.arrayContaining(['ml-auto', 'rounded-[6px]', 'bg-surface-selected'])
         );
         expect(footer.find('[data-testid="settings-sidebar-version"]').exists()).toBe(false);
         expect(wrapper.text()).not.toContain(`TouchAI v${desktopPackageJson.version}`);

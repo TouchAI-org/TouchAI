@@ -14,7 +14,7 @@ export interface ShapeClasses {
 export const shape: ShapeClasses = {
     item: 'rounded-lg',
     bg: 'rounded-lg',
-    focusRing: 'rounded-[10px]',
+    focusRing: 'rounded-control',
     mergedBg: 'rounded-lg',
     container: 'rounded-2xl',
     button: 'rounded-full',

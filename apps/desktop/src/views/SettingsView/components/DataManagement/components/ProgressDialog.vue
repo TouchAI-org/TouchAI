@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import type { AppIconName } from '@components/appIconMap';
     import DialogShell from '@components/DialogShell.vue';
@@ -69,7 +69,7 @@
                 />
             </div>
 
-            <h3 class="text-[15px] font-medium text-neutral-950">{{ title }}</h3>
+            <h3 class="text-reading font-medium text-neutral-950">{{ title }}</h3>
             <p
                 data-testid="progress-message"
                 class="mt-2 text-sm [overflow-wrap:anywhere] break-words whitespace-normal text-neutral-600"
@@ -80,7 +80,7 @@
             <div v-if="progress !== undefined" class="mt-6 w-full">
                 <div class="h-2 w-full overflow-hidden rounded-full bg-neutral-100">
                     <div
-                        class="t-progress bg-primary-700 h-full rounded-full"
+                        class="t-progress h-full rounded-full bg-primary-700"
                         :style="{ width: `${progress}%` }"
                     ></div>
                 </div>

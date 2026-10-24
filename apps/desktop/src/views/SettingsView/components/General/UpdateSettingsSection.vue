@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
     import CustomSelect from '@components/CustomSelect.vue';
     import SettingsRow from '@components/SettingsRow.vue';
     import { Switch } from '@components/ui/switch';
@@ -320,7 +320,7 @@
                 </template>
                 <button
                     type="button"
-                    class="ml-auto inline-flex h-9 min-w-[88px] items-center justify-center rounded-[10px] border border-transparent bg-[#f0f0ef] px-3 text-[12px] font-normal text-neutral-800 transition-colors hover:bg-[#ececea] disabled:cursor-not-allowed disabled:opacity-50"
+                    class="ml-auto inline-flex h-9 min-w-[88px] items-center justify-center rounded-control border border-transparent bg-surface-sunken px-3 text-[12px] font-normal text-neutral-800 transition-colors hover:bg-surface-active disabled:cursor-not-allowed disabled:opacity-50"
                     data-testid="settings-update-primary-action"
                     :disabled="isBusy"
                     @click="handlePrimaryAction"

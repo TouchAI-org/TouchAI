@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
     <div :class="ROOT_CLASS">
@@ -702,7 +702,7 @@
         margin: 0;
         padding: 0;
         overflow-x: auto;
-        font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+        font-family: var(--font-mono);
         font-size: 11.5px;
         line-height: 1.65;
         white-space: pre-wrap;
@@ -777,7 +777,7 @@
         padding: 0;
         max-height: 14rem;
         overflow: auto;
-        font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+        font-family: var(--font-mono);
         font-size: 11px;
         line-height: 1.58;
         color: rgb(96, 92, 87);

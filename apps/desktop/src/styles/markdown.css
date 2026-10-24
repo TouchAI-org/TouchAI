@@ -81,7 +81,7 @@
 
     .touchai-markdown .inline-code-node,
     .touchai-markdown .markstream-vue :not(pre) > code {
-        font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+        font-family: var(--font-mono);
         font-size: 0.875em;
         font-weight: 600;
         color: #691d1d !important;
@@ -531,7 +531,7 @@
 }
 
 .touchai-markdown .markstream-vue :not(pre) > code {
-    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+    font-family: var(--font-mono);
     font-size: 0.875em;
     font-weight: 600;
     color: #691d1d !important;

@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
@@ -260,7 +260,7 @@
     <div ref="listRootRef" class="scroll-mt-8 space-y-4 [overflow-anchor:none]">
         <div class="flex items-center justify-between gap-3">
             <div class="flex items-center gap-5">
-                <h2 class="flex-shrink-0 text-[15px] font-medium text-neutral-950">
+                <h2 class="flex-shrink-0 text-reading font-medium text-neutral-950">
                     {{ t('settings.ai.modelListTitle') }}
                 </h2>
 

@@ -38,13 +38,13 @@
 <template>
     <Dialog :open="true" @update:open="(open) => !open && $emit('close')">
         <DialogContent
-            class="flex max-h-[calc(100dvh-64px)] w-[calc(100%-48px)] max-w-[480px] flex-col gap-0 overflow-hidden rounded-[16px] border border-neutral-200/80 bg-white p-0 font-serif shadow-xl"
+            class="flex max-h-[calc(100dvh-64px)] w-[calc(100%-48px)] max-w-[480px] flex-col gap-0 overflow-hidden rounded-panel border border-neutral-200/80 bg-white p-0 font-serif shadow-xl"
             data-testid="settings-update-details-dialog"
             :aria-describedby="undefined"
         >
             <header class="flex shrink-0 flex-col items-center px-7 pt-8 pb-7 text-center">
                 <div
-                    class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#f0f0ef] text-neutral-600"
+                    class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-surface-sunken text-neutral-600"
                     aria-hidden="true"
                 >
                     <AppIcon name="refresh" class="h-5 w-5" />
@@ -53,19 +53,19 @@
                     {{ title }}
                 </DialogTitle>
                 <span
-                    class="mt-3 inline-flex items-center justify-center rounded-[6px] border border-neutral-200/60 bg-[#f0f0ef] px-2.5 py-1 text-[12px] leading-5 text-neutral-600"
+                    class="mt-3 inline-flex items-center justify-center rounded-[6px] border border-neutral-200/60 bg-surface-sunken px-2.5 py-1 text-[12px] leading-5 text-neutral-600"
                     data-testid="settings-update-dialog-version"
                 >
                     {{ versionLabel }}
                 </span>
             </header>
 
-            <div class="flex min-h-0 flex-col bg-[#f8f8f8]">
+            <div class="flex min-h-0 flex-col bg-surface-raised">
                 <div
                     v-if="hasUpdate || error"
                     class="settings-scrollbar min-h-0 overflow-y-auto px-7 py-5"
                 >
-                    <div v-if="hasUpdate" class="text-[13px] leading-6 text-neutral-700">
+                    <div v-if="hasUpdate" class="text-compact leading-6 text-neutral-700">
                         <h3 class="mb-2 text-[12px] font-medium text-neutral-600">
                             {{ t('settings.update.releaseNotes') }}
                         </h3>
@@ -92,7 +92,7 @@
                         :aria-valuemax="100"
                     >
                         <div
-                            class="t-progress bg-primary-600 h-full rounded-full"
+                            class="t-progress h-full rounded-full bg-primary-600"
                             :style="{ width: `${downloadProgress}%` }"
                         />
                     </div>
