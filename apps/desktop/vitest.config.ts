@@ -47,7 +47,7 @@ export default defineConfig({
         statements: 77,
         branches: 67,
         functions: 76,
-        lines: 77,
+        lines: 78,
         'src/services/EventService/**/*.ts': {
           statements: 90,
           branches: 100,
