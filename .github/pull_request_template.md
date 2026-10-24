@@ -46,6 +46,15 @@ pnpm test:e2e
 - database baseline or migration impact:
 - release or packaging impact:
 
+## Design system
+
+Fill this section when the diff touches `apps/desktop/src/components/ui/`, `apps/desktop/src/styles/`, `apps/desktop/src/components/*.vue`, or any `views/**/*.vue`. Write `N/A` otherwise.
+
+- Primitives used or extended (`components/ui/*`), or why none apply:
+- New arbitrary values introduced — count of `bg-[#…]`, `text-[Npx]`, `bg-white`: `0`
+- If a token is missing, which `@theme` entry should be added, and why not in this PR:
+- Visual change scope: `none` / `additive` / `breaking`. For `breaking`, list every affected call site:
+
 ## Screenshots or recordings
 
 Include UI evidence here when the change affects the interface.
@@ -64,3 +73,5 @@ Include UI evidence here when the change affects the interface.
 - [ ] If I changed desktop startup/window/search/popup/settings/E2E paths, I ran `pnpm test:e2e` locally or documented why CI is the first valid proof.
 - [ ] I added tests or explained why tests are not appropriate.
 - [ ] I updated docs when behavior changed.
+- [ ] If this touches UI, I filled the `## Design system` section and `pnpm design:check` passes locally.
+- [ ] If this adds a `components/ui/*` primitive or variant, it has a class snapshot test under `tests/components/ui/`.
