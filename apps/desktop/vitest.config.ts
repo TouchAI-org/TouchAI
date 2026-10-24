@@ -38,9 +38,14 @@ export default defineConfig({
         // These keys must stay at the top level: vitest reads the global floor from
         // thresholds.<metric> and treats a nested "global" object as a glob pattern
         // that matches no file, which would leave the gate silently inert.
+        //
+        // The floor only moves up. Run `pnpm test:coverage:raise` after a change that
+        // genuinely raises coverage; it ratchets these four numbers to what the suite
+        // actually reaches, so the floor can never be lowered by editing this file, and
+        // a drop below the committed value fails CI. See docs/testing/testing.md.
         statements: 75,
-        branches: 64,
-        functions: 73,
+        branches: 65,
+        functions: 74,
         lines: 75,
         'src/services/EventService/**/*.ts': {
           statements: 90,

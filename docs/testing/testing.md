@@ -85,24 +85,33 @@ Each report is summarized in the GitHub step summary, and each failure blocks th
 
 ## Coverage
 
-Coverage is a floor that stops regressions, not a target to game. A test added only to raise a number is noise: it still has to encode a behavior a user or caller can observe.
+Coverage is a floor that stops regressions, not a target to game. A test added only to raise a number is noise: it still has to encode a behavior a user or caller can observe. **The floor never goes down, and the goal is 85% on every metric.** Get there by covering real behavior, never by asserting on mocks or restating the implementation.
 
 Frontend coverage is enforced in `apps/desktop/vitest.config.ts` as a global floor:
 
-| Metric | Floor | Reached today |
-| --- | ---: | ---: |
-| Statements | 75% | 75.3% |
-| Branches | 64% | 65.2% |
-| Functions | 73% | 74.2% |
-| Lines | 75% | 75.8% |
+| Metric | Floor | Reached today | Target |
+| --- | ---: | ---: | ---: |
+| Statements | 75% | 75.3% | 85% |
+| Branches | 65% | 65.2% | 85% |
+| Functions | 74% | 74.2% | 85% |
+| Lines | 75% | 75.8% | 85% |
 
-The floor sits about one point under what the suite reaches, so it blocks a regression without demanding a specific number from any single change. The keys must stay at the top level of `thresholds`: vitest reads the global floor from `thresholds.<metric>`, and a nested `global` object is treated as a glob pattern matching no file, which leaves the gate silently inert.
+The keys must stay at the top level of `thresholds`: vitest reads the global floor from `thresholds.<metric>`, and a nested `global` object is treated as a glob pattern matching no file, which leaves the gate silently inert.
 
-Rust coverage runs in CI as a report, not a gate: it has no threshold yet, so a drop there is visible in the job summary but does not fail the build.
+**Raising the floor is a one-way ratchet.** After a change that genuinely raises coverage, run `pnpm test:coverage` then `pnpm test:coverage:raise`. The script moves each metric to one point under what the suite now reaches, and it will never lower a number. Because the floor lives in a committed file, a drop below it fails CI; because the script cannot lower it, nobody can quietly buy a green build by editing the config.
 
 Rust coverage comes from **cargo-llvm-cov**, which uses rustc's own `-C instrument-coverage` rather than a ptrace debugger, and reports **line and region** coverage. Region coverage is the finer-grained signal: it flags an expression that was only partly evaluated, which line coverage cannot see.
 
-Branch coverage is **not** collected. `cargo llvm-cov --branch` requires a nightly toolchain, and this job runs stable. The summarizer renders a Branches row automatically if a branch-enabled run ever feeds it one, so turning it on later means changing the toolchain in that one job, not touching the script.
+| Metric | Floor | Reached today | Target |
+| --- | ---: | ---: | ---: |
+| Lines | 44% | 45.5% | 85% |
+| Regions | 43% | 44.2% | 85% |
+
+The Rust floor lives in `apps/desktop/src-tauri/coverage-floors.json` and is checked by the `rust-coverage` job, which fails with the exact metric that regressed. Raise it with `pnpm test:coverage:rust:raise` after `pnpm test:coverage:rust`. Same one-way rule.
+
+**Why Rust starts lower than the frontend.** Reaching 85% for Rust is not just a matter of more tests. Of its 11043 measured lines, the testable pure logic tops out around 50% total coverage even if every line of it were covered; the remaining gap sits in browser/CDP automation, window-shell, clipboard, bootstrap and MCP client code whose only realistic unit test asserts against mocks, which is exactly the kind of test this project forbids. Rust coverage therefore rises with genuine integration and E2E coverage, not with mock-heavy unit tests. Do not close the gap by testing stubs.
+
+Branch coverage is **not** collected for Rust. `cargo llvm-cov --branch` requires a nightly toolchain, and this job runs stable. The summarizer renders a Branches row automatically if a branch-enabled run ever feeds it one, so turning it on later means changing the toolchain in that one job, not touching the script.
 
 The previous tool, cargo-tarpaulin, was replaced here (#598). Its `--branch` flag was documented as "NOT IMPLEMENTED", the Cobertura writer hardcoded zero branch totals, and its `lcov` reporter still carried `TODO: add support for branching`, so the branch dimension was never measurable. The original choice in #192 was justified by "tarpaulin is simpler to set up on Linux CI and does not require nightly Rust"; the nightly caveat only ever applied to branch coverage, and llvm-cov needs one rustup component plus one install action.
 

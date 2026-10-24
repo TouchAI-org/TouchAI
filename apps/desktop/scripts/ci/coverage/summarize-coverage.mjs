@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -251,6 +251,52 @@ export function summarizeCoverageFile({ kind, inputPath, summaryPath }) {
     return markdown;
 }
 
+/**
+ * Check the measured Rust coverage against the committed floor.
+ *
+ * `apps/desktop/src-tauri/coverage-floors.json` holds the floor and only ever moves up:
+ * `--raise` rewrites it to just under what the run measured, mirroring the frontend
+ * ratchet. The floors deliberately cover line and region coverage only; branch coverage
+ * is not collected on stable, so gating it would gate a number that never exists.
+ *
+ * This lives here instead of `cargo llvm-cov --fail-under-lines` because that flag only
+ * sets a non-zero exit code and prints nothing, which turns a coverage regression into an
+ * unexplained red X.
+ */
+export function checkRustCoverageFloors(coverage, floors) {
+    const failures = [];
+
+    for (const metric of ['lines', 'regions']) {
+        const floor = floors?.[metric];
+        if (typeof floor !== 'number' || Number.isNaN(floor)) {
+            throw new Error(`Rust coverage floor is missing a numeric "${metric}" entry.`);
+        }
+
+        const measured = coverage[metric].percent;
+        if (measured < floor) {
+            failures.push(
+                `${metric}: ${measured.toFixed(2)}% is below the committed floor of ${floor}%`
+            );
+        }
+    }
+
+    return failures;
+}
+
+export function raisedRustCoverageFloors(coverage, floors) {
+    const next = { ...floors };
+
+    for (const metric of ['lines', 'regions']) {
+        // Keep one point of headroom, same as the frontend ratchet.
+        const reachable = Math.max(0, Math.floor(coverage[metric].percent - 1));
+        if (reachable > (next[metric] ?? 0)) {
+            next[metric] = reachable;
+        }
+    }
+
+    return next;
+}
+
 function readOption(argv, index, name) {
     const value = argv[index + 1];
     if (value === undefined || value.startsWith('--')) {
@@ -266,6 +312,8 @@ export function parseArgs(argv, env = process.env) {
         inputPath: null,
         summaryPath: env.GITHUB_STEP_SUMMARY || null,
         resolveRust: false,
+        raise: false,
+        skipFloors: false,
     };
 
     for (let index = 0; index < argv.length; index += 1) {
@@ -273,6 +321,10 @@ export function parseArgs(argv, env = process.env) {
 
         if (argument === '--resolve-rust') {
             options.resolveRust = true;
+        } else if (argument === '--raise') {
+            options.raise = true;
+        } else if (argument === '--skip-floors') {
+            options.skipFloors = true;
         } else if (argument === '--kind') {
             options.kind = readOption(argv, index, '--kind');
             index += 1;
@@ -319,8 +371,44 @@ function main() {
         return;
     }
 
-    summarizeCoverageFile(options);
+    const markdown = summarizeCoverageFile(options);
     console.log(`Appended ${options.kind} coverage table to ${options.summaryPath}.`);
+
+    if (options.kind !== 'rust' || options.skipFloors) {
+        return;
+    }
+
+    // Read the report again rather than reusing the rendered markdown, so the gate works
+    // on the measured numbers and not on formatted strings.
+    const coverage = parseLlvmCovCoverage(readInput(options.inputPath, 'rust coverage report'));
+    const floorsPath = join(desktopRoot, 'src-tauri', 'coverage-floors.json');
+    const floors = JSON.parse(readFileSync(floorsPath, 'utf8'));
+
+    if (options.raise) {
+        const raised = raisedRustCoverageFloors(coverage, floors);
+        if (JSON.stringify(raised) === JSON.stringify(floors)) {
+            console.log('Rust coverage floor is already at or above the measured level.');
+        } else {
+            writeFileSync(floorsPath, `${JSON.stringify(raised, null, 4)}\n`, 'utf8');
+            console.log(`Raised the Rust coverage floor in ${displayPath(floorsPath)}.`);
+        }
+        return;
+    }
+
+    const failures = checkRustCoverageFloors(coverage, floors);
+    if (failures.length > 0) {
+        throw new Error(
+            [
+                'Rust coverage dropped below the committed floor:',
+                ...failures.map((failure) => `  - ${failure}`),
+                `Floor: ${displayPath(floorsPath)}. Raise it with "pnpm test:coverage:rust:raise" after a change that earns it.`,
+            ].join('\n')
+        );
+    }
+
+    console.log(
+        `Rust coverage meets the committed floor (lines ${coverage.lines.percent.toFixed(2)}% >= ${floors.lines}%, regions ${coverage.regions.percent.toFixed(2)}% >= ${floors.regions}%).`
+    );
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -2,13 +2,19 @@ export type CoverageKind = 'frontend' | 'rust';
 
 export type CoverageMetric = {
     percent: number;
-    covered: number | null;
-    total: number | null;
+    covered: number;
+    total: number;
 };
 
-export type CoberturaCoverage = {
+export type LlvmCovCoverage = {
     lines: CoverageMetric;
+    regions: CoverageMetric;
     branches: CoverageMetric;
+};
+
+export type CoverageFloors = {
+    lines: number;
+    regions: number;
 };
 
 export type SummarizeCoverageOptions = {
@@ -17,11 +23,21 @@ export type SummarizeCoverageOptions = {
     summaryPath: string;
 };
 
-export function parseCoberturaCoverage(xml: string): CoberturaCoverage;
+export function parseLlvmCovCoverage(json: string): LlvmCovCoverage;
 
 export function formatFrontendCoverage(summary: unknown): string;
 
-export function formatRustCoverage(xml: string): string;
+export function formatRustCoverage(json: string): string;
+
+export function checkRustCoverageFloors(
+    coverage: LlvmCovCoverage,
+    floors: Partial<CoverageFloors>
+): string[];
+
+export function raisedRustCoverageFloors(
+    coverage: LlvmCovCoverage,
+    floors: CoverageFloors
+): CoverageFloors;
 
 export function appendStepSummary(summaryPath: string, markdown: string): void;
 
@@ -34,4 +50,4 @@ export function summarizeCoverageFile(options: SummarizeCoverageOptions): string
 export function parseArgs(
     argv: string[],
     env?: NodeJS.ProcessEnv
-): SummarizeCoverageOptions & { resolveRust: boolean };
+): SummarizeCoverageOptions & { resolveRust: boolean; raise: boolean; skipFloors: boolean };
