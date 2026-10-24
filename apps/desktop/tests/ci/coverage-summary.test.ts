@@ -391,11 +391,19 @@ describe('user opens the CI gate for a desktop change', () => {
         expect(workflow).toContain('    rust-coverage:');
         expect(workflow).toContain('name: rust-coverage-report');
         expect(workflow).toContain('path: ${{ env.RUST_COVERAGE_REPORT }}');
-        expect(workflow).toContain('taiki-e/install-action');
-        expect(workflow).toContain('llvm-tools-preview');
         expect(workflow).toContain("RUST_COVERAGE_RESULT: ${{ needs['rust-coverage'].result }}");
         expect(workflow).toContain('required+=("rust-coverage:$RUST_COVERAGE_RESULT")');
         expect(workflow).toContain('"rust-coverage:$RUST_COVERAGE_RESULT"');
+    });
+
+    it('user gets Rust coverage from cargo-llvm-cov with the llvm tools it needs', async () => {
+        const workflow = await readFile(workflowPath, 'utf8');
+        const packageJson = await readFile(resolve(testDirectory, '../../package.json'), 'utf8');
+
+        expect(packageJson).toContain('cargo llvm-cov');
+        expect(packageJson).not.toContain('cargo tarpaulin');
+        // cargo-llvm-cov shells out to llvm-cov/llvm-profdata from this component.
+        expect(workflow).toContain('llvm-tools-preview');
     });
 
     it('user is told which paths were searched when the coverage run produced no report', async () => {
