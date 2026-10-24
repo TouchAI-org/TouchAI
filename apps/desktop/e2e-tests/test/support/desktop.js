@@ -53,6 +53,44 @@ export async function findElementByTestId(testId) {
     return $(`[data-testid='${testId}']`);
 }
 
+/**
+ * The interface language every E2E run uses.
+ *
+ * First-launch language is derived from `navigator.language`, so the same screen
+ * renders Chinese on a zh-CN laptop and English on an en-US CI runner. Visual
+ * baselines are compared pixel by pixel and must not encode the machine, so the
+ * suite pins the app's own language setting instead. `en-US` is the fallback
+ * first-launch locale and its Latin glyphs rasterise the same everywhere, which
+ * keeps the baselines stable; the Chinese interface is still covered by the i18n
+ * tests.
+ */
+export const E2E_INTERFACE_LANGUAGE = 'en-US';
+
+/**
+ * Pins the interface language through the app's settings store, the same path a
+ * user takes. Text stays visible in the screenshots, which is the point: a
+ * baseline with transparent glyphs shows layout but not the interface a reviewer
+ * is being asked to approve.
+ */
+export async function useInterfaceLanguage(locale = E2E_INTERFACE_LANGUAGE) {
+    await callE2eBridge('setLanguage', locale);
+}
+
+/**
+ * Mismatch budget for a visual comparison, in percent.
+ *
+ * Baselines are rendered at 1x by the CI runner, which is the environment that
+ * gates a PR, so that is where the strict 2% applies. A scaled display (125% or
+ * 150%) captures more pixels and the comparison resamples them back down; that
+ * alone costs a couple of percent on text-heavy screens, so a local run gets a
+ * wider budget instead of failing on its own DPI. Returning the same 2% there
+ * would make the suite unusable on a laptop; returning a wide budget everywhere
+ * would weaken the gate.
+ */
+export async function visualMismatchTolerance() {
+    const devicePixelRatio = await browser.execute(() => window.devicePixelRatio);
+    return devicePixelRatio === 1 ? 2 : 5;
+}
 export async function waitForTestIdDisplayed(testId, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const element = await findElementByTestId(testId);
     await element.waitForDisplayed({ timeout: timeoutMs });

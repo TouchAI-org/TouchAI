@@ -12,6 +12,9 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const desktopRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopRoot, '..', '..');
 const runtimeRoot = path.resolve(repoRoot, '.e2e-runtime');
+const visualBaselineRoot = path.resolve(__dirname, '__snapshots__');
+const visualRuntimeRoot = path.resolve(runtimeRoot, 'visual');
+const updateVisualBaselines = process.env.UPDATE_VISUAL_BASELINE === '1';
 
 let tauriDriver;
 let exitRequested = false;
@@ -186,6 +189,36 @@ export const config = {
     maxInstances: 1,
     waitforTimeout: 15000,
     connectionRetryTimeout: 120000,
+    services: [
+        [
+            'visual',
+            {
+                baselineFolder: visualBaselineRoot,
+                screenshotPath: visualRuntimeRoot,
+                autoSaveBaseline: updateVisualBaselines,
+                clearRuntimeFolder: true,
+                disableCSSAnimation: true,
+                disableBlinkingCursor: true,
+                hideScrollBars: true,
+                waitForFontsLoaded: true,
+                alwaysSaveActualImage: false,
+                // The CSS layout is pinned by the window sizes the specs set, so the
+                // only difference left between machines is the render scale: the
+                // app renders at the OS DPI (150% on a laptop, 100% on a CI runner),
+                // and WebView2 ignores --force-device-scale-factor. Resizing the
+                // actual image to the baseline dimensions removes that difference
+                // without touching layout, because both are the same CSS size.
+                // Antialiasing is forgiven for the same reason: rescaling re-renders
+                // glyph edges, and a font or colour change still moves far more pixels.
+                compareOptions: {
+                    scaleImagesToSameSize: true,
+                    ignoreAntialiasing: true,
+                },
+                formatImageName: '{tag}',
+                savePerInstance: false,
+            },
+        ],
+    ],
     capabilities: [
         {
             maxInstances: 1,
@@ -201,6 +234,28 @@ export const config = {
         timeout: 120000,
     },
     onPrepare: () => {
+        // Local visual-regression iteration can reuse the binary from the previous
+        // run; CI never sets this, so the checked-in evidence always comes from a
+        // fresh build. The default Cargo target lives under `runtimeRoot/tmp`, so
+        // clearing the whole directory would delete the binary this branch is meant
+        // to reuse.
+        if (process.env.TOUCHAI_E2E_SKIP_BUILD === '1') {
+            if (fs.existsSync(runtimeRoot)) {
+                for (const entry of fs.readdirSync(runtimeRoot)) {
+                    if (entry === 'tmp') {
+                        continue;
+                    }
+                    fs.rmSync(path.resolve(runtimeRoot, entry), {
+                        recursive: true,
+                        force: true,
+                    });
+                }
+            }
+            fs.mkdirSync(runtimeRoot, { recursive: true });
+            assertBuiltAppExists();
+            return;
+        }
+
         fs.rmSync(runtimeRoot, { recursive: true, force: true });
         fs.mkdirSync(runtimeRoot, { recursive: true });
 

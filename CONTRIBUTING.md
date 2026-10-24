@@ -127,6 +127,12 @@ When a new primitive is needed:
 
 Styles that are genuinely one-off (a single complex animation, a bespoke layout) should stay inline. The goal is to remove duplicated primitives, not to route every element through a shared component.
 
+### Tokens and drift guards
+
+Colour, type and radius values come from tokens, not literals. The layer model, the naming rules and the automated guards are documented in [docs/agents/design-system.md](docs/agents/design-system.md) — read it before touching `apps/desktop/src/styles/` or adding a variant.
+
+`pnpm design:check` runs the ESLint design rules locally; the same rules run in CI and on commit. Existing violations are held by `apps/desktop/eslint-suppressions.json`; new ones fail. Visual baselines compare through `pnpm test:e2e`.
+
 ## Testing, BDD, and TDD
 
 Feature and fix work uses **BDD on top of TDD**: the acceptance scenario first, then the failing test, then the code. Test behavior, not implementation — if a rewrite behind the same public contract keeps the test green, it was testing behavior.

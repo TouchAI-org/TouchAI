@@ -32,6 +32,11 @@ describe('E2E WebView2 launch environment', () => {
             'msEdgeDevToolsWdpRemoteDebugging'
         );
         expect(DEFAULT_E2E_WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS).toContain('--no-sandbox');
+        // WebView2 ignores --force-device-scale-factor, so the visual comparison
+        // normalises render scale instead of relying on that flag.
+        expect(DEFAULT_E2E_WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS).not.toContain(
+            '--force-device-scale-factor'
+        );
     });
 
     it('preserves an explicit WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS override', () => {

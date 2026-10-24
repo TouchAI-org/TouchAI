@@ -19,7 +19,7 @@
     import { computed, nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
     import type { SearchKeybindingActionId } from '@/config/searchKeybindings';
-    import { t } from '@/i18n';
+    import { type AppLocale, t } from '@/i18n';
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
     import type { SessionTaskStatus } from '@/services/AgentService/task/types';
     import { clipboardService } from '@/services/ClipboardService';
@@ -147,6 +147,7 @@
                 respectManualOverride: boolean;
             }) => Promise<void>;
             resetSearchWindowBounds: () => Promise<void>;
+            setLanguage: (locale: AppLocale) => Promise<void>;
         };
     };
     const searchInteractionContext = createSearchInteractionContext();
@@ -1145,6 +1146,23 @@
             },
             resetSearchWindowBounds() {
                 return native.window.resetSearchWindowBounds();
+            },
+            /**
+             * Pins the interface language for E2E runs.
+             *
+             * The first-launch language is derived from `navigator.language`, so a
+             * zh-CN developer machine and an en-US CI runner render different text
+             * for the same screen. Visual baselines need one deterministic state,
+             * and setting the real setting is the only way to reach it without
+             * hiding the text (which would leave the screenshots blank and unusable
+             * as review evidence).
+             */
+            async setLanguage(locale: AppLocale) {
+                // `initialize()` loads the persisted settings into the store. Without
+                // waiting for it, the load can land after this write and replace the
+                // language with whatever the previous run stored.
+                await settingsStore.initialize();
+                await settingsStore.updateLanguage(locale);
             },
         };
     }

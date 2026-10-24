@@ -16,6 +16,8 @@ import {
     getAriaChecked,
     switchToWindowContaining,
     toggleSwitch,
+    useInterfaceLanguage,
+    visualMismatchTolerance,
     waitForE2eBridge,
     waitForTestIdDisplayed,
 } from '../support/desktop.js';
@@ -25,6 +27,9 @@ describe('user works in the settings window', () => {
 
     before(async () => {
         await waitForE2eBridge();
+        // The settings window loads its language from the persisted setting, so it
+        // has to be pinned before the window opens.
+        await useInterfaceLanguage();
         mainWindowHandle = await browser.getWindowHandle();
 
         await callE2eBridge('openSettingsWindow');
@@ -113,9 +118,61 @@ describe('user works in the settings window', () => {
             );
         });
 
+        // Visual regression runs before the search test, because that one types a
+        // query and the sidebar hides the section list while a query is active.
+        //
+        // The window size is pinned rather than inherited from the app default: a
+        // GitHub-hosted runner only has a 1024x768 desktop, so the default 1120px
+        // window would be clamped there and the layout would reflow.
+        it('user sees every settings section keep its layout after choosing it in the sidebar', async () => {
+            await browser.setWindowSize(1000, 700);
+            await browser.pause(500);
+
+            const tolerance = await visualMismatchTolerance();
+
+            const contentShell = await waitForTestIdDisplayed('settings-content-shell');
+            const sections = [
+                { id: 'general', testId: 'settings-general-section' },
+                { id: 'ai-services', testId: 'settings-ai-services-panel' },
+                { id: 'built-in-tools', testId: 'settings-built-in-tools-panel' },
+                { id: 'search', testId: 'settings-search-section' },
+            ];
+
+            for (const section of sections) {
+                const navItem = await waitForTestIdDisplayed(`settings-nav-${section.id}`);
+                await navItem.click();
+
+                await waitForTestIdDisplayed(section.testId);
+                await contentShell.waitForDisplayed();
+
+                // Let the section transition and its local data settle, then reset
+                // the scroll position so the screenshot always starts at the top.
+                await browser.pause(700);
+                await browser.execute(() => {
+                    const scrollContainer = document.querySelector(
+                        "[data-testid='settings-content-shell'] .settings-scrollbar"
+                    );
+                    if (scrollContainer) {
+                        scrollContainer.scrollTop = 0;
+                    }
+                });
+                await browser.pause(150);
+
+                // Baselines are stored at CSS size, so the 100% runner compares at
+                // the strict budget. A scaled machine resamples and gets the wider
+                // one; see `visualMismatchTolerance`.
+                await expect(contentShell).toMatchElementSnapshot(
+                    `settings-${section.id}`,
+                    tolerance
+                );
+            }
+        });
+
         it('user finds a setting by typing into settings search', async () => {
             const searchInput = await waitForTestIdDisplayed('settings-search-input');
             await searchInput.click();
+            // The suite pins the interface language, so this matches the start-minimized
+            // row deterministically instead of depending on the machine locale.
             await searchInput.addValue('minimiz');
 
             const results = await waitForTestIdDisplayed('settings-search-results');

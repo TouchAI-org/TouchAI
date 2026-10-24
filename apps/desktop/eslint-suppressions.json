@@ -1,0 +1,712 @@
+{
+    "src/components/ActionButton.vue": {
+        "vue/no-restricted-class": {
+            "count": 3
+        }
+    },
+    "src/components/AppIcon.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 1
+        }
+    },
+    "src/components/AppUpdateRequiredGate.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 13
+        }
+    },
+    "src/components/ConfirmDialog.vue": {
+        "vue/no-restricted-class": {
+            "count": 9
+        }
+    },
+    "src/components/ContextMenu.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 2
+        }
+    },
+    "src/components/CursorLoadingIndicator.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 1
+        }
+    },
+    "src/components/CustomSelect.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 2
+        },
+        "vue/no-restricted-class": {
+            "count": 9
+        }
+    },
+    "src/components/DialogShell.vue": {
+        "vue/no-restricted-class": {
+            "count": 2
+        }
+    },
+    "src/components/EmptyState.vue": {
+        "vue/no-restricted-class": {
+            "count": 4
+        }
+    },
+    "src/components/ModelLogo.vue": {
+        "vue/no-restricted-class": {
+            "count": 2
+        }
+    },
+    "src/components/PasswordInput.vue": {
+        "vue/no-restricted-class": {
+            "count": 3
+        }
+    },
+    "src/components/SearchableSelect.vue": {
+        "vue/no-restricted-class": {
+            "count": 18
+        }
+    },
+    "src/components/SettingsRow.vue": {
+        "no-restricted-syntax": {
+            "count": 1
+        }
+    },
+    "src/components/TitleBar.vue": {
+        "vue/no-restricted-class": {
+            "count": 5
+        }
+    },
+    "src/components/ToolLogContent.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 3
+        },
+        "vue/no-restricted-class": {
+            "count": 13
+        }
+    },
+    "src/components/ui/activity-heatmap/ActivityHeatmap.vue": {
+        "no-restricted-syntax": {
+            "count": 10
+        },
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 9
+        }
+    },
+    "src/components/ui/alert-dialog/AlertDialogContent.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 4
+        }
+    },
+    "src/components/ui/badge/Badge.vue": {
+        "no-restricted-syntax": {
+            "count": 5
+        },
+        "tailwindcss/no-arbitrary-value": {
+            "count": 2
+        }
+    },
+    "src/components/ui/bar-chart/BarChart.vue": {
+        "vue/no-restricted-class": {
+            "count": 16
+        }
+    },
+    "src/components/ui/button/Button.vue": {
+        "no-restricted-syntax": {
+            "count": 9
+        }
+    },
+    "src/components/ui/dialog/DialogContent.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 4
+        }
+    },
+    "src/components/ui/donut-chart/DonutChart.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 2
+        },
+        "vue/no-restricted-class": {
+            "count": 7
+        }
+    },
+    "src/components/ui/dropdown-menu/DropdownMenuContent.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        }
+    },
+    "src/components/ui/input/Input.vue": {
+        "no-restricted-syntax": {
+            "count": 2
+        }
+    },
+    "src/components/ui/select/SelectContent.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 2
+        }
+    },
+    "src/components/ui/switch/Switch.vue": {
+        "no-restricted-syntax": {
+            "count": 3
+        },
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        }
+    },
+    "src/views/PopupView/components/ModelDropdownPopup/index.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 5
+        },
+        "tailwindcss/no-custom-classname": {
+            "count": 6
+        },
+        "vue/no-restricted-class": {
+            "count": 17
+        }
+    },
+    "src/views/PopupView/components/SessionHistoryPopover/index.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 2
+        },
+        "tailwindcss/no-custom-classname": {
+            "count": 11
+        },
+        "vue/no-restricted-class": {
+            "count": 15
+        }
+    },
+    "src/views/PopupView/index.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 2
+        }
+    },
+    "src/views/SearchView/components/AskUser/AskUserQuestions.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 6
+        }
+    },
+    "src/views/SearchView/components/AskUser/parts/Button.vue": {
+        "no-restricted-syntax": {
+            "count": 3
+        },
+        "tailwindcss/no-arbitrary-value": {
+            "count": 7
+        }
+    },
+    "src/views/SearchView/components/AskUser/parts/ShortcutChip.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 2
+        }
+    },
+    "src/views/SearchView/components/ConversationPanel/components/AssistantMessage.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 3
+        },
+        "tailwindcss/no-custom-classname": {
+            "count": 3
+        },
+        "vue/no-restricted-class": {
+            "count": 2
+        }
+    },
+    "src/views/SearchView/components/ConversationPanel/components/BuiltInBashToolCallItem.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 13
+        }
+    },
+    "src/views/SearchView/components/ConversationPanel/components/ConversationTimeline.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 3
+        }
+    },
+    "src/views/SearchView/components/ConversationPanel/components/ConversationToolbar.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "tailwindcss/no-custom-classname": {
+            "count": 3
+        }
+    },
+    "src/views/SearchView/components/ConversationPanel/components/ReasoningBlock.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 14
+        }
+    },
+    "src/views/SearchView/components/ConversationPanel/components/ToolApprovalHistoryCard.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 12
+        }
+    },
+    "src/views/SearchView/components/ConversationPanel/components/ToolCallItem.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 18
+        }
+    },
+    "src/views/SearchView/components/ConversationPanel/components/ToolCallSection.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 11
+        }
+    },
+    "src/views/SearchView/components/ConversationPanel/components/UserMessage.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 3
+        },
+        "tailwindcss/no-custom-classname": {
+            "count": 2
+        },
+        "vue/no-restricted-class": {
+            "count": 6
+        }
+    },
+    "src/views/SearchView/components/ConversationPanel/components/WebSearchSourcesCard.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 2
+        },
+        "tailwindcss/no-custom-classname": {
+            "count": 2
+        }
+    },
+    "src/views/SearchView/components/ConversationPanel/index.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "tailwindcss/no-custom-classname": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 3
+        }
+    },
+    "src/views/SearchView/components/QuickSearchPanel/QuickSearchListItem.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 3
+        }
+    },
+    "src/views/SearchView/components/QuickSearchPanel/index.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 3
+        },
+        "vue/no-restricted-class": {
+            "count": 7
+        }
+    },
+    "src/views/SearchView/components/SearchBar/index.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 4
+        },
+        "vue/no-restricted-class": {
+            "count": 2
+        }
+    },
+    "src/views/SearchView/components/SearchBar/tags/attachment/AttachmentTagView.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 11
+        }
+    },
+    "src/views/SearchView/components/SearchBar/tags/model/ModelTagView.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 8
+        }
+    },
+    "src/views/SearchView/components/WebSearch/WebSearchCitation.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 8
+        }
+    },
+    "src/views/SearchView/index.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "tailwindcss/no-custom-classname": {
+            "count": 2
+        },
+        "vue/no-restricted-class": {
+            "count": 1
+        }
+    },
+    "src/views/SettingsView/components/AiServices/components/BadgedLogo.vue": {
+        "vue/no-restricted-class": {
+            "count": 5
+        }
+    },
+    "src/views/SettingsView/components/AiServices/components/ModelCard.vue": {
+        "vue/no-restricted-class": {
+            "count": 4
+        }
+    },
+    "src/views/SettingsView/components/AiServices/components/ModelFormDialog.vue": {
+        "no-restricted-syntax": {
+            "count": 2
+        },
+        "vue/no-restricted-class": {
+            "count": 9
+        }
+    },
+    "src/views/SettingsView/components/AiServices/components/ModelGroup.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 7
+        }
+    },
+    "src/views/SettingsView/components/AiServices/components/ModelList.vue": {
+        "vue/no-restricted-class": {
+            "count": 10
+        }
+    },
+    "src/views/SettingsView/components/AiServices/components/ProviderCard.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "tailwindcss/no-custom-classname": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 4
+        }
+    },
+    "src/views/SettingsView/components/AiServices/components/ProviderConfig.vue": {
+        "vue/no-restricted-class": {
+            "count": 6
+        }
+    },
+    "src/views/SettingsView/components/AiServices/components/ProviderFormDialog.vue": {
+        "no-restricted-syntax": {
+            "count": 2
+        },
+        "vue/no-restricted-class": {
+            "count": 13
+        }
+    },
+    "src/views/SettingsView/components/AiServices/index.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 6
+        }
+    },
+    "src/views/SettingsView/components/Browser/components/DomainRuleInput.vue": {
+        "vue/no-restricted-class": {
+            "count": 2
+        }
+    },
+    "src/views/SettingsView/components/Browser/index.vue": {
+        "vue/no-restricted-class": {
+            "count": 20
+        }
+    },
+    "src/views/SettingsView/components/BuiltInTools/components/BashToolConfig.vue": {
+        "vue/no-restricted-class": {
+            "count": 23
+        }
+    },
+    "src/views/SettingsView/components/BuiltInTools/components/BuiltInToolList.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 2
+        }
+    },
+    "src/views/SettingsView/components/BuiltInTools/components/BuiltInToolLogViewer.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 2
+        }
+    },
+    "src/views/SettingsView/components/BuiltInTools/components/UpgradeModelToolConfig.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 3
+        },
+        "tailwindcss/no-custom-classname": {
+            "count": 2
+        },
+        "vue/no-restricted-class": {
+            "count": 18
+        }
+    },
+    "src/views/SettingsView/components/BuiltInTools/index.vue": {
+        "vue/no-restricted-class": {
+            "count": 2
+        }
+    },
+    "src/views/SettingsView/components/DataManagement/components/ImportModeDialog.vue": {
+        "vue/no-restricted-class": {
+            "count": 13
+        }
+    },
+    "src/views/SettingsView/components/DataManagement/components/ProgressDialog.vue": {
+        "no-restricted-syntax": {
+            "count": 2
+        },
+        "vue/no-restricted-class": {
+            "count": 7
+        }
+    },
+    "src/views/SettingsView/components/DataManagement/index.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 2
+        },
+        "vue/no-restricted-class": {
+            "count": 26
+        }
+    },
+    "src/views/SettingsView/components/General/GeneralShortcutSettings.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 5
+        },
+        "tailwindcss/no-custom-classname": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 3
+        }
+    },
+    "src/views/SettingsView/components/General/SearchShortcutSettings.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 4
+        },
+        "tailwindcss/no-custom-classname": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 6
+        }
+    },
+    "src/views/SettingsView/components/General/UpdateAvailableBadge.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 2
+        },
+        "vue/no-restricted-class": {
+            "count": 1
+        }
+    },
+    "src/views/SettingsView/components/General/UpdateDetailsDialog.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 8
+        },
+        "vue/no-restricted-class": {
+            "count": 10
+        }
+    },
+    "src/views/SettingsView/components/General/UpdateSettingsSection.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 4
+        },
+        "vue/no-restricted-class": {
+            "count": 3
+        }
+    },
+    "src/views/SettingsView/components/General/index.vue": {
+        "vue/no-restricted-class": {
+            "count": 1
+        }
+    },
+    "src/views/SettingsView/components/McpTools/components/KeyValueRows.vue": {
+        "vue/no-restricted-class": {
+            "count": 4
+        }
+    },
+    "src/views/SettingsView/components/McpTools/components/McpHttpFields.vue": {
+        "vue/no-restricted-class": {
+            "count": 1
+        }
+    },
+    "src/views/SettingsView/components/McpTools/components/McpServerCard.vue": {
+        "no-restricted-syntax": {
+            "count": 3
+        },
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 5
+        }
+    },
+    "src/views/SettingsView/components/McpTools/components/McpServerConfig.vue": {
+        "vue/no-restricted-class": {
+            "count": 4
+        }
+    },
+    "src/views/SettingsView/components/McpTools/components/McpServerHeader.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 3
+        },
+        "vue/no-restricted-class": {
+            "count": 9
+        }
+    },
+    "src/views/SettingsView/components/McpTools/components/McpServerList.vue": {
+        "vue/no-restricted-class": {
+            "count": 3
+        }
+    },
+    "src/views/SettingsView/components/McpTools/components/McpStdioFields.vue": {
+        "vue/no-restricted-class": {
+            "count": 6
+        }
+    },
+    "src/views/SettingsView/components/McpTools/components/McpToolList.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 30
+        }
+    },
+    "src/views/SettingsView/components/McpTools/components/McpToolLogViewer.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 2
+        }
+    },
+    "src/views/SettingsView/components/McpTools/index.vue": {
+        "vue/no-restricted-class": {
+            "count": 1
+        }
+    },
+    "src/views/SettingsView/components/NavigationSidebar.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 5
+        },
+        "vue/no-restricted-class": {
+            "count": 8
+        }
+    },
+    "src/views/SettingsView/components/Search/index.vue": {
+        "vue/no-restricted-class": {
+            "count": 14
+        }
+    },
+    "src/views/SettingsView/components/SectionTabs.vue": {
+        "vue/no-restricted-class": {
+            "count": 2
+        }
+    },
+    "src/views/SettingsView/components/SettingsSearch.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 3
+        },
+        "vue/no-restricted-class": {
+            "count": 8
+        }
+    },
+    "src/views/SettingsView/components/SettingsWindowTitleBar.vue": {
+        "vue/no-restricted-class": {
+            "count": 8
+        }
+    },
+    "src/views/SettingsView/components/Usage/components/UsageChart.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 2
+        }
+    },
+    "src/views/SettingsView/components/Usage/components/UsageComposition.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 2
+        },
+        "vue/no-restricted-class": {
+            "count": 10
+        }
+    },
+    "src/views/SettingsView/components/Usage/components/UsageDashboard.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 23
+        }
+    },
+    "src/views/SettingsView/components/Usage/components/UsageDashboardSkeleton.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 2
+        },
+        "vue/no-restricted-class": {
+            "count": 11
+        }
+    },
+    "src/views/SettingsView/components/Usage/components/UsageHeatmap.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 2
+        }
+    },
+    "src/views/SettingsView/components/Usage/components/UsageRanking.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 8
+        },
+        "vue/no-restricted-class": {
+            "count": 12
+        }
+    },
+    "src/views/SettingsView/components/Usage/components/UsageToolStats.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 4
+        },
+        "vue/no-restricted-class": {
+            "count": 22
+        }
+    },
+    "src/views/SettingsView/components/Usage/components/UsageToolbar.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 5
+        },
+        "tailwindcss/no-custom-classname": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 1
+        }
+    },
+    "src/views/SettingsView/components/common/ToolLogEntry.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 2
+        },
+        "vue/no-restricted-class": {
+            "count": 9
+        }
+    },
+    "src/views/SettingsView/components/common/ToolLogStatusBadge.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        }
+    },
+    "src/views/SettingsView/components/common/toolLogStatus.ts": {
+        "no-restricted-syntax": {
+            "count": 4
+        }
+    },
+    "src/views/SettingsView/index.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 2
+        }
+    },
+    "src/views/TrayView/index.vue": {
+        "tailwindcss/no-custom-classname": {
+            "count": 1
+        },
+        "vue/no-restricted-class": {
+            "count": 3
+        }
+    }
+}

@@ -9,6 +9,11 @@ on:
         types:
             - checks_requested
     workflow_dispatch:
+        inputs:
+            update_visual_baselines:
+                description: Regenerate the visual baselines and upload them as an artifact instead of comparing.
+                type: boolean
+                default: false
 
 permissions:
     contents: read
@@ -202,7 +207,23 @@ jobs:
                   "TOUCHAI_MSEDGEDRIVER_PATH=$driverPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
             - name: Run desktop smoke tests
+              if: ${{ !inputs.update_visual_baselines }}
               run: pnpm test:e2e
+
+            # Baselines are rendered by the runner that gates the PR, so the pixels
+            # match the comparison environment. Regenerating them on a developer
+            # machine bakes that machine's DPI and font rasterisation into the files.
+            - name: Regenerate visual baselines
+              if: ${{ inputs.update_visual_baselines }}
+              run: pnpm --filter @touchai/desktop test:e2e:visual:update
+
+            - name: Upload visual baselines
+              if: ${{ inputs.update_visual_baselines }}
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: visual-baselines
+                  path: apps/desktop/e2e-tests/__snapshots__/
+                  if-no-files-found: error
 
     e2e-required:
         name: E2E Required

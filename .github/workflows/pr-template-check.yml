@@ -23,9 +23,22 @@ jobs:
                   ref: ${{ github.event.pull_request.base.sha }}
                   persist-credentials: false
 
+            - name: Collect changed files
+              id: files
+              uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+              with:
+                  script: |
+                      const files = await github.paginate(github.rest.pulls.listFiles, {
+                          ...context.repo,
+                          pull_number: context.issue.number,
+                          per_page: 100,
+                      });
+                      core.setOutput('paths', files.map((file) => file.filename).join(','));
+
             - name: Validate PR body structure and linkage
               env:
                   PR_BODY: ${{ github.event.pull_request.body || '' }}
                   PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
                   PR_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
+                  PR_FILES: ${{ steps.files.outputs.paths }}
               run: node apps/desktop/scripts/ci/pr-template-check.js
