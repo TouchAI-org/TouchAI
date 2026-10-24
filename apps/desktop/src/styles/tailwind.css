@@ -6,139 +6,10 @@
 @import 'markstream-vue/index.css';
 @import 'katex/dist/katex.min.css';
 @import 'vue-sonner/style.css';
+@import './tokens/primitive.css';
+@import './tokens/semantic.css';
 @import './markdown.css';
 @import './motion.css';
-
-@theme {
-    --default-transition-duration: var(--duration-quick);
-    --default-transition-timing-function: var(--ease-smooth-out);
-    --font-sans:
-        -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-    --font-serif: 'TouchAI Source Han Serif SC', 'Noto Serif SC', serif;
-
-    /* 背景色 */
-    --color-background-primary: rgba(251, 251, 246, 0.98);
-
-    /* Markdown 面板主题色 */
-    --color-markdown-surface: rgba(253, 251, 253, 0.98);
-    --color-markdown-surface-soft: rgba(251, 249, 245, 0.98);
-    --color-markdown-surface-border: rgba(230, 224, 214, 0.9);
-
-    /* 主色调 - 暖棕灰色系 */
-    --color-primary-50: #f7f5f3;
-    --color-primary-100: #ebe7e3;
-    --color-primary-200: #d9d3cc;
-    --color-primary-300: #b8afa5;
-    --color-primary-400: #968b7d;
-    --color-primary-500: #6b5f54;
-    --color-primary-600: #5a4f45;
-    --color-primary-700: #4a4039;
-
-    /* 次要色 - 紫色系 */
-    --color-secondary-50: #faf5ff;
-    --color-secondary-100: #f3e8ff;
-    --color-secondary-500: #a855f7;
-    --color-secondary-600: #9333ea;
-    --color-secondary-700: #7e22ce;
-
-    /* 成功色 - 绿色系 */
-    --color-success-50: #f0fdf4;
-    --color-success-100: #dcfce7;
-    --color-success-500: #22c55e;
-    --color-success-600: #16a34a;
-    --color-success-700: #15803d;
-    --color-success-800: #166534;
-
-    /* 危险色 - 红色系 */
-    --color-danger-50: #fef2f2;
-    --color-danger-600: #dc2626;
-    --color-danger-700: #b91c1c;
-
-    /* 错误色 - 红色系 */
-    --color-error-50: #fef2f2;
-    --color-error-100: #fee2e2;
-    --color-error-500: #ef4444;
-    --color-error-600: #dc2626;
-    --color-error-700: #b91c1c;
-    --color-error-800: #991b1b;
-
-    /* 警告色 - 黄色系 */
-    --color-warning-50: #fffbeb;
-    --color-warning-100: #fef3c7;
-    --color-warning-500: #f59e0b;
-    --color-warning-600: #d97706;
-    --color-warning-700: #b45309;
-    --color-warning-800: #92400e;
-
-    /* 信息色 - 蓝色系 */
-    --color-info-50: #eff6ff;
-    --color-info-100: #dbeafe;
-    --color-info-500: #3b82f6;
-    --color-info-600: #2563eb;
-    --color-info-700: #1d4ed8;
-    --color-info-800: #1e40af;
-
-    /* OpenAI 品牌色 */
-    --color-openai-light: #dcfce7;
-    --color-openai: #16a34a;
-    --color-openai-dark: #166534;
-
-    /* Claude 品牌色 */
-    --color-claude-light: #f3e8ff;
-    --color-claude: #9333ea;
-    --color-claude-dark: #6b21a8;
-
-    /* 行内代码配色 */
-    --color-code-inline-bg: #f1ece1;
-    --color-code-inline-text: #691d1d;
-
-    /* 全局文本选区配色 */
-    --color-selection-bg: var(--color-primary-100);
-    --color-selection-outline: var(--color-primary-300);
-
-    /* 滚动条配色 */
-    --color-scrollbar-thumb: rgba(156, 163, 175, 0.4);
-    --color-scrollbar-thumb-hover: rgba(156, 163, 175, 0.6);
-
-    /* 遮罩渐变 */
-    --color-overlay-fade: rgba(255, 255, 255, 0.95);
-
-    /*
-     * shadcn 语义 token
-     *
-     * 仅作为「别名层」存在，映射到上面已定义的 TouchAI 配色，不引入新颜色。
-     * 用途：未来通过 shadcn CLI 生成的组件、以及希望用语义化写法的新代码。
-     *
-     * 注意：已迁移到 components/ui 的现有组件仍使用原始类名（如 bg-primary-700），
-     * 不使用这些 token。这样调整 --color-primary 不会影响既有界面，
-     * 保证「视觉零变化」的验证边界清晰。
-     */
-    --color-background: #fbfbf6;
-    --color-foreground: #4a4039;
-
-    --color-primary: var(--color-primary-700);
-    --color-primary-foreground: #ffffff;
-
-    --color-secondary: var(--color-primary-100);
-    --color-secondary-foreground: var(--color-primary-700);
-
-    --color-muted: #f4f4f2;
-    --color-muted-foreground: #737373;
-
-    --color-accent: var(--color-primary-100);
-    --color-accent-foreground: var(--color-primary-700);
-
-    --color-destructive: #dc2626;
-    --color-destructive-foreground: #ffffff;
-
-    --color-border: #e5e5e5;
-    --color-input: #e5e5e5;
-    --color-ring: var(--color-primary-300);
-
-    --radius-sm: 0.5rem;
-    --radius-md: 0.625rem;
-    --radius-lg: 0.75rem;
-}
 
 /* 全局基础样式 */
 @layer base {
@@ -323,11 +194,11 @@
     }
 
     .settings-item-selected {
-        @apply border-transparent bg-[#e9e9e7] shadow-none;
+        @apply border-transparent bg-surface-selected shadow-none;
     }
 
     .settings-item-unselected {
-        @apply border-transparent bg-transparent hover:border-transparent hover:bg-[#f1f1ef];
+        @apply border-transparent bg-transparent hover:border-transparent hover:bg-surface-hover;
     }
 
     /* 全局滚动条样式 */
