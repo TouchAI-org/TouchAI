@@ -404,9 +404,7 @@ jobs:
 
             - name: Install cargo-llvm-cov
               if: needs.changes.outputs.docs_only != 'true'
-              uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
-              with:
-                  tool: cargo-llvm-cov
+              run: cargo install cargo-llvm-cov --locked
 
             - name: Run Rust coverage
               if: needs.changes.outputs.docs_only != 'true'
