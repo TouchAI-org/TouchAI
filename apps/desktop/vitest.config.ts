@@ -40,9 +40,10 @@ export default defineConfig({
         // that matches no file, which would leave the gate silently inert.
         //
         // The floor only moves up. Run `pnpm test:coverage:raise` after a change that
-        // genuinely raises coverage; it ratchets these four numbers to what the suite
-        // actually reaches, so the floor can never be lowered by editing this file, and
-        // a drop below the committed value fails CI. See docs/testing/testing.md.
+        // genuinely raises coverage; it uses vitest's own thresholds.autoUpdate, which
+        // rewrites a number only when the measured value exceeds it, so a metric can never
+        // be lowered this way and a drop below the committed value fails CI.
+        // See docs/testing/testing.md.
         statements: 75,
         branches: 65,
         functions: 74,

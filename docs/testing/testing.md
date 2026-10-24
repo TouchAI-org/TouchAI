@@ -87,8 +87,6 @@ Each report is summarized in the GitHub step summary, and each failure blocks th
 
 Coverage is a floor that stops regressions, not a target to game. A test added only to raise a number is noise: it still has to encode a behavior a user or caller can observe. **The floor never goes down, and the goal is 85% on every metric.** Get there by covering real behavior, never by asserting on mocks or restating the implementation.
 
-How the work is sequenced, and why the Rust target is harder than the frontend one, is in [coverage-roadmap.md](./coverage-roadmap.md).
-
 Frontend coverage is enforced in `apps/desktop/vitest.config.ts` as a global floor:
 
 | Metric | Floor | Reached today | Target |
@@ -100,7 +98,7 @@ Frontend coverage is enforced in `apps/desktop/vitest.config.ts` as a global flo
 
 The keys must stay at the top level of `thresholds`: vitest reads the global floor from `thresholds.<metric>`, and a nested `global` object is treated as a glob pattern matching no file, which leaves the gate silently inert.
 
-**Raising the floor is a one-way ratchet.** After a change that genuinely raises coverage, run `pnpm test:coverage` then `pnpm test:coverage:raise`. The script moves each metric to one point under what the suite now reaches, and it will never lower a number. Because the floor lives in a committed file, a drop below it fails CI; because the script cannot lower it, nobody can quietly buy a green build by editing the config.
+**Raising the floor is a one-way ratchet.** After a change that genuinely raises coverage, run `pnpm test:coverage:raise`. It is vitest's own `thresholds.autoUpdate`: it rewrites a metric only when the measured value exceeds the configured one, so a number can never be lowered this way. Because the floor lives in a committed file, a drop below it fails CI; because the update only ever raises, nobody can quietly buy a green build by editing the config. Run it on the full suite, not a filtered subset, or it will ratchet to the subset's numbers.
 
 Rust coverage comes from **cargo-llvm-cov**, which uses rustc's own `-C instrument-coverage` rather than a ptrace debugger, and reports **line and region** coverage. Region coverage is the finer-grained signal: it flags an expression that was only partly evaluated, which line coverage cannot see.
 
