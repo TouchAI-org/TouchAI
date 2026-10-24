@@ -151,6 +151,8 @@ describe('user sees the Rust coverage floor ratchet upward only', () => {
     });
 
     it('user keeps the committed floor when the run does not ask to raise it', async () => {
+        const committed = JSON.parse(await readFile(floorsPath, 'utf8'));
+
         const workspace = await createWorkspace();
         await writeFile(workspace.reportPath, llvmCovReport(60.9, 58.2), 'utf8');
 
@@ -160,9 +162,8 @@ describe('user sees the Rust coverage floor ratchet upward only', () => {
             summaryPath: workspace.summaryPath,
         });
 
-        expect(JSON.parse(await readFile(floorsPath, 'utf8'))).toEqual({
-            lines: 44,
-            regions: 43,
-        });
+        // Compared against the committed value rather than a literal, so raising the floor
+        // in a later PR does not fail this test for the wrong reason.
+        expect(JSON.parse(await readFile(floorsPath, 'utf8'))).toEqual(committed);
     });
 });
