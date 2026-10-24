@@ -40,7 +40,7 @@ When <the action the user takes>
 Then <the outcome the user observes>
 ```
 
-Did you follow BDD then TDD for feature and fix work? Required. Test names start with `user` and read as Given / When / Then. See [docs/testing/testing.md](../docs/testing/testing.md).
+Test names start with `user` and read as Given / When / Then. See [docs/testing/testing.md](../docs/testing/testing.md).
 
 ```text
 pnpm test:pr
@@ -71,8 +71,7 @@ Include UI evidence here when the change affects the interface.
 - [ ] I ran `pnpm test:pr` for this code PR, or this is a docs-only change.
 - [ ] If I changed Rust behavior or tests, I reviewed `pnpm test:coverage:rust` or relied on CI coverage evidence.
 - [ ] If I changed desktop startup/window/search/popup/settings/E2E paths, I ran `pnpm test:e2e` locally or documented why CI is the first valid proof.
-- [ ] I wrote the acceptance scenario (Given / When / Then) before the code for feature and fix work.
-- [ ] I named every test in the `user` + Given / When / Then convention, with no internal symbol, function, or file name.
+- [ ] I wrote the acceptance scenario before the code, and named every test `user` + Given / When / Then.
 - [ ] I asserted behavior, not implementation: a rewrite behind the same public contract would keep these tests green.
 - [ ] I added tests or explained why tests are not appropriate.
 - [ ] I updated docs when behavior changed.

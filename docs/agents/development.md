@@ -28,22 +28,17 @@ Choose the simplest solution that meets the verified requirements.
 
 > Implement with a mature library or framework, especially one already installed, instead of hand-rolling it. Hand-roll only when a significant reason proves it is the better option.
 
-Occam's razor cuts toward the library that already exists: less code we own, fewer bugs to fix, and behavior the ecosystem already exercises. Hand-rolled code is the larger mechanism, not the smaller one.
+Occam's razor cuts toward the existing library: less code we own, fewer bugs, and behavior the ecosystem already exercises. Hand-rolled code is the larger mechanism, not the smaller one.
 
-Before writing the code yourself, check in this order:
+Check in this order before writing it yourself:
 
-1. **An installed dependency.** Search `package.json`, `pnpm-lock.yaml`, and `apps/desktop/src-tauri/Cargo.toml` for a package or crate that already solves it, and read its source under `node_modules` or the vendored crate to confirm the API. The dependency is already in the build, already reviewed, and already shipped.
-2. **An existing repository utility or service.** Search `apps/desktop/src/utils/`, `apps/desktop/src/services/`, and `apps/desktop/src-tauri/src/` for an existing implementation, wrapper, or contract before adding a second one.
-3. **A mature upstream package** when nothing is installed yet. Apply the new-dependency rules below: reason, license check, lockfile review.
+1. **An installed dependency.** Search `package.json`, `pnpm-lock.yaml`, and `apps/desktop/src-tauri/Cargo.toml`, then read its source under `node_modules` or the vendored crate to confirm the API.
+2. **An existing repository utility or service.** Search `apps/desktop/src/utils/`, `apps/desktop/src/services/`, and `apps/desktop/src-tauri/src/` before adding a second implementation.
+3. **A mature upstream package.** Apply the new-dependency rules below.
 
-Hand-rolling is the right call only for a significant reason, for example:
+Hand-roll only for a significant reason: the library conflicts with a hard requirement (bundle size, latency, license, platform, CSP), cannot meet an invariant we must own (local-first storage, offline, a security boundary), is unmaintained or vulnerable, or the needed surface is a few lines and the dependency costs more than it saves.
 
-- The library's behavior conflicts with a hard requirement: bundle size, startup or IPC latency, license, platform support, CSP or sandbox constraints.
-- The library cannot meet an invariant this project must own, such as local-first storage, offline behavior, or a security boundary.
-- The library is unmaintained, archived, or has an open vulnerability with no fix path.
-- The needed surface is a few lines of a well-understood algorithm and the dependency would cost more than it saves.
-
-When you hand-roll, state the reason in the PR under risk notes: what was checked, what was rejected, and what breaks if the hand-rolled code is wrong. "I did not check" is not a reason.
+When you hand-roll, say so in the PR risk notes: what you checked, what you rejected, and what breaks if it is wrong. "I did not check" is not a reason.
 
 ## Issue and worktree
 
