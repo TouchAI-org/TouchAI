@@ -75,7 +75,7 @@ describe('user reads text in the bundled serif font', () => {
             await vi.waitFor(() => expect(fontStyles()).toHaveLength(1));
             const styleText = fontStyleText();
             expect(styleText).toContain("font-family: 'TouchAI Source Han Serif SC'");
-            expect(styleText).toContain("format('woff2 supports variations')");
+            expect(styleText).toContain("format('woff2-variations')");
             expect(styleText).toContain('font-weight: 250 900');
             expect(styleText).toContain('font-display: swap');
 
