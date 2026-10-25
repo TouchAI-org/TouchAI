@@ -106,37 +106,31 @@ export async function visualMismatchTolerance() {
 /**
  * Fails unless the interface is really painted in the product typeface.
  *
- * Every cheap version of this check gives a false pass, which is why it is written
- * the long way round:
+ * This check has been wrong four times, so the reasoning is recorded here.
+ *
+ * What does not work:
  *
  *   - `document.fonts.check("16px 'TouchAI Source Han Serif SC'")` returns `true`
  *     even for a family that exists nowhere. Measured in the app:
  *     `document.fonts.check("16px 'NoSuchFamilyXYZ123'")` -> `true`.
  *   - `FontFace.status` reaches `"loaded"` whenever the bytes download and parse, even
  *     if the engine then declines to paint them.
- *   - Latin metrics coincide: the product face at weight 400 and the fallback both
- *     measured 281.68px wide with 469 ink pixels for the same string.
+ *   - Comparing against generic `serif`. On a developer box `serif` resolves to an
+ *     installed CJK face, but on a bare CI runner it resolves to Times New Roman,
+ *     which has no Han glyphs, so both the product family and `serif` rasterise the
+ *     same tofu boxes. Worse, the shipped font was not being painted on CI at all, so
+ *     the "product" side was Times too — the check compared Times with Times and
+ *     reported success while the baseline showed the wrong typeface.
+ *   - `new FontFace(bytes, { weight: '250 900' })` as the reference. That constructor
+ *     form falls back in this engine exactly like the defective CSS rule did, so the
+ *     reference was the broken side of the comparison.
  *
- * The defect this guards against was exactly that kind of silent fallback. The
- * `@font-face` rule omitted `format('woff2 supports variations')`, so the engine
- * treated the variable font as static, found no instance for the requested weight,
- * and painted whatever `serif` resolved to. Nothing failed; the window just used a
- * different typeface than the one the app ships.
- *
- * Han glyphs are the discriminator, because Chinese is set in fixed-width squares
- * (advance width says nothing) while the strokes differ plainly between faces.
- *
- * The comparison is against a second face built from the app's own bytes rather than
- * against the generic `serif`. Two reasons, both learned the hard way:
- *
- *   - `serif` is machine-dependent. On a developer box it resolves to an installed CJK
- *     serif, so a fallback is detectable; on a bare CI runner it has no Han glyphs at
- *     all, so the product family and `serif` both rasterise as the same tofu boxes and
- *     the check reports a false failure.
- *   - `new FontFace(bytes, { weight: '250 900' })` falls back in this engine exactly
- *     like the defective CSS rule did, which made the reference itself the broken
- *     side of the comparison. The reference therefore has to be declared the same way
- *     the app declares it: an `@font-face` rule with the variations format hint.
+ * What works: rasterise the Han string twice, once through the family the app declares
+ * and once through a reference `@font-face` built from the app's own file with the same
+ * variations format hint, and require the two to agree. Then separately require that
+ * the reference differs from generic `serif`, which proves the reference itself is not
+ * a fallback. Without that second assertion a double fallback reads as a pass, which
+ * is precisely the bug that shipped.
  */
 export async function useProductFont() {
     const family = 'TouchAI Source Han Serif SC';
@@ -177,9 +171,6 @@ export async function useProductFont() {
                     return changed;
                 }
 
-                // Declare the reference the same way the app declares its face. Anything
-                // weaker (the FontFace constructor with a weight range) falls back, which
-                // would compare a broken reference against a correct product face.
                 const referenceRule = document.createElement('style');
                 referenceRule.textContent = `
                     @font-face {
@@ -197,14 +188,25 @@ export async function useProductFont() {
                 const reference = rasterise(`'${refFamily}'`);
                 const serif = rasterise('serif');
 
+                // How much ink each raster has. A fallback that lacks Han glyphs draws
+                // tofu boxes, which cover far fewer pixels than real Han strokes.
+                function inkCount(data) {
+                    let dark = 0;
+                    for (let index = 0; index < data.length; index += 4) {
+                        if (data[index] < 128) {
+                            dark += 1;
+                        }
+                    }
+                    return dark;
+                }
+
                 return {
                     usesDataUrl: (injected ?? '').includes('data:font'),
                     againstReference: differingPixels(product, reference),
-                    againstSerif: differingPixels(product, serif),
-                    // Sanity: on a machine with CJK fonts the two differ; on a bare
-                    // runner both are tofu, which is fine — the reference comparison
-                    // does not depend on it.
                     referenceAgainstSerif: differingPixels(reference, serif),
+                    productInk: inkCount(product),
+                    referenceInk: inkCount(reference),
+                    serifInk: inkCount(serif),
                     declaredFormat: injected?.match(/format\('([^']+)'\)/)?.[1] ?? 'none',
                     declaredWeight:
                         injected?.match(/font-weight:\s*([^;]+);/)?.[1]?.trim() ?? 'none',
@@ -227,14 +229,24 @@ export async function useProductFont() {
         );
     }
 
-    // The painted face must match the app's own bytes. Anti-aliasing leaves a small
-    // residual; a fallback differs by thousands of pixels.
+    const detail =
+        `declared format: ${report.declaredFormat}, declared weight: ${report.declaredWeight}, ` +
+        `ink product/reference/serif: ${report.productInk}/${report.referenceInk}/${report.serifInk}`;
+
+    // The reference must not itself be a fallback, or a double fallback compares equal
+    // and reads as a pass. Real Han glyphs differ from `serif` by thousands of pixels.
+    if (report.referenceAgainstSerif < 500) {
+        throw new Error(
+            'The font check is inconclusive: the reference face built from the shipped ' +
+                `file matches generic serif, so it fell back too (${detail}).`
+        );
+    }
+
+    // The painted face must match the reference built from the app's own bytes.
     if (report.againstReference > 500) {
         throw new Error(
             `The interface is painting a fallback face instead of "${family}" ` +
-                `(${report.againstReference} pixels differ from a reference face built ` +
-                `from the same file). Declared format: ${report.declaredFormat}, ` +
-                `declared weight: ${report.declaredWeight}. ` +
+                `(${report.againstReference} pixels differ from the shipped file). ${detail}. ` +
                 'Screenshots would depict a typeface no user sees.'
         );
     }
