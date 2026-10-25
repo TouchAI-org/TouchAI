@@ -1,11 +1,17 @@
 name: Component Visual Tests
 
 on:
+    # `workflow_dispatch` also makes this runnable by hand before it reaches `main`:
+    # GitHub only triggers `pull_request` workflows from the base branch's copy of
+    # the file, so a brand-new workflow cannot prove itself on its own PR otherwise.
+    workflow_dispatch:
     pull_request:
     merge_group:
         types:
             - checks_requested
-    workflow_dispatch:
+    push:
+        branches:
+            - main
 
 permissions:
     contents: read
@@ -42,10 +48,18 @@ jobs:
                         /^\.github\/workflows\/visual-components\.yml$/,
                       ];
 
+                      const pullNumber = context.payload.pull_request?.number;
+                      if (!pullNumber) {
+                        // A manual run has no PR to classify; run everything, which is
+                        // what someone dispatching it by hand wants anyway.
+                        core.setOutput('ui_changed', 'true');
+                        return;
+                      }
+
                       const files = await github.paginate(github.rest.pulls.listFiles, {
                         owner: context.repo.owner,
                         repo: context.repo.repo,
-                        pull_number: context.payload.pull_request?.number ?? 0,
+                        pull_number: pullNumber,
                         per_page: 100,
                       });
 
