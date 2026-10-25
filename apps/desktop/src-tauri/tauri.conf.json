@@ -38,7 +38,7 @@
                 "script-src": "'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com https://esm.sh",
                 "style-src": "'self' 'unsafe-inline'",
                 "img-src": "'self' data: asset: https: http:",
-                "font-src": "'self' data: asset:"
+                "font-src": "'self' data: asset: http:"
             },
             "dangerousDisableAssetCspModification": true,
             "assetProtocol": {

@@ -4,7 +4,14 @@ on:
     # `workflow_dispatch` also makes this runnable by hand before it reaches `main`:
     # GitHub only triggers `pull_request` workflows from the base branch's copy of
     # the file, so a brand-new workflow cannot prove itself on its own PR otherwise.
+    # It is also how baselines are regenerated in the cloud:
+    #   gh workflow run visual-components.yml --ref <branch> -f update_visual_baselines=true
     workflow_dispatch:
+        inputs:
+            update_visual_baselines:
+                description: Regenerate the component baselines and upload them as an artifact instead of comparing.
+                type: boolean
+                default: false
     pull_request:
     merge_group:
         types:
@@ -69,7 +76,7 @@ jobs:
     component-visual:
         name: Component Visual Tests
         needs: changes
-        if: needs.changes.outputs.ui_changed == 'true'
+        if: needs.changes.outputs.ui_changed == 'true' || inputs.update_visual_baselines
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -100,7 +107,24 @@ jobs:
                   key: product-font-source-han-serif-v2-3-2
 
             - name: Run component visual tests
+              if: ${{ !inputs.update_visual_baselines }}
               run: pnpm --filter @touchai/desktop test:visual:components
+
+            # Component baselines are rendered where the gate runs them. Chromium is
+            # pinned by the lockfile and renders at deviceScaleFactor 1, so this layer
+            # is portable in a way the WebView2 one is not — but "portable" still means
+            # "generated on the platform that compares", and that is this runner.
+            - name: Regenerate component baselines
+              if: ${{ inputs.update_visual_baselines }}
+              run: pnpm --filter @touchai/desktop test:visual:components:update
+
+            - name: Upload component baselines
+              if: ${{ inputs.update_visual_baselines }}
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: component-baselines
+                  path: apps/desktop/tests/visual/__snapshots__/
+                  if-no-files-found: error
 
             - name: Upload diff artifacts
               if: failure()

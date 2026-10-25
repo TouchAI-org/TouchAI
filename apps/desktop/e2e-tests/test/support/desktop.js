@@ -104,90 +104,48 @@ export async function visualMismatchTolerance() {
 }
 
 /**
- * Makes the app render the product serif face, or fails if that is impossible.
+ * Waits until the app has loaded its own interface font.
  *
- * Two things have to be true for a baseline to depict what a user sees:
+ * The app ships no font: `src/utils/font.ts` downloads Source Han Serif into
+ * `<app root>/assets/font/` and injects `@font-face` pointing at the Tauri asset
+ * protocol. `wdio.conf.js` provisions the file for each session, and this waits for
+ * the app to load it through its real code path.
  *
- * 1. The font file must exist. The app ships none: it downloads Source Han Serif
- *    into `<app root>/assets/font/` on first launch, so `wdio.conf.js` provisions
- *    it for each session.
- * 2. The browser must be allowed to load it. `src/utils/font.ts` points
- *    `@font-face` at the asset protocol, which on Windows is
- *    `http://asset.localhost`; the shipped CSP lists only `'self' data: asset:`
- *    for `font-src`, so that request is blocked and every serif element falls back
- *    to a generic face. `connect-src` does allow `http:`, so the bytes are
- *    readable, and `font-src` does allow `data:`.
- *
- * This therefore rewrites the already-injected rule to a `data:` source, inside
- * the page. The element and its marker attribute stay in place because `font.ts`
- * looks for them when another window starts, and each window has its own renderer
- * so each calls this once.
- *
- * Without it the screenshots stay internally consistent but show Times New Roman
- * where the interface asks for Source Han Serif — exactly the kind of quiet
- * infidelity a visual gate must not have.
+ * It deliberately does not substitute a `data:` source. An earlier version did, to
+ * work around a CSP that blocked the asset URL, which meant the suite proved nothing
+ * about the path users actually take. That CSP is fixed and pinned by
+ * `tests/ci/tauri-csp-font.test.ts`, so the app loads the font itself here.
  */
 export async function useProductFont() {
-    const result = await browser.executeAsync((done) => {
-        const family = 'TouchAI Source Han Serif SC';
-        const style = document.querySelector('style[data-touchai-font-face]');
+    const family = 'TouchAI Source Han Serif SC';
 
-        if (!style) {
-            done({ ok: false, error: 'the app did not inject its @font-face rule' });
-            return;
-        }
-
-        if (style.getAttribute('data-touchai-e2e-font') === '1') {
-            done({ ok: true, bytes: Number(style.getAttribute('data-bytes') ?? 0) });
-            return;
-        }
-
-        const fontUrl = style.textContent?.match(/url\('([^']+)'\)/)?.[1];
-        if (!fontUrl) {
-            done({ ok: false, error: 'the injected @font-face rule has no URL' });
-            return;
-        }
+    const report = await browser.executeAsync((done) => {
+        const probe = "16px 'TouchAI Source Han Serif SC'";
 
         (async () => {
-            const response = await fetch(fontUrl);
-            if (!response.ok) {
-                throw new Error(`the font file request returned HTTP ${response.status}`);
-            }
+            await document.fonts.load(probe);
+            await document.fonts.ready;
 
-            const bytes = new Uint8Array(await response.arrayBuffer());
-            let binary = '';
-            const chunkSize = 0x8000;
-            for (let index = 0; index < bytes.length; index += chunkSize) {
-                binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
-            }
+            const injected = document.querySelector('style[data-touchai-font-face]')?.textContent;
 
-            style.textContent = `
-                @font-face {
-                    font-family: '${family}';
-                    src: url('data:font/woff2;base64,${btoa(binary)}') format('woff2');
-                    font-weight: 250 900;
-                    font-style: normal;
-                    font-display: block;
-                }
-            `;
-            style.setAttribute('data-touchai-e2e-font', '1');
-            style.setAttribute('data-bytes', String(bytes.length));
-
-            await document.fonts.load(`16px '${family}'`);
-
-            if (!document.fonts.check(`16px '${family}'`)) {
-                throw new Error('the font was registered but does not resolve');
-            }
-
-            return bytes.length;
+            return {
+                available: document.fonts.check(probe),
+                usesDataUrl: (injected ?? '').includes('data:font'),
+            };
         })()
-            .then((bytes) => done({ ok: true, bytes }))
-            .catch((error) => done({ ok: false, error: String(error) }));
+            .then((result) => done(result))
+            .catch((error) => done({ error: String(error) }));
     });
 
-    if (!result?.ok) {
+    if (report?.usesDataUrl) {
         throw new Error(
-            `The product serif font could not be loaded (${result?.error ?? 'unknown error'}), so screenshots would show a fallback face instead of the interface a user sees.`
+            "A data: font source was injected by the test, so the app's own asset-protocol loading path was not exercised."
+        );
+    }
+
+    if (!report?.available) {
+        throw new Error(
+            `The product font "${family}" did not load (${report?.error ?? 'no further detail'}), so screenshots would show a fallback face instead of the interface a user sees.`
         );
     }
 }
