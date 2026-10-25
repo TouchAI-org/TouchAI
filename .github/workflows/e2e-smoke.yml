@@ -14,6 +14,10 @@ on:
                 description: Regenerate the visual baselines and upload them as an artifact instead of comparing.
                 type: boolean
                 default: false
+            only_spec:
+                description: Run a single spec file instead of the whole suite (diagnostics only).
+                type: string
+                default: ''
 
 permissions:
     contents: read
@@ -207,8 +211,13 @@ jobs:
                   "TOUCHAI_MSEDGEDRIVER_PATH=$driverPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
             - name: Run desktop smoke tests
-              if: ${{ !inputs.update_visual_baselines }}
+              if: ${{ !inputs.update_visual_baselines && inputs.only_spec == '' }}
               run: pnpm test:e2e
+
+            # Diagnostics only: run one spec and let it report what the runtime does.
+            - name: Run a single diagnostic spec
+              if: ${{ inputs.only_spec != '' }}
+              run: pnpm --filter @touchai/desktop exec wdio run ./e2e-tests/wdio.conf.js --spec ./e2e-tests/test/specs/${{ inputs.only_spec }}
 
             # Baselines are rendered by the runner that gates the PR, so the pixels
             # match the comparison environment. Regenerating them on a developer
