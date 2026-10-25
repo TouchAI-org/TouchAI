@@ -124,6 +124,8 @@ fn prune_expired_pending_cancellations(state: &mut BuiltInProcessRegistryState) 
 
 #[cfg(test)]
 mod tests {
+    use tokio::sync::oneshot::error::TryRecvError;
+
     use super::BuiltInProcessExecutionRegistry;
 
     #[test]
@@ -168,7 +170,7 @@ mod tests {
 
         // The stale execution is signalled so it cannot keep running unnoticed.
         assert!(first.try_recv().is_ok());
-        assert!(second.try_recv().is_err());
+        assert!(matches!(second.try_recv(), Err(TryRecvError::Empty)));
     }
 
     #[test]
@@ -201,6 +203,6 @@ mod tests {
 
         // The pending marker was cleared, so registering now starts a clean execution.
         let mut receiver = registry.register("pending-only".to_string());
-        assert!(receiver.try_recv().is_err());
+        assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
     }
 }

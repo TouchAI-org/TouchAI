@@ -9,7 +9,7 @@ use touchai_lib::testing;
 /// snapshot the test harness exposes, so these tests assert the policy the window will actually
 /// follow rather than the call that set it.
 #[test]
-fn user_can_turn_off_hiding_when_the_app_loses_focus() {
+fn user_gets_focus_hiding_turned_off_when_a_conversation_is_open() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     let _: () = invoke_command_ok(
@@ -22,7 +22,7 @@ fn user_can_turn_off_hiding_when_the_app_loses_focus() {
 }
 
 #[test]
-fn user_can_turn_hiding_back_on() {
+fn user_gets_focus_hiding_back_on_when_the_window_returns_to_idle() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     let _: () = invoke_command_ok(
@@ -40,7 +40,7 @@ fn user_can_turn_hiding_back_on() {
 }
 
 #[test]
-fn user_can_allow_a_hand_picked_window_height() {
+fn user_gets_a_hand_picked_height_allowed_when_they_drag_the_window_edge() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     let _: () = invoke_command_ok(
@@ -71,10 +71,15 @@ fn user_loses_the_hand_picked_height_when_the_conversation_ends() {
 }
 
 #[test]
-fn user_keeps_the_two_window_policies_independent() {
+fn user_keeps_the_height_policy_when_only_the_focus_policy_changes() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
-    // Turning one policy off must not disturb the other.
+    // The height policy starts enabled, so a change that wrongly cleared it would show up.
+    let _: () = invoke_command_ok(
+        &test_app.main_webview,
+        "set_search_window_allow_height_override",
+        json!({ "allow": true }),
+    );
     let _: () = invoke_command_ok(
         &test_app.main_webview,
         "set_search_surface_hide_on_app_blur",
@@ -82,6 +87,6 @@ fn user_keeps_the_two_window_policies_independent() {
     );
 
     let policies = testing::search_surface_policies(&test_app.app);
-    assert!(!policies.allow_height_override);
+    assert!(policies.allow_height_override);
     assert!(!policies.hide_on_app_blur);
 }
