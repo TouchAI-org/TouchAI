@@ -766,6 +766,111 @@ fn redact_urls_with_prefix(input: &str, prefix: &str) -> String {
 mod tests {
     use super::*;
 
+    // A failed browser start is the most common way this feature breaks, and the message is
+    // what the user and the model see. It has to name the local cause, not suggest the site
+    // was unreachable.
+
+    #[test]
+    fn user_is_told_a_cdp_readiness_problem_is_local_when_the_endpoint_did_not_answer() {
+        let friendly =
+            friendly_browser_start_error("Failed to query browser endpoint: connection refused");
+
+        assert!(friendly.contains("local Chrome/Edge startup"));
+        assert!(friendly.contains("not evidence of an external website"));
+    }
+
+    #[test]
+    fn user_is_told_a_cdp_readiness_problem_is_local_when_the_endpoint_never_became_ready() {
+        let friendly = friendly_browser_start_error("Browser endpoint did not become ready");
+
+        assert!(friendly.contains("local Chrome/Edge startup"));
+    }
+
+    #[test]
+    fn user_is_told_a_cdp_readiness_problem_is_local_when_the_version_payload_was_wrong() {
+        let friendly =
+            friendly_browser_start_error("Browser endpoint did not return valid /json/version");
+
+        assert!(friendly.contains("local Chrome/Edge startup"));
+    }
+
+    #[test]
+    fn user_is_told_a_cdp_readiness_problem_is_local_when_no_websocket_was_exposed() {
+        let friendly =
+            friendly_browser_start_error("Browser endpoint did not expose webSocketDebuggerUrl");
+
+        assert!(friendly.contains("local Chrome/Edge startup"));
+    }
+
+    #[test]
+    fn user_gets_an_unrelated_error_left_as_it_was() {
+        // A missing executable is not a CDP problem and must not be described as one.
+        let friendly = friendly_browser_start_error("Failed to spawn browser process");
+
+        assert_eq!(friendly, "Failed to spawn browser process");
+    }
+
+    #[test]
+    fn user_gets_the_original_detail_appended_to_a_readiness_message() {
+        let friendly = friendly_browser_start_error("Browser endpoint returned an error: 500");
+
+        assert!(friendly.ends_with("Detail: Browser endpoint returned an error: 500"));
+    }
+
+    #[test]
+    fn user_gets_no_fingerprint_configuration_when_the_mode_is_off() {
+        let request = BrowserStartRequest {
+            fingerprint_mode: Some(BrowserFingerprintMode::Off),
+            fingerprint_locale: Some("en-US".to_string()),
+            ..Default::default()
+        };
+
+        assert!(fingerprint_config_from_request(&request).is_none());
+    }
+
+    #[test]
+    fn user_gets_a_dash_prefixed_locale_dropped_from_the_fingerprint_config() {
+        let request = BrowserStartRequest {
+            fingerprint_mode: Some(BrowserFingerprintMode::Balanced),
+            fingerprint_locale: Some("--headless".to_string()),
+            fingerprint_stealth_script: Some(true),
+            ..Default::default()
+        };
+
+        let config = fingerprint_config_from_request(&request).expect("stealth keeps a config");
+
+        assert_eq!(config.locale, None);
+        assert!(config.stealth_script);
+    }
+
+    #[test]
+    fn user_gets_a_locale_containing_a_nul_dropped_from_the_fingerprint_config() {
+        let request = BrowserStartRequest {
+            fingerprint_mode: Some(BrowserFingerprintMode::Balanced),
+            fingerprint_locale: Some("a\u{0000}b".to_string()),
+            fingerprint_stealth_script: Some(true),
+            ..Default::default()
+        };
+
+        let config = fingerprint_config_from_request(&request).expect("stealth keeps a config");
+
+        assert_eq!(config.locale, None);
+    }
+
+    #[test]
+    fn user_gets_a_plain_locale_trimmed_in_the_fingerprint_config() {
+        let request = BrowserStartRequest {
+            fingerprint_mode: Some(BrowserFingerprintMode::Balanced),
+            fingerprint_locale: Some("  en-US  ".to_string()),
+            fingerprint_stealth_script: Some(true),
+            ..Default::default()
+        };
+
+        let config = fingerprint_config_from_request(&request).expect("a config is built");
+
+        assert_eq!(config.locale.as_deref(), Some("en-US"));
+    }
+
     #[test]
     fn stop_invalidates_in_flight_start_generation() {
         let runtime = BrowserRuntime::new();
