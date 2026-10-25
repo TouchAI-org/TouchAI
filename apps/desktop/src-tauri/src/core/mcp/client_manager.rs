@@ -346,11 +346,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn user_does_not_see_a_server_that_failed_to_connect() {
+    async fn user_does_not_see_a_server_whose_transport_refused_the_connection() {
         let manager = McpClientManager::new();
+        // A valid URL on a closed loopback port: validation passes and the transport fails.
+        let mut config = http_config_without_url();
+        config.url = Some("http://127.0.0.1:9/mcp".to_string());
 
-        let _ = manager.connect_server(http_config_without_url()).await;
+        let result = manager.connect_server(config).await;
 
+        assert!(
+            result.is_err(),
+            "connecting to a closed port must not report success"
+        );
         // A server that never connected must not linger in the registry.
         assert!(manager.get_all_servers().await.is_empty());
     }
