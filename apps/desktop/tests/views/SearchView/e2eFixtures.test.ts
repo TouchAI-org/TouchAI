@@ -63,13 +63,15 @@ describe('user reviews a visual baseline of a conversation', () => {
         const copy = copyE2eConversationFixture(fixture);
 
         expect(copy).toHaveLength(2);
-        expect(copy[1].parts[0]).toMatchObject({ content: 'It replaced bespoke scanners.' });
+        expect(copy[1]?.parts[0]).toMatchObject({ content: 'It replaced bespoke scanners.' });
 
         // Mutating the fixture afterwards must not reach the panel. A shallow spread
         // alone would fail this, because the part objects would still be shared.
-        fixture[1].parts[0].content = 'mutated after seeding';
-        expect(copy[1].parts[0]).toMatchObject({ content: 'It replaced bespoke scanners.' });
-        expect(fixture[1].parts[0]).not.toBe(copy[1].parts[0]);
+        const fixturePart = fixture[1]?.parts[0] as { content: string };
+        fixturePart.content = 'mutated after seeding';
+
+        expect(copy[1]?.parts[0]).toMatchObject({ content: 'It replaced bespoke scanners.' });
+        expect(copy[1]?.parts[0]).not.toBe(fixturePart);
     });
 
     it('user sees an empty transcript when the fixture is empty', () => {
@@ -89,7 +91,7 @@ describe('user reviews a visual baseline of a conversation', () => {
 
         const copy = copyE2eConversationFixture(fixture);
 
-        expect(copy[0].parts[0]).toMatchObject({ type: 'tool_call', toolKind: 'bash' });
+        expect(copy[0]?.parts[0]).toMatchObject({ type: 'tool_call', toolKind: 'bash' });
     });
 });
 
