@@ -151,14 +151,17 @@ describe('user edits a built-in tool setting', () => {
     it('user opens a tool with no config and sees the no-config message', () => {
         const wrapper = mountPanel({ tool: tool({ tool_id: 'web_fetch' }) });
 
-        expect(wrapper.find('[data-empty="true"]').exists()).toBe(true);
+        // The two empty states say different things, so the message itself is asserted.
+        expect(wrapper.find('[data-empty="true"]').text()).toBe('该工具无需在此配置');
         wrapper.unmount();
     });
 
     it('user opens a tool whose config is not built yet and sees that message', () => {
         const wrapper = mountPanel({ tool: tool({ tool_id: 'some_future_tool' }) });
 
-        expect(wrapper.find('[data-empty="true"]').exists()).toBe(true);
+        expect(wrapper.find('[data-empty="true"]').text()).toBe(
+            '该工具的配置表单将在后续批次接入。'
+        );
         wrapper.unmount();
     });
 

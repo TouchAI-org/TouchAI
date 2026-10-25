@@ -10,6 +10,64 @@ import {
 } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
 
 /**
+ * Removes every @keyframes block by matching braces. A regex that stops at the first closing
+ * brace would swallow the CSS after the keyframes and silently stop checking it.
+ */
+function stripKeyframes(css: string): string {
+    let result = '';
+    let index = 0;
+
+    while (index < css.length) {
+        const at = css.indexOf('@keyframes', index);
+        if (at < 0) {
+            result += css.slice(index);
+            break;
+        }
+
+        result += css.slice(index, at);
+
+        let depth = 0;
+        let cursor = css.indexOf('{', at);
+        if (cursor < 0) break;
+
+        for (; cursor < css.length; cursor += 1) {
+            if (css[cursor] === '{') depth += 1;
+            if (css[cursor] === '}') {
+                depth -= 1;
+                if (depth === 0) {
+                    cursor += 1;
+                    break;
+                }
+            }
+        }
+
+        index = cursor;
+    }
+
+    return result;
+}
+
+/** Every selector in the sheet, split so a group like `body, .card` becomes two entries. */
+function extractOrdinarySelectors(css: string): string[] {
+    const withoutKeyframes = stripKeyframes(css);
+    const selectors: string[] = [];
+
+    for (const match of withoutKeyframes.matchAll(/([^{}]+)\{/g)) {
+        const prelude = match[1]!.trim();
+        // At-rule preludes (@media, @supports) are not selectors; their inner rules are
+        // matched by the same loop.
+        if (!prelude || prelude.startsWith('@')) continue;
+
+        for (const part of prelude.split(',')) {
+            const selector = part.trim();
+            if (selector.length > 0) selectors.push(selector);
+        }
+    }
+
+    return selectors;
+}
+
+/**
  * The widget tool streams its arguments, so a draft has to be built from JSON that is still
  * being written. Rendering a wrong draft means the user sees a broken widget appear and then
  * jump; rendering nothing means the tool looks dead while it works.
@@ -155,13 +213,7 @@ describe('user gets widget styles that follow the app theme', () => {
 
         // A rule such as `body { display: none }` would leak into the whole app, so every
         // ordinary selector is checked, not just the presence of one scoped rule.
-        // @keyframes bodies use `from` / `to` / percentages, which are keyframe selectors,
-        // not element selectors, so they are exempt along with the at-rule preludes.
-        const withoutKeyframes = css.replace(/@keyframes[^{]*\{[\s\S]*?\n\s*\}/g, '');
-        const selectors = (withoutKeyframes.match(/[^{}]+\{/g) ?? [])
-            .map((entry) => entry.replace(/\{$/, '').trim())
-            .filter((entry) => entry.length > 0)
-            .filter((entry) => !entry.startsWith('@'));
+        const selectors = extractOrdinarySelectors(css);
 
         expect(selectors.length).toBeGreaterThan(0);
         for (const selector of selectors) {
