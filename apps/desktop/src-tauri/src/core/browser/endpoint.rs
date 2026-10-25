@@ -164,3 +164,205 @@ fn percent_encode_query_value(value: &str) -> String {
     }
     output
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The endpoint is the app's only route into a browser. Every rejection here is a
+    // security decision: a non-loopback host would let the agent drive a remote browser.
+
+    #[test]
+    fn user_gets_the_endpoint_from_a_loopback_origin() {
+        let endpoint = parse_loopback_endpoint("http://127.0.0.1:9222").expect("valid endpoint");
+
+        assert_eq!(endpoint.host, "127.0.0.1");
+        assert_eq!(endpoint.port, 9222);
+        assert_eq!(endpoint.origin(), "http://127.0.0.1:9222");
+    }
+
+    #[test]
+    fn user_gets_localhost_accepted_as_a_loopback_host() {
+        let endpoint = parse_loopback_endpoint("http://localhost:9222").expect("valid endpoint");
+
+        assert_eq!(endpoint.host, "localhost");
+    }
+
+    #[test]
+    fn user_gets_an_ipv6_loopback_written_with_brackets() {
+        let endpoint = parse_loopback_endpoint("http://[::1]:9222").expect("valid endpoint");
+
+        // The stored host is unbracketed, but the origin has to bracket it again.
+        assert_eq!(endpoint.host, "::1");
+        assert_eq!(endpoint.origin(), "http://[::1]:9222");
+    }
+
+    #[test]
+    fn user_gets_a_remote_browser_refused() {
+        let error = parse_loopback_endpoint("http://example.com:9222")
+            .expect_err("a remote host must be refused");
+
+        assert_eq!(error, "Browser endpoint must use a loopback host");
+    }
+
+    #[test]
+    fn user_gets_https_refused_for_the_endpoint() {
+        let error =
+            parse_loopback_endpoint("https://127.0.0.1:9222").expect_err("https must be refused");
+
+        assert_eq!(error, "Browser endpoint must use http");
+    }
+
+    #[test]
+    fn user_gets_credentials_in_the_endpoint_refused() {
+        let error = parse_loopback_endpoint("http://user:pass@127.0.0.1:9222")
+            .expect_err("credentials must be refused");
+
+        assert_eq!(error, "Browser endpoint must not include credentials");
+    }
+
+    #[test]
+    fn user_gets_a_path_on_the_endpoint_refused() {
+        let error = parse_loopback_endpoint("http://127.0.0.1:9222/devtools")
+            .expect_err("a path must be refused");
+
+        assert_eq!(
+            error,
+            "Browser endpoint must be an origin without path, query, or fragment"
+        );
+    }
+
+    #[test]
+    fn user_gets_an_endpoint_without_a_port_refused() {
+        let error = parse_loopback_endpoint("http://127.0.0.1")
+            .expect_err("a missing port must be refused");
+
+        assert_eq!(error, "Browser endpoint must include an explicit port");
+    }
+
+    #[test]
+    fn user_gets_a_non_url_refused() {
+        let error = parse_loopback_endpoint("not a url").expect_err("garbage must be refused");
+
+        assert_eq!(error, "Browser endpoint must be a valid URL");
+    }
+
+    #[test]
+    fn user_gets_the_version_and_list_urls_built_from_the_origin() {
+        let endpoint = parse_loopback_endpoint("http://127.0.0.1:9222").expect("valid endpoint");
+
+        assert_eq!(endpoint.version_url(), "http://127.0.0.1:9222/json/version");
+        assert_eq!(endpoint.list_url(), "http://127.0.0.1:9222/json/list");
+    }
+
+    #[test]
+    fn user_gets_a_new_tab_url_that_encodes_the_target() {
+        let endpoint = parse_loopback_endpoint("http://127.0.0.1:9222").expect("valid endpoint");
+
+        let url = endpoint.new_tab_url("https://example.com/a b?x=1&y=2");
+
+        // The target has to survive as one query value, so its separators are escaped.
+        assert_eq!(
+            url,
+            "http://127.0.0.1:9222/json/new?https%3A%2F%2Fexample.com%2Fa%20b%3Fx%3D1%26y%3D2"
+        );
+    }
+
+    #[test]
+    fn user_gets_an_unreserved_character_left_readable_in_a_new_tab_url() {
+        let endpoint = parse_loopback_endpoint("http://127.0.0.1:9222").expect("valid endpoint");
+
+        assert!(endpoint
+            .new_tab_url("about:blank")
+            .contains("about%3Ablank"));
+    }
+
+    #[test]
+    fn user_gets_a_websocket_url_on_the_same_port_accepted() {
+        let endpoint = parse_loopback_endpoint("http://127.0.0.1:9222").expect("valid endpoint");
+
+        assert!(
+            validate_loopback_websocket("ws://127.0.0.1:9222/devtools/browser/abc", &endpoint)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn user_gets_a_websocket_url_on_another_port_refused() {
+        let endpoint = parse_loopback_endpoint("http://127.0.0.1:9222").expect("valid endpoint");
+
+        let error =
+            validate_loopback_websocket("ws://127.0.0.1:9333/devtools/browser/abc", &endpoint)
+                .expect_err("a different port must be refused");
+
+        assert_eq!(
+            error,
+            "CDP websocket URL must use the same loopback port on a loopback host"
+        );
+    }
+
+    #[test]
+    fn user_gets_a_remote_websocket_url_refused() {
+        let endpoint = parse_loopback_endpoint("http://127.0.0.1:9222").expect("valid endpoint");
+
+        let error =
+            validate_loopback_websocket("ws://evil.example:9222/devtools/browser/abc", &endpoint)
+                .expect_err("a remote websocket must be refused");
+
+        assert_eq!(
+            error,
+            "CDP websocket URL must use the same loopback port on a loopback host"
+        );
+    }
+
+    #[test]
+    fn user_gets_a_non_websocket_scheme_refused() {
+        let endpoint = parse_loopback_endpoint("http://127.0.0.1:9222").expect("valid endpoint");
+
+        let error = validate_loopback_websocket("http://127.0.0.1:9222/devtools", &endpoint)
+            .expect_err("http must be refused");
+
+        assert_eq!(error, "CDP websocket URL must use ws");
+    }
+
+    #[test]
+    fn user_gets_credentials_in_the_websocket_url_refused() {
+        let endpoint = parse_loopback_endpoint("http://127.0.0.1:9222").expect("valid endpoint");
+
+        let error = validate_loopback_websocket("ws://u:p@127.0.0.1:9222/devtools", &endpoint)
+            .expect_err("credentials must be refused");
+
+        assert_eq!(error, "CDP websocket URL must not include credentials");
+    }
+
+    #[test]
+    fn user_keeps_acting_while_the_observed_page_is_the_same() {
+        assert!(validate_stale_navigation_token("nav-1", "nav-1").is_ok());
+    }
+
+    #[test]
+    fn user_is_stopped_when_the_page_changed_underneath() {
+        let error = validate_stale_navigation_token("nav-1", "nav-2")
+            .expect_err("a stale ref must be refused");
+
+        assert_eq!(error, "Browser ref is stale; observe again before acting");
+    }
+
+    #[test]
+    fn user_gets_the_endpoint_snapshot_the_frontend_reads() {
+        let endpoint = parse_loopback_endpoint("http://127.0.0.1:9222").expect("valid endpoint");
+
+        let snapshot = endpoint.snapshot();
+
+        assert_eq!(snapshot.host, "127.0.0.1");
+        assert_eq!(snapshot.port, 9222);
+        assert_eq!(snapshot.version_url, "http://127.0.0.1:9222/json/version");
+    }
+
+    #[test]
+    fn user_sees_the_endpoint_origin_in_a_message() {
+        let endpoint = parse_loopback_endpoint("http://localhost:9222").expect("valid endpoint");
+
+        assert_eq!(endpoint.to_string(), "http://localhost:9222");
+    }
+}
