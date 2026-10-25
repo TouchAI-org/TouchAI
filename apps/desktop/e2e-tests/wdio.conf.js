@@ -178,6 +178,7 @@ export const config = {
             path.join(__dirname, 'test/specs/search-smoke.e2e.js'),
             path.join(__dirname, 'test/specs/settings-smoke.e2e.js'),
             path.join(__dirname, 'test/specs/prompt-compose.e2e.js'),
+            path.join(__dirname, 'test/specs/window-size.e2e.js'),
         ],
     ],
     bail: 1,

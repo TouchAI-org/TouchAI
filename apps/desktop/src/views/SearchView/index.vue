@@ -8,6 +8,7 @@
     } from '@services/EventService/types';
     import type { QuickShortcutItem } from '@services/NativeService';
     import { native } from '@services/NativeService';
+    import type { SearchWindowState } from '@services/NativeService/types';
     import { notify } from '@services/NotificationService';
     import {
         popupManager as popupService,
@@ -137,6 +138,15 @@
             getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
             /** 直接发生一轮对话，用于验证用量采集链路 */
             sendPrompt: (text: string) => Promise<void>;
+            /** 窗口状态查询与调整，用于验证原生窗口行为 */
+            getSearchWindowState: () => Promise<SearchWindowState>;
+            resizeWindowHeight: (params: {
+                targetHeight: number;
+                center: boolean;
+                animate: boolean;
+                respectManualOverride: boolean;
+            }) => Promise<void>;
+            resetSearchWindowBounds: () => Promise<void>;
         };
     };
     const searchInteractionContext = createSearchInteractionContext();
@@ -1119,6 +1129,22 @@
             },
             getQuickSearchFallbackResults(query: string) {
                 return getE2eQuickSearchFallbackResults(query);
+            },
+            // Window-level flows drive the real commands and read the real state back, so an
+            // E2E assertion covers the native side rather than a stubbed renderer value.
+            getSearchWindowState() {
+                return native.window.getSearchWindowState();
+            },
+            resizeWindowHeight(params: {
+                targetHeight: number;
+                center: boolean;
+                animate: boolean;
+                respectManualOverride: boolean;
+            }) {
+                return native.window.resizeWindowHeight(params);
+            },
+            resetSearchWindowBounds() {
+                return native.window.resetSearchWindowBounds();
             },
         };
     }
