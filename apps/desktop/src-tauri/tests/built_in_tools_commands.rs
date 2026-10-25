@@ -153,6 +153,40 @@ fn built_in_tools_start_bash_returns_before_completion_and_streams_events() {
     );
 }
 
+#[test]
+fn built_in_tools_cancel_bash_reports_no_running_execution_for_an_unknown_id() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+
+    // Nothing is registered under this id, so no process was signalled. The call still succeeds
+    // and remembers the marker for an execution that has not started yet.
+    let cancelled: bool = invoke_command_ok(
+        &test_app.main_webview,
+        "built_in_tools_cancel_bash",
+        json!({ "executionId": "never-started" }),
+    );
+
+    assert!(!cancelled, "an unknown execution must not report a cancel");
+}
+
+#[test]
+fn built_in_tools_cancel_bash_is_stable_when_repeated() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+
+    let first: bool = invoke_command_ok(
+        &test_app.main_webview,
+        "built_in_tools_cancel_bash",
+        json!({ "executionId": "twice" }),
+    );
+    let second: bool = invoke_command_ok(
+        &test_app.main_webview,
+        "built_in_tools_cancel_bash",
+        json!({ "executionId": "twice" }),
+    );
+
+    assert!(!first);
+    assert!(!second);
+}
+
 fn invoke_command_raw(
     webview: &WebviewWindow<MockRuntime>,
     command: &str,

@@ -39,6 +39,7 @@ pub fn test_builder() -> Builder<MockRuntime> {
         .manage(BrowserRuntime::new())
         .manage(BuiltInProcessExecutionRegistry::new())
         .manage(AppUpdaterState::default())
+        .manage(crate::core::mcp::McpClientManager::new())
 }
 
 pub fn attach_test_database_runtime(
