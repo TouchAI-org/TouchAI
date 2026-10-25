@@ -1,0 +1,24 @@
+{
+    "$schema": "https://schema.tauri.app/config/2",
+    "app": {
+        "windows": [
+            {
+                "label": "main",
+                "title": "TouchAI",
+                "width": 750,
+                "height": 60,
+                "minWidth": 420,
+                "minHeight": 60,
+                "decorations": false,
+                "shadow": false,
+                "transparent": true,
+                "center": true,
+                "resizable": true,
+                "focus": true,
+                "visible": false,
+                "alwaysOnTop": false,
+                "skipTaskbar": true
+            }
+        ]
+    }
+}

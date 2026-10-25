@@ -31,6 +31,21 @@
         overflow: hidden;
     }
 
+    /* Linux 桌面窗口是透明的，圆角只能由 #app 自己裁剪。body 必须保持透明，
+       否则矩形背景会整块盖住 #app 的圆角；其余平台仍由系统层（DWM 等）负责圆角。 */
+    :root[data-platform='linux'] body {
+        background: transparent;
+    }
+
+    :root[data-platform='linux'] #app {
+        background: var(--color-background-primary);
+    }
+
+    /* 最大化后窗口贴住屏幕边缘，保留圆角会在四角露出桌面。 */
+    :root[data-platform='linux'][data-window-maximized='true'] #app {
+        border-radius: 0;
+    }
+
     body {
         overflow: hidden;
         background: var(--color-background-primary);

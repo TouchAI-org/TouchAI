@@ -57,6 +57,8 @@ async fn build_settings_window_at<R: Runtime>(
     .min_inner_size(SETTINGS_WINDOW_MIN_WIDTH, SETTINGS_WINDOW_MIN_HEIGHT)
     .resizable(true)
     .decorations(false)
+    // Linux 没有 DWM 那样的窗口级圆角，改由透明窗口 + CSS 外壳裁剪。
+    .transparent(cfg!(target_os = "linux"))
     .center();
 
     if let Some(browser_args) = crate::core::system::runtime::e2e_webview_additional_browser_args()
