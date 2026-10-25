@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 
+import type { ToolCallInfo } from '@/types/session';
 import ToolCallSection from '@/views/SearchView/components/ConversationPanel/components/ToolCallSection.vue';
 
 /**
@@ -8,7 +9,7 @@ import ToolCallSection from '@/views/SearchView/components/ConversationPanel/com
  * match the calls it holds, and it has to open itself while work is running: a collapsed section
  * during execution looks like the agent has stopped.
  */
-function toolCall(overrides: Record<string, unknown> = {}) {
+function toolCall(overrides: Partial<ToolCallInfo> = {}): ToolCallInfo {
     return {
         id: `call-${Math.random().toString(36).slice(2, 8)}`,
         name: 'read_file',
@@ -17,10 +18,10 @@ function toolCall(overrides: Record<string, unknown> = {}) {
         arguments: {},
         status: 'completed',
         ...overrides,
-    };
+    } as ToolCallInfo;
 }
 
-function mountSection(toolCalls: unknown[], messageContent = 'done') {
+function mountSection(toolCalls: ToolCallInfo[], messageContent = 'done') {
     return mount(ToolCallSection, {
         props: { toolCalls, messageContent },
         global: {
