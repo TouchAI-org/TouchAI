@@ -384,3 +384,319 @@ fn header_starts_with_svg(header: &[u8]) -> bool {
 fn target_path_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use tempfile::TempDir;
+
+    use super::*;
+
+    fn decode_error(source: &str) -> String {
+        match decode_data_image_source(source) {
+            Ok(_) => panic!("expected '{source}' to be refused"),
+            Err(error) => error,
+        }
+    }
+
+    // Clipboard images arrive as data URLs, as file paths, or as raw bytes with an unknown
+    // extension. Getting the classification wrong means an image is dropped or, worse, a
+    // non-image file is handed to the image pipeline.
+
+    #[test]
+    fn user_gets_a_base64_png_decoded_from_a_data_url() {
+        let payload = decode_data_image_source("data:image/png;base64,iVBORw0KGgo=")
+            .expect("a base64 png decodes");
+
+        assert_eq!(payload.mime_type, "image/png");
+        assert_eq!(
+            payload.bytes,
+            vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]
+        );
+    }
+
+    #[test]
+    fn user_gets_the_mime_type_lowercased() {
+        let payload =
+            decode_data_image_source("data:IMAGE/PNG;base64,AAAA").expect("a data url decodes");
+
+        assert_eq!(payload.mime_type, "image/png");
+    }
+
+    #[test]
+    fn user_gets_percent_encoded_data_url_bytes_decoded() {
+        // A non-base64 data URL carries the bytes percent-encoded.
+        let payload = decode_data_image_source("data:image/svg+xml,%3Csvg%3E").expect("decodes");
+
+        assert_eq!(payload.mime_type, "image/svg+xml");
+        assert_eq!(payload.bytes, b"<svg>");
+    }
+
+    #[test]
+    fn user_gets_plain_bytes_kept_in_a_percent_encoded_data_url() {
+        let payload = decode_data_image_source("data:image/png,plain").expect("decodes");
+
+        assert_eq!(payload.bytes, b"plain");
+    }
+
+    #[test]
+    fn user_gets_a_non_image_data_url_refused() {
+        assert_eq!(
+            decode_error("data:text/plain;base64,AAAA"),
+            "data URL is not an image"
+        );
+    }
+
+    #[test]
+    fn user_gets_a_malformed_data_url_refused() {
+        assert_eq!(
+            decode_error("https://example.com/a.png"),
+            "invalid data image URL"
+        );
+    }
+
+    #[test]
+    fn user_gets_a_broken_percent_escape_refused() {
+        assert_eq!(
+            decode_error("data:image/png,%ZZ"),
+            "invalid percent-encoded data URL"
+        );
+    }
+
+    #[test]
+    fn user_gets_a_truncated_percent_escape_refused() {
+        assert_eq!(
+            decode_error("data:image/png,%4"),
+            "invalid percent-encoded data URL"
+        );
+    }
+
+    #[test]
+    fn user_gets_both_hex_cases_decoded() {
+        assert_eq!(hex_value(b'0'), Some(0));
+        assert_eq!(hex_value(b'9'), Some(9));
+        assert_eq!(hex_value(b'a'), Some(10));
+        assert_eq!(hex_value(b'f'), Some(15));
+        assert_eq!(hex_value(b'A'), Some(10));
+        assert_eq!(hex_value(b'F'), Some(15));
+        assert_eq!(hex_value(b'g'), None);
+        assert_eq!(hex_value(b'/'), None);
+    }
+
+    #[test]
+    fn user_gets_known_image_extensions_recognised() {
+        for path in [
+            "a.jpg", "a.jpeg", "a.png", "a.gif", "a.webp", "a.bmp", "a.svg", "a.avif", "A.PNG",
+        ] {
+            assert!(
+                path_has_known_image_extension(path),
+                "{path} should be an image"
+            );
+        }
+    }
+
+    #[test]
+    fn user_gets_a_non_image_extension_rejected() {
+        for path in ["a.txt", "a.pdf", "a.mp4", "a", "a.pngx"] {
+            assert!(
+                !path_has_known_image_extension(path),
+                "{path} should not be an image"
+            );
+        }
+    }
+
+    #[test]
+    fn user_gets_a_specific_extension_matched_without_case() {
+        assert!(path_has_image_extension("a.SVG", "svg"));
+        assert!(!path_has_image_extension("a.png", "svg"));
+        assert!(!path_has_image_extension("a", "svg"));
+    }
+
+    #[test]
+    fn user_gets_a_windows_file_url_reduced_to_a_path() {
+        assert_eq!(
+            normalize_clipboard_file_path("file:///C:/tmp/a.png"),
+            "C:/tmp/a.png"
+        );
+    }
+
+    #[test]
+    fn user_gets_a_posix_file_url_reduced_to_an_absolute_path() {
+        assert_eq!(
+            normalize_clipboard_file_path("file:///home/u/a.png"),
+            "/home/u/a.png"
+        );
+    }
+
+    #[test]
+    fn user_gets_a_file_url_with_a_host_reduced_to_a_path() {
+        assert_eq!(
+            normalize_clipboard_file_path("file://server/share/a.png"),
+            "server/share/a.png"
+        );
+    }
+
+    #[test]
+    fn user_gets_a_plain_path_left_alone() {
+        assert_eq!(
+            normalize_clipboard_file_path("C:/tmp/a.png"),
+            "C:/tmp/a.png"
+        );
+    }
+
+    #[test]
+    fn user_gets_clipboard_paths_split_into_images_and_files() {
+        let (images, files) = split_clipboard_file_paths(vec![
+            "file:///C:/tmp/a.png".to_string(),
+            "file:///C:/tmp/b.txt".to_string(),
+            "file:///C:/tmp/c.webp".to_string(),
+        ]);
+
+        assert_eq!(
+            images,
+            vec!["C:/tmp/a.png".to_string(), "C:/tmp/c.webp".to_string()]
+        );
+        assert_eq!(files, vec!["C:/tmp/b.txt".to_string()]);
+    }
+
+    #[test]
+    fn user_does_not_get_an_empty_clipboard_path_listed() {
+        let (images, files) = split_clipboard_file_paths(vec!["".to_string()]);
+
+        assert!(images.is_empty());
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn user_gets_a_root_file_url_kept_as_the_root_path() {
+        // "file:///" names the filesystem root, not nothing; it is a file entry, not an image.
+        let (images, files) = split_clipboard_file_paths(vec!["file:///".to_string()]);
+
+        assert!(images.is_empty());
+        assert_eq!(files, vec!["/".to_string()]);
+    }
+
+    #[test]
+    fn user_gets_an_image_detected_by_its_content_when_the_extension_is_missing() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join("screenshot");
+        fs::write(&path, [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]).expect("write");
+
+        assert!(is_image_file_path(&target_path_string(&path)));
+    }
+
+    #[test]
+    fn user_gets_a_jpeg_detected_by_its_content() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join("photo");
+        fs::write(&path, [0xFF, 0xD8, 0xFF, 0xE0]).expect("write");
+
+        assert!(is_image_file_path(&target_path_string(&path)));
+    }
+
+    #[test]
+    fn user_gets_a_gif_detected_by_its_content() {
+        let dir = TempDir::new().expect("temp dir");
+        for signature in [b"GIF87a", b"GIF89a"] {
+            let path = dir.path().join("anim");
+            fs::write(&path, signature).expect("write");
+            assert!(is_image_file_path(&target_path_string(&path)));
+        }
+    }
+
+    #[test]
+    fn user_gets_a_bmp_detected_by_its_content() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join("bitmap");
+        fs::write(&path, b"BM6").expect("write");
+
+        assert!(is_image_file_path(&target_path_string(&path)));
+    }
+
+    #[test]
+    fn user_gets_a_webp_detected_by_its_content() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join("picture");
+        let mut header = Vec::from(*b"RIFF");
+        header.extend_from_slice(&[0, 0, 0, 0]);
+        header.extend_from_slice(b"WEBPVP8 ");
+        fs::write(&path, header).expect("write");
+
+        assert!(is_image_file_path(&target_path_string(&path)));
+    }
+
+    #[test]
+    fn user_gets_an_avif_detected_by_its_brand() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join("still");
+        let mut header = vec![0, 0, 0, 0x1C];
+        header.extend_from_slice(b"ftypavif");
+        fs::write(&path, header).expect("write");
+
+        assert!(is_image_file_path(&target_path_string(&path)));
+    }
+
+    #[test]
+    fn user_gets_an_avif_sequence_brand_detected() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join("clip");
+        let mut header = vec![0, 0, 0, 0x1C];
+        header.extend_from_slice(b"ftypavis");
+        fs::write(&path, header).expect("write");
+
+        assert!(is_image_file_path(&target_path_string(&path)));
+    }
+
+    #[test]
+    fn user_gets_an_svg_detected_by_its_content() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join("icon");
+        fs::write(&path, b"  <svg xmlns=\"http://www.w3.org/2000/svg\">").expect("write");
+
+        assert!(is_image_file_path(&target_path_string(&path)));
+    }
+
+    #[test]
+    fn user_gets_an_svg_detected_when_it_starts_with_an_xml_declaration() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join("icon");
+        fs::write(&path, b"<?xml version=\"1.0\"?><svg>").expect("write");
+
+        assert!(is_image_file_path(&target_path_string(&path)));
+    }
+
+    #[test]
+    fn user_does_not_get_a_text_file_treated_as_an_image() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join("notes");
+        fs::write(&path, b"just some text").expect("write");
+
+        assert!(!is_image_file_path(&target_path_string(&path)));
+    }
+
+    #[test]
+    fn user_does_not_get_a_missing_file_treated_as_an_image() {
+        let dir = TempDir::new().expect("temp dir");
+
+        assert!(!is_image_file_path(&target_path_string(
+            &dir.path().join("gone")
+        )));
+    }
+
+    #[test]
+    fn user_gets_the_same_hash_for_the_same_value() {
+        assert_eq!(hash_value(&"same"), hash_value(&"same"));
+        assert_ne!(hash_value(&"same"), hash_value(&"different"));
+    }
+
+    #[test]
+    fn user_does_not_get_a_duplicate_added_to_a_list() {
+        let mut values = vec!["a".to_string()];
+
+        push_unique(&mut values, "a".to_string());
+        push_unique(&mut values, "b".to_string());
+
+        assert_eq!(values, vec!["a".to_string(), "b".to_string()]);
+    }
+}

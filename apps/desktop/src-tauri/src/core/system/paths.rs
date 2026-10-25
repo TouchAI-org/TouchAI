@@ -157,3 +157,98 @@ pub fn parse_app_directory_key(value: &str) -> Result<AppDirectory, String> {
             format!("Unsupported app directory '{value}'. Supported: {supported_keys}")
         })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Every directory the app writes to is derived from this table. A wrong relative path
+    // puts user data somewhere the migration and the cleanup paths do not look.
+
+    #[test]
+    fn user_gets_every_configured_directory_resolved_to_a_relative_path() {
+        for (directory, _, relative_path) in APP_DIRECTORY_LAYOUT {
+            assert_eq!(
+                directory_relative_path(*directory).expect("a layout entry resolves"),
+                *relative_path
+            );
+        }
+    }
+
+    #[test]
+    fn user_gets_every_configured_directory_treated_as_a_directory_of_this_app() {
+        // This answers "is this one of our directories", which the layout alone decides.
+        for (directory, _, _) in APP_DIRECTORY_LAYOUT {
+            assert!(
+                is_user_data_directory(*directory),
+                "{directory:?} is in the layout"
+            );
+        }
+    }
+
+    #[test]
+    fn user_gets_a_directory_key_parsed_from_its_configured_name() {
+        for (directory, key, _) in APP_DIRECTORY_LAYOUT {
+            assert_eq!(
+                parse_app_directory_key(key).expect("a configured key parses"),
+                *directory
+            );
+        }
+    }
+
+    #[test]
+    fn user_gets_an_unknown_directory_key_refused_with_the_supported_names() {
+        let error = parse_app_directory_key("NOT_A_DIRECTORY").expect_err("unknown key");
+
+        assert!(
+            error.contains("Unsupported app directory"),
+            "unexpected: {error}"
+        );
+        assert!(
+            error.contains("DATA"),
+            "the message should list the keys: {error}"
+        );
+    }
+
+    #[test]
+    fn user_gets_the_app_directory_path_built_under_the_user_data_root() {
+        let path = app_directory_path(AppDirectory::Data).expect("a path resolves");
+        let root = user_data_root_directory().expect("a root resolves");
+
+        assert!(
+            path.starts_with(&root),
+            "{} should be under {}",
+            path.display(),
+            root.display()
+        );
+        assert!(path.ends_with("data"));
+    }
+
+    #[test]
+    fn user_gets_the_legacy_path_resolved_under_the_program_root() {
+        let legacy = legacy_app_directory_path(AppDirectory::Data).expect("legacy");
+        let program_root = program_root_directory().expect("program root");
+
+        // The legacy layout kept data beside the executable, which is why it has to move.
+        assert!(legacy.starts_with(&program_root));
+        assert!(legacy.ends_with("data"));
+    }
+
+    #[test]
+    fn user_gets_the_bundled_identifier_read_from_the_config() {
+        let identifier = bundled_app_identifier().expect("the config carries an identifier");
+
+        assert!(!identifier.is_empty());
+        assert!(
+            identifier.contains('.'),
+            "unexpected identifier: {identifier}"
+        );
+    }
+
+    #[test]
+    fn user_gets_the_program_root_resolved() {
+        let root = program_root_directory().expect("a program root resolves");
+
+        assert!(root.is_absolute(), "{} should be absolute", root.display());
+    }
+}

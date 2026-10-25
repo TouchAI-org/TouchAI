@@ -174,3 +174,89 @@ pub fn build_plugin<R: Runtime>() -> TauriPlugin<R> {
         .targets(targets)
         .build()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The log level comes from an environment variable, and the webview target carries the
+    // window label. Getting either wrong hides diagnostics or mislabels where a line came from.
+
+    #[test]
+    fn user_gets_every_level_name_parsed() {
+        assert_eq!(parse_log_level("trace"), Some(LevelFilter::Trace));
+        assert_eq!(parse_log_level("debug"), Some(LevelFilter::Debug));
+        assert_eq!(parse_log_level("info"), Some(LevelFilter::Info));
+        assert_eq!(parse_log_level("warn"), Some(LevelFilter::Warn));
+        assert_eq!(parse_log_level("error"), Some(LevelFilter::Error));
+        assert_eq!(parse_log_level("off"), Some(LevelFilter::Off));
+    }
+
+    #[test]
+    fn user_gets_the_level_name_parsed_regardless_of_case_and_padding() {
+        assert_eq!(parse_log_level("  WARN  "), Some(LevelFilter::Warn));
+        assert_eq!(parse_log_level("Info"), Some(LevelFilter::Info));
+    }
+
+    #[test]
+    fn user_gets_an_unknown_level_name_ignored() {
+        assert_eq!(parse_log_level("verbose"), None);
+        assert_eq!(parse_log_level(""), None);
+    }
+
+    #[test]
+    fn user_gets_a_webview_target_split_into_its_location() {
+        assert_eq!(
+            split_webview_target("webview:http://localhost:1420/main"),
+            ("webview", Some("http://localhost:1420/main"))
+        );
+    }
+
+    #[test]
+    fn user_gets_a_plain_target_left_whole() {
+        assert_eq!(split_webview_target("touchai"), ("touchai", None));
+    }
+
+    #[test]
+    fn user_gets_a_webview_location_split_into_its_label() {
+        assert_eq!(
+            split_webview_location("main|http://localhost:1420/"),
+            (Some("main"), "http://localhost:1420/")
+        );
+    }
+
+    #[test]
+    fn user_gets_a_location_without_a_label_left_whole() {
+        assert_eq!(
+            split_webview_location("http://localhost:1420/"),
+            (None, "http://localhost:1420/")
+        );
+    }
+
+    #[test]
+    fn user_gets_the_target_label_prefixed_with_the_window() {
+        assert_eq!(format_target_label("webview", Some("main")), "webview:main");
+    }
+
+    #[test]
+    fn user_gets_the_bare_target_when_no_window_is_known() {
+        assert_eq!(format_target_label("touchai", None), "touchai");
+    }
+
+    #[test]
+    fn user_gets_the_default_level_when_nothing_is_configured() {
+        // A build without the variable must still log, at info.
+        if std::env::var("TOUCHAI_LOG_LEVEL").is_err() {
+            assert_eq!(resolve_log_level(), DEFAULT_LOG_LEVEL);
+        }
+    }
+
+    #[test]
+    fn user_gets_a_console_target_and_a_file_target_built() {
+        // Both targets must construct without panicking; their internals are private to the
+        // plugin, so building them is the observable contract.
+        let _console = build_stdout_target(TimezoneStrategy::UseLocal);
+        let _file = build_file_target(TimezoneStrategy::UseLocal);
+        let _utc = build_file_target(TimezoneStrategy::UseUtc);
+    }
+}
