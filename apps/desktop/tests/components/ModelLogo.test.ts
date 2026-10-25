@@ -8,7 +8,13 @@ import ModelLogo from '@/components/ModelLogo.vue';
  * maps to the wrong logo misleads the user, and a model that maps to none has to fall back to a
  * readable letter rather than an empty circle.
  */
-function mountLogo(props: Record<string, unknown>) {
+interface LogoProps {
+    modelId: string;
+    name?: string;
+    size?: 'sm' | 'md' | 'lg';
+}
+
+function mountLogo(props: LogoProps) {
     return mount(ModelLogo, { props });
 }
 
