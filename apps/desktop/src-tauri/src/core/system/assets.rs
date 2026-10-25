@@ -53,6 +53,16 @@ async fn font_exists() -> Result<bool, String> {
 }
 
 async fn is_valid_font_file(font_path: &Path) -> Result<bool, String> {
+    is_valid_font_file_with(font_path, FONT_EXPECTED_SIZE_BYTES, FONT_EXPECTED_SHA256).await
+}
+
+/// 与 [`is_valid_font_file`] 相同，但期望值由调用方提供。
+/// 这样校验分支可以用小体积数据覆盖，无需在仓库中存放真实字体。
+async fn is_valid_font_file_with(
+    font_path: &Path,
+    expected_size: u64,
+    expected_sha256: &str,
+) -> Result<bool, String> {
     let metadata = match fs::metadata(&font_path).await {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
@@ -64,11 +74,11 @@ async fn is_valid_font_file(font_path: &Path) -> Result<bool, String> {
         }
     };
 
-    if metadata.len() != FONT_EXPECTED_SIZE_BYTES {
+    if metadata.len() != expected_size {
         warn!(
             "Ignoring invalid cached font '{}': expected {} bytes, found {} bytes",
             font_path.display(),
-            FONT_EXPECTED_SIZE_BYTES,
+            expected_size,
             metadata.len()
         );
         return Ok(false);
@@ -77,7 +87,7 @@ async fn is_valid_font_file(font_path: &Path) -> Result<bool, String> {
     let data = fs::read(&font_path)
         .await
         .map_err(|e| format!("Failed to read cached font '{}': {e}", font_path.display()))?;
-    match validate_font_data(&data) {
+    match validate_font_data(&data, expected_size, expected_sha256) {
         Ok(()) => Ok(true),
         Err(error) => {
             warn!(
@@ -90,20 +100,24 @@ async fn is_valid_font_file(font_path: &Path) -> Result<bool, String> {
     }
 }
 
-fn validate_font_data(data: &[u8]) -> Result<(), String> {
-    if data.len() as u64 != FONT_EXPECTED_SIZE_BYTES {
+fn validate_font_data(
+    data: &[u8],
+    expected_size: u64,
+    expected_sha256: &str,
+) -> Result<(), String> {
+    if data.len() as u64 != expected_size {
         return Err(format!(
             "expected {} bytes, found {} bytes",
-            FONT_EXPECTED_SIZE_BYTES,
+            expected_size,
             data.len()
         ));
     }
 
     let actual_hash = sha256_hex(data);
-    if actual_hash != FONT_EXPECTED_SHA256 {
+    if actual_hash != expected_sha256 {
         return Err(format!(
             "expected sha256 {}, found {}",
-            FONT_EXPECTED_SHA256, actual_hash
+            expected_sha256, actual_hash
         ));
     }
 
@@ -189,7 +203,7 @@ async fn try_download_from_cdns() -> Result<Vec<u8>, String> {
 
 /// 保存字体文件到本地
 async fn save_font(data: &[u8]) -> Result<(), String> {
-    validate_font_data(data)?;
+    validate_font_data(data, FONT_EXPECTED_SIZE_BYTES, FONT_EXPECTED_SHA256)?;
     let font_path = get_font_path()?;
     let temp_font_path = font_path.with_file_name(format!("{FONT_FILENAME}.tmp"));
 
@@ -283,8 +297,8 @@ pub async fn initialize_font(app_handle: tauri::AppHandle) -> Result<(), String>
 mod tests {
     use super::sha256_hex;
     use super::{
-        is_valid_font_file, replace_font_file, validate_font_data, FONT_CDN_URLS,
-        FONT_EXPECTED_SHA256, FONT_FILENAME, MAX_RETRY_ROUNDS,
+        is_valid_font_file, is_valid_font_file_with, replace_font_file, validate_font_data,
+        FONT_CDN_URLS, FONT_FILENAME, MAX_RETRY_ROUNDS,
     };
     use tempfile::tempdir;
     use tokio::fs;
@@ -317,42 +331,57 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bundled_font_cache_is_valid() {
-        let font_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../assets/font")
-            .join(FONT_FILENAME);
-
-        assert!(is_valid_font_file(&font_path)
+    async fn valid_font_cache_is_accepted() {
+        let root = tempdir().expect("tempdir");
+        let font_dir = root.path().join("assets").join("font");
+        fs::create_dir_all(&font_dir)
             .await
-            .expect("bundled font cache check"));
-    }
+            .expect("create font dir");
+        let font_path = font_dir.join(FONT_FILENAME);
+        let data = b"synthetic font bytes";
+        fs::write(&font_path, data).await.expect("write font");
+        let expected_sha256 = sha256_hex(data);
 
-    #[test]
-    fn valid_font_hash_matches_expected_constant() {
-        let font_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../assets/font")
-            .join(FONT_FILENAME);
-        let data = std::fs::read(font_path).expect("read bundled font");
-        let actual_hash = sha256_hex(&data);
-
-        assert_eq!(actual_hash, FONT_EXPECTED_SHA256);
-        validate_font_data(&data).expect("validate bundled font data");
+        assert!(
+            is_valid_font_file_with(&font_path, data.len() as u64, &expected_sha256)
+                .await
+                .expect("valid font cache check")
+        );
     }
 
     #[test]
     fn same_size_font_with_wrong_hash_is_rejected() {
-        let font_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../assets/font")
-            .join(FONT_FILENAME);
-        let mut data = std::fs::read(font_path).expect("read bundled font");
-        let last_byte = data.last_mut().expect("font has data");
-        *last_byte = last_byte.wrapping_add(1);
+        let original = vec![7_u8; 64];
+        let mutated = vec![8_u8; 64];
+        let expected_sha256 = sha256_hex(&original);
 
-        let error = validate_font_data(&data).expect_err("mutated font should fail hash check");
+        let error = validate_font_data(&mutated, mutated.len() as u64, &expected_sha256)
+            .expect_err("mutated font should fail hash check");
 
         assert!(error.contains("expected sha256"));
     }
 
+    #[test]
+    fn wrong_size_font_data_is_rejected() {
+        let data = vec![7_u8; 63];
+        let expected_sha256 = sha256_hex(&data);
+
+        let error = validate_font_data(&data, 64, &expected_sha256)
+            .expect_err("short font should fail size check");
+
+        assert!(error.contains("expected 64 bytes"));
+    }
+
+    /// 常量与上游产物的比对需要真实 21 MB 字体，不适合放进仓库或 CI。
+    /// 升级 `FONT_CDN_URLS` 的字体版本时请手动核对：
+    ///
+    /// ```text
+    /// curl -fsSL -o /tmp/font.tgz \
+    ///   "https://registry.npmjs.org/@fontpkg/source-han-serif-sc-vf/-/source-han-serif-sc-vf-<version>.tgz"
+    /// tar -xzf /tmp/font.tgz -C /tmp
+    /// sha256sum /tmp/package/SourceHanSerifSC-VF.ttf.woff2
+    /// stat -c%s /tmp/package/SourceHanSerifSC-VF.ttf.woff2
+    /// ```
     #[test]
     fn font_download_retry_budget_covers_multiple_cdn_rounds() {
         assert!(
