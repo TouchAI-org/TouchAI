@@ -1,5 +1,5 @@
 import { mountComposable } from '@tests/utils/composables';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { ref } from 'vue';
 
 import { useWindowResize } from '@/composables/useWindowResize';
@@ -29,15 +29,25 @@ vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => windowMock,
 }));
 
-type ResizeObserverCallback = (entries: Array<Partial<ResizeObserverEntry>>) => void;
+type ResizeObserverCallback = (entries: ResizeObserverEntry[]) => void;
+
+function resizeEntry(target: Element, blockSize: number): ResizeObserverEntry {
+    return {
+        target,
+        contentRect: { width: 0, height: blockSize } as DOMRectReadOnly,
+        borderBoxSize: [{ blockSize, inlineSize: 0 }],
+        contentBoxSize: [{ blockSize, inlineSize: 0 }],
+        devicePixelContentBoxSize: [{ blockSize, inlineSize: 0 }],
+    };
+}
 
 let observerCallback: ResizeObserverCallback | null;
-let disconnectMock: ReturnType<typeof vi.fn>;
+let disconnectMock: Mock;
 
 beforeEach(() => {
     vi.clearAllMocks();
     observerCallback = null;
-    disconnectMock = vi.fn();
+    disconnectMock = vi.fn<() => void>();
     windowMock.label = 'main';
     windowMock.isVisible.mockResolvedValue(true);
 
@@ -72,7 +82,7 @@ describe('user watches the search window follow its content', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        observerCallback?.([{ target: target.value, borderBoxSize: [{ blockSize: 180 }] }]);
+        observerCallback?.([resizeEntry(target.value as Element, 180)]);
         await Promise.resolve();
         await Promise.resolve();
 
@@ -92,7 +102,7 @@ describe('user watches the search window follow its content', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        observerCallback?.([{ target: target.value, borderBoxSize: [{ blockSize: 500 }] }]);
+        observerCallback?.([resizeEntry(target.value as Element, 500)]);
         await Promise.resolve();
         await Promise.resolve();
 
@@ -109,7 +119,7 @@ describe('user watches the search window follow its content', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        observerCallback?.([{ target: target.value, borderBoxSize: [{ blockSize: 10 }] }]);
+        observerCallback?.([resizeEntry(target.value as Element, 10)]);
         await Promise.resolve();
         await Promise.resolve();
 
@@ -126,10 +136,10 @@ describe('user watches the search window follow its content', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        observerCallback?.([{ target: target.value, borderBoxSize: [{ blockSize: 200 }] }]);
+        observerCallback?.([resizeEntry(target.value as Element, 200)]);
         await Promise.resolve();
         await Promise.resolve();
-        observerCallback?.([{ target: target.value, borderBoxSize: [{ blockSize: 200 }] }]);
+        observerCallback?.([resizeEntry(target.value as Element, 200)]);
         await Promise.resolve();
         await Promise.resolve();
 
@@ -145,7 +155,7 @@ describe('user watches the search window follow its content', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        observerCallback?.([{ target: target.value, borderBoxSize: [{ blockSize: 200 }] }]);
+        observerCallback?.([resizeEntry(target.value as Element, 200)]);
         await Promise.resolve();
         await Promise.resolve();
 
@@ -159,7 +169,7 @@ describe('user watches the search window follow its content', () => {
         target.value = elementWithHeight(200, 200);
         await Promise.resolve();
         await Promise.resolve();
-        observerCallback?.([{ target: target.value, borderBoxSize: [{ blockSize: 200 }] }]);
+        observerCallback?.([resizeEntry(target.value as Element, 200)]);
         await Promise.resolve();
         await Promise.resolve();
 
@@ -175,7 +185,7 @@ describe('user watches the search window follow its content', () => {
         target.value = elementWithHeight(200, 200);
         await Promise.resolve();
         await Promise.resolve();
-        observerCallback?.([{ target: target.value, borderBoxSize: [{ blockSize: 200 }] }]);
+        observerCallback?.([resizeEntry(target.value as Element, 200)]);
         await Promise.resolve();
         await Promise.resolve();
 
@@ -195,7 +205,7 @@ describe('user watches the search window follow its content', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        observerCallback?.([{ target: target.value, borderBoxSize: [{ blockSize: 200 }] }]);
+        observerCallback?.([resizeEntry(target.value as Element, 200)]);
         await Promise.resolve();
         await Promise.resolve();
 
