@@ -52,9 +52,8 @@ describe('user edits a list of key and value rows', () => {
             { key: 'b', value: '2' },
         ]);
 
-        const removeButtons = wrapper
-            .findAll('button')
-            .filter((button) => button.find('[data-icon="x"]').exists());
+        // Rows render key, value, remove; the first remove button belongs to row 0.
+        const removeButtons = wrapper.findAll('button').slice(1);
         await removeButtons[0]!.trigger('click');
 
         expect(lastRows(wrapper)).toEqual([{ key: 'b', value: '2' }]);
@@ -69,7 +68,10 @@ describe('user edits a list of key and value rows', () => {
             .filter((button) => button.find('[data-icon="x"]').exists());
         await removeButtons[0]!.trigger('click');
 
-        // The parent saves on blur, so a removal that does not report blur is never saved.
+        // The parent saves on blur, so the rows must already be updated when blur arrives.
+        const events = Object.keys(wrapper.emitted());
+        expect(events.indexOf('update:rows')).toBeGreaterThanOrEqual(0);
+        expect(events.indexOf('update:rows')).toBeLessThan(events.indexOf('blur'));
         expect(wrapper.emitted('blur')).toHaveLength(1);
         wrapper.unmount();
     });

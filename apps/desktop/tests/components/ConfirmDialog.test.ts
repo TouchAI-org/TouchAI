@@ -116,6 +116,8 @@ describe('user answers a confirmation', () => {
 
     it('user gets the closed event only after the exit animation finishes', async () => {
         const wrapper = mountDialog();
+        // The exit animation only runs once the dialog is closing.
+        await wrapper.find('[data-testid="cancel"]').trigger('click');
         const content = wrapper.findComponent({ name: 'AlertDialogContent' });
 
         // The handler only reports the exit animation when it started on the dialog itself.
@@ -171,8 +173,9 @@ describe('user answers a confirmation', () => {
 
         expect(wrapper.text()).toContain('This cannot be undone');
         expect(wrapper.text()).toContain('Delete file');
-        expect(wrapper.text()).toContain('Delete');
-        expect(wrapper.text()).toContain('Keep');
+        // The title also says "Delete", so read the button itself.
+        expect(wrapper.find('[data-testid="confirm"]').text()).toBe('Delete');
+        expect(wrapper.find('[data-testid="cancel"]').text()).toBe('Keep');
         wrapper.unmount();
     });
 

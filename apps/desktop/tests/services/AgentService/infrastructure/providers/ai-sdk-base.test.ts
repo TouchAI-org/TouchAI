@@ -62,8 +62,9 @@ describe('user connects to a provider that needs query parameters', () => {
             'api-version': 'new',
         });
 
-        expect(url).toContain('api-version=new');
-        expect(url).not.toContain('api-version=old');
+        // A duplicate would still satisfy a "contains" check, so count the parameters.
+        const params = new URL(url).searchParams.getAll('api-version');
+        expect(params).toEqual(['new']);
     });
 
     it('user gets the url untouched when there is nothing to add', () => {

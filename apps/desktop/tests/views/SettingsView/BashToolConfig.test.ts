@@ -47,7 +47,10 @@ function mountPanel(config = {}) {
 function lastConfig(wrapper: ReturnType<typeof mountPanel>) {
     const events = wrapper.emitted('update:modelValue');
     expect(events, 'no update was emitted').toBeTruthy();
-    return events![events!.length - 1]![0] as typeof baseConfig;
+    const payload = events![events!.length - 1]![0];
+    // The parent replaces its whole config with this payload, so it must carry every field.
+    expect(Object.keys(payload as object).sort()).toEqual(Object.keys(baseConfig).sort());
+    return payload as typeof baseConfig;
 }
 
 /** The picker button for the default directory carries the folder-open icon. */
@@ -64,10 +67,11 @@ beforeEach(() => {
 describe('user configures the built-in bash tool', () => {
     it('user changes the approval mode and the new mode is emitted', async () => {
         const wrapper = mountPanel();
-        const options = wrapper.findAll('button').filter((button) => button.text().length > 0);
+        // Select by the label the user reads, not by position.
+        const option = wrapper.findAll('button').find((button) => button.text() === '完全访问');
+        expect(option, 'the full-access approval option should be rendered').toBeTruthy();
 
-        // The three approval buttons are the only ones carrying a label.
-        await options[2]!.trigger('click');
+        await option!.trigger('click');
 
         expect(lastConfig(wrapper).approvalMode).toBe('never');
         wrapper.unmount();
@@ -193,7 +197,10 @@ describe('user configures the built-in bash tool', () => {
         const values = wrapper.findAll('input').map((input) => input.element.value);
         expect(values).toContain('C:/work/project');
         expect(values).toContain('C:/work/allowed');
-        // Default directory, the one allowed directory, timeout, output limit.
+        // The limits are shown, not just rendered as some inputs.
+        const shown = wrapper.findAll('input').map((input) => input.element.value);
+        expect(shown).toContain('120000');
+        expect(shown).toContain('20000');
         expect(wrapper.findAll('input')).toHaveLength(4);
         expect(wrapper.find('[role="switch"]').exists()).toBe(true);
         wrapper.unmount();

@@ -1,5 +1,6 @@
 import { mountComposable } from '@tests/utils/composables';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { nextTick, watch } from 'vue';
 
 import { useSessionStatus } from '@/composables/useSessionStatus';
 import { AppEvent } from '@/services/EventService/types';
@@ -84,14 +85,25 @@ describe('user sees which sessions are busy', () => {
         unmount();
     });
 
-    it('user gets a new map instance so the list re-renders', async () => {
+    it('user gets the list re-rendered when a badge appears', async () => {
         const { result, unmount } = await mountComposable(() => useSessionStatus());
-        const before = result.sessionStatuses.value;
+        // A watcher stands in for the session list: it only fires if the ref is reactive,
+        // whether the implementation replaces the Map or mutates it in place.
+        let renders = 0;
+        const stop = watch(
+            result.sessionStatuses,
+            () => {
+                renders += 1;
+            },
+            { deep: true }
+        );
 
         statusListener({ sessionId: 1, status: 'running' });
+        await nextTick();
 
-        // Mutating the same Map would not trigger Vue's reactivity.
-        expect(result.sessionStatuses.value).not.toBe(before);
+        expect(renders).toBeGreaterThan(0);
+        expect(result.getSessionStatus(1)).toBe('running');
+        stop();
         unmount();
     });
 
@@ -118,11 +130,14 @@ describe('user sees which sessions are busy', () => {
         sessionTaskCenterMock.getSessionStatus.mockReturnValue({ status: 'completed' });
         const { result, unmount } = await mountComposable(() => useSessionStatus());
         statusListener({ sessionId: 1, status: 'running' });
+        statusListener({ sessionId: 2, status: 'waiting_approval' });
 
+        // Session 2 is not mentioned by the refresh at all.
         result.refreshAllStatuses([1]);
 
-        // The refresh is authoritative: a session that finished must lose its badge.
+        // The refresh is authoritative: an omitted session loses its badge too.
         expect(result.getSessionStatus(1)).toBeUndefined();
+        expect(result.getSessionStatus(2)).toBeUndefined();
         unmount();
     });
 
@@ -145,6 +160,24 @@ describe('user sees which sessions are busy', () => {
         unmount();
         await Promise.resolve();
 
+        expect(unlisten).toHaveBeenCalled();
+    });
+
+    it('user gets the subscription closed even when it resolves after the view is gone', async () => {
+        let resolveSubscription: (unlisten: () => void) => void = () => undefined;
+        const pending = new Promise<() => void>((resolve) => {
+            resolveSubscription = resolve;
+        });
+        eventServiceMock.on.mockReturnValue(pending);
+        const unlisten = vi.fn();
+
+        const { unmount } = await mountComposable(() => useSessionStatus());
+        unmount();
+        resolveSubscription(unlisten);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        // A late subscription must not leak a listener on a dead view.
         expect(unlisten).toHaveBeenCalled();
     });
 

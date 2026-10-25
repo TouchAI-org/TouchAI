@@ -165,11 +165,11 @@ describe('user gets widget styles that follow the app theme', () => {
         const rampSelectors = css.match(/\.c-[a-z]+/g) ?? [];
         expect(rampSelectors.length).toBeGreaterThan(0);
 
-        // Any line mentioning a ramp must also mention the host scope.
-        const rampLines = css.split('\n').filter((entry) => entry.includes('.c-'));
-        expect(rampLines.length).toBeGreaterThan(0);
-        for (const line of rampLines) {
-            expect(line).toContain('#widget-host');
+        // Read the selectors, not the source lines: formatting may split a selector.
+        const selectors = css.match(/[^{}]*\.c-[a-z]+[^{}]*\{/g) ?? [];
+        expect(selectors.length).toBeGreaterThan(0);
+        for (const selector of selectors) {
+            expect(selector).toContain('#widget-host');
         }
     });
 

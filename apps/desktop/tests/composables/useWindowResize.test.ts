@@ -78,11 +78,13 @@ describe('user watches the search window follow its content', () => {
     it('user gets the window resized to the measured content height', async () => {
         const target = ref<HTMLElement | null>(null);
         const { unmount } = await mountComposable(() => useWindowResize({ target }));
+        // The observer reports 120, the element scrolls to 180: only scrollHeight can
+        // produce 180, so the assertion fails if the observer measurement is used alone.
         target.value = elementWithHeight(120, 180);
         await Promise.resolve();
         await Promise.resolve();
 
-        observerCallback?.([resizeEntry(target.value as Element, 180)]);
+        observerCallback?.([resizeEntry(target.value as Element, 120)]);
         await Promise.resolve();
         await Promise.resolve();
 
@@ -136,15 +138,16 @@ describe('user watches the search window follow its content', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        observerCallback?.([resizeEntry(target.value as Element, 200)]);
-        await Promise.resolve();
-        await Promise.resolve();
+        // Observing the target already requests 200 once, so count from there.
+        const afterFirstObservation = resizeWindowHeightMock.mock.calls.length;
+        expect(afterFirstObservation).toBeGreaterThan(0);
+
         observerCallback?.([resizeEntry(target.value as Element, 200)]);
         await Promise.resolve();
         await Promise.resolve();
 
         // Re-requesting the same height would make the window flicker.
-        expect(resizeWindowHeightMock).toHaveBeenCalledTimes(1);
+        expect(resizeWindowHeightMock).toHaveBeenCalledTimes(afterFirstObservation);
         unmount();
     });
 
