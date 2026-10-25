@@ -1348,6 +1348,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::core::browser::actions::BrowserResolvedFormField;
 
     // The console and network panels are the only way the user sees what the page did, and
     // they are also what the model reasons over. These tests pin the lines it will read.
@@ -1735,6 +1736,202 @@ mod tests {
         let script = browser_fingerprint_compat_script(Some("--evil"));
 
         assert!(script.contains("zh-CN"));
+    }
+
+    // A websocket frame from a page can be arbitrarily large. Every read is bounded before it
+    // is parsed, so one runaway page cannot exhaust memory.
+
+    #[test]
+    fn user_gets_a_text_message_kept_when_it_fits() {
+        let text = cdp_message_text(Message::Text("{\"a\":1}".into()), 1024)
+            .expect("a small message passes");
+
+        assert_eq!(text.as_deref(), Some("{\"a\":1}"));
+    }
+
+    #[test]
+    fn user_gets_an_oversized_text_message_dropped() {
+        let error = cdp_message_text(Message::Text("a".repeat(2048).into()), 1024)
+            .expect_err("an oversized message must be refused");
+
+        assert_eq!(error, "CDP message exceeded the size limit");
+    }
+
+    #[test]
+    fn user_gets_a_binary_message_read_as_text() {
+        let text = cdp_message_text(Message::Binary(Vec::from("{\"b\":2}").into()), 1024)
+            .expect("a small binary message passes");
+
+        assert_eq!(text.as_deref(), Some("{\"b\":2}"));
+    }
+
+    #[test]
+    fn user_gets_an_oversized_binary_message_dropped() {
+        let error = cdp_message_text(Message::Binary(vec![b'a'; 2048].into()), 1024)
+            .expect_err("an oversized binary message must be refused");
+
+        assert_eq!(error, "CDP message exceeded the size limit");
+    }
+
+    #[test]
+    fn user_gets_a_closed_socket_reported_rather_than_silently_ignored() {
+        let error =
+            cdp_message_text(Message::Close(None), 1024).expect_err("a close frame must surface");
+
+        assert_eq!(error, "Browser websocket closed");
+    }
+
+    #[test]
+    fn user_gets_a_control_frame_skipped() {
+        let text = cdp_message_text(Message::Ping(Vec::new().into()), 1024)
+            .expect("a control frame is not an error");
+
+        assert_eq!(text, None);
+    }
+
+    #[test]
+    fn user_gets_a_json_body_parsed_when_it_fits() {
+        #[derive(serde::Deserialize)]
+        struct Payload {
+            a: i32,
+        }
+
+        let parsed: Payload =
+            parse_bounded_json_bytes(br#"{"a":1}"#, 1024, "Body").expect("a small body parses");
+
+        assert_eq!(parsed.a, 1);
+    }
+
+    #[test]
+    fn user_gets_an_oversized_body_refused_before_parsing() {
+        let error = parse_bounded_json_bytes::<serde_json::Value>(&[b' '; 2048], 1024, "Body")
+            .expect_err("an oversized body must be refused");
+
+        assert_eq!(error, "Body exceeded the size limit");
+    }
+
+    #[test]
+    fn user_gets_malformed_json_reported() {
+        let error = parse_bounded_json_bytes::<serde_json::Value>(b"not json", 1024, "Body")
+            .expect_err("malformed json must be refused");
+
+        assert!(!error.is_empty());
+    }
+
+    #[test]
+    fn user_gets_the_websocket_message_size_bounded() {
+        let config = websocket_config(4096);
+
+        assert_eq!(config.max_message_size, Some(4096));
+        assert_eq!(config.max_frame_size, Some(4096));
+    }
+
+    #[test]
+    fn user_gets_an_action_revalidated_when_the_page_has_not_moved() {
+        let reference = BrowserDomRef {
+            ref_id: "ref-0".to_string(),
+            navigation_token: "nav-1".to_string(),
+            description: "button".to_string(),
+            editable: false,
+            selector: "#a".to_string(),
+            x: 0.0,
+            y: 0.0,
+        };
+        let resolved = BrowserResolvedAction {
+            reference: Some(&reference),
+            form_fields: Vec::new(),
+            page_navigation_token: None,
+            requires_current_observation: false,
+        };
+
+        assert!(revalidate_resolved_action(&resolved, "nav-1").is_ok());
+    }
+
+    #[test]
+    fn user_is_stopped_when_the_page_moved_before_the_action_ran() {
+        let reference = BrowserDomRef {
+            ref_id: "ref-0".to_string(),
+            navigation_token: "nav-1".to_string(),
+            description: "button".to_string(),
+            editable: false,
+            selector: "#a".to_string(),
+            x: 0.0,
+            y: 0.0,
+        };
+        let resolved = BrowserResolvedAction {
+            reference: Some(&reference),
+            form_fields: Vec::new(),
+            page_navigation_token: None,
+            requires_current_observation: false,
+        };
+
+        let error = revalidate_resolved_action(&resolved, "nav-2")
+            .expect_err("a moved page must stop the action");
+
+        assert_eq!(error, "Browser ref is stale; observe again before acting");
+    }
+
+    #[test]
+    fn user_is_stopped_when_a_form_field_moved_before_the_fill_ran() {
+        let resolved = BrowserResolvedAction {
+            reference: None,
+            form_fields: vec![BrowserResolvedFormField {
+                navigation_token: "nav-1".to_string(),
+                selector: "#a".to_string(),
+                value: "v".to_string(),
+            }],
+            page_navigation_token: None,
+            requires_current_observation: false,
+        };
+
+        let error = revalidate_resolved_action(&resolved, "nav-2")
+            .expect_err("a moved field must stop the fill");
+
+        assert_eq!(error, "Browser ref is stale; observe again before acting");
+    }
+
+    #[test]
+    fn user_is_stopped_when_the_page_token_is_stale_for_a_ref_less_action() {
+        let resolved = BrowserResolvedAction {
+            reference: None,
+            form_fields: Vec::new(),
+            page_navigation_token: Some("nav-1".to_string()),
+            requires_current_observation: true,
+        };
+
+        let error = revalidate_resolved_action(&resolved, "nav-2")
+            .expect_err("a stale page token must stop the action");
+
+        assert_eq!(error, "Browser ref is stale; observe again before acting");
+    }
+
+    #[test]
+    fn user_gets_an_action_with_nothing_to_check_accepted() {
+        let resolved = BrowserResolvedAction {
+            reference: None,
+            form_fields: Vec::new(),
+            page_navigation_token: None,
+            requires_current_observation: false,
+        };
+
+        assert!(revalidate_resolved_action(&resolved, "anything").is_ok());
+    }
+
+    #[test]
+    fn user_gets_a_screenshot_artifact_restricted_after_writing() {
+        let dir = TempDir::new().expect("temp dir");
+        let path = dir.path().join("shot.png");
+        fs::write(&path, b"png").expect("write");
+
+        // On unix this narrows the permissions; on windows it is a no-op. Both must succeed.
+        harden_artifact_file(&path).expect("hardening succeeds");
+    }
+
+    #[test]
+    fn user_gets_the_artifact_directory_restricted() {
+        let dir = TempDir::new().expect("temp dir");
+
+        harden_artifact_directory(dir.path()).expect("hardening succeeds");
     }
 
     #[test]
