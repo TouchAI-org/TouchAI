@@ -212,3 +212,146 @@ impl Default for McpClientManager {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stdio_config_without_command() -> McpServerConfig {
+        McpServerConfig {
+            id: 1,
+            name: "misconfigured".to_string(),
+            transport_type: TransportType::Stdio,
+            command: None,
+            args: None,
+            env: None,
+            cwd: None,
+            url: None,
+            headers: None,
+            enabled: true,
+            tool_timeout: 30_000,
+        }
+    }
+
+    fn http_config_without_url() -> McpServerConfig {
+        McpServerConfig {
+            transport_type: TransportType::Http,
+            ..stdio_config_without_command()
+        }
+    }
+
+    // The settings page asks for every server's status while it loads, before any connection
+    // exists. These tests pin how an unknown id answers, which needs no live server.
+
+    #[tokio::test]
+    async fn user_gets_a_clear_error_when_the_server_is_unknown() {
+        let manager = McpClientManager::new();
+
+        let error = manager
+            .get_server_status(42)
+            .await
+            .expect_err("an unknown server must not report a status");
+
+        assert_eq!(error, "Server 42 not found");
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_clear_error_when_listing_tools_of_an_unknown_server() {
+        let manager = McpClientManager::new();
+
+        let error = manager
+            .list_tools(7)
+            .await
+            .expect_err("an unknown server must not list tools");
+
+        assert_eq!(error, "Server 7 not found");
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_clear_error_when_calling_a_tool_on_an_unknown_server() {
+        let manager = McpClientManager::new();
+
+        let error = manager
+            .call_tool(7, "search".to_string(), serde_json::json!({}), None)
+            .await
+            .expect_err("an unknown server must not accept a tool call");
+
+        assert_eq!(error, "Server 7 not found");
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_clear_error_when_disconnecting_an_unknown_server() {
+        let manager = McpClientManager::new();
+
+        let error = manager
+            .disconnect_server(9)
+            .await
+            .expect_err("an unknown server must not be disconnected");
+
+        assert_eq!(error, "Server 9 not found");
+    }
+
+    #[tokio::test]
+    async fn user_sees_no_connected_servers_before_any_connect() {
+        let manager = McpClientManager::new();
+
+        assert!(manager.get_all_servers().await.is_empty());
+        assert!(manager.get_all_server_statuses().await.is_empty());
+        assert!(manager
+            .get_all_server_statuses_result()
+            .await
+            .expect("an empty manager is not an error")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn user_can_disconnect_everything_when_nothing_is_connected() {
+        let manager = McpClientManager::new();
+
+        // Shutdown runs unconditionally, so it must survive an empty registry.
+        manager
+            .disconnect_all()
+            .await
+            .expect("disconnecting nothing is not an error");
+    }
+
+    #[tokio::test]
+    async fn user_gets_an_error_when_a_stdio_server_has_no_command() {
+        let manager = McpClientManager::new();
+
+        let error = manager
+            .connect_server(stdio_config_without_command())
+            .await
+            .expect_err("a stdio server without a command cannot start");
+
+        assert!(
+            error.contains("Command is required"),
+            "unexpected error for a missing command: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_gets_an_error_when_an_http_server_has_no_url() {
+        let manager = McpClientManager::new();
+
+        let error = manager
+            .connect_server(http_config_without_url())
+            .await
+            .expect_err("an HTTP server without a URL cannot connect");
+
+        assert!(
+            error.contains("URL is required"),
+            "unexpected error for a missing url: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_does_not_see_a_server_that_failed_to_connect() {
+        let manager = McpClientManager::new();
+
+        let _ = manager.connect_server(http_config_without_url()).await;
+
+        // A server that never connected must not linger in the registry.
+        assert!(manager.get_all_servers().await.is_empty());
+    }
+}

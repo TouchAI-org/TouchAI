@@ -73,25 +73,40 @@ Frontend floor in `apps/desktop/vitest.config.ts`:
 
 | Metric | Floor | Now | Target |
 | --- | ---: | ---: | ---: |
-| Statements | 75% | 75.9% | 85% |
-| Branches | 65% | 65.6% | 85% |
-| Functions | 74% | 74.8% | 85% |
-| Lines | 75% | 76.4% | 85% |
+| Statements | 77% | 77.6% | 85% |
+| Branches | 67% | 67.8% | 85% |
+| Functions | 76% | 76.4% | 85% |
+| Lines | 78% | 78.1% | 85% |
 
 The keys must stay at the top level of `thresholds`. A nested `global` object is read as a glob pattern matching no file, which leaves the gate silently inert.
 
-**Raising is one-way.** Run `pnpm test:coverage:raise` after a change that earns it; it is vitest's `thresholds.autoUpdate`, which rewrites a metric only when the measured value exceeds it. Run it on the full suite, not a filtered subset, or it ratchets to the subset.
+**Raising is one-way.** Run `pnpm test:coverage:raise` after a change that earns it; it is vitest's `thresholds.autoUpdate`, which rewrites a metric only when the measured value exceeds it. Run it on the full suite, not a filtered subset, or it ratchets to the subset. It also rewrites the per-file thresholds to exact measured values with no headroom, so raise the global floor by hand when the per-file numbers should keep their slack.
 
 Rust floor in `apps/desktop/src-tauri/coverage-floors.json`, from **cargo-llvm-cov** (rustc's own `-C instrument-coverage`, not a ptrace debugger). It reports line and region coverage; region is the finer signal because it flags an expression that was only partly evaluated.
 
 | Metric | Floor | Now | Target |
 | --- | ---: | ---: | ---: |
-| Lines | 44% | 45.5% | 85% |
-| Regions | 43% | 44.2% | 85% |
+| Lines | 45% | 46.7% | 85% |
+| Regions | 43% | 45.5% | 85% |
 
 The `rust-coverage` job fails with the exact metric that regressed. Raise with `pnpm test:coverage:rust:raise`. Same one-way rule.
 
 **Why Rust starts lower.** Of its 11043 measured lines, covering every testable pure-logic line tops out near 50% total. The rest sits in browser/CDP, window-shell, clipboard, bootstrap and MCP client code, whose only realistic unit test asserts against mocks. So Rust rises with integration and E2E coverage, not with mock-heavy unit tests. Do not close the gap by testing stubs.
+
+**What cannot be covered, and how to tell.** Some lines will never show up as covered. Before adding a test for one, check which of these it is:
+
+| Kind | Example | How to tell |
+| --- | --- | --- |
+| Native handle required | `reset_search_window_bounds`, `resize_window_height` | Fails under `tauri::test` with `0x80070578` (invalid window handle). Reach it from E2E, not a unit test. |
+| Platform split | `src/core/search/mod.rs` | The uncovered half is behind `#[cfg(windows)]`; Linux CI runs the other half. Not a gap. |
+| Needs a live peer | MCP connect, updater, `autostart` | Requires a server, a release feed, or a real OS autostart entry. Cover the pure part, and say what remains. |
+
+Two boundaries look testable but are not:
+
+- `core/system/autostart.rs` only wraps the autostart plugin. Its error branches fire when the OS refuses, which cannot be produced on demand.
+- `core/mcp/client_manager.rs` is testable up to the point of connecting. The unknown-id answers, the empty-manager answers and the missing-command/missing-url validation are reachable; anything past `connect_*` needs a live server.
+
+Do not write an assertion that passes without proving anything just to cover one of these. Report it instead.
 
 Rust branch coverage is **not** collected: `--branch` needs nightly, and this job runs stable. The summarizer renders a Branches row when a branch-enabled run feeds it one, so enabling it later is a toolchain change in that job, not a script change. cargo-tarpaulin was replaced by llvm-cov in #598; its branch support was never implemented, so the dimension had never been measurable.
 

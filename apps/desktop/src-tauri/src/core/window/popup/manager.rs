@@ -261,7 +261,7 @@ pub fn is_app_focused<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::popup_route;
+    use super::{is_app_surface_label, popup_route};
 
     #[test]
     fn popup_route_uses_hash_navigation_with_type_query() {
@@ -273,5 +273,62 @@ mod tests {
             popup_route("session-history-popup"),
             "#/popup?type=session-history-popup"
         );
+    }
+
+    // Focus handling asks whether the window that just gained focus belongs to this app.
+    // Getting the label test wrong means a popup closes while the user is still using it.
+
+    #[test]
+    fn user_keeps_the_search_window_recognised_as_an_app_surface() {
+        assert!(is_app_surface_label("main"));
+    }
+
+    #[test]
+    fn user_gets_every_popup_recognised_as_an_app_surface() {
+        assert!(is_app_surface_label("popup-model-dropdown-popup"));
+        assert!(is_app_surface_label("popup-session-history-popup"));
+    }
+
+    #[test]
+    fn user_does_not_get_the_settings_window_treated_as_a_search_surface() {
+        // The settings window gains focus without the search window being dismissed.
+        assert!(!is_app_surface_label("settings"));
+    }
+
+    #[test]
+    fn user_does_not_get_an_unrelated_label_treated_as_an_app_surface() {
+        assert!(!is_app_surface_label(""));
+        assert!(!is_app_surface_label("popup"));
+        assert!(!is_app_surface_label("main-window"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn user_keeps_the_window_when_focus_lands_anywhere_in_its_family() {
+        use super::foreground_belongs_to_window_family;
+
+        // Any one of these Win32 relationships means the focus stayed inside the app.
+        assert!(foreground_belongs_to_window_family(
+            true, false, false, false
+        ));
+        assert!(foreground_belongs_to_window_family(
+            false, true, false, false
+        ));
+        assert!(foreground_belongs_to_window_family(
+            false, false, true, false
+        ));
+        assert!(foreground_belongs_to_window_family(
+            false, false, false, true
+        ));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn user_loses_the_window_when_focus_moved_to_another_application() {
+        use super::foreground_belongs_to_window_family;
+
+        assert!(!foreground_belongs_to_window_family(
+            false, false, false, false
+        ));
     }
 }
