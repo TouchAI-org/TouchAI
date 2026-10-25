@@ -36,10 +36,17 @@ test.describe('user reviews component primitives', () => {
         const index = await request.get('/index.json');
         expect(index.ok(), 'Storybook index.json must be reachable').toBe(true);
 
-        const { entries } = await index.json();
+        // Storybook's index shape, narrowed here so the filter below is typed.
+        interface StorybookEntry {
+            type: string;
+            id: string;
+            title: string;
+        }
+
+        const { entries } = (await index.json()) as { entries: Record<string, StorybookEntry> };
         const stories = Object.values(entries).filter(
             (entry) => entry.type === 'story' && !entry.id.includes('--docs')
-        ) as Array<{ id: string; title: string }>;
+        );
 
         expect(stories.length, 'no stories were discovered').toBeGreaterThan(0);
 

@@ -97,14 +97,9 @@ jobs:
             - name: Install Playwright Chromium
               run: pnpm --filter @touchai/desktop exec playwright install --with-deps chromium
 
-            # Same font file the end-to-end suite uses. Without it every story renders
-            # a fallback serif and the baselines describe a typeface nobody ships.
-            # The version is in the key so bumping the font starts a fresh cache.
-            - name: Cache product font
-              uses: actions/cache@9255dc7a253b0ccc959486e2bca265382c262871 # v4
-              with:
-                  path: .e2e-runtime/font-cache
-                  key: product-font-source-han-serif-v2-3-2
+            # The product font is fetched once per run by the E2E font module and
+            # verified against the product sha256; there is nothing to restore
+            # beforehand, and a stale cache would be worse than a download.
 
             - name: Run component visual tests
               if: ${{ !inputs.update_visual_baselines }}
