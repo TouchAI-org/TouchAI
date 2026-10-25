@@ -1,6 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { currentMonitor, getCurrentWindow } from '@tauri-apps/api/window';
 
 import { detectDesktopPlatform, isLinuxDesktop } from './platform';
 
@@ -13,10 +13,35 @@ export function applyDesktopPlatformClass(): void {
 }
 
 /**
- * Linux 窗口是透明的，圆角由 #app 自己裁剪。窗口最大化后贴住屏幕边缘，
- * 再保留圆角就会在四角露出桌面，因此需要同步最大化状态。
+ * 判断窗口是否铺满它所在的显示器。
+ *
+ * 窗口最大化或全屏后贴住屏幕边缘，此时保留圆角会在四角露出桌面；
+ * 全屏时窗口下方没有桌面，四角会直接变成黑色。
+ *
+ * 不能只依赖 `isMaximized()` / `isFullscreen()`：sway 在 Wayland 下全屏时两者
+ * 都返回 false（已实测），而窗口尺寸已经等于显示器尺寸。因此以尺寸比对为准，
+ * 用 `currentMonitor()` 而不是 `screen`，多显示器下才能拿到窗口所在的那块屏。
  */
-function syncMaximizedShellState(): void {
+async function coversWholeMonitor(
+    currentWindow: ReturnType<typeof getCurrentWindow>
+): Promise<boolean> {
+    const [monitor, scaleFactor] = await Promise.all([
+        currentMonitor().catch(() => null),
+        currentWindow.scaleFactor().catch(() => 1),
+    ]);
+
+    if (!monitor) {
+        return false;
+    }
+
+    const monitorWidth = monitor.size.width / scaleFactor;
+    const monitorHeight = monitor.size.height / scaleFactor;
+
+    // 窗口边框可能带来 1px 级别偏差，留 2px 容差避免抖动。
+    return window.innerWidth >= monitorWidth - 2 && window.innerHeight >= monitorHeight - 2;
+}
+
+function syncEdgeToEdgeShellState(): void {
     let currentWindow: ReturnType<typeof getCurrentWindow>;
 
     try {
@@ -26,8 +51,8 @@ function syncMaximizedShellState(): void {
     }
 
     const apply = async (): Promise<void> => {
-        const maximized = await currentWindow.isMaximized().catch(() => false);
-        document.documentElement.dataset.windowMaximized = String(maximized);
+        const edgeToEdge = await coversWholeMonitor(currentWindow);
+        document.documentElement.dataset.windowMaximized = String(edgeToEdge);
     };
 
     void apply();
@@ -40,6 +65,6 @@ export function initializeDesktopShell(): void {
     applyDesktopPlatformClass();
 
     if (isLinuxDesktop()) {
-        syncMaximizedShellState();
+        syncEdgeToEdgeShellState();
     }
 }
