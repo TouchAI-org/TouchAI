@@ -131,6 +131,8 @@ describe('user sees the Rust coverage floor ratchet upward only', () => {
     });
 
     it('user sees the raised floor written back only through the raise flag', async () => {
+        // Start from a known floor so the expected result does not depend on the committed one.
+        await writeFile(floorsPath, `${JSON.stringify({ lines: 40, regions: 40 }, null, 4)}\n`, 'utf8');
         const workspace = await createWorkspace();
         await writeFile(workspace.reportPath, llvmCovReport(60.9, 58.2), 'utf8');
 
