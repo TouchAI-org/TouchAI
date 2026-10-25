@@ -641,23 +641,96 @@ mod tests {
         McpClient::build_http_client(None).expect("a plain client builds");
     }
 
-    #[test]
-    fn user_gets_a_client_built_with_valid_headers() {
-        let mut headers = HashMap::new();
-        headers.insert("x-api-key".to_string(), "secret".to_string());
+    /// Serve one request on a loopback port and report the headers it received.
+    fn capture_request_headers() -> (u16, std::thread::JoinHandle<Vec<(String, String)>>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind a loopback port");
+        let port = listener.local_addr().expect("local addr").port();
+        let handle = std::thread::spawn(move || {
+            use std::io::{BufRead, BufReader, Write};
 
-        McpClient::build_http_client(Some(headers)).expect("a client with headers builds");
+            let (stream, _) = listener.accept().expect("accept one request");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+            let mut headers = Vec::new();
+            let mut line = String::new();
+            reader.read_line(&mut line).expect("read request line");
+            loop {
+                line.clear();
+                if reader.read_line(&mut line).expect("read header") == 0 {
+                    break;
+                }
+                let trimmed = line.trim_end();
+                if trimmed.is_empty() {
+                    break;
+                }
+                if let Some((name, value)) = trimmed.split_once(':') {
+                    headers.push((name.trim().to_ascii_lowercase(), value.trim().to_string()));
+                }
+            }
+            let mut stream = stream;
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .expect("write response");
+            headers
+        });
+        (port, handle)
     }
 
     #[test]
-    fn user_gets_an_invalid_header_skipped_rather_than_failing_the_connection() {
+    fn user_gets_their_configured_headers_sent_with_each_request() {
+        let (port, server) = capture_request_headers();
+        let mut headers = HashMap::new();
+        headers.insert("x-api-key".to_string(), "secret".to_string());
+        let client = McpClient::build_http_client(Some(headers)).expect("a client builds");
+
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        runtime
+            .block_on(async {
+                client
+                    .get(format!("http://127.0.0.1:{port}/mcp"))
+                    .send()
+                    .await
+            })
+            .expect("the request reaches the server");
+
+        let received = server.join().expect("server thread");
+        assert!(
+            received
+                .iter()
+                .any(|(name, value)| name == "x-api-key" && value == "secret"),
+            "the configured header did not arrive: {received:?}"
+        );
+    }
+
+    #[test]
+    fn user_does_not_get_an_invalid_header_sent_or_the_connection_blocked() {
+        let (port, server) = capture_request_headers();
         let mut headers = HashMap::new();
         headers.insert("x-good".to_string(), "ok".to_string());
         // A header name with a space is not a legal header name.
-        headers.insert("x bad".to_string(), "ok".to_string());
+        headers.insert("x bad".to_string(), "nope".to_string());
+        let client = McpClient::build_http_client(Some(headers)).expect("a client builds");
 
-        // One bad header must not prevent the server from connecting.
-        McpClient::build_http_client(Some(headers)).expect("a client still builds");
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        runtime
+            .block_on(async {
+                client
+                    .get(format!("http://127.0.0.1:{port}/mcp"))
+                    .send()
+                    .await
+            })
+            .expect("one bad header must not block the connection");
+
+        let received = server.join().expect("server thread");
+        assert!(
+            received
+                .iter()
+                .any(|(name, value)| name == "x-good" && value == "ok"),
+            "the valid header did not arrive: {received:?}"
+        );
+        assert!(
+            !received.iter().any(|(name, _)| name.contains(' ')),
+            "an invalid header was sent: {received:?}"
+        );
     }
 
     #[test]

@@ -1923,15 +1923,36 @@ mod tests {
         let path = dir.path().join("shot.png");
         fs::write(&path, b"png").expect("write");
 
-        // On unix this narrows the permissions; on windows it is a no-op. Both must succeed.
         harden_artifact_file(&path).expect("hardening succeeds");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            // Start permissive is impossible to arrange for a file we just wrote (0644), so
+            // assert the mode was narrowed to owner-only either way.
+            let mode = fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "unexpected artifact mode: {mode:o}");
+        }
     }
 
     #[test]
     fn user_gets_the_artifact_directory_restricted() {
         let dir = TempDir::new().expect("temp dir");
+        let nested = dir.path().join("artifacts");
+        fs::create_dir(&nested).expect("create");
 
-        harden_artifact_directory(dir.path()).expect("hardening succeeds");
+        harden_artifact_directory(&nested).expect("hardening succeeds");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&nested)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o700, "unexpected directory mode: {mode:o}");
+        }
     }
 
     #[test]
