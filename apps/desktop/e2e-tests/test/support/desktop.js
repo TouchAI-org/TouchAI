@@ -242,7 +242,12 @@ export async function useProductFont() {
         );
     }
 
-    // The painted face must match the reference built from the app's own bytes.
+    if (report.productFaceCount === 0) {
+        throw new Error(`The app's own @font-face rule was rejected by the engine (${detail}).`);
+    }
+
+    // Step 2: the painted outline must match the shipped bytes. Anti-aliasing leaves a
+    // handful of differing pixels; a fallback differs by thousands.
     if (report.againstReference > 500) {
         throw new Error(
             `The interface is painting a fallback face instead of "${family}" ` +
