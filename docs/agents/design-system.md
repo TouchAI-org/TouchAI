@@ -194,21 +194,49 @@ app is not evidence, however green it is. Both layers are pinned to the real thi
 `<app root>/assets/font/` at first launch and injects `@font-face` for it. Every
 `font-serif` element — settings headings, dialog titles, buttons, message text —
 depends on that file, so without it the whole interface renders in a generic serif
-(Windows: Times New Roman) that no user sees.
+that no user sees.
 
-`apps/desktop/e2e-tests/e2e-font.js` handles this for the application layer. It
-fetches the exact file the product uses from jsDelivr (falling back to the product's
-own CDN list), verifies it against the product's `sha256` from
+The file is a variable font, and the `format()` hint on that rule decides whether it is
+painted at all. An engine that is not told the file carries a variation axis loads it as
+a static face, finds no instance for the requested weight, and silently substitutes
+`serif` — no error, `document.fonts.check()` still returns `true`, and the face still
+reports `status: "loaded"`. The rule must therefore use the form CSS Fonts 4 defines:
+
+```css
+src: url('…woff2') format('woff2-variations');
+```
+
+`format('woff2') tech(variations)` is the modern equivalent. `format('woff2 supports
+variations')` is **not** in the specification — `<font-format>` accepts only `woff2`,
+`woff`, `opentype` and friends, and the variation requirement is expressed through
+`<font-tech>`. It appeared in pre-2018 articles about an early draft. Chromium 156
+parses it leniently enough to work while Chromium 155 rejects the entire `src` entry, so
+the same rule rendered the font on a developer machine and fell back on CI. That cost
+several wrong diagnoses; do not reintroduce it.
+
+`apps/desktop/e2e-tests/e2e-font.js` provisions the file for the application layer. It
+fetches the exact file the product uses from jsDelivr (falling back to the product's own
+CDN list), verifies it against the product's `sha256` from
 `src-tauri/src/core/system/assets.rs`, caches it under the Cargo target directory, and
-copies it into each session's app root before the app starts. The WebdriverIO suite
-then rewrites the injected rule to a `data:` source, because the shipped CSP allows
-only `'self' data: asset:` for `font-src` while the asset protocol resolves to
-`http://asset.localhost` on Windows — `connect-src` permits reading the bytes, and
-`data:` is permitted as a font source. The Storybook layer serves the same verified
-file through a small Vite middleware.
+copies it into each session's app root before the app starts. The Storybook layer serves
+the same verified file through a small Vite middleware.
 
-If the font cannot be loaded, both layers fail with an explicit message instead of
-producing a baseline of the wrong interface.
+Both layers then assert the interface is really painted in it, because a font failure is
+silent. The assertion in `useProductFont()` has two parts, and both are needed:
+
+1. The engine must have registered a face for the family. A rejected format hint
+   registers none — measurable as an empty `document.fonts` entry — and this signal does
+   not depend on which fonts the machine has installed.
+2. The painted Han outline must match a reference face built from the app's own bytes.
+   Outlines cannot be faked by synthetic bold the way advance widths can, and both sides
+   derive from the same file, so no installed font participates.
+
+Part 1 is what makes part 2 trustworthy. Without it a rejected rule makes the reference
+fall back too, both sides agree, and the check passes on a window showing the wrong
+typeface — which is exactly how a wrong baseline shipped once. Comparisons against
+generic `serif` do not work for the same reason: on a machine with a CJK serif installed
+it resolves to a near-identical design, and on a bare runner it resolves to a font with
+no Han glyphs, so in both cases a double fallback reads as a match.
 
 **Window size.** The settings baselines capture the product's own default window
 (`SETTINGS_WINDOW_DEFAULT_SIZE`, mirroring
