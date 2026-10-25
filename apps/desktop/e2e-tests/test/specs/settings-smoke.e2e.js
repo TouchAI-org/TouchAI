@@ -18,6 +18,7 @@ import {
     toggleSwitch,
     waitForE2eBridge,
     waitForTestIdDisplayed,
+    waitForTestIdNotDisplayed,
 } from '../support/desktop.js';
 
 describe('user works in the settings window', () => {
@@ -126,6 +127,37 @@ describe('user works in the settings window', () => {
             assertVisible(
                 await firstResult.isDisplayed(),
                 'Settings search showed an empty result list.'
+            );
+        });
+        it('user finds a setting by its English name while the interface is in Chinese', async () => {
+            const searchInput = await waitForTestIdDisplayed('settings-search-input');
+            await searchInput.click();
+            await searchInput.clearValue();
+
+            // The interface language is the app default, so this is the cross-language case:
+            // an English query must still find the row that is displayed in Chinese.
+            await searchInput.addValue('start minimized');
+
+            const results = await waitForTestIdDisplayed('settings-search-results');
+            const matched = await results.$('[role="option"]');
+            await matched.waitForDisplayed();
+            assertVisible(
+                await matched.isDisplayed(),
+                'Settings search found nothing for an English name on a Chinese interface.'
+            );
+        });
+
+        it('user gets no options for a word that appears in no translation', async () => {
+            const searchInput = await waitForTestIdDisplayed('settings-search-input');
+            await searchInput.click();
+            // Typing appends to whatever is there, so this query is deliberately a superset
+            // that no setting can match.
+            await searchInput.addValue(' zzzz-not-a-setting');
+
+            const results = await waitForTestIdDisplayed('settings-search-results');
+            await browser.waitUntil(
+                async () => (await results.$$('[role="option"]')).length === 0,
+                { timeoutMsg: 'Settings search still listed options for a word nothing matches.' }
             );
         });
     });
