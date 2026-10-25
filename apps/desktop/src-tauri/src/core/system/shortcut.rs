@@ -509,6 +509,115 @@ mod tests {
         assert_eq!(error, "Shortcut must contain exactly one key code");
     }
 
+    // A Windows accelerator string arrives as virtual-key codes. Mapping one to the wrong
+    // Code means the user's shortcut registers as a different key than they pressed.
+
+    #[test]
+    fn user_gets_every_letter_and_digit_mapped() {
+        let letters = [
+            Code::KeyA,
+            Code::KeyB,
+            Code::KeyC,
+            Code::KeyD,
+            Code::KeyE,
+            Code::KeyF,
+            Code::KeyG,
+            Code::KeyH,
+            Code::KeyI,
+            Code::KeyJ,
+            Code::KeyK,
+            Code::KeyL,
+            Code::KeyM,
+            Code::KeyN,
+            Code::KeyO,
+            Code::KeyP,
+            Code::KeyQ,
+            Code::KeyR,
+            Code::KeyS,
+            Code::KeyT,
+            Code::KeyU,
+            Code::KeyV,
+            Code::KeyW,
+            Code::KeyX,
+            Code::KeyY,
+            Code::KeyZ,
+        ];
+        for (offset, expected) in letters.iter().enumerate() {
+            let virtual_key = 0x41 + offset as u32;
+            assert_eq!(
+                windows_virtual_key_to_code(virtual_key),
+                Some(*expected),
+                "0x{virtual_key:02X} mapped wrong"
+            );
+        }
+
+        let digits = [
+            Code::Digit0,
+            Code::Digit1,
+            Code::Digit2,
+            Code::Digit3,
+            Code::Digit4,
+            Code::Digit5,
+            Code::Digit6,
+            Code::Digit7,
+            Code::Digit8,
+            Code::Digit9,
+        ];
+        for (offset, expected) in digits.iter().enumerate() {
+            assert_eq!(
+                windows_virtual_key_to_code(0x30 + offset as u32),
+                Some(*expected),
+                "digit {offset} mapped wrong"
+            );
+        }
+    }
+
+    #[test]
+    fn user_gets_every_function_key_mapped() {
+        for index in 0u32..12 {
+            assert!(
+                windows_virtual_key_to_code(0x70 + index).is_some(),
+                "F{} should map",
+                index + 1
+            );
+        }
+    }
+
+    #[test]
+    fn user_gets_the_navigation_keys_mapped() {
+        assert_eq!(windows_virtual_key_to_code(0x25), Some(Code::ArrowLeft));
+        assert_eq!(windows_virtual_key_to_code(0x26), Some(Code::ArrowUp));
+        assert_eq!(windows_virtual_key_to_code(0x27), Some(Code::ArrowRight));
+        assert_eq!(windows_virtual_key_to_code(0x28), Some(Code::ArrowDown));
+        assert_eq!(windows_virtual_key_to_code(0x24), Some(Code::Home));
+        assert_eq!(windows_virtual_key_to_code(0x23), Some(Code::End));
+        assert_eq!(windows_virtual_key_to_code(0x21), Some(Code::PageUp));
+        assert_eq!(windows_virtual_key_to_code(0x22), Some(Code::PageDown));
+    }
+
+    #[test]
+    fn user_gets_the_punctuation_keys_mapped() {
+        assert_eq!(windows_virtual_key_to_code(0xBA), Some(Code::Semicolon));
+        assert_eq!(windows_virtual_key_to_code(0xBB), Some(Code::Equal));
+        assert_eq!(windows_virtual_key_to_code(0xBC), Some(Code::Comma));
+        assert_eq!(windows_virtual_key_to_code(0xBD), Some(Code::Minus));
+        assert_eq!(windows_virtual_key_to_code(0xBE), Some(Code::Period));
+        assert_eq!(windows_virtual_key_to_code(0xBF), Some(Code::Slash));
+        assert_eq!(windows_virtual_key_to_code(0xC0), Some(Code::Backquote));
+        assert_eq!(windows_virtual_key_to_code(0xDB), Some(Code::BracketLeft));
+        assert_eq!(windows_virtual_key_to_code(0xDC), Some(Code::Backslash));
+        assert_eq!(windows_virtual_key_to_code(0xDD), Some(Code::BracketRight));
+        assert_eq!(windows_virtual_key_to_code(0xDE), Some(Code::Quote));
+    }
+
+    #[test]
+    fn user_gets_an_unmapped_key_refused_rather_than_guessed() {
+        // An unmapped key must not silently become some other key.
+        assert_eq!(windows_virtual_key_to_code(0x00), None);
+        assert_eq!(windows_virtual_key_to_code(0xFF), None);
+        assert_eq!(windows_virtual_key_to_code(0x7C), None);
+    }
+
     #[test]
     fn search_surface_command_matches_windows_accelerator() {
         let _guard = SEARCH_SURFACE_SHORTCUT_TEST_LOCK.lock().expect("test lock");
