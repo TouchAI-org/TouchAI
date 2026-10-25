@@ -1349,6 +1349,180 @@ mod tests {
 
     use super::*;
 
+    // The console and network panels are the only way the user sees what the page did, and
+    // they are also what the model reasons over. These tests pin the lines it will read.
+
+    #[test]
+    fn user_sees_a_console_line_with_the_level_and_joined_arguments() {
+        let line = format_runtime_console_event(&json!({
+            "type": "warning",
+            "args": [{ "value": "first" }, { "description": "second" }]
+        }));
+
+        assert_eq!(line, "console.warning: first second");
+    }
+
+    #[test]
+    fn user_sees_a_placeholder_when_a_console_event_carries_no_text() {
+        let line = format_runtime_console_event(&json!({ "type": "log", "args": [] }));
+
+        assert_eq!(line, "console.log: console event");
+    }
+
+    #[test]
+    fn user_sees_a_console_event_without_a_type_still_labelled() {
+        let line = format_runtime_console_event(&json!({ "args": [{ "value": "hi" }] }));
+
+        assert_eq!(line, "console.console: hi");
+    }
+
+    #[test]
+    fn user_gets_only_the_first_arguments_when_a_console_event_is_flooded() {
+        let args: Vec<serde_json::Value> = (0..MAX_DIAGNOSTIC_ARGS + 4)
+            .map(|index| json!({ "value": format!("arg{index}") }))
+            .collect();
+
+        let line = format_runtime_console_event(&json!({ "type": "log", "args": args }));
+
+        // A page that logs a thousand arguments must not push everything else out of the panel.
+        assert!(line.contains("arg0"));
+        assert!(!line.contains(&format!("arg{}", MAX_DIAGNOSTIC_ARGS)));
+    }
+
+    #[test]
+    fn user_sees_a_log_entry_line_with_its_level() {
+        let line = format_log_entry_event(&json!({
+            "entry": { "level": "error", "text": "something broke" }
+        }));
+
+        assert_eq!(line, "log.error: something broke");
+    }
+
+    #[test]
+    fn user_sees_a_log_entry_placeholder_when_the_text_is_missing() {
+        let line = format_log_entry_event(&json!({ "entry": { "level": "verbose" } }));
+
+        assert_eq!(line, "log.verbose: log entry");
+    }
+
+    #[test]
+    fn user_sees_a_log_entry_read_from_the_params_when_it_is_not_wrapped() {
+        let line = format_log_entry_event(&json!({ "level": "info", "text": "bare" }));
+
+        assert_eq!(line, "log.info: bare");
+    }
+
+    #[test]
+    fn user_sees_a_failed_response_with_its_status_and_url() {
+        let line = format_network_response_event(&json!({
+            "response": {
+                "status": 404,
+                "statusText": "Not Found",
+                "url": "https://example.com/missing"
+            }
+        }));
+
+        assert_eq!(
+            line.as_deref(),
+            Some("response 404 Not Found: https://example.com/missing")
+        );
+    }
+
+    #[test]
+    fn user_does_not_get_a_network_line_for_a_successful_response() {
+        // Only failures are worth the panel space; a 200 for every asset would bury them.
+        let line = format_network_response_event(&json!({
+            "response": { "status": 200, "url": "https://example.com" }
+        }));
+
+        assert_eq!(line, None);
+    }
+
+    #[test]
+    fn user_gets_a_network_line_when_the_response_has_no_status() {
+        let line = format_network_response_event(&json!({ "response": { "url": "x" } }));
+
+        assert_eq!(line, None);
+    }
+
+    #[test]
+    fn user_sees_unknown_url_when_a_failed_response_omits_it() {
+        let line = format_network_response_event(&json!({ "response": { "status": 500 } }));
+
+        assert_eq!(line.as_deref(), Some("response 500 : unknown URL"));
+    }
+
+    #[test]
+    fn user_sees_the_url_of_a_failed_request_resolved_from_its_id() {
+        let mut urls = BTreeMap::new();
+        urls.insert("req-1".to_string(), "https://example.com/api".to_string());
+
+        let line = format_network_failed_event(
+            &json!({ "requestId": "req-1", "errorText": "net::ERR_TIMED_OUT" }),
+            &urls,
+        );
+
+        assert_eq!(line, "failed net::ERR_TIMED_OUT: https://example.com/api");
+    }
+
+    #[test]
+    fn user_sees_unknown_url_when_a_failed_request_was_never_seen() {
+        let line = format_network_failed_event(&json!({ "requestId": "gone" }), &BTreeMap::new());
+
+        assert_eq!(line, "failed network request failed: unknown URL");
+    }
+
+    #[test]
+    fn user_gets_a_truncation_marker_on_a_line_that_is_too_long() {
+        let line = truncate_text(
+            &"a".repeat(MAX_DIAGNOSTIC_ENTRY_BYTES + 10),
+            MAX_DIAGNOSTIC_ENTRY_BYTES,
+        );
+
+        assert!(line.ends_with(TRUNCATED_SUFFIX));
+        assert!(line.len() <= MAX_DIAGNOSTIC_ENTRY_BYTES);
+    }
+
+    #[test]
+    fn user_gets_short_text_left_exactly_as_it_was() {
+        assert_eq!(truncate_text("short", 100), "short");
+    }
+
+    #[test]
+    fn user_does_not_get_a_split_character_when_text_is_cut() {
+        // A multi-byte character straddling the boundary must be dropped whole, not halved.
+        // With a budget that fits the marker, the marker survives and the text is cut before it.
+        // 3 bytes per character, so this is well past the byte budget.
+        let line = truncate_text(
+            &"\u{4e2d}".repeat(MAX_DIAGNOSTIC_ENTRY_BYTES),
+            MAX_DIAGNOSTIC_ENTRY_BYTES,
+        );
+
+        assert!(line.len() <= MAX_DIAGNOSTIC_ENTRY_BYTES);
+        assert!(line.ends_with(TRUNCATED_SUFFIX));
+        // The kept prefix is whole characters, so the byte length is a multiple of three.
+        let kept = line.trim_end_matches(TRUNCATED_SUFFIX);
+        assert_eq!(kept.len() % 3, 0, "a character was split: {kept:?}");
+    }
+
+    #[test]
+    fn user_gets_a_cut_without_a_marker_when_the_budget_is_tiny() {
+        // Below the marker length there is no room for it, so only the text is cut.
+        let line = truncate_text(&"\u{4e2d}".repeat(100), 9);
+
+        assert!(line.len() <= 9);
+        assert!(!line.contains(TRUNCATED_SUFFIX));
+        assert_eq!(line.len() % 3, 0, "a character was split: {line:?}");
+    }
+
+    #[test]
+    fn user_gets_no_marker_when_the_budget_is_smaller_than_the_marker() {
+        let line = truncate_text(&"a".repeat(50), 4);
+
+        assert!(line.len() <= 4);
+        assert!(!line.contains(TRUNCATED_SUFFIX));
+    }
+
     #[test]
     fn diagnostic_lines_are_byte_bounded() {
         let long_text = "a".repeat(MAX_DIAGNOSTIC_ENTRY_BYTES * 2);
