@@ -1523,6 +1523,220 @@ mod tests {
         assert!(!line.contains(TRUNCATED_SUFFIX));
     }
 
+    // The DOM snapshot is what the model acts on. A ref it never saw, or a selector built from
+    // an unescaped string, means acting on the wrong element.
+
+    fn target(id: &str, url: &str, title: &str) -> CdpTarget {
+        serde_json::from_value(json!({
+            "id": id,
+            "url": url,
+            "title": title,
+            "type": "page",
+            "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/x"
+        }))
+        .expect("a target deserialises")
+    }
+
+    #[test]
+    fn user_gets_a_stable_navigation_token_for_an_unchanged_page() {
+        let page = target("t1", "https://example.com", "Example");
+
+        assert_eq!(navigation_token(&page), navigation_token(&page));
+    }
+
+    #[test]
+    fn user_gets_a_new_navigation_token_when_the_page_moves() {
+        let before = target("t1", "https://example.com/a", "A");
+        let after = target("t1", "https://example.com/b", "B");
+
+        assert_ne!(navigation_token(&before), navigation_token(&after));
+    }
+
+    #[test]
+    fn user_gets_a_new_navigation_token_when_the_tab_changes() {
+        let first = target("t1", "https://example.com", "Example");
+        let second = target("t2", "https://example.com", "Example");
+
+        assert_ne!(navigation_token(&first), navigation_token(&second));
+    }
+
+    #[test]
+    fn user_gets_the_token_shape_the_frontend_compares() {
+        let token = navigation_token(&target("t1", "u", "t"));
+
+        assert!(token.starts_with("nav-"), "unexpected token: {token}");
+    }
+
+    #[test]
+    fn user_gets_a_tab_that_carries_the_page_details() {
+        let page = target("t1", "https://example.com", "Example");
+
+        let tab = page.to_tab(true);
+
+        assert_eq!(tab.id, "t1");
+        assert_eq!(tab.url, "https://example.com");
+        assert_eq!(tab.title, "Example");
+        assert!(tab.active);
+        assert_eq!(tab.navigation_token, navigation_token(&page));
+    }
+
+    #[test]
+    fn user_gets_an_inactive_tab_flagged_as_inactive() {
+        let tab = target("t1", "u", "t").to_tab(false);
+
+        assert!(!tab.active);
+    }
+
+    #[test]
+    fn user_gets_dom_refs_built_from_the_snapshot_with_their_own_ids() {
+        let value = json!({
+            "result": {
+                "value": [
+                    { "selector": "#a", "description": "button", "editable": false, "x": 1.5, "y": 2.5 },
+                    { "selector": "#b", "editable": true }
+                ]
+            }
+        });
+
+        let refs = parse_dom_refs(value, "nav-1").expect("a valid snapshot parses");
+
+        assert_eq!(refs.len(), 2);
+        assert_eq!(refs[0].ref_id, "ref-0");
+        assert_eq!(refs[0].selector, "#a");
+        assert_eq!(refs[0].description, "button");
+        assert!(!refs[0].editable);
+        assert_eq!(refs[0].x, 1.5);
+        assert_eq!(refs[1].ref_id, "ref-1");
+        assert!(refs[1].editable);
+        // Missing description and coordinates fall back rather than dropping the ref.
+        assert_eq!(refs[1].description, "element");
+        assert_eq!(refs[1].x, 0.0);
+        assert_eq!(refs[0].navigation_token, "nav-1");
+    }
+
+    #[test]
+    fn user_does_not_get_a_dom_ref_without_a_selector() {
+        let value = json!({
+            "result": { "value": [{ "description": "no selector" }, { "selector": "#kept" }] }
+        });
+
+        let refs = parse_dom_refs(value, "nav-1").expect("the snapshot still parses");
+
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].selector, "#kept");
+    }
+
+    #[test]
+    fn user_gets_a_clear_error_when_the_snapshot_is_not_an_array() {
+        let error = parse_dom_refs(json!({ "result": { "value": 5 } }), "nav-1")
+            .expect_err("a non-array snapshot must be refused");
+
+        assert_eq!(error, "Browser DOM snapshot did not return an array");
+    }
+
+    #[test]
+    fn user_gets_a_selector_escaped_so_it_survives_a_script_string() {
+        // The selector is interpolated into a script, so quotes must be escaped.
+        assert_eq!(css_string("a\"b"), "\"a\\\"b\"");
+    }
+
+    #[test]
+    fn user_gets_an_ordinary_selector_wrapped_in_quotes() {
+        assert_eq!(css_string("#a"), "\"#a\"");
+    }
+
+    #[test]
+    fn user_gets_a_text_entry_control_recognised_by_its_tag() {
+        assert!(is_text_entry_control(&FocusedEditableElement {
+            tag: "TEXTAREA".to_string(),
+            input_type: String::new(),
+            content_editable: false,
+        }));
+    }
+
+    #[test]
+    fn user_gets_a_content_editable_region_treated_as_text_entry() {
+        assert!(is_text_entry_control(&FocusedEditableElement {
+            tag: "DIV".to_string(),
+            input_type: String::new(),
+            content_editable: true,
+        }));
+    }
+
+    #[test]
+    fn user_gets_every_text_input_type_accepted() {
+        for input_type in [
+            "", "text", "search", "tel", "url", "email", "password", "number",
+        ] {
+            assert!(
+                is_text_entry_control(&FocusedEditableElement {
+                    tag: "INPUT".to_string(),
+                    input_type: input_type.to_string(),
+                    content_editable: false,
+                }),
+                "input type '{input_type}' should accept typing"
+            );
+        }
+    }
+
+    #[test]
+    fn user_does_not_get_a_non_text_input_accepted() {
+        for input_type in ["checkbox", "radio", "file", "submit", "range"] {
+            assert!(
+                !is_text_entry_control(&FocusedEditableElement {
+                    tag: "INPUT".to_string(),
+                    input_type: input_type.to_string(),
+                    content_editable: false,
+                }),
+                "input type '{input_type}' should not accept typing"
+            );
+        }
+    }
+
+    #[test]
+    fn user_does_not_get_a_non_input_element_accepted() {
+        assert!(!is_text_entry_control(&FocusedEditableElement {
+            tag: "BUTTON".to_string(),
+            input_type: String::new(),
+            content_editable: false,
+        }));
+    }
+
+    #[test]
+    fn user_gets_a_plain_override_value_kept() {
+        assert_eq!(normalized_override_value("  en-US  "), Some("en-US"));
+    }
+
+    #[test]
+    fn user_gets_an_unsafe_override_value_dropped() {
+        assert_eq!(normalized_override_value(""), None);
+        assert_eq!(normalized_override_value("   "), None);
+        assert_eq!(normalized_override_value("--x"), None);
+        assert_eq!(normalized_override_value("a\u{0000}b"), None);
+    }
+
+    #[test]
+    fn user_gets_the_fingerprint_script_defaulting_to_the_app_locale() {
+        let script = browser_fingerprint_compat_script(None);
+
+        assert!(script.contains("zh-CN"));
+    }
+
+    #[test]
+    fn user_gets_the_chosen_locale_in_the_fingerprint_script() {
+        let script = browser_fingerprint_compat_script(Some("en-US"));
+
+        assert!(script.contains("en-US"));
+        assert!(!script.contains("zh-CN"));
+    }
+
+    #[test]
+    fn user_gets_the_default_locale_when_the_override_is_unsafe() {
+        let script = browser_fingerprint_compat_script(Some("--evil"));
+
+        assert!(script.contains("zh-CN"));
+    }
+
     #[test]
     fn diagnostic_lines_are_byte_bounded() {
         let long_text = "a".repeat(MAX_DIAGNOSTIC_ENTRY_BYTES * 2);

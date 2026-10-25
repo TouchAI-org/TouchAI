@@ -445,6 +445,85 @@ mod tests {
         }
     }
 
+    // Hiding the window at the wrong moment makes it vanish mid-task; not hiding it leaves it
+    // floating over the user's work. These are the cases the decision table has to get right.
+
+    fn input(label: &str) -> FocusLostDecisionInput<'_> {
+        FocusLostDecisionInput {
+            window_label: label,
+            hide_on_app_blur: true,
+            main_visible: true,
+            main_maximized: false,
+            main_always_on_top: false,
+            app_focused: false,
+            has_popup_sessions: false,
+        }
+    }
+
+    #[test]
+    fn user_loses_the_window_when_the_app_loses_focus() {
+        assert!(should_hide_on_focus_lost(input("main")));
+    }
+
+    #[test]
+    fn user_keeps_the_window_when_the_hide_policy_is_off() {
+        let mut decision = input("main");
+        decision.hide_on_app_blur = false;
+
+        assert!(!should_hide_on_focus_lost(decision));
+    }
+
+    #[test]
+    fn user_keeps_the_window_when_it_is_already_hidden() {
+        let mut decision = input("main");
+        decision.main_visible = false;
+
+        assert!(!should_hide_on_focus_lost(decision));
+    }
+
+    #[test]
+    fn user_keeps_the_window_when_it_is_pinned() {
+        // A pinned window is meant to stay while the user works elsewhere.
+        let mut decision = input("main");
+        decision.main_always_on_top = true;
+
+        assert!(!should_hide_on_focus_lost(decision));
+    }
+
+    #[test]
+    fn user_keeps_the_window_when_the_app_is_still_focused() {
+        let mut decision = input("main");
+        decision.app_focused = true;
+
+        assert!(!should_hide_on_focus_lost(decision));
+    }
+
+    #[test]
+    fn user_keeps_a_maximized_window_when_focus_moves() {
+        let mut decision = input("main");
+        decision.main_maximized = true;
+
+        assert!(!should_hide_on_focus_lost(decision));
+    }
+
+    #[test]
+    fn user_keeps_the_main_window_while_a_popup_is_open() {
+        // Focus moves to the popup before it becomes the foreground window.
+        let mut decision = input("main");
+        decision.has_popup_sessions = true;
+
+        assert!(!should_hide_on_focus_lost(decision));
+    }
+
+    #[test]
+    fn user_loses_a_popup_window_even_while_another_popup_session_exists() {
+        // The popup guard only protects the main window, not a popup losing focus itself.
+        let mut decision = input("popup-model-dropdown");
+        decision.has_popup_sessions = true;
+
+        assert!(should_hide_on_focus_lost(decision));
+    }
+
     #[test]
     fn main_blur_keeps_surface_visible_while_popup_session_is_open() {
         let should_hide = should_hide_on_focus_lost(FocusLostDecisionInput {

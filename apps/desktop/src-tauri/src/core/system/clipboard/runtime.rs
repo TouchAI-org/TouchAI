@@ -444,8 +444,160 @@ fn build_snapshot_content_identity(text: Option<&str>, html: Option<&str>) -> Op
 mod tests {
     use super::{
         append_payload_attachment_fragments, build_snapshot_content_identity,
-        ClipboardPayloadFragment,
+        ClipboardPayloadFragment, ClipboardRuntimeState, ClipboardSnapshot,
+        ClipboardSnapshotReadMode,
     };
+
+    // The runtime decides whether a shortcut press pastes the clipboard. Pasting twice from
+    // one press, or pasting something the user copied an hour ago, is worse than not pasting.
+
+    fn snapshot(id: &str, observed_at: u64) -> ClipboardSnapshot {
+        ClipboardSnapshot {
+            snapshot_id: id.to_string(),
+            observed_at,
+            text: Some(format!("text-{id}")),
+            html: None,
+            html_source_url: None,
+            html_images: Vec::new(),
+            image_paths: Vec::new(),
+            file_paths: Vec::new(),
+            fragments: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn user_gets_the_first_observation_time_kept_when_the_same_content_is_seen_again() {
+        let mut state = ClipboardRuntimeState::default();
+        state.remember_snapshot(snapshot("clip-1", 1_000));
+
+        state.remember_snapshot(snapshot("clip-1", 9_000));
+
+        // Re-reading identical content must not extend the freshness window.
+        assert_eq!(
+            state.latest_snapshot.expect("a snapshot").observed_at,
+            1_000
+        );
+    }
+
+    #[test]
+    fn user_gets_a_new_observation_time_for_different_content() {
+        let mut state = ClipboardRuntimeState::default();
+        state.remember_snapshot(snapshot("clip-1", 1_000));
+
+        state.remember_snapshot(snapshot("clip-2", 9_000));
+
+        assert_eq!(
+            state.latest_snapshot.expect("a snapshot").observed_at,
+            9_000
+        );
+    }
+
+    #[test]
+    fn user_gets_no_snapshot_after_it_is_cleared() {
+        let mut state = ClipboardRuntimeState::default();
+        state.remember_snapshot(snapshot("clip-1", 1_000));
+
+        state.clear_snapshot();
+
+        assert!(state.latest_snapshot.is_none());
+    }
+
+    #[test]
+    fn user_gets_no_auto_paste_without_a_shortcut_press() {
+        let mut state = ClipboardRuntimeState::default();
+        state.remember_snapshot(snapshot("clip-1", 1_000));
+
+        // Nothing authorised the paste, so a plain read must not produce one.
+        assert!(state
+            .consume_shortcut_auto_paste_payload(60_000, 2_000)
+            .is_none());
+    }
+
+    #[test]
+    fn user_gets_the_clipboard_pasted_after_pressing_the_shortcut() {
+        let mut state = ClipboardRuntimeState::default();
+        state.remember_snapshot(snapshot("clip-1", 1_000));
+        state.authorize_shortcut_auto_paste();
+
+        let payload = state
+            .consume_shortcut_auto_paste_payload(60_000, 2_000)
+            .expect("a fresh snapshot pastes");
+
+        assert_eq!(payload.snapshot_id, "clip-1");
+    }
+
+    #[test]
+    fn user_does_not_get_the_same_clipboard_pasted_twice() {
+        let mut state = ClipboardRuntimeState::default();
+        state.remember_snapshot(snapshot("clip-1", 1_000));
+        state.authorize_shortcut_auto_paste();
+        let _ = state.consume_shortcut_auto_paste_payload(60_000, 2_000);
+
+        state.authorize_shortcut_auto_paste();
+
+        // A second press on unchanged content must not paste it again.
+        assert!(state
+            .consume_shortcut_auto_paste_payload(60_000, 3_000)
+            .is_none());
+    }
+
+    #[test]
+    fn user_gets_the_new_clipboard_pasted_after_copying_something_else() {
+        let mut state = ClipboardRuntimeState::default();
+        state.remember_snapshot(snapshot("clip-1", 1_000));
+        state.authorize_shortcut_auto_paste();
+        let _ = state.consume_shortcut_auto_paste_payload(60_000, 2_000);
+
+        state.remember_snapshot(snapshot("clip-2", 3_000));
+        state.authorize_shortcut_auto_paste();
+
+        let payload = state
+            .consume_shortcut_auto_paste_payload(60_000, 4_000)
+            .expect("new content pastes");
+
+        assert_eq!(payload.snapshot_id, "clip-2");
+    }
+
+    #[test]
+    fn user_does_not_get_stale_clipboard_pasted() {
+        let mut state = ClipboardRuntimeState::default();
+        state.remember_snapshot(snapshot("clip-1", 1_000));
+        state.authorize_shortcut_auto_paste();
+
+        // Older than the window the caller allows.
+        assert!(state
+            .consume_shortcut_auto_paste_payload(500, 5_000)
+            .is_none());
+    }
+
+    #[test]
+    fn user_gets_the_authorisation_spent_after_one_press() {
+        let mut state = ClipboardRuntimeState::default();
+        state.remember_snapshot(snapshot("clip-1", 1_000));
+        state.authorize_shortcut_auto_paste();
+        let _ = state.consume_shortcut_auto_paste_payload(60_000, 2_000);
+
+        // The authorisation is one-shot, so a stale read does not silently reuse it.
+        assert!(state
+            .consume_shortcut_auto_paste_payload(60_000, 2_000)
+            .is_none());
+    }
+
+    #[test]
+    fn user_gets_no_auto_paste_when_the_clipboard_is_empty() {
+        let mut state = ClipboardRuntimeState::default();
+        state.authorize_shortcut_auto_paste();
+
+        assert!(state
+            .consume_shortcut_auto_paste_payload(60_000, 2_000)
+            .is_none());
+    }
+
+    #[test]
+    fn user_gets_external_images_resolved_only_for_an_explicit_read() {
+        assert!(ClipboardSnapshotReadMode::ResolveExternalImages.should_resolve_external_images());
+        assert!(!ClipboardSnapshotReadMode::Observe.should_resolve_external_images());
+    }
 
     #[test]
     fn attachment_only_payloads_still_emit_fragments() {
