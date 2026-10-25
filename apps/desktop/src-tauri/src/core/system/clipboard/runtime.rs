@@ -432,12 +432,25 @@ fn append_payload_attachment_fragments(
 }
 
 fn build_snapshot_content_identity(text: Option<&str>, html: Option<&str>) -> Option<String> {
+    // Each part is length-prefixed so a text that contains the separator cannot be mistaken
+    // for a different text/html pair. Without this, text "x\nhtml:y" and the pair
+    // (text "x", html "y") would hash to the same snapshot id and the renderer would treat
+    // the second copy as unchanged.
     match (text, html) {
-        (Some(text), Some(html)) => Some(format!("text:{text}\nhtml:{html}")),
-        (Some(text), None) => Some(format!("text:{text}")),
-        (None, Some(html)) => Some(format!("html:{html}")),
+        (Some(text), Some(html)) => Some(format!(
+            "{}:{text}{}:{html}",
+            tag("text", text),
+            tag("html", html)
+        )),
+        (Some(text), None) => Some(format!("{}:{text}", tag("text", text))),
+        (None, Some(html)) => Some(format!("{}:{html}", tag("html", html))),
         (None, None) => None,
     }
+}
+
+/// Length prefix for one identity part, so the boundary is unambiguous.
+fn tag(label: &str, value: &str) -> String {
+    format!("{label}:{}", value.len())
 }
 
 #[cfg(test)]
@@ -604,26 +617,50 @@ mod tests {
     // unchanged and the new formatting never reaches the prompt.
 
     #[test]
-    fn user_gets_the_text_identity_for_plain_text() {
-        assert_eq!(
-            build_snapshot_content_identity(Some("hello"), None).as_deref(),
-            Some("text:hello")
-        );
+    fn user_gets_a_distinct_identity_for_plain_text() {
+        let plain = build_snapshot_content_identity(Some("hello"), None);
+        let rich = build_snapshot_content_identity(None, Some("hello"));
+
+        assert!(plain.is_some());
+        assert_ne!(plain, rich, "text and html must not share an identity");
     }
 
     #[test]
-    fn user_gets_the_html_identity_for_html_only() {
-        assert_eq!(
-            build_snapshot_content_identity(None, Some("<b>x</b>")).as_deref(),
-            Some("html:<b>x</b>")
-        );
+    fn user_gets_a_distinct_identity_for_html_only() {
+        let html = build_snapshot_content_identity(None, Some("<b>x</b>"));
+
+        assert!(html.is_some());
+        assert_ne!(html, build_snapshot_content_identity(None, None));
     }
 
     #[test]
-    fn user_gets_both_parts_when_text_and_html_are_present() {
-        assert_eq!(
-            build_snapshot_content_identity(Some("x"), Some("<b>x</b>")).as_deref(),
-            Some("text:x\nhtml:<b>x</b>")
+    fn user_does_not_get_a_collision_when_the_text_contains_the_separator() {
+        // A text that embeds "html:y" must not look like a real text/html pair.
+        let forged = build_snapshot_content_identity(Some("x\nhtml:y"), None);
+        let real = build_snapshot_content_identity(Some("x"), Some("y"));
+
+        assert_ne!(forged, real, "the identity is ambiguous: {forged:?}");
+    }
+
+    #[test]
+    fn user_does_not_get_a_collision_when_the_text_embeds_a_length_prefix() {
+        let forged = build_snapshot_content_identity(Some("1:a"), None);
+        let real = build_snapshot_content_identity(Some("a"), None);
+
+        assert_ne!(forged, real, "the identity is ambiguous: {forged:?}");
+    }
+
+    #[test]
+    fn user_gets_both_parts_recorded_when_text_and_html_are_present() {
+        let both = build_snapshot_content_identity(Some("x"), Some("<b>x</b>"))
+            .expect("a pair produces an identity");
+
+        // Both parts must be present and ordered, so a swap is not equal either.
+        assert!(both.contains("text"));
+        assert!(both.contains("html"));
+        assert_ne!(
+            both,
+            build_snapshot_content_identity(Some("<b>x</b>"), Some("x")).expect("swapped")
         );
     }
 

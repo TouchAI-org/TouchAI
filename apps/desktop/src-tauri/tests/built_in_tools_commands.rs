@@ -154,7 +154,7 @@ fn built_in_tools_start_bash_returns_before_completion_and_streams_events() {
 }
 
 #[test]
-fn built_in_tools_cancel_bash_reports_no_running_execution_for_an_unknown_id() {
+fn user_given_an_unknown_execution_when_cancelling_bash_then_reports_no_cancel() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     // Nothing is registered under this id, so no process was signalled. The call still succeeds
@@ -169,7 +169,7 @@ fn built_in_tools_cancel_bash_reports_no_running_execution_for_an_unknown_id() {
 }
 
 #[test]
-fn built_in_tools_cancel_bash_is_stable_when_repeated() {
+fn user_given_an_unstarted_execution_when_cancelling_twice_then_reports_no_cancel_each_time() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     let first: bool = invoke_command_ok(

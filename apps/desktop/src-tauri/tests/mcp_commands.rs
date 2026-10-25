@@ -107,9 +107,9 @@ fn user_gets_an_error_when_connecting_a_stdio_server_without_a_command() {
         }),
     );
 
-    assert!(
-        error.to_string().contains("Command is required"),
-        "unexpected error: {error}"
+    assert_eq!(
+        error.to_string(),
+        "\"Command is required for stdio transport\""
     );
 }
 
@@ -137,15 +137,49 @@ fn user_gets_an_error_when_connecting_an_http_server_without_a_url() {
         }),
     );
 
-    assert!(
-        error.to_string().contains("URL is required"),
-        "unexpected error: {error}"
-    );
+    assert_eq!(error.to_string(), "\"URL is required for HTTP transport\"");
+}
+
+/// A loopback listener that answers every connection with an immediate 503, so the failure is
+/// deterministic. A closed port would be refused by the OS, but a port like 9 may belong to the
+/// Discard service, which accepts the connection and never answers.
+fn serve_immediate_503() -> u16 {
+    use std::io::{BufRead, BufReader, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind a loopback port");
+    let port = listener.local_addr().expect("local addr").port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let mut reader = BufReader::new(match stream.try_clone() {
+                Ok(clone) => clone,
+                Err(_) => break,
+            });
+            let mut line = String::new();
+            // Drain the request head so the client is not blocked writing to us.
+            while reader
+                .read_line(&mut line)
+                .map(|read| read > 0)
+                .unwrap_or(false)
+            {
+                if line.trim_end().is_empty() {
+                    break;
+                }
+                line.clear();
+            }
+            let _ = stream.write_all(
+                b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            );
+            let _ = stream.flush();
+        }
+    });
+    port
 }
 
 #[test]
 fn user_does_not_see_a_server_that_failed_to_connect() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+    let port = serve_immediate_503();
 
     let _ = invoke_command_err(
         &test_app.main_webview,
@@ -159,7 +193,7 @@ fn user_does_not_see_a_server_that_failed_to_connect() {
                 "args": null,
                 "env": null,
                 "cwd": null,
-                "url": "http://127.0.0.1:9/mcp",
+                "url": format!("http://127.0.0.1:{port}/mcp"),
                 "headers": null,
                 "enabled": true,
                 "tool_timeout": 30000
