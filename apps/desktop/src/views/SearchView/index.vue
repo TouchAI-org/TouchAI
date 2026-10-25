@@ -84,6 +84,13 @@
         clipboardPayloadHasAttachmentFragments,
         trimClipboardPayloadTextBoundary,
     } from './utils/clipboardDraft';
+    import {
+        copyE2eConversationFixture,
+        describeE2eApprovalFixture,
+        describeE2eConfirmFixture,
+        type E2eAskUserFixture,
+        getE2eQuickSearchFallbackResults,
+    } from './utils/e2eFixtures';
     defineOptions({
         name: 'SearchViewPage',
     });
@@ -101,29 +108,6 @@
     const queryText = toRef(draft, 'queryText');
     const attachments = toRef(draft, 'attachments');
     const modelOverride = toRef(draft, 'modelOverride');
-    /** Shape of an ask-user panel seeded by the E2E bridge. */
-    type E2eAskUserFixture =
-        | {
-              kind: 'confirm';
-              title: string;
-              message: string;
-              confirmText: string;
-              cancelText: string;
-              type: 'warning' | 'danger' | 'info';
-          }
-        | {
-              kind: 'approval';
-              title: string;
-              description: string;
-              command: string;
-              riskLabel: string;
-              reason: string;
-              commandLabel: string;
-              approveLabel: string;
-              rejectLabel: string;
-              enterHint: string;
-              escHint: string;
-          };
     const cursorContext = ref<SearchCursorContext>({
         isMultiLine: false,
         cursorAtStart: true,
@@ -1119,79 +1103,19 @@
         queryText.value = restoredText;
     }
 
-    /**
-     * Deterministic results for the E2E visual baseline.
-     *
-     * Real file search depends on the machine: a contributor's disk has thousands
-     * of matches, a fresh CI runner has none, and the pixels would differ for
-     * reasons unrelated to the code. The bridge answers only for a query no real
-     * filename contains, so an ordinary search still exercises the real path.
-     */
-    function getE2eQuickSearchFallbackResults(query: string): QuickShortcutItem[] {
-        const normalizedQuery = query.trim().toLowerCase();
-        if (normalizedQuery !== 'touchai-visual-fixture') {
-            return [];
-        }
-
-        return [
-            { name: 'Design tokens', path: 'C:/TouchAI/src/styles/tokens', source: 'file' },
-            {
-                name: 'Design system guide',
-                path: 'C:/TouchAI/docs/design-system.md',
-                source: 'file',
-            },
-            {
-                name: 'Settings window',
-                path: 'C:/TouchAI/src/views/SettingsView.vue',
-                source: 'file',
-            },
-            { name: 'Search window', path: 'C:/TouchAI/src/views/SearchView.vue', source: 'file' },
-            {
-                name: 'Visual baselines',
-                path: 'C:/TouchAI/e2e-tests/__snapshots__',
-                source: 'file',
-            },
-            { name: 'Lint rules', path: 'C:/TouchAI/eslint.config.js', source: 'file' },
-        ];
-    }
-
     function applyE2eConversationFixture(messages: SessionMessage[]) {
-        // `sessionHistory` is owned by the agent composable and is rewritten from a
-        // task snapshot; writing it here is enough because no request is running.
-        sessionHistory.value = messages.map((message) => ({ ...message }));
+        // `sessionHistory` is owned by the agent composable and rewritten from a task
+        // snapshot; writing it here is enough because no request is running.
+        sessionHistory.value = copyE2eConversationFixture(messages) as SessionMessage[];
     }
 
     function applyE2eAskUserFixture(request: E2eAskUserFixture) {
         if (request.kind === 'confirm') {
-            askUserStore.enqueueConfirm(
-                {
-                    title: request.title,
-                    message: request.message,
-                    confirmText: request.confirmText,
-                    cancelText: request.cancelText,
-                    type: request.type,
-                },
-                () => undefined
-            );
+            askUserStore.enqueueConfirm(describeE2eConfirmFixture(request), () => undefined);
             return;
         }
 
-        askUserStore.enqueueApproval(
-            {
-                title: request.title,
-                description: request.description,
-                command: request.command,
-                riskLabel: request.riskLabel,
-                reason: request.reason,
-                commandLabel: request.commandLabel,
-                approveLabel: request.approveLabel,
-                rejectLabel: request.rejectLabel,
-                enterHint: request.enterHint,
-                escHint: request.escHint,
-                callId: 'e2e-ask-user-fixture',
-            },
-            () => undefined
-        );
+        askUserStore.enqueueApproval(describeE2eApprovalFixture(request), () => undefined);
     }
 
     async function installE2eBridge() {
