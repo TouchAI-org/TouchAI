@@ -431,7 +431,9 @@ impl Default for SearchWindowRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::{should_hide_on_focus_lost, FocusLostDecisionInput};
+    use super::{
+        should_hide_on_focus_lost, FocusLostDecisionInput, PopupSurfaceSession, SearchWindowRuntime,
+    };
 
     fn decision_input(window_label: &'static str) -> FocusLostDecisionInput<'static> {
         FocusLostDecisionInput {
@@ -458,6 +460,93 @@ mod tests {
             app_focused: false,
             has_popup_sessions: false,
         }
+    }
+
+    // Popup sessions tell the surface that a popup is open, which is what keeps the main
+    // window from hiding when focus moves into it.
+
+    fn session(label: &str) -> PopupSurfaceSession {
+        PopupSurfaceSession {
+            popup_id: format!("id-{label}"),
+            popup_session_version: 1,
+            popup_type: "session-history-popup".to_string(),
+            window_label: label.to_string(),
+        }
+    }
+
+    #[test]
+    fn user_gets_a_sequence_number_that_only_moves_forward() {
+        let runtime = SearchWindowRuntime::new();
+
+        let first = runtime.next_sequence();
+        let second = runtime.next_sequence();
+
+        // The renderer uses this to ignore out-of-order events.
+        assert!(second > first, "{second} should exceed {first}");
+    }
+
+    #[test]
+    fn user_keeps_the_popup_remembered_after_registering_it() {
+        let runtime = SearchWindowRuntime::new();
+
+        runtime.register_popup_session(session("popup-a"));
+
+        assert!(runtime.has_popup_sessions());
+    }
+
+    #[test]
+    fn user_gets_no_popup_remembered_before_any_is_registered() {
+        let runtime = SearchWindowRuntime::new();
+
+        assert!(!runtime.has_popup_sessions());
+    }
+
+    #[test]
+    fn user_gets_a_registered_popup_replaced_by_a_newer_session_on_the_same_window() {
+        let runtime = SearchWindowRuntime::new();
+        runtime.register_popup_session(session("popup-a"));
+
+        let mut newer = session("popup-a");
+        newer.popup_session_version = 2;
+        runtime.register_popup_session(newer);
+
+        let sessions = runtime.take_popup_sessions();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].popup_session_version, 2);
+    }
+
+    #[test]
+    fn user_gets_every_popup_returned_and_forgotten_when_taking_them() {
+        let runtime = SearchWindowRuntime::new();
+        runtime.register_popup_session(session("popup-a"));
+        runtime.register_popup_session(session("popup-b"));
+
+        let sessions = runtime.take_popup_sessions();
+
+        assert_eq!(sessions.len(), 2);
+        assert!(!runtime.has_popup_sessions(), "taking must clear the state");
+    }
+
+    #[test]
+    fn user_gets_the_hide_policy_kept_until_it_is_changed() {
+        let runtime = SearchWindowRuntime::new();
+
+        runtime.set_hide_on_app_blur(false);
+        assert!(!runtime.should_hide_on_app_blur());
+
+        runtime.set_hide_on_app_blur(true);
+        assert!(runtime.should_hide_on_app_blur());
+    }
+
+    #[test]
+    fn user_gets_the_height_override_policy_kept_until_it_is_changed() {
+        let runtime = SearchWindowRuntime::new();
+
+        runtime.set_allow_height_override(true);
+        assert!(runtime.should_allow_height_override());
+
+        runtime.set_allow_height_override(false);
+        assert!(!runtime.should_allow_height_override());
     }
 
     #[test]
