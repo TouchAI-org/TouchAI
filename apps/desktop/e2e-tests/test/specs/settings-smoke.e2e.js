@@ -18,7 +18,6 @@ import {
     toggleSwitch,
     waitForE2eBridge,
     waitForTestIdDisplayed,
-    waitForTestIdNotDisplayed,
 } from '../support/desktop.js';
 
 describe('user works in the settings window', () => {
