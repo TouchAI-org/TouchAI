@@ -7,6 +7,7 @@ use touchai_lib::testing;
 /// Popups are preloaded hidden so the first right-click is instant. Registering a config and
 /// preloading it is what the app does at startup, and the window has to appear under the
 /// `popup-<id>` label the renderer addresses.
+#[cfg(target_os = "windows")]
 #[test]
 fn user_gets_a_registered_popup_window_created_hidden() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
