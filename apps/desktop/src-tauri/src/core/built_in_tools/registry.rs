@@ -137,4 +137,70 @@ mod tests {
         assert!(second.try_recv().is_ok());
         assert_eq!(registry.cancel_all(), 0);
     }
+    #[test]
+    fn user_gets_a_cancel_already_waiting_when_it_arrives_before_the_execution_starts() {
+        let registry = BuiltInProcessExecutionRegistry::new();
+
+        // The cancel IPC may overtake the execution registration; the signal must not be lost.
+        assert!(!registry.cancel("late-start"));
+        let mut receiver = registry.register("late-start".to_string());
+
+        assert!(receiver.try_recv().is_ok());
+    }
+
+    #[test]
+    fn user_cancelling_a_running_execution_reports_it_as_found() {
+        let registry = BuiltInProcessExecutionRegistry::new();
+        let mut receiver = registry.register("running".to_string());
+
+        assert!(registry.cancel("running"));
+        assert!(receiver.try_recv().is_ok());
+        // A second cancel finds nothing left to signal.
+        assert!(!registry.cancel("running"));
+    }
+
+    #[test]
+    fn user_reusing_an_execution_id_cancels_the_older_execution() {
+        let registry = BuiltInProcessExecutionRegistry::new();
+        let mut first = registry.register("same-id".to_string());
+
+        let mut second = registry.register("same-id".to_string());
+
+        // The stale execution is signalled so it cannot keep running unnoticed.
+        assert!(first.try_recv().is_ok());
+        assert!(second.try_recv().is_err());
+    }
+
+    #[test]
+    fn user_gets_a_completed_execution_removed_from_the_registry() {
+        let registry = BuiltInProcessExecutionRegistry::new();
+        let _receiver = registry.register("done".to_string());
+
+        registry.complete("done");
+
+        // Nothing is left to cancel, so the cancel is recorded as pending instead.
+        assert!(!registry.cancel("done"));
+        assert_eq!(registry.cancel_all(), 0);
+    }
+
+    #[test]
+    fn user_completing_an_unknown_execution_is_harmless() {
+        let registry = BuiltInProcessExecutionRegistry::new();
+
+        registry.complete("never-registered");
+
+        assert_eq!(registry.cancel_all(), 0);
+    }
+
+    #[test]
+    fn user_cancelling_everything_also_clears_pending_cancellations() {
+        let registry = BuiltInProcessExecutionRegistry::new();
+        registry.cancel("pending-only");
+
+        assert_eq!(registry.cancel_all(), 0);
+
+        // The pending marker was cleared, so registering now starts a clean execution.
+        let mut receiver = registry.register("pending-only".to_string());
+        assert!(receiver.try_recv().is_err());
+    }
 }
