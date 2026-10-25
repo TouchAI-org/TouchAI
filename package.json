@@ -7,6 +7,11 @@
     "license": "GPL-3.0-or-later",
     "type": "module",
     "packageManager": "pnpm@10.32.1",
+    "pnpm": {
+        "overrides": {
+            "undici": "8.12.3"
+        }
+    },
     "scripts": {
         "dev": "pnpm --filter @touchai/desktop dev",
         "build": "pnpm --filter @touchai/desktop build",
@@ -78,7 +83,8 @@
             "source-map-js": "1.2.2",
             "happy-dom": "20.8.9",
             "@types/sax>@types/node": "^25.9.9",
-            "@wdio/config>glob": "^10.5.0"
+            "@wdio/config>glob": "^10.5.0",
+            "undici": "8.12.3"
         }
     },
     "lint-staged": {
