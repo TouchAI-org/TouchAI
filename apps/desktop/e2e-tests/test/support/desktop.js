@@ -120,62 +120,102 @@ export async function visualMismatchTolerance() {
  * The defect this guards against was exactly that kind of silent fallback. The
  * `@font-face` rule omitted `format('woff2 supports variations')`, so the engine
  * treated the variable font as static, found no instance for the requested weight,
- * and painted the system serif instead. Nothing failed; the window just used a
+ * and painted whatever `serif` resolved to. Nothing failed; the window just used a
  * different typeface than the one the app ships.
  *
- * Han glyphs are the discriminator. Chinese is set in fixed-width squares so advance
- * width is useless, but the strokes differ plainly between faces, so rasterising the
- * same Han string and comparing pixels is decisive. The reference is `serif`, because
- * that is precisely what the page falls back to: on a machine with an installed CJK
- * serif it is that font, and on a machine without one it is the platform default.
- * Either way, a matching raster means the product face was not used.
+ * Han glyphs are the discriminator, because Chinese is set in fixed-width squares
+ * (advance width says nothing) while the strokes differ plainly between faces.
+ *
+ * The comparison is against a second face built from the app's own bytes rather than
+ * against the generic `serif`. Two reasons, both learned the hard way:
+ *
+ *   - `serif` is machine-dependent. On a developer box it resolves to an installed CJK
+ *     serif, so a fallback is detectable; on a bare CI runner it has no Han glyphs at
+ *     all, so the product family and `serif` both rasterise as the same tofu boxes and
+ *     the check reports a false failure.
+ *   - `new FontFace(bytes, { weight: '250 900' })` falls back in this engine exactly
+ *     like the defective CSS rule did, which made the reference itself the broken
+ *     side of the comparison. The reference therefore has to be declared the same way
+ *     the app declares it: an `@font-face` rule with the variations format hint.
  */
 export async function useProductFont() {
     const family = 'TouchAI Source Han Serif SC';
+    const referenceFamily = 'TouchAI E2E Reference';
 
-    const report = await browser.executeAsync((done) => {
-        (async () => {
-            await document.fonts.load(`52px '${'TouchAI Source Han Serif SC'}'`);
-            await document.fonts.ready;
+    const report = await browser.executeAsync(
+        (productFamily, refFamily, done) => {
+            (async () => {
+                await document.fonts.load(`52px '${productFamily}'`);
+                await document.fonts.ready;
 
-            const injected = document.querySelector('style[data-touchai-font-face]')?.textContent;
+                const injected = document.querySelector(
+                    'style[data-touchai-font-face]'
+                )?.textContent;
+                const fontUrl = injected?.match(/url\('([^']+)'\)/)?.[1];
 
-            function rasterise(fontFamily) {
-                const canvas = document.createElement('canvas');
-                canvas.width = 460;
-                canvas.height = 110;
-                const context = canvas.getContext('2d');
-                context.fillStyle = '#ffffff';
-                context.fillRect(0, 0, canvas.width, canvas.height);
-                context.fillStyle = '#000000';
-                context.font = `52px ${fontFamily}`;
-                context.textBaseline = 'top';
-                context.fillText('通用启动', 6, 10);
-                return context.getImageData(0, 0, canvas.width, canvas.height).data;
-            }
-
-            function differingPixels(first, second) {
-                let changed = 0;
-                for (let index = 0; index < first.length; index += 4) {
-                    if (first[index] !== second[index]) {
-                        changed += 1;
-                    }
+                function rasterise(target) {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 460;
+                    canvas.height = 110;
+                    const context = canvas.getContext('2d');
+                    context.fillStyle = '#ffffff';
+                    context.fillRect(0, 0, canvas.width, canvas.height);
+                    context.fillStyle = '#000000';
+                    context.font = `52px ${target}`;
+                    context.textBaseline = 'top';
+                    context.fillText('通用启动', 6, 10);
+                    return context.getImageData(0, 0, canvas.width, canvas.height).data;
                 }
-                return changed;
-            }
 
-            const product = rasterise("'TouchAI Source Han Serif SC'");
+                function differingPixels(first, second) {
+                    let changed = 0;
+                    for (let index = 0; index < first.length; index += 4) {
+                        if (first[index] !== second[index]) {
+                            changed += 1;
+                        }
+                    }
+                    return changed;
+                }
 
-            return {
-                usesDataUrl: (injected ?? '').includes('data:font'),
-                againstFallback: differingPixels(product, rasterise('serif')),
-                declaredFormat: injected?.match(/format\('([^']+)'\)/)?.[1] ?? 'none',
-                declaredWeight: injected?.match(/font-weight:\s*([^;]+);/)?.[1]?.trim() ?? 'none',
-            };
-        })()
-            .then((result) => done(result))
-            .catch((error) => done({ error: String(error) }));
-    });
+                // Declare the reference the same way the app declares its face. Anything
+                // weaker (the FontFace constructor with a weight range) falls back, which
+                // would compare a broken reference against a correct product face.
+                const referenceRule = document.createElement('style');
+                referenceRule.textContent = `
+                    @font-face {
+                        font-family: '${refFamily}';
+                        src: url('${fontUrl}') format('woff2 supports variations');
+                        font-weight: 250 900;
+                        font-display: block;
+                    }
+                `;
+                document.head.appendChild(referenceRule);
+                await document.fonts.load(`52px '${refFamily}'`);
+                await document.fonts.ready;
+
+                const product = rasterise(`'${productFamily}'`);
+                const reference = rasterise(`'${refFamily}'`);
+                const serif = rasterise('serif');
+
+                return {
+                    usesDataUrl: (injected ?? '').includes('data:font'),
+                    againstReference: differingPixels(product, reference),
+                    againstSerif: differingPixels(product, serif),
+                    // Sanity: on a machine with CJK fonts the two differ; on a bare
+                    // runner both are tofu, which is fine — the reference comparison
+                    // does not depend on it.
+                    referenceAgainstSerif: differingPixels(reference, serif),
+                    declaredFormat: injected?.match(/format\('([^']+)'\)/)?.[1] ?? 'none',
+                    declaredWeight:
+                        injected?.match(/font-weight:\s*([^;]+);/)?.[1]?.trim() ?? 'none',
+                };
+            })()
+                .then((result) => done(result))
+                .catch((error) => done({ error: String(error) }));
+        },
+        family,
+        referenceFamily
+    );
 
     if (report?.error) {
         throw new Error(`The product font could not be measured: ${report.error}`);
@@ -187,13 +227,14 @@ export async function useProductFont() {
         );
     }
 
-    // A face that is painted differs from the fallback by thousands of pixels; the
-    // residual when it is not painted is anti-aliasing noise in the tens.
-    if (report.againstFallback < 500) {
+    // The painted face must match the app's own bytes. Anti-aliasing leaves a small
+    // residual; a fallback differs by thousands of pixels.
+    if (report.againstReference > 500) {
         throw new Error(
-            `The interface is painting the fallback face instead of "${family}" ` +
-                `(only ${report.againstFallback} pixels differ from \`serif\`). ` +
-                `Declared format: ${report.declaredFormat}, declared weight: ${report.declaredWeight}. ` +
+            `The interface is painting a fallback face instead of "${family}" ` +
+                `(${report.againstReference} pixels differ from a reference face built ` +
+                `from the same file). Declared format: ${report.declaredFormat}, ` +
+                `declared weight: ${report.declaredWeight}. ` +
                 'Screenshots would depict a typeface no user sees.'
         );
     }
