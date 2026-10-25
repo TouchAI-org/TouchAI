@@ -1121,6 +1121,69 @@ mod tests {
         assert_eq!(source.as_deref(), Some(override_path.as_str()));
     }
 
+    // The updater has to answer without a release feed when the app was not installed by a
+    // package. Saying "unsupported, not installed" is what stops the UI offering an update it
+    // could never apply.
+
+    #[test]
+    fn user_gets_a_neutral_requirement_when_no_policy_applies() {
+        let requirement = neutral_update_requirement();
+
+        assert!(!requirement.required);
+        assert!(requirement.minimum_supported_version.is_none());
+        assert!(requirement.target_satisfies_requirement);
+    }
+
+    #[test]
+    fn user_is_told_the_app_must_be_installed_before_it_can_update() {
+        let result = unsupported_not_installed(AppUpdateChannel::Stable, None);
+
+        match result {
+            AppUpdateCheckResult::Unsupported {
+                channel, reason, ..
+            } => {
+                assert_eq!(channel, AppUpdateChannel::Stable);
+                assert_eq!(reason, AppUpdateUnsupportedReason::NotInstalled);
+            }
+            other => panic!("expected an unsupported result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn user_keeps_the_latest_channel_information_on_an_unsupported_result() {
+        let latest = AppUpdateChannelLatest {
+            version: "9.9.9".to_string(),
+            tag: "v9.9.9".to_string(),
+            release_url: "https://example.com/releases/v9.9.9".to_string(),
+            published_at: None,
+            prerelease: false,
+            release_notes: None,
+            downloads: Vec::new(),
+        };
+
+        let result = unsupported_not_installed(AppUpdateChannel::Stable, Some(latest.clone()));
+
+        match result {
+            AppUpdateCheckResult::Unsupported {
+                latest: Some(latest),
+                ..
+            } => {
+                assert_eq!(latest.version, "9.9.9");
+            }
+            other => panic!("expected the latest channel information, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn user_gets_a_not_installed_error_mapped_to_unsupported_rather_than_failing() {
+        let error = VelopackError::NotInstalled("no package".to_string());
+
+        let result = map_manager_init_error(AppUpdateChannel::Stable, None, error)
+            .expect("a not-installed app is a supported answer");
+
+        assert!(matches!(result, AppUpdateCheckResult::Unsupported { .. }));
+    }
+
     #[test]
     fn maps_not_installed_to_unsupported_result() {
         let latest = Some(AppUpdateChannelLatest {
