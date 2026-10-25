@@ -1,7 +1,6 @@
+import type { McpServerEntity } from '@database/types';
 import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-import type { McpServerEntity } from '@database/types';
 
 import McpServerCard from '@/views/SettingsView/components/McpTools/components/McpServerCard.vue';
 
