@@ -19,18 +19,41 @@ function mountLogo(props: LogoProps) {
 }
 
 describe('user sees which provider a model belongs to', () => {
-    it('user gets the openai logo for a gpt model', () => {
+    it('user gets the openai asset for a gpt model', () => {
         const wrapper = mountLogo({ modelId: 'gpt-4o' });
 
-        expect(wrapper.find('img').attributes('alt')).toBe('gpt-4o');
+        // The asset itself, not just "an image": a changed mapping must fail here.
+        expect(wrapper.find('img').attributes('src')).toMatch(/openai\./);
         wrapper.unmount();
     });
 
-    it('user gets the claude logo for an anthropic model', () => {
+    it('user gets the claude asset for an anthropic model', () => {
         const wrapper = mountLogo({ modelId: 'claude-sonnet-4' });
 
-        expect(wrapper.find('img').exists()).toBe(true);
+        expect(wrapper.find('img').attributes('src')).toMatch(/claude\./);
         wrapper.unmount();
+    });
+
+    it('user gets each provider its own asset', () => {
+        for (const [modelId, asset] of [
+            ['gpt-4o', 'openai'],
+            ['claude-3', 'claude'],
+            ['gemini-pro', 'gemini'],
+            ['deepseek-chat', 'deepseek'],
+            ['qwen-max', 'qwen'],
+            ['glm-4', 'zhipu'],
+            ['kimi', 'moonshot'],
+            ['doubao-pro', 'doubao'],
+            ['grok-2', 'grok'],
+            ['llama-3', 'llama'],
+            ['mistral-large', 'mistral'],
+        ] as const) {
+            const wrapper = mountLogo({ modelId });
+            expect(wrapper.find('img').attributes('src'), modelId).toMatch(
+                new RegExp(`${asset}\\.`)
+            );
+            wrapper.unmount();
+        }
     });
 
     it('user gets a logo whatever the casing of the model id', () => {
