@@ -104,48 +104,97 @@ export async function visualMismatchTolerance() {
 }
 
 /**
- * Waits until the app has loaded its own interface font.
+ * Fails unless the interface is really painted in the product typeface.
  *
- * The app ships no font: `src/utils/font.ts` downloads Source Han Serif into
- * `<app root>/assets/font/` and injects `@font-face` pointing at the Tauri asset
- * protocol. `wdio.conf.js` provisions the file for each session, and this waits for
- * the app to load it through its real code path.
+ * Every cheap version of this check gives a false pass, which is why it is written
+ * the long way round:
  *
- * It deliberately does not substitute a `data:` source. An earlier version did, to
- * work around a CSP that blocked the asset URL, which meant the suite proved nothing
- * about the path users actually take. That CSP is fixed and pinned by
- * `tests/ci/tauri-csp-font.test.ts`, so the app loads the font itself here.
+ *   - `document.fonts.check("16px 'TouchAI Source Han Serif SC'")` returns `true`
+ *     even for a family that exists nowhere. Measured in the app:
+ *     `document.fonts.check("16px 'NoSuchFamilyXYZ123'")` -> `true`.
+ *   - `FontFace.status` reaches `"loaded"` whenever the bytes download and parse, even
+ *     if the engine then declines to paint them.
+ *   - Latin metrics coincide: the product face at weight 400 and the fallback both
+ *     measured 281.68px wide with 469 ink pixels for the same string.
+ *
+ * The defect this guards against was exactly that kind of silent fallback. The
+ * `@font-face` rule omitted `format('woff2 supports variations')`, so the engine
+ * treated the variable font as static, found no instance for the requested weight,
+ * and painted the system serif instead. Nothing failed; the window just used a
+ * different typeface than the one the app ships.
+ *
+ * Han glyphs are the discriminator. Chinese is set in fixed-width squares so advance
+ * width is useless, but the strokes differ plainly between faces, so rasterising the
+ * same Han string and comparing pixels is decisive. The reference is `serif`, because
+ * that is precisely what the page falls back to: on a machine with an installed CJK
+ * serif it is that font, and on a machine without one it is the platform default.
+ * Either way, a matching raster means the product face was not used.
  */
 export async function useProductFont() {
     const family = 'TouchAI Source Han Serif SC';
 
     const report = await browser.executeAsync((done) => {
-        const probe = "16px 'TouchAI Source Han Serif SC'";
-
         (async () => {
-            await document.fonts.load(probe);
+            await document.fonts.load(`52px '${'TouchAI Source Han Serif SC'}'`);
             await document.fonts.ready;
 
             const injected = document.querySelector('style[data-touchai-font-face]')?.textContent;
 
+            function rasterise(fontFamily) {
+                const canvas = document.createElement('canvas');
+                canvas.width = 460;
+                canvas.height = 110;
+                const context = canvas.getContext('2d');
+                context.fillStyle = '#ffffff';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                context.fillStyle = '#000000';
+                context.font = `52px ${fontFamily}`;
+                context.textBaseline = 'top';
+                context.fillText('通用启动', 6, 10);
+                return context.getImageData(0, 0, canvas.width, canvas.height).data;
+            }
+
+            function differingPixels(first, second) {
+                let changed = 0;
+                for (let index = 0; index < first.length; index += 4) {
+                    if (first[index] !== second[index]) {
+                        changed += 1;
+                    }
+                }
+                return changed;
+            }
+
+            const product = rasterise("'TouchAI Source Han Serif SC'");
+
             return {
-                available: document.fonts.check(probe),
                 usesDataUrl: (injected ?? '').includes('data:font'),
+                againstFallback: differingPixels(product, rasterise('serif')),
+                declaredFormat: injected?.match(/format\('([^']+)'\)/)?.[1] ?? 'none',
+                declaredWeight: injected?.match(/font-weight:\s*([^;]+);/)?.[1]?.trim() ?? 'none',
             };
         })()
             .then((result) => done(result))
             .catch((error) => done({ error: String(error) }));
     });
 
-    if (report?.usesDataUrl) {
+    if (report?.error) {
+        throw new Error(`The product font could not be measured: ${report.error}`);
+    }
+
+    if (report.usesDataUrl) {
         throw new Error(
             "A data: font source was injected by the test, so the app's own asset-protocol loading path was not exercised."
         );
     }
 
-    if (!report?.available) {
+    // A face that is painted differs from the fallback by thousands of pixels; the
+    // residual when it is not painted is anti-aliasing noise in the tens.
+    if (report.againstFallback < 500) {
         throw new Error(
-            `The product font "${family}" did not load (${report?.error ?? 'no further detail'}), so screenshots would show a fallback face instead of the interface a user sees.`
+            `The interface is painting the fallback face instead of "${family}" ` +
+                `(only ${report.againstFallback} pixels differ from \`serif\`). ` +
+                `Declared format: ${report.declaredFormat}, declared weight: ${report.declaredWeight}. ` +
+                'Screenshots would depict a typeface no user sees.'
         );
     }
 }

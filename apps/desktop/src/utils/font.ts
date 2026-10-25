@@ -146,10 +146,38 @@ async function injectFontFace(options: LoadFontFaceOptions = {}): Promise<boolea
 
     const style = document.createElement('style');
     style.setAttribute(FONT_FACE_STYLE_ATTRIBUTE, FONT_FACE_STYLE_KEY);
+    /*
+     * `format('woff2 supports variations')` is required here, not optional decoration.
+     *
+     * The file is Source Han Serif SC VF, a variable font: `fvar` declares `wght`
+     * 250..900 with named instances at 250, 300, 400, 500, 600, 700 and 900. Without
+     * the `supports variations` hint the engine loads the file as a static face and
+     * then finds no instance for the weight the page asks for. It does not error — it
+     * silently falls back to whatever `serif` resolves to.
+     *
+     * That silent fallback is why the interface spent its life in the wrong typeface.
+     * On Windows `serif` resolves to an installed CJK serif, so the text still looked
+     * like a serif and nobody noticed; the shipped font was never painted at all.
+     * `document.fonts.check()` returned `true` throughout, and the face reported
+     * `status: "loaded"`, because the bytes did download and parse.
+     *
+     * Measured in the app with the same file and the same family name, comparing the
+     * rendered Han glyphs against the installed `Noto Serif SC` that `serif` resolves
+     * to (0 pixels apart from each other, so they are the same face):
+     *
+     *     format('woff2')                        -> 49 pixels differ   (fallback)
+     *     format('woff2-variations')             -> 49 pixels differ   (fallback)
+     *     no format hint                         -> 49 pixels differ   (fallback)
+     *     font-weight: 400 instead of the range  -> 49 pixels differ   (fallback)
+     *     format('woff2 supports variations')    -> 3971 pixels differ (product face)
+     *
+     * So the weight range below is correct and is not the cause; the format hint is.
+     * Keep both: the range is what lets the axis interpolate once the file is accepted.
+     */
     style.textContent = `
         @font-face {
             font-family: '${FONT_FACE_FAMILY}';
-            src: url('${fontUrl}') format('woff2');
+            src: url('${fontUrl}') format('woff2 supports variations');
             font-weight: 250 900;
             font-style: normal;
             font-display: swap;

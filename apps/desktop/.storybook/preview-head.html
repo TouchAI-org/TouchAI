@@ -3,10 +3,15 @@
      * The product serif face, served by .storybook/product-font-plugin.js from the
      * same verified file the app downloads. Declaring it here rather than in CSS
      * keeps the story bundle free of a build-time font step.
+     *
+     * `supports variations` is required: without it the engine loads this variable
+     * font as a static face and silently falls back to the system serif for any
+     * weight other than the file's default. The same fix is in src/utils/font.ts,
+     * where the measurements behind it are recorded.
      */
     @font-face {
         font-family: 'TouchAI Source Han Serif SC';
-        src: url('/product-font/SourceHanSerifSC-VF.ttf.woff2') format('woff2');
+        src: url('/product-font/SourceHanSerifSC-VF.ttf.woff2') format('woff2 supports variations');
         font-weight: 250 900;
         font-style: normal;
         font-display: block;
