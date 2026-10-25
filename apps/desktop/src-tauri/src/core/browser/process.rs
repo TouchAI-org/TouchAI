@@ -509,6 +509,150 @@ mod tests {
 
     use super::*;
 
+    // Browser flags are built from user- and model-supplied strings and then handed to a
+    // command line. A value starting with a dash would become a switch; a NUL would truncate
+    // the argument. These tests pin those refusals.
+
+    #[test]
+    fn user_gets_a_plain_flag_value_kept() {
+        assert_eq!(
+            normalized_flag_value(Some("  en-US  ")),
+            Some("en-US".to_string())
+        );
+    }
+
+    #[test]
+    fn user_gets_an_empty_flag_value_dropped() {
+        assert_eq!(normalized_flag_value(Some("   ")), None);
+        assert_eq!(normalized_flag_value(None), None);
+    }
+
+    #[test]
+    fn user_gets_a_dash_prefixed_flag_value_dropped() {
+        // Otherwise the value becomes a command-line switch of its own.
+        assert_eq!(normalized_flag_value(Some("--headless")), None);
+    }
+
+    #[test]
+    fn user_gets_a_flag_value_containing_a_nul_dropped() {
+        assert_eq!(normalized_flag_value(Some("a\u{0000}b")), None);
+    }
+
+    #[test]
+    fn user_gets_a_window_size_in_either_separator_accepted() {
+        assert_eq!(
+            normalized_window_size(Some("1280,900")),
+            Some("1280,900".to_string())
+        );
+        assert_eq!(
+            normalized_window_size(Some("1280x900")),
+            Some("1280,900".to_string())
+        );
+        assert_eq!(
+            normalized_window_size(Some("1280X900")),
+            Some("1280,900".to_string())
+        );
+    }
+
+    #[test]
+    fn user_gets_a_window_size_outside_the_supported_range_dropped() {
+        assert_eq!(normalized_window_size(Some("640,900")), None);
+        assert_eq!(normalized_window_size(Some("1280,300")), None);
+        assert_eq!(normalized_window_size(Some("9999,900")), None);
+    }
+
+    #[test]
+    fn user_gets_a_window_size_that_is_not_a_pair_dropped() {
+        assert_eq!(normalized_window_size(Some("1280")), None);
+        assert_eq!(normalized_window_size(Some("wide,900")), None);
+    }
+
+    #[test]
+    fn user_gets_the_default_window_size_when_none_was_asked_for() {
+        let request = BrowserStartRequest::default();
+
+        assert_eq!(browser_window_size_arg(&request), "--window-size=1280,900");
+    }
+
+    #[test]
+    fn user_gets_the_chosen_window_size_only_in_balanced_mode() {
+        let request = BrowserStartRequest {
+            fingerprint_mode: Some(BrowserFingerprintMode::Balanced),
+            fingerprint_window_size: Some("1600,1000".to_string()),
+            ..Default::default()
+        };
+
+        assert_eq!(browser_window_size_arg(&request), "--window-size=1600,1000");
+    }
+
+    #[test]
+    fn user_gets_the_default_window_size_when_fingerprinting_is_off() {
+        let request = BrowserStartRequest {
+            fingerprint_mode: Some(BrowserFingerprintMode::Off),
+            fingerprint_window_size: Some("1600,1000".to_string()),
+            ..Default::default()
+        };
+
+        assert_eq!(browser_window_size_arg(&request), "--window-size=1280,900");
+    }
+
+    #[test]
+    fn user_gets_no_fingerprint_flags_when_fingerprinting_is_off() {
+        let mut command = Command::new("browser");
+        let request = BrowserStartRequest {
+            fingerprint_mode: Some(BrowserFingerprintMode::Off),
+            fingerprint_locale: Some("en-US".to_string()),
+            fingerprint_user_agent: Some("agent".to_string()),
+            ..Default::default()
+        };
+
+        append_fingerprint_args(&mut command, &request);
+
+        let args: Vec<_> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        assert!(args.is_empty(), "unexpected flags: {args:?}");
+    }
+
+    #[test]
+    fn user_gets_the_locale_and_user_agent_applied_in_balanced_mode() {
+        let mut command = Command::new("browser");
+        let request = BrowserStartRequest {
+            fingerprint_mode: Some(BrowserFingerprintMode::Balanced),
+            fingerprint_locale: Some("en-US".to_string()),
+            fingerprint_user_agent: Some("agent".to_string()),
+            ..Default::default()
+        };
+
+        append_fingerprint_args(&mut command, &request);
+
+        let args: Vec<_> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(args, vec!["--lang=en-US", "--user-agent=agent"]);
+    }
+
+    #[test]
+    fn user_gets_an_unsafe_locale_skipped_while_a_safe_one_still_applies() {
+        let mut command = Command::new("browser");
+        let request = BrowserStartRequest {
+            fingerprint_mode: Some(BrowserFingerprintMode::Balanced),
+            fingerprint_locale: Some("--evil".to_string()),
+            fingerprint_user_agent: Some("agent".to_string()),
+            ..Default::default()
+        };
+
+        append_fingerprint_args(&mut command, &request);
+
+        let args: Vec<_> = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(args, vec!["--user-agent=agent"]);
+    }
+
     #[test]
     fn appends_headless_flag_when_requested() {
         let mut command = Command::new("browser");

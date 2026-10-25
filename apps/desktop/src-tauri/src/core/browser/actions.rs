@@ -142,3 +142,320 @@ fn validate_action_text(value: &str) -> Result<(), String> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::browser::types::BrowserFormField;
+
+    fn dom_ref(ref_id: &str, editable: bool) -> BrowserDomRef {
+        BrowserDomRef {
+            ref_id: ref_id.to_string(),
+            navigation_token: "nav-1".to_string(),
+            description: "element".to_string(),
+            editable,
+            selector: format!("#{ref_id}"),
+            x: 0.0,
+            y: 0.0,
+        }
+    }
+
+    fn request(action: BrowserActOperation) -> BrowserActRequest {
+        BrowserActRequest {
+            action,
+            tab_id: None,
+            ref_id: None,
+            target_ref: None,
+            navigation_token: None,
+            text: None,
+            value: None,
+            key: None,
+            delta_x: None,
+            delta_y: None,
+            timeout_ms: None,
+            fields: None,
+        }
+    }
+
+    // Every action the model can request passes through here before touching a page. A gap in
+    // these checks means acting on a ref the user never saw, or on a page that has since moved.
+
+    #[test]
+    fn user_gets_a_click_resolved_against_the_observed_ref() {
+        let refs = vec![dom_ref("r1", false)];
+        let mut req = request(BrowserActOperation::Click);
+        req.ref_id = Some("r1".to_string());
+        req.navigation_token = Some("nav-1".to_string());
+
+        let resolved = resolve_ref_action(&req, &refs).expect("a valid click resolves");
+
+        assert_eq!(resolved.reference.map(|r| r.ref_id.as_str()), Some("r1"));
+    }
+
+    #[test]
+    fn user_gets_the_target_ref_accepted_as_an_alias_for_ref_id() {
+        let refs = vec![dom_ref("r1", false)];
+        let mut req = request(BrowserActOperation::Click);
+        req.target_ref = Some("r1".to_string());
+        req.navigation_token = Some("nav-1".to_string());
+
+        let resolved = resolve_ref_action(&req, &refs).expect("the alias must work");
+
+        assert_eq!(resolved.reference.map(|r| r.ref_id.as_str()), Some("r1"));
+    }
+
+    #[test]
+    fn user_gets_a_click_without_a_ref_refused() {
+        let req = request(BrowserActOperation::Click);
+
+        let error = resolve_ref_action(&req, &[]).expect_err("a bare click must be refused");
+
+        assert_eq!(
+            error,
+            "Browser click requires an observed ref and navigationToken"
+        );
+    }
+
+    #[test]
+    fn user_gets_a_stale_ref_refused_after_the_page_moved() {
+        let refs = vec![dom_ref("r1", false)];
+        let mut req = request(BrowserActOperation::Click);
+        req.ref_id = Some("r1".to_string());
+        req.navigation_token = Some("nav-2".to_string());
+
+        let error = resolve_ref_action(&req, &refs).expect_err("a stale ref must be refused");
+
+        assert_eq!(error, "Browser ref is stale; observe again before acting");
+    }
+
+    #[test]
+    fn user_gets_an_unknown_ref_refused_with_a_hint_to_observe_again() {
+        let mut req = request(BrowserActOperation::Click);
+        req.ref_id = Some("missing".to_string());
+        req.navigation_token = Some("nav-1".to_string());
+
+        let error = resolve_ref_action(&req, &[]).expect_err("an unknown ref must be refused");
+
+        assert_eq!(
+            error,
+            "Browser ref 'missing' was not found; observe again before acting"
+        );
+    }
+
+    #[test]
+    fn user_gets_a_ref_target_refused_when_the_token_is_missing() {
+        let refs = vec![dom_ref("r1", false)];
+        let mut req = request(BrowserActOperation::Click);
+        req.ref_id = Some("r1".to_string());
+
+        let error = resolve_ref_action(&req, &refs).expect_err("a missing token must be refused");
+
+        assert_eq!(
+            error,
+            "Browser action requires navigationToken for ref targets"
+        );
+    }
+
+    #[test]
+    fn user_gets_typing_into_a_non_editable_ref_refused() {
+        let refs = vec![dom_ref("r1", false)];
+        let mut req = request(BrowserActOperation::Type);
+        req.ref_id = Some("r1".to_string());
+        req.navigation_token = Some("nav-1".to_string());
+        req.text = Some("hello".to_string());
+
+        let error =
+            resolve_ref_action(&req, &refs).expect_err("a read-only target must be refused");
+
+        assert_eq!(error, "Browser target is not editable");
+    }
+
+    #[test]
+    fn user_gets_typing_into_an_editable_ref_accepted() {
+        let refs = vec![dom_ref("r1", true)];
+        let mut req = request(BrowserActOperation::Type);
+        req.ref_id = Some("r1".to_string());
+        req.navigation_token = Some("nav-1".to_string());
+        req.text = Some("hello".to_string());
+
+        assert!(resolve_ref_action(&req, &refs).is_ok());
+    }
+
+    #[test]
+    fn user_gets_typing_without_text_refused() {
+        let mut req = request(BrowserActOperation::Type);
+        req.ref_id = Some("r1".to_string());
+        req.navigation_token = Some("nav-1".to_string());
+
+        let error = resolve_ref_action(&req, &[]).expect_err("missing text must be refused");
+
+        assert_eq!(error, "type requires text");
+    }
+
+    #[test]
+    fn user_gets_filling_without_a_value_refused() {
+        let mut req = request(BrowserActOperation::Fill);
+        req.ref_id = Some("r1".to_string());
+        req.navigation_token = Some("nav-1".to_string());
+
+        let error = resolve_ref_action(&req, &[]).expect_err("missing value must be refused");
+
+        assert_eq!(error, "fill requires value");
+    }
+
+    #[test]
+    fn user_gets_oversized_action_text_refused() {
+        let refs = vec![dom_ref("r1", true)];
+        let mut req = request(BrowserActOperation::Type);
+        req.ref_id = Some("r1".to_string());
+        req.navigation_token = Some("nav-1".to_string());
+        req.text = Some("a".repeat(MAX_ACTION_TEXT_BYTES + 1));
+
+        let error = resolve_ref_action(&req, &refs).expect_err("oversized text must be refused");
+
+        assert_eq!(error, "Browser action text exceeds the size limit");
+    }
+
+    #[test]
+    fn user_gets_a_key_press_accepted_without_a_ref() {
+        let mut req = request(BrowserActOperation::PressKey);
+        req.key = Some("Enter".to_string());
+
+        let resolved = resolve_ref_action(&req, &[]).expect("a key press needs no ref");
+
+        assert!(resolved.reference.is_none());
+        // The page may have moved since the last observation, so it must be re-read first.
+        assert!(resolved.requires_current_observation);
+    }
+
+    #[test]
+    fn user_gets_a_key_press_without_a_key_refused() {
+        let req = request(BrowserActOperation::PressKey);
+
+        let error = resolve_ref_action(&req, &[]).expect_err("missing key must be refused");
+
+        assert_eq!(error, "press_key requires key");
+    }
+
+    #[test]
+    fn user_gets_an_empty_key_refused() {
+        let mut req = request(BrowserActOperation::PressKey);
+        req.key = Some(String::new());
+
+        let error = resolve_ref_action(&req, &[]).expect_err("an empty key must be refused");
+
+        assert_eq!(error, "press_key key is invalid");
+    }
+
+    #[test]
+    fn user_gets_an_oversized_key_refused() {
+        let mut req = request(BrowserActOperation::PressKey);
+        req.key = Some("k".repeat(MAX_ACTION_KEY_BYTES + 1));
+
+        let error = resolve_ref_action(&req, &[]).expect_err("an oversized key must be refused");
+
+        assert_eq!(error, "press_key key is invalid");
+    }
+
+    #[test]
+    fn user_gets_a_scroll_accepted_and_flagged_for_a_fresh_observation() {
+        let mut req = request(BrowserActOperation::Scroll);
+        req.delta_y = Some(200);
+
+        let resolved = resolve_ref_action(&req, &[]).expect("a scroll needs no ref");
+
+        assert!(resolved.requires_current_observation);
+    }
+
+    #[test]
+    fn user_gets_a_form_filled_from_the_observed_refs() {
+        let refs = vec![dom_ref("name", true), dom_ref("email", true)];
+        let mut req = request(BrowserActOperation::FillForm);
+        req.fields = Some(vec![
+            BrowserFormField {
+                ref_id: "name".to_string(),
+                navigation_token: "nav-1".to_string(),
+                value: "Ada".to_string(),
+            },
+            BrowserFormField {
+                ref_id: "email".to_string(),
+                navigation_token: "nav-1".to_string(),
+                value: "ada@example.com".to_string(),
+            },
+        ]);
+
+        let resolved = resolve_ref_action(&req, &refs).expect("a valid form fill resolves");
+
+        assert_eq!(resolved.form_fields.len(), 2);
+        assert_eq!(resolved.form_fields[0].selector, "#name");
+        assert_eq!(resolved.form_fields[1].value, "ada@example.com");
+    }
+
+    #[test]
+    fn user_gets_a_form_fill_refused_when_a_field_is_not_editable() {
+        let refs = vec![dom_ref("name", false)];
+        let mut req = request(BrowserActOperation::FillForm);
+        req.fields = Some(vec![BrowserFormField {
+            ref_id: "name".to_string(),
+            navigation_token: "nav-1".to_string(),
+            value: "Ada".to_string(),
+        }]);
+
+        let error = resolve_ref_action(&req, &refs).expect_err("a read-only field must be refused");
+
+        assert_eq!(error, "Browser target is not editable");
+    }
+
+    #[test]
+    fn user_gets_a_form_fill_refused_when_a_field_moved() {
+        let refs = vec![dom_ref("name", true)];
+        let mut req = request(BrowserActOperation::FillForm);
+        req.fields = Some(vec![BrowserFormField {
+            ref_id: "name".to_string(),
+            navigation_token: "nav-old".to_string(),
+            value: "Ada".to_string(),
+        }]);
+
+        let error = resolve_ref_action(&req, &refs).expect_err("a stale field must be refused");
+
+        assert_eq!(error, "Browser ref is stale; observe again before acting");
+    }
+
+    #[test]
+    fn user_gets_a_form_fill_without_fields_refused() {
+        let req = request(BrowserActOperation::FillForm);
+
+        let error = resolve_ref_action(&req, &[]).expect_err("missing fields must be refused");
+
+        assert_eq!(error, "fill_form requires fields");
+    }
+
+    #[test]
+    fn user_gets_a_form_with_too_many_fields_refused() {
+        let mut req = request(BrowserActOperation::FillForm);
+        req.fields = Some(
+            (0..=MAX_FORM_FIELDS)
+                .map(|index| BrowserFormField {
+                    ref_id: format!("f{index}"),
+                    navigation_token: "nav-1".to_string(),
+                    value: "v".to_string(),
+                })
+                .collect(),
+        );
+
+        let error = resolve_ref_action(&req, &[]).expect_err("too many fields must be refused");
+
+        assert_eq!(error, "fill_form field count exceeds the size limit");
+    }
+
+    #[test]
+    fn user_gets_a_wait_accepted_without_a_ref_or_a_reobservation() {
+        let mut req = request(BrowserActOperation::Wait);
+        req.timeout_ms = Some(1000);
+
+        let resolved = resolve_ref_action(&req, &[]).expect("a wait needs nothing");
+
+        assert!(resolved.reference.is_none());
+        assert!(!resolved.requires_current_observation);
+    }
+}
