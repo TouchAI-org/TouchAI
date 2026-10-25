@@ -205,4 +205,16 @@ mod tests {
         let mut receiver = registry.register("pending-only".to_string());
         assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
     }
+    #[test]
+    fn user_completing_an_execution_also_drops_a_cancel_that_was_waiting_for_it() {
+        let registry = BuiltInProcessExecutionRegistry::new();
+
+        // The cancel arrived before the execution registered, then the execution finished.
+        assert!(!registry.cancel("raced"));
+        registry.complete("raced");
+
+        // The stale marker must not cancel the next execution that reuses the id.
+        let mut receiver = registry.register("raced".to_string());
+        assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
+    }
 }
