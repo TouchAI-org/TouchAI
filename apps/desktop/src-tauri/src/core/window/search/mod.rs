@@ -290,3 +290,62 @@ fn get_window_hwnd<R: Runtime>(window: &WebviewWindow<R>) -> Result<HWND, String
         _ => Err("Not a Win32 window".to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        resolve_shortcut_toggle_action, shortcut_action_requires_foreground_activation,
+        ShortcutToggleAction,
+    };
+
+    // The global shortcut is the main way into the app. Each press has to do the right one of
+    // three things, and getting it wrong either loses the window or steals focus needlessly.
+
+    #[test]
+    fn user_gets_the_window_shown_when_it_is_hidden() {
+        assert_eq!(
+            resolve_shortcut_toggle_action(false, false),
+            ShortcutToggleAction::ShowWithAutoPasteAuthorization
+        );
+    }
+
+    #[test]
+    fn user_gets_the_window_shown_even_when_another_app_was_focused() {
+        // A hidden window is shown regardless of who had focus; the paste authorisation is
+        // what makes the shortcut useful from another app.
+        assert_eq!(
+            resolve_shortcut_toggle_action(false, true),
+            ShortcutToggleAction::ShowWithAutoPasteAuthorization
+        );
+    }
+
+    #[test]
+    fn user_gets_the_window_hidden_when_it_already_has_focus() {
+        assert_eq!(
+            resolve_shortcut_toggle_action(true, true),
+            ShortcutToggleAction::HideOnly
+        );
+    }
+
+    #[test]
+    fn user_gets_the_existing_window_focused_when_it_is_visible_but_unfocused() {
+        assert_eq!(
+            resolve_shortcut_toggle_action(true, false),
+            ShortcutToggleAction::FocusExistingVisible
+        );
+    }
+
+    #[test]
+    fn user_gets_the_window_brought_forward_when_showing_or_refocusing() {
+        // Both of these need the window raised; hiding must not.
+        assert!(shortcut_action_requires_foreground_activation(
+            ShortcutToggleAction::ShowWithAutoPasteAuthorization
+        ));
+        assert!(shortcut_action_requires_foreground_activation(
+            ShortcutToggleAction::FocusExistingVisible
+        ));
+        assert!(!shortcut_action_requires_foreground_activation(
+            ShortcutToggleAction::HideOnly
+        ));
+    }
+}
