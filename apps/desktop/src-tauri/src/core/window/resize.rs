@@ -228,13 +228,105 @@ fn apply_window_size<R: Runtime>(
 
 #[cfg(test)]
 mod tests {
-    use super::centered_window_y;
+    use super::{centered_window_y, clamp_window_y, WindowAnimationState};
+
+    #[cfg(target_os = "windows")]
+    use super::logical_to_physical_i32;
 
     #[test]
     fn centered_window_y_moves_up_by_half_the_growth_when_unconstrained() {
         let next_y = centered_window_y(300.0, 60.0, 180.0, &None, 1.0);
 
         assert_eq!(next_y, 240.0);
+    }
+
+    // Two resizes can overlap: the renderer asks for a new height while an earlier animation is
+    // still running. The token decides which one is allowed to finish.
+
+    #[test]
+    fn user_gets_a_newer_token_for_each_resize_request() {
+        let state = WindowAnimationState::default();
+
+        let first = state.next_token("main");
+        let second = state.next_token("main");
+
+        assert!(second > first, "each request must get a new token");
+    }
+
+    #[test]
+    fn user_keeps_animation_tokens_separate_per_window() {
+        let state = WindowAnimationState::default();
+
+        let main = state.next_token("main");
+        let popup = state.next_token("popup-model-dropdown");
+
+        // Two windows animating at once must not invalidate each other.
+        assert!(state.is_token_current("main", main));
+        assert!(state.is_token_current("popup-model-dropdown", popup));
+    }
+
+    #[test]
+    fn user_gets_only_the_latest_resize_request_considered_current() {
+        let state = WindowAnimationState::default();
+        let first = state.next_token("main");
+        let second = state.next_token("main");
+
+        // The older animation must stop instead of fighting the newer one.
+        assert!(!state.is_token_current("main", first));
+        assert!(state.is_token_current("main", second));
+    }
+
+    #[test]
+    fn user_gets_an_unknown_window_reported_as_not_current() {
+        let state = WindowAnimationState::default();
+
+        assert!(!state.is_token_current("never-animated", 1));
+    }
+
+    #[test]
+    fn user_gets_the_requested_y_kept_when_no_monitor_is_known() {
+        // Without monitor information there is nothing to clamp against.
+        assert_eq!(clamp_window_y(123.0, 100.0, &None, 1.0), 123.0);
+    }
+
+    #[test]
+    fn user_gets_the_window_centered_on_growth() {
+        // Growing by 120 moves the top up by 60 to keep the middle fixed.
+        assert_eq!(centered_window_y(300.0, 60.0, 180.0, &None, 1.0), 240.0);
+    }
+
+    #[test]
+    fn user_gets_the_window_centered_on_shrink() {
+        assert_eq!(centered_window_y(240.0, 180.0, 60.0, &None, 1.0), 300.0);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn user_gets_a_logical_coordinate_converted_to_physical_pixels() {
+        assert_eq!(
+            logical_to_physical_i32(100.0, 1.0, "x").expect("valid"),
+            100
+        );
+        assert_eq!(
+            logical_to_physical_i32(100.0, 1.5, "x").expect("valid"),
+            150
+        );
+        assert_eq!(
+            logical_to_physical_i32(100.4, 2.0, "x").expect("valid"),
+            201
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn user_gets_an_out_of_range_coordinate_refused() {
+        let error = logical_to_physical_i32(f64::INFINITY, 1.0, "x")
+            .expect_err("infinity is not a coordinate");
+
+        assert!(
+            error.contains("outside Win32 coordinate range"),
+            "unexpected: {error}"
+        );
     }
 }
 

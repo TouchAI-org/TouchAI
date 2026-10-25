@@ -594,4 +594,93 @@ mod tests {
 
         assert!(message.starts_with("Failed to call tool:"));
     }
+
+    // A server that fails to start reports through stderr. The message has to carry that text,
+    // because it is the only clue about why the server died.
+
+    #[test]
+    fn user_gets_the_server_stderr_when_it_is_the_only_detail() {
+        let message = McpClient::merge_stdio_error(
+            Some("server crashed on startup".to_string()),
+            "connection closed".to_string(),
+        );
+
+        assert!(message.contains("server crashed on startup"));
+        assert!(message.contains("Connection error"));
+        assert!(message.contains("connection closed"));
+    }
+
+    #[test]
+    fn user_does_not_get_the_same_text_repeated_when_stderr_already_has_it() {
+        let message = McpClient::merge_stdio_error(
+            Some("failed: connection closed".to_string()),
+            "connection closed".to_string(),
+        );
+
+        assert_eq!(message, "failed: connection closed");
+    }
+
+    #[test]
+    fn user_gets_the_error_alone_when_the_server_wrote_nothing() {
+        assert_eq!(
+            McpClient::merge_stdio_error(None, "connection closed".to_string()),
+            "connection closed"
+        );
+    }
+
+    #[test]
+    fn user_gets_the_error_alone_when_the_server_stderr_was_empty() {
+        assert_eq!(
+            McpClient::merge_stdio_error(Some(String::new()), "connection closed".to_string()),
+            "connection closed"
+        );
+    }
+
+    #[test]
+    fn user_gets_a_client_built_without_headers() {
+        McpClient::build_http_client(None).expect("a plain client builds");
+    }
+
+    #[test]
+    fn user_gets_a_client_built_with_valid_headers() {
+        let mut headers = HashMap::new();
+        headers.insert("x-api-key".to_string(), "secret".to_string());
+
+        McpClient::build_http_client(Some(headers)).expect("a client with headers builds");
+    }
+
+    #[test]
+    fn user_gets_an_invalid_header_skipped_rather_than_failing_the_connection() {
+        let mut headers = HashMap::new();
+        headers.insert("x-good".to_string(), "ok".to_string());
+        // A header name with a space is not a legal header name.
+        headers.insert("x bad".to_string(), "ok".to_string());
+
+        // One bad header must not prevent the server from connecting.
+        McpClient::build_http_client(Some(headers)).expect("a client still builds");
+    }
+
+    #[test]
+    fn user_sees_a_disconnected_server_before_any_connect() {
+        let client = McpClient::new(1, "test".to_string());
+
+        assert_eq!(
+            tokio::runtime::Runtime::new()
+                .expect("runtime")
+                .block_on(client.get_status()),
+            ServerStatus::Disconnected
+        );
+    }
+
+    #[test]
+    fn user_sees_no_error_before_any_connect() {
+        let client = McpClient::new(1, "test".to_string());
+
+        assert_eq!(
+            tokio::runtime::Runtime::new()
+                .expect("runtime")
+                .block_on(client.get_error()),
+            None
+        );
+    }
 }

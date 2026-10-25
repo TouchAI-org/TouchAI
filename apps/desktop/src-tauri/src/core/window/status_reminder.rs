@@ -1452,6 +1452,85 @@ mod tests {
         SessionStatusReminderActionPayload, SessionStatusReminderKind,
     };
 
+    // Clicking a reminder either restores the search window or answers the approval inline.
+    // Restoring on an approve click would reopen the window the user just dismissed.
+
+    fn approval_payload(
+        kind: SessionStatusReminderKind,
+        action: SessionStatusReminderAction,
+    ) -> SessionStatusReminderActionPayload {
+        SessionStatusReminderActionPayload {
+            kind,
+            action,
+            session_id: 1,
+            task_id: "task-1".to_string(),
+            call_id: None,
+            reply_text: None,
+        }
+    }
+
+    #[test]
+    fn user_gets_the_window_restored_when_the_reminder_is_opened() {
+        let payload = approval_payload(
+            SessionStatusReminderKind::WaitingApproval,
+            SessionStatusReminderAction::Open,
+        );
+
+        assert!(should_restore_search_window_from_status_reminder(Some(
+            &payload
+        )));
+    }
+
+    #[test]
+    fn user_does_not_get_the_window_restored_when_they_approve_inline() {
+        let payload = approval_payload(
+            SessionStatusReminderKind::WaitingApproval,
+            SessionStatusReminderAction::Approve,
+        );
+
+        // Approving from the notification answers it without reopening the window.
+        assert!(!should_restore_search_window_from_status_reminder(Some(
+            &payload
+        )));
+    }
+
+    #[test]
+    fn user_gets_the_window_restored_for_a_completion_reminder() {
+        let payload = approval_payload(
+            SessionStatusReminderKind::Completed,
+            SessionStatusReminderAction::Open,
+        );
+
+        assert!(should_restore_search_window_from_status_reminder(Some(
+            &payload
+        )));
+    }
+
+    #[test]
+    fn user_gets_the_window_restored_when_no_payload_arrived() {
+        assert!(should_restore_search_window_from_status_reminder(None));
+    }
+
+    #[test]
+    fn user_gets_an_installation_marker_detected_beside_the_executable() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let exe = dir.path().join("TouchAI.exe");
+        std::fs::write(&exe, b"stub").expect("write exe");
+        std::fs::write(dir.path().join("uninstall.exe"), b"stub").expect("write uninstaller");
+
+        assert!(has_windows_installation_marker(&exe));
+    }
+
+    #[test]
+    fn user_does_not_get_an_installation_marker_when_only_the_executable_exists() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let exe = dir.path().join("TouchAI.exe");
+        std::fs::write(&exe, b"stub").expect("write exe");
+
+        // A local build has no uninstaller, so it must not register the notification identity.
+        assert!(!has_windows_installation_marker(&exe));
+    }
+
     #[test]
     fn finalize_activation_payload_promotes_blank_reply_to_open() {
         let payload = finalize_activation_payload(
