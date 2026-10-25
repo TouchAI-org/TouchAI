@@ -150,11 +150,23 @@ describe('user gets widget resources limited to the allowlist', () => {
  * Widget styles are generated from the app's own tokens so a widget cannot look foreign.
  */
 describe('user gets widget styles that follow the app theme', () => {
-    it('user gets the base styles scoped to the host element', () => {
+    it('user gets every ordinary base selector scoped to the host element', () => {
         const css = createShowWidgetBaseStyles('#widget-host');
 
-        expect(css).toContain('#widget-host');
-        expect(css.length).toBeGreaterThan(0);
+        // A rule such as `body { display: none }` would leak into the whole app, so every
+        // ordinary selector is checked, not just the presence of one scoped rule.
+        // @keyframes bodies use `from` / `to` / percentages, which are keyframe selectors,
+        // not element selectors, so they are exempt along with the at-rule preludes.
+        const withoutKeyframes = css.replace(/@keyframes[^{]*\{[\s\S]*?\n\s*\}/g, '');
+        const selectors = (withoutKeyframes.match(/[^{}]+\{/g) ?? [])
+            .map((entry) => entry.replace(/\{$/, '').trim())
+            .filter((entry) => entry.length > 0)
+            .filter((entry) => !entry.startsWith('@'));
+
+        expect(selectors.length).toBeGreaterThan(0);
+        for (const selector of selectors) {
+            expect(selector, `unscoped selector: ${selector}`).toContain('#widget-host');
+        }
     });
 
     it('user gets every colour ramp selector scoped to the host', () => {
