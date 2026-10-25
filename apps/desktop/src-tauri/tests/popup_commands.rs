@@ -9,7 +9,7 @@ use touchai_lib::testing;
 /// `popup-<id>` label the renderer addresses.
 #[cfg(target_os = "windows")]
 #[test]
-fn user_gets_a_registered_popup_window_created_hidden() {
+fn user_registers_a_popup_when_preloading_then_the_window_exists_hidden() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     let _: () = invoke_command_ok(
@@ -30,10 +30,18 @@ fn user_gets_a_registered_popup_window_created_hidden() {
         testing::popup_registry_has(&test_app.app, "e2e-popup"),
         "the popup config was not registered"
     );
+    // Preloading logs creation failures and still succeeds, so the window itself is the proof.
+    // The hidden flag is not asserted here: MockRuntime reports every window as visible, so the
+    // initial-hidden contract is covered by the E2E suite instead.
+    use tauri::Manager;
+    assert!(
+        test_app.app.get_webview_window("popup-e2e-popup").is_some(),
+        "the popup window should have been created"
+    );
 }
 
 #[test]
-fn user_gets_preloading_accepted_when_no_popup_is_registered() {
+fn user_preloads_when_nothing_is_registered_then_it_is_a_no_op() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     // Startup runs this unconditionally, so an empty registry must be a no-op, not an error.
@@ -41,7 +49,7 @@ fn user_gets_preloading_accepted_when_no_popup_is_registered() {
 }
 
 #[test]
-fn user_gets_every_registered_popup_remembered() {
+fn user_registers_two_popups_then_both_are_remembered() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     let _: () = invoke_command_ok(
@@ -60,7 +68,7 @@ fn user_gets_every_registered_popup_remembered() {
 }
 
 #[test]
-fn user_gets_a_popup_window_hidden_when_hiding_it_before_showing() {
+fn user_hides_a_popup_that_was_never_shown_then_no_error_is_reported() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     // Hiding a popup that was never shown must not error; the renderer calls this on blur.
@@ -78,7 +86,7 @@ fn user_gets_a_popup_window_hidden_when_hiding_it_before_showing() {
 }
 
 #[test]
-fn user_gets_the_tray_menu_close_accepted_when_it_does_not_exist() {
+fn user_closes_a_tray_menu_that_does_not_exist_then_no_error_is_reported() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     // Closing the tray menu is called on every outside click, so it must tolerate absence.
@@ -86,7 +94,7 @@ fn user_gets_the_tray_menu_close_accepted_when_it_does_not_exist() {
 }
 
 #[test]
-fn user_gets_an_error_naming_the_popup_type_when_it_was_never_registered() {
+fn user_shows_an_unregistered_popup_then_the_error_names_the_type() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     // The renderer can ask for a popup whose config has not arrived yet; it must say which
@@ -115,7 +123,7 @@ fn user_gets_an_error_naming_the_popup_type_when_it_was_never_registered() {
 }
 
 #[test]
-fn user_gets_the_search_window_hidden_without_erroring() {
+fn user_hides_the_search_window_then_no_error_is_reported() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     // Hiding is called on every shortcut press and must tolerate the current state. Showing it
