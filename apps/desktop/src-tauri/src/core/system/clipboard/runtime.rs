@@ -444,8 +444,8 @@ fn build_snapshot_content_identity(text: Option<&str>, html: Option<&str>) -> Op
 mod tests {
     use super::{
         append_payload_attachment_fragments, build_snapshot_content_identity,
-        ClipboardPayloadFragment, ClipboardRuntimeState, ClipboardSnapshot,
-        ClipboardSnapshotReadMode,
+        next_shortcut_auto_paste_seq, now_millis, ClipboardPayloadFragment, ClipboardRuntimeState,
+        ClipboardSnapshot, ClipboardSnapshotReadMode,
     };
 
     // The runtime decides whether a shortcut press pastes the clipboard. Pasting twice from
@@ -597,6 +597,94 @@ mod tests {
     fn user_gets_external_images_resolved_only_for_an_explicit_read() {
         assert!(ClipboardSnapshotReadMode::ResolveExternalImages.should_resolve_external_images());
         assert!(!ClipboardSnapshotReadMode::Observe.should_resolve_external_images());
+    }
+
+    // The snapshot identity decides whether the renderer treats two reads as the same content.
+    // HTML has to count, or copying formatted text over plain text of the same words looks
+    // unchanged and the new formatting never reaches the prompt.
+
+    #[test]
+    fn user_gets_the_text_identity_for_plain_text() {
+        assert_eq!(
+            build_snapshot_content_identity(Some("hello"), None).as_deref(),
+            Some("text:hello")
+        );
+    }
+
+    #[test]
+    fn user_gets_the_html_identity_for_html_only() {
+        assert_eq!(
+            build_snapshot_content_identity(None, Some("<b>x</b>")).as_deref(),
+            Some("html:<b>x</b>")
+        );
+    }
+
+    #[test]
+    fn user_gets_both_parts_when_text_and_html_are_present() {
+        assert_eq!(
+            build_snapshot_content_identity(Some("x"), Some("<b>x</b>")).as_deref(),
+            Some("text:x\nhtml:<b>x</b>")
+        );
+    }
+
+    #[test]
+    fn user_gets_no_identity_for_an_empty_clipboard() {
+        assert_eq!(build_snapshot_content_identity(None, None), None);
+    }
+
+    #[test]
+    fn user_gets_different_identities_for_same_words_with_different_formatting() {
+        let plain = build_snapshot_content_identity(Some("x"), None);
+        let rich = build_snapshot_content_identity(Some("x"), Some("<b>x</b>"));
+
+        assert_ne!(plain, rich);
+    }
+
+    #[test]
+    fn user_gets_a_fragment_for_every_attachment_kind() {
+        let mut fragments = Vec::new();
+
+        append_payload_attachment_fragments(
+            &mut fragments,
+            &["C:/tmp/a.png".to_string()],
+            &["C:/tmp/b.txt".to_string()],
+        );
+
+        assert_eq!(fragments.len(), 2);
+        assert!(matches!(
+            &fragments[0],
+            ClipboardPayloadFragment::Image { path } if path == "C:/tmp/a.png"
+        ));
+        assert!(matches!(
+            &fragments[1],
+            ClipboardPayloadFragment::File { path } if path == "C:/tmp/b.txt"
+        ));
+    }
+
+    #[test]
+    fn user_gets_no_fragment_when_nothing_was_attached() {
+        let mut fragments = Vec::new();
+
+        append_payload_attachment_fragments(&mut fragments, &[], &[]);
+
+        assert!(fragments.is_empty());
+    }
+
+    #[test]
+    fn user_gets_a_new_auto_paste_sequence_for_each_press() {
+        let first = next_shortcut_auto_paste_seq();
+        let second = next_shortcut_auto_paste_seq();
+
+        // Each press must be distinguishable, so a stale authorisation cannot be reused.
+        assert!(second > first, "{second} should exceed {first}");
+    }
+
+    #[test]
+    fn user_gets_a_wall_clock_time_in_milliseconds() {
+        let now = now_millis();
+
+        // Anything after 2020 is above this bound; the value only needs to be a real timestamp.
+        assert!(now > 1_577_836_800_000, "unexpected timestamp: {now}");
     }
 
     #[test]
