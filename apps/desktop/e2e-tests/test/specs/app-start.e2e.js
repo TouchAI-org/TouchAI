@@ -4,6 +4,7 @@
 import {
     assertVisible,
     useInterfaceLanguage,
+    useProductFont,
     visualMismatchTolerance,
     waitForE2eBridge,
     waitForTestIdDisplayed,
@@ -13,6 +14,11 @@ describe('user launches the desktop app', () => {
     before(async () => {
         await waitForE2eBridge();
         await useInterfaceLanguage();
+        // The app ships no font in its bundle and downloads Source Han Serif on
+        // first launch. Its `@font-face` points at the asset protocol, which the
+        // shipped CSP blocks for `font-src` on Windows, so without this every
+        // serif element renders in a generic face no user sees.
+        await useProductFont();
     });
 
     it('user sees the search window with an editable prompt field', async () => {

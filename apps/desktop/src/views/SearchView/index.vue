@@ -31,6 +31,7 @@
         createInputHistorySnapshot,
         getInputHistorySnapshotKey,
         type InputHistorySnapshot,
+        type SessionMessage,
     } from '@/types/session';
     import { isE2eTestMode } from '@/utils/runtimeMode';
 
@@ -100,6 +101,29 @@
     const queryText = toRef(draft, 'queryText');
     const attachments = toRef(draft, 'attachments');
     const modelOverride = toRef(draft, 'modelOverride');
+    /** Shape of an ask-user panel seeded by the E2E bridge. */
+    type E2eAskUserFixture =
+        | {
+              kind: 'confirm';
+              title: string;
+              message: string;
+              confirmText: string;
+              cancelText: string;
+              type: 'warning' | 'danger' | 'info';
+          }
+        | {
+              kind: 'approval';
+              title: string;
+              description: string;
+              command: string;
+              riskLabel: string;
+              reason: string;
+              commandLabel: string;
+              approveLabel: string;
+              rejectLabel: string;
+              enterHint: string;
+              escHint: string;
+          };
     const cursorContext = ref<SearchCursorContext>({
         isMultiLine: false,
         cursorAtStart: true,
@@ -148,6 +172,9 @@
             }) => Promise<void>;
             resetSearchWindowBounds: () => Promise<void>;
             setLanguage: (locale: AppLocale) => Promise<void>;
+            setConversationFixture: (messages: SessionMessage[]) => void;
+            setAskUserFixture: (request: E2eAskUserFixture) => void;
+            clearAskUserFixture: () => void;
         };
     };
     const searchInteractionContext = createSearchInteractionContext();
@@ -1092,19 +1119,79 @@
         queryText.value = restoredText;
     }
 
+    /**
+     * Deterministic results for the E2E visual baseline.
+     *
+     * Real file search depends on the machine: a contributor's disk has thousands
+     * of matches, a fresh CI runner has none, and the pixels would differ for
+     * reasons unrelated to the code. The bridge answers only for a query no real
+     * filename contains, so an ordinary search still exercises the real path.
+     */
     function getE2eQuickSearchFallbackResults(query: string): QuickShortcutItem[] {
         const normalizedQuery = query.trim().toLowerCase();
-        if (!normalizedQuery.includes('touchai')) {
+        if (normalizedQuery !== 'touchai-visual-fixture') {
             return [];
         }
 
         return [
+            { name: 'Design tokens', path: 'C:/TouchAI/src/styles/tokens', source: 'file' },
             {
-                name: 'TouchAI E2E Smoke Result',
-                path: 'C:/Windows/explorer.exe',
+                name: 'Design system guide',
+                path: 'C:/TouchAI/docs/design-system.md',
                 source: 'file',
             },
+            {
+                name: 'Settings window',
+                path: 'C:/TouchAI/src/views/SettingsView.vue',
+                source: 'file',
+            },
+            { name: 'Search window', path: 'C:/TouchAI/src/views/SearchView.vue', source: 'file' },
+            {
+                name: 'Visual baselines',
+                path: 'C:/TouchAI/e2e-tests/__snapshots__',
+                source: 'file',
+            },
+            { name: 'Lint rules', path: 'C:/TouchAI/eslint.config.js', source: 'file' },
         ];
+    }
+
+    function applyE2eConversationFixture(messages: SessionMessage[]) {
+        // `sessionHistory` is owned by the agent composable and is rewritten from a
+        // task snapshot; writing it here is enough because no request is running.
+        sessionHistory.value = messages.map((message) => ({ ...message }));
+    }
+
+    function applyE2eAskUserFixture(request: E2eAskUserFixture) {
+        if (request.kind === 'confirm') {
+            askUserStore.enqueueConfirm(
+                {
+                    title: request.title,
+                    message: request.message,
+                    confirmText: request.confirmText,
+                    cancelText: request.cancelText,
+                    type: request.type,
+                },
+                () => undefined
+            );
+            return;
+        }
+
+        askUserStore.enqueueApproval(
+            {
+                title: request.title,
+                description: request.description,
+                command: request.command,
+                riskLabel: request.riskLabel,
+                reason: request.reason,
+                commandLabel: request.commandLabel,
+                approveLabel: request.approveLabel,
+                rejectLabel: request.rejectLabel,
+                enterHint: request.enterHint,
+                escHint: request.escHint,
+                callId: 'e2e-ask-user-fixture',
+            },
+            () => undefined
+        );
     }
 
     async function installE2eBridge() {
@@ -1146,6 +1233,32 @@
             },
             resetSearchWindowBounds() {
                 return native.window.resetSearchWindowBounds();
+            },
+            /**
+             * Seeds the conversation panel with a fixed transcript.
+             *
+             * Visual baselines need a deterministic conversation. Reaching one by
+             * sending a real prompt would depend on a model, a network call and a
+             * stream timing, none of which belong in a pixel comparison. This fills
+             * the same reactive state the agent fills, so the panel renders through
+             * its normal code path.
+             */
+            setConversationFixture(messages: SessionMessage[]) {
+                applyE2eConversationFixture(messages);
+            },
+            /**
+             * Puts the ask-user panel in front of the user without running a tool.
+             *
+             * The panel is how a pending approval or question looks, and it is the
+             * densest screen in the main window. Rendering it from a real tool call
+             * would need a model; this enqueues the same request the tool enqueues.
+             */
+            setAskUserFixture(request: E2eAskUserFixture) {
+                applyE2eAskUserFixture(request);
+            },
+            /** Drops whatever the fixture enqueued so a later spec starts clean. */
+            clearAskUserFixture() {
+                askUserStore.clearAll('e2e fixture reset');
             },
             /**
              * Pins the interface language for E2E runs.
@@ -1462,6 +1575,7 @@
     >
         <div
             v-if="searchViewContentReady && sessionHistory.length > 0"
+            data-testid="conversation-panel-host"
             :class="[
                 'w-full overflow-hidden',
                 fillConversationAvailableHeight ? 'min-h-0 flex-1' : '',

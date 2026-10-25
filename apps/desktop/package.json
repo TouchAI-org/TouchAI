@@ -35,7 +35,11 @@
         "check": "pnpm type:check && pnpm test:typecheck && pnpm lint:check && pnpm format:check && cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check && pnpm check:rust",
         "db:generate": "drizzle-kit generate",
         "db:studio": "drizzle-kit studio",
-        "update:model-metadata": "node ./scripts/update-model-metadata.mjs"
+        "update:model-metadata": "node ./scripts/update-model-metadata.mjs",
+        "storybook": "storybook dev --port 6006",
+        "storybook:build": "storybook build --output-dir ../../.storybook-static",
+        "test:visual:components": "playwright test",
+        "test:visual:components:update": "playwright test --update-snapshots"
     },
     "dependencies": {
         "@ai-sdk/alibaba": "^1.0.62",
@@ -96,6 +100,8 @@
         "@commitlint/config-conventional": "^21.2.3",
         "@eslint/js": "^10.0.1",
         "@iconify-json/lucide": "^1.2.140",
+        "@playwright/test": "1.64.1",
+        "@storybook/vue3-vite": "10.6.3",
         "@tauri-apps/cli": "2.12.3",
         "@types/markdown-it-emoji": "^3.0.1",
         "@types/node": "^25.9.9",
@@ -123,9 +129,11 @@
         "lint-staged": "^17.6.0",
         "prettier": "3.8.5",
         "prettier-plugin-tailwindcss": "^0.8.1",
+        "storybook": "10.6.3",
         "terser": "^5.51.2",
         "typescript": "~6.0.3",
         "typescript-eslint": "^8.71.1",
+        "undici": "8.10.2",
         "unplugin-icons": "^23.0.1",
         "vite": "^8.3.3",
         "vite-plugin-monaco-editor-esm": "^2.0.3",

@@ -14,9 +14,11 @@ import {
     assertVisible,
     callE2eBridge,
     getAriaChecked,
+    SETTINGS_WINDOW_DEFAULT_SIZE,
     switchToWindowContaining,
     toggleSwitch,
     useInterfaceLanguage,
+    useProductFont,
     visualMismatchTolerance,
     waitForE2eBridge,
     waitForTestIdDisplayed,
@@ -28,8 +30,11 @@ describe('user works in the settings window', () => {
     before(async () => {
         await waitForE2eBridge();
         // The settings window loads its language from the persisted setting, so it
-        // has to be pinned before the window opens.
+        // has to be pinned before the window opens. The font follows the same rule:
+        // it is registered before the window exists so the first paint is already
+        // correct.
         await useInterfaceLanguage();
+        await useProductFont();
         mainWindowHandle = await browser.getWindowHandle();
 
         await callE2eBridge('openSettingsWindow');
@@ -121,11 +126,13 @@ describe('user works in the settings window', () => {
         // Visual regression runs before the search test, because that one types a
         // query and the sidebar hides the section list while a query is active.
         //
-        // The window size is pinned rather than inherited from the app default: a
-        // GitHub-hosted runner only has a 1024x768 desktop, so the default 1120px
-        // window would be clamped there and the layout would reflow.
+        // The window is set to the product's own default size, so the baselines show
+        // the layout a user gets on first open rather than an arbitrary viewport.
+        // A GitHub-hosted runner only has a 1024x768 desktop, but Windows does not
+        // clamp a window to the desktop, and WebDriver captures the window itself
+        // rather than the screen.
         it('user sees every settings section keep its layout after choosing it in the sidebar', async () => {
-            await browser.setWindowSize(1000, 700);
+            await browser.setWindowSize(...SETTINGS_WINDOW_DEFAULT_SIZE);
             await browser.pause(500);
 
             const tolerance = await visualMismatchTolerance();

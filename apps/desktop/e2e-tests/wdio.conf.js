@@ -5,6 +5,7 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { provisionFontForAppRoot } from './e2e-font.js';
 import { resolveE2eAppBinaryPath, resolveTauriBuildArgs } from './wdio.paths.js';
 import { withE2eWebView2Env } from './webview2-env.js';
 
@@ -178,6 +179,7 @@ export const config = {
     specs: [
         [
             path.join(__dirname, 'test/specs/app-start.e2e.js'),
+            path.join(__dirname, 'test/specs/main-window-visual.e2e.js'),
             path.join(__dirname, 'test/specs/search-smoke.e2e.js'),
             path.join(__dirname, 'test/specs/settings-smoke.e2e.js'),
             path.join(__dirname, 'test/specs/prompt-compose.e2e.js'),
@@ -288,6 +290,15 @@ export const config = {
 
         sessionRuntimePath = path.resolve(runtimeRoot, `session-${Date.now()}`);
         fs.mkdirSync(sessionRuntimePath, { recursive: true });
+
+        // Without the product font the app falls back to a generic serif and every
+        // screenshot stops matching what a user sees. Provisioning is verified
+        // against the product's own sha256, so a bad download fails the run rather
+        // than quietly changing the baselines.
+        await provisionFontForAppRoot({
+            appRoot: sessionRuntimePath,
+            cacheDirectory: path.resolve(resolveCargoTargetDirectory(), 'e2e-font-cache'),
+        });
 
         const driverArgs = nativeDriverPath ? ['--native-driver', nativeDriverPath] : [];
         const webviewUserDataFolder = path.resolve(sessionRuntimePath, 'webview2-user-data');

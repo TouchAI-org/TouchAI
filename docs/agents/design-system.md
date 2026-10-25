@@ -8,6 +8,7 @@ primitives, or view-layer styling.
 - [Primitive rules](#primitive-rules)
 - [Changing things](#changing-things)
 - [Guards](#guards)
+- [Visual regression](#visual-regression)
 - [Where things live](#where-things-live)
 
 ## Layers
@@ -146,77 +147,133 @@ checklist refers to it.
 
 ### Visual regression
 
-`@wdio/visual-service` runs inside the existing WebdriverIO suite against the real
-Tauri app. Baselines live in `apps/desktop/e2e-tests/__snapshots__/` and are
-committed, so a visual change is reviewed as an image diff in the same PR that
-changes the code.
+Two layers, because they answer different questions and neither covers the other.
+
+**The application layer** (`pnpm test:e2e`, WebdriverIO + `@wdio/visual-service`)
+renders the real Tauri app against the real Rust backend. It proves the assembled
+interface still looks right. Baselines live in
+`apps/desktop/e2e-tests/__snapshots__/` and are committed, so a visual change is
+reviewed as an image diff in the same PR that changes the code.
 
 Covered today:
 
-- the search window's empty state;
+- the search window's empty state, and the results panel;
+- the main window with a finished conversation, and with the ask-user panel in
+  front of the user;
 - the settings window's `general`, `ai-services`, `built-in-tools` and `search`
   sections.
 
-Those settings sections are populated from local configuration only. Usage (date
-buckets), browser (installed executable paths) and data management (history
-timestamps) change between runs by design, so they are not baselines; a
-permanently red check would train people to ignore it.
+Those screens are driven by fixtures from the E2E bridge rather than by real data:
+a conversation seeded through the bridge, a pending approval enqueued through the
+store, and a search query (`touchai-visual-fixture`) that no real file matches. Using
+real data would tie the pixels to the machine — a developer's disk has thousands of
+search hits, a fresh CI runner has none — and to a model's output. Nothing appears in
+a baseline that is not deterministic by construction.
 
-Text stays visible: the baselines show the real interface, so a reviewer can judge
-the change from the images in the PR. Determinism comes from the language setting
-instead of hiding glyphs. The first-launch language is derived from
-`navigator.language`, so a zh-CN laptop and an en-US CI runner would render
-different words; the specs call the E2E bridge's `setLanguage('en-US')` before the
-first capture, writing the same setting a user would change in General. English is
-the fallback first-launch locale and its Latin glyphs rasterise identically across
-machines. Wording itself is still covered by the i18n tests.
+Sections populated from local configuration only are covered. Usage (date buckets),
+browser (installed executable paths) and data management (history timestamps) change
+between runs by design, so they are not baselines; a permanently red check would
+train people to ignore it.
 
-Compare while running the normal E2E suite:
+**The component layer** (`pnpm test:visual:components`, Storybook + Playwright)
+renders one component at a time in headless Chromium. It covers what a screen never
+shows all at once: every button variant, a switch in each size, tone and state, an
+empty and a populated chart. Stories live next to their component
+(`src/**/*.stories.ts`), so adding a variant adds coverage. Baselines live in
+`apps/desktop/tests/visual/__snapshots__/`.
+
+The story list is read from Storybook's `index.json` at run time, so a new story
+becomes a baseline automatically instead of waiting for someone to add it to a list.
+
+#### Fidelity: the font and the window size
+
+A baseline that renders a different typeface or a different viewport from the real
+app is not evidence, however green it is. Both layers are pinned to the real thing:
+
+**Font.** The app ships no font. `src/utils/font.ts` downloads Source Han Serif into
+`<app root>/assets/font/` at first launch and injects `@font-face` for it. Every
+`font-serif` element — settings headings, dialog titles, buttons, message text —
+depends on that file, so without it the whole interface renders in a generic serif
+(Windows: Times New Roman) that no user sees.
+
+`apps/desktop/e2e-tests/e2e-font.js` handles this for the application layer. It
+fetches the exact file the product uses from jsDelivr (falling back to the product's
+own CDN list), verifies it against the product's `sha256` from
+`src-tauri/src/core/system/assets.rs`, caches it under the Cargo target directory, and
+copies it into each session's app root before the app starts. The WebdriverIO suite
+then rewrites the injected rule to a `data:` source, because the shipped CSP allows
+only `'self' data: asset:` for `font-src` while the asset protocol resolves to
+`http://asset.localhost` on Windows — `connect-src` permits reading the bytes, and
+`data:` is permitted as a font source. The Storybook layer serves the same verified
+file through a small Vite middleware.
+
+If the font cannot be loaded, both layers fail with an explicit message instead of
+producing a baseline of the wrong interface.
+
+**Window size.** The settings baselines capture the product's own default window
+(`SETTINGS_WINDOW_DEFAULT_SIZE`, mirroring
+`SETTINGS_WINDOW_WIDTH`/`SETTINGS_WINDOW_HEIGHT` in
+`src-tauri/src/core/window/settings/mod.rs`). A GitHub-hosted runner only has a
+1024x768 desktop, but Windows does not clamp a window to the desktop and WebDriver
+captures the window rather than the screen, so the real size works there.
+
+#### Text, language, and tolerance
+
+Text stays visible: the baselines show the real interface, so a reviewer can judge the
+change from the images in the PR. Determinism comes from the language setting instead
+of hiding glyphs. The first-launch language is derived from `navigator.language`, so a
+zh-CN laptop and an en-US CI runner would render different words; the specs call the
+E2E bridge's `setLanguage('en-US')` before the first capture, writing the same setting
+a user would change in General. English is the fallback first-launch locale and its
+Latin glyphs rasterise identically across machines. Wording itself is still covered by
+the i18n tests.
+
+Compare while running the normal suite:
 
 ```bash
-pnpm test:e2e
+pnpm test:e2e                # application layer
+pnpm test:visual:components  # component layer
 ```
 
-Update baselines only when the visual change is intended:
+Update application baselines only when the visual change is intended:
 
 ```bash
 gh workflow run e2e-smoke.yml --ref <branch> -f update_visual_baselines=true
 gh run download <run-id> --name visual-baselines --dir /tmp/baselines
 ```
 
-Commit the downloaded images with the code. Baseline pixels must come from the
-runner that gates the PR: a developer machine renders at its own DPI and with its
-own font rasterisation, so a baseline generated there differs from the comparison
-environment by a few percent — which is exactly the budget a real regression needs.
+Commit the downloaded images with the code. Baseline pixels must come from the runner
+that gates the PR: a developer machine renders at its own DPI and with its own font
+rasterisation, so a baseline generated there differs from the comparison environment
+by a few percent — exactly the budget a real regression needs.
 `pnpm test:e2e:visual:update` exists for local iteration, but do not commit what it
 writes from a scaled machine.
 
-The comparison tolerance is 2% on the CI runner, which is the environment that
-gates a PR. Two environment differences are absorbed there:
+Component baselines are generated by Playwright itself
+(`pnpm test:visual:components:update`) and are portable: headless Chromium renders at
+`deviceScaleFactor: 1` on every platform, which is why that layer can use a 0.1%
+pixel-ratio budget while the application layer needs 2%.
+
+The application layer's 2% on the CI runner absorbs two environment differences:
 
 - **Render scale.** WebView2 renders at the OS DPI — 150% on a laptop, 100% on a CI
-  runner — and ignores `--force-device-scale-factor`, so the raw screenshot is
-  larger on a scaled machine. Baselines are stored at CSS pixel size, so the
-  100% runner compares against an exact match.
-- **Antialiasing.** Rescaling re-renders glyph edges, so AA differences are
-  forgiven (`ignoreAntialiasing`).
+  runner — and ignores `--force-device-scale-factor`, so the raw screenshot is larger
+  on a scaled machine. Baselines are stored at CSS pixel size, so the 100% runner
+  compares against an exact match.
+- **Antialiasing.** Rescaling re-renders glyph edges, so AA differences are forgiven
+  (`ignoreAntialiasing`).
 
-A local run on a scaled display resamples every capture back down, which costs a
-couple of percent on text-heavy screens before any code changes. `visualMismatchTolerance()`
-returns 2% at `devicePixelRatio === 1` and 5% above it, so the gate stays strict
-where it counts and a laptop can still run the suite.
+A local run on a scaled display resamples every capture back down, which costs a couple
+of percent on text-heavy screens before any code changes.
+`visualMismatchTolerance()` returns 2% at `devicePixelRatio === 1` and 5% above it, so
+the gate stays strict where it counts and a laptop can still run the suite.
 
-Be honest about what the budget buys: 2% of a 752x648 element is about 9,700
-pixels, so a small control that disappears, or a one-pixel border that changes
-colour, can sit inside it. The baselines catch what moves a visible share of a
-screen — a token swap, a spacing change, a font change, a section that no longer
-renders. If a specific small control matters, assert it directly with a
-`data-testid` check or its own element snapshot instead of relying on the whole
-screen.
-
-The CSS size is pinned by the specs: the settings window is resized to 1000x700
-before capture, because a GitHub-hosted runner only has a 1024x768 desktop and the
-default 1120px window would be clamped there.
+Be honest about what the budget buys: 2% of a 752x648 element is about 9,700 pixels, so
+a small control that disappears, or a one-pixel border that changes colour, can sit
+inside it. The baselines catch what moves a visible share of a screen — a token swap, a
+spacing change, a font change, a section that no longer renders. If a specific small
+control matters, assert it directly with a `data-testid` check, or give it a story so
+the component layer measures it in isolation.
 
 ### The widget contract
 

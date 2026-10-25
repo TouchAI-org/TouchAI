@@ -10,6 +10,7 @@
         <motion.div
             v-if="current"
             :key="current.id"
+            data-testid="ask-user-panel"
             class="ask-user-panel w-full flex-shrink-0"
             :initial="{ height: 0, opacity: 0 }"
             :animate="{ height: 'auto', opacity: 1 }"

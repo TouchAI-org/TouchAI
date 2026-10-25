@@ -12,6 +12,17 @@
 
 const DEFAULT_TIMEOUT_MS = 15000;
 
+/**
+ * The settings window size the app opens with.
+ *
+ * Mirrors `SETTINGS_WINDOW_WIDTH`/`SETTINGS_WINDOW_HEIGHT` in
+ * `src-tauri/src/core/window/settings/mod.rs`. Visual baselines use it so they
+ * capture the layout a user actually gets, not a convenient test viewport; the
+ * Rust file asserts those constants stay in a sane range, and
+ * `tests/ci/e2e-visual-coverage.test.ts` asserts this copy matches them.
+ */
+export const SETTINGS_WINDOW_DEFAULT_SIZE = [1120, 700];
+
 export function assertVisible(condition, message) {
     if (!condition) {
         throw new Error(message);
@@ -91,6 +102,96 @@ export async function visualMismatchTolerance() {
     const devicePixelRatio = await browser.execute(() => window.devicePixelRatio);
     return devicePixelRatio === 1 ? 2 : 5;
 }
+
+/**
+ * Makes the app render the product serif face, or fails if that is impossible.
+ *
+ * Two things have to be true for a baseline to depict what a user sees:
+ *
+ * 1. The font file must exist. The app ships none: it downloads Source Han Serif
+ *    into `<app root>/assets/font/` on first launch, so `wdio.conf.js` provisions
+ *    it for each session.
+ * 2. The browser must be allowed to load it. `src/utils/font.ts` points
+ *    `@font-face` at the asset protocol, which on Windows is
+ *    `http://asset.localhost`; the shipped CSP lists only `'self' data: asset:`
+ *    for `font-src`, so that request is blocked and every serif element falls back
+ *    to a generic face. `connect-src` does allow `http:`, so the bytes are
+ *    readable, and `font-src` does allow `data:`.
+ *
+ * This therefore rewrites the already-injected rule to a `data:` source, inside
+ * the page. The element and its marker attribute stay in place because `font.ts`
+ * looks for them when another window starts, and each window has its own renderer
+ * so each calls this once.
+ *
+ * Without it the screenshots stay internally consistent but show Times New Roman
+ * where the interface asks for Source Han Serif — exactly the kind of quiet
+ * infidelity a visual gate must not have.
+ */
+export async function useProductFont() {
+    const result = await browser.executeAsync((done) => {
+        const family = 'TouchAI Source Han Serif SC';
+        const style = document.querySelector('style[data-touchai-font-face]');
+
+        if (!style) {
+            done({ ok: false, error: 'the app did not inject its @font-face rule' });
+            return;
+        }
+
+        if (style.getAttribute('data-touchai-e2e-font') === '1') {
+            done({ ok: true, bytes: Number(style.getAttribute('data-bytes') ?? 0) });
+            return;
+        }
+
+        const fontUrl = style.textContent?.match(/url\('([^']+)'\)/)?.[1];
+        if (!fontUrl) {
+            done({ ok: false, error: 'the injected @font-face rule has no URL' });
+            return;
+        }
+
+        (async () => {
+            const response = await fetch(fontUrl);
+            if (!response.ok) {
+                throw new Error(`the font file request returned HTTP ${response.status}`);
+            }
+
+            const bytes = new Uint8Array(await response.arrayBuffer());
+            let binary = '';
+            const chunkSize = 0x8000;
+            for (let index = 0; index < bytes.length; index += chunkSize) {
+                binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+            }
+
+            style.textContent = `
+                @font-face {
+                    font-family: '${family}';
+                    src: url('data:font/woff2;base64,${btoa(binary)}') format('woff2');
+                    font-weight: 250 900;
+                    font-style: normal;
+                    font-display: block;
+                }
+            `;
+            style.setAttribute('data-touchai-e2e-font', '1');
+            style.setAttribute('data-bytes', String(bytes.length));
+
+            await document.fonts.load(`16px '${family}'`);
+
+            if (!document.fonts.check(`16px '${family}'`)) {
+                throw new Error('the font was registered but does not resolve');
+            }
+
+            return bytes.length;
+        })()
+            .then((bytes) => done({ ok: true, bytes }))
+            .catch((error) => done({ ok: false, error: String(error) }));
+    });
+
+    if (!result?.ok) {
+        throw new Error(
+            `The product serif font could not be loaded (${result?.error ?? 'unknown error'}), so screenshots would show a fallback face instead of the interface a user sees.`
+        );
+    }
+}
+
 export async function waitForTestIdDisplayed(testId, timeoutMs = DEFAULT_TIMEOUT_MS) {
     const element = await findElementByTestId(testId);
     await element.waitForDisplayed({ timeout: timeoutMs });

@@ -37,7 +37,9 @@
         "check:rust": "pnpm --filter @touchai/desktop check:rust",
         "db:generate": "pnpm --filter @touchai/desktop db:generate",
         "db:studio": "pnpm --filter @touchai/desktop db:studio",
-        "prepare": "husky"
+        "prepare": "husky",
+        "test:visual": "pnpm --filter @touchai/desktop test:visual:components",
+        "storybook": "pnpm --filter @touchai/desktop storybook"
     },
     "devDependencies": {
         "@commitlint/cli": "^21.2.3",

@@ -1,0 +1,20 @@
+<style>
+    /*
+     * The product serif face, served by .storybook/product-font-plugin.js from the
+     * same verified file the app downloads. Declaring it here rather than in CSS
+     * keeps the story bundle free of a build-time font step.
+     */
+    @font-face {
+        font-family: 'TouchAI Source Han Serif SC';
+        src: url('/product-font/SourceHanSerifSC-VF.ttf.woff2') format('woff2');
+        font-weight: 250 900;
+        font-style: normal;
+        font-display: block;
+    }
+
+    /* Storybook paints its own canvas; match the app window instead. */
+    html,
+    body {
+        background: var(--color-background-primary);
+    }
+</style>
