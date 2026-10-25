@@ -113,7 +113,16 @@ describe('user gets widget resources limited to the allowlist', () => {
         expect(isShowWidgetResourceUrlAllowed('/local/style.css')).toBe(false);
     });
 
+    it('user gets an absolute url on an allowlisted host accepted', () => {
+        // The check is on the resolved host, so an absolute URL naming an allowlisted host
+        // passes regardless of what the document base happens to be.
+        expect(isShowWidgetResourceUrlAllowed('https://cdn.jsdelivr.net/npm/chart.js')).toBe(true);
+    });
+
     it('user gets every allowlisted host accepted', () => {
+        // Without this the loop would pass on an empty list and prove nothing.
+        expect(SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS.length).toBeGreaterThan(0);
+
         for (const host of SHOW_WIDGET_ALLOWED_RESOURCE_HOSTS) {
             expect(isShowWidgetResourceUrlAllowed(`https://${host}/lib.js`)).toBe(true);
         }
@@ -148,12 +157,20 @@ describe('user gets widget styles that follow the app theme', () => {
         expect(css.length).toBeGreaterThan(0);
     });
 
-    it('user gets the colour ramps scoped to the host as well', () => {
+    it('user gets every colour ramp selector scoped to the host', () => {
         const css = createShowWidgetBaseStyles('#widget-host');
 
-        // A ramp class outside the host scope would leak into the rest of the app.
-        expect(css).toContain('.c-purple');
-        expect(css).toMatch(/#widget-host\s+\.c-/);
+        // A ramp class outside the host scope would leak into the rest of the app, so every
+        // occurrence has to be scoped, not just the first one.
+        const rampSelectors = css.match(/\.c-[a-z]+/g) ?? [];
+        expect(rampSelectors.length).toBeGreaterThan(0);
+
+        // Any line mentioning a ramp must also mention the host scope.
+        const rampLines = css.split('\n').filter((entry) => entry.includes('.c-'));
+        expect(rampLines.length).toBeGreaterThan(0);
+        for (const line of rampLines) {
+            expect(line).toContain('#widget-host');
+        }
     });
 
     it('user gets a dark-mode variant so a widget matches the system theme', () => {
