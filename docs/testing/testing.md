@@ -84,6 +84,14 @@ The keys must stay at the top level of `thresholds`. A nested `global` object is
 
 **Raising is one-way.** Run `pnpm test:coverage:raise` after a change that earns it; it is vitest's `thresholds.autoUpdate`, which rewrites a metric only when the measured value exceeds it. Run it on the full suite, not a filtered subset, or it ratchets to the subset. It also rewrites the per-file thresholds to exact measured values with no headroom, so raise the global floor by hand when the per-file numbers should keep their slack.
 
+**The floor alone is not enough for a pull request.** A global percentage cannot see a change that adds 400 uncovered lines while covering 400 old ones: the total stays flat and the gate stays green. So the `frontend-tests` job also runs a **patch coverage** check (`scripts/ci/coverage/patch-coverage.mjs`), which takes the lines the diff added to `apps/desktop/src` and asks the v8 report how many of them ran. It fails below **85%**.
+
+- A changed source file that no test ever loaded counts as fully uncovered, which is the point: new behaviour has to arrive with a test that exercises it.
+- Blank lines, comments and closing braces carry no statement, so they are skipped rather than counted as failures.
+- Deleted lines, test files and scripts are out of scope.
+- Run it locally with `pnpm test:coverage:patch` after `pnpm test:coverage`.
+- The floor lives in the workflow step, not in a config file, because it is a policy number rather than a measured one.
+
 Rust floor in `apps/desktop/src-tauri/coverage-floors.json`, from **cargo-llvm-cov** (rustc's own `-C instrument-coverage`, not a ptrace debugger). It reports line and region coverage; region is the finer signal because it flags an expression that was only partly evaluated.
 
 | Metric | Floor | Now | Target |

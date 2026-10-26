@@ -20,7 +20,9 @@ export default defineConfig({
     setupFiles: ['./tests/setup/vitest.ts'],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'html', 'json-summary', 'lcov'],
+      // `json` feeds the patch-coverage gate (the lines this change touched); the others
+      // feed the step summary, the uploaded artifact and local browsing.
+      reporter: ['text', 'html', 'json-summary', 'json', 'lcov'],
       reportsDirectory: './.coverage/unit',
       include: ['src/**/*.{ts,vue}'],
       exclude: [

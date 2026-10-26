@@ -34,7 +34,8 @@
         "check": "pnpm type:check && pnpm test:typecheck && pnpm lint:check && pnpm format:check && cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check && pnpm check:rust",
         "db:generate": "drizzle-kit generate",
         "db:studio": "drizzle-kit studio",
-        "update:model-metadata": "node ./scripts/update-model-metadata.mjs"
+        "update:model-metadata": "node ./scripts/update-model-metadata.mjs",
+        "test:coverage:patch": "node ./scripts/ci/coverage/patch-coverage-cli.mjs --coverage .coverage/unit/coverage-final.json --base origin/main --root . --floor 85"
     },
     "dependencies": {
         "@ai-sdk/alibaba": "^1.0.62",

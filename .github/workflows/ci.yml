@@ -261,6 +261,17 @@ jobs:
               if: needs.changes.outputs.docs_only != 'true'
               run: node apps/desktop/scripts/ci/coverage/summarize-coverage.mjs --kind frontend --input apps/desktop/.coverage/unit/coverage-summary.json
 
+            # The global floor guards the repository as a whole; this guards the diff, so a
+            # change cannot add uncovered behaviour while the total stays flat.
+            - name: Check patch coverage
+              if: needs.changes.outputs.docs_only != 'true'
+              run: >-
+                  node apps/desktop/scripts/ci/coverage/patch-coverage-cli.mjs
+                  --coverage apps/desktop/.coverage/unit/coverage-final.json
+                  --base "origin/${{ github.base_ref }}"
+                  --root apps/desktop
+                  --floor 85
+
             - name: Upload coverage artifact
               if: needs.changes.outputs.docs_only != 'true'
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
