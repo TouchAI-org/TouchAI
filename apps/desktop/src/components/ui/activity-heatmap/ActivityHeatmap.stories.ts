@@ -7,8 +7,12 @@ import ActivityHeatmap from './ActivityHeatmap.vue';
  *
  * Real data comes from usage records, so its shape changes every day and could never
  * hold a baseline. The story builds a deterministic year from an arithmetic pattern
- * instead, which exercises all five intensity levels and both month rows while
- * staying identical on every run.
+ * instead, which exercises all five intensity levels and both month rows.
+ *
+ * The data alone does not make the render reproducible: `yearWindow` anchors the right
+ * edge to the current week, so the grid moves as the calendar advances even though the
+ * data never changes. `tests/visual/primitives.visual.ts` pins the clock before the page
+ * loads, which is what makes this story's baseline stable.
  */
 const meta = {
     title: 'Primitives/ActivityHeatmap',

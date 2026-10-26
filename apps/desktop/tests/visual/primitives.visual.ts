@@ -14,6 +14,18 @@ import { expect, test } from '@playwright/test';
 const DEFAULT_VIEWPORT = { width: 900, height: 700 };
 
 /**
+ * The instant every story renders at.
+ *
+ * `ActivityHeatmap` derives its `yearWindow` from `new Date()`, so the right edge of the
+ * grid is the current week: the whole calendar shifts whenever the calendar advances and
+ * the committed baseline starts failing on pull requests that changed nothing. Pinning
+ * the clock makes the render a function of the code rather than of the day the suite
+ * runs. `setFixedTime` fixes `Date` while leaving timers running, so the components'
+ * animations and the stabilising waits below still behave normally.
+ */
+const FIXED_NOW = new Date('2026-10-26T12:00:00Z');
+
+/**
  * Stories whose visual result escapes `#storybook-root`.
  *
  * Reka UI renders `Dialog`, `Tooltip`, `Popover`, `Select` and `DropdownMenu` through
@@ -52,6 +64,8 @@ test.describe('user reviews component primitives', () => {
 
         for (const story of stories) {
             await page.setViewportSize(DEFAULT_VIEWPORT);
+            // Before `goto`, so the story's first render already sees the pinned clock.
+            await page.clock.setFixedTime(FIXED_NOW);
             await page.goto(`/iframe.html?id=${story.id}&viewMode=story`);
 
             // Storybook renders the story asynchronously; comparing before this
@@ -66,7 +80,11 @@ test.describe('user reviews component primitives', () => {
                 ? page.locator('body')
                 : page.locator('#storybook-root');
 
-            await expect(target).toHaveScreenshot(`${story.id}.png`);
+            // Soft, so one moved baseline does not abort the loop and hide every later
+            // story. `toHaveScreenshot` throws, and a plain `expect` here meant a pull
+            // request with two regressions reported only the first — the second went
+            // unmentioned until the first was fixed.
+            await expect.soft(target).toHaveScreenshot(`${story.id}.png`);
         }
     });
 });
@@ -85,17 +103,75 @@ test.describe('user trusts the component baselines', () => {
         await page.waitForSelector('#storybook-root > *', { state: 'attached' });
 
         const report = await page.evaluate(async () => {
+            const family = 'TouchAI Source Han Serif SC';
+            // A family that cannot exist. If the product face is missing or rejected, the
+            // engine falls back for both and the two renders become identical, which is
+            // what makes the comparison below a real test rather than a restatement.
+            const missingFamily = 'TouchAI Missing Font 9x8z';
+            const probe = `52px '${family}'`;
+
+            await document.fonts.load(probe);
+            await document.fonts.load(`52px '${missingFamily}'`);
             await document.fonts.ready;
+
+            const faces = [...document.fonts].filter((face) => face.family === family);
+
+            function rasterise(target: string) {
+                const canvas = document.createElement('canvas');
+                canvas.width = 260;
+                canvas.height = 70;
+                const context = canvas.getContext('2d')!;
+                context.fillStyle = '#ffffff';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                context.fillStyle = '#000000';
+                context.font = `52px ${target}`;
+                context.textBaseline = 'top';
+                // Han glyphs, so a Latin-only fallback cannot match by accident.
+                context.fillText('通用启动', 4, 6);
+                return context.getImageData(0, 0, canvas.width, canvas.height).data;
+            }
+
+            const product = rasterise(`'${family}'`);
+            const missing = rasterise(`'${missingFamily}'`);
+            let differingPixels = 0;
+            for (let index = 0; index < product.length; index += 4) {
+                if (product[index] !== missing[index]) {
+                    differingPixels += 1;
+                }
+            }
+
             const rootStyle = getComputedStyle(document.documentElement);
 
             return {
-                productFontAvailable: document.fonts.check("16px 'TouchAI Source Han Serif SC'"),
+                // `document.fonts.check()` returns true even for a family that exists
+                // nowhere, so the two facts that actually distinguish a working face are
+                // a registered `FontFace` and an outline that differs from a fallback.
+                productFaceCount: faces.length,
+                productFaceStatus: faces.map((face) => face.status),
+                differingPixels,
                 primaryToken: rootStyle.getPropertyValue('--color-primary-500').trim(),
                 serifToken: rootStyle.getPropertyValue('--font-serif').trim(),
             };
         });
 
-        expect(report.productFontAvailable, 'the product font must load in stories').toBe(true);
+        // Step 1: the engine must have registered a face. A rejected `format()` hint
+        // registers none, and then the pixel check below would compare two fallbacks.
+        expect(
+            report.productFaceCount,
+            'the product @font-face must be registered, not rejected by the engine'
+        ).toBeGreaterThan(0);
+        expect(report.productFaceStatus, 'the product face must have finished loading').toContain(
+            'loaded'
+        );
+
+        // Step 2: the painted Han outline must differ from a guaranteed-missing family.
+        // Equal outlines mean both sides fell back, so the baselines would describe a
+        // typeface no user sees.
+        expect(
+            report.differingPixels,
+            'the product font must paint differently from a fallback, or every baseline depicts the wrong typeface'
+        ).toBeGreaterThan(500);
+
         expect(report.primaryToken, 'the app colour tokens must be present').not.toBe('');
         expect(report.serifToken, 'the app font tokens must be present').toContain(
             'TouchAI Source Han Serif SC'
