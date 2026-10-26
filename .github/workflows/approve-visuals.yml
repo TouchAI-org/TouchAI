@@ -30,34 +30,29 @@ name: Approve visual baselines
 #
 # About the checks that must run on the commit this workflow pushes:
 #
-# GitHub suppresses workflow runs for events caused by the built-in `GITHUB_TOKEN`, so
-# the commit lands on the branch without starting the `pull_request` workflows that gate
-# the pull request — and branch protection then sits at "Waiting for status to be
-# reported".
+# GitHub suppresses workflow runs for events caused by the built-in `GITHUB_TOKEN`, so a
+# commit pushed with it lands on the branch without starting the `pull_request` workflows
+# that gate the pull request — and branch protection then sits at "Waiting for status to
+# be reported".
 #
-# The obvious fix is a personal access token, and it is the wrong one here: this
-# repository is public, and a token that can push also has to be readable by any workflow
-# in it, so a long-lived credential would sit in a secret for the convenience of skipping
-# one step.
+# A `workflow_dispatch` run does not help: GitHub only counts check runs from `push`,
+# `pull_request`, `pull_request_review`, `pull_request_target`, `deployment` and
+# `deployment_status` towards required status checks, so a dispatched run's checks never
+# appear on the pull request (see docs.github.com, "Troubleshooting required status
+# checks"). An earlier version of this file wrongly claimed otherwise.
 #
-# So this workflow dispatches the comparison workflows after pushing, which at least
-# re-runs the comparison against the new commit and leaves a readable run behind.
+# The fix is the credential, not the trigger. The push is made with a GitHub App
+# installation token from `BOT_APP_ID` / `BOT_APP_PRIVATE_KEY`, whose `push` event is an
+# ordinary push and therefore does produce eligible checks. The App is already installed
+# on this repository and scoped to it, which is what makes this acceptable where a broad
+# personal access token would not be: the credential is short-lived (one hour), it is
+# issued per run, and it cannot be used anywhere except the repositories the App is
+# installed on.
 #
-# It does NOT unblock a protected branch, and an earlier version of this comment wrongly
-# said it did. GitHub only counts check runs from `push`, `pull_request`,
-# `pull_request_review`, `pull_request_target`, `deployment` and `deployment_status`
-# towards required status checks; a `workflow_dispatch` run's checks never appear in the
-# pull request and never satisfy a required check, even when they pass on the head commit
-# (see docs.github.com, "Troubleshooting required status checks"). The ruleset on `main`
-# requires `Conventional Commits`, `Dependency Review`, `CI Required` and `E2E Required`,
-# so after a baseline push the branch still needs one of:
-#
-#   - a human re-running the checks, or an empty commit pushed by a human, or
-#   - a push made with a narrowly scoped GitHub App token, whose `push` event then
-#     produces eligible checks — the credential this file deliberately avoids.
-#
-# The second is the real fix and needs its own decision; until then the dispatch below
-# exists for the run log and the regenerated comparison, not for branch protection.
+# The comparison workflows are still dispatched after the push. They are no longer needed
+# for branch protection, but the dispatch leaves a run behind that compares the new
+# baselines against themselves, which is a cheap way to notice a renderer that produced
+# something it cannot reproduce.
 #
 # Usage, in a pull request comment:
 #
@@ -205,13 +200,36 @@ jobs:
             # artifact it leaves behind.
             actions: write
         steps:
+            # The push below has to be an ordinary push, so that its `push` event starts
+            # the workflows whose checks the branch protection rule waits for. A token
+            # from `GITHUB_TOKEN` cannot do that. The App token is short-lived and scoped
+            # to the repositories the App is installed on, which is why it is acceptable
+            # here where a personal access token would not be.
+            - name: Mint an App token
+              id: app
+              uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+              with:
+                  app-id: ${{ secrets.BOT_APP_ID }}
+                  private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+                  # Only the repositories this App is installed on, and only what the
+                  # commit and the dispatch need.
+                  owner: ${{ github.repository_owner }}
+                  repositories: ${{ github.event.repository.name }}
+                  permission-contents: write
+                  permission-actions: write
+                  permission-pull-requests: write
+
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   ref: ${{ needs.plan.outputs.head_ref }}
+                  # Push as the App, so the resulting `push` event is not suppressed.
+                  token: ${{ steps.app.outputs.token }}
 
             - name: Regenerate in the pinned renderer
               id: regenerate
               env:
+                  # `GITHUB_TOKEN` is enough to dispatch and read runs; the push is the
+                  # only thing that needs the App.
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   HEAD_REF: ${{ needs.plan.outputs.head_ref }}
               run: |
@@ -263,9 +281,12 @@ jobs:
               id: commit
               env:
                   HEAD_REF: ${{ needs.plan.outputs.head_ref }}
+                  APP_SLUG: ${{ steps.app.outputs.app-slug }}
               run: |
                   set -euo pipefail
-                  git config user.name 'github-actions[bot]'
+                  # Attributed to the App rather than to `github-actions`, so `git log`
+                  # says which credential produced a baseline refresh.
+                  git config user.name "${APP_SLUG}[bot]"
                   git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
                   git add apps/desktop/tests/visual/__snapshots__
@@ -287,14 +308,11 @@ jobs:
                   git push origin "HEAD:$HEAD_REF"
                   echo "pushed=true" >> "$GITHUB_OUTPUT"
 
-            # A push made with `GITHUB_TOKEN` does not start the `pull_request` workflows
-            # (GitHub suppresses runs for events it causes). Dispatching re-runs the
-            # comparison on the commit that was just pushed and leaves a run to read.
-            #
-            # This does not satisfy the required status checks: checks from a
-            # `workflow_dispatch` run are not evaluated for the pull request. See the
-            # note at the top of this file.
-            - name: Start the checks on the new commit
+            # The App push started the `pull_request` workflows on the new commit, so the
+            # required checks will appear on their own. Dispatching is kept because it also
+            # re-runs the comparison against the baselines that were just written, which is
+            # a cheap way to catch a renderer that cannot reproduce its own output.
+            - name: Re-run the comparison against the new baselines
               if: steps.commit.outputs.pushed == 'true'
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -326,9 +344,24 @@ jobs:
             # artifact it leaves behind.
             actions: write
         steps:
+            # Same reason as the components job: the push must be an ordinary push so its
+            # `push` event starts the workflows whose checks gate the pull request.
+            - name: Mint an App token
+              id: app
+              uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+              with:
+                  app-id: ${{ secrets.BOT_APP_ID }}
+                  private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+                  owner: ${{ github.repository_owner }}
+                  repositories: ${{ github.event.repository.name }}
+                  permission-contents: write
+                  permission-actions: write
+                  permission-pull-requests: write
+
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   ref: ${{ needs.plan.outputs.head_ref }}
+                  token: ${{ steps.app.outputs.token }}
 
             - name: Regenerate in the Windows/WebView2 environment
               id: regenerate
@@ -381,9 +414,10 @@ jobs:
               id: commit
               env:
                   HEAD_REF: ${{ needs.plan.outputs.head_ref }}
+                  APP_SLUG: ${{ steps.app.outputs.app-slug }}
               run: |
                   set -euo pipefail
-                  git config user.name 'github-actions[bot]'
+                  git config user.name "${APP_SLUG}[bot]"
                   git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
                   git add apps/desktop/e2e-tests/__snapshots__
@@ -403,11 +437,10 @@ jobs:
                   git push origin "HEAD:$HEAD_REF"
                   echo "pushed=true" >> "$GITHUB_OUTPUT"
 
-            # Same reason as the component job: the commit was pushed with
-            # `GITHUB_TOKEN`, so the `pull_request` workflows did not start on it.
-            # Dispatching re-runs the comparison on the new commit; it does not satisfy
-            # the required status checks. See the note at the top of this file.
-            - name: Start the checks on the new commit
+            # The App push started the `pull_request` workflows on the new commit, so the
+            # required checks appear on their own. Dispatching is kept because it also
+            # re-runs the comparison against the baselines that were just written.
+            - name: Re-run the comparison against the new baselines
               if: steps.commit.outputs.pushed == 'true'
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

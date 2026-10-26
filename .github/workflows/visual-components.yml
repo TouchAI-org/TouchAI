@@ -219,20 +219,37 @@ jobs:
                   VISUAL_EVIDENCE_URLS: ${{ runner.temp }}/visual-evidence.json
               run: node ./scripts/ci/visual-summary.mjs test-results/results.json
 
-            # A pull request from a fork gets a read-only token whatever the `permissions`
-            # block says, so commenting would fail with 403 and turn every outside
-            # contribution into a permanently red check the author cannot fix. The report
-            # is still written to the run summary, which needs no token.
-            - name: Post the report on the pull request
+            # The report is posted by the App rather than by `github-actions`, so the
+            # comment is attributable and so a fork pull request can still receive it: the
+            # App token is minted by this workflow, not derived from the pull request's
+            # (read-only) `GITHUB_TOKEN`. The `if:` still limits the run to branches in
+            # this repository, because the App token can write anywhere it is installed
+            # and there is no reason to hand it to code from a fork.
+            - name: Mint an App token
+              id: app
               if: |
                   !cancelled() &&
                   !inputs.update_visual_baselines &&
                   github.event_name == 'pull_request' &&
                   github.event.pull_request.head.repo.full_name == github.repository
+              uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+              with:
+                  app-id: ${{ secrets.BOT_APP_ID }}
+                  private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+                  owner: ${{ github.repository_owner }}
+                  repositories: ${{ github.event.repository.name }}
+                  permission-pull-requests: write
+                  permission-issues: write
+
+            - name: Post the report on the pull request
+              if: steps.app.outputs.token != ''
               uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
               env:
                   SUMMARY_PATH: ${{ runner.temp }}/visual-summary.md
               with:
+                  # The App token, not the workflow token, so the comment is written by the
+                  # bot and not by `github-actions`.
+                  github-token: ${{ steps.app.outputs.token }}
                   script: |
                       const fs = require('node:fs');
                       const path = process.env.SUMMARY_PATH;
