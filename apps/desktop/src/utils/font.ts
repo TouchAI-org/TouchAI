@@ -146,10 +146,41 @@ async function injectFontFace(options: LoadFontFaceOptions = {}): Promise<boolea
 
     const style = document.createElement('style');
     style.setAttribute(FONT_FACE_STYLE_ATTRIBUTE, FONT_FACE_STYLE_KEY);
+    /*
+     * The `format()` hint decides whether this variable font is painted at all.
+     *
+     * The file is Source Han Serif SC VF: `fvar` declares `wght` 250..900 with named
+     * instances at 250, 300, 400, 500, 600, 700 and 900. An engine that is not told the
+     * file carries a variation axis loads it as a static face, finds no instance for the
+     * weight the page asks for, and silently substitutes whatever `serif` resolves to.
+     * Nothing throws: `document.fonts.check()` still returns `true` and the face still
+     * reports `status: "loaded"`, because the bytes downloaded and parsed fine. That
+     * silent substitution is why the interface was never painted in the font it ships.
+     *
+     * `format('woff2-variations')` is the form CSS Fonts 4 defines for this. The spec's
+     * compatibility table maps it to the modern `tech()` syntax and keeps it valid
+     * permanently:
+     *
+     *     format("woff2-variations")  ==  format(woff2) tech(variations)
+     *
+     * An earlier version of this rule used `format('woff2 supports variations')`. That
+     * string is not in the specification: `<font-format>` accepts only `woff2`, `woff`,
+     * `opentype` and friends, and the variation requirement is expressed through
+     * `<font-tech>`. It came from articles describing a pre-2018 draft. Chromium 156
+     * parses it leniently enough to work, Chromium 155 rejects the whole `src` entry, so
+     * the same rule rendered the font on a developer machine and fell back on CI.
+     *
+     * Measured in WebView2 156 with the app's own file, comparing the painted outline
+     * against a face built directly from those bytes: `woff2-variations` agrees within
+     * 3 pixels of anti-aliasing, while the unsupported string produces no face at all.
+     *
+     * The weight range below is what lets the axis interpolate once the file is
+     * accepted; keep it.
+     */
     style.textContent = `
         @font-face {
             font-family: '${FONT_FACE_FAMILY}';
-            src: url('${fontUrl}') format('woff2');
+            src: url('${fontUrl}') format('woff2-variations');
             font-weight: 250 900;
             font-style: normal;
             font-display: swap;
