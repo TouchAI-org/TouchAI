@@ -2,10 +2,10 @@
  * Turns Playwright's JSON report into the markdown a reviewer reads on the PR.
  *
  * Failing a job is not a report: it tells the reviewer that something moved, not
- * what, and leaves the images on a runner that is about to be destroyed. This
- * writes the missing half to `$GITHUB_STEP_SUMMARY` — which snapshot differs, and
- * where the actual and diff images live — so the reviewer never has to open the
- * Actions log to find out what to look at.
+ * what, and leaves the images on a runner that is about to be destroyed. This writes
+ * the missing half — which snapshot differs, and where its images are — to the job
+ * summary and to the pull request, so nobody has to open the Actions log to find out
+ * what to look at.
  *
  * Usage: node scripts/ci/visual-summary.mjs [report.json]
  */
@@ -70,10 +70,28 @@ const readReport = () => {
     }
 };
 
-const describeAttachment = (attachments, name) => {
-    const attachment = (attachments ?? []).find((entry) => entry.name === name);
+/**
+ * Finds one image of a failed screenshot comparison.
+ *
+ * On a pixel mismatch Playwright attaches all three, named
+ * `<snapshot-stem>-{expected,actual,diff}.png`. A comparison that never got as far as
+ * producing pixels — an undecodable baseline, a story that never rendered — attaches
+ * only `-expected.png` or nothing at all. Each name is therefore looked up on its own
+ * rather than assuming the trio exists, and a missing one is reported as missing
+ * instead of being invented.
+ */
+const describeAttachment = (attachments, suffix) => {
+    const pattern = new RegExp(`-${suffix}\\.(png|webp|jpg|jpeg)$`, 'i');
 
-    return attachment?.path ? path.basename(attachment.path) : null;
+    for (const attachment of attachments ?? []) {
+        const base = attachment.path ? path.basename(attachment.path) : '';
+
+        if (pattern.test(attachment.name ?? '') || pattern.test(base)) {
+            return base || attachment.name;
+        }
+    }
+
+    return null;
 };
 
 const report = readReport();
@@ -106,11 +124,13 @@ const failures = specs
         }
 
         const attachments = failed.flatMap((result) => result.attachments ?? []);
+        const expected = describeAttachment(attachments, 'expected');
 
         return {
             title: spec.title,
             file: spec.file,
-            expected: describeAttachment(attachments, 'expected'),
+            stem: expected ? expected.replace(/-expected\.\w+$/, '') : null,
+            expected,
             actual: describeAttachment(attachments, 'actual'),
             diff: describeAttachment(attachments, 'diff'),
         };
@@ -129,27 +149,42 @@ if (failures.length === 0) {
 
     if (runUrl) {
         lines.push(
-            `[Open the \`component-visual-diffs\` artifact](${runUrl}#artifacts) for the`,
-            'expected, actual and diff images of each row below.',
+            `[Open the \`component-visual-diffs\` artifact](${runUrl}#artifacts) to see the`,
+            'images themselves.',
             ''
         );
     } else {
         lines.push(
-            'Open the `component-visual-diffs` artifact from this run for the expected,',
-            'actual and diff images of each row below.',
+            'Open the `component-visual-diffs` artifact from this run to see the images',
+            'themselves.',
             ''
         );
     }
 
-    lines.push('| Story | Expected | Actual | Diff |', '| --- | --- | --- | --- |');
+    lines.push('| Snapshot | Expected | Actual | Diff |', '| --- | --- | --- | --- |');
 
     for (const failure of failures) {
         lines.push(
-            `| ${failure.title} | ${failure.expected ?? '—'} | ${failure.actual ?? '—'} | ${failure.diff ?? '—'} |`
+            `| \`${failure.stem ?? failure.title}\` | ${failure.expected ?? '—'} | ${failure.actual ?? '—'} | ${failure.diff ?? '—'} |`
         );
     }
 
     lines.push('');
+
+    // A row with no actual or diff means the comparison never produced pixels: the
+    // baseline did not decode, or the story never rendered. That is a different problem
+    // from "the design changed", and saying so saves a confusing round trip.
+    const withoutPixels = failures.filter((failure) => !failure.actual);
+
+    if (withoutPixels.length > 0) {
+        lines.push(
+            `> ${withoutPixels.length} of these never produced a pixel comparison, so there is`,
+            '> nothing to compare — the baseline file or the story itself is broken rather',
+            '> than the design having changed. Check the job log for the decode or render',
+            '> error.',
+            ''
+        );
+    }
 }
 
 // The hint is unconditional: a green run needs it too, because the next reader may be
