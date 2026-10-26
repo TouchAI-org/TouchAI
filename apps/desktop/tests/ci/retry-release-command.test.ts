@@ -118,4 +118,25 @@ describe('retry release command', () => {
         expect(status).toBe(1);
         expect(spawnCommand).toHaveBeenCalledTimes(1);
     });
+
+    it('user gets an argument with quotes and spaces passed through unchanged when the release wrapper spawns a command', async () => {
+        const retryModule = await loadRetryModule();
+        const root = await mkdtemp(join(tmpdir(), 'touchai-retry-command-'));
+        const scriptPath = join(root, 'echo-argument.mjs');
+        const argument = JSON.stringify({
+            version: '1.2.3',
+            bundle: { linux: { rpm: { release: '0.beta.1' } } },
+        });
+
+        try {
+            await writeFile(scriptPath, 'process.stdout.write(process.argv[2] ?? "");');
+
+            const result = await retryModule?.spawnReleaseCommand('node', [scriptPath, argument]);
+
+            expect(result?.status).toBe(0);
+            expect(result?.output).toBe(argument);
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    });
 });

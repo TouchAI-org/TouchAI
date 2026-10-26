@@ -1,5 +1,6 @@
-import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+
+import crossSpawn from 'cross-spawn';
 
 const DEFAULT_ATTEMPTS = 3;
 const DEFAULT_DELAY_MS = 30_000;
@@ -57,10 +58,11 @@ export function spawnReleaseCommand(command, args, options = {}) {
     return new Promise((resolve) => {
         const maxTailBytes = options.maxTailBytes ?? DEFAULT_MAX_OUTPUT_TAIL_BYTES;
         let outputTail = '';
-        const child = spawn(command, args, {
+        // cross-spawn resolves Windows command shims and escapes arguments for
+        // cmd.exe, so `--config '{"version":"1.2.3"}'` reaches the child intact.
+        const child = crossSpawn(command, args, {
             cwd: options.cwd,
             env: options.env,
-            shell: true,
             stdio: ['inherit', 'pipe', 'pipe'],
         });
 

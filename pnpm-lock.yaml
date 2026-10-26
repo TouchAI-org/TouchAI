@@ -291,6 +291,9 @@ importers:
       '@wdio/spec-reporter':
         specifier: ^9.32.0
         version: 9.32.0
+      cross-spawn:
+        specifier: ^7.0.6
+        version: 7.0.6
       drizzle-kit:
         specifier: ^0.31.11
         version: 0.31.11
