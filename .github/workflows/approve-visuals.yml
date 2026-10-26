@@ -28,15 +28,22 @@ name: Approve visual baselines
 # exact configuration that will later compare it. So this file orchestrates and never
 # re-implements.
 #
-# About the token that pushes the commit:
+# About the checks that must run on the commit this workflow pushes:
 #
-# GitHub suppresses workflow runs for events caused by the built-in `GITHUB_TOKEN`, so a
-# push made with it lands on the branch without starting the checks that gate the pull
-# request — and branch protection then sits at "Waiting for status to be reported". Set
-# a `VISUAL_APPROVE_TOKEN` secret (a fine-grained PAT with `contents: write` on this
-# repository, or a GitHub App installation token) to have the checks run on the new
-# commit. Without it the baselines are still committed and correct; the checks just need
-# a manual re-run before the pull request can merge.
+# GitHub suppresses workflow runs for events caused by the built-in `GITHUB_TOKEN`, so
+# the commit lands on the branch without starting the `pull_request` workflows that gate
+# the pull request — and branch protection then sits at "Waiting for status to be
+# reported".
+#
+# The obvious fix is a personal access token, and it is the wrong one here: this
+# repository is public, and a token that can push also has to be readable by any workflow
+# in it, so a long-lived credential would sit in a secret for the convenience of skipping
+# one step.
+#
+# Instead this workflow dispatches the comparison workflows itself after pushing. A
+# `workflow_dispatch` run creates its check runs on the branch tip, which is the commit
+# just pushed, so the required statuses appear exactly where branch protection looks for
+# them — with no credential beyond the workflow token.
 #
 # Usage, in a pull request comment:
 #
@@ -153,12 +160,6 @@ jobs:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   ref: ${{ needs.plan.outputs.head_ref }}
-                  # The commit this job pushes has to start the checks that gate the pull
-                  # request, and the built-in token cannot do that (GitHub suppresses
-                  # workflow runs for events it causes). The optional secret is the
-                  # documented way around it; without it the baselines are still
-                  # committed, the checks just need a manual re-run.
-                  token: ${{ secrets.VISUAL_APPROVE_TOKEN || secrets.GITHUB_TOKEN }}
 
             - name: Regenerate in the pinned renderer
               id: regenerate
@@ -211,6 +212,7 @@ jobs:
                   gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name component-baselines --dir apps/desktop/tests/visual/__snapshots__
 
             - name: Commit the regenerated baselines
+              id: commit
               env:
                   HEAD_REF: ${{ needs.plan.outputs.head_ref }}
               run: |
@@ -222,11 +224,27 @@ jobs:
 
                   if git diff --cached --quiet; then
                       echo 'The component baselines already match; nothing to commit.'
+                      echo "pushed=false" >> "$GITHUB_OUTPUT"
                       exit 0
                   fi
 
                   git commit -m 'test(ui): refresh the component visual baselines'
                   git push origin "HEAD:$HEAD_REF"
+                  echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+            # A push made with `GITHUB_TOKEN` does not start the `pull_request` workflows
+            # (GitHub suppresses runs for events it causes), so without this the branch
+            # would sit at "Waiting for status to be reported". Dispatching the comparison
+            # workflow puts its check runs on the commit that was just pushed, which is
+            # where branch protection looks.
+            - name: Start the checks on the new commit
+              if: steps.commit.outputs.pushed == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  HEAD_REF: ${{ needs.plan.outputs.head_ref }}
+              run: |
+                  set -euo pipefail
+                  gh workflow run visual-components.yml --repo "$GITHUB_REPOSITORY" --ref "$HEAD_REF" -f update_visual_baselines=false
 
     e2e:
         name: Regenerate app baselines
@@ -237,7 +255,6 @@ jobs:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   ref: ${{ needs.plan.outputs.head_ref }}
-                  token: ${{ secrets.VISUAL_APPROVE_TOKEN || secrets.GITHUB_TOKEN }}
 
             - name: Regenerate in the Windows/WebView2 environment
               id: regenerate
@@ -287,6 +304,7 @@ jobs:
                   gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name visual-baselines --dir apps/desktop/e2e-tests/__snapshots__
 
             - name: Commit the regenerated baselines
+              id: commit
               env:
                   HEAD_REF: ${{ needs.plan.outputs.head_ref }}
               run: |
@@ -298,11 +316,25 @@ jobs:
 
                   if git diff --cached --quiet; then
                       echo 'The app baselines already match; nothing to commit.'
+                      echo "pushed=false" >> "$GITHUB_OUTPUT"
                       exit 0
                   fi
 
                   git commit -m 'test(ui): refresh the app visual baselines'
                   git push origin "HEAD:$HEAD_REF"
+                  echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+            # Same reason as the component job: the commit was pushed with
+            # `GITHUB_TOKEN`, so the `pull_request` workflows did not start on it.
+            # Dispatching the comparison run attaches its checks to the new commit.
+            - name: Start the checks on the new commit
+              if: steps.commit.outputs.pushed == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  HEAD_REF: ${{ needs.plan.outputs.head_ref }}
+              run: |
+                  set -euo pipefail
+                  gh workflow run e2e-smoke.yml --repo "$GITHUB_REPOSITORY" --ref "$HEAD_REF" -f update_visual_baselines=false
 
     report:
         name: Report the outcome

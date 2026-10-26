@@ -225,11 +225,19 @@ gh run download <run-id> --name component-baselines --dir apps/desktop/tests/vis
 
 `/approve-visuals` only runs for commenters with write access, dispatches the existing
 workflows rather than re-implementing them, and commits the result to the branch under
-review. Pushing that commit with the built-in `GITHUB_TOKEN` does not start the checks
-that gate the pull request — GitHub suppresses runs for events it causes — so set a
-`VISUAL_APPROVE_TOKEN` secret (fine-grained PAT with `contents: write`, or a GitHub App
-token) to have them run automatically. Without it the baselines are still correct; the
-checks need a manual re-run.
+review.
+
+That commit is pushed with the built-in `GITHUB_TOKEN`, and GitHub suppresses workflow
+runs for events that token causes — so the `pull_request` workflows would not start on
+it, and the branch would sit at "Waiting for status to be reported". The workflow
+therefore dispatches the comparison runs itself after pushing: a `workflow_dispatch` run
+creates its checks on the branch tip, which is exactly the commit that was just pushed.
+
+This is deliberately done without a personal access token. The repository is public, and
+a token able to push here also has to be readable by any workflow in it, so a long-lived
+credential in a secret would buy one saved step at a real cost. If dispatching ever stops
+being enough, the correct escalation is a GitHub App installation token scoped to this
+repository — not a broad personal token.
 
 **Never regenerate automatically.** A baseline that rewrites itself on push or on a
 schedule is not a baseline; it is a recording of whatever the code currently does, and
