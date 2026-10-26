@@ -35,7 +35,9 @@
         "check:rust": "pnpm --filter @touchai/desktop check:rust",
         "db:generate": "pnpm --filter @touchai/desktop db:generate",
         "db:studio": "pnpm --filter @touchai/desktop db:studio",
-        "prepare": "husky"
+        "prepare": "husky",
+        "design:check": "pnpm lint:check",
+        "design:prune": "pnpm --filter @touchai/desktop exec eslint . --prune-suppressions && prettier --write apps/desktop/eslint-suppressions.json"
     },
     "devDependencies": {
         "@commitlint/cli": "^21.2.3",
@@ -54,7 +56,8 @@
         "prettier-plugin-tailwindcss": "^0.8.1",
         "typescript": "~6.0.3",
         "typescript-eslint": "^8.71.1",
-        "vue-eslint-parser": "^10.4.1"
+        "vue-eslint-parser": "^10.4.1",
+        "eslint-plugin-tailwindcss": "^4.4.0"
     },
     "pnpm": {
         "overrides": {

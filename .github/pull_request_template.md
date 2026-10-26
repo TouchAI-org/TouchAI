@@ -55,6 +55,15 @@ pnpm test:e2e
 - release or packaging impact:
 - hand-rolled instead of an existing library or utility, and why:
 
+## Design system
+
+Fill this section when the diff touches `apps/desktop/src/components/ui/`, `apps/desktop/src/styles/`, `apps/desktop/src/components/*.vue`, or any `views/**/*.vue`. Write `N/A` otherwise.
+
+- Primitives used or extended (`components/ui/*`), or why none apply:
+- New arbitrary values introduced — count of `bg-[#…]`, `text-[Npx]`, `bg-white`: `0`
+- If a token is missing, which `@theme` entry should be added, and why not in this PR:
+- Visual change scope: `none` / `additive` / `breaking`. For `breaking`, list every affected call site:
+
 ## Screenshots or recordings
 
 Include UI evidence here when the change affects the interface.
@@ -75,3 +84,5 @@ Include UI evidence here when the change affects the interface.
 - [ ] I asserted behavior, not implementation: a rewrite behind the same public contract would keep these tests green.
 - [ ] I added tests or explained why tests are not appropriate.
 - [ ] I updated docs when behavior changed.
+- [ ] If this touches UI, I filled the `## Design system` section and `pnpm design:check` passes locally.
+- [ ] If this adds a `components/ui/*` primitive or variant, it has a class snapshot test under `tests/components/ui/`.

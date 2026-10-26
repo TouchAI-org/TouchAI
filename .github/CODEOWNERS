@@ -12,3 +12,11 @@
 /release-please-config.json @hiqiancheng
 /apps/desktop/product.json @hiqiancheng
 /apps/desktop/scripts/ci/ @hiqiancheng
+
+# Design system surfaces require maintainer review.
+# Token changes move every screen at once, and primitive changes move every call site.
+/apps/desktop/src/styles/ @hiqiancheng
+/apps/desktop/src/components/ui/ @hiqiancheng
+/apps/desktop/src/lib/utils.ts @hiqiancheng
+/apps/desktop/eslint-suppressions.json @hiqiancheng
+/apps/desktop/e2e-tests/__snapshots__/ @hiqiancheng
