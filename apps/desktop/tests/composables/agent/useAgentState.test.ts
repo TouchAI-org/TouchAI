@@ -144,3 +144,24 @@ describe('when a tool streams output into the conversation', () => {
         mounted.unmount();
     });
 });
+
+describe('when the user clears the conversation', () => {
+    it('user gets the answer, reasoning and error wiped from the page', async () => {
+        subscribeTaskMock.mockReturnValue(() => undefined);
+        const mounted = await mountComposable(() => useAgentState({}));
+
+        mounted.result.response.value = 'an answer';
+        mounted.result.reasoning.value = 'some thinking';
+        mounted.result.error.value = new Error('boom') as never;
+
+        mounted.result.resetTaskViewState();
+        await nextTick();
+
+        // Clearing must not leave the previous answer on screen under the new conversation.
+        expect(mounted.result.response.value).toBe('');
+        expect(mounted.result.reasoning.value).toBe('');
+        expect(mounted.result.error.value).toBeNull();
+
+        mounted.unmount();
+    });
+});

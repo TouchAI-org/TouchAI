@@ -280,6 +280,25 @@ describe('when the user opens the usage dashboard', () => {
     });
 });
 
+describe('when a turn never reported a first-token time', () => {
+    it('user gets no first-token average instead of a zero', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        seed(database);
+        seedTurn(database, {
+            id: 1,
+            modelId: 1,
+            createdAt: '2026-05-01 10:00:00',
+            inputTokens: 100,
+        });
+
+        const { summary } = await getUsageDashboardSnapshot(WIDE, []);
+
+        // A turn with no first-token sample must not claim the answer started at zero ms.
+        expect(summary.meanFirstTextMs).toBeNull();
+    });
+});
+
 describe('when the user breaks the usage down by model or provider', () => {
     it('user sees one row per model, busiest first', async () => {
         const database = openMigratedDatabase();

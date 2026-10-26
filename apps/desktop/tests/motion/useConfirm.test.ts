@@ -76,3 +76,21 @@ describe('user answers a confirmation dialog', () => {
         expect(document.querySelector('[data-testid="confirm-dialog"]')).toBeNull();
     });
 });
+
+describe('user dismisses a confirmation dialog', () => {
+    it('user gets the cancel answer reported when they press cancel', async () => {
+        const { wrapper, api } = mountConfirm();
+
+        const pending = api.confirm({ message: 'Delete this?' });
+        await nextTick();
+
+        const cancel = document.querySelector('[data-action="cancel"]') as HTMLButtonElement;
+        cancel.click();
+        await nextTick();
+
+        // Cancel is an answer, not a hang: the caller gets false and can carry on.
+        await expect(pending).resolves.toBe(false);
+
+        wrapper.unmount();
+    });
+});

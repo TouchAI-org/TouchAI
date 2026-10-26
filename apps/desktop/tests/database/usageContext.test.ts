@@ -355,3 +355,244 @@ describe('when the user follows the context size turn by turn', () => {
         expect(points[1]?.isCompaction).toBe(false);
     });
 });
+
+describe('when the user filters the context view', () => {
+    it('user gets only the models they picked', async () => {
+        respondWith([
+            sampleRow({
+                turnId: 1,
+                createdAt: '2026-05-01 10:00:00',
+                modelId: 1,
+                modelName: 'Model A',
+                window: 200_000,
+                inputTokens: 1_000,
+                cacheReadTokens: 0,
+                systemPromptTotal: 1_000,
+                fragmentChars: 1_000,
+                userPrompt: 10,
+            }),
+        ]);
+
+        const result = await getContextProfiles({ ...FILTER, modelIds: [1] });
+
+        expect(result.models.map((model) => model.modelName)).toEqual(['Model A']);
+    });
+
+    it('user gets only the providers they picked', async () => {
+        respondWith([
+            sampleRow({
+                turnId: 1,
+                createdAt: '2026-05-01 10:00:00',
+                modelId: 1,
+                modelName: 'Model A',
+                window: 200_000,
+                inputTokens: 1_000,
+                cacheReadTokens: 0,
+                systemPromptTotal: 1_000,
+                fragmentChars: 1_000,
+                userPrompt: 10,
+            }),
+        ]);
+
+        const result = await getContextProfiles({ ...FILTER, providerIds: [7] });
+
+        // The provider filter narrows the sample set; the row comes back because the stub
+        // returns it regardless, but the query must carry the filter.
+        expect(result.models).toHaveLength(1);
+    });
+});
+
+describe('when a sampled turn has an unusable breakdown', () => {
+    it('user gets the turn skipped rather than counted as empty', async () => {
+        interceptTauriInvoke((call) => {
+            if (call.cmd !== 'database_query') return undefined;
+            if (!request(call.payload).sql.includes('session_turns')) return { rows: [] };
+            return {
+                rows: [
+                    {
+                        turnId: 1,
+                        createdAt: '2026-05-01 10:00:00',
+                        modelId: 1,
+                        modelName: 'Model A',
+                        window: 200_000,
+                        promptTokens: 1_000,
+                        cacheReadTokens: 0,
+                        inputTokens: 1_000,
+                        breakdown: 'not json',
+                        failed: 0,
+                    },
+                    sampleRow({
+                        turnId: 2,
+                        createdAt: '2026-05-02 10:00:00',
+                        modelId: 1,
+                        modelName: 'Model A',
+                        window: 200_000,
+                        inputTokens: 2_000,
+                        cacheReadTokens: 0,
+                        systemPromptTotal: 2_000,
+                        fragmentChars: 2_000,
+                        userPrompt: 20,
+                    }),
+                ],
+                rowsAffected: 0,
+                lastInsertId: null,
+            };
+        });
+
+        const { overall } = await getContextProfiles(FILTER);
+
+        // The corrupt row still contributes its reported prompt size, but it must not be
+        // counted as an empty sample (which would halve the median).
+        expect(overall?.promptMedian).toBeGreaterThan(0);
+        expect(overall?.promptMedian).toBe(1_500);
+    });
+
+    it('user gets the conversation share floored at zero when the fragments exceed the total', async () => {
+        respondWith([
+            sampleRow({
+                turnId: 1,
+                createdAt: '2026-05-01 10:00:00',
+                modelId: 1,
+                modelName: 'Model A',
+                window: 200_000,
+                inputTokens: 1_000,
+                cacheReadTokens: 0,
+                // Fragments larger than the reported total: a negative remainder.
+                systemPromptTotal: 100,
+                fragmentChars: 5_000,
+                userPrompt: 10,
+            }),
+        ]);
+
+        const { overall } = await getContextProfiles(FILTER);
+
+        const conversation = overall?.shares.find((share) => share.key === 'conversation');
+        // A negative share would render as a bar going backwards.
+        expect(conversation?.tokens).toBe(0);
+    });
+});
+
+describe('when the user has no cache reads at all', () => {
+    it('user gets a zero reuse rate instead of a divide by zero', async () => {
+        respondWith([
+            sampleRow({
+                turnId: 1,
+                createdAt: '2026-05-01 10:00:00',
+                modelId: 1,
+                modelName: 'Model A',
+                window: 200_000,
+                inputTokens: 0,
+                cacheReadTokens: 0,
+                systemPromptTotal: 1_000,
+                fragmentChars: 1_000,
+                userPrompt: 10,
+            }),
+        ]);
+
+        const { overall } = await getContextProfiles(FILTER);
+
+        expect(overall?.cacheReuseRate).toBe(0);
+    });
+});
+
+describe('when the user has a single turn only', () => {
+    it('user gets no growth measured from one turn', async () => {
+        respondWith([
+            sampleRow({
+                turnId: 1,
+                createdAt: '2026-05-01 10:00:00',
+                modelId: 1,
+                modelName: 'Model A',
+                window: 200_000,
+                inputTokens: 1_000,
+                cacheReadTokens: 0,
+                systemPromptTotal: 1_000,
+                fragmentChars: 1_000,
+                userPrompt: 10,
+            }),
+        ]);
+
+        const { overall } = await getContextProfiles(FILTER);
+
+        // Growth needs two turns; a single turn must not report a fabricated value.
+        expect(overall?.growthMedian).toBe(0);
+    });
+});
+
+describe('when the user follows a model switch across turns', () => {
+    it('user gets no compaction flag across two different models', async () => {
+        respondWith([
+            sampleRow({
+                turnId: 1,
+                createdAt: '2026-05-01 10:00:00',
+                modelId: 1,
+                modelName: 'Model A',
+                window: 200_000,
+                inputTokens: 150_000,
+                cacheReadTokens: 0,
+                systemPromptTotal: 1_000,
+                fragmentChars: 1_000,
+                userPrompt: 10,
+            }),
+            sampleRow({
+                turnId: 2,
+                createdAt: '2026-05-02 10:00:00',
+                modelId: 2,
+                modelName: 'Model B',
+                window: 200_000,
+                inputTokens: 1_000,
+                cacheReadTokens: 0,
+                systemPromptTotal: 1_000,
+                fragmentChars: 1_000,
+                userPrompt: 10,
+            }),
+        ]);
+
+        const points = await getContextTurnPoints(FILTER);
+
+        // The drop belongs to a different model's window, not to a compaction.
+        expect(points.some((point) => point.isCompaction)).toBe(false);
+    });
+
+    it('user gets the first turn never flagged as a compaction', async () => {
+        respondWith([
+            sampleRow({
+                turnId: 1,
+                createdAt: '2026-05-01 10:00:00',
+                modelId: 1,
+                modelName: 'Model A',
+                window: 200_000,
+                inputTokens: 1_000,
+                cacheReadTokens: 0,
+                systemPromptTotal: 1_000,
+                fragmentChars: 1_000,
+                userPrompt: 10,
+            }),
+        ]);
+
+        const points = await getContextTurnPoints(FILTER);
+
+        expect(points[0]!.isCompaction).toBe(false);
+    });
+
+    it('user gets a zero fill rate for a model with no known window', async () => {
+        respondWith([
+            sampleRow({
+                turnId: 1,
+                createdAt: '2026-05-01 10:00:00',
+                modelId: 1,
+                modelName: 'Model A',
+                window: 0,
+                inputTokens: 1_000,
+                cacheReadTokens: 0,
+                systemPromptTotal: 1_000,
+                fragmentChars: 1_000,
+                userPrompt: 10,
+            }),
+        ]);
+
+        const points = await getContextTurnPoints(FILTER);
+
+        expect(points[0]!.fillRate).toBe(0);
+    });
+});

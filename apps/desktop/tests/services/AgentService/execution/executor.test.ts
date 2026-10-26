@@ -18,6 +18,24 @@ const { createMcpToolLogMock, updateMcpToolLogByCallIdMock, resolveToolCallMock,
         executeToolMock: vi.fn(),
     }));
 
+const {
+    builtInExecuteToolMock,
+    resolveToolDefinitionsMock,
+    createProviderForModelMock,
+    createProviderFromRegistryMock,
+} = vi.hoisted(() => ({
+    // Typed loosely: each test decides which tool result shape it exercises.
+    builtInExecuteToolMock: vi.fn() as unknown as {
+        mockImplementation: (fn: (options: never) => Promise<unknown>) => void;
+        mockResolvedValue: (value: unknown) => void;
+        mockClear: () => void;
+        mockReset: () => void;
+    },
+    resolveToolDefinitionsMock: vi.fn(async () => []),
+    createProviderForModelMock: vi.fn(),
+    createProviderFromRegistryMock: vi.fn(),
+}));
+
 vi.mock('@database/queries', () => ({
     createMcpToolLog: createMcpToolLogMock,
     updateMcpToolLogByCallId: updateMcpToolLogByCallIdMock,
@@ -32,17 +50,22 @@ vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
 
 vi.mock('@/services/BuiltInToolService', () => ({
     builtInToolService: {
-        executeTool: vi.fn(async () => null),
+        executeTool: builtInExecuteToolMock,
     },
 }));
 
 vi.mock('@/services/AgentService/catalog', () => ({
-    createProviderForModel: vi.fn(() => providerMock),
+    createProviderForModel: createProviderForModelMock,
     createProviderInstance: vi.fn(),
 
-    resolveToolDefinitions: vi.fn(() => Promise.resolve([])),
+    resolveToolDefinitions: resolveToolDefinitionsMock,
 
     getModel: vi.fn(),
+}));
+
+vi.mock('@/services/AgentService/infrastructure/providers', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/services/AgentService/infrastructure/providers')>()),
+    createProviderFromRegistry: createProviderFromRegistryMock,
 }));
 
 function createCheckpoint(): AttemptCheckpoint {
@@ -125,6 +148,9 @@ function createCheckpoint(): AttemptCheckpoint {
 describe('user sends a prompt and receives a streamed answer', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        createProviderForModelMock.mockReturnValue(providerMock);
+        resolveToolDefinitionsMock.mockResolvedValue([]);
+        builtInExecuteToolMock.mockResolvedValue(null);
     });
     afterEach(() => {
         vi.useRealTimers();
@@ -408,4 +434,321 @@ describe('user runs a tool call and watches it start', () => {
             startedAt: expect.any(Number),
         });
     }, 30_000);
+});
+
+describe('user calls a tool the agent does not have', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        // The once-queue survives clearAllMocks, so reset it to keep rounds per-test.
+        providerMock.stream.mockReset();
+        createProviderForModelMock.mockReturnValue(providerMock);
+        resolveToolDefinitionsMock.mockResolvedValue([]);
+        builtInExecuteToolMock.mockResolvedValue(null);
+    });
+
+    function streamOneToolCall(toolCall: AiToolCall) {
+        return async function* () {
+            yield { content: 'Checking', done: false };
+            yield { content: '', done: true, finishReason: 'tool_calls', toolCalls: [toolCall] };
+        };
+    }
+
+    function persisterStub() {
+        return {
+            persistOutputProgress: vi.fn().mockResolvedValue(undefined),
+            getSessionId: vi.fn(() => 1),
+            persistToolCallMessage: vi.fn().mockResolvedValue(1),
+            persistToolResult: vi.fn().mockResolvedValue(undefined),
+            persistCheckpoint: vi.fn().mockResolvedValue(undefined),
+        };
+    }
+
+    it('user sees the tool reported as missing when no tool matches the call', async () => {
+        resolveToolCallMock.mockResolvedValue(null);
+        providerMock.stream
+            .mockImplementationOnce(
+                streamOneToolCall({ id: 'call-1', name: 'ghost', arguments: '{}' })
+            )
+            .mockImplementationOnce(async function* () {
+                yield { content: 'Done', done: true };
+            });
+
+        const chunks: Array<{ toolEvent?: Record<string, unknown> }> = [];
+        const persister = persisterStub();
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persister as never,
+            onChunk: (chunk) => chunks.push(chunk as never),
+        });
+
+        expect(outcome.type).toBe('completed');
+        // The user is told the call ended in error, and the reason names the tool.
+        expect(chunks).toContainEqual(
+            expect.objectContaining({
+                toolEvent: expect.objectContaining({
+                    type: 'call_end',
+                    callId: 'call-1',
+                    isError: true,
+                    finalStatus: 'error',
+                }),
+            })
+        );
+        expect(persister.persistToolResult).toHaveBeenCalledWith(
+            expect.objectContaining({ result: expect.stringContaining('ghost') })
+        );
+    });
+
+    it('user sees the tool reported as failed when it throws a plain message', async () => {
+        resolveToolCallMock.mockResolvedValue({
+            serverId: 1,
+            originalName: 'search',
+            toolTimeout: 30000,
+        });
+        createMcpToolLogMock.mockResolvedValue({ id: 23 });
+        updateMcpToolLogByCallIdMock.mockResolvedValue(undefined);
+        // A non-Error rejection must still surface a readable failure, not crash the turn.
+        executeToolMock.mockRejectedValue('server went away');
+        providerMock.stream
+            .mockImplementationOnce(
+                streamOneToolCall({ id: 'call-1', name: 'mcp__1__search', arguments: '{}' })
+            )
+            .mockImplementationOnce(async function* () {
+                yield { content: 'Done', done: true };
+            });
+
+        const persister = persisterStub();
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persister as never,
+        });
+
+        expect(outcome.type).toBe('completed');
+        expect(persister.persistToolResult).toHaveBeenCalledWith(
+            expect.objectContaining({
+                result: expect.stringContaining('server went away'),
+            })
+        );
+    });
+
+    it('user sees a tool call with non-object arguments rejected before it runs', async () => {
+        providerMock.stream
+            .mockImplementationOnce(
+                // Valid JSON, but not the object shape a tool call requires.
+                streamOneToolCall({ id: 'call-1', name: 'builtin__bash', arguments: '42' })
+            )
+            .mockImplementationOnce(async function* () {
+                yield { content: 'Done', done: true };
+            });
+
+        const persister = persisterStub();
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persister as never,
+        });
+
+        expect(outcome.type).toBe('completed');
+        expect(builtInExecuteToolMock).not.toHaveBeenCalled();
+        if (outcome.type !== 'completed') {
+            return;
+        }
+        // The rejected call counts against the model's structured-output ability.
+        expect(outcome.toolArgumentErrors).toBe(1);
+    });
+
+    it('user is told the model cannot read the file a tool produced', async () => {
+        builtInExecuteToolMock.mockImplementation(async (options: { toolCall: AiToolCall }) => ({
+            toolCall: options.toolCall,
+            builtInToolId: 'bash',
+            toolLogId: 5,
+            toolLogKind: 'builtin',
+            result: 'file ready',
+            isError: false,
+            attachments: [
+                {
+                    id: 'attachment-1',
+                    type: 'image',
+                    name: 'chart.png',
+                    path: 'D:/cache/chart.png',
+                    originPath: 'D:/origin/chart.png',
+                    mimeType: 'image/png',
+                },
+            ],
+        }));
+        providerMock.stream
+            .mockImplementationOnce(
+                streamOneToolCall({ id: 'call-1', name: 'builtin__bash', arguments: '{}' })
+            )
+            .mockImplementationOnce(async function* () {
+                yield { content: 'Done', done: true };
+            });
+
+        // The checkpoint model cannot take images, so the turn stops rather than dropping the file.
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persisterStub() as never,
+        });
+
+        expect(outcome.type).toBe('failed');
+        if (outcome.type !== 'failed') {
+            return;
+        }
+        expect(outcome.error.code).toBe(AiErrorCode.UNSUPPORTED_INPUT);
+    });
+});
+
+describe('user asks the agent to switch to a stronger model', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        // The once-queue survives clearAllMocks, so reset it to keep rounds per-test.
+        providerMock.stream.mockReset();
+        createProviderForModelMock.mockReturnValue(providerMock);
+        builtInExecuteToolMock.mockResolvedValue(null);
+    });
+
+    function upgradeSignal() {
+        return {
+            type: 'upgrade_model',
+            targetModel: {
+                ...createCheckpoint().activeModel,
+                id: 2,
+                model_id: 'mimo-v3',
+                name: 'MiMo v3',
+            },
+            restartCurrentRequest: false,
+        };
+    }
+
+    function toolRoundThenAnswer(times: number) {
+        for (let index = 0; index < times; index += 1) {
+            providerMock.stream.mockImplementationOnce(async function* () {
+                yield {
+                    content: '',
+                    done: true,
+                    finishReason: 'tool_calls',
+                    toolCalls: [
+                        { id: `call-${index}`, name: 'builtin__upgrade_model', arguments: '{}' },
+                    ],
+                };
+            });
+        }
+        providerMock.stream.mockImplementationOnce(async function* () {
+            yield { content: 'Done', done: true };
+        });
+    }
+
+    function persisterStub() {
+        return {
+            persistOutputProgress: vi.fn().mockResolvedValue(undefined),
+            getSessionId: vi.fn(() => 1),
+            persistToolCallMessage: vi.fn().mockResolvedValue(1),
+            persistToolResult: vi.fn().mockResolvedValue(undefined),
+            persistCheckpoint: vi.fn().mockResolvedValue(undefined),
+        };
+    }
+
+    function upgradeStub() {
+        return vi.fn(async (options: { toolCall: AiToolCall }) => ({
+            toolCall: options.toolCall,
+            builtInToolId: 'upgrade_model',
+            toolLogId: 5,
+            toolLogKind: 'builtin',
+            result: 'switched',
+            isError: false,
+            controlSignal: upgradeSignal(),
+        }));
+    }
+
+    it('user sees the switch reported with the model it moved to', async () => {
+        builtInExecuteToolMock.mockImplementation(upgradeStub());
+        resolveToolDefinitionsMock.mockResolvedValue([]);
+        toolRoundThenAnswer(1);
+
+        const chunks: Array<{ toolEvent?: Record<string, unknown> }> = [];
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persisterStub() as never,
+            onChunk: (chunk) => chunks.push(chunk as never),
+        });
+
+        expect(outcome.type).toBe('completed');
+        if (outcome.type !== 'completed') {
+            return;
+        }
+        expect(outcome.model.model_id).toBe('mimo-v3');
+        expect(outcome.modelSwitchCount).toBe(1);
+        expect(chunks).toContainEqual(
+            expect.objectContaining({
+                toolEvent: expect.objectContaining({
+                    type: 'model_switched',
+                    toModel: expect.objectContaining({ modelId: 'mimo-v3' }),
+                }),
+            })
+        );
+    });
+
+    it('user is stopped from switching models once the ceiling is reached', async () => {
+        builtInExecuteToolMock.mockImplementation(upgradeStub());
+        resolveToolDefinitionsMock.mockResolvedValue([]);
+        // Four switches is the ceiling, so the fifth round must hide the switch tool.
+        toolRoundThenAnswer(5);
+
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persisterStub() as never,
+        });
+
+        expect(outcome.type).toBe('completed');
+        if (outcome.type !== 'completed') {
+            return;
+        }
+        expect(outcome.hitModelSwitchCeiling).toBe(true);
+        expect(resolveToolDefinitionsMock).toHaveBeenLastCalledWith(
+            expect.anything(),
+            expect.objectContaining({ excludedToolNames: ['builtin__upgrade_model'] })
+        );
+    });
+
+    it('user sees the switch tool still offered below the ceiling', async () => {
+        builtInExecuteToolMock.mockImplementation(upgradeStub());
+        resolveToolDefinitionsMock.mockResolvedValue([]);
+        toolRoundThenAnswer(1);
+
+        await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persisterStub() as never,
+        });
+
+        expect(resolveToolDefinitionsMock).toHaveBeenLastCalledWith(
+            expect.anything(),
+            expect.objectContaining({ excludedToolNames: undefined })
+        );
+    });
+});
+
+describe('user configures a provider for a custom endpoint', () => {
+    it('user gets a provider built without a key when none is set', () => {
+        const executor = new AiRequestExecutor();
+        createProviderFromRegistryMock.mockReturnValue({ name: 'stub' });
+
+        executor.createProviderInstance('openai-compatible', 'https://example.test/v1', null, null);
+
+        expect(createProviderFromRegistryMock).toHaveBeenCalledWith('openai-compatible', {
+            apiEndpoint: 'https://example.test/v1',
+            apiKey: undefined,
+            config: expect.anything(),
+        });
+    });
+
+    it('user gets a provider built with the key they configured', () => {
+        const executor = new AiRequestExecutor();
+        createProviderFromRegistryMock.mockReturnValue({ name: 'stub' });
+
+        executor.createProviderInstance('openai', 'https://example.test/v1', 'sk-test', null);
+
+        expect(createProviderFromRegistryMock).toHaveBeenCalledWith('openai', {
+            apiEndpoint: 'https://example.test/v1',
+            apiKey: 'sk-test',
+            config: expect.anything(),
+        });
+    });
 });

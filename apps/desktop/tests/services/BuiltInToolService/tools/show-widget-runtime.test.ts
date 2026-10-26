@@ -152,6 +152,41 @@ describe('user watches a widget draft appear while the tool is still writing', (
 
         expect(draft?.html).toBe('<div>still writing');
     });
+
+    it('user gets a carriage-return escape turned into a real line break', () => {
+        const draft = buildShowWidgetDraftFromArgumentsBuffer(
+            'call-1',
+            '{"title":"first\\rsecond","html":"<p>x</p>"}'
+        );
+
+        expect(draft?.title).toBe('first\rsecond');
+    });
+
+    it('user gets a malformed unicode escape kept as written instead of a broken character', () => {
+        // A provider can stream `\u` before the four hex digits arrive; the draft must not
+        // swallow the characters that follow it.
+        const draft = buildShowWidgetDraftFromArgumentsBuffer(
+            'call-1',
+            '{"title":"\\uZZZZ tail","html":"<p>x</p>"}'
+        );
+
+        expect(draft?.title).toBe('\\uZZZZ tail');
+    });
+
+    it('user gets no draft from a field name that was written before its value', () => {
+        // The key arrived but the colon and value are still in flight.
+        expect(buildShowWidgetDraftFromArgumentsBuffer('call-1', '{"widgetId"')).toBeNull();
+    });
+
+    it('user gets a non-string mode ignored while the value is still being written', () => {
+        const draft = buildShowWidgetDraftFromArgumentsBuffer(
+            'call-1',
+            '{"mode":123,"widgetId":"chart"}'
+        );
+
+        // An unreadable mode must not remove a widget that is being rendered.
+        expect(draft?.mode).toBe('render');
+    });
 });
 
 /**

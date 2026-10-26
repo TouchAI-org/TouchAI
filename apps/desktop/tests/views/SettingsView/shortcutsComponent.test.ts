@@ -1,4 +1,4 @@
-import { flushPromises, mount } from '@vue/test-utils';
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { vi } from 'vitest';
 
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
@@ -136,6 +136,11 @@ vi.mock('@components/CustomSelect.vue', () => ({
         `,
     },
 }));
+
+// Clearing document.body is not unmounting: a leftover instance keeps its window
+// keydown listener, so a later test in the same file gets a second alert. Unmount
+// every wrapper explicitly.
+enableAutoUnmount(afterEach);
 
 describe('user configures keyboard shortcuts', () => {
     beforeEach(() => {
