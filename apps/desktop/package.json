@@ -36,7 +36,11 @@
         "db:studio": "drizzle-kit studio",
         "update:model-metadata": "node ./scripts/update-model-metadata.mjs",
         "test:coverage:patch": "node ./scripts/ci/coverage/patch-coverage-cli.mjs --coverage .coverage/unit/coverage-final.json --base origin/main --root . --floor 85",
-        "test:e2e:visual:update": "node ./scripts/run-e2e-command.mjs --update-baselines"
+        "test:e2e:visual:update": "node ./scripts/run-e2e-command.mjs --update-baselines",
+        "storybook": "storybook dev --port 6006",
+        "storybook:build": "storybook build --output-dir ../../.storybook-static",
+        "test:visual:components": "playwright test",
+        "test:visual:components:update": "playwright test --update-snapshots"
     },
     "dependencies": {
         "@ai-sdk/alibaba": "^1.0.62",
@@ -136,8 +140,11 @@
         "vue-eslint-parser": "^10.4.1",
         "vue-tsc": "^3.3.12",
         "webdriverio": "^10.1.0",
-        "@wdio/visual-service": "^11.0.0",
-        "undici": "8.12.3"
+"@wdio/visual-service": "^11.0.0",
+        "undici": "8.12.3",
+        "@playwright/test": "1.64.1",
+        "@storybook/vue3-vite": "10.6.3",
+        "storybook": "10.6.3"
     },
     "keywords": [
         "ai",

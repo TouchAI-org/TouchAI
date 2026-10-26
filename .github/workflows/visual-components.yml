@@ -1,0 +1,130 @@
+name: Component Visual Tests
+
+on:
+    # `workflow_dispatch` also makes this runnable by hand before it reaches `main`:
+    # GitHub only triggers `pull_request` workflows from the base branch's copy of
+    # the file, so a brand-new workflow cannot prove itself on its own PR otherwise.
+    # It is also how baselines are regenerated in the cloud:
+    #   gh workflow run visual-components.yml --ref <branch> -f update_visual_baselines=true
+    workflow_dispatch:
+        inputs:
+            update_visual_baselines:
+                description: Regenerate the component baselines and upload them as an artifact instead of comparing.
+                type: boolean
+                default: false
+    pull_request:
+    merge_group:
+        types:
+            - checks_requested
+    push:
+        branches:
+            - main
+
+permissions:
+    contents: read
+    pull-requests: read
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    changes:
+        name: Classify PR changes
+        runs-on: ubuntu-latest
+        outputs:
+            ui_changed: ${{ steps.classify.outputs.ui_changed }}
+        steps:
+            - id: classify
+              name: Detect component or style changes
+              uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+              with:
+                  script: |
+                      // Stories and their baselines only move when components, styles or
+                      // the visual harness change. Running the whole Windows E2E suite for
+                      // a docs edit is what made people stop reading the check list.
+                      const uiPatterns = [
+                        /^apps\/desktop\/src\/components\//,
+                        /^apps\/desktop\/src\/styles\//,
+                        /^apps\/desktop\/src\/views\//,
+                        /^apps\/desktop\/tests\/visual\//,
+                        /^apps\/desktop\/\.storybook\//,
+                        /^apps\/desktop\/playwright\.config\.ts$/,
+                        /^apps\/desktop\/package\.json$/,
+                        /^pnpm-lock\.yaml$/,
+                        /^\.github\/workflows\/visual-components\.yml$/,
+                      ];
+
+                      const pullNumber = context.payload.pull_request?.number;
+                      if (!pullNumber) {
+                        // A manual run has no PR to classify; run everything, which is
+                        // what someone dispatching it by hand wants anyway.
+                        core.setOutput('ui_changed', 'true');
+                        return;
+                      }
+
+                      const files = await github.paginate(github.rest.pulls.listFiles, {
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        pull_number: pullNumber,
+                        per_page: 100,
+                      });
+
+                      const changed = files.some((file) => uiPatterns.some((pattern) => pattern.test(file.filename)));
+                      core.setOutput('ui_changed', changed ? 'true' : 'false');
+
+    component-visual:
+        name: Component Visual Tests
+        needs: changes
+        if: needs.changes.outputs.ui_changed == 'true' || inputs.update_visual_baselines
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
+
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+              with:
+                  node-version: 22
+                  package-manager-cache: false
+
+            - name: Install frontend dependencies
+              run: pnpm install --frozen-lockfile
+
+            # The version is pinned in the lockfile, so the browser build is fixed too;
+            # a floating browser version is a common source of "works on my machine"
+            # screenshot diffs.
+            - name: Install Playwright Chromium
+              run: pnpm --filter @touchai/desktop exec playwright install --with-deps chromium
+
+            # The product font is fetched once per run by the E2E font module and
+            # verified against the product sha256; there is nothing to restore
+            # beforehand, and a stale cache would be worse than a download.
+
+            - name: Run component visual tests
+              if: ${{ !inputs.update_visual_baselines }}
+              run: pnpm --filter @touchai/desktop test:visual:components
+
+            # Component baselines are rendered where the gate runs them. Chromium is
+            # pinned by the lockfile and renders at deviceScaleFactor 1, so this layer
+            # is portable in a way the WebView2 one is not — but "portable" still means
+            # "generated on the platform that compares", and that is this runner.
+            - name: Regenerate component baselines
+              if: ${{ inputs.update_visual_baselines }}
+              run: pnpm --filter @touchai/desktop test:visual:components:update
+
+            - name: Upload component baselines
+              if: ${{ inputs.update_visual_baselines }}
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: component-baselines
+                  path: apps/desktop/tests/visual/__snapshots__/
+                  if-no-files-found: error
+
+            - name: Upload diff artifacts
+              if: failure()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: component-visual-diffs
+                  path: apps/desktop/test-results/
+                  if-no-files-found: ignore

@@ -71,3 +71,8 @@ apps/desktop/.vite-cache/
 
 # WiX installer templates
 *.wxs
+
+# Playwright and Storybook output
+apps/desktop/test-results/
+playwright-report/
+.storybook-static/

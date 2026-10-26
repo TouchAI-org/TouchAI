@@ -37,7 +37,9 @@
         "db:studio": "pnpm --filter @touchai/desktop db:studio",
         "prepare": "husky",
         "design:check": "pnpm lint:check",
-        "design:prune": "pnpm --filter @touchai/desktop exec eslint . --prune-suppressions && prettier --write apps/desktop/eslint-suppressions.json"
+        "design:prune": "pnpm --filter @touchai/desktop exec eslint . --prune-suppressions && prettier --write apps/desktop/eslint-suppressions.json",
+        "test:visual": "pnpm --filter @touchai/desktop test:visual:components",
+        "storybook": "pnpm --filter @touchai/desktop storybook"
     },
     "devDependencies": {
         "@commitlint/cli": "^21.2.3",

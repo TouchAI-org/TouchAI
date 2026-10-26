@@ -33,6 +33,10 @@ export default defineConfig({
         'src/styles/**',
         'src/**/index.vue',
         'src/components/appIconMap.ts',
+        // Storybook stories are fixtures for the component visual layer, not product
+        // code. Nothing imports them at runtime, so counting them would only measure
+        // the absence of unit tests for files that exist to be screenshotted.
+        'src/**/*.stories.ts',
       ],
       thresholds: {
         // Global floor. It stops a change from quietly trading covered behavior for
