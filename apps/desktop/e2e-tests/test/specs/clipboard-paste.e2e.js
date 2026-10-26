@@ -14,15 +14,18 @@ async function editorElement() {
 async function writeClipboardText(text) {
     // Put known content on the OS clipboard through the app's own command, so the paste path
     // reads what the test wrote rather than whatever the machine happened to hold.
-    const result = await browser.executeAsync((value, done) => {
+    const result = await browser.execute(async (value) => {
         const invoke = window.__TAURI_INTERNALS__?.invoke;
         if (typeof invoke !== 'function') {
-            done({ ok: false, error: 'Tauri invoke is not available' });
-            return;
+            return { ok: false, error: 'Tauri invoke is not available' };
         }
-        invoke('write_clipboard_text', { text: value })
-            .then(() => done({ ok: true }))
-            .catch((error) => done({ ok: false, error: String(error) }));
+
+        try {
+            await invoke('write_clipboard_text', { text: value });
+            return { ok: true };
+        } catch (error) {
+            return { ok: false, error: String(error) };
+        }
     }, text);
 
     if (!result || result.ok !== true) {
