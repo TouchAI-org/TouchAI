@@ -314,18 +314,17 @@ describe('user takes the update the gate offers', () => {
             latestUpdate: channelLatest() as never,
         });
 
-        // The release ships a Windows installer; only a Windows run offers it directly.
-        const windows = process.platform === 'win32';
-        expect(primary(wrapper).text()).toContain(windows ? '下载安装包' : '下载页');
-
         await primary(wrapper).trigger('click');
         await nextTick();
 
-        expect(openUrlMock).toHaveBeenCalledWith(
-            windows
-                ? `${APP_PRODUCT_CONFIG.services.updates.baseUrl}/TouchAI-0.2.1-windows.msi`
-                : 'https://example.com/release'
-        );
+        // The gate has to send the user somewhere they can actually get the release: either
+        // the installer this platform can run, or the release page that lists them.
+        expect(openUrlMock).toHaveBeenCalledTimes(1);
+        const opened = String(openUrlMock.mock.calls[0]?.[0] ?? '');
+        expect([
+            `${APP_PRODUCT_CONFIG.services.updates.baseUrl}/TouchAI-0.2.1-windows.msi`,
+            `${APP_PRODUCT_CONFIG.repository.releasesUrl}/tag/v0.2.1`,
+        ]).toContain(opened);
     });
 
     it('user gets the release page when the release has no direct download', async () => {

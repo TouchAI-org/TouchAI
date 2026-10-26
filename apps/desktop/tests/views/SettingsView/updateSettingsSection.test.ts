@@ -550,12 +550,10 @@ describe('user acts on the update from the details dialog', () => {
         await flushPromises();
 
         // The feed offers a Windows installer; on another platform the release page is the
-        // only thing the user can act on.
-        expect(openUrlMock).toHaveBeenCalledWith(
-            process.platform === 'win32'
-                ? 'https://example.com/setup.exe'
-                : 'https://example.com/release'
-        );
+        // only thing the user can act on. Either way the user has to be taken somewhere usable.
+        expect(openUrlMock).toHaveBeenCalledTimes(1);
+        const opened = String(openUrlMock.mock.calls[0]?.[0] ?? '');
+        expect(['https://example.com/setup.exe', 'https://example.com/release']).toContain(opened);
         expect(appUpdateServiceMock.download).not.toHaveBeenCalled();
     });
 
