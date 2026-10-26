@@ -188,3 +188,30 @@ describe('user gets the patch gated on the floor', () => {
         expect(markdown).toContain('apps/desktop/src/x.ts');
     });
 });
+
+describe('when the diff base is not available', () => {
+    it('user gets a clear failure instead of a silently empty diff', async () => {
+        const { runPatchCoverage } =
+            await import('../../scripts/ci/coverage/patch-coverage-cli.mjs');
+        const { mkdtempSync, writeFileSync } = await import('node:fs');
+        const { tmpdir } = await import('node:os');
+        const { join } = await import('node:path');
+
+        // A real report file, so the case is about the diff rather than a missing input.
+        const dir = mkdtempSync(join(tmpdir(), 'patch-cov-'));
+        const reportPath = join(dir, 'coverage-final.json');
+        writeFileSync(reportPath, '{}', 'utf8');
+
+        // A missing ref must not be reported as "nothing changed", which would pass the gate.
+        expect(() =>
+            runPatchCoverage(
+                { coveragePath: reportPath, base: 'missing', root: '.', floor: 85 },
+                {
+                    readDiff: () => {
+                        throw new Error('Cannot diff against "missing"');
+                    },
+                }
+            )
+        ).toThrow(/Cannot diff against/);
+    });
+});

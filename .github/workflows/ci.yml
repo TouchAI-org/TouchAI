@@ -263,12 +263,25 @@ jobs:
 
             # The global floor guards the repository as a whole; this guards the diff, so a
             # change cannot add uncovered behaviour while the total stays flat.
+            #
+            # The base is the PR's own base SHA rather than `origin/<branch>`: a shallow
+            # checkout has no such ref, and the job only needs the merge base.
+            - name: Resolve the diff base
+              id: diff-base
+              if: needs.changes.outputs.docs_only != 'true'
+              run: |
+                  base="${{ github.event.pull_request.base.sha }}"
+                  if [ -z "$base" ]; then
+                      base="$(git rev-parse HEAD^)"
+                  fi
+                  echo "sha=$base" >> "$GITHUB_OUTPUT"
+
             - name: Check patch coverage
               if: needs.changes.outputs.docs_only != 'true'
               run: >-
                   node apps/desktop/scripts/ci/coverage/patch-coverage-cli.mjs
                   --coverage apps/desktop/.coverage/unit/coverage-final.json
-                  --base "origin/${{ github.base_ref }}"
+                  --base "${{ steps.diff-base.outputs.sha }}"
                   --root apps/desktop
                   --floor 85
 

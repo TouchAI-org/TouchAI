@@ -91,12 +91,36 @@ export function parseArgs(argv, env = process.env) {
     return options;
 }
 
-/** `git diff --unified=0 <base> -- <path>` gives just the added lines. */
+/**
+ * `git diff --unified=0 <base> -- <path>` gives just the added lines.
+ *
+ * A shallow CI checkout often has no `origin/main` ref, so fall back to fetching the base
+ * and, failing that, to an empty diff with a loud warning: a missing ref must not be
+ * reported as "the change touched nothing", because that would silently pass the gate.
+ */
 export function readDiff(base, path) {
-    return execFileSync('git', ['diff', '--unified=0', '--no-color', base, '--', path], {
-        encoding: 'utf8',
-        maxBuffer: 32 * 1024 * 1024,
-    });
+    const run = (ref) =>
+        execFileSync('git', ['diff', '--unified=0', '--no-color', ref, '--', path], {
+            encoding: 'utf8',
+            maxBuffer: 32 * 1024 * 1024,
+        });
+
+    try {
+        return run(base);
+    } catch {
+        // Try to materialise the ref, then retry once.
+        try {
+            execFileSync('git', ['fetch', '--no-tags', '--depth=1', 'origin', base.replace(/^origin\//, '')], {
+                stdio: 'ignore',
+            });
+            return run(base);
+        } catch {
+            throw new Error(
+                `Cannot diff against "${base}": the ref is not available in this checkout. ` +
+                    'Pass --base with a commit that exists (CI uses the PR base SHA).'
+            );
+        }
+    }
 }
 
 export function runPatchCoverage(options, { readDiff: diff = readDiff } = {}) {
