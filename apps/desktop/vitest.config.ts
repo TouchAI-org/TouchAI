@@ -44,10 +44,10 @@ export default defineConfig({
         // rewrites a number only when the measured value exceeds it, so a metric can never
         // be lowered this way and a drop below the committed value fails CI.
         // See docs/testing/testing.md.
-        statements: 79,
-        branches: 69,
-        functions: 78,
-        lines: 79,
+        statements: 80,
+        branches: 70,
+        functions: 79,
+        lines: 80,
         'src/services/EventService/**/*.ts': {
           statements: 90,
           branches: 100,
