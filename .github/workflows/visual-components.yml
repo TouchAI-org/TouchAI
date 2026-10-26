@@ -114,6 +114,10 @@ jobs:
               # `set -o pipefail` and exits 2 before running anything. The scripts in
               # this job are bash, so ask for bash explicitly.
               shell: bash
+              # `@playwright/test` is a workspace dependency of `apps/desktop`, and pnpm
+              # does not hoist it to the repository root, so the version has to be read
+              # from the package that actually declares it.
+              working-directory: apps/desktop
               run: |
                   set -euo pipefail
                   image_version="${PLAYWRIGHT_IMAGE_TAG#v}"
