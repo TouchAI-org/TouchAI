@@ -50,7 +50,7 @@
             v-bind="forwardedWithAttrs"
             :class="
                 cn(
-                    'fixed top-[50%] left-[50%] z-50 grid w-full translate-x-[-50%] translate-y-[-50%]',
+                    'fixed inset-0 z-50 m-auto grid h-fit max-h-[calc(100dvh-4rem)] w-full',
                     't-modal',
                     props.class
                 )
