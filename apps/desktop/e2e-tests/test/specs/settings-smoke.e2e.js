@@ -15,6 +15,7 @@ import {
     callE2eBridge,
     getAriaChecked,
     switchToWindowContaining,
+    switchToWindowWithE2eBridge,
     toggleSwitch,
     waitForE2eBridge,
     waitForTestIdDisplayed,
@@ -34,7 +35,7 @@ describe('user works in the settings window', () => {
 
     after(async () => {
         await browser.closeWindow();
-        await browser.switchToWindow(mainWindowHandle);
+        await switchToWindowWithE2eBridge(mainWindowHandle);
     });
 
     describe('user opens the settings window', () => {

@@ -112,6 +112,28 @@ export async function switchToWindowContaining(urlFragment, timeoutMs = DEFAULT_
     return matchedHandle;
 }
 
+/**
+ * Switch back to the search window and keep re-asserting the switch until its
+ * E2E bridge answers. WebdriverIO 10 selects the first remaining handle in the
+ * background after closeWindow(); that selection can land after an explicit
+ * switch and leave the driver on a blank page.
+ */
+export async function switchToWindowWithE2eBridge(handle, timeoutMs = DEFAULT_TIMEOUT_MS) {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+        await browser.switchToWindow(handle);
+
+        if (await browser.execute(() => Boolean(window.__TOUCHAI_E2E__))) {
+            return;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    throw new Error('The search window did not become current after closing settings.');
+}
+
 export async function getAriaChecked(element) {
     return element.getAttribute('aria-checked');
 }
