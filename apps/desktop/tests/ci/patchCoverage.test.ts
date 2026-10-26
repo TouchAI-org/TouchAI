@@ -248,3 +248,14 @@ describe('when main has moved on since the branch started', () => {
         expect(seen).toEqual(['merge-base-sha']);
     });
 });
+
+describe('when the base is empty', () => {
+    it('user gets a clear configuration error rather than a git failure', async () => {
+        const { parseArgs } = await import('../../scripts/ci/coverage/patch-coverage-cli.mjs');
+
+        // A push event has no base; failing here explains why instead of surfacing git noise.
+        expect(() =>
+            parseArgs(['--coverage', 'report.json', '--base', ''], {} as NodeJS.ProcessEnv)
+        ).toThrow(/Missing --base/);
+    });
+});

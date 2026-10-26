@@ -84,6 +84,12 @@ export function parseArgs(argv, env = process.env) {
         throw new Error(`Missing --coverage. ${USAGE}`);
     }
 
+    if (!options.base || options.base.trim() === '') {
+        // An empty base would otherwise surface as a confusing git error, and on a push event
+        // there is no base to compare against at all.
+        throw new Error(`Missing --base (empty value). ${USAGE}`);
+    }
+
     if (!Number.isFinite(options.floor)) {
         throw new Error(`--floor must be a number. ${USAGE}`);
     }
