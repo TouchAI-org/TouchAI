@@ -92,11 +92,42 @@ export function parseArgs(argv, env = process.env) {
 }
 
 /**
+ * Resolve the ref to diff against: the merge base, not the base branch tip.
+ *
+ * `main` moves forward while a pull request is open, so diffing against its tip would blame
+ * this change for every commit merged since it branched off. The merge base is the commit
+ * the branch actually started from, which is the only fair comparison.
+ */
+export function resolveBase(ref) {
+    const tryResolve = (target) =>
+        execFileSync('git', ['merge-base', target, 'HEAD'], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim();
+
+    try {
+        return tryResolve(ref);
+    } catch {
+        // A shallow CI checkout may not have the ref; fetch it once, then retry.
+        try {
+            execFileSync('git', ['fetch', '--no-tags', '--depth=1', 'origin', ref], {
+                stdio: 'ignore',
+            });
+            return tryResolve(ref);
+        } catch {
+            throw new Error(
+                `Cannot diff against "${ref}": the ref is not available in this checkout. ` +
+                    'Pass --base with a commit that exists.'
+            );
+        }
+    }
+}
+
+/**
  * `git diff --unified=0 <base> -- <path>` gives just the added lines.
  *
- * A shallow CI checkout often has no `origin/main` ref, so fall back to fetching the base
- * and, failing that, to an empty diff with a loud warning: a missing ref must not be
- * reported as "the change touched nothing", because that would silently pass the gate.
+ * A missing ref must not be reported as "the change touched nothing", because that would
+ * silently pass the gate.
  */
 export function readDiff(base, path) {
     const run = (ref) =>
@@ -108,22 +139,14 @@ export function readDiff(base, path) {
     try {
         return run(base);
     } catch {
-        // Try to materialise the ref, then retry once.
-        try {
-            execFileSync('git', ['fetch', '--no-tags', '--depth=1', 'origin', base.replace(/^origin\//, '')], {
-                stdio: 'ignore',
-            });
-            return run(base);
-        } catch {
-            throw new Error(
-                `Cannot diff against "${base}": the ref is not available in this checkout. ` +
-                    'Pass --base with a commit that exists (CI uses the PR base SHA).'
-            );
-        }
+        throw new Error(
+            `Cannot diff against "${base}": the ref is not available in this checkout. ` +
+                'Pass --base with a commit that exists.'
+        );
     }
 }
 
-export function runPatchCoverage(options, { readDiff: diff = readDiff } = {}) {
+export function runPatchCoverage(options, { readDiff: diff = readDiff, resolveBase: resolve = resolveBase } = {}) {
     if (!existsSync(options.coveragePath)) {
         throw new Error(
             `Coverage report not found: ${options.coveragePath}. ` +
@@ -131,8 +154,10 @@ export function runPatchCoverage(options, { readDiff: diff = readDiff } = {}) {
         );
     }
 
-    // Only the app source is measured: the tests and the scripts are the instrument.
-    const changed = parseChangedLines(diff(options.base, 'apps/desktop/src'));
+    // Only the app source is measured: the tests and the scripts are the instrument. The base
+    // is resolved to the merge base so commits merged into main after this branch started are
+    // not counted as part of this change.
+    const changed = parseChangedLines(diff(resolve(options.base), 'apps/desktop/src'));
     const report = JSON.parse(readFileSync(options.coveragePath, 'utf8'));
 
     const result = measurePatchCoverage(changed, report, {

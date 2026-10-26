@@ -215,3 +215,36 @@ describe('when the diff base is not available', () => {
         ).toThrow(/Cannot diff against/);
     });
 });
+
+describe('when main has moved on since the branch started', () => {
+    it('user gets only their own commits measured, not everything merged since', async () => {
+        const { runPatchCoverage } =
+            await import('../../scripts/ci/coverage/patch-coverage-cli.mjs');
+        const { mkdtempSync, writeFileSync } = await import('node:fs');
+        const { tmpdir } = await import('node:os');
+        const { join } = await import('node:path');
+
+        const dir = mkdtempSync(join(tmpdir(), 'patch-cov-'));
+        const reportPath = join(dir, 'coverage-final.json');
+        writeFileSync(reportPath, '{}', 'utf8');
+
+        const seen: string[] = [];
+        runPatchCoverage(
+            { coveragePath: reportPath, base: 'main-tip', root: '.', floor: 85 },
+            {
+                // The base ref is resolved before diffing, so the diff target is the merge
+                // base rather than whatever main happens to point at now.
+                resolveBase: (ref) => {
+                    expect(ref).toBe('main-tip');
+                    return 'merge-base-sha';
+                },
+                readDiff: (base) => {
+                    seen.push(base);
+                    return '';
+                },
+            }
+        );
+
+        expect(seen).toEqual(['merge-base-sha']);
+    });
+});

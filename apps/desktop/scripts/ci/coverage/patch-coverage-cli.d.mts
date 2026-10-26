@@ -18,9 +18,14 @@ export function parseArgs(
     env?: Record<string, string | undefined>
 ): PatchCoverageCliOptions;
 
+export function resolveBase(ref: string): string;
+
 export function readDiff(base: string, path: string): string;
 
 export function runPatchCoverage(
     options: PatchCoverageCliOptions,
-    deps?: { readDiff?: (base: string, path: string) => string }
+    deps?: {
+        readDiff?: (base: string, path: string) => string;
+        resolveBase?: (ref: string) => string;
+    }
 ): PatchCoverageRun;
