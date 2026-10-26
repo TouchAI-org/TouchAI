@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiErrorCode } from '@/services/AgentService/contracts/errors';
+import type { AiRequestOptions } from '@/services/AgentService/contracts/protocol';
 import { AiSdkProviderBase } from '@/services/AgentService/infrastructure/providers/ai-sdk/base';
 import type {
     AiProviderConfig,
     ModelInfo,
     ProviderApiTargets,
 } from '@/services/AgentService/infrastructure/providers/types';
-import type { AiRequestOptions } from '@/services/AgentService/contracts/protocol';
 
 /**
  * The shared provider base is what every SDK-backed provider inherits: how a base URL is
