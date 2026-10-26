@@ -50,3 +50,8 @@ rust-target/
 rust-temp/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
+
+# Visual test artifacts
+.storybook-static/
+test-results/
+playwright-report/

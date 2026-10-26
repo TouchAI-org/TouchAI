@@ -19,7 +19,7 @@
     import { computed, nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
     import type { SearchKeybindingActionId } from '@/config/searchKeybindings';
-    import { t } from '@/i18n';
+    import { type AppLocale, t } from '@/i18n';
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
     import type { SessionTaskStatus } from '@/services/AgentService/task/types';
     import { clipboardService } from '@/services/ClipboardService';
@@ -31,6 +31,7 @@
         createInputHistorySnapshot,
         getInputHistorySnapshotKey,
         type InputHistorySnapshot,
+        type SessionMessage,
     } from '@/types/session';
     import { isE2eTestMode } from '@/utils/runtimeMode';
 
@@ -83,6 +84,13 @@
         clipboardPayloadHasAttachmentFragments,
         trimClipboardPayloadTextBoundary,
     } from './utils/clipboardDraft';
+    import {
+        copyE2eConversationFixture,
+        describeE2eApprovalFixture,
+        describeE2eConfirmFixture,
+        type E2eAskUserFixture,
+        getE2eQuickSearchFallbackResults,
+    } from './utils/e2eFixtures';
     defineOptions({
         name: 'SearchViewPage',
     });
@@ -147,6 +155,10 @@
                 respectManualOverride: boolean;
             }) => Promise<void>;
             resetSearchWindowBounds: () => Promise<void>;
+            setLanguage: (locale: AppLocale) => Promise<void>;
+            setConversationFixture: (messages: SessionMessage[]) => void;
+            setAskUserFixture: (request: E2eAskUserFixture) => void;
+            clearAskUserFixture: () => void;
         };
     };
     const searchInteractionContext = createSearchInteractionContext();
@@ -1091,19 +1103,19 @@
         queryText.value = restoredText;
     }
 
-    function getE2eQuickSearchFallbackResults(query: string): QuickShortcutItem[] {
-        const normalizedQuery = query.trim().toLowerCase();
-        if (!normalizedQuery.includes('touchai')) {
-            return [];
+    function applyE2eConversationFixture(messages: SessionMessage[]) {
+        // `sessionHistory` is owned by the agent composable and rewritten from a task
+        // snapshot; writing it here is enough because no request is running.
+        sessionHistory.value = copyE2eConversationFixture(messages) as SessionMessage[];
+    }
+
+    function applyE2eAskUserFixture(request: E2eAskUserFixture) {
+        if (request.kind === 'confirm') {
+            askUserStore.enqueueConfirm(describeE2eConfirmFixture(request), () => undefined);
+            return;
         }
 
-        return [
-            {
-                name: 'TouchAI E2E Smoke Result',
-                path: 'C:/Windows/explorer.exe',
-                source: 'file',
-            },
-        ];
+        askUserStore.enqueueApproval(describeE2eApprovalFixture(request), () => undefined);
     }
 
     async function installE2eBridge() {
@@ -1145,6 +1157,49 @@
             },
             resetSearchWindowBounds() {
                 return native.window.resetSearchWindowBounds();
+            },
+            /**
+             * Seeds the conversation panel with a fixed transcript.
+             *
+             * Visual baselines need a deterministic conversation. Reaching one by
+             * sending a real prompt would depend on a model, a network call and a
+             * stream timing, none of which belong in a pixel comparison. This fills
+             * the same reactive state the agent fills, so the panel renders through
+             * its normal code path.
+             */
+            setConversationFixture(messages: SessionMessage[]) {
+                applyE2eConversationFixture(messages);
+            },
+            /**
+             * Puts the ask-user panel in front of the user without running a tool.
+             *
+             * The panel is how a pending approval or question looks, and it is the
+             * densest screen in the main window. Rendering it from a real tool call
+             * would need a model; this enqueues the same request the tool enqueues.
+             */
+            setAskUserFixture(request: E2eAskUserFixture) {
+                applyE2eAskUserFixture(request);
+            },
+            /** Drops whatever the fixture enqueued so a later spec starts clean. */
+            clearAskUserFixture() {
+                askUserStore.clearAll('e2e fixture reset');
+            },
+            /**
+             * Pins the interface language for E2E runs.
+             *
+             * The first-launch language is derived from `navigator.language`, so a
+             * zh-CN developer machine and an en-US CI runner render different text
+             * for the same screen. Visual baselines need one deterministic state,
+             * and setting the real setting is the only way to reach it without
+             * hiding the text (which would leave the screenshots blank and unusable
+             * as review evidence).
+             */
+            async setLanguage(locale: AppLocale) {
+                // `initialize()` loads the persisted settings into the store. Without
+                // waiting for it, the load can land after this write and replace the
+                // language with whatever the previous run stored.
+                await settingsStore.initialize();
+                await settingsStore.updateLanguage(locale);
             },
         };
     }
@@ -1444,6 +1499,7 @@
     >
         <div
             v-if="searchViewContentReady && sessionHistory.length > 0"
+            data-testid="conversation-panel-host"
             :class="[
                 'w-full overflow-hidden',
                 fillConversationAvailableHeight ? 'min-h-0 flex-1' : '',

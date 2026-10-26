@@ -78,7 +78,8 @@
             "@types/sax>@types/node": "^25.9.9",
             "@wdio/config>glob": "^10.5.0",
             "fast-uri": "3.1.9",
-            "@esbuild-kit/core-utils>esbuild": "0.25.12"
+            "@esbuild-kit/core-utils>esbuild": "0.25.12",
+            "unifont>undici": "8.12.3"
         }
     },
     "lint-staged": {

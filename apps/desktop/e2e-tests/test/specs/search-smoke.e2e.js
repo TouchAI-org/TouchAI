@@ -1,6 +1,12 @@
 /**
  * User flows for quick search: typing shows file matches, and the panel closes
  * again when nothing matches, without leaving the search window unusable.
+ *
+ * The query is a fixture the E2E bridge answers for, rather than a phrase that
+ * happens to match files on the machine running the test. Real indexing depends on
+ * what is on disk, so a phrase like "touchai" finds nothing on a fresh CI runner
+ * and dozens of entries on a developer's laptop — the flow would pass or fail for
+ * reasons that have nothing to do with the code.
  */
 import {
     assertVisible,
@@ -9,6 +15,8 @@ import {
     waitForTestIdDisplayed,
     waitForTestIdNotDisplayed,
 } from '../support/desktop.js';
+
+const MATCHING_QUERY = 'touchai-visual-fixture';
 
 async function typeQuery(query) {
     await waitForE2eBridge();
@@ -22,12 +30,12 @@ describe('user searches for a local file', () => {
         const editor = await $("[data-testid='search-editor-host'] .ProseMirror");
         await editor.waitForDisplayed();
 
-        await typeQuery('touchai');
+        await typeQuery(MATCHING_QUERY);
 
         const quickSearchPanel = await waitForTestIdDisplayed('quick-search-panel');
         assertVisible(await quickSearchPanel.isDisplayed(), 'The results panel was not visible.');
 
-        await browser.waitUntil(async () => (await editor.getText()).includes('touchai'), {
+        await browser.waitUntil(async () => (await editor.getText()).includes(MATCHING_QUERY), {
             timeoutMsg: 'The prompt field did not reflect the typed query.',
         });
     });
@@ -43,7 +51,7 @@ describe('user searches for a local file', () => {
     it('user keeps a usable search window after clearing the query', async () => {
         const editor = await $("[data-testid='search-editor-host'] .ProseMirror");
 
-        await typeQuery('touchai');
+        await typeQuery(MATCHING_QUERY);
         await waitForTestIdDisplayed('quick-search-panel');
 
         await typeQuery('');
