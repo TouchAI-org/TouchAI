@@ -41,9 +41,14 @@ describe('user searches for files by name', () => {
     });
 
     it('user gets a structured value containing Everything operator characters quoted', () => {
-        for (const value of ['a|b', 'a<b', 'a>b', 'a!b', 'a;b', 'a"b']) {
-            expect(query({ exactPhrase: value }), value).toBe(`* "${value.replace(/"/g, '\\"')}"`);
-        }
+        // Expected strings are written out rather than rebuilt in the test, so the assertion
+        // cannot silently agree with a broken escape in the code under test.
+        expect(query({ exactPhrase: 'a|b' })).toBe('* "a|b"');
+        expect(query({ exactPhrase: 'a<b' })).toBe('* "a<b"');
+        expect(query({ exactPhrase: 'a>b' })).toBe('* "a>b"');
+        expect(query({ exactPhrase: 'a!b' })).toBe('* "a!b"');
+        expect(query({ exactPhrase: 'a;b' })).toBe('* "a;b"');
+        expect(query({ exactPhrase: 'a"b' })).toBe('* "a\\"b"');
     });
 
     it('user gets a wildcard-only search passed straight through', () => {

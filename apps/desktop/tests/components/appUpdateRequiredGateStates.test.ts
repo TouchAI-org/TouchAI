@@ -314,13 +314,17 @@ describe('user takes the update the gate offers', () => {
             latestUpdate: channelLatest() as never,
         });
 
-        expect(primary(wrapper).text()).toContain('下载安装包');
+        // The release ships a Windows installer; only a Windows run offers it directly.
+        const windows = process.platform === 'win32';
+        expect(primary(wrapper).text()).toContain(windows ? '下载安装包' : '下载页');
 
         await primary(wrapper).trigger('click');
         await nextTick();
 
         expect(openUrlMock).toHaveBeenCalledWith(
-            `${APP_PRODUCT_CONFIG.services.updates.baseUrl}/TouchAI-0.2.1-windows.msi`
+            windows
+                ? `${APP_PRODUCT_CONFIG.services.updates.baseUrl}/TouchAI-0.2.1-windows.msi`
+                : 'https://example.com/release'
         );
     });
 

@@ -549,7 +549,13 @@ describe('user acts on the update from the details dialog', () => {
         await wrapper.get('[data-testid="dialog-action"]').trigger('click');
         await flushPromises();
 
-        expect(openUrlMock).toHaveBeenCalledWith('https://example.com/setup.exe');
+        // The feed offers a Windows installer; on another platform the release page is the
+        // only thing the user can act on.
+        expect(openUrlMock).toHaveBeenCalledWith(
+            process.platform === 'win32'
+                ? 'https://example.com/setup.exe'
+                : 'https://example.com/release'
+        );
         expect(appUpdateServiceMock.download).not.toHaveBeenCalled();
     });
 
