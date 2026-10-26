@@ -77,10 +77,12 @@ describe('user picks a reasoning level for an OpenAI model', () => {
     });
 
     it('user gets the model native value sent when the model declares one', () => {
-        const options = optionsFor(resolution({ format: 'openai', level: 'high', mapped: 'high' }));
+        const options = optionsFor(
+            resolution({ format: 'openai', level: 'high', mapped: 'vendor-specific' })
+        );
 
-        // A model that names its own level must receive that name, not the canonical one.
-        expect(options.openai).toEqual({ reasoningEffort: 'high' });
+        // The native value differs from the level so an encoder that ignores the mapping fails.
+        expect(options.openai).toEqual({ reasoningEffort: 'vendor-specific' });
     });
 
     it('user gets no effort sent when the model cannot take one', () => {
@@ -122,7 +124,7 @@ describe('user picks a reasoning level for an OpenAI model', () => {
             tokenBudgetField: 'thinking_budget',
         });
 
-        expect(options.openai).toMatchObject({ thinking_budget: expect.any(Number) });
+        expect(options.openai).toEqual({ reasoningEffort: 'high', thinking_budget: 16384 });
     });
 
     it('user gets the vLLM budget field used when the model only declares support', () => {
@@ -131,7 +133,7 @@ describe('user picks a reasoning level for an OpenAI model', () => {
         });
 
         // vLLM reads thinking_token_budget; the other field names are ignored by it.
-        expect(options.openai).toMatchObject({ thinking_token_budget: expect.any(Number) });
+        expect(options.openai).toEqual({ reasoningEffort: 'high', thinking_token_budget: 16384 });
     });
 });
 
@@ -140,7 +142,7 @@ describe('user picks a reasoning level for a stateless Responses model', () => {
         const options = optionsFor(resolution({ format: 'openai-responses', level: 'medium' }));
 
         // A stored response would bill the account and leak the conversation across turns.
-        expect(options.openai).toMatchObject({
+        expect(options.openai).toEqual({
             store: false,
             reasoningEffort: 'medium',
             reasoningSummary: 'auto',
@@ -172,7 +174,7 @@ describe('user picks a reasoning level for a stateless Responses model', () => {
             })
         );
 
-        expect(options.openai).toMatchObject({ store: false, reasoningEffort: 'none' });
+        expect(options.openai).toEqual({ store: false, reasoningEffort: 'none' });
     });
 });
 
@@ -345,6 +347,28 @@ describe('user picks a reasoning level for a chat-template model', () => {
         });
     });
 
+    it('user gets a non-omitted placeholder resolved to false when reasoning is off', () => {
+        const options = optionsFor(
+            resolution({
+                format: 'chat-template',
+                level: 'off',
+                source: 'capability',
+                map: { off: 'none' },
+            }),
+            {
+                chatTemplateKwargs: {
+                    // No omitWhenOff, so the template still receives the key.
+                    thinking: { $var: 'thinking.enabled' },
+                },
+            }
+        );
+
+        // The key has to be sent as false, because the template reads it to pick a branch.
+        expect(options.openaiCompatible).toEqual({
+            chat_template_kwargs: { thinking: false },
+        });
+    });
+
     it('user gets nothing when the model declares no template at all', () => {
         const options = optionsFor(resolution({ format: 'chat-template', level: 'high' }));
 
@@ -367,8 +391,8 @@ describe('user picks a reasoning level for an Anthropic model', () => {
     it('user gets a thinking budget for a model that bills by budget', () => {
         const options = optionsFor(resolution({ format: 'anthropic-messages', level: 'high' }));
 
-        expect(options.anthropic).toMatchObject({
-            thinking: { type: 'enabled', budgetTokens: expect.any(Number) },
+        expect(options.anthropic).toEqual({
+            thinking: { type: 'enabled', budgetTokens: 16384 },
         });
     });
 
@@ -419,7 +443,10 @@ describe('user picks a reasoning level for an Anthropic model', () => {
             { forceAdaptiveThinking: true }
         );
 
-        expect(options.anthropic).toMatchObject({ effort: 'custom' });
+        expect(options.anthropic).toEqual({
+            thinking: { type: 'adaptive', display: 'summarized' },
+            effort: 'custom',
+        });
     });
 
     it('user gets thinking disabled when it is turned off', () => {
