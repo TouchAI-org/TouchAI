@@ -94,6 +94,10 @@ async function downloadToFile(url, destination) {
                 signal: AbortSignal.timeout(FONT_DOWNLOAD_TIMEOUT_MS),
             });
             if (!response.ok) {
+                // Release the body before throwing: an unread body keeps the socket
+                // alive, and `dispatcher.close()` in the `finally` below would then wait
+                // on a connection the response is still holding.
+                await response.body?.cancel();
                 throw new Error(`HTTP ${response.status}`);
             }
             fs.writeFileSync(destination, Buffer.from(await response.arrayBuffer()));
