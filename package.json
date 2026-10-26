@@ -84,7 +84,7 @@
             "happy-dom": "20.8.9",
             "@types/sax>@types/node": "^25.9.9",
             "@wdio/config>glob": "^10.5.0",
-            "undici": "8.12.3"
+            "unifont>undici": "8.12.3"
         }
     },
     "lint-staged": {

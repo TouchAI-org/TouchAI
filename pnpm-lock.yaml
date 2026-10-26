@@ -21,7 +21,7 @@ overrides:
   happy-dom: 20.8.9
   '@types/sax>@types/node': ^25.9.9
   '@wdio/config>glob': ^10.5.0
-  undici: 8.12.3
+  unifont>undici: 8.12.3
 
 importers:
 
@@ -7145,6 +7145,14 @@ packages:
   undici-types@7.24.6:
     resolution: {integrity: sha512-WRNW+sJgj5OBN4/0JpHFqtqzhpbnV0GuB+OozA9gCL7a993SmU+1JBZCzLNxYsbMfIeDL+lTsphD5jN5N+n0zg==}
 
+  undici@6.29.1:
+    resolution: {integrity: sha512-EvRlUt/QqAEvXdQeRMYUfwOQsfzpDztykrG2owGEE/rBOBoYv9uF39ZzsNDh4lTFHhTr2XOZjKkYgueD12ZmGA==}
+    engines: {node: '>=18.17'}
+
+  undici@7.30.1:
+    resolution: {integrity: sha512-03KrMbjIFDWQR5RNPrSw3bd1r12JpyFQl9/yxjUbJtqkjmllqC5lFjZh6ujeuJCKr8EOQvRW872Oy/az+nLYxg==}
+    engines: {node: '>=20.18.1'}
+
   undici@8.12.3:
     resolution: {integrity: sha512-+fdndUTwBP86cVjihTp21hZHo7d6oj1c/47XPA3lL8mM0XHs+C4EkcjmgRsFnFk2f/UONGDy9ItBItmXsLOQHw==}
     engines: {node: '>=22.19.0'}
@@ -7798,7 +7806,7 @@ snapshots:
       '@ai-sdk/provider': 3.0.18
       '@standard-schema/spec': 1.1.0
       eventsource-parser: 3.1.1
-      undici: 8.12.3
+      undici: 6.29.1
       zod: 4.4.3
 
   '@ai-sdk/provider@3.0.1':
@@ -11106,7 +11114,7 @@ snapshots:
       parse5: 7.3.0
       parse5-htmlparser2-tree-adapter: 7.1.0
       parse5-parser-stream: 7.1.2
-      undici: 8.12.3
+      undici: 7.30.1
       whatwg-mimetype: 4.0.0
 
   chokidar@3.6.0:
@@ -12693,7 +12701,7 @@ snapshots:
       saxes: 6.0.0
       symbol-tree: 3.2.4
       tough-cookie: 6.0.2
-      undici: 8.12.3
+      undici: 7.30.1
       w3c-xmlserializer: 5.0.0
       webidl-conversions: 8.0.1
       whatwg-mimetype: 5.0.0
@@ -14668,6 +14676,10 @@ snapshots:
 
   undici-types@7.24.6: {}
 
+  undici@6.29.1: {}
+
+  undici@7.30.1: {}
+
   undici@8.12.3: {}
 
   unicorn-magic@0.3.0: {}
@@ -14999,7 +15011,7 @@ snapshots:
       '@wdio/utils': 9.32.0
       deepmerge-ts: 8.0.2
       https-proxy-agent: 7.0.6
-      undici: 8.12.3
+      undici: 6.29.1
       ws: 8.22.0
     transitivePeerDependencies:
       - bare-abort-controller
