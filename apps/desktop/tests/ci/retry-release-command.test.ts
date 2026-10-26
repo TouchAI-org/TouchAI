@@ -10,7 +10,7 @@ type RetryReleaseCommandModule = {
     spawnReleaseCommand: (
         command: string,
         args: string[],
-        options: { maxTailBytes?: number }
+        options?: { maxTailBytes?: number }
     ) => Promise<{ status: number; output: string }>;
     runReleaseCommandWithRetry: (
         command: string,
