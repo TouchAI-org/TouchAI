@@ -236,11 +236,14 @@
 /*
  * `scale` rather than `transform: scale()`.
  *
- * The modal is centred with `translate-x-[-50%] translate-y-[-50%]`, which lives in
- * `transform`. Animating `transform` here replaces that value for the duration of the
- * animation and leaves it replaced afterwards (`animation-fill-mode: both`), so every
- * dialog rendered in the top-left corner instead of the centre. The standalone
- * `scale` property composes with `transform` instead of overwriting it.
+ * Animating `transform` replaces whatever transform the element already carries, and
+ * `animation-fill-mode: both` keeps it replaced after the animation ends. That is not
+ * theoretical: the dialogs used to be centred with `translate-x-[-50%] translate-y-[-50%]`,
+ * which lives in `transform`, so every dialog settled in the top-left corner once the
+ * keyframes won. The dialogs now centre with `inset-0 m-auto` and no longer depend on
+ * `transform`, but the rule stays as it is: the standalone `scale` property composes with
+ * any transform instead of overwriting it, so a future element that does use one cannot
+ * reintroduce the bug.
  */
 @keyframes t-modal-in {
     from {
