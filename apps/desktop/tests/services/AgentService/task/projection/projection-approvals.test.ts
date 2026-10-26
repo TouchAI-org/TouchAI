@@ -177,7 +177,9 @@ describe('user is asked to approve a tool call', () => {
     it('user gets no approval request before a task started', async () => {
         const { projection } = createProjection();
 
-        await expect(projection.requestToolApproval(approvalRequest('call-1'))).resolves.toBe(false);
+        await expect(projection.requestToolApproval(approvalRequest('call-1'))).resolves.toBe(
+            false
+        );
     });
 
     it('user gets every pending approval cleared when the task is cancelled', async () => {
