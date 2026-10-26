@@ -73,10 +73,12 @@ Frontend floor in `apps/desktop/vitest.config.ts`:
 
 | Metric | Floor | Now | Target |
 | --- | ---: | ---: | ---: |
-| Statements | 77% | 77.6% | 85% |
-| Branches | 67% | 67.8% | 85% |
-| Functions | 76% | 76.4% | 85% |
-| Lines | 78% | 78.1% | 85% |
+| Statements | 90% | 91.0% | 85% |
+| Branches | 84% | 84.9% | 85% |
+| Functions | 88% | 88.8% | 85% |
+| Lines | 91% | 91.5% | 85% |
+
+Statements, functions and lines are past the 85% target. Branches sit just under it: what remains are guards that cannot be reached from outside their module (dead code, base-class defaults that every adapter overrides, and nullish fallbacks behind columns already wrapped in `coalesce`). Those are reported rather than faked with tests that would pass with the implementation deleted.
 
 The keys must stay at the top level of `thresholds`. A nested `global` object is read as a glob pattern matching no file, which leaves the gate silently inert.
 
