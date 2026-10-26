@@ -22,7 +22,10 @@ on:
 
 permissions:
     contents: read
-    pull-requests: read
+    # The report is posted as a pull request comment, so the reviewer sees which
+    # snapshot moved without opening the Actions tab. Comments on a pull request go
+    # through the issues API but are authorised by this permission, not `issues:`.
+    pull-requests: write
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
@@ -148,13 +151,70 @@ jobs:
               run: pnpm --filter @touchai/desktop test:visual:components:update
 
             # A failing comparison leaves the expected, actual and diff images on the
-            # runner, which is destroyed when the job ends. This writes the half the
-            # reviewer needs — which snapshot moved and what to open — into the run
-            # summary, so the report is on the PR instead of inside the log.
+            # runner, which is destroyed when the job ends. This turns them into a
+            # report: which snapshot moved, where the images are, and how to refresh
+            # the baselines. Without it a failure says only "some pixels differ", which
+            # is the kind of check people learn to ignore.
             - name: Summarise the visual differences
               if: ${{ !cancelled() && !inputs.update_visual_baselines }}
               working-directory: apps/desktop
+              env:
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  VISUAL_SUMMARY_OUTPUT: ${{ runner.temp }}/visual-summary.md
               run: node ./scripts/ci/visual-summary.mjs test-results/results.json
+
+            # GitHub cannot render the artifact images inline: they need authentication
+            # and a comment cannot carry them. Linking the run's artifact is what is
+            # actually available, so the comment links it and names every file, and the
+            # reviewer opens the ones that moved.
+            - name: Post the report on the pull request
+              if: ${{ !cancelled() && !inputs.update_visual_baselines && github.event_name == 'pull_request' }}
+              uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+              env:
+                  SUMMARY_PATH: ${{ runner.temp }}/visual-summary.md
+              with:
+                  script: |
+                      const fs = require('node:fs');
+                      const path = process.env.SUMMARY_PATH;
+
+                      if (!fs.existsSync(path)) {
+                        core.info('No summary was written; skipping the comment.');
+                        return;
+                      }
+
+                      const marker = '<!-- component-visual-report -->';
+                      const body = `${marker}\n${fs.readFileSync(path, 'utf8')}`;
+
+                      // One comment per pull request, updated in place. Appending a new
+                      // one on every push would bury the conversation, and a stale report
+                      // is worse than none: it would describe a run that no longer exists.
+                      const comments = await github.paginate(github.rest.issues.listComments, {
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: context.issue.number,
+                        per_page: 100,
+                      });
+
+                      const existing = comments.find((comment) => comment.body?.includes(marker));
+
+                      if (existing) {
+                        await github.rest.issues.updateComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          comment_id: existing.id,
+                          body,
+                        });
+                        core.info(`Updated comment ${existing.id}.`);
+                        return;
+                      }
+
+                      await github.rest.issues.createComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: context.issue.number,
+                        body,
+                      });
+                      core.info('Created the report comment.');
 
             - name: Upload component baselines
               if: ${{ inputs.update_visual_baselines }}

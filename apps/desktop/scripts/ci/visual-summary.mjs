@@ -10,11 +10,37 @@
  * Usage: node scripts/ci/visual-summary.mjs [report.json]
  */
 
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const reportPath = process.argv[2] ?? 'test-results/results.json';
 const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+/**
+ * The same markdown goes to two places. The job summary is where a failure is
+ * documented; the output file is what the workflow posts as a pull request comment,
+ * because a summary is only visible to someone who already suspected the job failed.
+ */
+const outputPath = process.env.VISUAL_SUMMARY_OUTPUT;
+const runUrl = process.env.RUN_URL;
+
+/**
+ * Writes the report to every sink that is configured, and to stdout when none is, so
+ * running the script by hand still prints something useful.
+ */
+const emit = (markdown) => {
+    if (outputPath) {
+        writeFileSync(outputPath, markdown, 'utf8');
+    }
+
+    if (summaryPath) {
+        appendFileSync(summaryPath, markdown);
+        return;
+    }
+
+    if (!outputPath) {
+        process.stdout.write(markdown);
+    }
+};
 
 /**
  * Playwright nests specs inside arbitrarily deep suites, so the walk collects
@@ -55,19 +81,15 @@ const report = readReport();
 if (!report) {
     // A crash before the reporter ran leaves no report; say so instead of
     // claiming there were no visual differences.
-    const fallback = [
-        '## Component visual tests',
-        '',
-        `No JSON report was written to \`${reportPath}\`, so this run failed before or`,
-        'outside the visual comparison. Check the job log.',
-        '',
-    ].join('\n');
-
-    if (summaryPath) {
-        appendFileSync(summaryPath, fallback);
-    } else {
-        process.stdout.write(fallback);
-    }
+    emit(
+        [
+            '## Component visual tests',
+            '',
+            `No JSON report was written to \`${reportPath}\`, so this run failed before or`,
+            'outside the visual comparison. Check the job log.',
+            '',
+        ].join('\n')
+    );
 
     process.exit(0);
 }
@@ -102,13 +124,24 @@ if (failures.length === 0) {
 } else {
     lines.push(
         `${failures.length} baseline${failures.length === 1 ? '' : 's'} differ${failures.length === 1 ? 's' : ''} from the committed images.`,
-        '',
-        'Open the `component-visual-diffs` artifact from this run to compare them;',
-        'each row names the files it contains.',
-        '',
-        '| Story | Expected | Actual | Diff |',
-        '| --- | --- | --- | --- |'
+        ''
     );
+
+    if (runUrl) {
+        lines.push(
+            `[Open the \`component-visual-diffs\` artifact](${runUrl}#artifacts) for the`,
+            'expected, actual and diff images of each row below.',
+            ''
+        );
+    } else {
+        lines.push(
+            'Open the `component-visual-diffs` artifact from this run for the expected,',
+            'actual and diff images of each row below.',
+            ''
+        );
+    }
+
+    lines.push('| Story | Expected | Actual | Diff |', '| --- | --- | --- | --- |');
 
     for (const failure of failures) {
         lines.push(
@@ -116,20 +149,33 @@ if (failures.length === 0) {
         );
     }
 
-    lines.push(
-        '',
-        'If the change is intended, the reviewer approves it with a `/approve-visuals`',
-        'comment; the baselines are then regenerated in the pinned renderer and committed',
-        'to this branch. Do not regenerate them locally — the pixels would come from a',
-        'different environment than the one that gates the pull request.',
-        ''
-    );
+    lines.push('');
 }
 
-const markdown = lines.join('\n');
+// The hint is unconditional: a green run needs it too, because the next reader may be
+// looking at why a previous run was refreshed. GitHub cannot render the artifact images
+// inline — they need authentication, and a comment cannot embed them — so the command
+// is the useful thing to leave behind.
+lines.push(
+    '<details>',
+    '<summary>Updating these baselines</summary>',
+    '',
+    'If a change above is intended, comment:',
+    '',
+    '```',
+    '/approve-visuals',
+    '```',
+    '',
+    'That regenerates the baselines in the pinned renderer — the same one that produced',
+    'the comparison — and commits them to this branch. Use',
+    '`/approve-visuals components` or `/approve-visuals e2e` to refresh only one layer.',
+    '',
+    'Do not regenerate them locally: the pixels would come from a different environment',
+    'than the one that gates this pull request, which is how a wrong baseline gets',
+    'committed and then fails for everyone.',
+    '',
+    '</details>',
+    ''
+);
 
-if (summaryPath) {
-    appendFileSync(summaryPath, markdown);
-} else {
-    process.stdout.write(markdown);
-}
+emit(lines.join('\n'));
