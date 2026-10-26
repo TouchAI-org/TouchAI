@@ -26,17 +26,20 @@ export async function waitForE2eBridge(timeoutMs = DEFAULT_TIMEOUT_MS) {
 }
 
 export async function callE2eBridge(methodName, ...args) {
-    const result = await browser.executeAsync(
-        (name, bridgeArgs, done) => {
+    // WebdriverIO 10 removed executeAsync; execute now awaits async scripts.
+    const result = await browser.execute(
+        async (name, bridgeArgs) => {
             const bridge = window.__TOUCHAI_E2E__;
             if (!bridge || typeof bridge[name] !== 'function') {
-                done({ ok: false, error: `E2E bridge method "${name}" is not available.` });
-                return;
+                return { ok: false, error: `E2E bridge method "${name}" is not available.` };
             }
 
-            Promise.resolve(bridge[name](...bridgeArgs))
-                .then(() => done({ ok: true }))
-                .catch((error) => done({ ok: false, error: String(error) }));
+            try {
+                await bridge[name](...bridgeArgs);
+                return { ok: true };
+            } catch (error) {
+                return { ok: false, error: String(error) };
+            }
         },
         methodName,
         args

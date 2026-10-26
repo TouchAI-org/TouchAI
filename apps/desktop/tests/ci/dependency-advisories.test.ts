@@ -148,3 +148,14 @@ describe('user gets a guard that rejects every affected advisory branch', () => 
         });
     }
 });
+
+describe('user runs the E2E harness without the WebdriverIO 9 download chain', () => {
+    for (const packageName of ['basic-ftp', 'extract-zip', 'ip-address']) {
+        it(`user gets no ${packageName} in the lockfile`, async () => {
+            expect(
+                await readLockedVersions(packageName),
+                `${packageName} must be gone after the WebdriverIO 10 migration`
+            ).toHaveLength(0);
+        });
+    }
+});

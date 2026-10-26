@@ -16,16 +16,17 @@ import {
 } from '../support/desktop.js';
 
 async function readWindowState() {
-    const result = await browser.executeAsync((done) => {
+    const result = await browser.execute(async () => {
         const bridge = window.__TOUCHAI_E2E__;
         if (!bridge || typeof bridge.getSearchWindowState !== 'function') {
-            done({ ok: false, error: 'getSearchWindowState is not available' });
-            return;
+            return { ok: false, error: 'getSearchWindowState is not available' };
         }
-        bridge
-            .getSearchWindowState()
-            .then((state) => done({ ok: true, state }))
-            .catch((error) => done({ ok: false, error: String(error) }));
+
+        try {
+            return { ok: true, state: await bridge.getSearchWindowState() };
+        } catch (error) {
+            return { ok: false, error: String(error) };
+        }
     });
 
     assertVisible(result.ok, `Reading the window state failed: ${result.error}`);

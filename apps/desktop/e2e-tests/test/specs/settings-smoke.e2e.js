@@ -121,7 +121,8 @@ describe('user works in the settings window', () => {
             const results = await waitForTestIdDisplayed('settings-search-results');
             assertVisible(await results.isDisplayed(), 'Settings search showed no result list.');
 
-            const firstResult = await results.$('[role="option"]');
+            // Several settings can match; this asserts the list is not empty.
+            const firstResult = await results.$('[role="option"]', { strict: false });
             await firstResult.waitForDisplayed();
             assertVisible(
                 await firstResult.isDisplayed(),
@@ -138,7 +139,7 @@ describe('user works in the settings window', () => {
             await searchInput.addValue('start minimized');
 
             const results = await waitForTestIdDisplayed('settings-search-results');
-            const matched = await results.$('[role="option"]');
+            const matched = await results.$('[role="option"]', { strict: false });
             await matched.waitForDisplayed();
             assertVisible(
                 await matched.isDisplayed(),
