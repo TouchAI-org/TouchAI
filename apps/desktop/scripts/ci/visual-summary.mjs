@@ -23,11 +23,29 @@ const summaryPath = process.env.GITHUB_STEP_SUMMARY;
 const outputPath = process.env.VISUAL_SUMMARY_OUTPUT;
 const runUrl = process.env.RUN_URL;
 /**
- * Base URL the workflow uploaded the diff images to, or empty when uploading was not
- * possible (a fork pull request, or no images were produced). When it is set the report
- * embeds the images; when it is not, it names them and links the artifact instead.
+ * Maps an image file name to the URL it was published at.
+ *
+ * GitHub's attachment store returns a distinct URL per file
+ * (`https://github.com/user-attachments/assets/<uuid>`), so this cannot be a base URL
+ * with a name appended. Empty when nothing was uploaded — a fork pull request, or no
+ * images produced — in which case the report names the files and links the artifact
+ * instead of pretending to show them.
  */
-const diffBaseUrl = (process.env.VISUAL_DIFF_BASE_URL ?? '').replace(/\/$/, '');
+const evidencePath = process.env.VISUAL_EVIDENCE_URLS;
+
+const evidenceUrls = (() => {
+    if (!evidencePath || !existsSync(evidencePath)) {
+        return {};
+    }
+
+    try {
+        return JSON.parse(readFileSync(evidencePath, 'utf8'));
+    } catch {
+        // A malformed map must not take the whole report down: the comparison result
+        // is the thing being reported, and the images are supporting evidence.
+        return {};
+    }
+})();
 
 /**
  * Writes the report to every sink that is configured, and to stdout when none is, so
@@ -109,6 +127,25 @@ const describeAttachment = (attachments, suffix) => {
     return null;
 };
 
+/**
+ * Makes a value safe to drop into markdown that a bot posts.
+ *
+ * The spec titles come from the Playwright report, and Playwright serialises them
+ * verbatim. A title is therefore attacker-controlled by anyone who can add a file under
+ * `tests/visual/` — which is also what triggers this workflow. Left raw, a title can
+ * close the table cell, start a new heading, or inject a link, letting a pull request
+ * author put words in the trusted automation's mouth on the very report a reviewer uses
+ * as evidence. Line breaks, table pipes, backticks and angle brackets are stripped, and
+ * the length is bounded.
+ */
+const plain = (value) =>
+    String(value ?? '')
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/[`|<>\\]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 200);
+
 const report = readReport();
 
 if (!report) {
@@ -127,25 +164,55 @@ if (!report) {
     process.exit(0);
 }
 
-const specs = collectSpecs(report.suites?.[0] ?? {});
+// Every root suite, not just the first. Playwright's JSON report keeps one root suite
+// per test file, so reading `suites[0]` would report on the first file and silently
+// drop failures from every other one — and then claim the run was clean.
+const specs = (report.suites ?? []).flatMap((suite) => collectSpecs(suite));
+
+/**
+ * Whether a test failed in the sense the reviewer cares about.
+ *
+ * CI runs with `retries: 1`, so `test.results` can hold a failed attempt followed by a
+ * passing one, and the job is green. Filtering every non-passed result would report that
+ * baseline as differing on a run that passed, which is worse than saying nothing: it
+ * sends the reviewer looking at an image that was never a problem. The last result is
+ * the one Playwright itself judges the test by, so that is the one used here. A skipped
+ * test is not a failure either.
+ */
+const isFailedTest = (test) => {
+    const results = test.results ?? [];
+
+    if (results.length === 0) {
+        return false;
+    }
+
+    return results[results.length - 1].status === 'failed';
+};
 
 const failures = specs
     .map((spec) => {
-        const results = spec.tests?.flatMap((test) => test.results ?? []) ?? [];
-        const failed = results.filter((result) => result.status !== 'passed');
+        const tests = spec.tests ?? [];
+        const failedTests = tests.filter(isFailedTest);
 
-        if (failed.length === 0) {
+        if (failedTests.length === 0) {
             return null;
         }
 
-        const attachments = failed.flatMap((result) => result.attachments ?? []);
+        // Only the attempts that actually failed carry the comparison images; a passing
+        // retry attaches nothing useful.
+        const attachments = failedTests.flatMap((test) =>
+            (test.results ?? [])
+                .filter((result) => result.status === 'failed')
+                .flatMap((result) => result.attachments ?? [])
+        );
         const expected = describeAttachment(attachments, 'expected');
 
         return {
-            title: spec.title,
-            file: spec.file,
-            stem: expected ? expected.replace(/-expected\.\w+$/, '') : null,
-            expected,
+            // Sanitised here rather than at each use, so no future line can print it raw.
+            title: plain(spec.title),
+            file: plain(spec.file),
+            stem: plain(expected ? expected.replace(/-expected\.\w+$/, '') : spec.title),
+            expected: describeAttachment(attachments, 'expected'),
             actual: describeAttachment(attachments, 'actual'),
             diff: describeAttachment(attachments, 'diff'),
         };
@@ -162,13 +229,17 @@ if (failures.length === 0) {
         ''
     );
 
-    if (diffBaseUrl) {
+    const embedded = Object.keys(evidenceUrls).length > 0;
+
+    if (embedded) {
         // The images are embedded so the reviewer can judge the change without leaving
         // the conversation. `expected` is what is committed, `actual` is this run, and
         // `diff` marks the pixels that moved.
         for (const failure of failures) {
             const stem = failure.stem ?? failure.title;
-            const url = (name) => (name ? `${diffBaseUrl}/${name}` : null);
+            // Attachment names are file names from `test-results/`, so they cannot carry
+            // markdown, but they are encoded anyway: the value ends up inside a URL.
+            const url = (name) => (name ? evidenceUrls[name] : null);
 
             lines.push(`### \`${stem}\``, '');
 
@@ -176,7 +247,7 @@ if (failures.length === 0) {
                 ['Expected', failure.expected],
                 ['Actual', failure.actual],
                 ['Diff', failure.diff],
-            ].filter(([, name]) => name);
+            ].filter(([, name]) => url(name));
 
             if (cells.length === 0) {
                 lines.push(
@@ -213,8 +284,10 @@ if (failures.length === 0) {
         lines.push('| Snapshot | Expected | Actual | Diff |', '| --- | --- | --- | --- |');
 
         for (const failure of failures) {
+            // `stem` and the attachment names are already sanitised; the em dash marks a
+            // file the comparison never produced.
             lines.push(
-                `| \`${failure.stem ?? failure.title}\` | ${failure.expected ?? '—'} | ${failure.actual ?? '—'} | ${failure.diff ?? '—'} |`
+                `| \`${failure.stem}\` | ${failure.expected ?? '—'} | ${failure.actual ?? '—'} | ${failure.diff ?? '—'} |`
             );
         }
 

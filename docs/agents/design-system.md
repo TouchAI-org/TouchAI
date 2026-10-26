@@ -252,11 +252,35 @@ schedule is not a baseline; it is a recording of whatever the code currently doe
 every regression it was meant to catch gets absorbed silently. Approving a baseline is
 a decision, and the person who makes it is the reviewer, not the author.
 
-**Reading a failure without leaving the PR.** The component job writes which snapshot
-moved, and the names of the expected/actual/diff images, into the run summary
-(`$GITHUB_STEP_SUMMARY`) through `apps/desktop/scripts/ci/visual-summary.mjs`. The images
-themselves travel in the `component-visual-diffs` artifact. A check that fails without
-saying what changed is a check people learn to ignore.
+**Reading a failure without leaving the PR.** The component job posts one comment on the
+pull request — updated in place, never duplicated — that says which snapshot moved and
+shows the expected, actual and diff images side by side. It is written by
+`apps/desktop/scripts/ci/visual-summary.mjs` and posted by the workflow.
+
+The images are published through GitHub's attachment store by
+`apps/desktop/scripts/ci/publish-evidence.mjs`, which posts to
+`https://uploads.github.com/user-attachments/assets` — the endpoint the web UI uses when
+a file is pasted into a comment. Two of its behaviours are undocumented and were measured
+rather than assumed:
+
+- **A fresh upload is not readable yet.** Its URL answers 404 until a comment references
+  it, then serves the image anonymously. The report embeds the URL in the comment it
+  posts, which is what activates it; deleting that comment later does not revoke it.
+- **It needs a user token.** Installation tokens and `GITHUB_TOKEN` get 404, because an
+  attachment has an author and a bot has none. The workflow reads `UI_PREVIEW_TOKEN`, the
+  same secret the UI preview workflow uses for the same reason.
+
+When that secret is absent — a fork pull request, or a repository that has not configured
+it — nothing is uploaded and the report names the files and links the
+`component-visual-diffs` artifact instead. That is a worse report, not a failed run, and
+the comparison result is still reported.
+
+The report also sanitises every value it prints. Test titles come from the Playwright
+report verbatim, and adding a file under `tests/visual/` is both what triggers the
+workflow and what supplies the title, so a title is attacker-controlled by the pull
+request author. Left raw it could close a table cell or inject a heading and a link into
+a comment posted by the automation — on the very report a reviewer uses as evidence. See
+`apps/desktop/tests/ci/visual-summary.test.ts`.
 
 #### Fidelity: the font and the window size
 
