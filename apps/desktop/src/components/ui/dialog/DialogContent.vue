@@ -50,7 +50,14 @@
             v-bind="forwardedWithAttrs"
             :class="
                 cn(
-                    'fixed inset-0 z-50 m-auto grid h-fit max-h-[calc(100dvh-4rem)] w-full',
+                    /*
+                     * `overflow-y-auto` pairs with the `max-h` cap: without it the box
+                     * stops growing while its content keeps `overflow: visible`, so the
+                     * overflow runs past the viewport and footer actions become
+                     * unreachable. `DialogShell` puts its slot here directly, so the
+                     * scroll container has to live at this level.
+                     */
+                    'fixed inset-0 z-50 m-auto grid h-fit max-h-[calc(100dvh-4rem)] w-full overflow-y-auto',
                     't-modal',
                     props.class
                 )
