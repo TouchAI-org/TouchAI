@@ -1,0 +1,337 @@
+name: Approve visual baselines
+
+# Regenerates the visual baselines for a pull request when its reviewer asks for it,
+# in the same pinned environment that compares them, and commits the result back to
+# the branch under review.
+#
+# Why this exists rather than "run it locally and push":
+#
+# A baseline is only valid against the renderer that produced it. A developer machine
+# renders the same code with a different Chromium build, different system fonts and a
+# different device pixel ratio, so a baseline generated there fails on CI for reasons
+# that have nothing to do with the change — and passes locally while the comparison
+# that actually gates the pull request keeps failing.
+#
+# Why a comment rather than an automatic step:
+#
+# Approving a baseline is a decision — "this is what it should look like now" — and
+# the person who makes it is the reviewer, not the author, and not a schedule. A job
+# that rewrites baselines whenever they differ turns every visual test into a recorder
+# of whatever the code currently does, silently absorbing the regressions it was added
+# to catch.
+#
+# Why it dispatches the existing workflows instead of running the suites itself:
+#
+# The renderer is defined by `visual-components.yml` (the pinned Playwright image) and
+# by `e2e-smoke.yml` (the Windows/WebView2 driver setup). Running the suites here would
+# mean a second copy of both, and a baseline is only comparable if it comes from the
+# exact configuration that will later compare it. So this file orchestrates and never
+# re-implements.
+#
+# About the token that pushes the commit:
+#
+# GitHub suppresses workflow runs for events caused by the built-in `GITHUB_TOKEN`, so a
+# push made with it lands on the branch without starting the checks that gate the pull
+# request — and branch protection then sits at "Waiting for status to be reported". Set
+# a `VISUAL_APPROVE_TOKEN` secret (a fine-grained PAT with `contents: write` on this
+# repository, or a GitHub App installation token) to have the checks run on the new
+# commit. Without it the baselines are still committed and correct; the checks just need
+# a manual re-run before the pull request can merge.
+#
+# Usage, in a pull request comment:
+#
+#     /approve-visuals              regenerate both layers
+#     /approve-visuals components   regenerate the component layer only
+#     /approve-visuals e2e          regenerate the app (WebView2) layer only
+
+on:
+    issue_comment:
+        types:
+            - created
+
+permissions:
+    contents: write
+    pull-requests: write
+    # Needed to dispatch the two visual workflows.
+    actions: write
+
+# One approval per pull request at a time. Two concurrent runs would race on the
+# commit and one of them would lose its baselines.
+concurrency:
+    group: approve-visuals-${{ github.event.issue.number }}
+    cancel-in-progress: false
+
+jobs:
+    plan:
+        name: Decide what to regenerate
+        # `issue_comment` fires for plain issues too, and it carries write
+        # permissions, so the trigger is narrowed three ways: it must be a pull
+        # request, the comment must contain the command, and the author must already
+        # have write access to this repository. Without the last check any passer-by
+        # could rewrite the baselines and erase the evidence of a regression.
+        if: |
+            github.event.issue.pull_request &&
+            contains(github.event.comment.body, '/approve-visuals') &&
+            contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+        runs-on: ubuntu-latest
+        outputs:
+            components: ${{ steps.parse.outputs.components }}
+            e2e: ${{ steps.parse.outputs.e2e }}
+            head_ref: ${{ steps.pr.outputs.head_ref }}
+        steps:
+            - name: Read the pull request
+              id: pr
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  PR_NUMBER: ${{ github.event.issue.number }}
+              run: |
+                  set -euo pipefail
+                  head_ref="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefName --jq .headRefName)"
+                  head_repo="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRepositoryOwner,headRepository --jq '.headRepositoryOwner.login + "/" + .headRepository.name')"
+
+                  # Pushing back to a fork needs a token that can write there, which the
+                  # workflow token cannot do. Say so instead of failing at the push.
+                  if [ "$head_repo" != "$GITHUB_REPOSITORY" ]; then
+                      echo "::error::This pull request comes from the fork $head_repo. Regenerate the baselines there and push them yourself; the workflow token cannot write to a fork."
+                      exit 1
+                  fi
+
+                  echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
+
+            - name: Parse the requested layers
+              id: parse
+              env:
+                  COMMENT_BODY: ${{ github.event.comment.body }}
+              run: |
+                  set -euo pipefail
+                  # The body arrives through the environment, never interpolated into
+                  # the script, so a comment cannot smuggle shell syntax into the run.
+                  body="$(printf '%s' "$COMMENT_BODY")"
+
+                  components=false
+                  e2e=false
+
+                  if printf '%s' "$body" | grep -qiE '/approve-visuals[[:space:]]+components'; then
+                      components=true
+                  fi
+
+                  if printf '%s' "$body" | grep -qiE '/approve-visuals[[:space:]]+e2e'; then
+                      e2e=true
+                  fi
+
+                  # A bare command means "everything that moved". Requiring the caller
+                  # to name a layer every time would make it easy to approve half a
+                  # change and leave the other half failing.
+                  if [ "$components" = false ] && [ "$e2e" = false ]; then
+                      components=true
+                      e2e=true
+                  fi
+
+                  echo "components=$components" >> "$GITHUB_OUTPUT"
+                  echo "e2e=$e2e" >> "$GITHUB_OUTPUT"
+
+            - name: Acknowledge the command
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  COMMENT_ID: ${{ github.event.comment.id }}
+              run: |
+                  set -euo pipefail
+                  # A reaction confirms the command was seen without adding a comment
+                  # for every retry.
+                  gh api \
+                      --method POST \
+                      -H "Accept: application/vnd.github+json" \
+                      "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID/reactions" \
+                      -f content=eyes >/dev/null
+
+    components:
+        name: Regenerate component baselines
+        needs: plan
+        if: needs.plan.outputs.components == 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ needs.plan.outputs.head_ref }}
+                  # The commit this job pushes has to start the checks that gate the pull
+                  # request, and the built-in token cannot do that (GitHub suppresses
+                  # workflow runs for events it causes). The optional secret is the
+                  # documented way around it; without it the baselines are still
+                  # committed, the checks just need a manual re-run.
+                  token: ${{ secrets.VISUAL_APPROVE_TOKEN || secrets.GITHUB_TOKEN }}
+
+            - name: Regenerate in the pinned renderer
+              id: regenerate
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  HEAD_REF: ${{ needs.plan.outputs.head_ref }}
+              run: |
+                  set -euo pipefail
+                  workflow='visual-components.yml'
+
+                  # The dispatch is asynchronous and `gh run list` can only report what
+                  # already exists, so the run that existed before the dispatch is the
+                  # marker for "this one is new".
+                  before="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --branch "$HEAD_REF" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')"
+
+                  gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$HEAD_REF" -f update_visual_baselines=true
+
+                  run_id=''
+                  for _ in $(seq 1 30); do
+                      current="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --branch "$HEAD_REF" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')"
+                      if [ -n "$current" ] && [ "$current" != "$before" ] && [ "$current" != '0' ]; then
+                          run_id="$current"
+                          break
+                      fi
+                      sleep 5
+                  done
+
+                  if [ -z "$run_id" ]; then
+                      echo "::error::The component baseline run never appeared. Check the Actions tab for $workflow on $HEAD_REF."
+                      exit 1
+                  fi
+
+                  echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+                  echo "Watching run $run_id."
+
+            - name: Wait for the run to finish
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RUN_ID: ${{ steps.regenerate.outputs.run_id }}
+              run: |
+                  set -euo pipefail
+                  gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status --interval 15
+
+            - name: Download the regenerated baselines
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RUN_ID: ${{ steps.regenerate.outputs.run_id }}
+              run: |
+                  set -euo pipefail
+                  gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name component-baselines --dir apps/desktop/tests/visual/__snapshots__
+
+            - name: Commit the regenerated baselines
+              env:
+                  HEAD_REF: ${{ needs.plan.outputs.head_ref }}
+              run: |
+                  set -euo pipefail
+                  git config user.name 'github-actions[bot]'
+                  git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+                  git add apps/desktop/tests/visual/__snapshots__
+
+                  if git diff --cached --quiet; then
+                      echo 'The component baselines already match; nothing to commit.'
+                      exit 0
+                  fi
+
+                  git commit -m 'test(ui): refresh the component visual baselines'
+                  git push origin "HEAD:$HEAD_REF"
+
+    e2e:
+        name: Regenerate app baselines
+        needs: plan
+        if: needs.plan.outputs.e2e == 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ needs.plan.outputs.head_ref }}
+                  token: ${{ secrets.VISUAL_APPROVE_TOKEN || secrets.GITHUB_TOKEN }}
+
+            - name: Regenerate in the Windows/WebView2 environment
+              id: regenerate
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  HEAD_REF: ${{ needs.plan.outputs.head_ref }}
+              run: |
+                  set -euo pipefail
+                  workflow='e2e-smoke.yml'
+
+                  before="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --branch "$HEAD_REF" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')"
+
+                  gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$HEAD_REF" -f update_visual_baselines=true
+
+                  run_id=''
+                  for _ in $(seq 1 30); do
+                      current="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --branch "$HEAD_REF" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')"
+                      if [ -n "$current" ] && [ "$current" != "$before" ] && [ "$current" != '0' ]; then
+                          run_id="$current"
+                          break
+                      fi
+                      sleep 5
+                  done
+
+                  if [ -z "$run_id" ]; then
+                      echo "::error::The app baseline run never appeared. Check the Actions tab for $workflow on $HEAD_REF."
+                      exit 1
+                  fi
+
+                  echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+                  echo "Watching run $run_id."
+
+            - name: Wait for the run to finish
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RUN_ID: ${{ steps.regenerate.outputs.run_id }}
+              run: |
+                  set -euo pipefail
+                  gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status --interval 15
+
+            - name: Download the regenerated baselines
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  RUN_ID: ${{ steps.regenerate.outputs.run_id }}
+              run: |
+                  set -euo pipefail
+                  gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name visual-baselines --dir apps/desktop/e2e-tests/__snapshots__
+
+            - name: Commit the regenerated baselines
+              env:
+                  HEAD_REF: ${{ needs.plan.outputs.head_ref }}
+              run: |
+                  set -euo pipefail
+                  git config user.name 'github-actions[bot]'
+                  git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+                  git add apps/desktop/e2e-tests/__snapshots__
+
+                  if git diff --cached --quiet; then
+                      echo 'The app baselines already match; nothing to commit.'
+                      exit 0
+                  fi
+
+                  git commit -m 'test(ui): refresh the app visual baselines'
+                  git push origin "HEAD:$HEAD_REF"
+
+    report:
+        name: Report the outcome
+        needs:
+            - plan
+            - components
+            - e2e
+        if: always() && needs.plan.result == 'success'
+        runs-on: ubuntu-latest
+        steps:
+            - name: Comment on the pull request
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  PR_NUMBER: ${{ github.event.issue.number }}
+                  COMPONENTS_RESULT: ${{ needs.components.result }}
+                  E2E_RESULT: ${{ needs.e2e.result }}
+              run: |
+                  set -euo pipefail
+
+                  status_for() {
+                      if [ "$1" = 'skipped' ]; then
+                          printf 'not requested'
+                      else
+                          printf '%s' "$1"
+                      fi
+                  }
+
+                  body="$(printf 'Regenerated the visual baselines in the environment that gates this pull request.\n\n| Layer | Outcome |\n| --- | --- |\n| Component | %s |\n| App (WebView2) | %s |\n\nReview the new commits on this branch before approving. A baseline is only worth committing once someone has looked at what changed.' \
+                      "$(status_for "$COMPONENTS_RESULT")" \
+                      "$(status_for "$E2E_RESULT")")"
+
+                  gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$body"

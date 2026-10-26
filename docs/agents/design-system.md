@@ -185,6 +185,63 @@ empty and a populated chart. Stories live next to their component
 The story list is read from Storybook's `index.json` at run time, so a new story
 becomes a baseline automatically instead of waiting for someone to add it to a list.
 
+#### Where baselines are generated, and why
+
+Baselines are generated in CI, never on a developer machine. This is not a
+preference; it is what makes the comparison mean anything.
+
+Playwright's own documentation states it plainly:
+
+> Browser rendering can vary based on the host OS, version, settings, hardware,
+> power source (battery vs. power adapter), headless mode, and other factors. For
+> consistent screenshots, run tests in the same environment where the baseline
+> screenshots were generated.
+
+The first set of application baselines for this project was generated locally and
+failed on CI by 2.2–2.6% with no code change, because the developer machine renders
+at 150% device pixel ratio. The same class of failure is why the component layer runs
+inside `mcr.microsoft.com/playwright:v1.64.1-noble`: the image pins Chromium *and* the
+system fonts and libraries, so a runner image update cannot silently move every
+baseline at once.
+
+The tag must equal the `@playwright/test` version in the lockfile. If the two drift,
+Playwright cannot find its browsers at all, which surfaces as an opaque "executable
+doesn't exist" — so the workflow asserts the match before running anything and says
+what to change.
+
+**Regenerating.** Two ways, both producing the same pixels as the gate:
+
+```bash
+# Regenerate and collect the result by hand.
+gh workflow run "Component Visual Tests" --ref <branch> -f update_visual_baselines=true
+gh run download <run-id> --name component-baselines --dir apps/desktop/tests/visual/__snapshots__
+
+# Or ask the bot to do the same thing and commit it back.
+# In a pull request comment:
+#   /approve-visuals              both layers
+#   /approve-visuals components   the component layer only
+#   /approve-visuals e2e          the app (WebView2) layer only
+```
+
+`/approve-visuals` only runs for commenters with write access, dispatches the existing
+workflows rather than re-implementing them, and commits the result to the branch under
+review. Pushing that commit with the built-in `GITHUB_TOKEN` does not start the checks
+that gate the pull request — GitHub suppresses runs for events it causes — so set a
+`VISUAL_APPROVE_TOKEN` secret (fine-grained PAT with `contents: write`, or a GitHub App
+token) to have them run automatically. Without it the baselines are still correct; the
+checks need a manual re-run.
+
+**Never regenerate automatically.** A baseline that rewrites itself on push or on a
+schedule is not a baseline; it is a recording of whatever the code currently does, and
+every regression it was meant to catch gets absorbed silently. Approving a baseline is
+a decision, and the person who makes it is the reviewer, not the author.
+
+**Reading a failure without leaving the PR.** The component job writes which snapshot
+moved, and the names of the expected/actual/diff images, into the run summary
+(`$GITHUB_STEP_SUMMARY`) through `apps/desktop/scripts/ci/visual-summary.mjs`. The images
+themselves travel in the `component-visual-diffs` artifact. A check that fails without
+saying what changed is a check people learn to ignore.
+
 #### Fidelity: the font and the window size
 
 A baseline that renders a different typeface or a different viewport from the real
