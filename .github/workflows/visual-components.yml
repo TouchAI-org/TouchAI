@@ -183,14 +183,6 @@ jobs:
                   api="https://api.github.com/repos/${REPOSITORY}"
                   auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28')
 
-                  # Where the images actually are is worth stating: this step once
-                  # reported "nothing to upload" while the artifact from the same run
-                  # held three of them, because the directory it looked in was not the
-                  # one the tests wrote to.
-                  echo "working directory: $(pwd)"
-                  echo "test-results contents:"
-                  ls -la test-results 2>/dev/null || echo "  (no test-results directory here)"
-
                   # `find | grep -q` is not usable under `pipefail`: `grep -q` exits on the
                   # first match, `find` then dies of SIGPIPE, and the pipeline reports
                   # failure even though the match succeeded. Collecting the paths first
