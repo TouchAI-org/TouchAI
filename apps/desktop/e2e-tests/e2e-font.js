@@ -81,15 +81,26 @@ async function downloadToFile(url, destination) {
             process.env.HTTP_PROXY ||
             process.env.http_proxy;
 
-        const response = await undiciFetch(url, {
-            dispatcher: new ProxyAgent(proxyUrl),
-            signal: AbortSignal.timeout(FONT_DOWNLOAD_TIMEOUT_MS),
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+        // `ProxyAgent` owns an internal `Agent` and a TLS socket pool, so an instance
+        // that is dropped without `close()` keeps its handles open until the process
+        // exits. This runs once per mirror per session, and the E2E config provisions
+        // the font in `beforeSession`, so a failing mirror would leak one pool per
+        // attempt and hold the driver open. `close()` is awaited in `finally` so it runs
+        // on the abort path too.
+        const dispatcher = new ProxyAgent(proxyUrl);
+        try {
+            const response = await undiciFetch(url, {
+                dispatcher,
+                signal: AbortSignal.timeout(FONT_DOWNLOAD_TIMEOUT_MS),
+            });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            fs.writeFileSync(destination, Buffer.from(await response.arrayBuffer()));
+            return;
+        } finally {
+            await dispatcher.close();
         }
-        fs.writeFileSync(destination, Buffer.from(await response.arrayBuffer()));
-        return;
     }
 
     const response = await fetch(url, { signal: AbortSignal.timeout(FONT_DOWNLOAD_TIMEOUT_MS) });
