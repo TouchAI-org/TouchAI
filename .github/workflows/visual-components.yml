@@ -159,61 +159,124 @@ jobs:
             # public, so the download URL needs no authentication and the comment can
             # embed the images instead of asking the reviewer to fetch an artifact.
             #
-            # A release is used rather than a branch because the assets are replaced by
-            # name with `--clobber`; there is no history to grow and no commit to push
-            # onto the code branches. One fixed tag holds the latest run's images, which
-            # keeps the URLs stable enough for the comment to be updated in place.
+            # A release is used rather than a branch because assets are replaced by name,
+            # so there is no history to grow and nothing to push onto the code branches.
+            # One fixed tag holds the latest run's images, which keeps the URLs stable
+            # enough for the comment to be updated in place.
+            #
+            # This talks to the REST API with `curl` rather than `gh`: the job runs inside
+            # the Playwright image, which has no `gh` binary.
             - name: Publish the diff images
               id: publish
               if: ${{ !cancelled() && !inputs.update_visual_baselines }}
               working-directory: apps/desktop
+              # Inside the container the default shell is `sh` (dash), which rejects
+              # `set -o pipefail` and exits 2 before running anything.
+              shell: bash
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   REPOSITORY: ${{ github.repository }}
                   RELEASE_TAG: visual-diffs
-                  RELEASE_TITLE: Visual diff images (scratch)
               run: |
                   set -euo pipefail
 
-                  if ! find test-results -name '*-diff.png' -print -quit | grep -q .; then
-                      echo "No diff images were produced; nothing to upload."
-                      echo "base_url=" >> "$GITHUB_OUTPUT"
-                      exit 0
-                  fi
+                  api="https://api.github.com/repos/${REPOSITORY}"
+                  auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28')
 
+                  # Where the images actually are is worth stating: this step once
+                  # reported "nothing to upload" while the artifact from the same run
+                  # held three of them, because the directory it looked in was not the
+                  # one the tests wrote to.
+                  echo "working directory: $(pwd)"
+                  echo "test-results contents:"
+                  ls -la test-results 2>/dev/null || echo "  (no test-results directory here)"
+
+                  # `find | grep -q` is not usable under `pipefail`: `grep -q` exits on the
+                  # first match, `find` then dies of SIGPIPE, and the pipeline reports
+                  # failure even though the match succeeded. Collecting the paths first
+                  # avoids the race entirely.
                   images_dir="$RUNNER_TEMP/visual-diffs"
                   rm -rf "$images_dir"
                   mkdir -p "$images_dir"
 
                   # The retry directory holds a second copy of the same files, so the
                   # first occurrence of each name is the one kept.
-                  find test-results -type f \( -name '*-expected.png' -o -name '*-actual.png' -o -name '*-diff.png' \) -print0 |
-                      while IFS= read -r -d '' image; do
-                          name="$(basename "$image")"
-                          if [ ! -e "$images_dir/$name" ]; then
-                              cp "$image" "$images_dir/$name"
-                          fi
-                      done
+                  find test-results -type f \( -name '*-expected.png' -o -name '*-actual.png' -o -name '*-diff.png' \) -print0 > "$RUNNER_TEMP/image-list"
 
-                  # The release is created once and reused; `gh release view` decides
-                  # which. `--prerelease` keeps it out of the "latest release" slot.
-                  if ! gh release view "$RELEASE_TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
-                      gh release create "$RELEASE_TAG" \
-                          --repo "$REPOSITORY" \
-                          --title "$RELEASE_TITLE" \
-                          --notes 'Scratch release holding the diff images of the latest visual test run. Safe to ignore; it is not a shipped artifact.' \
-                          --prerelease
-                  fi
+                  collected=0
+                  while IFS= read -r -d '' image; do
+                      name="$(basename "$image")"
+                      if [ ! -e "$images_dir/$name" ]; then
+                          cp "$image" "$images_dir/$name"
+                          collected=$((collected + 1))
+                      fi
+                  done < "$RUNNER_TEMP/image-list"
 
-                  # `--clobber` replaces assets of the same name, so repeated runs do
-                  # not accumulate files and the URLs stay stable.
-                  if ! gh release upload "$RELEASE_TAG" "$images_dir"/*.png \
-                      --repo "$REPOSITORY" \
-                      --clobber; then
-                      echo "::warning::Could not upload the diff images; the report will link the artifact instead."
+                  echo "collected ${collected} image(s)."
+
+                  if [ "$collected" -eq 0 ]; then
+                      echo "No diff images were produced; nothing to upload."
                       echo "base_url=" >> "$GITHUB_OUTPUT"
                       exit 0
                   fi
+
+                  # Create the release once and reuse it. A 422 means the tag already
+                  # exists, which is the normal case after the first run.
+                  if ! curl --silent --show-error --fail "${auth[@]}" \
+                      "${api}/releases/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+                      curl --silent --show-error --fail "${auth[@]}" \
+                          -X POST "${api}/releases" \
+                          -d "{\"tag_name\":\"${RELEASE_TAG}\",\"name\":\"Visual diff images (scratch)\",\"body\":\"Scratch release holding the diff images of the latest visual test run. Safe to ignore; it is not a shipped artifact.\",\"prerelease\":true}" \
+                          >/dev/null
+                  fi
+
+                  # The release document is parsed with node rather than sed: it is a
+                  # single-line JSON blob, and a line-oriented pattern silently fails to
+                  # find `upload_url` when the field order or spacing changes.
+                  release_json="$RUNNER_TEMP/release.json"
+                  curl --silent --show-error --fail "${auth[@]}" \
+                      "${api}/releases/tags/${RELEASE_TAG}" > "$release_json"
+
+                  # `readFileSync` rather than `require`: the path is absolute and
+                  # `require` resolves it as a module, which throws for a file outside a
+                  # package.
+                  upload_url="$(node -e "
+                      const { readFileSync } = require('node:fs');
+                      const release = JSON.parse(readFileSync(process.argv[1], 'utf8'));
+                      process.stdout.write(release.upload_url.replace(/\{.*\}$/, ''));
+                  " "$release_json")"
+
+                  if [ -z "$upload_url" ]; then
+                      echo "::warning::Could not resolve the release upload URL; the report will link the artifact instead."
+                      echo "base_url=" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  # Assets are replaced by name: the API refuses a duplicate upload name,
+                  # so the previous ones are deleted first. A missing asset answers 404,
+                  # which is not an error here.
+                  node -e "
+                      const { readFileSync } = require('node:fs');
+                      const release = JSON.parse(readFileSync(process.argv[1], 'utf8'));
+                      for (const asset of release.assets) console.log(asset.id);
+                  " "$release_json" |
+                      while read -r asset_id; do
+                          curl --silent --show-error --fail "${auth[@]}" \
+                              -X DELETE "${api}/releases/assets/${asset_id}" >/dev/null || true
+                      done
+
+                  for image in "$images_dir"/*.png; do
+                      name="$(basename "$image")"
+                      if ! curl --silent --show-error --fail "${auth[@]}" \
+                          -X POST "${upload_url}?name=${name}" \
+                          -H 'Content-Type: application/octet-stream' \
+                          --data-binary "@${image}" >/dev/null; then
+                          echo "::warning::Could not upload ${name}; the report will link the artifact instead."
+                          echo "base_url=" >> "$GITHUB_OUTPUT"
+                          exit 0
+                      fi
+                      echo "uploaded ${name}"
+                  done
 
                   echo "base_url=https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
 
