@@ -22,6 +22,12 @@ const summaryPath = process.env.GITHUB_STEP_SUMMARY;
  */
 const outputPath = process.env.VISUAL_SUMMARY_OUTPUT;
 const runUrl = process.env.RUN_URL;
+/**
+ * Base URL the workflow uploaded the diff images to, or empty when uploading was not
+ * possible (a fork pull request, or no images were produced). When it is set the report
+ * embeds the images; when it is not, it names them and links the artifact instead.
+ */
+const diffBaseUrl = (process.env.VISUAL_DIFF_BASE_URL ?? '').replace(/\/$/, '');
 
 /**
  * Writes the report to every sink that is configured, and to stdout when none is, so
@@ -86,8 +92,17 @@ const describeAttachment = (attachments, suffix) => {
     for (const attachment of attachments ?? []) {
         const base = attachment.path ? path.basename(attachment.path) : '';
 
-        if (pattern.test(attachment.name ?? '') || pattern.test(base)) {
-            return base || attachment.name;
+        // The attachment *name* is the file name in `test-results/`, which is what gets
+        // uploaded, so it is preferred over the path's basename. The two differ for the
+        // expected image: Playwright attaches it as `<stem>-expected.png` but points at
+        // the committed baseline, whose basename is `<stem>.png`. Using the path there
+        // would build a URL for a file that was never uploaded.
+        if (pattern.test(attachment.name ?? '')) {
+            return attachment.name;
+        }
+
+        if (pattern.test(base)) {
+            return base;
         }
     }
 
@@ -147,29 +162,64 @@ if (failures.length === 0) {
         ''
     );
 
-    if (runUrl) {
-        lines.push(
-            `[Open the \`component-visual-diffs\` artifact](${runUrl}#artifacts) to see the`,
-            'images themselves.',
-            ''
-        );
+    if (diffBaseUrl) {
+        // The images are embedded so the reviewer can judge the change without leaving
+        // the conversation. `expected` is what is committed, `actual` is this run, and
+        // `diff` marks the pixels that moved.
+        for (const failure of failures) {
+            const stem = failure.stem ?? failure.title;
+            const url = (name) => (name ? `${diffBaseUrl}/${name}` : null);
+
+            lines.push(`### \`${stem}\``, '');
+
+            const cells = [
+                ['Expected', failure.expected],
+                ['Actual', failure.actual],
+                ['Diff', failure.diff],
+            ].filter(([, name]) => name);
+
+            if (cells.length === 0) {
+                lines.push(
+                    'No images were produced for this snapshot, so there is nothing to show.',
+                    ''
+                );
+                continue;
+            }
+
+            lines.push(`| ${cells.map(([label]) => label).join(' | ')} |`);
+            lines.push(`| ${cells.map(() => '---').join(' | ')} |`);
+            lines.push(
+                `| ${cells.map(([label, name]) => `![${label}](${url(name)})`).join(' | ')} |`,
+                ''
+            );
+        }
     } else {
-        lines.push(
-            'Open the `component-visual-diffs` artifact from this run to see the images',
-            'themselves.',
-            ''
-        );
+        // Uploading is unavailable (a fork pull request) or produced nothing. Naming the
+        // files is still better than saying only "some pixels differ".
+        if (runUrl) {
+            lines.push(
+                `[Open the \`component-visual-diffs\` artifact](${runUrl}#artifacts) to see`,
+                'the images themselves.',
+                ''
+            );
+        } else {
+            lines.push(
+                'Open the `component-visual-diffs` artifact from this run to see the images',
+                'themselves.',
+                ''
+            );
+        }
+
+        lines.push('| Snapshot | Expected | Actual | Diff |', '| --- | --- | --- | --- |');
+
+        for (const failure of failures) {
+            lines.push(
+                `| \`${failure.stem ?? failure.title}\` | ${failure.expected ?? '—'} | ${failure.actual ?? '—'} | ${failure.diff ?? '—'} |`
+            );
+        }
+
+        lines.push('');
     }
-
-    lines.push('| Snapshot | Expected | Actual | Diff |', '| --- | --- | --- | --- |');
-
-    for (const failure of failures) {
-        lines.push(
-            `| \`${failure.stem ?? failure.title}\` | ${failure.expected ?? '—'} | ${failure.actual ?? '—'} | ${failure.diff ?? '—'} |`
-        );
-    }
-
-    lines.push('');
 
     // A row with no actual or diff means the comparison never produced pixels: the
     // baseline did not decode, or the story never rendered. That is a different problem
@@ -188,9 +238,7 @@ if (failures.length === 0) {
 }
 
 // The hint is unconditional: a green run needs it too, because the next reader may be
-// looking at why a previous run was refreshed. GitHub cannot render the artifact images
-// inline — they need authentication, and a comment cannot embed them — so the command
-// is the useful thing to leave behind.
+// looking at why a previous run was refreshed.
 lines.push(
     '<details>',
     '<summary>Updating these baselines</summary>',

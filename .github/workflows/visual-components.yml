@@ -21,7 +21,10 @@ on:
             - main
 
 permissions:
-    contents: read
+    # Uploading the diff images as release assets needs to write contents. A pull
+    # request from a fork receives a read-only token regardless of this, which the
+    # publish step detects and handles by falling back to the artifact link.
+    contents: write
     # The report is posted as a pull request comment, so the reviewer sees which
     # snapshot moved without opening the Actions tab. Comments on a pull request go
     # through the issues API but are authorised by this permission, not `issues:`.
@@ -151,8 +154,72 @@ jobs:
               run: pnpm --filter @touchai/desktop test:visual:components:update
 
             # A failing comparison leaves the expected, actual and diff images on the
+            # runner, which is destroyed when the job ends. Uploading them as release
+            # assets is what makes them visible in the pull request: this repository is
+            # public, so the download URL needs no authentication and the comment can
+            # embed the images instead of asking the reviewer to fetch an artifact.
+            #
+            # A release is used rather than a branch because the assets are replaced by
+            # name with `--clobber`; there is no history to grow and no commit to push
+            # onto the code branches. One fixed tag holds the latest run's images, which
+            # keeps the URLs stable enough for the comment to be updated in place.
+            - name: Publish the diff images
+              id: publish
+              if: ${{ !cancelled() && !inputs.update_visual_baselines }}
+              working-directory: apps/desktop
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  REPOSITORY: ${{ github.repository }}
+                  RELEASE_TAG: visual-diffs
+                  RELEASE_TITLE: Visual diff images (scratch)
+              run: |
+                  set -euo pipefail
+
+                  if ! find test-results -name '*-diff.png' -print -quit | grep -q .; then
+                      echo "No diff images were produced; nothing to upload."
+                      echo "base_url=" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  images_dir="$RUNNER_TEMP/visual-diffs"
+                  rm -rf "$images_dir"
+                  mkdir -p "$images_dir"
+
+                  # The retry directory holds a second copy of the same files, so the
+                  # first occurrence of each name is the one kept.
+                  find test-results -type f \( -name '*-expected.png' -o -name '*-actual.png' -o -name '*-diff.png' \) -print0 |
+                      while IFS= read -r -d '' image; do
+                          name="$(basename "$image")"
+                          if [ ! -e "$images_dir/$name" ]; then
+                              cp "$image" "$images_dir/$name"
+                          fi
+                      done
+
+                  # The release is created once and reused; `gh release view` decides
+                  # which. `--prerelease` keeps it out of the "latest release" slot.
+                  if ! gh release view "$RELEASE_TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
+                      gh release create "$RELEASE_TAG" \
+                          --repo "$REPOSITORY" \
+                          --title "$RELEASE_TITLE" \
+                          --notes 'Scratch release holding the diff images of the latest visual test run. Safe to ignore; it is not a shipped artifact.' \
+                          --prerelease
+                  fi
+
+                  # `--clobber` replaces assets of the same name, so repeated runs do
+                  # not accumulate files and the URLs stay stable.
+                  if ! gh release upload "$RELEASE_TAG" "$images_dir"/*.png \
+                      --repo "$REPOSITORY" \
+                      --clobber; then
+                      echo "::warning::Could not upload the diff images; the report will link the artifact instead."
+                      echo "base_url=" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+
+                  echo "base_url=https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+
+            # A failing comparison leaves the expected, actual and diff images on the
             # runner, which is destroyed when the job ends. This turns them into a
-            # report: which snapshot moved, where the images are, and how to refresh
+            # report: which snapshot moved, the images themselves, and how to refresh
             # the baselines. Without it a failure says only "some pixels differ", which
             # is the kind of check people learn to ignore.
             - name: Summarise the visual differences
@@ -161,12 +228,9 @@ jobs:
               env:
                   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
                   VISUAL_SUMMARY_OUTPUT: ${{ runner.temp }}/visual-summary.md
+                  VISUAL_DIFF_BASE_URL: ${{ steps.publish.outputs.base_url }}
               run: node ./scripts/ci/visual-summary.mjs test-results/results.json
 
-            # GitHub cannot render the artifact images inline: they need authentication
-            # and a comment cannot carry them. Linking the run's artifact is what is
-            # actually available, so the comment links it and names every file, and the
-            # reviewer opens the ones that moved.
             - name: Post the report on the pull request
               if: ${{ !cancelled() && !inputs.update_visual_baselines && github.event_name == 'pull_request' }}
               uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
