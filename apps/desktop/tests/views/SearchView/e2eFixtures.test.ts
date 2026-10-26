@@ -93,6 +93,25 @@ describe('user reviews a visual baseline of a conversation', () => {
 
         expect(copy[0]?.parts[0]).toMatchObject({ type: 'tool_call', toolKind: 'bash' });
     });
+
+    it('user sees a nested tool-call payload detached from the fixture object', () => {
+        // A part carries its own object payload, so cloning the part alone would still
+        // let a caller's later edit reach the transcript the panel is rendering.
+        const fixture = [
+            {
+                id: 'm1',
+                role: 'assistant',
+                parts: [{ id: 'p1', type: 'tool_call', toolKind: 'bash', data: { command: 'ls' } }],
+            },
+        ];
+
+        const copy = copyE2eConversationFixture(fixture);
+
+        const fixturePart = fixture[0]?.parts[0] as { data: { command: string } };
+        fixturePart.data.command = 'mutated after seeding';
+
+        expect(copy[0]?.parts[0]).toMatchObject({ data: { command: 'ls' } });
+    });
 });
 
 describe('user reviews a visual baseline of the ask-user panel', () => {

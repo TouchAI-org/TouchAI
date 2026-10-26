@@ -41,6 +41,12 @@ describe('user works in the settings window', () => {
         await callE2eBridge('openSettingsWindow');
         await switchToWindowContaining('/settings');
         await waitForTestIdDisplayed('settings-view');
+
+        // The settings window is a separate document with its own font loader, so the
+        // assertion above only proves the main window is painting the product face. It
+        // has to run again here, before any baseline is captured, or the settings
+        // screenshots could record fallback glyphs while this spec stayed green.
+        await useProductFont();
     });
 
     after(async () => {

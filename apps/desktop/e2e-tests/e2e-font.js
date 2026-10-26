@@ -38,6 +38,19 @@ export const E2E_FONT_SOURCES = [
     'https://jsd.onmicrosoft.cn/npm/@fontpkg/source-han-serif-sc-vf@2.3.2/SourceHanSerifSC-VF.ttf.woff2',
 ];
 
+/**
+ * Upper bound for one mirror's download, headers and body together.
+ *
+ * `fetch` bounds itself: undici allows 300 s between body chunks by default, and a
+ * server that trickles bytes resets that clock on every chunk, so the sequential
+ * mirror loop could otherwise hold the session open for many minutes before it
+ * moved on to the next source. The 21.6 MB file arrives in a couple of seconds
+ * from a working mirror, so a mirror that needs longer is broken and the loop
+ * should try the next one instead of waiting. Passing the signal to `fetch` also
+ * bounds the `arrayBuffer()` read, because aborting mid-body rejects it.
+ */
+const FONT_DOWNLOAD_TIMEOUT_MS = 120_000;
+
 export function sha256OfFile(filePath) {
     return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
@@ -68,7 +81,10 @@ async function downloadToFile(url, destination) {
             process.env.HTTP_PROXY ||
             process.env.http_proxy;
 
-        const response = await undiciFetch(url, { dispatcher: new ProxyAgent(proxyUrl) });
+        const response = await undiciFetch(url, {
+            dispatcher: new ProxyAgent(proxyUrl),
+            signal: AbortSignal.timeout(FONT_DOWNLOAD_TIMEOUT_MS),
+        });
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
@@ -76,7 +92,7 @@ async function downloadToFile(url, destination) {
         return;
     }
 
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(FONT_DOWNLOAD_TIMEOUT_MS) });
     if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
     }

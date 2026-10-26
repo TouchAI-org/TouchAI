@@ -65,16 +65,16 @@ export interface E2eConversationMessage {
  * Copies a transcript so the caller cannot mutate what the panel is showing.
  *
  * The messages are cloned rather than aliased: a spec that reuses its fixture object
- * after seeding would otherwise change the rendered conversation mid-capture. `parts` is
- * cloned too, because a shallow spread would still share the inner objects.
+ * after seeding would otherwise change the rendered conversation mid-capture. The clone
+ * has to reach the payloads nested inside a part, not just the part objects, because a
+ * part carries its own `data` and spreading the part would still share that. The
+ * platform primitive does exactly this, and it accepts everything the bridge could have
+ * serialised in the first place.
  */
 export function copyE2eConversationFixture<T extends E2eConversationMessage>(
     messages: readonly T[]
 ): T[] {
-    return messages.map((message) => ({
-        ...message,
-        parts: message.parts.map((part) => ({ ...part })),
-    })) as T[];
+    return structuredClone(messages) as T[];
 }
 
 /** A confirm dialog the bridge can enqueue without running a tool. */
