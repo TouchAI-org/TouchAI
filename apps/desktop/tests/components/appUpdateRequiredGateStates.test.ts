@@ -320,7 +320,7 @@ describe('user takes the update the gate offers', () => {
         // The gate has to send the user somewhere they can actually get the release: either
         // the installer this platform can run, or the release page that lists them.
         expect(openUrlMock).toHaveBeenCalledTimes(1);
-        const opened = String(openUrlMock.mock.calls[0]?.[0] ?? '');
+        const opened = String((openUrlMock.mock.calls as unknown as string[][])[0]?.[0] ?? '');
         expect([
             `${APP_PRODUCT_CONFIG.services.updates.baseUrl}/TouchAI-0.2.1-windows.msi`,
             `${APP_PRODUCT_CONFIG.repository.releasesUrl}/tag/v0.2.1`,

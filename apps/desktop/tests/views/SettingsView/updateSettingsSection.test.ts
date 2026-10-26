@@ -552,7 +552,7 @@ describe('user acts on the update from the details dialog', () => {
         // The feed offers a Windows installer; on another platform the release page is the
         // only thing the user can act on. Either way the user has to be taken somewhere usable.
         expect(openUrlMock).toHaveBeenCalledTimes(1);
-        const opened = String(openUrlMock.mock.calls[0]?.[0] ?? '');
+        const opened = String((openUrlMock.mock.calls as unknown as string[][])[0]?.[0] ?? '');
         expect(['https://example.com/setup.exe', 'https://example.com/release']).toContain(opened);
         expect(appUpdateServiceMock.download).not.toHaveBeenCalled();
     });
