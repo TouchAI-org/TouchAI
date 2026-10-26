@@ -110,6 +110,10 @@ jobs:
             # fails later with an opaque "executable doesn't exist", which reads like
             # a broken runner rather than a stale pin.
             - name: Assert the pinned renderer matches the lockfile
+              # Inside a container the default shell is `sh` (dash), which rejects
+              # `set -o pipefail` and exits 2 before running anything. The scripts in
+              # this job are bash, so ask for bash explicitly.
+              shell: bash
               run: |
                   set -euo pipefail
                   image_version="${PLAYWRIGHT_IMAGE_TAG#v}"
