@@ -40,10 +40,24 @@ name: Approve visual baselines
 # in it, so a long-lived credential would sit in a secret for the convenience of skipping
 # one step.
 #
-# Instead this workflow dispatches the comparison workflows itself after pushing. A
-# `workflow_dispatch` run creates its check runs on the branch tip, which is the commit
-# just pushed, so the required statuses appear exactly where branch protection looks for
-# them — with no credential beyond the workflow token.
+# So this workflow dispatches the comparison workflows after pushing, which at least
+# re-runs the comparison against the new commit and leaves a readable run behind.
+#
+# It does NOT unblock a protected branch, and an earlier version of this comment wrongly
+# said it did. GitHub only counts check runs from `push`, `pull_request`,
+# `pull_request_review`, `pull_request_target`, `deployment` and `deployment_status`
+# towards required status checks; a `workflow_dispatch` run's checks never appear in the
+# pull request and never satisfy a required check, even when they pass on the head commit
+# (see docs.github.com, "Troubleshooting required status checks"). The ruleset on `main`
+# requires `Conventional Commits`, `Dependency Review`, `CI Required` and `E2E Required`,
+# so after a baseline push the branch still needs one of:
+#
+#   - a human re-running the checks, or an empty commit pushed by a human, or
+#   - a push made with a narrowly scoped GitHub App token, whose `push` event then
+#     produces eligible checks — the credential this file deliberately avoids.
+#
+# The second is the real fix and needs its own decision; until then the dispatch below
+# exists for the run log and the regenerated comparison, not for branch protection.
 #
 # Usage, in a pull request comment:
 #
@@ -56,11 +70,11 @@ on:
         types:
             - created
 
-permissions:
-    contents: write
-    pull-requests: write
-    # Needed to dispatch the two visual workflows.
-    actions: write
+# Nothing is granted by default: each scope is handed to the one job that needs it.
+# `issue_comment` carries write permissions for the whole workflow, so a workflow-wide
+# `contents: write` would hand a write-scoped token to the planning job as well, which
+# only reads the pull request and reacts to the comment.
+permissions: {}
 
 # One approval per pull request at a time. Two concurrent runs would race on the
 # commit and one of them would lose its baselines.
@@ -71,21 +85,49 @@ concurrency:
 jobs:
     plan:
         name: Decide what to regenerate
-        # `issue_comment` fires for plain issues too, and it carries write
-        # permissions, so the trigger is narrowed three ways: it must be a pull
-        # request, the comment must contain the command, and the author must already
-        # have write access to this repository. Without the last check any passer-by
-        # could rewrite the baselines and erase the evidence of a regression.
+        # `issue_comment` fires for plain issues too and carries write permissions, so
+        # the trigger is narrowed to "a pull request" and "a comment that contains the
+        # command". Whether the author may actually run it is decided by the first step
+        # below, which asks the API for the real permission.
         if: |
             github.event.issue.pull_request &&
-            contains(github.event.comment.body, '/approve-visuals') &&
-            contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+            contains(github.event.comment.body, '/approve-visuals')
         runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            # Reading the pull request, and reacting to the command comment. The
+            # reaction goes through the issues API, but the comment is always on a pull
+            # request here, which this scope covers. No `contents: write`: this job
+            # never touches the branch.
+            pull-requests: write
         outputs:
             components: ${{ steps.parse.outputs.components }}
             e2e: ${{ steps.parse.outputs.e2e }}
             head_ref: ${{ steps.pr.outputs.head_ref }}
         steps:
+            # `author_association` only says how the author relates to the repository,
+            # not what they may do in it: an organisation member or a collaborator can
+            # hold read-only or triage access. Rewriting the baselines needs push
+            # access, so that is what is checked. Without this any member who can
+            # comment could erase the evidence of a regression.
+            - name: Require write access
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  AUTHOR: ${{ github.event.comment.user.login }}
+              run: |
+                  set -euo pipefail
+                  permission="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$AUTHOR/permission" --jq .permission)"
+
+                  case "$permission" in
+                      admin|maintain|write)
+                          echo "$AUTHOR has '$permission' access; the command is allowed."
+                          ;;
+                      *)
+                          echo "::error::$AUTHOR has '$permission' access to $GITHUB_REPOSITORY. Regenerating the baselines needs write access, because it pushes a commit to the branch under review."
+                          exit 1
+                          ;;
+                  esac
+
             - name: Read the pull request
               id: pr
               env:
@@ -156,6 +198,12 @@ jobs:
         needs: plan
         if: needs.plan.outputs.components == 'true'
         runs-on: ubuntu-latest
+        permissions:
+            # Checkout and the baseline commit.
+            contents: write
+            # Dispatching the regeneration run, watching it, and downloading the
+            # artifact it leaves behind.
+            actions: write
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
@@ -229,14 +277,23 @@ jobs:
                   fi
 
                   git commit -m 'test(ui): refresh the component visual baselines'
+
+                  # The checkout is a snapshot from the start of the job, and the
+                  # regeneration ran for minutes. If the author pushed in that window the
+                  # branch has moved, and a plain push would be rejected as a
+                  # non-fast-forward. Rebasing onto the current tip keeps the baseline
+                  # commit on top of their work instead of losing it.
+                  git pull --rebase origin "$HEAD_REF"
                   git push origin "HEAD:$HEAD_REF"
                   echo "pushed=true" >> "$GITHUB_OUTPUT"
 
             # A push made with `GITHUB_TOKEN` does not start the `pull_request` workflows
-            # (GitHub suppresses runs for events it causes), so without this the branch
-            # would sit at "Waiting for status to be reported". Dispatching the comparison
-            # workflow puts its check runs on the commit that was just pushed, which is
-            # where branch protection looks.
+            # (GitHub suppresses runs for events it causes). Dispatching re-runs the
+            # comparison on the commit that was just pushed and leaves a run to read.
+            #
+            # This does not satisfy the required status checks: checks from a
+            # `workflow_dispatch` run are not evaluated for the pull request. See the
+            # note at the top of this file.
             - name: Start the checks on the new commit
               if: steps.commit.outputs.pushed == 'true'
               env:
@@ -248,9 +305,26 @@ jobs:
 
     e2e:
         name: Regenerate app baselines
-        needs: plan
-        if: needs.plan.outputs.e2e == 'true'
+        # Serialised behind `components`, not just `plan`. Both jobs commit and push to
+        # the same branch, and a bare `/approve-visuals` asks for both, so running them
+        # concurrently meant whichever pushed second was rejected as a non-fast-forward
+        # and its baselines were lost. `always()` keeps the job reachable when
+        # `components` was skipped because only the app layer was requested; a failed
+        # `components` still stops this job, because that push may have half-landed.
+        needs:
+            - plan
+            - components
+        if: |
+            always() &&
+            needs.plan.outputs.e2e == 'true' &&
+            (needs.components.result == 'success' || needs.components.result == 'skipped')
         runs-on: ubuntu-latest
+        permissions:
+            # Checkout and the baseline commit.
+            contents: write
+            # Dispatching the regeneration run, watching it, and downloading the
+            # artifact it leaves behind.
+            actions: write
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
@@ -321,12 +395,18 @@ jobs:
                   fi
 
                   git commit -m 'test(ui): refresh the app visual baselines'
+
+                  # Same reason as the component job: the regeneration took minutes, so
+                  # the author may have pushed in that window and a plain push would be
+                  # rejected.
+                  git pull --rebase origin "$HEAD_REF"
                   git push origin "HEAD:$HEAD_REF"
                   echo "pushed=true" >> "$GITHUB_OUTPUT"
 
             # Same reason as the component job: the commit was pushed with
             # `GITHUB_TOKEN`, so the `pull_request` workflows did not start on it.
-            # Dispatching the comparison run attaches its checks to the new commit.
+            # Dispatching re-runs the comparison on the new commit; it does not satisfy
+            # the required status checks. See the note at the top of this file.
             - name: Start the checks on the new commit
               if: steps.commit.outputs.pushed == 'true'
               env:
@@ -344,6 +424,9 @@ jobs:
             - e2e
         if: always() && needs.plan.result == 'success'
         runs-on: ubuntu-latest
+        permissions:
+            # `gh pr comment` is the only thing this job does.
+            pull-requests: write
         steps:
             - name: Comment on the pull request
               env:
