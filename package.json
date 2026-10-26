@@ -62,9 +62,9 @@
     "pnpm": {
         "overrides": {
             "@ai-sdk/provider-utils": "4.0.57",
-            "@vitest/coverage-v8": "4.1.11",
+            "@vitest/coverage-v8": "4.1.12",
             "dompurify": "3.4.17",
-            "serialize-javascript": "7.0.5",
+            "serialize-javascript": "7.1.4",
             "devalue": "5.9.4",
             "js-yaml": "4.3.2",
             "http-cache-semantics": "4.3.0",
@@ -76,7 +76,9 @@
             "source-map-js": "1.2.2",
             "happy-dom": "20.8.9",
             "@types/sax>@types/node": "^25.9.9",
-            "@wdio/config>glob": "^10.5.0"
+            "@wdio/config>glob": "^10.5.0",
+            "fast-uri": "3.1.9",
+            "@esbuild-kit/core-utils>esbuild": "0.25.12"
         }
     },
     "lint-staged": {

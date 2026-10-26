@@ -15,7 +15,11 @@ const cargoLockfilePath = join(process.cwd(), 'src-tauri', 'Cargo.lock');
  * on the vulnerable version and on anything older, not only on today's exact pin.
  */
 const patchedFloors: Record<string, string> = {
+    '@vitest/mocker': '4.1.12',
     dompurify: '3.4.17',
+    esbuild: '0.25.0',
+    'fast-uri': '3.1.9',
+    'serialize-javascript': '7.1.3',
     zod: '4.6.6',
 };
 
