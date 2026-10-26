@@ -223,21 +223,29 @@ gh run download <run-id> --name component-baselines --dir apps/desktop/tests/vis
 #   /approve-visuals e2e          the app (WebView2) layer only
 ```
 
-`/approve-visuals` only runs for commenters with write access, dispatches the existing
+`/approve-visuals` only runs for commenters with write access — checked against the
+collaborator permission API, not `author_association`, which reports how someone relates
+to the repository rather than what they may do in it. It dispatches the existing
 workflows rather than re-implementing them, and commits the result to the branch under
 review.
 
 That commit is pushed with the built-in `GITHUB_TOKEN`, and GitHub suppresses workflow
-runs for events that token causes — so the `pull_request` workflows would not start on
-it, and the branch would sit at "Waiting for status to be reported". The workflow
-therefore dispatches the comparison runs itself after pushing: a `workflow_dispatch` run
-creates its checks on the branch tip, which is exactly the commit that was just pushed.
+runs for events that token causes — so the `pull_request` workflows do not start on it.
+The workflow therefore dispatches the comparison runs itself after pushing.
+
+That dispatch re-runs the comparison, but it does **not** clear the required status
+checks. GitHub only counts check runs from `push`, `pull_request`, `pull_request_review`,
+`pull_request_target`, `deployment` and `deployment_status`; a `workflow_dispatch` run's
+checks never appear in the pull request, even when they pass on its head commit. The
+ruleset on `main` requires `Conventional Commits`, `Dependency Review`, `CI Required` and
+`E2E Required`, so after a baseline push the branch still needs either a human re-run or
+an empty commit from a human.
 
 This is deliberately done without a personal access token. The repository is public, and
 a token able to push here also has to be readable by any workflow in it, so a long-lived
-credential in a secret would buy one saved step at a real cost. If dispatching ever stops
-being enough, the correct escalation is a GitHub App installation token scoped to this
-repository — not a broad personal token.
+credential in a secret would buy one saved step at a real cost. The escalation that would
+actually fix the required-check gap is a GitHub App installation token scoped to this
+repository, whose `push` event produces eligible checks — not a broad personal token.
 
 **Never regenerate automatically.** A baseline that rewrites itself on push or on a
 schedule is not a baseline; it is a recording of whatever the code currently does, and
