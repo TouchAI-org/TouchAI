@@ -201,31 +201,16 @@ describe('when the user reopens a conversation that switched models', () => {
 });
 
 describe('when the user answers a tool approval with nothing attached', () => {
-    it('user gets the approval refused instead of crashing', async () => {
+    it('user gets the answer refused rather than sent to a task that is gone', async () => {
         const mounted = await mountComposable(() => useAgent());
 
-        // With no task attached there is nothing to approve; returning false keeps the
-        // dialog open rather than silently discarding the user's click.
+        // No task is attached, so every answer path has to decline instead of reaching the
+        // backend; the dialog stays open and the user is not told the click was accepted.
         expect(mounted.result.approvePendingToolApproval('call-1')).toBe(false);
-        expect(sessionTaskCenterMock.approveTaskToolCall).not.toHaveBeenCalled();
-
-        mounted.unmount();
-    });
-
-    it('user gets the rejection refused instead of crashing', async () => {
-        const mounted = await mountComposable(() => useAgent());
-
         expect(mounted.result.rejectPendingToolApproval('call-1')).toBe(false);
-        expect(sessionTaskCenterMock.rejectTaskToolCall).not.toHaveBeenCalled();
-
-        mounted.unmount();
-    });
-
-    it('user gets the question answer refused instead of crashing', async () => {
-        const mounted = await mountComposable(() => useAgent());
-
-        // An answer typed into a panel whose task has gone must not be sent anywhere.
         expect(mounted.result.settleUserQuestion('call-1', null)).toBe(false);
+        expect(sessionTaskCenterMock.approveTaskToolCall).not.toHaveBeenCalled();
+        expect(sessionTaskCenterMock.rejectTaskToolCall).not.toHaveBeenCalled();
 
         mounted.unmount();
     });

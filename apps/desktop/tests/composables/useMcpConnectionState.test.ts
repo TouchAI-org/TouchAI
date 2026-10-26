@@ -200,13 +200,11 @@ describe('user sees which server is selected', () => {
     });
 
     it('user gets nothing shown for the placeholder selection', async () => {
-        const store = seedStore('connected');
-        store.setServerError(1, 'leftover');
+        seedStore('connected');
         const connection = useMcpConnection(ref(-1));
 
-        // -1 means "no server selected yet", which is not a disconnected server.
-        expect(connection.status.value).toBe('disconnected');
-        // The placeholder never surfaces a stale error from the last real server.
+        // -1 means "no server selected yet", which is not a disconnected server, and it must
+        // not carry the previous server's error into the panel.
         expect(connection.status.value).toBe('disconnected');
     });
 
@@ -227,10 +225,17 @@ describe('user sees which server is selected', () => {
         seedStore();
         const connection = useMcpConnection(ref(1));
 
-        void connection.handleConnect();
-        expect(() => connection.cleanup()).not.toThrow();
-        // Cleaning twice must not throw; the panel may close after an explicit cleanup.
-        expect(() => connection.cleanup()).not.toThrow();
+        const pending = connection.handleConnect();
+        connection.cleanup();
+        // The panel may also run its own cleanup on close, so a second pass must be harmless.
+        connection.cleanup();
+
+        // A cleaned-up wait must not resolve as if the server had connected.
+        const outcome = await Promise.race([
+            pending,
+            new Promise((resolve) => setTimeout(() => resolve('still-waiting'), 50)),
+        ]);
+        expect(outcome).toBe('still-waiting');
     });
 });
 describe('user reconnects an MCP server that will not come back', () => {

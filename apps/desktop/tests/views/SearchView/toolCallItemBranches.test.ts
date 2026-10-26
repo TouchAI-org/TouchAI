@@ -199,7 +199,9 @@ describe('when the built-in tool is the browser tool', () => {
 });
 
 describe('when the generic row shows the calls status', () => {
-    it('user sees the waiting text while the call waits for approval', () => {
+    // This file stubs t() to return the key, so these cases pin which message is chosen.
+    // The rendered wording is covered against the real locale in the i18n tests.
+    it('user gets the waiting-approval message key while the call waits', () => {
         const wrapper = mountItem({ status: 'awaiting_approval' });
 
         expect(wrapper.text()).toContain('conversation.toolCall.waitingApproval');
@@ -215,7 +217,7 @@ describe('when the generic row shows the calls status', () => {
         wrapper.unmount();
     });
 
-    it('user sees the failed text when the call errored', () => {
+    it('user gets the failed message key when the call errored', () => {
         const wrapper = mountItem({ status: 'error', isError: true });
 
         expect(wrapper.text()).toContain('common.failed');
@@ -223,7 +225,7 @@ describe('when the generic row shows the calls status', () => {
         wrapper.unmount();
     });
 
-    it('user sees the rejected text when the call was rejected', () => {
+    it('user gets the rejected message key when the call was rejected', () => {
         const wrapper = mountItem({ status: 'rejected' });
 
         expect(wrapper.text()).toContain('common.rejected');
@@ -231,7 +233,7 @@ describe('when the generic row shows the calls status', () => {
         wrapper.unmount();
     });
 
-    it('user sees the cancelled text when the call was cancelled', () => {
+    it('user gets the cancelled message key when the call was cancelled', () => {
         const wrapper = mountItem({ status: 'cancelled' });
 
         expect(wrapper.text()).toContain('common.cancelled');

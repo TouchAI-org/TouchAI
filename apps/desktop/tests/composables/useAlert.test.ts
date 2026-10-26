@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 /**
  * The alert helpers are called from places that have no component instance (services, error
  * handlers, the bootstrap code), so they have to mount their own host. Getting this wrong means
- * a toast that never appears or a second host appended on every call.
+ * a toast that never appears, or a second host appended on every call.
+ *
+ * Forwarding each level to the host is already covered against the real component in
+ * tests/components/alertMessage.test.ts, so this file only guards the host lifecycle.
  */
 const { mountMock } = vi.hoisted(() => ({
     mountMock: vi.fn(() => ({
@@ -47,62 +50,25 @@ describe('user gets an alert from code that has no component', () => {
         expect(mountMock).toHaveBeenCalled();
     });
 
-    it('user gets a success alert forwarded to the host', () => {
+    it('user gets the alert text and duration they passed reaching the host', () => {
         const alert = useAlert();
         const instance = mountMock.mock.results[0]!.value as Record<
             string,
             ReturnType<typeof vi.fn>
         >;
 
-        alert.success('Saved', 3_000);
+        alert.error('Could not save', 5_000);
 
-        expect(instance.success).toHaveBeenCalledWith('Saved', 3_000);
-    });
-
-    it('user gets an error alert forwarded to the host', () => {
-        const alert = useAlert();
-        const instance = mountMock.mock.results[0]!.value as Record<
-            string,
-            ReturnType<typeof vi.fn>
-        >;
-
-        alert.error('Failed');
-
-        expect(instance.error).toHaveBeenCalledWith('Failed', undefined);
-    });
-
-    it('user gets a warning alert forwarded to the host', () => {
-        const alert = useAlert();
-        const instance = mountMock.mock.results[0]!.value as Record<
-            string,
-            ReturnType<typeof vi.fn>
-        >;
-
-        alert.warning('Careful');
-
-        expect(instance.warning).toHaveBeenCalledWith('Careful', undefined);
-    });
-
-    it('user gets an info alert forwarded to the host', () => {
-        const alert = useAlert();
-        const instance = mountMock.mock.results[0]!.value as Record<
-            string,
-            ReturnType<typeof vi.fn>
-        >;
-
-        alert.info('Heads up');
-
-        expect(instance.info).toHaveBeenCalledWith('Heads up', undefined);
+        // The message and the dwell time are what the user actually experiences.
+        expect(instance.error).toHaveBeenCalledWith('Could not save', 5_000);
     });
 
     it('user gets one host however many times alerts are used', () => {
-        const first = useAlert();
-        const second = useAlert();
+        useAlert();
+        useAlert();
 
         // A second mount would stack duplicate toasts on top of each other.
         expect(mountMock).toHaveBeenCalledTimes(1);
         expect(document.querySelectorAll('#alert-container')).toHaveLength(1);
-        expect(typeof first.success).toBe('function');
-        expect(typeof second.success).toBe('function');
     });
 });

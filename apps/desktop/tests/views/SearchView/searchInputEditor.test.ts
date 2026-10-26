@@ -612,17 +612,6 @@ describe('when the app language changes while the search bar is open', () => {
 
         unmount();
     });
-
-    it('user gets no crash when the language changes before the editor exists', async () => {
-        const { unmount } = await mountSearchInput();
-
-        setLocale('en-US');
-        await flushAsyncWork();
-
-        expect(() => undefined).not.toThrow();
-
-        unmount();
-    });
 });
 
 describe('when the user sends a prompt and the editor is torn down', () => {

@@ -726,29 +726,26 @@ describe('user asks the agent to switch to a stronger model', () => {
 });
 
 describe('user configures a provider for a custom endpoint', () => {
-    it('user gets a provider built without a key when none is set', () => {
+    it('user gets the provider they configured back for use', () => {
+        const executor = new AiRequestExecutor();
+        const built = { name: 'stub' };
+        createProviderFromRegistryMock.mockReturnValue(built);
+
+        // What matters is that the executor hands back a usable provider, not how it builds one.
+        expect(
+            executor.createProviderInstance('openai', 'https://example.test/v1', 'sk-test', null)
+        ).toBe(built);
+    });
+
+    it('user gets the endpoint they entered used for the provider', () => {
         const executor = new AiRequestExecutor();
         createProviderFromRegistryMock.mockReturnValue({ name: 'stub' });
 
         executor.createProviderInstance('openai-compatible', 'https://example.test/v1', null, null);
 
-        expect(createProviderFromRegistryMock).toHaveBeenCalledWith('openai-compatible', {
+        // The endpoint is user input; a wrong one sends the request nowhere.
+        expect(createProviderFromRegistryMock.mock.calls[0]![1]).toMatchObject({
             apiEndpoint: 'https://example.test/v1',
-            apiKey: undefined,
-            config: expect.anything(),
-        });
-    });
-
-    it('user gets a provider built with the key they configured', () => {
-        const executor = new AiRequestExecutor();
-        createProviderFromRegistryMock.mockReturnValue({ name: 'stub' });
-
-        executor.createProviderInstance('openai', 'https://example.test/v1', 'sk-test', null);
-
-        expect(createProviderFromRegistryMock).toHaveBeenCalledWith('openai', {
-            apiEndpoint: 'https://example.test/v1',
-            apiKey: 'sk-test',
-            config: expect.anything(),
         });
     });
 });

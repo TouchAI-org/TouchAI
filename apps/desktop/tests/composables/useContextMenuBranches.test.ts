@@ -355,8 +355,11 @@ describe('user closes the menu', () => {
     it('user gets closing a menu that was never opened ignored', () => {
         const { wrapper, menu, onClose } = mountMenu();
 
-        expect(() => menu.close()).not.toThrow();
+        menu.close();
+
+        // Nothing was open, so there is nothing to report and nothing to tear down.
         expect(onClose).not.toHaveBeenCalled();
+        expect(menuRoot()).toBeNull();
         wrapper.unmount();
     });
 

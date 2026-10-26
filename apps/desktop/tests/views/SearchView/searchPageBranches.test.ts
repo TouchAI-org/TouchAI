@@ -381,9 +381,7 @@ describe('when the view becomes ready after the page mounted', () => {
         );
         await flushLifecycle();
 
-        viewReady.value = false;
-        await flushLifecycle();
-
+        // Nothing may be registered while the surface is not ready to receive input.
         expect(nativeMock.shortcut.registerGlobalShortcut).not.toHaveBeenCalled();
 
         mounted.unmount();

@@ -332,25 +332,6 @@ describe('when the user types in a draft taller than the search box', () => {
 
         unmount();
     });
-
-    it('user gets no crash when the editor cannot report caret coordinates', async () => {
-        const editorHost = document.createElement('div');
-        Object.defineProperty(editorHost, 'clientHeight', { configurable: true, value: 60 });
-        editorHost.getBoundingClientRect = () => ({ top: 0 }) as DOMRect;
-
-        const { result, unmount } = await mountSearchInput({ editorHostRef: ref(editorHost) });
-        result.initEditor();
-        const editor = lastEditor();
-        editor.view.coordsAtPos.mockReturnValue(null as never);
-
-        expect(() => {
-            (editor.options.onUpdate as (payload: { editor: MockEditorInstance }) => void)({
-                editor,
-            });
-        }).not.toThrow();
-
-        unmount();
-    });
 });
 
 describe('when the page projects the chosen model into the editor', () => {

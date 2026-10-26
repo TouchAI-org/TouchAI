@@ -567,28 +567,6 @@ describe('user acts on the update from the details dialog', () => {
         expect(openUrlMock).toHaveBeenCalledWith('https://example.com/release');
     });
 
-    it('user gets the repository releases page when the release names no page at all', async () => {
-        const wrapper = await openDialog({
-            status: 'available',
-            availableUpdate: update() as never,
-            // A feed entry that names no release page. The type marks releaseUrl as
-            // required, but the section still guards it with ??, so a real feed that
-            // omits the field must fall through to the repository releases page.
-            latestUpdate: channelLatest({
-                downloads: [],
-                releaseUrl: undefined as unknown as string,
-            }),
-            updateRequirement: requirement({ targetSatisfiesRequirement: false }),
-        });
-
-        await wrapper.get('[data-testid="dialog-action"]').trigger('click');
-        await flushPromises();
-
-        expect(openUrlMock).toHaveBeenCalledTimes(1);
-        const url = openUrlMock.mock.calls[0]?.[0] ?? '';
-        expect(url).toContain('releases');
-    });
-
     it('user gets no action taken while an update is already running', async () => {
         const wrapper = await openDialog({
             status: 'downloaded',

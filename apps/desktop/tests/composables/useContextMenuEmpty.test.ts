@@ -193,7 +193,9 @@ describe('user closes a menu while it is already closing', () => {
         menu.close();
         menu.close();
 
-        expect(() => wrapper.unmount()).not.toThrow();
+        wrapper.unmount();
+
+        // The host element is gone from the page, which is what the user would notice.
         expect(menuRoot()).toBeNull();
     });
 });
