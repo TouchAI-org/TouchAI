@@ -78,6 +78,19 @@ jobs:
         needs: changes
         if: needs.changes.outputs.ui_changed == 'true' || inputs.update_visual_baselines
         runs-on: ubuntu-latest
+        # The renderer is the baseline. Playwright renders with whatever Chromium,
+        # fonts and system libraries it finds, so comparing pixels captured in one
+        # environment against another is meaningless. This image ships both, pinned,
+        # which is what makes the committed PNGs reproducible — and it is why the
+        # baselines are generated here rather than on a developer machine.
+        #
+        # Pinned to the exact `@playwright/test` version in the lockfile: if the two
+        # drift, Playwright cannot locate the browser executables at all. The guard
+        # step below turns that into a readable error.
+        container:
+            image: mcr.microsoft.com/playwright:v1.64.1-noble
+        env:
+            PLAYWRIGHT_IMAGE_TAG: v1.64.1-noble
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -91,11 +104,24 @@ jobs:
             - name: Install frontend dependencies
               run: pnpm install --frozen-lockfile
 
-            # The version is pinned in the lockfile, so the browser build is fixed too;
-            # a floating browser version is a common source of "works on my machine"
-            # screenshot diffs.
-            - name: Install Playwright Chromium
-              run: pnpm --filter @touchai/desktop exec playwright install --with-deps chromium
+            # Browsers and their system dependencies are already in the image, so
+            # `playwright install --with-deps` is not needed here. What does need
+            # checking is that the image and the lockfile still agree: a mismatch
+            # fails later with an opaque "executable doesn't exist", which reads like
+            # a broken runner rather than a stale pin.
+            - name: Assert the pinned renderer matches the lockfile
+              run: |
+                  set -euo pipefail
+                  image_version="${PLAYWRIGHT_IMAGE_TAG#v}"
+                  image_version="${image_version%%-*}"
+                  project_version="$(node -p "require('@playwright/test/package.json').version")"
+
+                  if [ "$image_version" != "$project_version" ]; then
+                      echo "::error::The renderer image is $PLAYWRIGHT_IMAGE_TAG but @playwright/test is $project_version. Baselines are only comparable when these match: bump the container image and regenerate the baselines in the same change."
+                      exit 1
+                  fi
+
+                  echo "Renderer $PLAYWRIGHT_IMAGE_TAG matches @playwright/test $project_version."
 
             # The product font is fetched once per run by the E2E font module and
             # verified against the product sha256; there is nothing to restore
@@ -113,6 +139,15 @@ jobs:
               if: ${{ inputs.update_visual_baselines }}
               run: pnpm --filter @touchai/desktop test:visual:components:update
 
+            # A failing comparison leaves the expected, actual and diff images on the
+            # runner, which is destroyed when the job ends. This writes the half the
+            # reviewer needs — which snapshot moved and what to open — into the run
+            # summary, so the report is on the PR instead of inside the log.
+            - name: Summarise the visual differences
+              if: ${{ !cancelled() && !inputs.update_visual_baselines }}
+              working-directory: apps/desktop
+              run: node ./scripts/ci/visual-summary.mjs test-results/results.json
+
             - name: Upload component baselines
               if: ${{ inputs.update_visual_baselines }}
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -126,5 +161,6 @@ jobs:
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: component-visual-diffs
-                  path: apps/desktop/test-results/
+                  path: |
+                      apps/desktop/test-results/
                   if-no-files-found: ignore

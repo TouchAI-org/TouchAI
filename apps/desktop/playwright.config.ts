@@ -32,7 +32,13 @@ export default defineConfig({
     forbidOnly: Boolean(process.env.CI),
     retries: process.env.CI ? 1 : 0,
     workers: process.env.CI ? 2 : undefined,
-    reporter: process.env.CI ? [['github'], ['list']] : 'list',
+    // `github` annotates failures on the PR, `list` keeps the log readable, and the
+    // JSON file is what `scripts/ci/visual-summary.mjs` turns into the job summary.
+    // Without it the reviewer learns that something moved but not what, and the
+    // images die with the runner.
+    reporter: process.env.CI
+        ? [['github'], ['list'], ['json', { outputFile: 'test-results/results.json' }]]
+        : 'list',
     // A component baseline must not depend on the machine's scaling. Playwright
     // renders headless Chromium at deviceScaleFactor 1 on every platform, which is
     // also why this layer is less tolerant than the end-to-end one.
