@@ -1,13 +1,13 @@
 # TouchAI 性能优化实施状态
 
-- 基线：`origin/main@1b8180052a2bdd57c82a920a4a71725b9dfaf471`（桌面 1.2.2）
+- 基线：`origin/main@87c5a914`（桌面 1.2.2 + DeepSeek 搜索 provider）
 - 分支：`codex/perf-raycast-plan`（worktree：`.worktrees/perf-raycast-plan`）
 - 方案来源：`docs/research/performance-improvement-plan-main.md`（52 项）
-- 最近验证：`vitest` 全部通过（当前 233 文件 / 1750+ 用例）、`vue-tsc --noEmit` 通过、改动文件 ESLint 0 error
-- **Rust 侧验证**：`cargo check --all-targets` 全部通过；按约定 `cargo test` 交由 CI 执行（本地磁盘不足）
+- 最近验证：`vitest` 248 文件 / 1875 用例全过、`vue-tsc --noEmit` 通过、改动文件 ESLint 0 error
+- **Rust 侧验证**：`cargo check --all-targets` 全部通过；按约定 `cargo test` 交由 CI 执行
 - 未做性能基线/前后对比（按约定，待用户验收后另行补基线）
 
-## 已完成（40 项）
+## 已完成（44 项）
 
 | 编号 | 内容 | 关键提交 |
 | --- | --- | --- |
@@ -31,11 +31,13 @@
 | 25 | 未变化边界不重写 parts / 不重算会话摘要 | `ed50d9ea` |
 | 26 | 工具日志轻量投影 + 展开时取详情 | `5f5e6cf0` |
 | 28 | 快搜翻页 generation 校验 | `321e022d` |
+| 29 | 高亮分段按 (name, tokens) 缓存，渲染不再重复分词 | `fcd55ba9` |
 | 30 | 资源缓存按字节 LRU | `531d7a48` |
 | 31 | 快捷方式回写走 `path_norm → 下标` 索引，全局写锁内不再线性扫描 | `72780c93` |
 | 32 | 窗口状态独立探针并行下发（最大化 + 高度模式） | `41a5b0fd` |
 | 33 | tauriFetch 背压/取消 | `88770fa1` |
-| 36 | WebFetch 单次 HTML 解析（图片/标题/正文共用 DOM，Readability 用克隆副本） | `09a75f0d` |
+| 35 | 同批次附件按源路径去重，只读一次文件/base64 | `87312765` |
+| 36 | WebFetch 单次 HTML 解析（图片/标题/正文共用 DOM，Readability 用克隆副本）+ 同步解析前后取消检查 | `09a75f0d` / `89636048` |
 | 37 | MCP 客户端 map 锁不再跨 RPC 持有（附回归测试） | `306da1ea` |
 | 38 | 复用浏览器端点 HTTP Client + 有界并行端口发现 | `09cbabfb` |
 | 39 | 日志 callsite 过滤 + 有界队列 | `99945d2b` |
@@ -52,34 +54,35 @@
 | N11 | 0004 全库迁移夹具（1 万消息 + 旧工具日志/附件/孤儿）+ 耗时记录 | `a4783843` |
 | N12 | SSE 行预筛 | `e4dc4c99` |
 | N03 | Markdown 渲染器绑定外层滚动 owner 的 markstream 虚拟适配（provide/inject） | `749401b1` |
+| 05 | popup show 冷/热启动耗时埋点（保温预算的测量输入） | `85db60fc` |
+| 04 | 启动契约维护 | 无新增任务；Settings 不重同步已由启动测试覆盖 |
 
-## 部分完成（7 项）
+## 部分完成（5 项）
 
 | 编号 | 已完成 | 未完成 |
 | --- | --- | --- |
-| 14 | 会话图片 `decoding="async"` + `loading="lazy"`（`3a36b2f4`） | 真实缩略图生成（Rust）、按内容 hash/尺寸缓存、增大原图缓存隔离 |
+| 14 | 缩略图生成（可见时才解码、按显示宽度×DPR 缩小、WebP、40 张 LRU、失败回退原图）+ `decoding="async"` / `loading="lazy"`（`53cd07b1`） | Rust 端按 hash/尺寸的磁盘级缩略图缓存；原图缓存隔离（需真实附件场景） |
 | 18 | 光标三个标记共享一次文档查询；自动换行布局测量按帧合并（`bdfe3a2b`） | docChanged/selectionChanged 分类更新；宽度变化触发重算 |
-| 22 | 分页查询（`findMessagesPageBySessionId`）+ 分页 loader（`loadSessionHistoryPage`）与游标（`c9f9b977`） | UI 首屏/滚动加载接线：center 的任务 bootstrap 会全量加载历史并接管 sessionHistory，需先改投影/历史所有权协议（与 `10` 同批） |
+| 22 | 分页查询 + loader + 游标（`c9f9b977`）；首屏 50 条、滚动到顶 200px 内加载更早、加载提示、插入高度补偿（`ab6121a0`） | 与任务中心运行态历史合并后的分页语义需真机回归 |
 | 23 | turn 内 `SessionReadModel`：附件预检与 transport 重建共享一次查询（`815071ab`） | 展示 bootstrap/分页与 transport 跨阶段复用 |
 | 27 | 点击统计并行预取（`567f3d4c`） | 后续排序/写回合并 |
 | 34 | auto-paste 先原子预留授权/新鲜度/去重，再做重任务；外链图片解析 3 并发 + 10s 总预算；结果按 snapshotId 校验（`3498b760`） | 两阶段 API（文本先回、附件 placeholder 补齐）与草稿 generation 缓存 |
 | 10 | 消息级窗口化（消息 > 40 启用）+ 高度测量/补偿 + 未挂载跳转定位（`828ae276`） | part 级有界挂载、图片后加载/回滚回归、跨虚拟项选区策略需真机验收 |
 
-## 待实施（4 项）
+## 待实施（1 项）
 
 | 编号 | 摘要 | 备注 |
 | --- | --- | --- |
-| 04 | 启动契约维护 | 无新增优化任务；Settings 不重同步已由启动测试覆盖 |
-| 05 | 多窗口保温内存/延迟预算 | 测量优先：需 main/popup/tray 的增量内存与首开延迟数据后才能定 TTL |
-| 29 | 快捷项虚拟化 | 已有 60 条/页分页 + generation 校验；单页固定行高虚拟化收益需实测后再定 |
-| 35 | 附件 metadata-only 规划与流式物化 | Rust 端大改造，需真实附件场景回归 |
+| 29 | 快捷项网格虚拟化 | 已做高亮缓存；网格为 flex-wrap 88px 固定项、上限 60 条，虚拟化收益需实测后再决定 |
 
 ### 需真机/真实数据验收
 
 - `10` 剩余：part 级有界挂载、图片后加载/回滚/时间轴与键盘翻页回归、跨虚拟项选区策略。
-- `22` 剩余：首屏分页 UI 接线（依赖 center 投影/历史所有权协议）。
+- `22` 剩余：任务中心运行态接管 `sessionHistory` 后，向前分页的合并语义需实际会话验证。
 - `34` 剩余：两阶段 API（文本先回、附件 placeholder 补齐）与草稿 generation 缓存。
-- `05` / `29` / `35`：需先拿到测量数据或真实附件场景。
+- `14` 剩余：Rust 侧磁盘级缩略图缓存与 hash/尺寸键（当前为内存 LRU + WebP）。
+- `05`：已提供 popup 冷/热展示耗时埋点，TTL 需基于实测数据决定。
+- `29`：已提高亮分段缓存；网格虚拟化需实测收益。
 
 ### 范围外
 
@@ -103,4 +106,5 @@ node scripts/run-rust-command.mjs check   # 需要 cargo 在 PATH，且先把 rt
 - 未改变 `message_parts` 为正文唯一真相源的契约；FTS 子串语义、审批/取消即时有序均保留。
 - Rust 编译缓存（`apps/desktop/rust-target/`，约 4.3GB）在磁盘紧张时可直接删除，重新编译即可恢复。
 - 主编排目录 `D:\Project\TouchAI` 的脏工作区未被改动。
-- 剩余 4 项均需真实数据/真机回归（内存预算、附件场景、虚拟化收益），未做任何猜测性实现。
+- 全量测试在并发下会让个别「首次 import 大模块」的用例超时，已在对应测试里显式放宽超时，不把资源竞争当成真实回归。
+- 本 worktree 的 `node_modules` 曾被误删导致 `type:check`/`vitest` 失效过一段时间；已用 `pnpm install --frozen-lockfile` 恢复，`package.json` / `pnpm-lock.yaml` 哈希未变。
