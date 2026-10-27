@@ -31,10 +31,27 @@ describe('UserMessage attachment images', () => {
             },
         });
 
-        const image = wrapper.find('img.image-attachment, .image-attachment img');
+        const image = wrapper.find('.image-attachment img');
         expect(image.exists()).toBe(true);
         expect(image.attributes('decoding')).toBe('async');
         expect(image.attributes('loading')).toBe('lazy');
+
+        wrapper.unmount();
+    });
+
+    it('falls back to the original preview when thumbnail generation is unavailable', async () => {
+        const preview = 'data:image/png;base64,AAAA';
+        const wrapper = mount(UserMessage, {
+            props: {
+                message: {
+                    ...createImageMessage(),
+                    attachments: [{ type: 'image', name: 'photo.png', preview }],
+                } as Parameters<typeof UserMessage>[0]['message'],
+            },
+        });
+
+        const image = wrapper.find('.image-attachment img');
+        expect(image.attributes('src')).toBe(preview);
 
         wrapper.unmount();
     });
