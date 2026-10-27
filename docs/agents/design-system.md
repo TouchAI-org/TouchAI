@@ -262,9 +262,12 @@ The two layers run in separate workflows, on different runners, finishing at unp
 times, so each writes only its own block. `apps/desktop/scripts/ci/visual-report.mjs`
 turns a layer's result into markdown; `apps/desktop/scripts/ci/visual-comment.mjs` merges
 that block into the shared comment, and `visual-comment-merge.mjs` holds the merge itself
-as a pure function. The workflows serialise their comment jobs on one concurrency group so
-two merges cannot interleave and silently drop a layer — a correct merge function is not
-enough when the read-modify-write spans two processes.
+as a pure function. A correct merge function is not enough on its own, because the
+read-modify-write spans two processes: if the other layer lands between this run's read
+and its write, the write reverts a report it never saw. `visual-comment.mjs` therefore
+reads the comment back, compares which layers it holds, and retries when one disappeared.
+Serialising the two jobs instead was rejected: it would make the Windows suite wait for
+the container suite on every pull request.
 
 The images are published through GitHub's attachment store by
 `apps/desktop/scripts/ci/publish-evidence.mjs`, which posts to
