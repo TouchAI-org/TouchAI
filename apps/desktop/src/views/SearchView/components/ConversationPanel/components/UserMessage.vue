@@ -17,13 +17,18 @@
                 <!-- 用户消息的附件 -->
                 <div
                     v-if="message.attachments && message.attachments.length > 0"
+                    ref="attachmentListRef"
                     class="mt-2 space-y-2"
                 >
                     <div v-for="(attachment, index) in message.attachments" :key="index">
                         <!-- 图片附件 -->
-                        <div v-if="attachment.type === 'image'" class="image-attachment">
+                        <div
+                            v-if="attachment.type === 'image'"
+                            class="image-attachment"
+                            :data-image-index="index"
+                        >
                             <img
-                                :src="attachment.preview"
+                                :src="thumbnails[index] ?? attachment.preview"
                                 :alt="attachment.name || t('conversation.attachment.unnamedImage')"
                                 class="block max-h-[200px] max-w-xs rounded-lg border border-gray-200 object-contain"
                                 decoding="async"
@@ -64,16 +69,104 @@
     import AppIcon from '@components/AppIcon.vue';
     import { notify } from '@services/NotificationService';
     import { log } from '@services/ObservabilityService';
+    import { nextTick, onUnmounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
     import { clipboardService } from '@/services/ClipboardService';
     import type { SessionMessage } from '@/types/session';
+    import { getImageThumbnail } from '@/utils/imageThumbnail';
 
     interface Props {
         message: SessionMessage;
     }
 
     const props = defineProps<Props>();
+
+    const attachmentListRef = ref<HTMLElement | null>(null);
+
+    /** 图片信息卡展示宽度上限（对应 max-w-xs），按 DPR 放大。 */
+    const THUMBNAIL_BASE_WIDTH = 320;
+    const thumbnailWidth = ref(
+        typeof window === 'undefined'
+            ? THUMBNAIL_BASE_WIDTH
+            : Math.round(THUMBNAIL_BASE_WIDTH * Math.min(window.devicePixelRatio || 1, 2))
+    );
+    const thumbnails = ref<Record<number, string>>({});
+    let thumbnailObserver: IntersectionObserver | null = null;
+    const observedImages = new Set<number>();
+
+    async function ensureThumbnail(index: number, preview: string | undefined) {
+        if (!preview || thumbnails.value[index] || observedImages.has(index)) {
+            return;
+        }
+
+        observedImages.add(index);
+        try {
+            const url = await getImageThumbnail(preview, thumbnailWidth.value);
+            thumbnails.value = { ...thumbnails.value, [index]: url };
+        } catch {
+            // 生成失败时保留原图 URL，不影响消息展示。
+            observedImages.delete(index);
+        }
+    }
+
+    // 图片进入可视区才解码缩略图，避免长会话一次性解码全部历史图片。
+    watch(
+        () => props.message.attachments,
+        (attachments) => {
+            if (!attachments?.length) {
+                return;
+            }
+
+            const imageIndexes = attachments
+                .map((attachment, index) => (attachment.type === 'image' ? index : -1))
+                .filter((index) => index >= 0);
+            if (imageIndexes.length === 0) {
+                return;
+            }
+
+            void nextTick(() => {
+                const container = attachmentListRef.value;
+                if (!container) {
+                    return;
+                }
+
+                const nodes = Array.from(
+                    container.querySelectorAll<HTMLElement>('[data-image-index]')
+                );
+
+                if (typeof IntersectionObserver !== 'function') {
+                    for (const node of nodes) {
+                        const index = Number(node.dataset.imageIndex);
+                        void ensureThumbnail(index, attachments[index]?.preview);
+                    }
+                    return;
+                }
+
+                thumbnailObserver?.disconnect();
+                thumbnailObserver = new IntersectionObserver((entries) => {
+                    for (const entry of entries) {
+                        if (!entry.isIntersecting) {
+                            continue;
+                        }
+                        const index = Number((entry.target as HTMLElement).dataset.imageIndex);
+                        thumbnailObserver?.unobserve(entry.target);
+                        void ensureThumbnail(index, attachments[index]?.preview);
+                    }
+                });
+
+                for (const node of nodes) {
+                    thumbnailObserver.observe(node);
+                }
+            });
+        },
+        { immediate: true }
+    );
+
+    onUnmounted(() => {
+        thumbnailObserver?.disconnect();
+        thumbnailObserver = null;
+    });
 
     async function handleCopy() {
         try {
