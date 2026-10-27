@@ -1,4 +1,5 @@
 import { native, type QuickShortcutItem } from '@services/NativeService';
+import { log } from '@services/ObservabilityService';
 import { getPathExtension, IMAGE_EXTENSIONS } from '@utils/path';
 import { type Ref, ref } from 'vue';
 
@@ -335,7 +336,7 @@ export function useAssetLoader(
                     Object.assign(config.resultRef.value, result);
                 }
             } catch (error) {
-                console.warn(`[QuickSearchPanel] Failed to load ${config.errorLabel}:`, error);
+                log.warn(`[QuickSearchPanel] Failed to load ${config.errorLabel}:`, error);
             } finally {
                 batchPaths.forEach((path) => config.loadingPaths.delete(path));
                 config.loadInFlightRef.value = false;

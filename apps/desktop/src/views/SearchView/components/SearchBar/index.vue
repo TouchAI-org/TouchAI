@@ -54,6 +54,7 @@
 <script setup lang="ts">
     import logo from '@assets/logo.svg';
     import ModelLogo from '@components/ModelLogo.vue';
+    import { log } from '@services/ObservabilityService';
     import { EditorContent } from '@tiptap/vue-3';
     import type { ComponentPublicInstance } from 'vue';
     import { onMounted, onUnmounted, ref, toRefs, watch } from 'vue';
@@ -282,7 +283,7 @@
         try {
             insertPlainTextAtSelection(ed, text);
         } catch (error) {
-            console.error('Failed to insert text at cursor:', error);
+            log.error('Failed to insert text at cursor:', error);
         }
     }
 
@@ -309,7 +310,7 @@
                 { atCurrentSelection: true }
             );
         } catch (error) {
-            console.error('Failed to insert attachment at cursor:', error);
+            log.error('Failed to insert attachment at cursor:', error);
         }
     }
 

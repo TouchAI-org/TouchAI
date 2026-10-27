@@ -1,6 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
-
 import { native } from '@services/NativeService';
+import { log } from '@services/ObservabilityService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { computed, nextTick, onUnmounted, type Ref, ref, watch } from 'vue';
 
@@ -86,7 +86,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     const viewportSyncScheduler = createWindowViewportSyncScheduler(syncViewportState, 80);
 
     function reportError(action: string, error: unknown) {
-        console.error(`[SearchView] Failed to ${action}:`, error);
+        log.error(`[SearchView] Failed to ${action}:`, error);
     }
 
     function getDefaultSizeKey() {

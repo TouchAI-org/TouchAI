@@ -10,6 +10,7 @@ import type {
 } from '@services/EventService/types';
 import { native } from '@services/NativeService';
 import { initNotificationPermission, notify } from '@services/NotificationService';
+import { log } from '@services/ObservabilityService';
 import type { ModelDropdownData, ModelDropdownPopupItem } from '@services/PopupService';
 import { popupManager } from '@services/PopupService';
 import { runStartupTasks } from '@services/StartupService';
@@ -542,7 +543,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         try {
             await handleShortcutAutoPaste?.();
         } catch (error) {
-            console.error('[SearchView] Failed to handle shortcut auto-paste:', error);
+            log.error('[SearchView] Failed to handle shortcut auto-paste:', error);
         }
     }
 
@@ -586,7 +587,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             await settingsStore.initialize();
             await native.shortcut.registerGlobalShortcut(settingsStore.globalShortcut);
         } catch (error) {
-            console.error('[SearchView] Failed to initialize global shortcut:', error);
+            log.error('[SearchView] Failed to initialize global shortcut:', error);
 
             const errorStr = String(error);
             let messageKey: MessageKey = 'notification.shortcutRegistrationFailed.generic';
@@ -622,7 +623,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             .catch(() => undefined)
             .then(() => native.shortcut.setSearchSurfaceShortcuts(entries))
             .catch((error) => {
-                console.error('[SearchView] Failed to sync search surface shortcuts:', error);
+                log.error('[SearchView] Failed to sync search surface shortcuts:', error);
             });
 
         await searchSurfaceShortcutSync;
@@ -634,7 +635,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             useAlert();
             await popupManager.initialize();
         } catch (error) {
-            console.error('[SearchView] Failed to initialize:', error);
+            log.error('[SearchView] Failed to initialize:', error);
         }
     }
 
@@ -642,7 +643,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         try {
             await syncWindowPinState();
         } catch (error) {
-            console.error(`[SearchView] Failed to sync window pin state on ${reason}:`, error);
+            log.error(`[SearchView] Failed to sync window pin state on ${reason}:`, error);
         }
     }
 
@@ -650,10 +651,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         try {
             await Promise.resolve(remeasureSearchWindowHeight?.());
         } catch (error) {
-            console.error(
-                `[SearchView] Failed to remeasure search window height on ${reason}:`,
-                error
-            );
+            log.error(`[SearchView] Failed to remeasure search window height on ${reason}:`, error);
         }
     }
 
@@ -703,10 +701,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             }
 
             void Promise.resolve(handleAiModelsUpdated()).catch((error) => {
-                console.error(
-                    '[SearchView] Failed to sync model dropdown after models update:',
-                    error
-                );
+                log.error('[SearchView] Failed to sync model dropdown after models update:', error);
             });
         });
 
@@ -739,7 +734,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                     hiddenAt: Date.now(),
                 });
                 await Promise.resolve(onSurfaceHidden?.()).catch((error) => {
-                    console.error('[SearchView] Failed to clear UI after surface hidden:', error);
+                    log.error('[SearchView] Failed to clear UI after surface hidden:', error);
                 });
             }
         );
@@ -749,10 +744,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                 AppEvent.SEARCH_SURFACE_COMMAND,
                 (payload) => {
                     void Promise.resolve(handleSearchSurfaceCommand(payload)).catch((error) => {
-                        console.error(
-                            '[SearchView] Failed to handle search surface command:',
-                            error
-                        );
+                        log.error('[SearchView] Failed to handle search surface command:', error);
                     });
                 }
             );
@@ -804,7 +796,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                 void native.window
                     .setSearchSurfaceHideOnAppBlur(!nextPinned && !dragging && !maximized)
                     .catch((error) => {
-                        console.error(
+                        log.error(
                             '[SearchView] Failed to sync search surface app-blur policy:',
                             error
                         );
@@ -1001,7 +993,7 @@ export function useSearchModelDropdownCoordinator(
                     };
                     modelDropdownQuery.value = '';
                     syncOverlayState();
-                    console.error('[SearchView] Failed to open model dropdown popup:', error);
+                    log.error('[SearchView] Failed to open model dropdown popup:', error);
                 }
                 return;
             }

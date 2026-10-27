@@ -1,5 +1,6 @@
 import { findModelsWithProvider } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
+import { log } from '@services/ObservabilityService';
 import { computed, onMounted, type Ref, ref, watch } from 'vue';
 
 import { aiService } from '@/services/AgentService';
@@ -121,7 +122,7 @@ export function useModelSelection(
         try {
             activeModel.value = await deps.getActiveModel();
         } catch (error) {
-            console.error('[SearchBar] Failed to load active model:', error);
+            log.error('[SearchBar] Failed to load active model:', error);
             activeModel.value = null;
         } finally {
             hasResolvedActiveModel.value = true;
@@ -170,7 +171,7 @@ export function useModelSelection(
                 return;
             }
 
-            console.error('[SearchBar] Failed to resolve controlled override model:', error);
+            log.error('[SearchBar] Failed to resolve controlled override model:', error);
             resolvedOverrideModel.value = null;
         }
     }
@@ -199,7 +200,7 @@ export function useModelSelection(
                 hasLoadedPopupModels = true;
                 return models;
             } catch (error) {
-                console.error('[SearchBar] Failed to load popup models:', error);
+                log.error('[SearchBar] Failed to load popup models:', error);
                 availableModels.value = [];
                 return [];
             } finally {

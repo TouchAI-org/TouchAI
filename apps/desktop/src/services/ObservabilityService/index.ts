@@ -1,6 +1,11 @@
 import { native } from '@services/NativeService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
+import {
+    installConsoleInterceptor,
+    reportLoggingFailure,
+    restoreConsoleInterceptor,
+} from './console';
 import { LogQueue } from './queue';
 import { redactAttributes, redactText } from './redact';
 import {
@@ -33,12 +38,11 @@ export function initObservability(): void {
 
     queue = new LogQueue({
         send: (batch) => native.observability.ingest(batch),
-        onError: (error) => {
-            // 日志后端不可用时不能让业务路径抛出，也不重试，避免形成循环。
-            console.error('[Observability] failed to send log batch', error);
-        },
+        // 日志后端不可用时不能让业务路径抛出，也不重试，避免形成循环。
+        onError: reportLoggingFailure,
     });
     queue.start();
+    installConsoleInterceptor(emit);
 
     if (!visibilityListenerInstalled && typeof document !== 'undefined') {
         visibilityListenerInstalled = true;
@@ -145,4 +149,5 @@ export function resetObservabilityForTests(): void {
     windowLabel = null;
     initialized = false;
     visibilityListenerInstalled = false;
+    restoreConsoleInterceptor();
 }

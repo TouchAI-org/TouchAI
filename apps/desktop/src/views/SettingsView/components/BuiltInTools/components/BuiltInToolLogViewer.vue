@@ -6,6 +6,7 @@
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { useListFilter } from '@composables/useListFilter';
+    import { log as appLog } from '@services/ObservabilityService';
     import { onMounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -52,7 +53,7 @@
             });
             hasMore.value = logs.value.length === PAGE_SIZE;
         } catch (error) {
-            console.error('[BuiltInToolLogViewer] Failed to load logs:', error);
+            appLog.error('[BuiltInToolLogViewer] Failed to load logs:', error);
             logs.value = [];
             hasMore.value = false;
         } finally {
@@ -71,7 +72,7 @@
             logs.value.push(...moreLogs);
             hasMore.value = moreLogs.length === PAGE_SIZE;
         } catch (error) {
-            console.error('[BuiltInToolLogViewer] Failed to load more logs:', error);
+            appLog.error('[BuiltInToolLogViewer] Failed to load more logs:', error);
         } finally {
             loadingMore.value = false;
         }

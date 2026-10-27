@@ -20,7 +20,7 @@ const CODE_SOURCE_FILES = Object.keys(
     })
 )
     .map((path) => path.replace(/^\//, ''))
-    .filter((path) => !path.includes('/EventService/') && !path.includes('/LoggerService/'));
+    .filter((path) => !path.includes('/EventService/') && !path.includes('/ObservabilityService/'));
 
 const CHINESE_TEXT_RE = /\p{Script=Han}/u;
 const QUOTED_STRING_RE = /(['"`])((?:\\.|(?!\1)[\s\S])*?)\1/g;

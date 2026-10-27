@@ -1,3 +1,4 @@
+import { log } from '@services/ObservabilityService';
 import {
     type PopupClosedPayload,
     popupManager,
@@ -163,15 +164,12 @@ export function useSessionHistoryPopup(options: UseSessionHistoryPopupOptions) {
             .listen({
                 onSessionOpen: (sessionId) => {
                     void Promise.resolve(onSessionOpen(sessionId)).catch((error) => {
-                        console.error(
-                            '[SearchView] Failed to open history session from popup:',
-                            error
-                        );
+                        log.error('[SearchView] Failed to open history session from popup:', error);
                     });
                 },
                 onSessionSearchQueryChange: (query) => {
                     void Promise.resolve(onSessionSearchQueryChange(query)).catch((error) => {
-                        console.error(
+                        log.error(
                             '[SearchView] Failed to update history search query from popup:',
                             error
                         );
@@ -192,7 +190,7 @@ export function useSessionHistoryPopup(options: UseSessionHistoryPopupOptions) {
                     }
 
                     void Promise.resolve(onClose()).catch((error) => {
-                        console.error('[SearchView] Failed to handle history popup close:', error);
+                        log.error('[SearchView] Failed to handle history popup close:', error);
                     });
                 },
             })
@@ -205,7 +203,7 @@ export function useSessionHistoryPopup(options: UseSessionHistoryPopupOptions) {
                 cleanupFn = nextCleanupFn;
             })
             .catch((error) => {
-                console.error('[SearchView] Failed to register history popup listeners:', error);
+                log.error('[SearchView] Failed to register history popup listeners:', error);
             });
     });
 
@@ -225,7 +223,7 @@ export function useSessionHistoryPopup(options: UseSessionHistoryPopupOptions) {
 
         // 组件销毁时主动结束 popup 会话，避免残留窗口继续向已卸载页面回调。
         void popupManager.hide().catch((error) => {
-            console.error('[SearchView] Failed to hide history popup on unmount:', error);
+            log.error('[SearchView] Failed to hide history popup on unmount:', error);
         });
     });
 

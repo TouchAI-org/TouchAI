@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import { appIconFallback, appIconMap, type AppIconName } from '@components/appIconMap';
+    import { log } from '@services/ObservabilityService';
     import { type Component, computed } from 'vue';
 
     defineOptions({
@@ -24,7 +25,7 @@
         // 开发环境里给出一次性告警，并返回占位图标保持布局稳定。
         if (import.meta.env.DEV && !warnedNames.has(props.name)) {
             warnedNames.add(props.name);
-            console.warn(`[AppIcon] 未找到图标映射: ${props.name}`);
+            log.warn(`[AppIcon] 未找到图标映射: ${props.name}`);
         }
 
         return appIconFallback;

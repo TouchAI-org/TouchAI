@@ -90,6 +90,7 @@
     import ActionButton from '@components/ActionButton.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
     import { notify } from '@services/NotificationService';
+    import { log } from '@services/ObservabilityService';
     import { computed, onUnmounted, provide, ref, watch } from 'vue';
 
     import { type MessageKey, t } from '@/i18n';
@@ -351,7 +352,7 @@
             await clipboardService.writeText(props.message.content);
             notify({ title: 'TouchAI', body: t('notification.copy.copiedToClipboard') });
         } catch (error) {
-            console.error('[AssistantMessage] Failed to copy:', error);
+            log.error('[AssistantMessage] Failed to copy:', error);
             notify({ title: 'TouchAI', body: t('common.copyFailed') });
         }
     }

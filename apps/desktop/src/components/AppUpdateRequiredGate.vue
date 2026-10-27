@@ -3,6 +3,7 @@
     import { appUpdateService } from '@services/AppUpdateService';
     import { getAppUpdateRequirementReasonText } from '@services/AppUpdateService/requirementText';
     import type { AppUpdateState } from '@services/AppUpdateService/types';
+    import { log } from '@services/ObservabilityService';
     import { openUrl } from '@tauri-apps/plugin-opener';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
 
@@ -127,7 +128,7 @@
         try {
             await appUpdateService.initialize();
         } catch (error) {
-            console.error('Failed to initialize update gate:', error);
+            log.error('Failed to initialize update gate:', error);
         }
     });
 

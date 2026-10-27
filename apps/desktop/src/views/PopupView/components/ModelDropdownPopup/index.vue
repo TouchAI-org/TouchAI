@@ -126,6 +126,7 @@
     import ModelLogo from '@components/ModelLogo.vue';
     import { AppEvent, eventService } from '@services/EventService';
     import { native } from '@services/NativeService';
+    import { log } from '@services/ObservabilityService';
     import type {
         ModelDropdownData,
         ModelDropdownPopupItem,
@@ -205,7 +206,7 @@
             await native.window.openSettingsWindow();
             emit('close');
         } catch (error) {
-            console.error('[SearchView] Failed to open settings from model dropdown:', error);
+            log.error('[SearchView] Failed to open settings from model dropdown:', error);
         }
     }
 

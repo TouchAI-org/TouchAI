@@ -37,6 +37,7 @@
 </template>
 
 <script lang="ts">
+    import { log } from '@services/ObservabilityService';
     import { full as markdownItEmoji } from 'markdown-it-emoji';
     import {
         enableKatex,
@@ -1156,7 +1157,7 @@
                 body: t('common.copied'),
             });
         } catch (error) {
-            console.error('[MarkdownContent] Failed to copy inline code:', error);
+            log.error('[MarkdownContent] Failed to copy inline code:', error);
             notify({
                 title: 'TouchAI',
                 body: t('common.copyFailed'),

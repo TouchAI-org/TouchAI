@@ -8,6 +8,7 @@
     import { useListFilter } from '@composables/useListFilter';
     import { findMcpToolLogsByServerId } from '@database/queries';
     import type { McpServerEntity, McpToolLogEntity } from '@database/types';
+    import { log as appLog } from '@services/ObservabilityService';
     import { onMounted, ref } from 'vue';
 
     import { t } from '@/i18n';
@@ -46,7 +47,7 @@
             logs.value = await findMcpToolLogsByServerId(props.server.id, { limit: PAGE_SIZE });
             hasMore.value = logs.value.length === PAGE_SIZE;
         } catch (error) {
-            console.error('Failed to load logs:', error);
+            appLog.error('Failed to load logs:', error);
         } finally {
             loading.value = false;
         }
@@ -62,7 +63,7 @@
             logs.value.push(...moreLogs);
             hasMore.value = moreLogs.length === PAGE_SIZE;
         } catch (error) {
-            console.error('Failed to load more logs:', error);
+            appLog.error('Failed to load more logs:', error);
         } finally {
             loadingMore.value = false;
         }

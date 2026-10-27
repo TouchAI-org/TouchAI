@@ -2,6 +2,7 @@
     import AlertMessage from '@components/AlertMessage.vue';
     import AppIcon from '@components/AppIcon.vue';
     import { type ShortcutCaptureSystemKeyEvent } from '@services/EventService';
+    import { log } from '@services/ObservabilityService';
     import { storeToRefs } from 'pinia';
     import { computed, ref } from 'vue';
 
@@ -358,7 +359,7 @@
             alertMessage.value?.success(t('common.saved'), 2000);
             return true;
         } catch (error) {
-            console.error('Failed to save search shortcut:', error);
+            log.error('Failed to save search shortcut:', error);
             reportSearchShortcutError(actionId, 'settings.general.saveSettingsFailed');
 
             return false;
@@ -431,7 +432,7 @@
     );
 
     useSystemKeyCaptureSubscription(handleSystemKeyCapture, (error) => {
-        console.error('Failed to subscribe to search shortcut system key event:', error);
+        log.error('Failed to subscribe to search shortcut system key event:', error);
     });
 </script>
 

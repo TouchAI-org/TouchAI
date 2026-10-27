@@ -1,5 +1,6 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import { log } from '@services/ObservabilityService';
     import { openUrl } from '@tauri-apps/plugin-opener';
     import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
@@ -202,7 +203,7 @@
         try {
             await openUrl(url);
         } catch (error) {
-            console.warn('[SettingsSidebar] Failed to open external link:', url, error);
+            log.warn('[SettingsSidebar] Failed to open external link:', url, error);
         }
     };
 

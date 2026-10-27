@@ -256,19 +256,18 @@ export default defineConfig([
             'vue/no-restricted-class': ['error', ...TEMPLATE_PALETTE_PATTERNS],
         },
     },
-    /*
-     * Service-layer logs go through ObservabilityService so they carry a level,
-     * an event name and structured fields. The console interceptor itself is the
-     * only place allowed to touch console directly.
+    /* First-party logs go through ObservabilityService so they carry a level,
+     * an event name and structured fields. Only the console interceptor and its
+     * internal failure path may touch console directly.
      */
     {
-        files: ['apps/desktop/src/services/**/*.ts', 'apps/desktop/src/composables/**/*.ts', 'apps/desktop/src/stores/**/*.ts', 'apps/desktop/src/utils/**/*.ts'],
+        files: ['apps/desktop/src/**/*.{ts,vue}'],
         rules: {
             'no-console': 'error',
         },
     },
     {
-        files: ['apps/desktop/src/services/ObservabilityService/**/*.ts', 'apps/desktop/src/services/LoggerService/**/*.ts'],
+        files: ['apps/desktop/src/services/ObservabilityService/**/*.ts'],
         rules: {
             'no-console': 'off',
         },

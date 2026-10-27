@@ -27,6 +27,7 @@
     import type { ModelWithProvider } from '@database/queries/models.ts';
     import type { Model, NewModel, NewProvider, Provider } from '@database/schema.ts';
     import { AppEvent, eventService } from '@services/EventService';
+    import { log } from '@services/ObservabilityService';
     import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { locale, t } from '@/i18n';
@@ -251,7 +252,7 @@
             await ensureProviderSelected();
         } catch (err) {
             error.value = err instanceof Error ? err.message : t('settings.ai.loadFailed');
-            console.error('Failed to load providers:', err);
+            log.error('Failed to load providers:', err);
         } finally {
             loading.value = false;
         }
@@ -269,7 +270,7 @@
             const models = await findModelsWithProvider({ providerId });
             setCachedModels(providerId, models);
         } catch (err) {
-            console.error('Failed to load models:', err);
+            log.error('Failed to load models:', err);
             alert.error(t('settings.ai.loadModelsFailed'));
         } finally {
             loadingModels.value = false;
@@ -671,7 +672,7 @@
                 return;
             }
 
-            console.error('Failed to refresh models:', err);
+            log.error('Failed to refresh models:', err);
             if (notifications.failure) {
                 alert.error(t('settings.ai.refreshModelsFailed', { error: String(err) }));
             }
@@ -703,10 +704,10 @@
                     if (modelsCache.value.has(providerId)) setCachedModels(providerId, models);
                 }
             } else if (metadataEmpty || aliasesEmpty) {
-                console.warn('[AiServicesView] llm-metadata is still empty');
+                log.warn('[AiServicesView] llm-metadata is still empty');
             }
         } catch (error) {
-            console.error('[AiServicesView] Failed to check or update llm-metadata:', error);
+            log.error('[AiServicesView] Failed to check or update llm-metadata:', error);
         }
     }
 

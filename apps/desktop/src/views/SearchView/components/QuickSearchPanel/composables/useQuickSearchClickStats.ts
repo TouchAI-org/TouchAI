@@ -3,6 +3,7 @@ import {
     upsertQuickSearchClick,
 } from '@database/queries/quickSearchClicks';
 import type { QuickShortcutItem } from '@services/NativeService';
+import { log } from '@services/ObservabilityService';
 
 const MAX_CLICK_COUNT = 1_000_000; // 单条路径点击上限，防止计数无限增长
 const MAX_CLICK_PATH_ENTRIES = 200; // 单个 query 最多加载的路径统计条目数
@@ -101,7 +102,7 @@ export function useQuickSearchClickStats() {
                 }
                 clickStats[queryNorm] = pathStats;
             } catch (error) {
-                console.warn('[QuickSearchPanel] Failed to load click stats from sqlite:', error);
+                log.warn('[QuickSearchPanel] Failed to load click stats from sqlite:', error);
                 clickStats[queryNorm] = {};
             }
         }
@@ -154,7 +155,7 @@ export function useQuickSearchClickStats() {
             pathNorm,
             maxClickCount: MAX_CLICK_COUNT,
         }).catch((error) =>
-            console.warn('[QuickSearchPanel] Failed to record click to sqlite:', error)
+            log.warn('[QuickSearchPanel] Failed to record click to sqlite:', error)
         );
     }
 

@@ -5,6 +5,7 @@
     import { type ShortcutCaptureSystemKeyEvent } from '@services/EventService';
     import { native } from '@services/NativeService';
     import { notify } from '@services/NotificationService';
+    import { log } from '@services/ObservabilityService';
     import { storeToRefs } from 'pinia';
     import { computed, onMounted, ref, watch } from 'vue';
 
@@ -202,7 +203,7 @@
             displayShortcut.value = formatShortcutForDisplay(newShortcut);
             alertMessage.value?.success(t('settings.general.shortcutSaved'), 3000);
         } catch (error) {
-            console.error('Failed to save shortcut:', error);
+            log.error('Failed to save shortcut:', error);
             alertMessage.value?.error(t('settings.general.saveShortcutFailed'), 3000);
             displayShortcut.value = formatShortcutForDisplay(settings.value.globalShortcut);
             shortcutRegistrationFailed.value = false;
@@ -243,10 +244,10 @@
             const [failed, error] = await native.shortcut.getShortcutStatus();
             if (failed) {
                 shortcutRegistrationFailed.value = true;
-                console.warn('[GeneralView] Shortcut registration failed:', error);
+                log.warn('[GeneralView] Shortcut registration failed:', error);
             }
         } catch (error) {
-            console.error('Failed to load settings:', error);
+            log.error('Failed to load settings:', error);
             alertMessage.value?.error(t('settings.general.loadSettingsFailed'), 3000);
         }
     };
@@ -256,7 +257,7 @@
             await native.shortcut.registerGlobalShortcut(shortcut);
             return true;
         } catch (error) {
-            console.error('Failed to register shortcut:', error);
+            log.error('Failed to register shortcut:', error);
 
             const errorStr = String(error);
             const shortcutErrorMessage: {
@@ -323,7 +324,7 @@
     onMounted(loadSettings);
 
     useSystemKeyCaptureSubscription(handleSystemKeyCapture, (error) => {
-        console.error('Failed to subscribe to system key capture event:', error);
+        log.error('Failed to subscribe to system key capture event:', error);
     });
 </script>
 

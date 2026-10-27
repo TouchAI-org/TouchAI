@@ -7,6 +7,7 @@ import type {
     SessionStatusReminderNotificationKind,
     SessionStatusReminderNotificationPayload,
 } from '@services/NativeService/types';
+import { log } from '@services/ObservabilityService';
 
 import { tt } from '@/i18n';
 
@@ -18,7 +19,7 @@ interface SessionStatusReminderCoordinatorOptions {
 /** 创建错误日志的柯里化处理器。 */
 function logFailure(message: string) {
     return (error: unknown) => {
-        console.error(`[SearchView] ${message}:`, error);
+        log.error(`[SearchView] ${message}:`, error);
     };
 }
 

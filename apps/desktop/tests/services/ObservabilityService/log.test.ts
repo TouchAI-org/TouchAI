@@ -7,7 +7,7 @@ import {
     resetObservabilityForTests,
 } from '@services/ObservabilityService';
 import { getTauriInvokeCalls } from '@tests/utils/tauri';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
     resetObservabilityForTests();
@@ -54,5 +54,37 @@ describe('user gets service logs as structured events', () => {
 
         const [entry] = sentEntries();
         expect(entry?.msg).not.toContain('secret-value');
+    });
+});
+
+describe('user gets third-party console failures as structured events', () => {
+    it('user sees a console warning mirrored without disabling the native output', async () => {
+        const nativeWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        initObservability();
+
+        console.warn('third-party warning');
+        await flushObservability();
+
+        expect(nativeWarn).toHaveBeenCalledWith('third-party warning');
+        expect(sentEntries()[0]).toMatchObject({
+            level: 4,
+            event: 'external.console',
+            attrs: {
+                'external.level': 'warn',
+                'external.argument_count': 1,
+            },
+            msg: 'third-party warning',
+        });
+    });
+
+    it('user does not see third-party debug output in the release log', async () => {
+        const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+        initObservability();
+
+        console.debug('third-party debug');
+        await flushObservability();
+
+        expect(debug).toHaveBeenCalledWith('third-party debug');
+        expect(sentEntries()).toEqual([]);
     });
 });

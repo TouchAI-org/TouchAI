@@ -1,6 +1,5 @@
 <script setup lang="ts">
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
-
     import { useSessionStatus } from '@composables/useSessionStatus';
     import type {
         SearchSurfaceCommandEvent,
@@ -10,6 +9,7 @@
     import { native } from '@services/NativeService';
     import type { SearchWindowState } from '@services/NativeService/types';
     import { notify } from '@services/NotificationService';
+    import { log } from '@services/ObservabilityService';
     import {
         popupManager as popupService,
         type SessionHistoryData,
@@ -198,7 +198,7 @@
             syncAttachmentSupport();
             queryText.value = restoredText;
         } catch (error) {
-            console.error('[SearchView] Failed to restore input history snapshot:', error);
+            log.error('[SearchView] Failed to restore input history snapshot:', error);
             attachments.value = normalizedSnapshot.attachments;
             syncAttachmentSupport();
             queryText.value = normalizedSnapshot.text;
@@ -647,7 +647,7 @@
         try {
             await setWindowPinned(value);
         } catch (error) {
-            console.error('[SearchView] Failed to update window pin state:', error);
+            log.error('[SearchView] Failed to update window pin state:', error);
             await notify({
                 title: t('notification.pinToggleFailed.title'),
                 body: t('notification.pinToggleFailed.body'),
@@ -719,7 +719,7 @@
                     attachment.preview
                 );
             } catch (error) {
-                console.error(`Failed to insert ${type} attachment:`, error);
+                log.error(`Failed to insert ${type} attachment:`, error);
             }
         }
     }
@@ -756,7 +756,7 @@
                     attachment.preview
                 );
             } catch (error) {
-                console.error(`Failed to insert ${fragment.type} attachment:`, error);
+                log.error(`Failed to insert ${fragment.type} attachment:`, error);
             }
         }
     }
@@ -880,14 +880,14 @@
             await sessionHistoryPopup.open();
 
             void ensureSessionListLoaded().catch((error) => {
-                console.error(
+                log.error(
                     '[SearchView] Failed to ensure session history before popup interaction:',
                     error
                 );
             });
         } catch (error) {
             await setSessionHistoryPopupOpen(false);
-            console.error('[SearchView] Failed to open session history popup:', error);
+            log.error('[SearchView] Failed to open session history popup:', error);
         }
     }
 
@@ -899,7 +899,7 @@
         }
 
         void ensureSessionListLoaded().catch((error) => {
-            console.error('[SearchView] Failed to prefetch session history:', error);
+            log.error('[SearchView] Failed to prefetch session history:', error);
         });
     }
 
@@ -909,7 +909,7 @@
         }
 
         void controller.prefetchModelDropdownData().catch((error) => {
-            console.error('[SearchView] Failed to refresh model dropdown data on hover:', error);
+            log.error('[SearchView] Failed to refresh model dropdown data on hover:', error);
         });
     }
 
@@ -955,20 +955,20 @@
             }
 
             await syncSearchWindowState().catch((error) => {
-                console.error(
+                log.error(
                     '[SearchView] Failed to sync search window state after reopening session:',
                     error
                 );
             });
             await remeasureTargetHeight().catch((error) => {
-                console.error(
+                log.error(
                     '[SearchView] Failed to remeasure window height after reopening session:',
                     error
                 );
             });
             conversationPanel.value?.revealLatestContent();
         } catch (error) {
-            console.error('[SearchView] Failed to reopen last closed session:', error);
+            log.error('[SearchView] Failed to reopen last closed session:', error);
             await controller.focusSearchInput();
         }
     }
@@ -977,7 +977,7 @@
         try {
             await toggleWindowPin();
         } catch (error) {
-            console.error('[SearchView] Failed to toggle window pin state:', error);
+            log.error('[SearchView] Failed to toggle window pin state:', error);
             await notify({
                 title: t('notification.pinToggleFailed.title'),
                 body: t('notification.pinToggleFailed.body'),
@@ -990,7 +990,7 @@
             await hideAllPopups();
             await toggleMaximizeBase();
         } catch (error) {
-            console.error('[SearchView] Failed to toggle maximized state:', error);
+            log.error('[SearchView] Failed to toggle maximized state:', error);
         }
     }
 
@@ -1002,27 +1002,27 @@
         try {
             await openSession(sessionId);
             await syncSearchWindowState().catch((error) => {
-                console.error(
+                log.error(
                     '[SearchView] Failed to sync search window state after session open:',
                     error
                 );
             });
             await remeasureTargetHeight().catch((error) => {
-                console.error(
+                log.error(
                     '[SearchView] Failed to remeasure window height after session open:',
                     error
                 );
             });
             conversationPanel.value?.revealLatestContent();
         } catch (error) {
-            console.error('[SearchView] Failed to open session:', error);
+            log.error('[SearchView] Failed to open session:', error);
 
             const isMissingSession =
                 error instanceof Error && /not found|不存在/i.test(error.message);
 
             if (isMissingSession) {
                 void refreshSessionList().catch((refreshError) => {
-                    console.error(
+                    log.error(
                         '[SearchView] Failed to refresh session history after open failure:',
                         refreshError
                     );
@@ -1285,7 +1285,7 @@
                 viewReady.value = ready;
             },
             logError: (message, error) => {
-                console.error(message, error);
+                log.error(message, error);
             },
         });
     }
@@ -1390,10 +1390,7 @@
                 lastBridgedApprovalCallId = approval.callId;
                 controller.closeQuickSearch();
                 void hideAllPopups().catch((error) => {
-                    console.error(
-                        '[SearchView] failed to hide popups before approval prompt',
-                        error
-                    );
+                    log.error('[SearchView] failed to hide popups before approval prompt', error);
                 });
                 askUserStore.enqueueApproval(
                     {
@@ -1440,10 +1437,7 @@
                 lastBridgedQuestionCallId = question.callId;
                 controller.closeQuickSearch();
                 void hideAllPopups().catch((error) => {
-                    console.error(
-                        '[SearchView] failed to hide popups before question prompt',
-                        error
-                    );
+                    log.error('[SearchView] failed to hide popups before question prompt', error);
                 });
                 askUserStore.enqueueQuestion(
                     question.questions,

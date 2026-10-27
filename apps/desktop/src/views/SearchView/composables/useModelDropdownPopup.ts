@@ -1,3 +1,4 @@
+import { log } from '@services/ObservabilityService';
 import {
     type ModelDropdownData,
     type PopupClosedPayload,
@@ -154,15 +155,12 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
             .listen({
                 onModelSelect: (modelDbId) => {
                     void Promise.resolve(onModelSelect(modelDbId)).catch((error) => {
-                        console.error(
-                            '[SearchView] Failed to handle model dropdown selection:',
-                            error
-                        );
+                        log.error('[SearchView] Failed to handle model dropdown selection:', error);
                     });
                 },
                 onModelSearchQueryChange: (query) => {
                     void Promise.resolve(onModelSearchQueryChange(query)).catch((error) => {
-                        console.error(
+                        log.error(
                             '[SearchView] Failed to update model dropdown search query from popup:',
                             error
                         );
@@ -195,10 +193,7 @@ export function useModelDropdownPopup(options: UseModelDropdownPopupOptions) {
                 cleanupFn = nextCleanupFn;
             })
             .catch((error) => {
-                console.error(
-                    '[SearchView] Failed to register model dropdown popup listeners:',
-                    error
-                );
+                log.error('[SearchView] Failed to register model dropdown popup listeners:', error);
             });
     });
 

@@ -5,6 +5,7 @@
     import { appUpdateService } from '@services/AppUpdateService';
     import { getAvailableAppUpdateVersion } from '@services/AppUpdateService/availability';
     import type { AppUpdateChannel } from '@services/AppUpdateService/types';
+    import { log } from '@services/ObservabilityService';
     import { getVersion } from '@tauri-apps/api/app';
     import { openUrl } from '@tauri-apps/plugin-opener';
     import { computed, onMounted, ref } from 'vue';
@@ -187,7 +188,7 @@
         try {
             appVersion.value = await getVersion();
         } catch (error) {
-            console.error('[SettingsGeneralUpdateSection] Failed to initialize updates:', error);
+            log.error('[SettingsGeneralUpdateSection] Failed to initialize updates:', error);
         }
     }
 

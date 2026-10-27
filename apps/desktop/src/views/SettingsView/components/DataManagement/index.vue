@@ -19,6 +19,7 @@
     } from '@database/queries';
     import { setMeta } from '@database/queries/touchaiMeta';
     import { MetaKey, StatisticKey } from '@database/schema';
+    import { log } from '@services/ObservabilityService';
     import { relaunch } from '@tauri-apps/plugin-process';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
 
@@ -87,7 +88,7 @@
             await settingsStore.updateUsageDetailRetentionDays(days);
             alert.success(t('settings.dataManagement.retention.saved'));
         } catch (error) {
-            console.error('[DataManagement] Failed to save retention setting:', error);
+            log.error('[DataManagement] Failed to save retention setting:', error);
             alert.error(t('settings.general.saveSettingsFailed'));
         } finally {
             savingRetention.value = false;
@@ -134,7 +135,7 @@
                 sessionTurns: sessionTurnsCount,
             };
         } catch (error) {
-            console.error('Failed to load stats:', error);
+            log.error('Failed to load stats:', error);
             alert.error(t('settings.dataManagement.loadStatsFailed'));
         }
     };
@@ -164,7 +165,7 @@
                 alert.success(t('settings.dataManagement.clearSessionsSuccess'));
                 await loadStats();
             } catch (error) {
-                console.error('Failed to clear sessions:', error);
+                log.error('Failed to clear sessions:', error);
                 alert.error(t('settings.dataManagement.clearSessionsFailed'));
             } finally {
                 isLoading.value = false;
@@ -186,7 +187,7 @@
                 alert.success(t('settings.dataManagement.clearMessagesSuccess'));
                 await loadStats();
             } catch (error) {
-                console.error('Failed to clear messages:', error);
+                log.error('Failed to clear messages:', error);
                 alert.error(t('settings.dataManagement.clearMessagesFailed'));
             } finally {
                 isLoading.value = false;
@@ -208,7 +209,7 @@
                 alert.success(t('settings.dataManagement.clearSessionTurnsSuccess'));
                 await loadStats();
             } catch (error) {
-                console.error('Failed to clear session turns:', error);
+                log.error('Failed to clear session turns:', error);
                 alert.error(t('settings.dataManagement.clearSessionTurnsFailed'));
             } finally {
                 isLoading.value = false;
@@ -239,7 +240,7 @@
             showProgressDialog.value = false;
             alert.success(t('settings.dataManagement.exported', { path: exportedPath }));
         } catch (error) {
-            console.error('Failed to export settings:', error);
+            log.error('Failed to export settings:', error);
             showProgressDialog.value = false;
 
             const message =
@@ -320,7 +321,7 @@
             // 开始重启倒计时
             await startRestartCountdown();
         } catch (error) {
-            console.error('Failed to import settings:', error);
+            log.error('Failed to import settings:', error);
 
             showProgressDialog.value = false;
 
@@ -346,7 +347,7 @@
                     : t('settings.dataManagement.modelDatabaseUpdated')
             );
         } catch (error) {
-            console.error('Failed to update model metadata:', error);
+            log.error('Failed to update model metadata:', error);
             alert.error(t('settings.dataManagement.updateModelDatabaseFailed'));
         } finally {
             isLoading.value = false;

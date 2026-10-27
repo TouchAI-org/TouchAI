@@ -4,6 +4,7 @@
     import { useWindowResize } from '@composables/useWindowResize';
     import { AppEvent, eventService, type SearchSurfaceCommandEvent } from '@services/EventService';
     import { native } from '@services/NativeService';
+    import { log } from '@services/ObservabilityService';
     import type { PopupDataPayload, PopupKeydownPayload, PopupType } from '@services/PopupService';
     import { initializeBuiltInPopups, popupRegistry } from '@services/PopupService';
     import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -74,10 +75,7 @@
                     popupSessionVersion: currentPopupSessionVersion,
                 })
                 .catch((error: unknown) => {
-                    console.error(
-                        '[PopupView] Failed to hide popup window via native manager:',
-                        error
-                    );
+                    log.error('[PopupView] Failed to hide popup window via native manager:', error);
                 });
         }
     }
@@ -102,7 +100,7 @@
             void getCurrentWindow()
                 .hide()
                 .catch((error) => {
-                    console.error('[PopupView] Failed to hide empty popup window:', error);
+                    log.error('[PopupView] Failed to hide empty popup window:', error);
                 });
         }, 150);
     }
@@ -171,7 +169,7 @@
         useSettingsStore()
             .initialize()
             .catch((error) => {
-                console.error('[PopupView] Failed to initialize settings:', error);
+                log.error('[PopupView] Failed to initialize settings:', error);
             });
 
         const currentLabel = getCurrentWindow().label;
@@ -214,7 +212,7 @@
                     await getCurrentWindow()
                         .show()
                         .catch((error: unknown) => {
-                            console.error('[PopupView] Failed to show popup window:', error);
+                            log.error('[PopupView] Failed to show popup window:', error);
                         });
                     await nextTick();
                     if (!isCurrentPayloadSession(payload)) {

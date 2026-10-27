@@ -4,6 +4,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import { Button } from '@components/ui/button';
     import { Tooltip, TooltipTrigger } from '@components/ui/tooltip';
+    import { log } from '@services/ObservabilityService';
     import { computed, ref } from 'vue';
 
     import { t } from '@/i18n';
@@ -58,7 +59,7 @@
         try {
             await clipboardService.writeText(value);
         } catch (error) {
-            console.error('[ToolLogContent] Failed to copy log content:', error);
+            log.error('[ToolLogContent] Failed to copy log content:', error);
         }
     }
 </script>

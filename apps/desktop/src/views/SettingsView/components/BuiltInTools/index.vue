@@ -6,6 +6,7 @@
     import LoadingState from '@components/LoadingState.vue';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { useScrollFade } from '@composables/useScrollFade';
+    import { log } from '@services/ObservabilityService';
     import { computed, onMounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -93,7 +94,7 @@
                     nextTools.find((tool) => tool.tool_id === selectedTool.value?.tool_id) ?? null;
             }
         } catch (error) {
-            console.error('[BuiltInToolsView] Failed to load tools:', error);
+            log.error('[BuiltInToolsView] Failed to load tools:', error);
             alertMessage.value?.error(t('settings.builtInTools.loadFailed'), 6000);
             tools.value = [];
             selectedTool.value = null;
@@ -172,7 +173,7 @@
                 applyToolUpdate(updatedTool);
             }
         } catch (error) {
-            console.error('[BuiltInToolsView] Failed to toggle tool enabled:', error);
+            log.error('[BuiltInToolsView] Failed to toggle tool enabled:', error);
             alertMessage.value?.error(t('settings.builtInTools.updateEnabledFailed'), 6000);
         } finally {
             updateTogglingToolIds(targetToolIds, false);
@@ -206,7 +207,7 @@
                 applyToolUpdate(updatedTool);
             }
         } catch (error) {
-            console.error('[BuiltInToolsView] Failed to update tool:', error);
+            log.error('[BuiltInToolsView] Failed to update tool:', error);
             alertMessage.value?.error(t('settings.builtInTools.saveConfigFailed'), 6000);
         } finally {
             saving.value = false;

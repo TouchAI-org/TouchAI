@@ -6,6 +6,7 @@
     import { useScrollFade } from '@composables/useScrollFade';
     import { appUpdateService } from '@services/AppUpdateService';
     import { AppEvent, eventService } from '@services/EventService';
+    import { log } from '@services/ObservabilityService';
     import type { UnlistenFn } from '@tauri-apps/api/event';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import {
@@ -223,7 +224,7 @@
         try {
             await openUpdates();
         } catch (error) {
-            console.warn('[SettingsView] Failed to open update details:', error);
+            log.warn('[SettingsView] Failed to open update details:', error);
         }
         return true;
     };
@@ -271,13 +272,13 @@
         }
 
         currentWindow.setTitle(`TouchAI - ${t('common.settings')}`).catch((error) => {
-            console.error('[SettingsView] Failed to update native window title:', error);
+            log.error('[SettingsView] Failed to update native window title:', error);
         });
     }
 
     function checkForUpdatesOnOpen() {
         void appUpdateService.checkNow('settings-open').catch((error) => {
-            console.warn('[SettingsView] Failed to check for updates:', error);
+            log.warn('[SettingsView] Failed to check for updates:', error);
         });
     }
 
@@ -296,7 +297,7 @@
                 else unlistenShowUpdates = unlisten;
             })
             .catch((error) => {
-                console.warn('[SettingsView] Failed to listen for update navigation:', error);
+                log.warn('[SettingsView] Failed to listen for update navigation:', error);
             });
         void eventService
             .on(AppEvent.SETTINGS_WINDOW_OPENED, checkForUpdatesOnOpen)
@@ -308,7 +309,7 @@
                 }
             })
             .catch((error) => {
-                console.warn('[SettingsView] Failed to listen for settings opens:', error);
+                log.warn('[SettingsView] Failed to listen for settings opens:', error);
             });
         // Warm code after the shell renders, without mounting inactive settings sections.
         preloadFrame = requestAnimationFrame(() => {

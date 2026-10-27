@@ -1,5 +1,5 @@
+import { log } from '@services/ObservabilityService';
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
-
 /**
  * 搜索窗口尺寸决策层（纯函数，无副作用）。
  *
@@ -8,7 +8,6 @@
  * 2. 窗口状态转换 — 最大化/还原的状态管理
  * 3. 节流调度 — 防止高频 resize 事件淹没 IPC
  */
-
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import type { SearchWindowHeightMode } from '@/config/searchWindow';
@@ -327,7 +326,7 @@ export function createWindowViewportSyncScheduler(
     function runSync() {
         lastSyncStartedAt = Date.now();
         void sync().catch((error) => {
-            console.error('[SearchView] Failed to sync viewport state:', error);
+            log.error('[SearchView] Failed to sync viewport state:', error);
         });
     }
 

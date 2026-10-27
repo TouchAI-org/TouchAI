@@ -5,6 +5,7 @@
     import { Input } from '@components/ui/input';
     import { createMcpServer, updateMcpServer } from '@database/queries';
     import type { DbTransportType, McpServerCreateData, McpServerEntity } from '@database/types';
+    import { log } from '@services/ObservabilityService';
     import { computed, onUnmounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -213,7 +214,7 @@
             await mcpStore.loadServers();
             emit('updated', wasNewServer);
         } catch (error) {
-            console.error('Failed to save server config:', error);
+            log.error('Failed to save server config:', error);
             emit('showAlert', t('settings.mcp.messages.saveFailed'), 'error');
         } finally {
             isSaving.value = false;

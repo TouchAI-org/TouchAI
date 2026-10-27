@@ -1,6 +1,7 @@
 // 副作用导入：确保所有标签插件在编辑器创建前完成注册
 import '../tags';
 
+import { log } from '@services/ObservabilityService';
 import { Editor } from '@tiptap/vue-3';
 import { type Ref, ref, shallowRef, watch } from 'vue';
 
@@ -507,7 +508,7 @@ export function useSearchInput(
                 syncAttachmentsToEditor(ed, normalizedSnapshot.attachments);
             });
         } catch (error) {
-            console.error(
+            log.error(
                 '[SearchBar] Failed to restore editor snapshot, fallback to plain text:',
                 error
             );

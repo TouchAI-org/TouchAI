@@ -1,6 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
-
 import '@styles/tailwind.css';
+
+import { log } from '@services/ObservabilityService';
 
 import { initializeApp } from './bootstrap';
 import { initializeDesktopShell } from './utils/windowChrome';
@@ -9,4 +10,4 @@ import { initializeDesktopShell } from './utils/windowChrome';
 initializeDesktopShell();
 
 // 运行应用初始化
-initializeApp().catch(console.error);
+initializeApp().catch((error) => log.error(error));

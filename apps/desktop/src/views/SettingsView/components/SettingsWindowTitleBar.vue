@@ -3,6 +3,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import { Tooltip, TooltipTrigger } from '@components/ui/tooltip';
+    import { log } from '@services/ObservabilityService';
     import type { UnlistenFn } from '@tauri-apps/api/event';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { onBeforeUnmount, onMounted, ref } from 'vue';
@@ -28,7 +29,7 @@
             const maximized = await currentWindow.isMaximized();
             if (!unmounted && revision === syncRevision) isWindowMaximized.value = maximized;
         } catch (error) {
-            console.warn('[SettingsWindowTitleBar] Failed to read window state:', error);
+            log.warn('[SettingsWindowTitleBar] Failed to read window state:', error);
         }
     };
 
@@ -44,7 +45,7 @@
                 void syncWindowMaximized();
             })
             .catch((error) => {
-                console.warn('[SettingsWindowTitleBar] Failed to listen for resize:', error);
+                log.warn('[SettingsWindowTitleBar] Failed to listen for resize:', error);
                 void syncWindowMaximized();
             });
     });

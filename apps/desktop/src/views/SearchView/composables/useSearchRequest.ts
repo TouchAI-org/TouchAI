@@ -5,6 +5,7 @@
 import { useAgent } from '@composables/agent';
 import type { SessionEntity } from '@database/types';
 import { notify } from '@services/NotificationService';
+import { log } from '@services/ObservabilityService';
 import { onUnmounted, type Ref, ref } from 'vue';
 
 import {
@@ -107,7 +108,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         }
 
         void refreshSessionList().catch((error) => {
-            console.error(
+            log.error(
                 '[SearchView] Failed to refresh session history after cache invalidation:',
                 error
             );
@@ -206,7 +207,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
 
             if (event.sessionId === currentSessionId.value) {
                 void dismissSessionTerminalStatus(event.sessionId).catch((error) => {
-                    console.error(
+                    log.error(
                         '[SearchView] Failed to dismiss active session terminal status:',
                         error
                     );
@@ -229,7 +230,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             stopSessionStatusListener = unlisten;
         })
         .catch((error) => {
-            console.error('[SearchView] Failed to subscribe session status events:', error);
+            log.error('[SearchView] Failed to subscribe session status events:', error);
         });
 
     onUnmounted(() => {
@@ -274,7 +275,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                 sessionList.value = sessions;
                 sessionListResolvedKey = requestKey;
             } catch (loadError) {
-                console.error('[SearchView] Failed to load session history:', loadError);
+                log.error('[SearchView] Failed to load session history:', loadError);
                 if (requestId === sessionListRequestId) {
                     sessionList.value = [];
                     sessionListResolvedKey = null;
@@ -452,7 +453,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             await dismissSessionTerminalStatus(sessionId);
             invalidateSessionListCache();
         } catch (error) {
-            console.error('[SearchView] Failed to dismiss session terminal status:', error);
+            log.error('[SearchView] Failed to dismiss session terminal status:', error);
         }
 
         return loadedSession;

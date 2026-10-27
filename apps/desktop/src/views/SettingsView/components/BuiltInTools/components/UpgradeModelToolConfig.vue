@@ -10,6 +10,7 @@
     import { findModelsWithProvider } from '@database/queries';
     import type { ModelWithProvider } from '@database/queries/models';
     import { AppEvent, eventService } from '@services/EventService';
+    import { log } from '@services/ObservabilityService';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
     import type { SortableEvent } from 'vue-draggable-plus';
     import { VueDraggable } from 'vue-draggable-plus';
@@ -387,7 +388,7 @@
         try {
             availableModels.value = await findModelsWithProvider();
         } catch (error) {
-            console.error('[UpgradeModelToolConfig] Failed to load models:', error);
+            log.error('[UpgradeModelToolConfig] Failed to load models:', error);
             availableModels.value = [];
         } finally {
             loading.value = false;

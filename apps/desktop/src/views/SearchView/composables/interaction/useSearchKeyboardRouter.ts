@@ -1,3 +1,5 @@
+import { log } from '@services/ObservabilityService';
+
 import type { SearchKeybindingActionId, SearchKeybindings } from '@/config/searchKeybindings';
 import { matchShortcut, normalizeLocalShortcutString } from '@/utils/shortcuts';
 
@@ -68,10 +70,10 @@ interface CreateSearchKeyboardRouterOptions {
 function runKeyboardEffect(effect: () => void | Promise<void>) {
     try {
         void Promise.resolve(effect()).catch((error) => {
-            console.error('[SearchKeyboardRouter] Failed to handle keyboard effect:', error);
+            log.error('[SearchKeyboardRouter] Failed to handle keyboard effect:', error);
         });
     } catch (error) {
-        console.error('[SearchKeyboardRouter] Failed to handle keyboard effect:', error);
+        log.error('[SearchKeyboardRouter] Failed to handle keyboard effect:', error);
     }
 }
 

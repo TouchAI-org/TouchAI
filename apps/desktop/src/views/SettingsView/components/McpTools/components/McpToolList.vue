@@ -10,6 +10,7 @@
     import { useListFilter } from '@composables/useListFilter';
     import { updateMcpTool } from '@database/queries';
     import type { McpServerEntity, McpToolEntity } from '@database/types';
+    import { log } from '@services/ObservabilityService';
     import { computed, onMounted, ref } from 'vue';
 
     import { t } from '@/i18n';
@@ -48,7 +49,7 @@
             loading.value = true;
             await mcpStore.loadServerTools(props.server.id);
         } catch (error) {
-            console.error('Failed to load tools:', error);
+            log.error('Failed to load tools:', error);
         } finally {
             loading.value = false;
         }
@@ -70,7 +71,7 @@
             // 通过 store 重新加载数据，而不是直接修改对象
             await mcpStore.loadServerTools(props.server.id);
         } catch (error) {
-            console.error('Failed to toggle tool:', error);
+            log.error('Failed to toggle tool:', error);
         }
     };
 

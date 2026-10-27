@@ -25,6 +25,7 @@
         type UsageTrendPoint,
     } from '@database/queries';
     import { AppEvent, eventService } from '@services/EventService';
+    import { log } from '@services/ObservabilityService';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -185,7 +186,7 @@
             modelRanking.value = nextModelRanking;
             sessionRanking.value = nextSessionRanking;
         } catch (error) {
-            console.error('[SettingsUsageSection] Failed to load usage stats:', error);
+            log.error('[SettingsUsageSection] Failed to load usage stats:', error);
             if (version === loadVersion && !disposed) loadError.value = true;
         } finally {
             if (version === loadVersion && !disposed) loading.value = false;

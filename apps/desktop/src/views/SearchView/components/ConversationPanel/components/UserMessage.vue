@@ -61,6 +61,7 @@
     import ActionButton from '@components/ActionButton.vue';
     import AppIcon from '@components/AppIcon.vue';
     import { notify } from '@services/NotificationService';
+    import { log } from '@services/ObservabilityService';
 
     import { t } from '@/i18n';
     import { clipboardService } from '@/services/ClipboardService';
@@ -77,7 +78,7 @@
             await clipboardService.writeText(props.message.content);
             notify({ title: 'TouchAI', body: t('notification.copy.copiedToClipboard') });
         } catch (error) {
-            console.error('[UserMessage] Failed to copy:', error);
+            log.error('[UserMessage] Failed to copy:', error);
             notify({ title: 'TouchAI', body: t('common.copyFailed') });
         }
     }

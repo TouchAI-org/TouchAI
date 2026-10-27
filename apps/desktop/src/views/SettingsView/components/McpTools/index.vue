@@ -9,6 +9,7 @@
     import { useScrollFade } from '@composables/useScrollFade';
     import { deleteMcpServer, updateMcpServer } from '@database/queries';
     import type { McpServerEntity } from '@database/types';
+    import { log } from '@services/ObservabilityService';
     import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
@@ -82,7 +83,7 @@
         try {
             await mcpStore.initialize();
         } catch (error) {
-            console.error('[McpToolsView] Failed to initialize MCP store:', error);
+            log.error('[McpToolsView] Failed to initialize MCP store:', error);
             alertMessage.value?.error(
                 getErrorMessage(error, t('settings.mcp.messages.loadFailed')),
                 6000
@@ -157,7 +158,7 @@
                                 selectedServer.value = mcpStore.serverById(serverId) ?? null;
                             }
                         } catch (error) {
-                            console.error('Failed to update server enabled status:', error);
+                            log.error('Failed to update server enabled status:', error);
                         }
                     }
                 }
@@ -193,7 +194,7 @@
                     togglingServers.value.add(newServer.id);
                     await mcpManager.connectServer(newServer);
                 } catch (error) {
-                    console.error('Failed to auto-connect new server:', error);
+                    log.error('Failed to auto-connect new server:', error);
                     alertMessage.value?.error(
                         t('settings.mcp.messages.autoConnectFailed', {
                             error: getErrorMessage(error),
@@ -247,7 +248,7 @@
                 try {
                     await mcpManager.connectServer(server);
                 } catch (error) {
-                    console.error('Failed to connect server:', error);
+                    log.error('Failed to connect server:', error);
                     alertMessage.value?.error(
                         t('settings.mcp.messages.connectFailed', {
                             error: getErrorMessage(error),
@@ -262,7 +263,7 @@
                     try {
                         await mcpManager.disconnectServer(serverId);
                     } catch (error) {
-                        console.error('Failed to disconnect server:', error);
+                        log.error('Failed to disconnect server:', error);
                         alertMessage.value?.error(
                             t('settings.mcp.messages.disconnectFailed'),
                             3000
@@ -281,7 +282,7 @@
                             selectedServer.value = mcpStore.serverById(serverId) ?? null;
                         }
                     } catch (error) {
-                        console.error('Failed to update server:', error);
+                        log.error('Failed to update server:', error);
                         alertMessage.value?.error(
                             t('settings.mcp.messages.updateStatusFailed'),
                             3000
@@ -291,7 +292,7 @@
                 }
             }
         } catch (error) {
-            console.error('Failed to toggle server:', error);
+            log.error('Failed to toggle server:', error);
             alertMessage.value?.error(t('settings.mcp.messages.toggleStatusFailed'), 3000);
             togglingServers.value.delete(serverId);
         }
@@ -356,7 +357,7 @@
             await mcpStore.loadServers();
             serverListRef.value?.loadServers();
         } catch (error) {
-            console.error('Failed to delete server:', error);
+            log.error('Failed to delete server:', error);
             alertMessage.value?.error(t('settings.mcp.messages.deleteFailed'), 3000);
         }
     };

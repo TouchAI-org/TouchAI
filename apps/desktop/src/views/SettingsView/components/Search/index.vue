@@ -5,6 +5,7 @@
     import { Input } from '@components/ui/input';
     import { Switch } from '@components/ui/switch';
     import { findBuiltInToolByToolId, updateBuiltInTool } from '@database/queries';
+    import { log } from '@services/ObservabilityService';
     import { storeToRefs } from 'pinia';
     import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
@@ -264,7 +265,7 @@
             toolRowId.value = tool?.id ?? null;
             toolEnabled.value = tool ? tool.enabled === 1 : true;
         } catch (error) {
-            console.error('[SearchSettings] Failed to load web_search tool state:', error);
+            log.error('[SearchSettings] Failed to load web_search tool state:', error);
         }
     }
 
@@ -283,7 +284,7 @@
             });
             toolEnabled.value = updated ? updated.enabled === 1 : nextEnabled;
         } catch (error) {
-            console.error('[SearchSettings] Failed to toggle web_search:', error);
+            log.error('[SearchSettings] Failed to toggle web_search:', error);
         } finally {
             savingToolEnabled.value = false;
         }
@@ -300,7 +301,7 @@
                 isSyncingFromStore = false;
             });
         } catch (error) {
-            console.error('[SearchSettings] Failed to save search settings:', error);
+            log.error('[SearchSettings] Failed to save search settings:', error);
             saveState.value = 'error';
         }
     }

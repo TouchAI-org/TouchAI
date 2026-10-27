@@ -1,3 +1,4 @@
+import { log } from '@services/ObservabilityService';
 import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -103,7 +104,7 @@ describe('user configures the built-in bash tool', () => {
 
     it('user gets an error from the picker swallowed and nothing changed', async () => {
         openMock.mockRejectedValue(new Error('dialog unavailable'));
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const errorSpy = vi.spyOn(log, 'error').mockImplementation(() => undefined);
         const wrapper = mountPanel();
 
         await defaultDirectoryButton(wrapper).trigger('click');
@@ -111,8 +112,8 @@ describe('user configures the built-in bash tool', () => {
         await Promise.resolve();
 
         expect(wrapper.emitted('update:modelValue')).toBeUndefined();
-        expect(consoleError).toHaveBeenCalled();
-        consoleError.mockRestore();
+        expect(errorSpy).toHaveBeenCalled();
+        errorSpy.mockRestore();
         wrapper.unmount();
     });
 

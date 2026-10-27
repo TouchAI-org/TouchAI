@@ -1,6 +1,7 @@
 import { type ContextMenuItem, useContextMenu } from '@composables/useContextMenu';
 import { clipboardService } from '@services/ClipboardService';
 import { native, type QuickShortcutItem } from '@services/NativeService';
+import { log } from '@services/ObservabilityService';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { computed, nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
@@ -174,7 +175,7 @@ function useQuickSearchFlow(
         try {
             await deps.quickSearch.getStatus();
         } catch (error) {
-            console.warn('[QuickSearchPanel] Failed to get status:', error);
+            log.warn('[QuickSearchPanel] Failed to get status:', error);
         }
     }
 
@@ -188,7 +189,7 @@ function useQuickSearchFlow(
         try {
             await deps.quickSearch.prepareIndex(force);
         } catch (error) {
-            console.warn('[QuickSearchPanel] Failed to prepare index:', error);
+            log.warn('[QuickSearchPanel] Failed to prepare index:', error);
         } finally {
             await refreshStatus();
         }
@@ -255,7 +256,7 @@ function useQuickSearchFlow(
             scheduleIconLoad(reqId, false);
             scheduleImageLoad(reqId, false);
         } catch (error) {
-            console.error('[QuickSearchPanel] Failed to search shortcuts:', error);
+            log.error('[QuickSearchPanel] Failed to search shortcuts:', error);
             if (reqId === requestId.value) {
                 close();
             }
@@ -392,13 +393,13 @@ function useQuickSearchFlow(
             try {
                 await revealItemInDir(item.path);
             } catch (error) {
-                console.error('[QuickSearchPanel] Failed to reveal in folder:', error);
+                log.error('[QuickSearchPanel] Failed to reveal in folder:', error);
             }
         } else if (key === 'copy-path') {
             try {
                 await clipboardService.writeText(item.path);
             } catch (error) {
-                console.error('[QuickSearchPanel] Failed to copy path:', error);
+                log.error('[QuickSearchPanel] Failed to copy path:', error);
             }
         }
     }
@@ -454,7 +455,7 @@ function useQuickSearchFlow(
         try {
             await deps.openPath(item.path);
         } catch (error) {
-            console.error('[QuickSearchPanel] Failed to open path:', error);
+            log.error('[QuickSearchPanel] Failed to open path:', error);
         }
     }
 
@@ -474,7 +475,7 @@ function useQuickSearchFlow(
         try {
             await deps.openPath(item.path);
         } catch (error) {
-            console.error('[QuickSearchPanel] Failed to open path:', error);
+            log.error('[QuickSearchPanel] Failed to open path:', error);
         }
     }
 
@@ -677,7 +678,7 @@ export function useQuickSearchLogic(
             assets.scheduleIconLoad(requestId.value, false);
             assets.scheduleImageLoad(requestId.value, false);
         } catch (error) {
-            console.error('[QuickSearchPanel] Failed to load more:', error);
+            log.error('[QuickSearchPanel] Failed to load more:', error);
         } finally {
             isLoadingMore.value = false;
         }

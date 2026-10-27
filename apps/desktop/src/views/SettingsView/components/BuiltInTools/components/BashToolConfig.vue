@@ -4,6 +4,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import { Input } from '@components/ui/input';
     import { Switch } from '@components/ui/switch';
+    import { log } from '@services/ObservabilityService';
     import { open } from '@tauri-apps/plugin-dialog';
 
     import { t } from '@/i18n';
@@ -71,7 +72,7 @@
             });
             return typeof picked === 'string' ? picked : null;
         } catch (error) {
-            console.error('[BashToolConfig] Failed to pick directory:', error);
+            log.error('[BashToolConfig] Failed to pick directory:', error);
             return null;
         }
     }

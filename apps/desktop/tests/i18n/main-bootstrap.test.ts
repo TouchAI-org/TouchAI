@@ -13,6 +13,7 @@
  */
 import { appUpdateService } from '@services/AppUpdateService';
 import { initializeAppUpdateNotifications } from '@services/AppUpdateService/notifications';
+import { log } from '@services/ObservabilityService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -98,8 +99,9 @@ vi.mock('@services/AppUpdateService/notifications', () => ({
     initializeAppUpdateNotifications: vi.fn(),
 }));
 
-vi.mock('@services/LoggerService', () => ({
-    initializeLogger: vi.fn(),
+vi.mock('@services/ObservabilityService', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@services/ObservabilityService')>()),
+    initObservability: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/api/window', () => ({
@@ -185,13 +187,13 @@ describe('user opens the main window', () => {
 
     it('user still gets a usable window when the saved settings cannot be loaded', async () => {
         mainWindowAt();
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const errorSpy = vi.spyOn(log, 'error').mockImplementation(() => {});
         settingsStoreMock.initialize.mockRejectedValue(new Error('settings unavailable'));
 
         await expect(initializeApp()).resolves.toBeUndefined();
 
         expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
-        consoleError.mockRestore();
+        errorSpy.mockRestore();
     });
 
     it('user gets the serif font prepared for the main window', async () => {
@@ -204,13 +206,13 @@ describe('user opens the main window', () => {
 
     it('user still gets a window when the built-in tool warm-up fails', async () => {
         mainWindowAt();
-        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
         toolServiceMock.syncRegisteredTools.mockRejectedValue(new Error('tool sync failed'));
 
         await expect(initializeApp()).resolves.toBeUndefined();
 
         expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
-        consoleWarn.mockRestore();
+        warn.mockRestore();
     });
 });
 
@@ -464,7 +466,7 @@ describe('user starts the app for the first time', () => {
     });
 
     it('user still gets a window when seeding bundled metadata fails', async () => {
-        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
         llmMetadataMock.isLlmMetadataEmpty.mockResolvedValue(true);
         metadataMock.seedModelMetadataFromSnapshot.mockRejectedValue(
             new Error('snapshot unavailable')
@@ -474,11 +476,11 @@ describe('user starts the app for the first time', () => {
         await expect(initializeApp()).resolves.toBeUndefined();
 
         expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
-        consoleWarn.mockRestore();
+        warn.mockRestore();
     });
 
     it('user still gets a window when the remote catalog check fails', async () => {
-        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
         metadataMock.refreshModelMetadataIfStale.mockRejectedValue(
             new Error('metadata unavailable')
         );
@@ -486,8 +488,8 @@ describe('user starts the app for the first time', () => {
 
         await startApp();
 
-        await vi.waitFor(() => expect(consoleWarn).toHaveBeenCalled());
-        consoleWarn.mockRestore();
+        await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+        warn.mockRestore();
     });
 
     it('user gets the remote catalog checked after the window is already usable', async () => {

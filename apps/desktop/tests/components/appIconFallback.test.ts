@@ -1,3 +1,4 @@
+import { log } from '@services/ObservabilityService';
 import { mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -22,7 +23,7 @@ describe('user sees an icon they asked for', () => {
     });
 
     it('user gets a placeholder when the name is not in the icon set', () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
 
         const unknown = renderedIcon('no-such-icon');
         const fallback = mount(appIconFallback).html();
@@ -34,7 +35,7 @@ describe('user sees an icon they asked for', () => {
     });
 
     it('user gets one warning for a missing icon however many times it renders', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
 
         const wrapper = mount(AppIcon, { props: { name: 'no-such-icon-either' as never } });
         await wrapper.setProps({ name: 'no-such-icon-either' as never });

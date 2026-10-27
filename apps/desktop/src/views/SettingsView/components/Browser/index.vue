@@ -6,6 +6,7 @@
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { Switch } from '@components/ui/switch';
+    import { log } from '@services/ObservabilityService';
     import { open } from '@tauri-apps/plugin-dialog';
     import { storeToRefs } from 'pinia';
     import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
@@ -324,7 +325,7 @@
             if (isUnmounted) {
                 return;
             }
-            console.error('[BrowserSettings] Failed to load default browser data path:', error);
+            log.error('[BrowserSettings] Failed to load default browser data path:', error);
             defaultBrowserDataPath.value = '';
         }
     }
@@ -407,7 +408,7 @@
                 draft.value.browserDataPath = picked;
             }
         } catch (error) {
-            console.error('[BrowserSettings] Failed to pick browser data path:', error);
+            log.error('[BrowserSettings] Failed to pick browser data path:', error);
         }
     }
 
@@ -424,7 +425,7 @@
                 draft.value.browserExecutablePath = picked;
             }
         } catch (error) {
-            console.error('[BrowserSettings] Failed to pick browser executable:', error);
+            log.error('[BrowserSettings] Failed to pick browser executable:', error);
         }
     }
 
@@ -439,7 +440,7 @@
                 isSyncingFromStore = false;
             });
         } catch (error) {
-            console.error('[BrowserSettings] Failed to save browser settings:', error);
+            log.error('[BrowserSettings] Failed to save browser settings:', error);
             saveState.value = 'error';
         }
     }

@@ -1,10 +1,10 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
-
 import { isLlmMetadataAliasEmpty, isLlmMetadataEmpty } from '@database/queries';
 import { appUpdateService } from '@services/AppUpdateService';
 import { initializeAppUpdateNotifications } from '@services/AppUpdateService/notifications';
 import { getNextAppUpdateCheckAt, isWithinAppUpdateHours } from '@services/AppUpdateService/timing';
-import { initializeLogger } from '@services/LoggerService';
+import { log } from '@services/ObservabilityService';
+import { initObservability } from '@services/ObservabilityService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { createPinia } from 'pinia';
@@ -126,7 +126,7 @@ function scheduleAppUpdateChecks(): void {
         const now = Date.now();
         if (isWithinAppUpdateHours(now)) {
             await appUpdateService.checkNow('automatic').catch((error) => {
-                console.warn('[AppUpdateService] Automatic update check failed:', error);
+                log.warn('[AppUpdateService] Automatic update check failed:', error);
             });
         }
 
@@ -140,7 +140,7 @@ function scheduleAppUpdateChecks(): void {
 
     void initializeAppUpdateNotifications()
         .catch((error) => {
-            console.warn('[AppUpdateService] Failed to initialize update notifications:', error);
+            log.warn('[AppUpdateService] Failed to initialize update notifications:', error);
         })
         .finally(runAndScheduleNextCheck);
 }
@@ -161,7 +161,7 @@ async function initializeModelMetadata(): Promise<void> {
             await import('./services/AgentService/infrastructure/modelMetadata');
         await syncAllModelsMetadata();
     } catch (error) {
-        console.warn('[Bootstrap] Failed to initialize model metadata:', error);
+        log.warn('[Bootstrap] Failed to initialize model metadata:', error);
     }
 }
 
@@ -175,7 +175,7 @@ function scheduleModelMetadataRefresh(): void {
         void import('./services/AgentService/infrastructure/modelMetadata')
             .then(({ refreshModelMetadataIfStale }) => refreshModelMetadataIfStale())
             .catch((error) => {
-                console.warn('[Bootstrap] Failed to refresh model metadata:', error);
+                log.warn('[Bootstrap] Failed to refresh model metadata:', error);
             });
     };
 
@@ -192,7 +192,7 @@ async function seedBundledModelMetadata(): Promise<void> {
             await import('./services/AgentService/infrastructure/modelMetadata');
         await seedModelMetadataFromSnapshot();
     } catch (error) {
-        console.warn('[Bootstrap] Failed to seed bundled model metadata:', error);
+        log.warn('[Bootstrap] Failed to seed bundled model metadata:', error);
     }
 }
 
@@ -201,7 +201,7 @@ async function syncBuiltInTools(): Promise<void> {
         const { builtInToolService } = await import('./services/BuiltInToolService/service');
         await builtInToolService.syncRegisteredTools();
     } catch (error) {
-        console.warn('[Bootstrap] Failed to sync built-in tools:', error);
+        log.warn('[Bootstrap] Failed to sync built-in tools:', error);
     }
 }
 
@@ -211,7 +211,7 @@ async function prewarmBuiltInBash(): Promise<void> {
             await import('./services/BuiltInToolService/tools/bash/helper');
         await prewarmBashToolRuntime();
     } catch (error) {
-        console.warn('[Bootstrap] Failed to prewarm built-in Bash runtime:', error);
+        log.warn('[Bootstrap] Failed to prewarm built-in Bash runtime:', error);
     }
 }
 
@@ -226,12 +226,12 @@ function scheduleUsageMaintenance(pinia: ReturnType<typeof createPinia>): void {
         const retentionDays = useSettingsStore(pinia).usageDetailRetentionDays;
         void runUsageMaintenance(retentionDays);
     } catch (error) {
-        console.warn('[Bootstrap] Failed to schedule usage maintenance:', error);
+        log.warn('[Bootstrap] Failed to schedule usage maintenance:', error);
     }
 }
 
 export async function initializeApp() {
-    initializeLogger();
+    initObservability();
     setupLinkInterceptor();
     document.addEventListener('contextmenu', (event) => event.preventDefault());
 
@@ -263,7 +263,7 @@ export async function initializeApp() {
     app.mount('#app');
 
     if (settingsInitializeError) {
-        console.error(
+        log.error(
             'Failed to initialize persisted settings during bootstrap.',
             settingsInitializeError
         );

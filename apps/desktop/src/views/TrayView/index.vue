@@ -4,6 +4,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import type { AppIconName } from '@components/appIconMap';
     import { native } from '@services/NativeService';
+    import { log } from '@services/ObservabilityService';
     import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
     import { exit } from '@tauri-apps/plugin-process';
     import { onMounted, onUnmounted } from 'vue';
@@ -49,7 +50,7 @@
                 closeTrayMenu();
             });
         } catch (error) {
-            console.error('[TrayMenu] Failed to setup focus listener:', error);
+            log.error('[TrayMenu] Failed to setup focus listener:', error);
         }
     });
 
@@ -69,7 +70,7 @@
         try {
             await native.window.showSearchWindow();
         } catch (error) {
-            console.error('[TrayMenu] Error showing main window:', error);
+            log.error('[TrayMenu] Error showing main window:', error);
         }
 
         closeTrayMenu().then(() => {});
@@ -80,12 +81,12 @@
             try {
                 native.window.openSettingsWindow().then();
             } catch (error) {
-                console.error('Failed to open settings:', error);
+                log.error('Failed to open settings:', error);
             }
 
             closeTrayMenu().then();
         } catch (error) {
-            console.error('Failed to open settings:', error);
+            log.error('Failed to open settings:', error);
         }
     }
 
@@ -93,7 +94,7 @@
         try {
             await exit(0);
         } catch (error) {
-            console.error('Failed to quit app:', error);
+            log.error('Failed to quit app:', error);
         }
 
         closeTrayMenu().then();
@@ -103,7 +104,7 @@
         try {
             native.window.closeTrayMenu().then();
         } catch (error) {
-            console.error('Failed to close tray menu:', error);
+            log.error('Failed to close tray menu:', error);
         }
     }
 </script>

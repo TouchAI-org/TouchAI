@@ -1,4 +1,5 @@
 import type { QuickShortcutItem } from '@services/NativeService';
+import { log } from '@services/ObservabilityService';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
@@ -296,7 +297,7 @@ describe('when the quick search panel loads icons and previews', () => {
     });
 
     it('user does not get endless icon retries after a lookup keeps failing', async () => {
-        const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
         const context = createLoaderContext({
             items: [createItem('Retry Me', 'D:/retry/me.txt', 'file')],
             deps: {
@@ -317,7 +318,7 @@ describe('when the quick search panel loads icons and previews', () => {
         await flushAsyncWork();
 
         expect(context.deps.getShortcutIcons).toHaveBeenCalledTimes(2);
-        expect(consoleWarnSpy).toHaveBeenCalledTimes(2);
+        expect(warnSpy).toHaveBeenCalledTimes(2);
 
         context.loader.resetLoadingState();
         context.loader.scheduleIconLoad(context.requestId.value, true);

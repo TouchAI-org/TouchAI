@@ -1,3 +1,4 @@
+import { log } from '@services/ObservabilityService';
 import { enableAutoUnmount, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, vi } from 'vitest';
 
@@ -104,7 +105,7 @@ describe('user navigates the settings sections', () => {
     });
 
     it('user handles external link opener failures without throwing', async () => {
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => {});
         openUrlMock.mockRejectedValueOnce(new Error('opener unavailable'));
         const wrapper = mount(NavigationSidebar, {
             props: {
