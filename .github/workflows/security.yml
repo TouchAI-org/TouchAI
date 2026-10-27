@@ -23,17 +23,49 @@ jobs:
         runs-on: ubuntu-latest
         outputs:
             docs_only: ${{ steps.classify.outputs.docs_only }}
+            rust_changed: ${{ steps.classify.outputs.rust_changed }}
         steps:
             - id: classify
-              name: Detect docs-only pull requests
+              name: Detect docs-only and Rust changes
               uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
               with:
                   script: |
+                      // CodeQL on Rust is the slowest check in the repository: it builds the
+                      // cargo workspace and then analyses the whole crate, which takes about
+                      // half an hour on a Windows runner. Most changes touch none of it, so
+                      // the language is analysed only when its own sources moved.
+                      //
+                      // This does not weaken the gate. Rust that did change is analysed in
+                      // full, exactly as before; what is skipped is re-scanning code that is
+                      // byte-identical to what was scanned on the previous commit. The weekly
+                      // schedule still analyses everything unconditionally, so anything that
+                      // slipped through here is caught there.
+                      const rustPatterns = [
+                        /^apps\/desktop\/src-tauri\/.*\.rs$/,
+                        /^apps\/desktop\/src-tauri\/Cargo\.toml$/,
+                        /^apps\/desktop\/src-tauri\/Cargo\.lock$/,
+                        /^apps\/desktop\/src-tauri\/build\.rs$/,
+                        /^rust-toolchain\.toml$/,
+                        /^apps\/desktop\/src-tauri\/tauri\.conf\.json$/,
+                        /^\.github\/workflows\/security\.yml$/,
+                      ];
+
+                      const setOutputs = (docsOnly, rustChanged) => {
+                        core.setOutput('docs_only', docsOnly);
+                        core.setOutput('rust_changed', rustChanged);
+                      };
+
+                      // A scheduled or manually dispatched run is the safety net, so it
+                      // analyses everything regardless of what changed.
                       if (context.eventName !== 'pull_request' && context.eventName !== 'push') {
-                        core.setOutput('docs_only', 'false');
+                        setOutputs('false', 'true');
                         return;
                       }
 
+                      // The classification below reads a file list. Whenever that list is
+                      // unavailable or truncated, the answer has to be "assume yes": an
+                      // empty list would otherwise look like "nothing changed" and silently
+                      // skip the analysis.
                       const docsOnlyPatterns = [
                         /^docs\//,
                         /^[^/]+\.md$/,
@@ -65,7 +97,7 @@ jobs:
                         const after = context.payload.after;
 
                         if (!before || !after || /^0+$/.test(before)) {
-                          core.setOutput('docs_only', 'false');
+                          setOutputs('false', 'true');
                           return;
                         }
 
@@ -79,23 +111,41 @@ jobs:
 
                         // GitHub truncates compareCommits file lists at 300 entries. Fall back to full CI when unsure.
                         if (files.length >= 300) {
-                          core.setOutput('docs_only', 'false');
+                          setOutputs('false', 'true');
                           return;
                         }
                       }
 
-                      const docsOnly =
-                        files.length > 0 &&
-                        files.every((file) => docsOnlyPatterns.some((pattern) => pattern.test(file.filename)));
+                      // An empty list means the API gave nothing to look at, not that the
+                      // change was empty.
+                      if (files.length === 0) {
+                        setOutputs('false', 'true');
+                        return;
+                      }
 
-                      core.setOutput('docs_only', docsOnly ? 'true' : 'false');
+                      const docsOnly = files.every((file) =>
+                        docsOnlyPatterns.some((pattern) => pattern.test(file.filename))
+                      );
+                      const rustChanged = files.some((file) =>
+                        rustPatterns.some((pattern) => pattern.test(file.filename))
+                      );
+
+                      setOutputs(docsOnly ? 'true' : 'false', rustChanged ? 'true' : 'false');
 
             - name: Report classification
-              run: echo "docs_only=${{ steps.classify.outputs.docs_only }}"
+              run: echo "docs_only=${{ steps.classify.outputs.docs_only }} rust_changed=${{ steps.classify.outputs.rust_changed }}"
 
     codeql:
         name: CodeQL (${{ matrix.language }})
         needs: changes
+        # The Rust analysis costs about half an hour, so it runs only when Rust moved.
+        # JavaScript and TypeScript are cheap, so they always run. `docs_only` still
+        # short-circuits both, as before.
+        #
+        # The check is repeated on every step rather than written once as a job-level
+        # `if:`: `matrix` is not available while a job's condition is evaluated, so the
+        # language cannot be named there. A skipped job would also report nothing at all,
+        # whereas these steps leave a readable "skipped" trace on the run.
         strategy:
             fail-fast: false
             matrix:
@@ -106,43 +156,79 @@ jobs:
                       os: windows-latest
         runs-on: ${{ matrix.os }}
         steps:
-            - name: Skip CodeQL for docs-only PRs
-              if: needs.changes.outputs.docs_only == 'true'
-              run: echo "CodeQL is not required for docs-only pull requests (${{ matrix.language }})."
+            - name: Decide whether this language has to be analysed
+              id: gate
+              env:
+                  DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+                  RUST_CHANGED: ${{ needs.changes.outputs.rust_changed }}
+                  LANGUAGE: ${{ matrix.language }}
+              run: |
+                  if [ "$DOCS_ONLY" = 'true' ]; then
+                      echo "run=false" >> "$GITHUB_OUTPUT"
+                      echo "CodeQL is not required for docs-only pull requests ($LANGUAGE)."
+                      exit 0
+                  fi
+
+                  if [ "$LANGUAGE" = 'rust' ] && [ "$RUST_CHANGED" != 'true' ]; then
+                      echo "run=false" >> "$GITHUB_OUTPUT"
+                      echo "No Rust sources changed, so the Rust analysis is skipped. It takes about half an hour, and the code it would scan is identical to the last commit that did touch it."
+                      exit 0
+                  fi
+
+                  echo "run=true" >> "$GITHUB_OUTPUT"
 
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              if: needs.changes.outputs.docs_only != 'true'
+              if: steps.gate.outputs.run == 'true'
 
             - name: Initialize CodeQL
-              if: needs.changes.outputs.docs_only != 'true'
+              if: steps.gate.outputs.run == 'true'
               uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
               with:
                   languages: ${{ matrix.language }}
 
             - name: Set up Node
-              if: needs.changes.outputs.docs_only != 'true' && matrix.language == 'rust'
+              if: steps.gate.outputs.run == 'true' && matrix.language == 'rust'
               uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
 
             - name: Set up pnpm
-              if: needs.changes.outputs.docs_only != 'true' && matrix.language == 'rust'
+              if: steps.gate.outputs.run == 'true' && matrix.language == 'rust'
               uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
 
             - name: Install Rust stable
-              if: needs.changes.outputs.docs_only != 'true' && matrix.language == 'rust'
+              if: steps.gate.outputs.run == 'true' && matrix.language == 'rust'
               uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
+            # The build below is a from-scratch compile of the whole cargo workspace on
+            # every run, and it dominates the job. The cache is keyed on the manifests and
+            # the toolchain rather than on the sources, because a cache that missed on any
+            # source edit would almost never hit: `cargo check` reuses the dependency graph
+            # regardless of what changed in this crate.
+            - name: Rust cache
+              if: steps.gate.outputs.run == 'true' && matrix.language == 'rust'
+              uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+              with:
+                  # The same directory `CI` writes to, so a checkout that ran the Rust
+                  # checks already has warm artifacts to hand.
+                  workspaces: apps/desktop/src-tauri -> ../../../rust-target/ci-check
+                  shared-key: codeql-rust
+                  # Only main may write the cache: a pull request that filled it would let
+                  # another pull request run against artifacts it never produced.
+                  save-if: ${{ github.ref == 'refs/heads/main' }}
+
             - name: Install dependencies
-              if: needs.changes.outputs.docs_only != 'true' && matrix.language == 'rust'
+              if: steps.gate.outputs.run == 'true' && matrix.language == 'rust'
               run: pnpm install --frozen-lockfile
 
             - name: Build Rust targets for analysis
-              if: needs.changes.outputs.docs_only != 'true' && matrix.language == 'rust'
+              if: steps.gate.outputs.run == 'true' && matrix.language == 'rust'
+              env:
+                  CARGO_TARGET_DIR: rust-target/ci-check
               run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets --profile ci-check
 
             - name: Analyze
-              if: needs.changes.outputs.docs_only != 'true'
+              if: steps.gate.outputs.run == 'true'
               uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
 
     audits:

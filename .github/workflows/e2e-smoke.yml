@@ -129,16 +129,22 @@ jobs:
                   echo "docs_only=${{ steps.classify.outputs.docs_only }}"
                   echo "desktop_changed=${{ steps.classify.outputs.desktop_changed }}"
 
-    desktop-e2e-smoke-windows:
-        name: Desktop E2E Smoke (Windows)
+    # The debug binary is the expensive part of the Windows suite: a from-scratch Tauri
+    # build of the cargo workspace. Building it here, once, is what lets the smoke tests
+    # and the visual comparison each run against the same artifact instead of paying for
+    # their own copy — and it is what will let a second consumer of the binary be added
+    # later without doubling the cost.
+    #
+    # The artifact is the built executable plus its bundled runtime resources, because the
+    # app resolves those relative to itself at startup.
+    build-windows:
+        name: Build Windows binary
         needs: changes
         if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.desktop_changed == 'true'
         runs-on: windows-latest
         env:
             TOUCHAI_CARGO_TARGET_DIR: apps/desktop/src-tauri/target/e2e
             TOUCHAI_E2E_CARGO_PROFILE: ci-check
-            # WebView2 150+ on GHA Windows needs explicit remote debugging for tauri-driver.
-            WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: --remote-debugging-port=9222 --enable-features=msEdgeDevToolsWdpRemoteDebugging --disable-gpu --no-sandbox --disable-dev-shm-usage
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -156,6 +162,63 @@ jobs:
               uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
               with:
                   workspaces: apps/desktop/src-tauri -> target/e2e
+
+            - name: Install frontend dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Build the debug binary
+              shell: pwsh
+              run: |
+                  # `run-e2e-command.mjs` builds inside `wdio`'s `onPrepare`, so the build
+                  # is invoked directly here rather than through the test command.
+                  pnpm exec tauri build --debug --no-bundle -- --profile ci-check
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "The Tauri debug build failed with exit code $LASTEXITCODE."
+                  }
+
+            - name: Upload the binary
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: desktop-debug-binary
+                  # `bundle.resources` is empty in `tauri.conf.json`, so the executable is
+                  # the whole artifact. The glob is used rather than a fixed path because
+                  # the profile directory name follows `--profile`, and pinning it here
+                  # would break the moment the profile changes.
+                  path: apps/desktop/src-tauri/target/e2e/*/TouchAI.exe
+                  if-no-files-found: error
+                  retention-days: 1
+
+    desktop-e2e-smoke-windows:
+        name: Desktop E2E Smoke (Windows)
+        needs: [changes, build-windows]
+        if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.desktop_changed == 'true'
+        runs-on: windows-latest
+        env:
+            TOUCHAI_CARGO_TARGET_DIR: apps/desktop/src-tauri/target/e2e
+            TOUCHAI_E2E_CARGO_PROFILE: ci-check
+            # The build already happened in `build-windows`; rebuilding it here would
+            # double the most expensive step in the workflow.
+            TOUCHAI_E2E_SKIP_BUILD: '1'
+            # WebView2 150+ on GHA Windows needs explicit remote debugging for tauri-driver.
+            WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: --remote-debugging-port=9222 --enable-features=msEdgeDevToolsWdpRemoteDebugging --disable-gpu --no-sandbox --disable-dev-shm-usage
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
+
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+              with:
+                  node-version: 22
+                  package-manager-cache: false
+
+            - name: Install Rust stable
+              uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+            - name: Download the binary
+              uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+              with:
+                  name: desktop-debug-binary
+                  path: apps/desktop/src-tauri/target/e2e/ci-check
 
             - name: Install frontend dependencies
               run: pnpm install --frozen-lockfile
@@ -346,17 +409,20 @@ jobs:
                   DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
                   DESKTOP_CHANGED: ${{ needs.changes.outputs.desktop_changed }}
                   CHANGES_RESULT: ${{ needs.changes.result }}
+                  BUILD_RESULT: ${{ needs.build-windows.result }}
                   DESKTOP_E2E_RESULT: ${{ needs['desktop-e2e-smoke-windows'].result }}
               run: |
                   required=("changes:$CHANGES_RESULT")
 
                   if [ "$DOCS_ONLY" != "true" ] && [ "$DESKTOP_CHANGED" = "true" ]; then
+                    required+=("build-windows:$BUILD_RESULT")
                     required+=("desktop-e2e-smoke-windows:$DESKTOP_E2E_RESULT")
                   fi
 
                   failed=0
                   observed=(
                     "changes:$CHANGES_RESULT"
+                    "build-windows:$BUILD_RESULT"
                     "desktop-e2e-smoke-windows:$DESKTOP_E2E_RESULT"
                   )
 
