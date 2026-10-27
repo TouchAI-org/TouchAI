@@ -2,7 +2,6 @@
 import { native } from '@services/NativeService';
 import type { DatabaseQueryMethod } from '@services/NativeService/database';
 import { log } from '@services/ObservabilityService';
-import { DefaultLogger } from 'drizzle-orm/logger';
 import { createTableRelationsHelpers, extractTablesRelationalConfig } from 'drizzle-orm/relations';
 import { SQLiteAsyncDialect } from 'drizzle-orm/sqlite-core/dialect';
 import { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy/driver';
@@ -10,6 +9,7 @@ import { SQLiteProxyTransaction, SQLiteRemoteSession } from 'drizzle-orm/sqlite-
 
 import type { SqlValue } from './schema';
 import * as schema from './schema';
+import { createSqlLogger } from './sqlLogger';
 
 type ProxyQueryResult = { rows: unknown[] };
 type ProxyQueryCallback = (
@@ -339,7 +339,7 @@ function createSchemaConfig() {
  */
 export function createDrizzleDb(): DrizzleDb {
     const dialect = new SQLiteAsyncDialect();
-    const logger = import.meta.env.DEV ? new DefaultLogger() : undefined;
+    const logger = import.meta.env.DEV ? createSqlLogger() : undefined;
     const relationalSchema = createSchemaConfig();
     const session = new SQLiteRemoteSession(
         createRuntimeQueryCallback(),
