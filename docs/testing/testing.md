@@ -157,7 +157,7 @@ apps/desktop/src-tauri/tests/ # Rust integration / command tests
 
 **Desktop E2E.** Critical cross-layer flows only (launch, search, settings). Do not use E2E for logic unit tests already cover reliably.
 
-**Visual regression.** Two layers of PNG baselines: component primitives (`pnpm test:visual` — Storybook + Playwright) and application windows (`pnpm test:e2e`). Both compare against committed baselines under `apps/desktop/tests/visual/__snapshots__/` and `apps/desktop/e2e-tests/__snapshots__/`, and both run only in CI: rendering differs by OS, DPI and browser build, so a baseline made on a developer machine fails on the runner for reasons unrelated to the change. When a difference is intended, comment `/approve-visuals` on the pull request to regenerate and commit it there; never regenerate automatically, or the baseline records whatever the code does and stops catching regressions.
+**Visual regression.** Component primitives (`pnpm test:visual`) and application windows (`pnpm test:e2e`) are compared against committed PNG baselines in CI; regenerate an intended difference with `/approve-visuals` on the pull request.
 
 ## Naming Tests
 
