@@ -27,11 +27,21 @@ function now(): number {
 
 function globalEnabled(): boolean {
     if (typeof window === 'undefined') {
-        return true;
+        return false;
     }
 
-    const globalWithFlag = window as Window & { __TOUCHAI_PERF_ENABLED__?: boolean };
-    return globalWithFlag.__TOUCHAI_PERF_ENABLED__ !== false;
+    // 默认只在开发构建启用：生产环境不采样、不占用主线程；
+    // 需要时可用 `window.__TOUCHAI_PERF_ENABLED__ = true` 临时打开。
+    if (import.meta.env.DEV) {
+        const devFlag = (window as Window & { __TOUCHAI_PERF_ENABLED__?: boolean })
+            .__TOUCHAI_PERF_ENABLED__;
+        return devFlag !== false;
+    }
+
+    return (
+        (window as Window & { __TOUCHAI_PERF_ENABLED__?: boolean }).__TOUCHAI_PERF_ENABLED__ ===
+        true
+    );
 }
 
 export interface PerfTraceHandle {

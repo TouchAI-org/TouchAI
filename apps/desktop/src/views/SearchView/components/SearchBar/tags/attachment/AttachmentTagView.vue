@@ -9,6 +9,7 @@
         class="search-tag-chip search-tag-chip--attachment"
         :class="{
             'search-tag-chip--image': isImage,
+            'search-tag-chip--pending': isPendingPaste,
             'search-tag-range-selected': isRangeSelected,
             'search-tag-chip--unsupported': isUnsupported,
         }"
@@ -64,6 +65,10 @@
 
     const fileName = computed(() => props.node.attrs.fileName || 'file');
     const isImage = computed(() => props.node.attrs.fileType === 'image');
+    // 粘贴中的临时占位：附件尚未落盘，图片可能还没解码。
+    const isPendingPaste = computed(() =>
+        String(props.node.attrs.attachmentId ?? '').startsWith('pending:')
+    );
     const truncatedName = computed(() => {
         const name = fileName.value;
         return name.length > 12 ? name.slice(0, 10) + '…' : name;
@@ -130,6 +135,27 @@
         border-radius: 0.25rem;
         object-fit: cover;
         pointer-events: none;
+    }
+
+    /* 粘贴占位：落盘前先用灰底流光占位，避免看起来"没反应"。 */
+    .search-tag-chip--pending {
+        background-image: linear-gradient(
+            90deg,
+            var(--color-gray-200) 0%,
+            var(--color-gray-100) 50%,
+            var(--color-gray-200) 100%
+        );
+        background-size: 200% 100%;
+        animation: search-tag-pending-shimmer 1.2s ease-in-out infinite;
+    }
+
+    @keyframes search-tag-pending-shimmer {
+        from {
+            background-position: 100% 0;
+        }
+        to {
+            background-position: -100% 0;
+        }
     }
 
     .search-tag-label--attachment {

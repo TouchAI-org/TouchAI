@@ -28,10 +28,31 @@
 
     const hostRef = ref<HTMLElement | null>(null);
     let renderer: WidgetRenderer | null = null;
+
+    // 仅开发用：记录 widget 挂载/卸载/渲染事件，便于排查流式中的闪烁。
+    function debugWidgetEvent(event: string, payload: Record<string, unknown> = {}) {
+        if (!import.meta.env.DEV) {
+            return;
+        }
+
+        const target = window as Window & {
+            __TOUCHAI_WIDGET_DEBUG__?: Array<Record<string, unknown>>;
+        };
+        const entries = (target.__TOUCHAI_WIDGET_DEBUG__ ??= []);
+        entries.push({ at: Date.now(), event, widgetId: props.widget.widgetId, ...payload });
+        if (entries.length > 200) {
+            entries.splice(0, entries.length - 200);
+        }
+    }
+
     /**
      * 直接把每次 widget 更新交给 renderer，避免 UI 层二次节流后打乱流式节奏。
      */
     function renderCurrentWidget() {
+        debugWidgetEvent('render', {
+            htmlLength: props.widget.html?.length ?? 0,
+            phase: props.widget.phase,
+        });
         renderer?.render({
             widgetId: props.widget.widgetId,
             title: props.widget.title,
@@ -61,10 +82,12 @@
         }
 
         renderer = createWidgetRenderer(hostRef.value);
+        debugWidgetEvent('mount');
         renderCurrentWidget();
     });
 
     onUnmounted(() => {
+        debugWidgetEvent('unmount');
         renderer?.destroy();
         renderer = null;
     });
