@@ -473,6 +473,24 @@
         }
     );
 
+    /**
+     * 开发期埋点：记录一次会话首屏从数据到首帧稳定布局的耗时。
+     *
+     * 打开长会话卡顿时，这个值与 `[history-open]` 一起能区分是「取数」还是「渲染」。
+     */
+    function logFirstRenderCost(messageCount: number) {
+        const startedAt = performance.now();
+        void nextTick(() => {
+            requestAnimationFrame(() => {
+                console.warn('[chat-render]', {
+                    messages: messageCount,
+                    mounted: renderedMessages.value.length,
+                    ms: Math.round(performance.now() - startedAt),
+                });
+            });
+        });
+    }
+
     // 重置自动滚动状态
     watch(
         () => props.messages.map((message) => message.id),
@@ -490,6 +508,9 @@
             // 只有尾部追加才可能代表新一轮提问；
             // 向顶部加载历史页（prepend）不能改变跟随状态，否则刚上滚的视图会被拉回底部。
             if (change !== 'append') {
+                if (change === 'replace' && import.meta.env.DEV) {
+                    logFirstRenderCost(nextIds.length);
+                }
                 return;
             }
 
