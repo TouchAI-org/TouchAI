@@ -28,7 +28,6 @@ export interface SearchBarHandle {
     loadActiveModel: () => void | Promise<void>;
 
     insertTextAtCursor: (text: string) => void;
-    removeAttachmentTagById: (attachmentId: string) => void;
     insertAttachmentAtCursor: (
         attachmentId: string,
         fileName: string,

@@ -106,6 +106,14 @@ export function useSessionHistoryPopup(options: UseSessionHistoryPopupOptions) {
             hasActivePopupSession = true;
             isOpen.value = true;
             onPopupSessionStart?.(identity);
+
+            // 弹层已就绪后立即补一次数据：show 期间的初始快照可能过期
+            // （例如打开瞬间列表仍在加载），不补会让弹层卡在"正在搜索"。
+            try {
+                await popupManager.updateData(getPopupData());
+            } catch (error) {
+                console.error('[SearchView] Failed to sync history popup data:', error);
+            }
         } catch (error) {
             activePopupId = null;
             hasActivePopupSession = false;

@@ -62,7 +62,7 @@
     import type { Index } from '@/services/AgentService/infrastructure/attachments';
 
     import { type ModelCapabilities, useSearchInput } from './composables/useSearchLogic';
-    import { insertAttachmentTag, removeAttachmentTag } from './tags/attachment';
+    import { insertAttachmentTag } from './tags/attachment';
     import type { SearchCursorContext, SearchModelOverride } from './types';
     import {
         insertPlainTextAtSelection,
@@ -314,22 +314,6 @@
         }
     }
 
-    /**
-     * 移除指定附件标签（用于粘贴中的临时占位标签）。
-     */
-    function removeAttachmentTagById(attachmentId: string) {
-        const ed = editor.value;
-        if (!ed) {
-            return;
-        }
-
-        try {
-            removeAttachmentTag(ed, attachmentId);
-        } catch (error) {
-            console.error('Failed to remove attachment tag:', error);
-        }
-    }
-
     defineExpose({
         prefetchModelDropdownData,
         invalidateModelDropdownData,
@@ -341,7 +325,6 @@
         loadActiveModel,
         insertTextAtCursor,
         insertAttachmentAtCursor,
-        removeAttachmentTagById,
         captureInputHistorySnapshot,
         restoreInputHistorySnapshot,
     });

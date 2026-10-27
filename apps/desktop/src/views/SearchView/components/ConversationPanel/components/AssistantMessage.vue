@@ -333,10 +333,14 @@ import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
             if (part.type === 'widget') {
                 // 流式草稿阶段 widgetId 可能还停在 callId 上；用 callId 回退，
                 // 避免 id 切换瞬间把部件过滤掉造成整块闪现。
+                // 回退只在候选确实有内容时成立：用空 html 的候选去渲染会把已画好的部件清空。
                 const widget =
                     widgetMap.get(part.widgetId) ??
                     (props.message.widgets ?? []).find(
-                        (candidate) => candidate.callId === part.widgetId
+                        (candidate) =>
+                            candidate.callId === part.widgetId &&
+                            typeof candidate.html === 'string' &&
+                            candidate.html.length > 0
                     );
                 if (widget) {
                     parts.push({

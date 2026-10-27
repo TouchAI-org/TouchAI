@@ -673,51 +673,6 @@
     }
 
     // 粘贴中的临时占位标签（真实附件写入磁盘前先给用户反馈）。
-    const pendingPasteChips = new Map<string, string | null>();
-
-    function insertPendingPasteChips(clipboardData?: DataTransfer | null): string[] {
-        const files = Array.from(clipboardData?.items ?? [])
-            .filter((item) => item.kind === 'file')
-            .map((item) => item.getAsFile())
-            .filter((file): file is File => file !== null);
-        if (files.length === 0) {
-            return [];
-        }
-
-        const ids: string[] = [];
-        for (const file of files) {
-            const isImage = file.type.startsWith('image/');
-            const id = `pending:${crypto.randomUUID()}`;
-            const previewUrl = isImage ? URL.createObjectURL(file) : null;
-            pendingPasteChips.set(id, previewUrl);
-            ids.push(id);
-            searchBar.value?.insertAttachmentAtCursor(
-                id,
-                file.name ||
-                    t(
-                        isImage
-                            ? 'conversation.attachment.unnamedImage'
-                            : 'conversation.attachment.unnamedFile'
-                    ),
-                isImage ? 'image' : 'file',
-                previewUrl ?? undefined
-            );
-        }
-
-        return ids;
-    }
-
-    function clearPendingPasteChips(ids: string[]): void {
-        for (const id of ids) {
-            searchBar.value?.removeAttachmentTagById(id);
-            const previewUrl = pendingPasteChips.get(id);
-            if (previewUrl) {
-                URL.revokeObjectURL(previewUrl);
-            }
-            pendingPasteChips.delete(id);
-        }
-    }
-
     async function handlePagePaste(event: ClipboardEvent) {
         if (pendingToolApproval.value) {
             event.preventDefault();
@@ -729,11 +684,8 @@
         event.preventDefault();
         event.stopPropagation();
 
-        // 先同步插入占位标签，让粘贴立刻有反馈；真实附件落盘后替换。
-        const pendingChipIds = insertPendingPasteChips(event.clipboardData);
         const payload = await clipboardService.readExplicitPastePayload(event.clipboardData);
         if (!payload) {
-            clearPendingPasteChips(pendingChipIds);
             return;
         }
 
@@ -752,7 +704,6 @@
 
         if (clipboardPayloadHasAttachmentFragments(payload)) {
             await insertClipboardPayloadAtCursor(payload);
-            clearPendingPasteChips(pendingChipIds);
             return;
         }
 
@@ -787,8 +738,6 @@
                 log.error(`Failed to insert ${type} attachment:`, error);
             }
         }
-
-        clearPendingPasteChips(pendingChipIds);
     }
 
     async function insertClipboardPayloadAtCursor(payload: ClipboardPayload) {

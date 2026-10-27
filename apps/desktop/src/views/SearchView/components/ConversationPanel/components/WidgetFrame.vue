@@ -46,6 +46,30 @@
     }
 
     /**
+     * 仅开发用：把 widget 每次渲染的关键尺寸打进 console，便于从 Rust 日志追踪。
+     */
+    function logWidgetDiagnostics(stage: string) {
+        if (!import.meta.env.DEV) {
+            return;
+        }
+
+        const host = hostRef.value;
+        const root = host?.querySelector<HTMLElement>('[data-touchai-widget-root="true"]');
+        const hostRect = host?.getBoundingClientRect();
+        const rootRect = root?.getBoundingClientRect();
+        console.warn('[widget-diag]', {
+            stage,
+            widgetId: props.widget.widgetId,
+            phase: props.widget.phase,
+            htmlLength: props.widget.html?.length ?? 0,
+            hostSize: hostRect ? [Math.round(hostRect.width), Math.round(hostRect.height)] : null,
+            rootSize: rootRect ? [Math.round(rootRect.width), Math.round(rootRect.height)] : null,
+            rootChildren: root?.childElementCount ?? -1,
+            hostOverflow: host ? getComputedStyle(host).overflow : null,
+        });
+    }
+
+    /**
      * 直接把每次 widget 更新交给 renderer，避免 UI 层二次节流后打乱流式节奏。
      */
     function renderCurrentWidget() {
@@ -60,6 +84,7 @@
             html: props.widget.html,
             phase: props.widget.phase,
         });
+        logWidgetDiagnostics('render');
     }
 
     watch(
@@ -84,6 +109,7 @@
         renderer = createWidgetRenderer(hostRef.value);
         debugWidgetEvent('mount');
         renderCurrentWidget();
+        requestAnimationFrame(() => logWidgetDiagnostics('mounted-frame'));
     });
 
     onUnmounted(() => {

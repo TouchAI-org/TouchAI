@@ -20,6 +20,8 @@ import {
 
 const DEFAULT_ESTIMATE_HEIGHT = 140;
 const DEFAULT_OVERSCAN_PX = 600;
+/** 钉住目标消息的最长时间；正常跳转在下一帧就会释放。 */
+const PIN_TIMEOUT_MS = 2000;
 
 export interface UseMessageWindowingOptions {
     container: Ref<HTMLElement | null>;
@@ -42,9 +44,11 @@ export interface UseMessageWindowingOptions {
 export function useMessageWindowing(options: UseMessageWindowingOptions) {
     const measuredHeights = new Map<string, number>();
     const version = ref(0);
+    const pinnedMessageId = ref<string | null>(null);
     const observedTargets = new Map<HTMLElement, () => void>();
     let itemObserver: ResizeObserver | null = null;
     let containerObserver: ResizeObserver | null = null;
+    let pinTimer: ReturnType<typeof setTimeout> | null = null;
 
     const heights = computed(() => {
         void version.value;
@@ -68,11 +72,17 @@ export function useMessageWindowing(options: UseMessageWindowingOptions) {
             };
         }
 
+        const pinnedId = pinnedMessageId.value;
+        const pinnedIndex = pinnedId
+            ? options.messages.value.findIndex((message) => message.id === pinnedId)
+            : -1;
+
         return computeMessageWindow({
             offsets: offsets.value,
             scrollTop: options.scrollTop.value,
             viewportHeight: options.clientHeight.value,
             overscanPx: options.overscanPx ?? DEFAULT_OVERSCAN_PX,
+            pinnedIndex: pinnedIndex >= 0 ? pinnedIndex : null,
         });
     });
 
@@ -200,7 +210,37 @@ export function useMessageWindowing(options: UseMessageWindowingOptions) {
         return offsets.value[index] ?? null;
     }
 
+    /**
+     * 把指定消息钉进渲染区间。
+     *
+     * 时间轴跳转的目标可能不在当前窗口内，只有先渲染出来才能拿到真实高度，
+     * 否则按估值累加定位会越来越偏。超时自动释放，避免任何情况下窗口卡在钉住状态。
+     */
+    function pinMessage(messageId: string, timeoutMs = PIN_TIMEOUT_MS): void {
+        pinnedMessageId.value = messageId;
+        if (pinTimer !== null) {
+            clearTimeout(pinTimer);
+        }
+        pinTimer = setTimeout(() => {
+            pinTimer = null;
+            pinnedMessageId.value = null;
+        }, timeoutMs);
+    }
+
+    /** 释放钉住状态（跳转定位完成后调用）。 */
+    function releasePin(): void {
+        if (pinTimer !== null) {
+            clearTimeout(pinTimer);
+            pinTimer = null;
+        }
+        pinnedMessageId.value = null;
+    }
+
     onUnmounted(() => {
+        if (pinTimer !== null) {
+            clearTimeout(pinTimer);
+            pinTimer = null;
+        }
         itemObserver?.disconnect();
         containerObserver?.disconnect();
         observedTargets.clear();
@@ -212,5 +252,7 @@ export function useMessageWindowing(options: UseMessageWindowingOptions) {
         totalHeight,
         registerMessageElement,
         messageOffsetTop,
+        pinMessage,
+        releasePin,
     };
 }
