@@ -37,6 +37,15 @@ import {
 
 const tauriFetch = createTauriFetch();
 
+/** 已取消时尽早抛出，避免继续进行不可中断的同步解析。 */
+function throwIfAborted(signal: AbortSignal): void {
+    if (signal.aborted) {
+        throw signal.reason instanceof Error
+            ? signal.reason
+            : new DOMException('WebFetch request aborted', 'AbortError');
+    }
+}
+
 class WebFetchControlError extends Error {}
 
 function toErrorMessage(error: unknown): string {
@@ -217,6 +226,10 @@ export async function executeWebFetchTool(
             contentType
         );
         const truncatedStructuredText = truncateContent(normalizedStructuredText, request.maxChars);
+
+        // HTML 解析（DOMParser/Readability/Turndown）是同步且不可中断的；
+        // 解析前后各检查一次取消，避免已中止/已超时的请求把结果写回 UI。
+        throwIfAborted(signal);
         const payload = isHtmlContentType(contentType)
             ? {
                   ...extractHtmlContent(normalizedResponseText, request),
@@ -228,6 +241,7 @@ export async function executeWebFetchTool(
                   bodyTruncated: truncatedStructuredText.bodyTruncated,
                   sourceTruncated: sourcePayload.sourceTruncated,
               };
+        throwIfAborted(signal);
 
         const result = formatFetchResult(request, response, contentType, payload);
         if (!response.ok) {
