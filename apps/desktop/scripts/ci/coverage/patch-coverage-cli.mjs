@@ -36,6 +36,31 @@ const DEFAULT_FLOOR = 85;
 /** Source files only: tests and config are not the thing being measured. */
 const IGNORED = [/^apps\/desktop\/tests\//, /^apps\/desktop\/scripts\//, /\.d\.ts$/, /^docs\//];
 
+/**
+ * Mirrors `coverage.exclude` in `vitest.config.ts`.
+ *
+ * The gate must not demand coverage for a file the suite refuses to measure. Such a file
+ * is absent from the report, and the gate reads an absent file as "nothing ever loaded
+ * it", so every changed line counts as uncovered — a number that was never produced. That
+ * is not a hypothetical: it failed every pull request that touched a story, an `index.vue`
+ * or `main.ts`, which is most of them.
+ *
+ * The list is duplicated rather than imported because one side wants globs for picomatch
+ * and the other wants patterns to test against repository-relative paths. Keep the two in
+ * step; `tests/ci/patchCoverage.test.ts` pins the shapes that matter.
+ */
+const COVERAGE_EXCLUDED = [
+    /^apps\/desktop\/src\/main\.ts$/,
+    /^apps\/desktop\/src\/router\//,
+    /^apps\/desktop\/src\/assets\//,
+    /^apps\/desktop\/src\/styles\//,
+    /^apps\/desktop\/src\/(?:.*\/)?index\.vue$/,
+    /^apps\/desktop\/src\/components\/appIconMap\.ts$/,
+    /\.stories\.ts$/,
+];
+
+const SKIPPED = [...IGNORED, ...COVERAGE_EXCLUDED];
+
 function readOption(argv, index, name) {
     const value = argv[index + 1];
     if (value === undefined || value.startsWith('--')) {
@@ -168,7 +193,7 @@ export function runPatchCoverage(options, { readDiff: diff = readDiff, resolveBa
 
     const result = measurePatchCoverage(changed, report, {
         repoRoot: options.root,
-        ignore: (path) => IGNORED.some((pattern) => pattern.test(path)),
+        ignore: (path) => SKIPPED.some((pattern) => pattern.test(path)),
     });
 
     const markdown = formatPatchCoverage(result, options.floor);

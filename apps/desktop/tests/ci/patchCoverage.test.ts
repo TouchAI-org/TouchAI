@@ -259,3 +259,78 @@ describe('when the base is empty', () => {
         ).toThrow(/Missing --base/);
     });
 });
+
+/**
+ * The diff keys are repository-relative and the report keys are absolute. `repoRoot` is
+ * whatever the caller passes, and the only value that would make the prefix exact is the
+ * absolute checkout path, which differs per machine. When the two shapes are not bridged,
+ * every lookup misses and every changed line is reported as uncovered — a whole pull
+ * request failing on a number the report contradicts.
+ */
+describe('when the report is keyed by absolute path and the diff by repository path', () => {
+    it('user gets the file measured instead of counted as entirely uncovered', () => {
+        const changed = new Map([['apps/desktop/src/views/panel.ts', new Set([4, 5])]]);
+        const report = {
+            '/home/runner/work/TouchAI/TouchAI/apps/desktop/src/views/panel.ts': coverageFor(
+                [4, 5],
+                { covered: [4, 5] }
+            ),
+        };
+
+        // `apps/desktop` is what the workflow passes, and it is the value that used to make
+        // the lookup miss.
+        const result = measurePatchCoverage(changed, report, { repoRoot: 'apps/desktop' });
+
+        expect(result).toMatchObject({ total: 2, covered: 2, percent: 100 });
+    });
+
+    it('user still gets a file that no test loaded counted as uncovered', () => {
+        const changed = new Map([['apps/desktop/src/views/never-imported.ts', new Set([1])]]);
+
+        const result = measurePatchCoverage(changed, {}, { repoRoot: 'apps/desktop' });
+
+        // The suffix match must not turn "absent from the report" into a pass.
+        expect(result).toMatchObject({ total: 1, covered: 0, percent: 0 });
+    });
+});
+
+/**
+ * A file the coverage config excludes never appears in the report, which the gate would
+ * otherwise read as "nothing loaded it". Requiring coverage the suite refuses to measure
+ * fails every pull request that touches one of these files.
+ */
+describe('when the change touches a file the coverage config excludes', () => {
+    const excludedPaths = [
+        'apps/desktop/src/views/SearchView/index.vue',
+        'apps/desktop/src/components/ui/badge/Badge.stories.ts',
+        'apps/desktop/src/main.ts',
+        'apps/desktop/src/router/index.ts',
+    ];
+
+    it('user is not asked to cover a file the suite does not measure', async () => {
+        const { runPatchCoverage } =
+            await import('../../scripts/ci/coverage/patch-coverage-cli.mjs');
+        const { mkdtempSync, writeFileSync } = await import('node:fs');
+        const { tmpdir } = await import('node:os');
+        const { join } = await import('node:path');
+
+        const dir = mkdtempSync(join(tmpdir(), 'patch-cov-'));
+        const reportPath = join(dir, 'coverage-final.json');
+        writeFileSync(reportPath, '{}', 'utf8');
+
+        const diff = excludedPaths
+            .map(
+                (path) =>
+                    `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -0,0 +1,3 @@\n+one\n+two\n+three\n`
+            )
+            .join('');
+
+        const { result } = runPatchCoverage(
+            { coveragePath: reportPath, base: 'main-tip', root: 'apps/desktop', floor: 85 },
+            { resolveBase: () => 'main-tip', readDiff: () => diff }
+        );
+
+        expect(result.total).toBe(0);
+        expect(result.files).toEqual([]);
+    });
+});

@@ -116,13 +116,46 @@ export function measurePatchCoverage(changedLines, coverageReport, options = {})
     const trimmedRoot = normalise(repoRoot).replace(/^\.\//, '').replace(/^\.$/, '').replace(/\/$/, '');
     const prefix = trimmedRoot ? `/${trimmedRoot}/` : null;
     const byRelativePath = new Map();
+    const normalisedEntries = [];
     for (const [absolute, fileCoverage] of Object.entries(coverageReport)) {
         const normalisedAbsolute = normalise(absolute);
         const index = prefix ? normalisedAbsolute.lastIndexOf(prefix) : -1;
         const relative =
             index >= 0 ? normalisedAbsolute.slice(index + prefix.length) : normalisedAbsolute;
         byRelativePath.set(relative, fileCoverage);
+        normalisedEntries.push([normalisedAbsolute, fileCoverage]);
     }
+
+    /**
+     * Finds a changed file's entry in the report.
+     *
+     * `repoRoot` alone cannot bridge the two shapes. The diff keys are repository-relative
+     * (`apps/desktop/src/x.ts`) while the report keys are absolute, so the only prefix that
+     * strips exactly is the absolute checkout path — which differs per machine and per
+     * runner. Passing anything else (`apps/desktop`, or `.`) leaves the two sides keyed
+     * differently, every lookup misses, and every changed line is counted as uncovered.
+     *
+     * Matching the absolute key's tail removes that dependency on the caller: a key ending
+     * in `/<changed path>` is the same file whatever directory the checkout sits in.
+     */
+    const findCoverage = (path) => {
+        const relative = normalise(path);
+        const indexed = byRelativePath.get(relative);
+
+        if (indexed) {
+            return indexed;
+        }
+
+        const suffix = `/${relative}`;
+
+        for (const [absolute, fileCoverage] of normalisedEntries) {
+            if (absolute.endsWith(suffix)) {
+                return fileCoverage;
+            }
+        }
+
+        return undefined;
+    };
 
     let total = 0;
     let covered = 0;
@@ -133,7 +166,7 @@ export function measurePatchCoverage(changedLines, coverageReport, options = {})
             continue;
         }
 
-        const fileCoverage = byRelativePath.get(normalise(path));
+        const fileCoverage = findCoverage(path);
         // A changed source file that never appears in the report was never loaded by a test.
         const measured = fileCoverage
             ? measureFile(fileCoverage, lines)
