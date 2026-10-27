@@ -145,10 +145,6 @@ jobs:
         env:
             TOUCHAI_CARGO_TARGET_DIR: apps/desktop/src-tauri/target/e2e
             TOUCHAI_E2E_CARGO_PROFILE: ci-check
-            # `wdio.conf.js` sets this itself for the build it runs; it is set here too so
-            # the build in this job and the test job that consumes it place the binary in
-            # exactly the same directory.
-            CARGO_TARGET_DIR: apps/desktop/src-tauri/target/e2e
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -177,6 +173,11 @@ jobs:
                   # repository root, through pnpm, because `tauri` is a workspace script
                   # rather than a binary on PATH. `--profile` has to reach cargo, hence the
                   # `--` before it.
+                  #
+                  # `CARGO_TARGET_DIR` is passed as an absolute path because Tauri resolves
+                  # a relative one against `src-tauri`, which would nest the target
+                  # directory inside it (`src-tauri/apps/desktop/src-tauri/target`).
+                  $env:CARGO_TARGET_DIR = Join-Path $env:GITHUB_WORKSPACE 'apps/desktop/src-tauri/target/e2e'
                   pnpm tauri build --debug --no-bundle -- --profile ci-check
                   if ($LASTEXITCODE -ne 0) {
                       throw "The Tauri debug build failed with exit code $LASTEXITCODE."
