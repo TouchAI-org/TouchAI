@@ -43,7 +43,10 @@ function escapeRegExp(value: string): string {
 }
 
 function isAffected(version: string, ranges: string[]): boolean {
-    return ranges.some((range) => semver.satisfies(version, range));
+    // `includePrerelease` matters: npm's default range check excludes every
+    // prerelease, so `4.1.0-beta.1` would slip past `>=2.1.0-beta.7 <4.1.12`
+    // even though it sits inside the affected line.
+    return ranges.some((range) => semver.satisfies(version, range, { includePrerelease: true }));
 }
 
 async function readLockedVersions(packageName: string): Promise<string[]> {
@@ -104,11 +107,15 @@ describe('user installs the native shell without a susceptible Rust dependency',
 describe('user gets a guard that rejects every affected advisory branch', () => {
     const cases: Array<[string, string, boolean]> = [
         ['@vitest/mocker', '4.1.11', true],
+        ['@vitest/mocker', '4.1.0-beta.1', true],
+        ['@vitest/mocker', '4.1.12-beta.1', true],
         ['@vitest/mocker', '4.1.12', false],
         ['@vitest/mocker', '5.0.0', true],
         ['@vitest/mocker', '5.0.0-rc.2', true],
+        ['@vitest/mocker', '5.0.3-beta.1', true],
         ['@vitest/mocker', '5.0.3', false],
         ['fast-uri', '2.4.7', true],
+        ['fast-uri', '2.4.8-beta.1', true],
         ['fast-uri', '2.4.8', false],
         ['fast-uri', '3.1.8', true],
         ['fast-uri', '3.1.9', false],
