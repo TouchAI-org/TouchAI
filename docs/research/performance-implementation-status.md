@@ -1,9 +1,9 @@
 # TouchAI 性能优化实施状态
 
-- 基线：`origin/main@87c5a914`（桌面 1.2.2 + DeepSeek 搜索 provider）
+- 基线：`origin/main@34b3ce93`（桌面 1.2.2 + DeepSeek 搜索 provider）
 - 分支：`codex/perf-raycast-plan`（worktree：`.worktrees/perf-raycast-plan`）
 - 方案来源：`docs/research/performance-improvement-plan-main.md`（52 项）
-- 最近验证：`vitest` 248 文件 / 1875 用例全过、`vue-tsc --noEmit` 通过、改动文件 ESLint 0 error
+- 最近验证：`vitest` 437 文件 / 5414 用例全过、`vue-tsc --noEmit` 通过、改动文件 ESLint 0 error
 - **Rust 侧验证**：`cargo check --all-targets` 全部通过；按约定 `cargo test` 交由 CI 执行
 - 未做性能基线/前后对比（按约定，待用户验收后另行补基线）
 
@@ -108,3 +108,27 @@ node scripts/run-rust-command.mjs check   # 需要 cargo 在 PATH，且先把 rt
 - 主编排目录 `D:\Project\TouchAI` 的脏工作区未被改动。
 - 全量测试在并发下会让个别「首次 import 大模块」的用例超时，已在对应测试里显式放宽超时，不把资源竞争当成真实回归。
 - 本 worktree 的 `node_modules` 曾被误删导致 `type:check`/`vitest` 失效过一段时间；已用 `pnpm install --frozen-lockfile` 恢复，`package.json` / `pnpm-lock.yaml` 哈希未变。
+
+## Rebase 复核记录（最新一次）
+
+- 已 rebase 到 `origin/main@34b3ce93`（含 33 个上游提交：DeepSeek 搜索、用量统计、UAT 测试重构等）。
+- 最终验证：`vitest` 437 文件 / 5414 用例全过、`vue-tsc --noEmit` 通过、`eslint src tests` 0 error（33 个既有 warning）。
+- Rust：`cargo check` 本轮无法本地执行（build.rs 需要从 GitHub 下载 bundled rtk，网络超时）；按约定由 CI 验证。冲突仅发生在 `client_manager.rs`，已按「短锁取快照 + 锁外 RPC」合并。
+- 复核方式：对 52 项逐条做「文件 + 语义锚点」检查，全部在位。
+
+### rebase 中发现并修复的真实冲突/覆盖
+
+| 区域 | 现象 | 处理 |
+| --- | --- | --- |
+| 01 启动 | 冲突解决时 bootstrap 回到了「工具补种后才挂载」 | 恢复「先挂载 + 后台能力注册 + 请求级就绪门」 |
+| 02 provider 边界 | 上游新对话框让 `providers/index` 重新转出 `drivers`，设置页又拉全部 adapter | 移除该转出；设置页按需 `defineAsyncComponent` 加载对话框 |
+| 09/12/N02/N03 Markdown | 上游新增引用组件与我的双 parser/长代码/滚动 owner 冲突 | 合并为一处，保留全部行为 |
+| 16 widget 草稿 | 我的 80ms 节流让上游「逐 delta 更新」测试失败 | 仅对 ≥2000 字符的累计参数节流 |
+| 18 光标/多行 | 上游要求多行状态同步更新 | 回退按帧合并，保留「光标三标记单次文档查询」 |
+| 21 历史搜索防抖 | 上游测试期望 await 后立即生效 | `updateSessionSearchQuery` 改为可 await 的防抖 |
+| 22 历史分页 | 上游用 `getSessionData` mock 提供 session/model | 分页结果携带 session/model，`useAgent` 不再二次查询 |
+| 25/07/08 持久化/快照 | `persistToolResult` 上游重构 | 与「跳过未变 part」「快照身份复用」并存，摘要刷新不丢 |
+| 32 窗口探针 | 并行探测改变了状态写入顺序，手选高度测试失败 | 并行发 IPC，但按「先最大化、再高度模式」写状态 |
+| 39 日志 | 上游测试要求日志立即投递 | 改为「有界在途 + 立即投递」，仅超限时丢弃并汇总 |
+| N08 元数据 | 动态 import 在测试中会绕过 mock 加载真实模块 | 新增 `modelMetadata/syncEntry` 轻入口，seed 仍独立动态加载 |
+| 测试基础设施 | 冲突解决产生的 UTF-16 文件、CRLF 行尾 | 统一转回 UTF-8/LF，并跑 prettier 归一 |
