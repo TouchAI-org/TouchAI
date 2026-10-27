@@ -25,7 +25,8 @@ describe('model metadata entry boundary', () => {
         expect(mod.syncAllModelsMetadata).toBeTypeOf('function');
         expect(mod.refreshModelMetadataIfStale).toBeTypeOf('function');
         expect('seedModelMetadataFromSnapshot' in mod).toBe(false);
-    });
+        // 全量并发跑时会与其它用例竞争 CPU；显式放宽超时，避免把加载耗时当成真实回归。
+    }, 30_000);
 
     it('loads the sync entry without touching snapshot.json', async () => {
         await expect(

@@ -33,6 +33,11 @@
             @keydown="handleScrollIntentByKeyboard"
         >
             <!-- 消息列表 -->
+            <div v-if="hasOlderMessages || isLoadingOlderMessages" class="flex justify-center py-2">
+                <span v-if="isLoadingOlderMessages" class="text-xs text-gray-400">
+                    {{ t('conversation.loadingOlderMessages') }}
+                </span>
+            </div>
             <div ref="messageListRef" class="mt-4">
                 <div
                     v-if="windowingEnabled && windowRange.topSpacer > 0"
@@ -92,6 +97,7 @@
     import { storeToRefs } from 'pinia';
     import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 
+    import { t } from '@/i18n';
     import { useSettingsStore } from '@/stores/settings';
     import type { SessionMessage } from '@/types/session';
 
@@ -115,6 +121,10 @@
         historyOpen: boolean;
         toolbarDisabled?: boolean;
         maxHeight?: number;
+        /** 是否还有更早的历史消息可加载。 */
+        hasOlderMessages?: boolean;
+        /** 是否正在加载更早一页。 */
+        isLoadingOlderMessages?: boolean;
     }
 
     const props = withDefaults(defineProps<Props>(), {
@@ -122,6 +132,8 @@
         toolbarDisabled: false,
         isMaximized: false,
         fillAvailableHeight: false,
+        hasOlderMessages: false,
+        isLoadingOlderMessages: false,
     });
 
     const emit = defineEmits<{
@@ -134,6 +146,8 @@
         dragStart: [];
         dragEnd: [];
         latestContentVisibilityChange: [visible: boolean];
+        /** 滚动接近顶部时请求加载更早一页历史。 */
+        requestOlderMessages: [];
     }>();
 
     const conversationContainer = ref<HTMLElement | null>(null);
@@ -153,6 +167,8 @@
     const lastAutoScrollAt = ref(0);
     const USER_MESSAGE_SCROLL_GAP = 12;
     const TIMELINE_JUMP_OFFSET = 80;
+    /** 滚动到距顶部该距离内时请求加载更早的历史页。 */
+    const OLDER_MESSAGES_TRIGGER_PX = 200;
     let messageListObserver: ResizeObserver | null = null;
 
     // 时间轴相关状态
@@ -315,6 +331,15 @@
 
         lastScrollTop.value = currentScrollTop;
         emitLatestContentVisibility();
+
+        // 接近顶部时请求更早一页；父级自行去重（hasMore/加载中/任务进行中）。
+        if (
+            props.hasOlderMessages &&
+            !props.isLoadingOlderMessages &&
+            currentScrollTop <= OLDER_MESSAGES_TRIGGER_PX
+        ) {
+            emit('requestOlderMessages');
+        }
     }
 
     function syncToBottom() {
