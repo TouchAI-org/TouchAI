@@ -204,10 +204,17 @@ describe('user works in the settings window', () => {
             // The spec pins the interface to English in `before` so the visual baselines
             // are stable, which means this case would otherwise search an English
             // interface and prove nothing: an English query finding an English row is not
-            // the cross-language behaviour its name promises. The language is switched
-            // here, checked, and put back, so the baselines captured by the other cases
-            // still see English.
+            // the cross-language behaviour its name promises.
+            //
+            // The bridge lives in the main window, not in the settings document, so the
+            // language cannot be set from here. The driver goes back to the window that
+            // owns it, sets the language, and returns. No reload is needed on the way
+            // back: `locale` is a module-level reactive value that both windows share, and
+            // `SettingsView` renders its rows through `t()` against it, so the switch
+            // re-renders the settings view in place.
+            await switchToWindowWithE2eBridge(mainWindowHandle);
             await useInterfaceLanguage('zh-CN');
+            await switchToWindowContaining('/settings');
 
             try {
                 const searchInput = await waitForTestIdDisplayed('settings-search-input');
@@ -226,7 +233,11 @@ describe('user works in the settings window', () => {
                     'Settings search found nothing for an English name on a Chinese interface.'
                 );
             } finally {
+                // Restore English for the cases that follow and for the baselines they
+                // capture, again through the window that owns the bridge.
+                await switchToWindowWithE2eBridge(mainWindowHandle);
                 await useInterfaceLanguage();
+                await switchToWindowContaining('/settings');
             }
         });
 
