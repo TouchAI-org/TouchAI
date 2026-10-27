@@ -1,4 +1,4 @@
-import type { Provider } from '@database/schema';
+﻿import type { Provider } from '@database/schema';
 import { mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

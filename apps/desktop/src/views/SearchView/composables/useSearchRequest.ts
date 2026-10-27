@@ -362,20 +362,27 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     /**
      * 防抖地更新历史搜索词。连续输入只在停顿后查询一次，
      * 避免每个字符都发起一次全文搜索；关闭弹窗时丢弃待执行查询。
+     *
+     * 返回的 Promise 在本次查询落地（或被下一次输入取消）后 resolve，
+     * 便于调用方在需要确定结果时 await。
      */
-    function updateSessionSearchQuery(query: string): void {
+    function updateSessionSearchQuery(query: string): Promise<void> {
         sessionListQuery.value = query;
         if (!sessionHistoryPopupOpen.value) {
-            return;
+            return Promise.resolve();
         }
 
         clearSessionSearchDebounce();
-        sessionSearchDebounceTimer = setTimeout(() => {
-            sessionSearchDebounceTimer = null;
-            void refreshSessionList().catch((error) => {
-                console.error('[SearchView] Failed to refresh session history:', error);
-            });
-        }, SESSION_SEARCH_DEBOUNCE_MS);
+        return new Promise<void>((resolve) => {
+            sessionSearchDebounceTimer = setTimeout(() => {
+                sessionSearchDebounceTimer = null;
+                void refreshSessionList()
+                    .catch((error) => {
+                        console.error('[SearchView] Failed to refresh session history:', error);
+                    })
+                    .finally(resolve);
+            }, SESSION_SEARCH_DEBOUNCE_MS);
+        });
     }
 
     async function handleSubmit(query: string, inputSnapshotOverride?: InputHistorySnapshot) {

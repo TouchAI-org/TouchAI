@@ -39,6 +39,14 @@ interface WidgetDraftBuildState {
 const WIDGET_DRAFT_REBUILD_INTERVAL_MS = 80;
 
 /**
+ * 只有累计参数超过该长度才启用节流。
+ *
+ * 小体量草稿（刚开始的几十个字符）重建很便宜，保持与每个 delta 同步，
+ * 以免草稿展示滞后；真正贵的是大段生成中的 HTML。
+ */
+const WIDGET_DRAFT_THROTTLE_MIN_CHARS = 2000;
+
+/**
  * Widget 投影状态管理器。
  *
  * 追踪正在流式构建中的 `show_widget` 调用，
@@ -244,6 +252,7 @@ export class ProjectionWidgets {
 
         const now = Date.now();
         if (
+            buffer.length >= WIDGET_DRAFT_THROTTLE_MIN_CHARS &&
             state.lastBuildAt !== null &&
             now - state.lastBuildAt < WIDGET_DRAFT_REBUILD_INTERVAL_MS
         ) {

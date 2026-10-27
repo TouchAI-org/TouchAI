@@ -217,7 +217,8 @@ function useQuickSearchFlow(
         const reqId = ++requestId.value;
         const searchTrace = createPerfTrace('quickSearch.query');
         // 点击统计与 native 查询并行加载：搜索通常更慢，等结果回来时统计多半已命中缓存。
-        const clickStatsReady = clickStats.prefetch(trimmedQuery);
+        // 点击统计预取与原生搜索并行；统计实现不支持预取时退化为串行排序。
+        const clickStatsReady = Promise.resolve(clickStats.prefetch?.(trimmedQuery));
 
         try {
             const searchResult = await deps.quickSearch.searchShortcuts(trimmedQuery, PAGE_SIZE, 0);
@@ -663,6 +664,8 @@ export function useQuickSearchLogic(
      * 由滚动事件触发，使用 nextOffset 避免前端计算偏移错位。
      */
     async function loadMore() {
+        // 正在加载时不重复发请求（滚动事件可能连续触发）。
+        if (isLoadingMore.value) return;
         if (results.value.length >= totalResults.value) return;
 
         const generation = ++loadMoreGeneration;
