@@ -1,5 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { log } from '@services/ObservabilityService';
+
 import type { EventTrigger, EventTriggerHandler } from './types';
 
 /**
@@ -15,7 +17,7 @@ class EventTriggerRegistry {
      */
     register(handler: EventTriggerHandler): void {
         if (this.handlers.has(handler.eventType)) {
-            console.warn(`[EventTriggerRegistry] Overwriting handler for ${handler.eventType}`);
+            log.warn(`[EventTriggerRegistry] Overwriting handler for ${handler.eventType}`);
         }
         this.handlers.set(handler.eventType, handler);
     }

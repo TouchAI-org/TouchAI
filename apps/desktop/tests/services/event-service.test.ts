@@ -7,6 +7,8 @@ import { emit } from '@tauri-apps/api/event';
 import { getLastTauriInvokeCall, interceptTauriInvoke } from '@tests/utils/tauri';
 import { describe, expect, it, vi } from 'vitest';
 
+import { log } from '@/services/ObservabilityService';
+
 describe('user receives app events across windows', () => {
     it('user sees an app event delivered through the native event channel', async () => {
         const payload: SettingsGeneralUpdatedEvent = {
@@ -59,7 +61,7 @@ describe('user receives app events across windows', () => {
 
     it('user sees an event emit failure instead of a silent drop', async () => {
         const backendError = new Error('emit failed');
-        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const consoleErrorSpy = vi.spyOn(log, 'error').mockImplementation(() => undefined);
 
         interceptTauriInvoke((call, next) => {
             if (call.cmd === 'plugin:event|emit') {
@@ -75,7 +77,7 @@ describe('user receives app events across windows', () => {
 
     it('user sees a subscription failure instead of a silent no-op', async () => {
         const backendError = new Error('listen failed');
-        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const consoleErrorSpy = vi.spyOn(log, 'error').mockImplementation(() => undefined);
 
         interceptTauriInvoke((call, next) => {
             if (call.cmd === 'plugin:event|listen') {

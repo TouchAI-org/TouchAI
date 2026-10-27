@@ -18,7 +18,7 @@ class EventService {
         try {
             await emit(eventName, payload);
         } catch (error) {
-            console.error(`发送事件 "${eventName}" 失败:`, error);
+            log.error(`发送事件 "${eventName}" 失败:`, error);
             throw error;
         }
     }
@@ -39,7 +39,7 @@ class EventService {
                 callback(event.payload);
             });
         } catch (error) {
-            console.error(`监听事件 "${eventName}" 失败:`, error);
+            log.error(`监听事件 "${eventName}" 失败:`, error);
             throw error;
         }
     }
@@ -60,7 +60,7 @@ class EventService {
                 callback(event.payload);
             });
         } catch (error) {
-            console.error(`监听一次性事件 "${eventName}" 失败:`, error);
+            log.error(`监听一次性事件 "${eventName}" 失败:`, error);
             throw error;
         }
     }
@@ -86,4 +86,5 @@ export type {
     WindowFocusEvent,
     WindowResizeEvent,
 } from './types';
+import { log } from '@services/ObservabilityService';
 export { AppEvent } from './types';

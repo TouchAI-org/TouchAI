@@ -1,4 +1,5 @@
 import { native } from '@services/NativeService';
+import { log } from '@services/ObservabilityService';
 
 let runtimeModePromise: Promise<boolean> | null = null;
 
@@ -7,10 +8,7 @@ async function loadIsE2eTestMode() {
         const runtimeInfo = await native.runtime.getRuntimeInfo();
         return runtimeInfo.isE2eTestMode;
     } catch (error) {
-        console.warn(
-            '[RuntimeMode] Failed to load runtime mode, defaulting to normal mode:',
-            error
-        );
+        log.warn('[RuntimeMode] Failed to load runtime mode, defaulting to normal mode:', error);
         return false;
     }
 }

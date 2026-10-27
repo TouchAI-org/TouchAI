@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
+import { log } from '@services/ObservabilityService';
 import {
     isPermissionGranted,
     requestPermission,
@@ -54,15 +55,13 @@ export async function initNotificationPermission(): Promise<void> {
             permissionGranted = result === 'granted';
         }
     } catch (error) {
-        console.error('[NotificationService] Permission check/request failed:', error);
+        log.error('[NotificationService] Permission check/request failed:', error);
     }
 }
 
 export function notify(options: NotificationOptions): void {
     if (!permissionGranted) {
-        console.warn(
-            '[NotificationService] Notification permission not granted, attempting anyway'
-        );
+        log.warn('[NotificationService] Notification permission not granted, attempting anyway');
     }
     try {
         sendNotification({
@@ -76,6 +75,6 @@ export function notify(options: NotificationOptions): void {
                     : (options.body ?? ''),
         });
     } catch (error) {
-        console.error('[NotificationService] Failed to send notification:', error);
+        log.error('[NotificationService] Failed to send notification:', error);
     }
 }

@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { log } from '@services/ObservabilityService';
 import type { Ref } from 'vue';
 import { computed, ref, watch } from 'vue';
 
@@ -76,7 +77,7 @@ export function useMcpConnection(serverId: Ref<number>) {
             });
         } catch (error) {
             isConnecting.value = false;
-            console.error('Failed to connect:', error);
+            log.error('Failed to connect:', error);
             return {
                 success: false,
                 error: error instanceof Error ? error.message : String(error),
@@ -115,7 +116,7 @@ export function useMcpConnection(serverId: Ref<number>) {
             });
         } catch (error) {
             isDisconnecting.value = false;
-            console.error('Failed to disconnect:', error);
+            log.error('Failed to disconnect:', error);
             return {
                 success: false,
                 error: error instanceof Error ? error.message : String(error),
@@ -156,7 +157,7 @@ export function useMcpConnection(serverId: Ref<number>) {
 
             return { success: true };
         } catch (error) {
-            console.error('Failed to reconnect:', error);
+            log.error('Failed to reconnect:', error);
             return {
                 success: false,
                 error: error instanceof Error ? error.message : String(error),

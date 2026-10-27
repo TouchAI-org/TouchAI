@@ -235,7 +235,10 @@ describe('user reads text in the bundled serif font', () => {
     it(
         'user recovers from a startup path lookup failure when font-ready arrives later',
         async () => {
-            const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+            // resetModules gives the font module a fresh ObservabilityService,
+            // so the spy has to come from the same instance.
+            const { log: fontLog } = await import('@services/ObservabilityService');
+            const consoleError = vi.spyOn(fontLog, 'error').mockImplementation(() => {});
             let directoryCallCount = 0;
 
             mockTauriCommand('get_app_directory_path', () => {

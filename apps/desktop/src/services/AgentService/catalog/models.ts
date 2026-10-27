@@ -2,6 +2,7 @@
 
 import { findDefaultModelWithProvider, findModelByProviderAndModelId } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
+import { log } from '@services/ObservabilityService';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
 
@@ -40,7 +41,7 @@ export async function getModel(options?: GetModelOptions): Promise<ModelWithProv
     const defaultModel = await findDefaultModelWithProvider();
 
     if (!defaultModel) {
-        console.warn('[Catalog] No default model found or provider disabled');
+        log.warn('[Catalog] No default model found or provider disabled');
         throw new AiError(AiErrorCode.NO_ACTIVE_MODEL);
     }
 

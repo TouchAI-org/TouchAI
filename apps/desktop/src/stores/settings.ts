@@ -2,6 +2,7 @@
 
 import { getSettingValue, setSetting } from '@database/queries';
 import { AppEvent, eventService } from '@services/EventService';
+import { log } from '@services/ObservabilityService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
@@ -96,7 +97,7 @@ export const useSettingsStore = defineStore('settings', () => {
                     : []
             );
             if (failedPersistenceKeys.length > 0) {
-                console.warn(
+                log.warn(
                     `[SettingsStore] Failed to persist general setting rewrite/default value(s): ${failedPersistenceKeys.join(
                         ', '
                     )}`

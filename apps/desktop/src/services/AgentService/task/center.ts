@@ -1,5 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { log } from '@services/ObservabilityService';
+
 import { tt } from '@/i18n';
 import { eventService } from '@/services/EventService';
 import { AppEvent, type SessionStatusReminderPayload } from '@/services/EventService/types';
@@ -235,7 +237,7 @@ export class SessionTaskCenter {
             ]);
 
             if (historyResult.status === 'rejected') {
-                console.error(
+                log.error(
                     `[SessionTaskCenter] Failed to load history for session ${options.sessionId}:`,
                     historyResult.reason
                 );
@@ -600,7 +602,7 @@ export class SessionTaskCenter {
             try {
                 listener(cloneTaskSnapshot(task.snapshot));
             } catch (error) {
-                console.error('[SessionTaskCenter] Subscriber error:', error);
+                log.error('[SessionTaskCenter] Subscriber error:', error);
             }
         }
     }

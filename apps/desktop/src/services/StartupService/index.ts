@@ -3,6 +3,7 @@
 import { deleteMeta, getMeta } from '@database/queries/touchaiMeta';
 import { MetaKey } from '@database/schema';
 import { notify } from '@services/NotificationService';
+import { log } from '@services/ObservabilityService';
 
 import type { ImportMode } from '@/database/backup';
 import { t } from '@/i18n';
@@ -91,7 +92,7 @@ export async function runStartupTasks() {
                 await task.handler?.(value);
             }
         } catch (error) {
-            console.error(`Startup task [${task.key}] failed:`, error);
+            log.error(`Startup task [${task.key}] failed:`, error);
         }
     }
 }

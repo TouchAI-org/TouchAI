@@ -1,3 +1,4 @@
+import { log } from '@services/ObservabilityService';
 import { mountComposable } from '@tests/utils/composables';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, watch } from 'vue';
@@ -183,7 +184,7 @@ describe('user sees which sessions are busy', () => {
 
     it('user gets no badge when the subscription fails to open', async () => {
         eventServiceMock.on.mockRejectedValue(new Error('no bridge'));
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const consoleError = vi.spyOn(log, 'error').mockImplementation(() => undefined);
 
         const { result, unmount } = await mountComposable(() => useSessionStatus());
         await Promise.resolve();

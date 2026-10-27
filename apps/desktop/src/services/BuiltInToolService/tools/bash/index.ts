@@ -5,6 +5,7 @@ import {
     type BuiltInBashOutputDelta,
     native,
 } from '@services/NativeService';
+import { log } from '@services/ObservabilityService';
 
 import { t, tt } from '@/i18n';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
@@ -154,7 +155,7 @@ async function executeCancelableBash(
     const handleAbort = () => {
         cancelIssued = true;
         void native.builtInTools.cancelBash(request.executionId).catch((error) => {
-            console.warn('[BashTool] Failed to cancel native bash execution:', error);
+            log.warn('[BashTool] Failed to cancel native bash execution:', error);
         });
     };
 

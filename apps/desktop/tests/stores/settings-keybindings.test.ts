@@ -1,4 +1,5 @@
 import { AppEvent } from '@services/EventService';
+import { log } from '@services/ObservabilityService';
 import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -79,7 +80,7 @@ describe('user changes the search shortcuts', () => {
 
     it('user keeps initialization usable when default keybinding persistence fails', async () => {
         mockSettings({});
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
         setSettingMock.mockImplementation(
             async ({ key, value }: { key: string; value: string }) => {
                 if (key === 'search_keybindings') {

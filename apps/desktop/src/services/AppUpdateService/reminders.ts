@@ -2,6 +2,7 @@ import type {
     AppUpdateNotificationAction,
     AppUpdateNotificationPayload,
 } from '@services/NativeService/types';
+import { log } from '@services/ObservabilityService';
 
 import { getAvailableAppUpdateVersion } from './availability';
 import { isWithinAppUpdateHours } from './timing';
@@ -81,7 +82,7 @@ function parseHistory(raw: string | null): ReminderHistory {
             })
         );
     } catch (error) {
-        console.warn('[AppUpdateService] Invalid update reminder history:', error);
+        log.warn('[AppUpdateService] Invalid update reminder history:', error);
         return {};
     }
 }
@@ -109,10 +110,7 @@ export class AppUpdateReminderController {
                 void this.deps
                     .openSettings()
                     .catch((error) => {
-                        console.warn(
-                            '[AppUpdateService] Update notification action failed:',
-                            error
-                        );
+                        log.warn('[AppUpdateService] Update notification action failed:', error);
                     })
                     .finally(() => {
                         this.openingSettings = false;
@@ -164,7 +162,7 @@ export class AppUpdateReminderController {
                 if (!this.disposed) await operation();
             })
             .catch((error) => {
-                console.warn('[AppUpdateService] Update reminder failed:', error);
+                log.warn('[AppUpdateService] Update reminder failed:', error);
             });
     }
 

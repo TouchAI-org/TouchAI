@@ -3,6 +3,7 @@
 import { db } from '@database';
 import { getStatistic, setStatistic } from '@database/queries/statistics';
 import { StatisticKey } from '@database/schema';
+import { log } from '@services/ObservabilityService';
 import { sql } from 'drizzle-orm';
 
 /**
@@ -136,9 +137,9 @@ export async function runUsageMaintenance(
         });
 
         if (pruned > 0) {
-            console.log(`[UsageMaintenance] Pruned ${pruned} expired call parts`);
+            log.debug(`[UsageMaintenance] Pruned ${pruned} expired call parts`);
         }
     } catch (error) {
-        console.error('[UsageMaintenance] Failed to run usage maintenance:', error);
+        log.error('[UsageMaintenance] Failed to run usage maintenance:', error);
     }
 }

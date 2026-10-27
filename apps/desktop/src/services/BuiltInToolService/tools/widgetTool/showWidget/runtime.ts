@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { log } from '@services/ObservabilityService';
 import DOMPurify from 'dompurify';
 import type morphdom from 'morphdom';
 
@@ -1091,7 +1092,7 @@ function executeInlineWidgetScript(source: string, root: HTMLElement): void {
         );
         execute.call(scopedWindow, scopedWindow, scopedDocument);
     } catch (error) {
-        console.error('[ShowWidget] Failed to execute inline script:', error);
+        log.error('[ShowWidget] Failed to execute inline script:', error);
     }
 }
 
@@ -1348,7 +1349,7 @@ export function createWidgetRenderer(hostElement: HTMLElement): WidgetRenderer {
             })
             .catch((error) => {
                 state.morphdomPromise = null;
-                console.error('[ShowWidget] Failed to load morphdom:', error);
+                log.error('[ShowWidget] Failed to load morphdom:', error);
                 throw error;
             });
     };

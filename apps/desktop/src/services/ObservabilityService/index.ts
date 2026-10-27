@@ -76,6 +76,64 @@ export async function flushObservability(): Promise<void> {
     await queue?.flush();
 }
 
+function stringifyArg(arg: unknown): string {
+    if (arg instanceof Error) return arg.stack ?? arg.message;
+    if (typeof arg === 'string') return arg;
+
+    try {
+        return JSON.stringify(arg) ?? String(arg);
+    } catch {
+        return String(arg);
+    }
+}
+
+function isAttributeBag(value: unknown): value is Record<string, LogAttributeValue> {
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        !Array.isArray(value) &&
+        !(value instanceof Error)
+    );
+}
+
+function writeConsoleStyle(level: LogLevelName, args: unknown[]): void {
+    if (args.length === 0) {
+        emit(level, 'app.log');
+        return;
+    }
+
+    const last = args[args.length - 1];
+    const bag = isAttributeBag(last) ? last : null;
+    const messageArgs = bag ? args.slice(0, -1) : args;
+    const attrs: Record<string, LogAttributeValue> = {};
+
+    if (bag) {
+        for (const [key, value] of Object.entries(bag)) {
+            if (
+                typeof value === 'string' ||
+                typeof value === 'number' ||
+                typeof value === 'boolean'
+            ) {
+                attrs[key] = value;
+            }
+        }
+    }
+
+    emit(level, 'app.log', attrs, messageArgs.map(stringifyArg).join(' '));
+}
+
+/**
+ * 服务层日志入口。签名与 console 一致，最后一个普通对象会作为结构化字段。
+ * 事件名固定为 `app.log`；需要具名事件时用 `obs.event`。
+ */
+export const log = {
+    trace: (...args: unknown[]) => writeConsoleStyle('trace', args),
+    debug: (...args: unknown[]) => writeConsoleStyle('debug', args),
+    info: (...args: unknown[]) => writeConsoleStyle('info', args),
+    warn: (...args: unknown[]) => writeConsoleStyle('warn', args),
+    error: (...args: unknown[]) => writeConsoleStyle('error', args),
+} as const;
+
 export function observabilityQueueSize(): number {
     return queue?.size() ?? 0;
 }

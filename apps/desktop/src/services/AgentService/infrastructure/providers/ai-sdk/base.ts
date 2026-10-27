@@ -1,6 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import type { ProviderDriver } from '@database/schema';
+import { log } from '@services/ObservabilityService';
 import { type FinishReason, type LanguageModel, streamText } from 'ai';
 
 import { AiError, AiErrorCode } from '../../../contracts/errors';
@@ -413,7 +414,7 @@ export abstract class AiSdkProviderBase implements AiProvider {
         const mode = this.config.reasoning?.mode ?? 'auto';
         // 元数据声明不支持思考时，auto 模式不发任何 reasoning 参数（passthrough 除外）。
         if (options.supportsReasoning === false && mode !== 'passthrough') {
-            console.debug(
+            log.debug(
                 `[reasoning] skipped outbound model=${options.model} reason=metadata-declared-unsupported`
             );
             return undefined;
@@ -439,7 +440,7 @@ export abstract class AiSdkProviderBase implements AiProvider {
         const encoded = encodeReasoning(resolution, this.getReasoningEncodingHints());
         const providerOptions = this.remapReasoningProviderOptions(encoded.providerOptions);
 
-        console.debug(
+        log.debug(
             `[reasoning] outbound model=${resolution.modelId} format=${resolution.format} mode=${resolution.mode} source=${resolution.source} requested=${resolution.requested} level=${resolution.level} mapped=${resolution.mapped ?? '-'} hasTools=${hasTools} providerOptions=${JSON.stringify(providerOptions ?? {})}`
         );
 

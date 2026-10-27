@@ -3,6 +3,7 @@
  */
 
 import { createTauriFetch } from '@services/AgentService/infrastructure/providers';
+import { log } from '@services/ObservabilityService';
 
 import { buildMetadataList } from './catalog';
 import snapshotData from './snapshot.json';
@@ -80,7 +81,7 @@ export async function updateModelMetadata(): Promise<ModelMetadataRefreshResult>
 
         return { status: 'updated' };
     } catch (error) {
-        console.error('[ModelMetadata] Failed to update metadata:', error);
+        log.error('[ModelMetadata] Failed to update metadata:', error);
         throw error;
     }
 }

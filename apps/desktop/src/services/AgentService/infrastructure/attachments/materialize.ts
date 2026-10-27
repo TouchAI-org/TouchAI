@@ -2,6 +2,8 @@
  * Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
  */
 
+import { log } from '@services/ObservabilityService';
+
 import type { AiContentPart, AttachmentDerivedKind } from '../../contracts/protocol';
 import {
     formatAttachmentAnchorText,
@@ -111,7 +113,7 @@ export async function materializeAttachmentParts(
                 meta: inspection.meta,
             });
         } catch (error) {
-            console.error('[AttachmentMaterialize] Failed to read attachment:', error);
+            log.error('[AttachmentMaterialize] Failed to read attachment:', error);
         }
     }
 

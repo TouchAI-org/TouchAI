@@ -8,6 +8,7 @@ import type { SessionTurnHistoryRow } from '@database/queries/sessionTurns';
 import { getToolCallName, readToolCallData } from '@database/queries/toolParts';
 import type { PersistedToolLogStatus } from '@database/schema';
 import type { MessagePartEntity } from '@database/types';
+import { log } from '@services/ObservabilityService';
 
 import { tt } from '@/i18n';
 import type { ToolEventStructuredPayload } from '@/services/AgentService/contracts/tooling';
@@ -946,7 +947,7 @@ export async function buildSessionHistory(
             const promptSnapshot = JSON.parse(turn.prompt_snapshot_json) as PromptSnapshot;
             promptSnapshotsByMessageId.set(turn.prompt_message_id, promptSnapshot);
         } catch (error) {
-            console.error('[SessionHistory] Failed to parse prompt snapshot JSON:', error);
+            log.error('[SessionHistory] Failed to parse prompt snapshot JSON:', error);
         }
     }
 

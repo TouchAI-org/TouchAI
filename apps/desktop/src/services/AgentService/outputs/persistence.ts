@@ -30,6 +30,7 @@ import type {
     SessionTurnUpdateData,
     SessionTurnUsagePatch,
 } from '@database/types';
+import { log } from '@services/ObservabilityService';
 import { type AnyColumn, type SQL, sql } from 'drizzle-orm';
 
 import {
@@ -263,7 +264,7 @@ export class PersistenceProjector {
             ]);
             return buildPromptBreakdown(this.promptSnapshot, mcpTools, builtInTools);
         } catch (error) {
-            console.warn('[PersistenceProjector] Failed to build prompt breakdown:', error);
+            log.warn('[PersistenceProjector] Failed to build prompt breakdown:', error);
             return null;
         }
     }
@@ -319,7 +320,7 @@ export class PersistenceProjector {
             this.attemptState = result.attemptState;
             this.turn = result.turn;
         } catch (error) {
-            console.error('[PersistenceProjector] Failed to mark turn as completed:', error);
+            log.error('[PersistenceProjector] Failed to mark turn as completed:', error);
             throw error;
         }
     }
@@ -380,7 +381,7 @@ export class PersistenceProjector {
             this.attemptState = result.attemptState;
             this.turn = result.turn;
         } catch (error) {
-            console.error('[PersistenceProjector] Failed to mark turn as failed:', error);
+            log.error('[PersistenceProjector] Failed to mark turn as failed:', error);
             throw error;
         }
     }
@@ -444,7 +445,7 @@ export class PersistenceProjector {
             this.attemptState = result.attemptState;
             this.turn = result.turn;
         } catch (error) {
-            console.error('[PersistenceProjector] Failed to mark turn as cancelled:', error);
+            log.error('[PersistenceProjector] Failed to mark turn as cancelled:', error);
             throw error;
         }
     }
@@ -547,7 +548,7 @@ export class PersistenceProjector {
             this.attemptState = result.attemptState;
             this.turn = result.turn;
         } catch (error) {
-            console.error('[PersistenceProjector] Failed to begin next attempt:', error);
+            log.error('[PersistenceProjector] Failed to begin next attempt:', error);
             throw error;
         }
     }
@@ -741,7 +742,7 @@ export class PersistenceProjector {
         }
 
         if (partId === null) {
-            console.error(
+            log.error(
                 '[persistence] Tool result has no tool_call part to attach to; dropping it.',
                 { toolCallId, toolCallMessageId: options.toolCallMessageId }
             );
@@ -879,7 +880,7 @@ export class PersistenceProjector {
                 database,
             });
         } catch (error) {
-            console.error('[PersistenceProjector] Failed to sync session identity:', error);
+            log.error('[PersistenceProjector] Failed to sync session identity:', error);
         }
     }
 
@@ -1106,10 +1107,7 @@ export class PersistenceProjector {
                 ...patch,
             };
         } catch (persistError) {
-            console.error(
-                '[PersistenceProjector] Failed to update session turn record:',
-                persistError
-            );
+            log.error('[PersistenceProjector] Failed to update session turn record:', persistError);
             return this.turn;
         }
     }

@@ -7,6 +7,8 @@ import type { AppUpdateState } from '@services/AppUpdateService/types';
 import type { AppUpdateNotificationAction } from '@services/NativeService/types';
 import { describe, expect, it, vi } from 'vitest';
 
+import { log } from '@/services/ObservabilityService';
+
 const HOUR = 60 * 60 * 1000;
 
 function localTime(day: number, hour: number, minute = 0): number {
@@ -303,7 +305,7 @@ describe('user is reminded about an available update', () => {
     });
 
     it('user is not marked as reminded when the operating system rejects the notification', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
         const reminder = createReminder();
         reminder.show.mockRejectedValueOnce(new Error('notifications disabled'));
         try {

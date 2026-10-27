@@ -7,6 +7,7 @@ import {
     SHOW_WIDGET_DRAFT_MIN_INTERVAL_MS,
     SHOW_WIDGET_THEME_FALLBACKS,
 } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtimeConstants';
+import { log } from '@/services/ObservabilityService';
 
 /**
  * The renderer is what turns the model's HTML into something the user can look at and click.
@@ -379,7 +380,7 @@ describe('user gets widget scripts run safely', () => {
     });
 
     it('user still gets the rest of the widget initialised when one script throws', async () => {
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const consoleError = vi.spyOn(log, 'error').mockImplementation(() => undefined);
         const host = mountHost();
         const renderer = createWidgetRenderer(host);
 
@@ -405,7 +406,7 @@ describe('user gets widget scripts run safely', () => {
     });
 
     it('user gets an empty script tag ignored without breaking the widget', async () => {
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const consoleError = vi.spyOn(log, 'error').mockImplementation(() => undefined);
         const host = mountHost();
         const renderer = createWidgetRenderer(host);
 

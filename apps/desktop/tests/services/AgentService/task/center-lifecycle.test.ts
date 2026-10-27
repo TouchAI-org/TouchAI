@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type { ExecuteRequestResult } from '@/services/AgentService/execution/runtime';
+import { log } from '@/services/ObservabilityService';
 
 /**
  * The task center owns the lifecycle of a running conversation: which task a session
@@ -330,7 +331,7 @@ describe('user subscribes to a running task', () => {
     it('user still sees updates when one subscriber throws during a broadcast', async () => {
         runtimeState.run.mockImplementation(staysRunningInSession(1));
         // The center logs a throwing subscriber; keep the test output readable.
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const consoleError = vi.spyOn(log, 'error').mockImplementation(() => {});
 
         const center = createCenter();
         const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AiRequestExecutor } from '@/services/AgentService/execution';
 import type { AttemptCheckpoint } from '@/services/AgentService/execution/executor';
 import { PersistenceProjector } from '@/services/AgentService/outputs/persistence';
+import { log } from '@/services/ObservabilityService';
 
 const provider = vi.hoisted(() => ({ stream: vi.fn() }));
 vi.mock('@/services/AgentService/catalog', () => ({
@@ -449,7 +450,7 @@ describe('reasoning and the answer are saved as they stream', () => {
     it('user sees no call-id lookup when the tool-call message is unknown', async () => {
         // 没有消息 id 就不做不限定的反查：`tool_call_id` 只保证在单条消息内唯一，
         // 命中了更早消息里的同 id 片段会把结果写错地方。
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const errorSpy = vi.spyOn(log, 'error').mockImplementation(() => undefined);
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
 
@@ -467,7 +468,7 @@ describe('reasoning and the answer are saved as they stream', () => {
 
     it('user sees an unmatched tool result dropped rather than stored as assistant text', async () => {
         queries.findToolCallPartByCallId.mockResolvedValueOnce(undefined as never);
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const errorSpy = vi.spyOn(log, 'error').mockImplementation(() => undefined);
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
 

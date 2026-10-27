@@ -1,4 +1,5 @@
 import { appUpdateService } from '@services/AppUpdateService';
+import { log } from '@services/ObservabilityService';
 import { onMounted, onUnmounted, shallowRef } from 'vue';
 
 export function useAppUpdateState() {
@@ -11,7 +12,7 @@ export function useAppUpdateState() {
         });
 
         void appUpdateService.initialize().catch((error) => {
-            console.warn('[AppUpdateService] Failed to initialize update state:', error);
+            log.warn('[AppUpdateService] Failed to initialize update state:', error);
         });
     });
 

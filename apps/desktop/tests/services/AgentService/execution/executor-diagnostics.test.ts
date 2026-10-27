@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import { AiRequestExecutor } from '@/services/AgentService/execution';
 import type { AttemptCheckpoint } from '@/services/AgentService/execution/executor';
+import { log } from '@/services/ObservabilityService';
 
 /**
  * Complements executor.test.ts with the diagnostics an attempt reports when a provider
@@ -219,7 +220,7 @@ describe('user sees why the provider request failed', () => {
 
 describe('user reads a failure log without conversation content', () => {
     it('user sees no request or response bodies when the provider reports them', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
         const failure = Object.assign(new Error('bad request'), {
             statusCode: 400,
             url: 'https://example.test/v1/chat/completions?api_key=sk-live-secret',
@@ -242,7 +243,7 @@ describe('user reads a failure log without conversation content', () => {
     });
 
     it('user sees the provider status and url path when the request is rate limited', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
         const failure = Object.assign(new Error('rate limited'), {
             statusCode: 429,
             url: 'https://example.test/v1/chat/completions',
@@ -257,7 +258,7 @@ describe('user reads a failure log without conversation content', () => {
     });
 
     it('user sees no query values when the provider url cannot be parsed', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
         const failure = Object.assign(new Error('edge case'), {
             url: 'custom-endpoint?token=secret-query-marker',
         });

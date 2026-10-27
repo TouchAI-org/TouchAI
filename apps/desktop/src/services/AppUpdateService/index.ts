@@ -1,5 +1,6 @@
 import { AppEvent, eventService } from '@services/EventService';
 import { native } from '@services/NativeService';
+import { log } from '@services/ObservabilityService';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 import type { AppUpdateChannel } from '@/config/appUpdate';
@@ -194,7 +195,7 @@ export class AppUpdateController {
             this.commit({ type: 'check-completed', channel, result, checkedAt });
             await this.settings.updateAppUpdateLastCheckedAt(checkedAt);
             void this.checkEvents?.publish(result, checkedAt).catch((error) => {
-                console.warn('[AppUpdateService] Failed to share update check:', error);
+                log.warn('[AppUpdateService] Failed to share update check:', error);
             });
             return true;
         } catch (error) {
@@ -310,7 +311,7 @@ export class AppUpdateController {
                 this.commit({ type: 'download-progress', progress: event.payload });
             });
         } catch (error) {
-            console.warn('[AppUpdateService] Failed to listen for update progress:', error);
+            log.warn('[AppUpdateService] Failed to listen for update progress:', error);
         }
     }
 
@@ -338,7 +339,7 @@ export class AppUpdateController {
                 });
             });
         } catch (error) {
-            console.warn('[AppUpdateService] Failed to listen for update checks:', error);
+            log.warn('[AppUpdateService] Failed to listen for update checks:', error);
         }
     }
 

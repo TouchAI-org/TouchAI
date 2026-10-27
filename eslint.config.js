@@ -257,6 +257,23 @@ export default defineConfig([
         },
     },
     /*
+     * Service-layer logs go through ObservabilityService so they carry a level,
+     * an event name and structured fields. The console interceptor itself is the
+     * only place allowed to touch console directly.
+     */
+    {
+        files: ['apps/desktop/src/services/**/*.ts', 'apps/desktop/src/composables/**/*.ts', 'apps/desktop/src/stores/**/*.ts', 'apps/desktop/src/utils/**/*.ts'],
+        rules: {
+            'no-console': 'error',
+        },
+    },
+    {
+        files: ['apps/desktop/src/services/ObservabilityService/**/*.ts', 'apps/desktop/src/services/LoggerService/**/*.ts'],
+        rules: {
+            'no-console': 'off',
+        },
+    },
+    /*
      * Design-system enforcement, script half.
      *
      * Core ESLint sees class strings in cva definitions, variant maps and

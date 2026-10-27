@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { log } from '@services/ObservabilityService';
 import { Cron } from 'croner';
 
 import { sessionTaskCenter } from '@/services/AgentService';
@@ -220,7 +221,7 @@ export class TaskScheduler {
         }
 
         if (this.runningTasks.has(taskId)) {
-            console.warn(`[TaskScheduler] Task ${taskId} is already running, skipping overlap`);
+            log.warn(`[TaskScheduler] Task ${taskId} is already running, skipping overlap`);
             return;
         }
 
@@ -239,7 +240,7 @@ export class TaskScheduler {
             });
             await startedTask.completion;
         } catch (error) {
-            console.error(`[TaskScheduler] Failed to execute task ${taskId}:`, error);
+            log.error(`[TaskScheduler] Failed to execute task ${taskId}:`, error);
         } finally {
             this.runningTasks.delete(taskId);
         }

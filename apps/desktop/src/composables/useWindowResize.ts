@@ -1,6 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { native } from '@services/NativeService';
+import { log } from '@services/ObservabilityService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { onUnmounted, type Ref, ref, watch } from 'vue';
 
@@ -57,7 +58,9 @@ export function useWindowResize(options: WindowResizeOptions) {
     }
 
     function triggerResize(el: HTMLElement) {
-        resize(measureElementHeight(el)).catch(console.error);
+        resize(measureElementHeight(el)).catch((error) =>
+            log.error('window height resize failed', error)
+        );
     }
 
     function observeTarget(el: HTMLElement) {
@@ -69,7 +72,7 @@ export function useWindowResize(options: WindowResizeOptions) {
                     entry.borderBoxSize?.[0]?.blockSize ?? target.clientHeight,
                     target.scrollHeight
                 );
-                resize(height).catch(console.error);
+                resize(height).catch((error) => log.error('window height resize failed', error));
             }
         });
         resizeObserver.observe(el);

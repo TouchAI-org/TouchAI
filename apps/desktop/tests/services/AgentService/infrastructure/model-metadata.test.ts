@@ -9,6 +9,8 @@ import type { InvokeArgs } from '@tauri-apps/api/core';
 import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { log } from '@/services/ObservabilityService';
+
 const { metadataFetchMock } = vi.hoisted(() => ({
     metadataFetchMock: vi.fn(),
 }));
@@ -359,7 +361,7 @@ describe('user sees model metadata refreshed from the catalog', () => {
     });
 
     it('user keeps the cached metadata when the catalog comes back empty', async () => {
-        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const consoleSpy = vi.spyOn(log, 'error').mockImplementation(() => {});
         metadataFetchMock.mockResolvedValue(jsonResponse(catalog({})));
 
         mockMetadataTransaction();
@@ -418,7 +420,7 @@ describe('user sees model metadata refreshed from the catalog', () => {
     });
 
     it('user sees a later refresh allowed after a failed one', async () => {
-        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const consoleSpy = vi.spyOn(log, 'error').mockImplementation(() => {});
         mockMetadataTransaction();
         metadataFetchMock.mockRejectedValueOnce(new Error('network down'));
         metadataFetchMock.mockResolvedValueOnce(

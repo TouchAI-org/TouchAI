@@ -6,6 +6,7 @@ import {
     upsertAttachmentRemoteRef,
 } from '@database/queries';
 import type { ProviderDriver } from '@database/schema';
+import { log } from '@services/ObservabilityService';
 
 import type {
     AiContentPart,
@@ -134,7 +135,7 @@ function logProviderFileRefFallback(
     }
 
     loggedProviderFileRefFallbacks.add(logKey);
-    console.info(
+    log.info(
         '[AiSdkAttachments] Provider file ref unavailable, falling back to inline transport.',
         {
             driver: context.driver,
@@ -402,7 +403,7 @@ async function findReusableAttachmentRemoteRef(
     }
 
     await touchAttachmentRemoteRefLastUsed({ id: existing.id }).catch((error) => {
-        console.error('[AiSdkAttachments] Failed to touch attachment remote ref:', error);
+        log.error('[AiSdkAttachments] Failed to touch attachment remote ref:', error);
     });
 
     return {

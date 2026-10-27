@@ -2,6 +2,7 @@
 
 import { AppEvent, eventService } from '@services/EventService';
 import { native } from '@services/NativeService';
+import { log } from '@services/ObservabilityService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import { createPopupPositionCalculator } from './position';
@@ -98,7 +99,7 @@ export class PopupManager {
             }
 
             void this.transport.emitPopupData(pendingPayload).catch((error) => {
-                console.error(
+                log.error(
                     `[PopupManager] Failed to replay popup data for '${windowLabel}':`,
                     error
                 );
@@ -133,7 +134,7 @@ export class PopupManager {
 
             this.isInitialized = true;
         } catch (error) {
-            console.error('[PopupManager] Failed to initialize:', error);
+            log.error('[PopupManager] Failed to initialize:', error);
         } finally {
             this.isInitializing = false;
         }
@@ -177,7 +178,7 @@ export class PopupManager {
             return session.popupId;
         } catch (error) {
             this.sessionState.resetCurrentSession(session.popupId);
-            console.error('[PopupManager] Failed to show popup:', error);
+            log.error('[PopupManager] Failed to show popup:', error);
             throw error;
         }
     }
@@ -197,7 +198,7 @@ export class PopupManager {
                 popupSessionVersion: closePayload.popupSessionVersion,
             });
         } catch (error) {
-            console.error('[PopupManager] Failed to hide popup:', error);
+            log.error('[PopupManager] Failed to hide popup:', error);
         }
     }
 
@@ -227,7 +228,7 @@ export class PopupManager {
                 })
             );
         } catch (error) {
-            console.error('[PopupManager] Failed to update popup data:', error);
+            log.error('[PopupManager] Failed to update popup data:', error);
         }
     }
 

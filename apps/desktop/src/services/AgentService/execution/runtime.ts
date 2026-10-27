@@ -3,6 +3,7 @@
 import { updateModelLastUsed } from '@database/queries';
 import { findModelPricing } from '@database/queries/llmMetadata';
 import type { SessionTurnEntity } from '@database/types';
+import { log } from '@services/ObservabilityService';
 
 import { t } from '@/i18n';
 import {
@@ -194,7 +195,7 @@ export class AiConversationRuntime {
         try {
             await this.options.environment?.reportPersistenceIssue?.(issue);
         } catch (error) {
-            console.error('[AiConversationRuntime] Failed to deliver persistence issue:', error);
+            log.error('[AiConversationRuntime] Failed to deliver persistence issue:', error);
         }
     }
 
@@ -213,7 +214,7 @@ export class AiConversationRuntime {
                 continue;
             }
 
-            console.error(
+            log.error(
                 '[AiConversationRuntime] Failed to pre-persist attachment before request:',
                 result.reason
             );
@@ -311,7 +312,7 @@ export class AiConversationRuntime {
                 });
             })
             .catch(async (error) => {
-                console.error('[AiConversationRuntime] Failed to record request start:', error);
+                log.error('[AiConversationRuntime] Failed to record request start:', error);
                 await this.reportPersistenceIssue({
                     phase: 'turn_start',
                     ...buildPersistenceIssue('agent.persistenceIssue.turnStart'),
@@ -350,7 +351,7 @@ export class AiConversationRuntime {
                 estimatedOutputCostPerMillion: pricing ? Number(pricing.outputPerMillion) : null,
             });
         } catch (error) {
-            console.warn('[AiConversationRuntime] Failed to prepare live usage tracker:', error);
+            log.warn('[AiConversationRuntime] Failed to prepare live usage tracker:', error);
             return null;
         }
     }
@@ -412,7 +413,7 @@ export class AiConversationRuntime {
                     result.totalUsage.cacheWriteTokens,
             });
         } catch (persistError) {
-            console.error('[AiConversationRuntime] Failed to persist completion:', persistError);
+            log.error('[AiConversationRuntime] Failed to persist completion:', persistError);
             await this.reportPersistenceIssue({
                 phase: 'turn_completed',
                 ...buildPersistenceIssue('agent.persistenceIssue.turnCompleted'),
@@ -430,7 +431,7 @@ export class AiConversationRuntime {
         this.requestFinalized = true;
 
         await updateModelLastUsed({ id: result.model.id }).catch((error) => {
-            console.error('[AiConversationRuntime] Failed to update model last used:', error);
+            log.error('[AiConversationRuntime] Failed to update model last used:', error);
         });
 
         if (this.options.taskId) {
@@ -503,7 +504,7 @@ export class AiConversationRuntime {
                             errorCode: attemptResult.error.code,
                         });
                     } catch (persistError) {
-                        console.error(
+                        log.error(
                             '[AiConversationRuntime] Failed to persist cancellation:',
                             persistError
                         );
@@ -545,7 +546,7 @@ export class AiConversationRuntime {
                             }
                         );
                     } catch (persistError) {
-                        console.error(
+                        log.error(
                             '[AiConversationRuntime] Failed to persist retry attempt:',
                             persistError
                         );
@@ -591,10 +592,7 @@ export class AiConversationRuntime {
                         }
                     );
                 } catch (persistError) {
-                    console.error(
-                        '[AiConversationRuntime] Failed to persist failure:',
-                        persistError
-                    );
+                    log.error('[AiConversationRuntime] Failed to persist failure:', persistError);
                     await this.reportPersistenceIssue({
                         phase: 'turn_failed',
                         ...buildPersistenceIssue('agent.persistenceIssue.turnFailed'),
@@ -626,7 +624,7 @@ export class AiConversationRuntime {
                     try {
                         await context.persister.markCancelled();
                     } catch (persistError) {
-                        console.error(
+                        log.error(
                             '[AiConversationRuntime] Failed to persist cancellation:',
                             persistError
                         );
@@ -647,7 +645,7 @@ export class AiConversationRuntime {
                     try {
                         await context.persister.markFailed(aiError.message);
                     } catch (persistError) {
-                        console.error(
+                        log.error(
                             '[AiConversationRuntime] Failed to persist failure:',
                             persistError
                         );

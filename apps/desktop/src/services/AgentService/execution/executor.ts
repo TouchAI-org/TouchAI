@@ -3,6 +3,7 @@
 import { createMcpToolLog, updateMcpToolLogByCallId } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
 import type { ProviderDriver } from '@database/schema';
+import { log } from '@services/ObservabilityService';
 
 import { tt } from '@/i18n';
 import {
@@ -565,7 +566,7 @@ export class AiRequestExecutor {
         reasoningLevel?: SelectableReasoningLevel,
         reasoningOptions?: ReasoningOption[]
     ): AsyncGenerator<AiStreamChunk, void, unknown> {
-        console.debug(
+        log.debug(
             `[AiRequestExecutor] Start stream request, model=${modelId}, messages=${messages.length}, tools=${tools?.length ?? 0}`
         );
         for await (const chunk of provider.stream({
@@ -672,7 +673,7 @@ export class AiRequestExecutor {
             });
             toolLogId = toolLog.id;
         } catch (error) {
-            console.error('[AiRequestExecutor] Failed to create MCP tool log:', error);
+            log.error('[AiRequestExecutor] Failed to create MCP tool log:', error);
         }
 
         let toolResult: { result: string; isError: boolean; attachments?: AttachmentIndex[] };
@@ -690,7 +691,7 @@ export class AiRequestExecutor {
             });
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.error(
+            log.error(
                 `[AiRequestExecutor] MCP tool execution failed: ${options.toolCall.name}`,
                 error
             );
@@ -716,7 +717,7 @@ export class AiRequestExecutor {
             duration_ms: durationMs,
             error_message: toolResult.isError ? toolResult.result : null,
         }).catch((error) => {
-            console.error('[AiRequestExecutor] Failed to update MCP tool log:', error);
+            log.error('[AiRequestExecutor] Failed to update MCP tool log:', error);
         });
 
         return {
@@ -866,7 +867,7 @@ export class AiRequestExecutor {
                     await options.persister.persistOutputProgress(parts);
                 })
                 .catch((error) => {
-                    console.error('[AiRequestExecutor] Failed to persist output parts:', error);
+                    log.error('[AiRequestExecutor] Failed to persist output parts:', error);
                 });
         };
         let activeTextPart: Extract<PersistedOutputPart, { type: 'text' }> | null = null;
@@ -1248,7 +1249,7 @@ export class AiRequestExecutor {
                         try {
                             await options.persister.syncDeliveryManifestRequest(request);
                         } catch (error) {
-                            console.error(
+                            log.error(
                                 '[AiRequestExecutor] Failed to persist attachment delivery manifest request:',
                                 error
                             );
@@ -1272,7 +1273,7 @@ export class AiRequestExecutor {
                 runtime.iteration += 1;
                 resumeCheckpoint = this.commitCheckpoint(runtime);
                 await options.persister.persistCheckpoint(resumeCheckpoint).catch((error) => {
-                    console.error('[AiRequestExecutor] Failed to persist checkpoint:', error);
+                    log.error('[AiRequestExecutor] Failed to persist checkpoint:', error);
                 });
                 if (options.taskId) {
                     options.onTurnEvent?.({
@@ -1304,10 +1305,10 @@ export class AiRequestExecutor {
         } catch (error) {
             // AI SDK RetryError 包装了真正的错误——解包后传递给分类器
             const unwrapped = unwrapRetryError(error);
-            console.warn('[AiRequestExecutor] Request failed:', describeErrorForLog(unwrapped));
+            log.warn('[AiRequestExecutor] Request failed:', describeErrorForLog(unwrapped));
             const providerErrorDetails = extractProviderErrorDetails(unwrapped);
             if (providerErrorDetails) {
-                console.warn(
+                log.warn(
                     '[AiRequestExecutor] Provider error details:',
                     summarizeProviderErrorDetails(providerErrorDetails)
                 );
@@ -1320,7 +1321,7 @@ export class AiRequestExecutor {
                 classifiedError =
                     runtime.provider.classifyError?.(unwrapped) ?? AiError.fromError(unwrapped);
             } catch (classificationError) {
-                console.warn(
+                log.warn(
                     '[AiRequestExecutor] Provider error classification failed:',
                     classificationError
                 );

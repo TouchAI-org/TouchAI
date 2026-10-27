@@ -3,6 +3,7 @@
 import { findSessionById } from '@database/queries/sessions';
 import type { SessionTurn } from '@database/schema';
 import { notify } from '@services/NotificationService';
+import { log } from '@services/ObservabilityService';
 import { computed, onUnmounted, ref } from 'vue';
 
 import { t } from '@/i18n';
@@ -274,7 +275,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
                         body: displayMessage || t('common.unknownError'),
                     });
                 } catch (notificationError) {
-                    console.error('[useAgent] Failed to send notification:', notificationError);
+                    log.error('[useAgent] Failed to send notification:', notificationError);
                 }
             }
 

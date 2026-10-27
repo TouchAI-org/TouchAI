@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createWidgetRenderer } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
+import { log } from '@/services/ObservabilityService';
 
 /**
  * Widget CSS and widget scripts come from a model, so both arrive in shapes a hand-written
@@ -427,7 +428,7 @@ describe('user gets widget script attributes carried across', () => {
     });
 
     it('user gets an inline script with no text content ignored without an error', async () => {
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const consoleError = vi.spyOn(log, 'error').mockImplementation(() => undefined);
         const host = mountHost();
         const renderer = createWidgetRenderer(host);
 

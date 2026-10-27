@@ -2,6 +2,7 @@
 
 import { AppEvent, eventService } from '@services/EventService';
 import { paths } from '@services/NativeService';
+import { log } from '@services/ObservabilityService';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { exists } from '@tauri-apps/plugin-fs';
@@ -118,9 +119,9 @@ async function verifyInjectedFontFace(fontUrl: string): Promise<void> {
     }
 
     if (diagnostics.fontLoaded && diagnostics.fetchOk !== false) {
-        console.info('Source Han Serif font ready:', diagnostics);
+        log.info('Source Han Serif font ready:', diagnostics);
     } else {
-        console.warn('Source Han Serif font diagnostics:', diagnostics);
+        log.warn('Source Han Serif font diagnostics:', diagnostics);
     }
 }
 
@@ -219,7 +220,7 @@ function loadFontFace(options: LoadFontFaceOptions = {}): Promise<void> {
 }
 
 function logFontLoadError(error: unknown): void {
-    console.error('Failed to load Source Han Serif font:', error);
+    log.error('Failed to load Source Han Serif font:', error);
 }
 
 function ensureFontReadyListener(): Promise<void> {
@@ -234,7 +235,7 @@ function ensureFontReadyListener(): Promise<void> {
         .then(() => undefined)
         .catch((error) => {
             fontReadyListenerPromise = null;
-            console.error('Failed to listen for font-ready event:', error);
+            log.error('Failed to listen for font-ready event:', error);
         });
 
     return fontReadyListenerPromise;

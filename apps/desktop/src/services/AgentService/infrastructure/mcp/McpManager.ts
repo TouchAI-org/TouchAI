@@ -24,6 +24,7 @@ import {
     type McpToolDefinition,
     type McpTransportType,
 } from '@services/NativeService';
+import { log } from '@services/ObservabilityService';
 import { eq } from 'drizzle-orm';
 
 import { t } from '@/i18n';
@@ -53,10 +54,7 @@ export class McpManager {
         try {
             await updateMcpServer(serverId, { last_error: error });
         } catch (persistError) {
-            console.error(
-                `[McpManager] Failed to persist error for server ${serverId}:`,
-                persistError
-            );
+            log.error(`[McpManager] Failed to persist error for server ${serverId}:`, persistError);
         }
     }
 
@@ -64,12 +62,12 @@ export class McpManager {
      * 自动连接所有已启用的服务器
      */
     async autoConnect(): Promise<void> {
-        console.log('[McpManager] Starting auto-connect...');
+        log.debug('[McpManager] Starting auto-connect...');
 
         try {
             const enabledServers = await findEnabledMcpServers();
 
-            console.log(
+            log.debug(
                 `[McpManager] Found ${enabledServers.length} enabled servers`,
                 enabledServers.map((server) => `${server.name}(id: ${server.id})`).join(',')
             );
@@ -80,11 +78,11 @@ export class McpManager {
                 try {
                     await this.connectServer(server);
                 } catch (error) {
-                    console.error(`[McpManager] Failed to connect server ${server.name}:`, error);
+                    log.error(`[McpManager] Failed to connect server ${server.name}:`, error);
                 }
             }
         } catch (error) {
-            console.error('[McpManager] Auto-connect failed:', error);
+            log.error('[McpManager] Auto-connect failed:', error);
             throw error;
         }
     }
@@ -93,7 +91,7 @@ export class McpManager {
      * 连接到指定服务器
      */
     async connectServer(server: McpServerEntity): Promise<void> {
-        console.log(`[McpManager] Connecting to server: ${server.name} (${server.transport_type})`);
+        log.debug(`[McpManager] Connecting to server: ${server.name} (${server.transport_type})`);
 
         try {
             // 更新状态为连接中
@@ -118,23 +116,23 @@ export class McpManager {
             this.updateStatus(server.id, 'connected', null);
             await this.persistServerError(server.id, null);
 
-            console.log(`[McpManager] Successfully connected to ${server.name}`);
+            log.debug(`[McpManager] Successfully connected to ${server.name}`);
 
             // 获取服务器版本信息并更新到数据库
             try {
                 const statusInfo = await mcp.getServerStatus(server.id);
                 if (statusInfo.version) {
                     await updateMcpServer(server.id, { version: statusInfo.version });
-                    console.log(`[McpManager] Updated server version: ${statusInfo.version}`);
+                    log.debug(`[McpManager] Updated server version: ${statusInfo.version}`);
                 }
             } catch (error) {
-                console.error(`[McpManager] Failed to get server version:`, error);
+                log.error(`[McpManager] Failed to get server version:`, error);
             }
 
             // 同步工具列表到数据库
             await this.syncToolsToDatabase(server.id);
         } catch (error) {
-            console.error(`[McpManager] Failed to connect to ${server.name}:`, error);
+            log.error(`[McpManager] Failed to connect to ${server.name}:`, error);
             const errorMessage = normalizeErrorMessage(error);
             this.updateStatus(server.id, 'error', errorMessage);
             await this.persistServerError(server.id, errorMessage);
@@ -147,7 +145,7 @@ export class McpManager {
      */
     private async syncToolsToDatabase(serverId: number): Promise<void> {
         try {
-            console.log(`[McpManager] Syncing tools for server ${serverId}...`);
+            log.debug(`[McpManager] Syncing tools for server ${serverId}...`);
 
             // 获取工具列表
             const tools = await this.listTools(serverId);
@@ -178,9 +176,9 @@ export class McpManager {
                 }
             });
 
-            console.log(`[McpManager] Synced ${tools.length} tools for server ${serverId}`);
+            log.debug(`[McpManager] Synced ${tools.length} tools for server ${serverId}`);
         } catch (error) {
-            console.error(`[McpManager] Failed to sync tools for server ${serverId}:`, error);
+            log.error(`[McpManager] Failed to sync tools for server ${serverId}:`, error);
         }
     }
 
@@ -188,15 +186,15 @@ export class McpManager {
      * 断开服务器连接
      */
     async disconnectServer(serverId: number): Promise<void> {
-        console.log(`[McpManager] Disconnecting server: ${serverId}`);
+        log.debug(`[McpManager] Disconnecting server: ${serverId}`);
 
         try {
             await mcp.disconnectServer(serverId);
             this.updateStatus(serverId, 'disconnected', null);
             await this.persistServerError(serverId, null);
-            console.log(`[McpManager] Successfully disconnected server ${serverId}`);
+            log.debug(`[McpManager] Successfully disconnected server ${serverId}`);
         } catch (error) {
-            console.error(`[McpManager] Failed to disconnect server ${serverId}:`, error);
+            log.error(`[McpManager] Failed to disconnect server ${serverId}:`, error);
             throw error;
         }
     }
@@ -205,7 +203,7 @@ export class McpManager {
      * 断开所有服务器连接
      */
     async disconnectAll(timeout: number = 5000): Promise<void> {
-        console.log('[McpManager] Disconnecting all servers...');
+        log.debug('[McpManager] Disconnecting all servers...');
 
         let timer: ReturnType<typeof setTimeout> | undefined;
         let didTimeout = false;
@@ -216,12 +214,12 @@ export class McpManager {
                 .then(() => {
                     if (didTimeout) {
                         this.statusCache.clear();
-                        console.log('[McpManager] All servers disconnected after timeout');
+                        log.debug('[McpManager] All servers disconnected after timeout');
                     }
                 })
                 .catch((disconnectError) => {
                     if (didTimeout) {
-                        console.error(
+                        log.error(
                             '[McpManager] disconnectAll rejected after timeout:',
                             disconnectError
                         );
@@ -238,9 +236,9 @@ export class McpManager {
             await Promise.race([disconnectPromise, timeoutPromise]);
 
             this.statusCache.clear();
-            console.log('[McpManager] All servers disconnected');
+            log.debug('[McpManager] All servers disconnected');
         } catch (error) {
-            console.error('[McpManager] Failed to disconnect all servers:', error);
+            log.error('[McpManager] Failed to disconnect all servers:', error);
             throw error;
         } finally {
             if (timer !== undefined) {
@@ -256,7 +254,7 @@ export class McpManager {
         try {
             return await mcp.listTools(serverId);
         } catch (error) {
-            console.error(`[McpManager] Failed to list tools for server ${serverId}:`, error);
+            log.error(`[McpManager] Failed to list tools for server ${serverId}:`, error);
             throw error;
         }
     }
@@ -273,7 +271,7 @@ export class McpManager {
         try {
             return await mcp.callTool(serverId, toolName, args, timeoutMs);
         } catch (error) {
-            console.error(`[McpManager] Failed to call tool ${toolName}:`, error);
+            log.error(`[McpManager] Failed to call tool ${toolName}:`, error);
             throw error;
         }
     }
@@ -306,7 +304,7 @@ export class McpManager {
             this.updateStatus(serverId, statusInfo.status, statusInfo.error ?? null);
             return statusInfo.status;
         } catch (error) {
-            console.error(`[McpManager] Failed to refresh status for server ${serverId}:`, error);
+            log.error(`[McpManager] Failed to refresh status for server ${serverId}:`, error);
             return 'disconnected';
         }
     }
@@ -325,7 +323,7 @@ export class McpManager {
                 );
             }
         } catch (error) {
-            console.error('[McpManager] Failed to refresh all server statuses:', error);
+            log.error('[McpManager] Failed to refresh all server statuses:', error);
         }
     }
 
@@ -361,16 +359,13 @@ export class McpManager {
                     });
                     allTools.push(...toolsWithNamespace);
                 } catch (error) {
-                    console.error(
-                        `[McpManager] Failed to get tools for server ${server.name}:`,
-                        error
-                    );
+                    log.error(`[McpManager] Failed to get tools for server ${server.name}:`, error);
                 }
             }
 
             return allTools;
         } catch (error) {
-            console.error('[McpManager] Failed to get enabled tool definitions:', error);
+            log.error('[McpManager] Failed to get enabled tool definitions:', error);
             return [];
         }
     }
@@ -384,39 +379,39 @@ export class McpManager {
         toolTimeout: number;
     } | null> {
         try {
-            console.log(`[McpManager] Resolving tool call: ${toolName}`);
+            log.debug(`[McpManager] Resolving tool call: ${toolName}`);
 
             // 解析命名空间格式: mcp__{serverId}__{toolName}
             const match = toolName.match(/^mcp__(\d+)__(.+)$/);
             if (!match) {
-                console.error(`[McpManager] Invalid tool name format: ${toolName}`);
+                log.error(`[McpManager] Invalid tool name format: ${toolName}`);
                 return null;
             }
 
             const serverId = parseInt(match[1]!, 10);
             const originalToolName = match[2]!;
 
-            console.log(`[McpManager] Parsed: serverId=${serverId}, toolName=${originalToolName}`);
+            log.debug(`[McpManager] Parsed: serverId=${serverId}, toolName=${originalToolName}`);
 
             // 查找服务器
             const server = await findMcpServerById(serverId);
 
             if (!server) {
-                console.error(`[McpManager] Server not found: ${serverId}`);
+                log.error(`[McpManager] Server not found: ${serverId}`);
                 return null;
             }
 
             if (!server.enabled) {
-                console.error(`[McpManager] Server disabled: ${serverId} (${server.name})`);
+                log.error(`[McpManager] Server disabled: ${serverId} (${server.name})`);
                 return null;
             }
 
-            console.log(`[McpManager] Found server: ${server.name} (id=${server.id})`);
+            log.debug(`[McpManager] Found server: ${server.name} (id=${server.id})`);
 
             // 验证工具是否存在
             const tool = await findMcpToolByServerIdAndName(server.id, originalToolName);
             if (!tool) {
-                console.error(
+                log.error(
                     `[McpManager] Tool not found: ${originalToolName} on server ${server.name}`
                 );
                 return null;
@@ -428,7 +423,7 @@ export class McpManager {
                 toolTimeout: server.tool_timeout,
             };
         } catch (error) {
-            console.error('[McpManager] Failed to resolve tool call:', error);
+            log.error('[McpManager] Failed to resolve tool call:', error);
             return null;
         }
     }
@@ -523,7 +518,7 @@ export class McpManager {
                 toolName: resolved.originalName,
             });
         } catch (error) {
-            console.error('[McpManager] Failed to persist MCP tool attachments:', error);
+            log.error('[McpManager] Failed to persist MCP tool attachments:', error);
         }
 
         return {

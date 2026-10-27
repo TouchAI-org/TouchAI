@@ -2,6 +2,7 @@
 
 import { findModelByProviderAndModelId } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
+import { log } from '@services/ObservabilityService';
 
 import { tt } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
@@ -52,7 +53,7 @@ async function resolveChainTargets(
                     model,
                 };
             } catch (error) {
-                console.warn('[UpgradeModel] Skip invalid chain entry:', chainEntry, error);
+                log.warn('[UpgradeModel] Skip invalid chain entry:', chainEntry, error);
                 return null;
             }
         })

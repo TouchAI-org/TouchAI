@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
+import { log } from '@/services/ObservabilityService';
 
 const { isPermissionGrantedMock, requestPermissionMock, sendNotificationMock } = vi.hoisted(() => ({
     isPermissionGrantedMock: vi.fn(),
@@ -45,7 +46,7 @@ describe('user gets notifications in their own language', () => {
 
     it('user can still use the app when the permission check fails', async () => {
         isPermissionGrantedMock.mockRejectedValueOnce(new Error('permission backend down'));
-        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const consoleSpy = vi.spyOn(log, 'error').mockImplementation(() => {});
         const { initNotificationPermission } = await import('@services/NotificationService');
 
         await expect(initNotificationPermission()).resolves.toBeUndefined();
@@ -122,7 +123,7 @@ describe('user gets notifications in their own language', () => {
     it('user still gets the notification when permission was declined', async () => {
         isPermissionGrantedMock.mockResolvedValueOnce(false);
         requestPermissionMock.mockResolvedValueOnce('denied');
-        const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const consoleSpy = vi.spyOn(log, 'warn').mockImplementation(() => {});
         const { initNotificationPermission, notify } =
             await import('@services/NotificationService');
 
@@ -146,7 +147,7 @@ describe('user gets notifications in their own language', () => {
         sendNotificationMock.mockImplementationOnce(() => {
             throw new Error('notification backend down');
         });
-        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const consoleSpy = vi.spyOn(log, 'error').mockImplementation(() => {});
         isPermissionGrantedMock.mockResolvedValueOnce(true);
         const { initNotificationPermission, notify } =
             await import('@services/NotificationService');

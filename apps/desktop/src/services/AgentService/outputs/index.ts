@@ -1,6 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import { notify } from '@services/NotificationService';
+import { log } from '@services/ObservabilityService';
 
 import type { RuntimePersistenceIssue } from '../execution';
 
@@ -17,7 +18,7 @@ export async function reportRuntimePersistenceIssue(issue: RuntimePersistenceIss
             body: issue.body,
         });
     } catch (error) {
-        console.error('[RuntimeNotificationOutput] Failed to send notification:', error, issue);
+        log.error('[RuntimeNotificationOutput] Failed to send notification:', error, issue);
     }
 }
 

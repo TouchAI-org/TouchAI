@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { log } from '@services/ObservabilityService';
 import { onUnmounted, ref } from 'vue';
 
 import { sessionTaskCenter } from '@/services/AgentService';
@@ -77,7 +78,7 @@ export function useSessionStatus() {
             unsubscribe = unlisten;
         })
         .catch((error) => {
-            console.error('[useSessionStatus] Failed to subscribe session status updates:', error);
+            log.error('[useSessionStatus] Failed to subscribe session status updates:', error);
         });
 
     onUnmounted(() => {

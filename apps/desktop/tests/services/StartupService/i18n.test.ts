@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MetaKey } from '@/database/schema';
 import { setLocale } from '@/i18n';
+import { log } from '@/services/ObservabilityService';
 
 const { deleteMetaMock, getMetaMock, notifyMock } = vi.hoisted(() => ({
     deleteMetaMock: vi.fn(),
@@ -114,7 +115,7 @@ describe('user is told the import succeeded when the app starts again', () => {
 
     it('user can still start the app when a startup task fails', async () => {
         getMetaMock.mockRejectedValueOnce(new Error('metadata unavailable'));
-        const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const consoleSpy = vi.spyOn(log, 'error').mockImplementation(() => {});
         const { runStartupTasks } = await import('@services/StartupService');
 
         await expect(runStartupTasks()).resolves.toBeUndefined();

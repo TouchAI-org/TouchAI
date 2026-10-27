@@ -3,6 +3,7 @@
 import { findAllMcpServers, findMcpToolsByServerId } from '@database/queries';
 import type { McpServerEntity, McpToolEntity } from '@database/types';
 import { AppEvent, eventService, type McpServerStatus } from '@services/EventService';
+import { log } from '@services/ObservabilityService';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 
@@ -53,7 +54,7 @@ export const useMcpStore = defineStore('mcp', () => {
                 servers.value.map((server) => [server.id, server.last_error])
             );
         } catch (error) {
-            console.error('[McpStore] Failed to load servers:', error);
+            log.error('[McpStore] Failed to load servers:', error);
         } finally {
             loading.value = false;
         }
@@ -63,7 +64,7 @@ export const useMcpStore = defineStore('mcp', () => {
         try {
             tools.value[serverId] = await findMcpToolsByServerId(serverId);
         } catch (error) {
-            console.error(`[McpStore] Failed to load tools for server ${serverId}:`, error);
+            log.error(`[McpStore] Failed to load tools for server ${serverId}:`, error);
         }
     }
 

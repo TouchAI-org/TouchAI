@@ -1,5 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { log } from '@services/ObservabilityService';
 import type { FinishReason, LanguageModelUsage, TextStreamPart, ToolSet } from 'ai';
 
 import type {
@@ -219,7 +220,7 @@ export function createAiSdkStreamProcessor(options: { modelId?: string } = {}) {
                 part.id,
                 (part as { providerMetadata?: unknown }).providerMetadata
             );
-            console.debug(
+            log.debug(
                 `[reasoning] inbound model=${options.modelId ?? 'unknown'} kind=${part.type === 'reasoning-start' ? 'start' : 'end'}`
             );
             return [
@@ -237,7 +238,7 @@ export function createAiSdkStreamProcessor(options: { modelId?: string } = {}) {
                 part.id,
                 (part as { providerMetadata?: unknown }).providerMetadata
             );
-            console.debug(
+            log.debug(
                 `[reasoning] inbound model=${options.modelId ?? 'unknown'} kind=delta length=${part.text.length}`
             );
             return [

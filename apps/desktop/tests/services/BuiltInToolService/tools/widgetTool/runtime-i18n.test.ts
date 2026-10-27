@@ -4,6 +4,7 @@ import {
     createShowWidgetBaseStyles,
     createWidgetRenderer,
 } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
+import { log } from '@/services/ObservabilityService';
 
 const nativeReplaceChild = Node.prototype.replaceChild;
 const nativeAppendChild = Node.prototype.appendChild;
@@ -630,7 +631,7 @@ describe('user views an interactive widget in the conversation', () => {
     });
 
     it('user sees sample-style SVG actions stay interactive', async () => {
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const consoleError = vi.spyOn(log, 'error').mockImplementation(() => undefined);
         const host = document.createElement('div');
         document.body.appendChild(host);
 
@@ -696,7 +697,7 @@ describe('user views an interactive widget in the conversation', () => {
     });
 
     it('user sees reported interactive controls, SVG updates, and timers work', async () => {
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const consoleError = vi.spyOn(log, 'error').mockImplementation(() => undefined);
         const host = document.createElement('div');
         document.body.appendChild(host);
 
