@@ -389,6 +389,8 @@ export class SessionTaskCenter {
 
         task.abortController.abort();
         task.projection.clearPendingApprovals(tt('请求已取消'));
+        // 用户主动控制（取消）属于控制事件：立即广播，不等合并窗口。
+        this.notifySubscribers(taskId);
         return true;
     }
 

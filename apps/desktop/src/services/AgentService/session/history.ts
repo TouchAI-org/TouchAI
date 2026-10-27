@@ -1000,6 +1000,9 @@ export interface SessionHistoryPage {
     hasMore: boolean;
     /** 本页最早的消息 id，作为下一页的 `beforeMessageId`。 */
     oldestMessageId: number | null;
+    /** 会话行与最近使用模型（首屏需要用于展示当前模型）。 */
+    session: SessionData['session'];
+    model: SessionData['model'];
 }
 
 /**
@@ -1012,7 +1015,7 @@ export async function loadSessionHistoryPage(
     sessionId: number,
     options: { limit: number; beforeMessageId?: number | null }
 ): Promise<SessionHistoryPage> {
-    const { messages, turns, attempts, hasMoreMessages } = await getSessionDataPage(
+    const { messages, turns, attempts, hasMoreMessages, session, model } = await getSessionDataPage(
         sessionId,
         options
     );
@@ -1026,5 +1029,7 @@ export async function loadSessionHistoryPage(
         history,
         hasMore: hasMoreMessages,
         oldestMessageId: messages[0]?.id ?? null,
+        session,
+        model,
     };
 }

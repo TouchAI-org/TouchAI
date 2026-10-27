@@ -52,11 +52,8 @@ import {
     getUnsupportedAttachmentTypes,
 } from '../infrastructure/attachments';
 import { mcpManager } from '../infrastructure/mcp';
-import {
-    type AiProvider,
-    createProviderFromRegistry,
-    parseProviderConfigJson,
-} from '../infrastructure/providers';
+import { type AiProvider, parseProviderConfigJson } from '../infrastructure/providers';
+import { createProviderFromRegistry } from '../infrastructure/providers/drivers';
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import type { TurnEvent } from './runtime';

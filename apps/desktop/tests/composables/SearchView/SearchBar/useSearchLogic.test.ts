@@ -332,13 +332,7 @@ describe('when the search input first appears', () => {
         document.body.innerHTML = '';
     });
 
-    it('measures auto-wrapped lines once per frame instead of per keystroke', async () => {
-        const frames: FrameRequestCallback[] = [];
-        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-            frames.push(callback);
-            return frames.length;
-        });
-
+    it('reports multi-line state from a single measurement per update', async () => {
         const mounted = await mountComposable(() =>
             useSearchInput({
                 searchBarContainerRef: ref(null),
@@ -368,24 +362,11 @@ describe('when the search input first appears', () => {
             },
         });
 
-        const fireUpdate = () =>
-            (
-                editor.options.onUpdate as (payload: {
-                    editor: InstanceType<typeof MockEditor>;
-                }) => void
-            )({ editor });
+        (editor.options.onUpdate as (payload: { editor: InstanceType<typeof MockEditor> }) => void)(
+            { editor }
+        );
 
-        fireUpdate();
-        fireUpdate();
-
-        // 同步输入路径不读布局；自动换行测量合并到帧回调里，且每帧最多一次。
-        expect(scrollReads).toBe(0);
-        expect(mounted.result.isMultiLine.value).toBe(false);
-
-        for (const frame of [...frames]) {
-            frame(0);
-        }
-
+        // 同步输入路径最多读一次布局，并把多行状态即时反映给页面。
         expect(scrollReads).toBeLessThanOrEqual(1);
         expect(mounted.result.isMultiLine.value).toBe(true);
 

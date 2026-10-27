@@ -5,10 +5,10 @@ import type { ProviderDriver } from '@database/schema';
 
 import {
     type AiProvider,
-    createProviderFromRegistry,
     parseProviderConfigJson,
     parseProviderDriver,
 } from '../infrastructure/providers';
+import { createProviderFromRegistry } from '../infrastructure/providers/drivers';
 
 /**
  * 按服务商驱动创建 provider 实例。

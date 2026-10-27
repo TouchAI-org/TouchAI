@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AiToolCallDelta } from '@/services/AgentService/contracts/tooling';
 import { ProjectionWidgets } from '@/services/AgentService/task/projection/widgets';
@@ -64,34 +64,20 @@ describe('ProjectionWidgets draft rebuild cost', () => {
         vi.useFakeTimers();
         const widgets = new ProjectionWidgets();
         const history = createHistory();
+        const prefix = '{"widget_id":"w1","html":"<div>' + 'x'.repeat(2000);
 
-        widgets.handleToolCallDelta(
-            history,
-            'assistant-1',
-            createDelta('call-1', '{"widget_id":"w1","html":"<div>a')
-        );
+        widgets.handleToolCallDelta(history, 'assistant-1', createDelta('call-1', prefix + 'a'));
         expect(buildDraftSpy).toHaveBeenCalledTimes(1);
 
-        // 节流窗口内的后续 delta 不重新解析整段累计 JSON。
-        widgets.handleToolCallDelta(
-            history,
-            'assistant-1',
-            createDelta('call-1', '{"widget_id":"w1","html":"<div>ab')
-        );
-        widgets.handleToolCallDelta(
-            history,
-            'assistant-1',
-            createDelta('call-1', '{"widget_id":"w1","html":"<div>abc')
-        );
+        // 超过节流阈值后，窗口内的后续 delta 不再重新解析整段累计 JSON。
+        widgets.handleToolCallDelta(history, 'assistant-1', createDelta('call-1', prefix + 'ab'));
+        widgets.handleToolCallDelta(history, 'assistant-1', createDelta('call-1', prefix + 'abc'));
         expect(buildDraftSpy).toHaveBeenCalledTimes(1);
 
         vi.advanceTimersByTime(200);
 
         expect(buildDraftSpy).toHaveBeenCalledTimes(2);
-        expect(buildDraftSpy).toHaveBeenLastCalledWith(
-            'call-1',
-            '{"widget_id":"w1","html":"<div>abc'
-        );
+        expect(buildDraftSpy).toHaveBeenLastCalledWith('call-1', prefix + 'abc');
     });
 
     it('rebuilds immediately for the finished tool call and clears per-call state', () => {

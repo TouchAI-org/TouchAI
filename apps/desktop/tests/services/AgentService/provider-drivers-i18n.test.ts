@@ -3,13 +3,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { ProviderDriver } from '@/database/schema';
 import { setLocale } from '@/i18n';
 import {
-    createProviderFromRegistry,
     getProviderDriverDefinition,
     getProviderDriverDefinitions,
     isProviderDriver,
     parseProviderDriver,
     providerDriverDefinitions,
 } from '@/services/AgentService/infrastructure/providers';
+import { createProviderFromRegistry } from '@/services/AgentService/infrastructure/providers/drivers';
 
 describe('user picks a provider driver in their own language', () => {
     beforeEach(() => {

@@ -255,7 +255,8 @@ describe('MarkdownContent with the real streaming parser', () => {
         } finally {
             vi.useRealTimers();
         }
-    });
+    });
+
     it('renders long streaming code blocks as plain pre until the message is final', async () => {
         const longCode = 'const value = 1;'.repeat(500);
         const wrapper = mount(MarkdownContent, {

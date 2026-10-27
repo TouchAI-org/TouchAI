@@ -281,6 +281,11 @@ describe('when the app upgrades an existing database', () => {
             '0002_quick_search_click_stats_unique',
             '0003_tough_amazoness',
             '0004_ordinary_solo',
+            // 性能分支新增的只读投影与索引迁移。
+            '0005_mighty_zombie',
+            '0006_narrow_search_update_trigger',
+            '0007_big_scarlet_spider',
+            '0008_tool_part_projections',
         ]);
     });
 

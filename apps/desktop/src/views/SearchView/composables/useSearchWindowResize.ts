@@ -107,8 +107,11 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         return currentWindow.isVisible().catch(() => true);
     }
 
-    async function syncSearchWindowHeightMode() {
-        const state = await native.window.getSearchWindowState();
+    async function fetchSearchWindowState() {
+        return await native.window.getSearchWindowState();
+    }
+
+    function applySearchWindowState(state: Awaited<ReturnType<typeof fetchSearchWindowState>>) {
         searchWindowHeightMode.value = state.heightMode;
 
         if (state.heightMode === SearchWindowHeightMode.Auto) {
@@ -117,12 +120,13 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     async function syncWindowState() {
-        // 最大化状态与高度模式互相独立，并行探测避免串行 IPC。
-        const [maximized] = await Promise.all([
-            currentWindow.isMaximized().catch(() => false),
-            syncSearchWindowHeightMode(),
-        ]);
-        desiredMaximized.value = maximized;
+        // 两个 IPC 并行发出，但状态写入仍按原顺序（先最大化，再高度模式），
+        // 避免派生状态在中间态下多算一次自动高度。
+        const maximizedPromise = currentWindow.isMaximized().catch(() => false);
+        const heightModePromise = fetchSearchWindowState();
+
+        desiredMaximized.value = await maximizedPromise;
+        applySearchWindowState(await heightModePromise);
     }
 
     async function syncSearchWindowAllowHeightOverride() {

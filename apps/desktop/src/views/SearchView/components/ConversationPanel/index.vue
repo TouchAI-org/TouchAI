@@ -34,7 +34,7 @@
         >
             <!-- 消息列表 -->
             <div v-if="hasOlderMessages || isLoadingOlderMessages" class="flex justify-center py-2">
-                <span v-if="isLoadingOlderMessages" class="text-xs text-gray-400">
+                <span v-if="isLoadingOlderMessages" class="text-xs">
                     {{ t('conversation.loadingOlderMessages') }}
                 </span>
             </div>

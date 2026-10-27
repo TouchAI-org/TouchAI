@@ -148,15 +148,14 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         sessionHistory.value = page.history;
         applyFirstHistoryPage({ hasMore: page.hasMore, oldestMessageId: page.oldestMessageId });
 
-        const session = await findSessionById(sessionId);
-        currentSessionId.value = sessionId;
+        currentSessionId.value = page.session.id;
         resetTransientState();
 
         return {
-            sessionId,
-            title: session?.title ?? '',
-            modelId: session?.model ?? null,
-            providerId: session?.provider_id ?? null,
+            sessionId: page.session.id,
+            title: page.session.title,
+            modelId: page.model?.model_id ?? page.session.model ?? null,
+            providerId: page.model?.provider_id ?? page.session.provider_id ?? null,
         };
     }
 

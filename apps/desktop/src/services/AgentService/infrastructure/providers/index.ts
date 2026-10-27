@@ -12,7 +12,8 @@ export {
     type ProviderDriverDefinition,
     providerDriverDefinitions,
 } from './driverCatalog';
-export { createProviderFromRegistry } from './drivers';
+// 注意：此处不转出 `./drivers`。实例化入口会静态引入所有厂商 adapter，
+// 只应由真正发请求的模块（catalog / executor）直接导入，避免设置页把它们拉进首屏。
 export type {
     AiProvider,
     AiProviderConfig,

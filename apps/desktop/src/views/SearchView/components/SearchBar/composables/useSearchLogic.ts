@@ -108,7 +108,6 @@ export function useSearchInput(
     const cursorAtTextStart = ref(false);
     const cursorAtEnd = ref(false);
     let cachedLineHeight = 0;
-    let multiLineMeasureFrame: number | null = null;
     let isApplyingControlledQuery = false;
     let isRestoringInputHistory = false;
     let inputHistoryRestoreToken = 0;
@@ -227,10 +226,6 @@ export function useSearchInput(
      * 销毁编辑器实例，释放资源。
      */
     function destroyEditor() {
-        if (multiLineMeasureFrame !== null) {
-            cancelAnimationFrame(multiLineMeasureFrame);
-            multiLineMeasureFrame = null;
-        }
         editor.value?.destroy();
         editor.value = null;
         cachedLineHeight = 0;
@@ -282,32 +277,11 @@ export function useSearchInput(
     /**
      * 同步多行状态。
      *
-     * 段落数量是纯文档遍历，可以即时给出结果；
      * 自动换行需要读 `scrollHeight`/`lineHeight`（强制布局），
-     * 因此合并到每帧最多测量一次，避免每次输入都触发同步布局。
+     * 但输入框的可视状态必须与本次输入同步，因此这里保持同步测量。
      */
     function syncMultiLineState(ed: Editor) {
-        if (hasMultipleParagraphs(ed)) {
-            isMultiLineState.value = true;
-            return;
-        }
-
-        scheduleMultiLineMeasurement(ed);
-    }
-
-    function scheduleMultiLineMeasurement(ed: Editor) {
-        if (multiLineMeasureFrame !== null) {
-            return;
-        }
-
-        multiLineMeasureFrame = requestAnimationFrame(() => {
-            multiLineMeasureFrame = null;
-            if (editor.value !== ed) {
-                return;
-            }
-
-            isMultiLineState.value = hasMultipleParagraphs(ed) || measureAutoWrappedLine(ed);
-        });
+        isMultiLineState.value = hasMultipleParagraphs(ed) || measureAutoWrappedLine(ed);
     }
 
     /**

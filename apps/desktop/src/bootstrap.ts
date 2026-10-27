@@ -1,4 +1,4 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3.
+// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 import { isLlmMetadataAliasEmpty, isLlmMetadataEmpty } from '@database/queries';
 import { appUpdateService } from '@services/AppUpdateService';
 import { initializeAppUpdateNotifications } from '@services/AppUpdateService/notifications';
@@ -159,7 +159,7 @@ async function initializeModelMetadata(): Promise<void> {
         }
 
         const { syncAllModelsMetadata } =
-            await import('@/services/AgentService/infrastructure/modelMetadata');
+            await import('@/services/AgentService/infrastructure/modelMetadata/syncEntry');
         await syncAllModelsMetadata();
     } catch (error) {
         log.warn('[Bootstrap] Failed to initialize model metadata:', error);
@@ -173,7 +173,7 @@ async function initializeModelMetadata(): Promise<void> {
  */
 function scheduleModelMetadataRefresh(): void {
     const runRefresh = () => {
-        void import('@/services/AgentService/infrastructure/modelMetadata')
+        void import('@/services/AgentService/infrastructure/modelMetadata/syncEntry')
             .then(({ refreshModelMetadataIfStale }) => refreshModelMetadataIfStale())
             .catch((error) => {
                 log.warn('[Bootstrap] Failed to refresh model metadata:', error);
