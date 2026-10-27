@@ -40,13 +40,6 @@ impl TraceContext {
             span_id: next_span_id(),
         })
     }
-
-    fn new_root() -> Self {
-        Self {
-            trace_id: uuid::Uuid::new_v4().simple().to_string(),
-            span_id: next_span_id(),
-        }
-    }
 }
 
 fn is_lower_hex(value: &str) -> bool {
@@ -79,7 +72,9 @@ where
     let Some(traceparent) = traceparent else {
         return future.await;
     };
-    let trace = TraceContext::parse(&traceparent).unwrap_or_else(TraceContext::new_root);
+    let Some(trace) = TraceContext::parse(&traceparent) else {
+        return future.await;
+    };
     let span = tracing::info_span!(
         "ipc.command",
         operation,
@@ -139,5 +134,14 @@ mod tests {
         .await;
 
         assert_eq!(trace.trace_id, "4bf92f3577b34da6a3ce929d0e0e4736");
+    }
+
+    #[tokio::test]
+    async fn user_does_not_get_an_invented_trace_for_a_malformed_traceparent() {
+        let traceparent = Some("00-short-00f067aa0ba902b7-01".to_string());
+
+        let trace = with_traceparent(traceparent, "test.command", async { current_trace() }).await;
+
+        assert!(trace.is_none());
     }
 }

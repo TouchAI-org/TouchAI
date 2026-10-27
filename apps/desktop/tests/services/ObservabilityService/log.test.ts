@@ -1,6 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import {
+    event,
     flushObservability,
     initObservability,
     log,
@@ -67,7 +68,7 @@ describe('user gets service logs as structured events', () => {
         log.trace();
         await flushObservability();
 
-        const [entry] = sentEntries();
+        const entry = sentEntries().at(-1);
         expect(entry).toMatchObject({ level: 1, event: 'app.log' });
         expect(entry?.msg).toBeUndefined();
     });
@@ -80,7 +81,19 @@ describe('user gets service logs as structured events', () => {
         log.warn(circular, 'state');
         await flushObservability();
 
-        expect(sentEntries()[0]?.msg).toContain('[object Object]');
+        expect(sentEntries().at(-1)?.msg).toContain('[object Object]');
+    });
+
+    it('user still gets the result when a typed event does not match its schema', async () => {
+        initObservability();
+
+        expect(() => event('agent.request.failed', {} as never)).not.toThrow();
+        await flushObservability();
+
+        expect(sentEvent('obs.schema.invalid')).toMatchObject({
+            level: 5,
+            attrs: { 'obs.event': 'agent.request.failed' },
+        });
     });
 });
 
@@ -124,7 +137,7 @@ describe('user gets third-party console failures as structured events', () => {
         console.warn(circular, undefined);
         await flushObservability();
 
-        const [entry] = sentEntries();
+        const entry = sentEntries().at(-1);
         expect(entry?.msg).toContain('[object Object]');
         expect(entry?.msg).toContain('undefined');
     });
@@ -138,7 +151,7 @@ describe('user gets third-party console failures as structured events', () => {
         console.error(error);
         await flushObservability();
 
-        expect(sentEntries()[0]?.msg).toContain('Error: connection dropped');
+        expect(sentEntries().at(-1)?.msg).toContain('Error: connection dropped');
     });
 });
 

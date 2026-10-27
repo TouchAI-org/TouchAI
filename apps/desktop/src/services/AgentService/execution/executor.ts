@@ -1264,7 +1264,7 @@ export class AiRequestExecutor {
                     'touchai.model',
                     {
                         [ATTR.requestModel]: runtime.activeModel.model_id,
-                        [ATTR.providerName]: runtime.activeModel.provider_id,
+                        [ATTR.providerName]: runtime.activeModel.provider_name,
                     },
                     () =>
                         this.consumeModelStep(runtime, {
@@ -1339,7 +1339,7 @@ export class AiRequestExecutor {
                 'agent.request.failed',
                 unwrapped,
                 {
-                    [ATTR.providerName]: runtime.activeModel.provider_id,
+                    [ATTR.providerName]: runtime.activeModel.provider_name,
                     [ATTR.requestModel]: runtime.activeModel.model_id,
                     ...(providerErrorDetails?.statusCode !== undefined
                         ? { [ATTR.httpStatus]: providerErrorDetails.statusCode }

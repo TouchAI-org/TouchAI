@@ -11,8 +11,8 @@ const errorAttributes = {
     'error.type': boundedString,
 };
 const providerAttributes = {
-    [ATTR.providerName]: boundedString,
-    [ATTR.requestModel]: boundedString,
+    [ATTR.providerName]: boundedString.optional(),
+    [ATTR.requestModel]: boundedString.optional(),
 };
 
 export interface ObservabilityEventDefinition {
@@ -93,6 +93,15 @@ export const OBSERVABILITY_EVENTS = {
     'external.console': {
         level: 'warn',
         attrs: z.record(z.string(), scalar),
+        telemetry: false,
+    },
+    'obs.schema.invalid': {
+        level: 'error',
+        attrs: z
+            .object({
+                'obs.event': boundedString,
+            })
+            .strict(),
         telemetry: false,
     },
 } as const satisfies Record<string, ObservabilityEventDefinition>;

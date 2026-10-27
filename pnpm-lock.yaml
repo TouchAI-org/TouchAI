@@ -128,9 +128,9 @@ importers:
       '@opentelemetry/api':
         specifier: 1.9.1
         version: 1.9.1
-      '@opentelemetry/context-zone':
+      '@opentelemetry/context-zone-peer-dep':
         specifier: 2.12.0
-        version: 2.12.0(@opentelemetry/api@1.9.1)
+        version: 2.12.0(@opentelemetry/api@1.9.1)(zone.js@0.15.1)
       '@opentelemetry/sdk-trace':
         specifier: 2.12.0
         version: 2.12.0(@opentelemetry/api@1.9.1)
@@ -1816,10 +1816,6 @@ packages:
     peerDependencies:
       '@opentelemetry/api': '>=1.0.0 <1.10.0'
       zone.js: ^0.10.2 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^0.14.0 || ^0.15.0 || ^0.16.0
-
-  '@opentelemetry/context-zone@2.12.0':
-    resolution: {integrity: sha512-0sl/9ApZBusUcEg9iYo1svqy+1qnRO1N5SUd5VSvKCKlTMSjjA+yWDcEGVu/j5mqjyBtV7cgj5XI5MYoW92X7g==}
-    engines: {node: ^18.19.0 || >=20.6.0}
 
   '@opentelemetry/core@2.12.0':
     resolution: {integrity: sha512-1HsSAuvT4/my0QrXWsyXFdWjKaPeCHsismKZgEEIb8NK13LP6DrMRlsUbvD/0F9mDWK3xDom9AMv3IscxgOnOQ==}
@@ -8707,13 +8703,6 @@ snapshots:
     dependencies:
       '@opentelemetry/api': 1.9.1
       zone.js: 0.15.1
-
-  '@opentelemetry/context-zone@2.12.0(@opentelemetry/api@1.9.1)':
-    dependencies:
-      '@opentelemetry/context-zone-peer-dep': 2.12.0(@opentelemetry/api@1.9.1)(zone.js@0.15.1)
-      zone.js: 0.15.1
-    transitivePeerDependencies:
-      - '@opentelemetry/api'
 
   '@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1)':
     dependencies:

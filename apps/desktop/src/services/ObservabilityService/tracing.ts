@@ -1,5 +1,3 @@
-import 'zone.js';
-
 import {
     type Attributes,
     context,
@@ -8,16 +6,22 @@ import {
     SpanStatusCode,
     trace,
 } from '@opentelemetry/api';
-import { ZoneContextManager } from '@opentelemetry/context-zone';
-import { TracerProvider } from '@opentelemetry/sdk-trace';
+import { ZoneContextManager } from '@opentelemetry/context-zone-peer-dep';
+import { StackContextManager, TracerProvider } from '@opentelemetry/sdk-trace';
 
 let provider: TracerProvider | null = null;
-let contextManager: ZoneContextManager | null = null;
+let contextManager: ZoneContextManager | StackContextManager | null = null;
 let tracer = trace.getTracer('touchai.desktop');
 
 export function initTracing(): void {
     if (provider) return;
-    contextManager = new ZoneContextManager().enable();
+    // zone.js is loaded by initializeApp, not by this module: importing it from
+    // here patched timers in every Vitest worker and changed microtask ordering.
+    // Tests fall back to the synchronous stack manager below.
+    contextManager =
+        typeof (globalThis as { Zone?: unknown }).Zone === 'undefined'
+            ? new StackContextManager().enable()
+            : new ZoneContextManager().enable();
     context.setGlobalContextManager(contextManager);
     provider = new TracerProvider();
     trace.setGlobalTracerProvider(provider);

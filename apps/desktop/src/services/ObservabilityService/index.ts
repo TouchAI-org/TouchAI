@@ -134,7 +134,7 @@ export function event<T extends ObservabilityEventName>(
     attrs: ObservabilityEventAttributes<T>,
     msg?: string
 ): void {
-    validateEventAttributes(name, attrs);
+    if (!isValidEvent(name, attrs)) return;
     const definition = OBSERVABILITY_EVENTS[name];
     emit(definition.level, name, attrs, msg);
 }
@@ -146,8 +146,25 @@ export function error(
     msg?: string
 ): void {
     const enriched = { ...attrs, ...errorAttributes(cause) };
-    validateEventAttributes(name, enriched);
+    if (!isValidEvent(name, enriched)) return;
     emit(OBSERVABILITY_EVENTS[name].level, name, enriched, msg);
+}
+
+/**
+ * Logging must never break the caller. A schema mismatch drops the typed event,
+ * records a content-free marker, and leaves the business path untouched.
+ */
+function isValidEvent(
+    name: ObservabilityEventName,
+    attrs: Record<string, string | number | boolean>
+): boolean {
+    try {
+        validateEventAttributes(name, attrs);
+        return true;
+    } catch {
+        emit('error', 'obs.schema.invalid', { 'obs.event': name });
+        return false;
+    }
 }
 
 export async function flushObservability(): Promise<void> {

@@ -231,6 +231,11 @@ function scheduleUsageMaintenance(pinia: ReturnType<typeof createPinia>): void {
 }
 
 export async function initializeApp() {
+    // zone.js is only needed in the real WebView. Importing it in Vitest
+    // patches timers and changes microtask ordering for unrelated tests.
+    if (import.meta.env.MODE !== 'test') {
+        await import('zone.js');
+    }
     initObservability();
     setupLinkInterceptor();
     document.addEventListener('contextmenu', (event) => event.preventDefault());
