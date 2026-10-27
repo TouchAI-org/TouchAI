@@ -188,10 +188,15 @@ jobs:
               with:
                   name: desktop-debug-binary
                   # `bundle.resources` is empty in `tauri.conf.json`, so the executable is
-                  # the whole artifact. The glob is used rather than a fixed path because
-                  # the profile directory name follows `--profile`, and pinning it here
-                  # would break the moment the profile changes.
-                  path: apps/desktop/src-tauri/target/e2e/*/TouchAI.exe
+                  # the whole artifact.
+                  #
+                  # A glob is deliberately avoided here. `upload-artifact` preserves the
+                  # path structure of what it is given, so `target/e2e/*/TouchAI.exe`
+                  # arrives on the other side as `apps/desktop/src-tauri/target/e2e/...`
+                  # nested inside the download directory. Uploading the directory itself
+                  # makes the layout on download predictable: `TouchAI.exe` at the root of
+                  # whatever directory the consumer unpacks into.
+                  path: apps/desktop/src-tauri/target/e2e/ci-check/TouchAI.exe
                   if-no-files-found: error
                   retention-days: 1
 
