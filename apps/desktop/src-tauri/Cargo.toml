@@ -50,6 +50,7 @@ log = "0.4"
 image = "0.25"
 base64 = "0.23"
 time = { version = "0.3", features = ["macros"] }
+uuid = { version = "1", features = ["v4"] }
 tauri-plugin-fs-pro = "2.4.0"
 tauri-plugin-fs = "2"
 tauri-plugin-process = "2"

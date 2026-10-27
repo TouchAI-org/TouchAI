@@ -7,6 +7,7 @@ pub mod built_in_tools;
 pub mod clipboard;
 pub mod database;
 pub mod mcp;
+pub mod observability;
 pub mod paths;
 pub mod quick_search;
 pub mod shortcut;
@@ -57,6 +58,8 @@ pub fn invoke_handler<R: tauri::Runtime>(
         database::database_tx_rollback,
         database::database_export_backup,
         database::database_import_backup,
+        observability::obs_ingest,
+        observability::obs_run_id,
         paths::get_app_directory_path,
         paths::get_runtime_info,
         built_in_tools::built_in_tools_execute_bash,

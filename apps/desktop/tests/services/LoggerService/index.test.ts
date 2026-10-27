@@ -28,15 +28,24 @@ async function initializeFreshLogger() {
     return initializeLogger;
 }
 
+async function flushLogs() {
+    const { flushObservability } = await import('@services/ObservabilityService');
+    await flushObservability();
+}
+
 function logEntries() {
-    return getTauriInvokeCalls('plugin:log|log').map((call) => call.payload);
+    return getTauriInvokeCalls('obs_ingest').flatMap(
+        (call) => (call.payload as { batch: Array<Record<string, unknown>> }).batch
+    );
 }
 
 beforeEach(() => {
     vi.resetModules();
 });
 
-afterEach(() => {
+afterEach(async () => {
+    const { resetObservabilityForTests } = await import('@services/ObservabilityService');
+    resetObservabilityForTests();
     restoreConsole();
 });
 
@@ -45,11 +54,13 @@ describe('user reads app logs in the log file', () => {
         await initializeFreshLogger();
 
         console.log('workspace ready');
+        await flushLogs();
 
         expect(logEntries()).toEqual([
             expect.objectContaining({
                 level: 3,
-                message: 'workspace ready',
+                event: 'legacy.console',
+                msg: 'workspace ready',
             }),
         ]);
     });
@@ -61,21 +72,21 @@ describe('user reads app logs in the log file', () => {
         console.info('info line');
         console.warn('warn line');
         console.error('error line');
+        await flushLogs();
 
-        expect(logEntries().map((entry) => (entry as { level: number }).level)).toEqual([
-            2, 3, 4, 5,
-        ]);
+        expect(logEntries().map((entry) => entry.level)).toEqual([2, 3, 4, 5]);
     });
 
     it('user sees structured values and errors readable in the log file', async () => {
         await initializeFreshLogger();
 
         console.warn('request failed', { statusCode: 500 }, new Error('boom'));
+        await flushLogs();
 
-        const [entry] = logEntries() as Array<{ message: string }>;
-        expect(entry?.message).toContain('request failed');
-        expect(entry?.message).toContain('{"statusCode":500}');
-        expect(entry?.message).toContain('boom');
+        const [entry] = logEntries() as Array<{ msg: string }>;
+        expect(entry?.msg).toContain('request failed');
+        expect(entry?.msg).toContain('{"statusCode":500}');
+        expect(entry?.msg).toContain('boom');
     });
 
     it('user sees a log line recorded once even when startup initializes logging twice', async () => {
@@ -83,6 +94,7 @@ describe('user reads app logs in the log file', () => {
 
         initializeLogger();
         console.info('single line');
+        await flushLogs();
 
         expect(logEntries()).toHaveLength(1);
     });
@@ -91,14 +103,17 @@ describe('user reads app logs in the log file', () => {
         const { interceptTauriInvoke } = await import('@tests/utils/tauri');
         await initializeFreshLogger();
         interceptTauriInvoke((call, next) => {
-            if (call.cmd === 'plugin:log|log') {
+            if (call.cmd === 'obs_ingest') {
                 return Promise.reject(new Error('log backend down'));
             }
 
             return next();
         });
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
         expect(() => console.error('still visible locally')).not.toThrow();
-        await Promise.resolve();
+        await flushLogs();
+
+        expect(consoleError).toHaveBeenCalled();
     });
 });

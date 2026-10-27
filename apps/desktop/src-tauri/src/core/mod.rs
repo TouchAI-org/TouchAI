@@ -8,6 +8,7 @@ pub mod browser;
 pub mod built_in_tools;
 pub mod database;
 pub mod mcp;
+pub mod observability;
 pub mod search;
 pub mod setup;
 pub mod system;

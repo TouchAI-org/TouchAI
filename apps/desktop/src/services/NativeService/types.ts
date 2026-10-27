@@ -220,6 +220,17 @@ export interface TauriLogPayload {
     line?: number;
 }
 
+export interface ObservabilityLogEnvelope {
+    ts: number;
+    level: number;
+    event: string;
+    window?: string;
+    traceId?: string;
+    spanId?: string;
+    msg?: string;
+    attrs: Record<string, string | number | boolean>;
+}
+
 export type ClipboardPayloadFragment =
     | {
           type: 'text';

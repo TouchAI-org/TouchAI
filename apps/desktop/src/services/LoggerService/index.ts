@@ -1,4 +1,4 @@
-import { native } from '@services/NativeService';
+import { emit, initObservability } from '@services/ObservabilityService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
@@ -10,15 +10,6 @@ interface Callsite {
     file?: string; // 标准化后的文件路径
     line?: number; // 源文件行号
 }
-
-/** 日志级别到 Tauri 插件数字级别的映射 */
-const TAURI_LOG_LEVELS: Record<LogLevel, number> = {
-    trace: 1,
-    debug: 2,
-    info: 3,
-    warn: 4,
-    error: 5,
-} as const;
 
 /** 保存原始 console 方法（在打补丁之前） */
 const NATIVE_CONSOLE: Record<ConsoleLevel, ConsoleMethod> = {
@@ -171,17 +162,16 @@ const extractCallsite = (): Callsite | undefined => {
  * @param callsite - 可选的源位置信息
  */
 const forwardToTauri = (level: LogLevel, args: unknown[], callsite?: Callsite): void => {
-    const payload = {
-        level: TAURI_LOG_LEVELS[level],
-        message: formatMessage(args),
-        location: callsite?.location,
-        file: callsite?.file,
-        line: callsite?.line,
-    };
-
-    void native.log.log(payload).catch((error: unknown) => {
-        NATIVE_CONSOLE.error('[Logger] 转发日志到 Tauri 失败:', error);
-    });
+    emit(
+        level,
+        'legacy.console',
+        {
+            ...(callsite?.location ? { location: callsite.location } : {}),
+            ...(callsite?.file ? { file: callsite.file } : {}),
+            ...(callsite?.line !== undefined ? { line: callsite.line } : {}),
+        },
+        formatMessage(args)
+    );
 };
 
 /**
@@ -209,6 +199,7 @@ export const initializeLogger = (): void => {
     if (initialized) return;
 
     initialized = true;
+    initObservability();
 
     console.trace = createLogMethod('trace', 'trace');
     console.debug = createLogMethod('debug', 'debug');

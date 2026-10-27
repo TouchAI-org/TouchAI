@@ -175,6 +175,7 @@ pub fn run() {
             if let Err(err) = setup::setup_app(app) {
                 return Err(Box::new(std::io::Error::other(err)));
             }
+            core::observability::log_header(&app.package_info().version.to_string());
             Ok(())
         })
         .run(context);

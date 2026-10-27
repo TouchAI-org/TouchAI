@@ -5,6 +5,7 @@ import { clipboard } from './clipboard';
 import { database } from './database';
 import { log } from './log';
 import * as mcp from './mcp';
+import { observability } from './observability';
 import { paths } from './paths';
 import { quickSearch } from './quickSearch';
 import { runtime } from './runtime';
@@ -46,6 +47,7 @@ export type {
     BuiltInBashStreamChannel,
     BuiltInBashStreamChunk,
     ClipboardPayload,
+    ObservabilityLogEnvelope,
     PopupConfig,
     QuickSearchFileItem,
     QuickSearchResult,
@@ -64,6 +66,7 @@ export {
     database,
     log,
     mcp,
+    observability,
     paths,
     quickSearch,
     runtime,
@@ -80,6 +83,7 @@ export const native = {
     clipboard,
     builtInTools,
     log,
+    observability,
     database,
     paths,
     mcp,
