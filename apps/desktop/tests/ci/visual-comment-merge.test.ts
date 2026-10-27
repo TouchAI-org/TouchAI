@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    BASELINE_HINT_MARKER,
     COMMENT_MARKER,
     layersIn,
     lostLayers,
@@ -113,7 +114,10 @@ describe('user reads one comment that holds both visual layers', () => {
         // The prose survives as text inside the block rather than as structure outside
         // it, so it cannot be mistaken for another layer's report.
         expect(blockOf(merged, 'e2e')).toContain('Injected prose');
-        expect(merged.endsWith(`${endOf('e2e')}\n`)).toBe(true);
+        // The block still ends where the marker says it does. The comment continues below
+        // it with the shared hint, which is why the assertion is on the block's own
+        // boundary rather than on the end of the whole body.
+        expect(merged.indexOf(endOf('e2e'))).toBeLessThan(merged.indexOf(BASELINE_HINT_MARKER));
     });
 
     it('user never sees a layer name that cannot be addressed', () => {
@@ -172,5 +176,49 @@ describe('user is never shown a report that lost a layer', () => {
         // A PATCH that dropped the very layer it was writing is just as broken as one
         // that dropped the other layer, and the before-state would not reveal it.
         expect(lostLayers([], [], 'components')).toEqual(['components']);
+    });
+});
+
+/**
+ * The hint explains what to do about either layer, so it belongs under both reports and
+ * not between them. It used to be emitted from whichever report was written first, which
+ * put it above the other layer's section — the middle of the comment.
+ */
+describe('user finds the approval hint once, at the end of the comment', () => {
+    it('user sees the hint last when the components layer writes first', () => {
+        const afterComponents = mergeSection(null, 'components', componentsSection);
+        const both = mergeSection(afterComponents, 'e2e', e2eSection);
+
+        expect(both.indexOf(BASELINE_HINT_MARKER)).toBeGreaterThan(both.indexOf(endOf('e2e')));
+        expect(both.split(BASELINE_HINT_MARKER)).toHaveLength(2);
+        expect(both.trimEnd().endsWith('</details>')).toBe(true);
+    });
+
+    it('user sees the hint last when the app layer writes first', () => {
+        const afterE2e = mergeSection(null, 'e2e', e2eSection);
+        const both = mergeSection(afterE2e, 'components', componentsSection);
+
+        // The components section is written second here, and the hint still follows it
+        // rather than sitting above it.
+        expect(both.indexOf(BASELINE_HINT_MARKER)).toBeGreaterThan(
+            both.indexOf(endOf('components'))
+        );
+        expect(both.split(BASELINE_HINT_MARKER)).toHaveLength(2);
+    });
+
+    it('user sees the hint even when only one layer has reported', () => {
+        const onlyComponents = mergeSection(null, 'components', componentsSection);
+
+        expect(onlyComponents).toContain(BASELINE_HINT_MARKER);
+        expect(onlyComponents).toContain('/approve-visuals');
+    });
+
+    it('user is not shown the hint stacked up by repeated runs', () => {
+        let body = mergeSection(null, 'components', componentsSection);
+        body = mergeSection(body, 'e2e', e2eSection);
+        body = mergeSection(body, 'components', componentsSection);
+        body = mergeSection(body, 'e2e', e2eSection);
+
+        expect(body.split(BASELINE_HINT_MARKER)).toHaveLength(2);
     });
 });

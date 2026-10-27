@@ -436,32 +436,10 @@ if (failures.length === 0) {
     }
 }
 
-// Only the component section carries the hint: the comment holds both layers, and the
-// same instructions twice is what makes a report unreadable.
-if (layerName === 'components') {
-    // The hint is unconditional: a green run needs it too, because the next reader may be
-    // looking at why a previous run was refreshed.
-    lines.push(
-        '<details>',
-        '<summary>Updating these baselines</summary>',
-        '',
-        'If a change above is intended, comment:',
-        '',
-        '```',
-        '/approve-visuals',
-        '```',
-        '',
-        'That regenerates the baselines in the pinned renderer — the same one that produced',
-        'the comparison — and commits them to this branch. Use',
-        '`/approve-visuals components` or `/approve-visuals e2e` to refresh only one layer.',
-        '',
-        'Do not regenerate them locally: the pixels would come from a different environment',
-        'than the one that gates this pull request, which is how a wrong baseline gets',
-        'committed and then fails for everyone.',
-        '',
-        '</details>',
-        ''
-    );
-}
+// The hint about `/approve-visuals` is not written here. It explains what to do about
+// either layer's difference, so it belongs under both reports, and the merge that
+// assembles the comment places it there — see `visual-comment-merge.mjs`. Emitting it from
+// this script put it under whichever layer happened to be written first, which is between
+// two sections rather than after them.
 
 emit(lines.join('\n'));

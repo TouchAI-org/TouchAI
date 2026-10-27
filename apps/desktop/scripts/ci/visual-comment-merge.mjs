@@ -87,6 +87,50 @@ const renderBlock = (layer, section) => {
 const assemble = (pieces) => `${pieces.filter((piece) => piece !== '').join('\n\n')}\n`;
 
 /**
+ * The closing hint, kept out of the layer sections and always last.
+ *
+ * It explains what to do about any layer's difference, so it belongs under both reports
+ * rather than inside whichever one happened to be written first. The marker is what makes
+ * that placement possible: the body is stripped of it before every merge and it is
+ * re-appended afterwards, so the position does not depend on write order. The marker also
+ * differs from the layer markers on purpose, so `layersIn` does not mistake it for a
+ * report.
+ */
+const HINT_MARKER = '<!-- visual-report-hint -->';
+
+const HINT = [
+    '<details>',
+    '<summary>Updating these baselines</summary>',
+    '',
+    'If a change above is intended, comment:',
+    '',
+    '```',
+    '/approve-visuals',
+    '```',
+    '',
+    'That regenerates the baselines in the pinned environment — the same one that produced',
+    'the comparison — and commits them to this branch. Use `/approve-visuals components` or',
+    '`/approve-visuals e2e` to refresh only one layer. The command needs write access to the',
+    'repository, checked against the collaborator permission API rather than',
+    '`author_association`.',
+    '',
+    'Do not regenerate them locally: the pixels would come from a different environment than',
+    'the one that gates this pull request, which is how a wrong baseline gets committed and',
+    'then fails for everyone.',
+    '',
+    '</details>',
+].join('\n');
+
+const stripHint = (body) => {
+    const index = body.indexOf(HINT_MARKER);
+
+    return index === -1 ? body : body.slice(0, index);
+};
+
+/** Puts the hint back under everything else, whatever order the layers were written in. */
+const finish = (body) => `${trim(body)}\n\n${HINT_MARKER}\n${HINT}\n`;
+
+/**
  * Rewrites the calling layer's block in `existingBody` and leaves every other byte of
  * the comment alone.
  *
@@ -99,14 +143,14 @@ export const mergeSection = (existingBody, layer, section) => {
     assertLayer(layer);
 
     const block = renderBlock(layer, section);
-    let body = String(existingBody ?? '');
+    let body = stripHint(String(existingBody ?? ''));
 
     if (!body.includes(COMMENT_MARKER)) {
         // No marker at all: there is no comment this automation owns, so the marker goes
         // in front of the new block. A body that has layer markers but lost the header is
         // still ours, and its blocks are kept.
         if (!body.includes(LAYER_MARKER_PREFIX)) {
-            return assemble([COMMENT_MARKER, block]);
+            return finish(assemble([COMMENT_MARKER, block]));
         }
 
         body = `${COMMENT_MARKER}\n\n${body}`;
@@ -121,7 +165,7 @@ export const mergeSection = (existingBody, layer, section) => {
         const before = trim(body.slice(0, startIndex));
         const after = body.slice(endIndex + end.length).replace(/^\n+/, '');
 
-        return assemble([before, block, after]);
+        return finish(assemble([before, block, after]));
     }
 
     if (startIndex !== -1) {
@@ -133,15 +177,16 @@ export const mergeSection = (existingBody, layer, section) => {
             .search(/<!--\s*visual-report:[^>]*:start\s*-->/);
         const cut = nextStart === -1 ? body.length : startIndex + start.length + nextStart;
 
-        return assemble([
-            trim(body.slice(0, startIndex)),
-            block,
-            body.slice(cut).replace(/^\n+/, ''),
-        ]);
+        return finish(
+            assemble([trim(body.slice(0, startIndex)), block, body.slice(cut).replace(/^\n+/, '')])
+        );
     }
 
     // The comment exists but has nothing for this layer yet: the layer ran for the first
     // time, or its block was removed. Appending keeps the other layer's report intact and
     // in place.
-    return assemble([trim(body), block]);
+    return finish(assemble([trim(body), block]));
 };
+
+/** The hint itself, so a caller can assert on it without duplicating the text. */
+export const BASELINE_HINT_MARKER = HINT_MARKER;

@@ -308,7 +308,9 @@ describe('user reads a visual report that cannot be spoofed', () => {
 
         expect(markdown).not.toContain('![');
         expect(markdown).toContain('component-visual-diffs');
-        expect(markdown).toContain('/approve-visuals');
+        // The `/approve-visuals` hint is not this script's job: it explains what to do
+        // about either layer, so the merge places it once under the whole comment.
+        expect(markdown).not.toContain('/approve-visuals');
     });
 });
 
@@ -341,8 +343,8 @@ describe('user reads the app layer in the same comment as the components', () =>
         expect(markdown).toContain('![Actual](https://github.com/user-attachments/assets/eee)');
         expect(markdown).toContain('![Diff](https://github.com/user-attachments/assets/fff)');
 
-        // The approval hint belongs to the component section only; printing it twice is
-        // what makes a comment unreadable.
+        // The approval hint is not part of a layer's section: it belongs under the whole
+        // comment, and the merge puts it there exactly once.
         expect(markdown).not.toContain('/approve-visuals');
     });
 
