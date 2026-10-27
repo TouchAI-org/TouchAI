@@ -6,19 +6,17 @@
  * 它处理会话列表、历史记录、标题生成、历史消息重组，
  * 但不承担正在运行任务的生命周期控制。
  */
-export type { SessionHistoryPage } from './history';
 export {
     buildSessionHistory,
     buildSessionHistoryFromData,
+    loadCompleteSessionHistory,
     loadSessionHistory,
-    loadSessionHistoryPage,
 } from './history';
-export type { SessionData, SessionDataPage } from './manager';
+export type { SessionData } from './manager';
 export {
     createSession,
     dismissSessionTerminalStatus,
     getSessionData,
-    getSessionDataPage,
     listSessions,
 } from './manager';
 export { buildSessionTitle } from './title';

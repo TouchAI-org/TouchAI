@@ -68,10 +68,4 @@ export const aiService = new AgentService();
 export { AiError, AiErrorCode } from './contracts/errors';
 
 // 导出会话管理函数
-export {
-    createSession,
-    getSessionData,
-    getSessionDataPage,
-    listSessions,
-    loadSessionHistoryPage,
-} from './session';
+export { createSession, getSessionData, listSessions, loadCompleteSessionHistory } from './session';

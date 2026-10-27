@@ -262,9 +262,6 @@
         error,
         currentSessionId,
         sessionHistory,
-        hasOlderHistory,
-        isLoadingOlderHistory,
-        loadOlderHistory,
         sessionHistoryPopupOpen,
         sessionList,
         sessionListQuery,
@@ -372,16 +369,6 @@
 
     function handleLatestContentVisibilityChange(visible: boolean) {
         latestContentVisible.value = visible;
-    }
-
-    /**
-     * 滚动到顶部时加载更早一页历史。
-     *
-     * 去重由 `loadOlderHistory` 内部负责（hasMore/加载中/任务进行中）；
-     * 新页拼到列表前面后由面板的高度补偿保持滚动位置不跳。
-     */
-    function handleRequestOlderMessages() {
-        void loadOlderHistory();
     }
 
     function isDisplayableSessionStatus(
@@ -1551,8 +1538,6 @@
                 :is-maximized="isMaximized"
                 :fill-available-height="fillConversationAvailableHeight"
                 :history-open="sessionHistoryPopupOpen"
-                :has-older-messages="hasOlderHistory"
-                :is-loading-older-messages="isLoadingOlderHistory"
                 @pin-change="handlePinChange"
                 @maximize-toggle="handleToggleMaximize"
                 @new-session="handleStartNewSession"
@@ -1562,7 +1547,6 @@
                 @drag-end="isDragging = false"
                 @regenerate-message="handleRegenerateMessage"
                 @latest-content-visibility-change="handleLatestContentVisibilityChange"
-                @request-older-messages="handleRequestOlderMessages"
             />
         </div>
         <div

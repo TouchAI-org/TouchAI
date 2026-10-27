@@ -39,20 +39,12 @@ vi.mock('@/services/AgentService/session', async () => {
     return {
         ...actual,
         getSessionData: getSessionDataMock,
-        loadSessionHistoryPage: vi.fn(async (sessionId: number, options: { limit: number }) => {
+        loadCompleteSessionHistory: vi.fn(async (sessionId: number) => {
             const data = (await getSessionDataMock(sessionId)) as {
                 session: unknown;
                 model: unknown;
-                messages: unknown[];
             };
-            const page = data.messages.slice(-options.limit);
-            return {
-                history: [],
-                hasMore: page.length < data.messages.length,
-                oldestMessageId: null,
-                session: data.session,
-                model: data.model,
-            };
+            return { history: [], session: data.session, model: data.model };
         }),
         buildSessionHistoryFromData: vi.fn(async () => []),
     };
