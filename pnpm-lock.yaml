@@ -263,6 +263,9 @@ importers:
       '@types/node':
         specifier: ^25.9.9
         version: 25.9.9
+      '@types/semver':
+        specifier: ^7.8.0
+        version: 7.8.0
       '@types/turndown':
         specifier: ^5.0.6
         version: 5.0.6
@@ -335,6 +338,9 @@ importers:
       prettier-plugin-tailwindcss:
         specifier: ^0.8.1
         version: 0.8.1(@trivago/prettier-plugin-sort-imports@6.0.0(@vue/compiler-sfc@3.5.43)(prettier@3.8.5))(prettier-plugin-astro@0.14.1)(prettier@3.8.5)
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       terser:
         specifier: ^5.51.2
         version: 5.51.2
@@ -2715,6 +2721,9 @@ packages:
 
   '@types/sax@1.2.7':
     resolution: {integrity: sha512-rO73L89PJxeYM3s3pPPjiPgVVcymqU490g0YO5n5By0k2Erzj6tay/4lr1CHAAU4JyOWd1rpQ8bCf6cZfHU96A==}
+
+  '@types/semver@7.8.0':
+    resolution: {integrity: sha512-1mAINjtQCXXeLkJ9ehXkwOcBpqtLxiVtKhpUf83DdRNdQKV0iXZpaHYqRr7nj+wvxuJzoAmAwXI+sCNMv1CzLQ==}
 
   '@types/sinonjs__fake-timers@8.1.5':
     resolution: {integrity: sha512-mQkU2jY8jJEF7YHjHvsQO8+3ughTL1mcnn96igfhONmR+fUPSKIkefQYpSe8bsly2Ep7oQbn/6VG5/9/0qcArQ==}
@@ -8970,6 +8979,8 @@ snapshots:
   '@types/sax@1.2.7':
     dependencies:
       '@types/node': 25.9.9
+
+  '@types/semver@7.8.0': {}
 
   '@types/sinonjs__fake-timers@8.1.5': {}
 
