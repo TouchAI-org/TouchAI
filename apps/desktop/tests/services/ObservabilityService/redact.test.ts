@@ -32,6 +32,21 @@ describe('user does not leak secrets into logs', () => {
         expect(redacted).not.toContain('secret-value');
     });
 
+    it('user gets mixed-case and prefixed credential keys removed', () => {
+        const text =
+            'X-Api-Key: sk-live-secret Proxy-Authorization: Basic dXNlcjpwYXNz Cookie=session=abc123';
+
+        const redacted = redactText(text);
+        expect(redacted).not.toContain('sk-live-secret');
+        expect(redacted).not.toContain('dXNlcjpwYXNz');
+        expect(redacted).not.toContain('abc123');
+        expect(redacted).toContain('X-Api-Key: [redacted]');
+    });
+
+    it('user keeps an ordinary word that ends in key untouched', () => {
+        expect(redactText('monkey=banana')).toBe('monkey=banana');
+    });
+
     it('user gets home directories replaced', () => {
         expect(redactText('/home/alice/project/file.ts')).toBe('~/project/file.ts');
         expect(redactText('/root/project/file.ts')).toBe('~/project/file.ts');

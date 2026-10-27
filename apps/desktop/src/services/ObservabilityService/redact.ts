@@ -7,8 +7,16 @@ const MAX_ATTRIBUTE_LENGTH = 1024;
 const URL_PATTERN = /\bhttps?:\/\/[^\s"'<>]+/gi;
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/gi;
-const SECRET_ASSIGNMENT_PATTERN =
-    /\b(api[_-]?key|access[_-]?key|token|secret|password|passwd|authorization)\b(\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;]+)/gi;
+const SECRET_KEY_PATTERN =
+    '(?:[a-z0-9]+[_-])*(?:api[_-]?key|access[_-]?key|token|secret|password|passwd|authorization|cookie)';
+const SECRET_ASSIGNMENT_PATTERN = new RegExp(
+    `(["']?)\\b(${SECRET_KEY_PATTERN})\\1(\\s*[=:]\\s*)("[^"]*"|'[^']*'|[^\\s,;}]+)`,
+    'gi'
+);
+const SENSITIVE_HEADER_PATTERN = new RegExp(
+    `(["']?)\\b(authorization|proxy-authorization|cookie)\\1(\\s*[=:]\\s*)("[^"]*"|'[^']*'|[^\\r\\n,;}]+)`,
+    'gi'
+);
 const HOME_PATTERN = /(?:\/(?:Users|home)\/[^/\s"'<>]+|\/root\b|C:\\Users\\[^\\\s"'<>]+)/gi;
 
 const SECRET_KEY_TOKENS = new Set([
@@ -69,9 +77,22 @@ export function redactText(value: string): string {
         .replace(URL_PATTERN, (match) => redactUrl(match))
         .replace(EMAIL_PATTERN, REDACTED_EMAIL)
         .replace(BEARER_PATTERN, `Bearer ${REDACTED}`)
-        .replace(SECRET_ASSIGNMENT_PATTERN, (_match, key: string, separator: string) => {
-            return `${key}${separator}${REDACTED}`;
-        });
+        .replace(
+            SENSITIVE_HEADER_PATTERN,
+            (_match, quote: string, key: string, separator: string) =>
+                `${quote}${key}${quote}${separator}${REDACTED}`
+        )
+        .replace(
+            SECRET_ASSIGNMENT_PATTERN,
+            (_match, quote: string, key: string, separator: string, valueText: string) => {
+                const replacement = valueText.startsWith('"')
+                    ? `"${REDACTED}"`
+                    : valueText.startsWith("'")
+                      ? `'${REDACTED}'`
+                      : REDACTED;
+                return `${quote}${key}${quote}${separator}${replacement}`;
+            }
+        );
 
     return redacted.length > MAX_ATTRIBUTE_LENGTH
         ? `${redacted.slice(0, MAX_ATTRIBUTE_LENGTH)}…`

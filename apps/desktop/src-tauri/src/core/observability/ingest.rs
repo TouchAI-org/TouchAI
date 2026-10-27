@@ -131,7 +131,8 @@ fn sanitize_event_name(event: &str) -> String {
 }
 
 fn sanitize_key(key: &str) -> String {
-    key.chars()
+    key.to_ascii_lowercase()
+        .chars()
         .filter(|character| {
             character.is_ascii_lowercase()
                 || character.is_ascii_digit()
@@ -234,6 +235,24 @@ mod tests {
         assert!(!line.contains("secret-value"));
         assert!(!line.contains("secret-token"));
         assert!(line.contains("authorization=[redacted]"));
+    }
+
+    #[test]
+    fn user_does_not_see_secret_attributes_written_in_mixed_case() {
+        let mut event = envelope("mcp.connect.failed");
+        event
+            .attrs
+            .insert("Authorization".to_string(), json!("Bearer secret-value"));
+        event
+            .attrs
+            .insert("apiKey".to_string(), json!("secret-token"));
+
+        let line = event.to_line("7f3a9c");
+
+        assert!(!line.contains("secret-value"));
+        assert!(!line.contains("secret-token"));
+        assert!(line.contains("authorization=[redacted]"));
+        assert!(line.contains("apikey=[redacted]"));
     }
 
     #[test]
