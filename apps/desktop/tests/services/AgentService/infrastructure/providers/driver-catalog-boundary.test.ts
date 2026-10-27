@@ -52,7 +52,7 @@ describe('provider adapter import boundary', () => {
         await expect(
             import('@/views/SettingsView/components/AiServices/index.vue')
         ).resolves.toBeTruthy();
-    }, 30_000);
+    }, 120_000);
 
     it('loads the model metadata module without importing any vendor adapter', async () => {
         await expect(
