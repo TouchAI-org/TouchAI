@@ -180,18 +180,24 @@
     // 长会话只挂载视口附近的消息，避免 DOM 数量随会话总长增长。
     const WINDOWING_MIN_MESSAGES = 40;
     const windowingEnabled = computed(() => props.messages.length > WINDOWING_MIN_MESSAGES);
-    const { windowRange, renderedMessages, registerMessageElement, messageOffsetTop } =
-        useMessageWindowing({
-            container: conversationContainer,
-            messages: computed(() => props.messages),
-            enabled: windowingEnabled,
-            scrollTop,
-            clientHeight,
-            // 布局补偿产生的滚动不是用户意图，不能据此切换自动跟随。
-            onProgrammaticScroll: () => {
-                lastAutoScrollAt.value = Date.now();
-            },
-        });
+    const {
+        windowRange,
+        renderedMessages,
+        registerMessageElement,
+        messageOffsetTop,
+        pinMessage,
+        releasePin,
+    } = useMessageWindowing({
+        container: conversationContainer,
+        messages: computed(() => props.messages),
+        enabled: windowingEnabled,
+        scrollTop,
+        clientHeight,
+        // 布局补偿产生的滚动不是用户意图，不能据此切换自动跟随。
+        onProgrammaticScroll: () => {
+            lastAutoScrollAt.value = Date.now();
+        },
+    });
 
     function setMessageElement(
         message: SessionMessage,
@@ -377,50 +383,78 @@
         emitLatestContentVisibility();
     }
 
-    function scrollToUserMessageTop(messageId: string, gap = USER_MESSAGE_SCROLL_GAP): boolean {
-        if (!conversationContainer.value || !messageListRef.value) {
-            return false;
-        }
-
-        const escapedMessageId =
+    /** 构造消息节点的属性选择器（转义后避免 id 里的特殊字符破坏选择器）。 */
+    function buildMessageSelector(messageId: string): string | null {
+        const escaped =
             typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
                 ? CSS.escape(messageId)
                 : messageId;
-        const selector = `[data-message-id="${escapedMessageId}"]`;
-        const target = messageListRef.value.querySelector<HTMLElement>(selector);
+        return `[data-message-id="${escaped}"]`;
+    }
+
+    /**
+     * 滚到指定消息顶部。
+     *
+     * 目标不在有界挂载窗口内时，先把它钉进渲染区间再按真实 DOM 位置定位：
+     * 未挂载项只有估算高度，直接按累计估值滚动会越跳越偏（长会话尤其明显）。
+     */
+    async function scrollToUserMessageTop(
+        messageId: string,
+        gap = USER_MESSAGE_SCROLL_GAP
+    ): Promise<boolean> {
+        const container = conversationContainer.value;
+        if (!container || !messageListRef.value) {
+            return false;
+        }
+
+        const selector = buildMessageSelector(messageId);
+        let target = selector ? messageListRef.value.querySelector<HTMLElement>(selector) : null;
+
         if (!target) {
-            // 消息未挂载（有界挂载窗口外）时按累计高度直接定位，滚动后窗口会自然带出目标。
-            const offset = messageOffsetTop(messageId);
-            if (offset === null) {
+            if (messageOffsetTop(messageId) === null) {
                 return false;
             }
 
-            const container = conversationContainer.value;
+            pinMessage(messageId);
+            await nextTick();
+            target = selector ? messageListRef.value.querySelector<HTMLElement>(selector) : null;
+        }
+
+        lastAutoScrollAt.value = Date.now();
+
+        if (target) {
+            const containerRect = container.getBoundingClientRect();
+            const targetRect = target.getBoundingClientRect();
+            const targetScrollTop =
+                container.scrollTop + (targetRect.top - containerRect.top) - gap;
+            container.scrollTop = Math.max(0, targetScrollTop);
+        } else {
+            // 极端情况（目标仍未挂载）：退回累计高度估算。
+            const offset = messageOffsetTop(messageId);
+            if (offset === null) {
+                releasePin();
+                return false;
+            }
+
             const listTop =
                 messageListRef.value.getBoundingClientRect().top -
                 container.getBoundingClientRect().top +
                 container.scrollTop;
-
-            lastAutoScrollAt.value = Date.now();
             container.scrollTop = Math.max(0, listTop + offset - gap);
-            lastScrollTop.value = container.scrollTop;
-            handleScroll();
-            return true;
         }
 
-        const container = conversationContainer.value;
-        const containerRect = container.getBoundingClientRect();
-        const targetRect = target.getBoundingClientRect();
-        const targetScrollTop = container.scrollTop + (targetRect.top - containerRect.top) - gap;
-
-        lastAutoScrollAt.value = Date.now();
-        container.scrollTop = Math.max(0, targetScrollTop);
         lastScrollTop.value = container.scrollTop;
+        handleScroll();
+
+        // 下一帧再释放：此时窗口已按新的 scrollTop 重算，目标仍在渲染区间内。
+        requestAnimationFrame(() => {
+            releasePin();
+        });
         return true;
     }
 
-    function handleTimelineJump(messageId: string) {
-        const didJump = scrollToUserMessageTop(
+    async function handleTimelineJump(messageId: string) {
+        const didJump = await scrollToUserMessageTop(
             messageId,
             USER_MESSAGE_SCROLL_GAP + TIMELINE_JUMP_OFFSET
         );
@@ -494,7 +528,10 @@
                     isAutoScrollEnabled.value = false;
                     nextTick(() => {
                         if (latestAppendedUserMessage) {
-                            scrollToUserMessageTop(latestAppendedUserMessage.id);
+                            void scrollToUserMessageTop(latestAppendedUserMessage.id).then(() => {
+                                refreshScrollToBottomVisibility();
+                            });
+                            return;
                         }
                         refreshScrollToBottomVisibility();
                     });

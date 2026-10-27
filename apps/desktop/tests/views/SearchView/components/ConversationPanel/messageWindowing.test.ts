@@ -61,6 +61,39 @@ describe('computeMessageWindow', () => {
             bottomSpacer: 0,
         });
     });
+
+    it('renders a pinned item that is far outside the viewport', () => {
+        const range = computeMessageWindow({
+            offsets,
+            scrollTop: 0,
+            viewportHeight: 200,
+            overscanPx: 100,
+            pinnedIndex: 9,
+        });
+
+        expect(range.start).toBeLessThanOrEqual(9);
+        expect(range.end).toBe(10);
+        // 钉住目标后，其之后的内容仍然用 spacer 占位。
+        expect(range.bottomSpacer).toBe(0);
+        expect(range.topSpacer).toBeLessThan(1000);
+    });
+
+    it('ignores a pinned index outside the list', () => {
+        const range = computeMessageWindow({
+            offsets,
+            scrollTop: 400,
+            viewportHeight: 200,
+            overscanPx: 100,
+            pinnedIndex: 99,
+        });
+
+        expect(range).toEqual({
+            start: 3,
+            end: 7,
+            topSpacer: 300,
+            bottomSpacer: 300,
+        });
+    });
 });
 
 describe('computeAboveViewportHeightDelta', () => {

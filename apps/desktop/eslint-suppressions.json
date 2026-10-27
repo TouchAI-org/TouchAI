@@ -306,7 +306,7 @@
     },
     "src/views/SearchView/components/SearchBar/tags/attachment/AttachmentTagView.vue": {
         "tailwindcss/no-custom-classname": {
-            "count": 12
+            "count": 11
         }
     },
     "src/views/SearchView/components/SearchBar/tags/model/ModelTagView.vue": {

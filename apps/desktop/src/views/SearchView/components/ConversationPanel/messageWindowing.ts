@@ -15,6 +15,9 @@ export interface MessageWindowRange {
     bottomSpacer: number;
 }
 
+/** 跳转定位时，目标消息前后额外渲染的邻居数量。 */
+const PINNED_NEIGHBOR_COUNT = 2;
+
 /** 生成前缀和偏移：`offsets[i]` 为第 i 项之前的累计高度，长度为 `heights.length + 1`。 */
 export function buildHeightOffsets(heights: readonly number[]): number[] {
     const offsets = new Array<number>(heights.length + 1);
@@ -51,6 +54,13 @@ export function computeMessageWindow(options: {
     scrollTop: number;
     viewportHeight: number;
     overscanPx?: number;
+    /**
+     * 必须渲染的消息下标（例如时间轴跳转目标）。
+     *
+     * 未挂载的目标只能用估值定位，误差会累积；先把它钉进渲染区间，
+     * 再用真实测量结果计算滚动位置，定位才是准的。
+     */
+    pinnedIndex?: number | null;
 }): MessageWindowRange {
     const count = options.offsets.length - 1;
     if (count <= 0) {
@@ -61,13 +71,16 @@ export function computeMessageWindow(options: {
     const top = Math.max(0, options.scrollTop);
     const bottom = top + Math.max(0, options.viewportHeight);
 
-    const start = Math.min(
-        count - 1,
-        findWindowStart(options.offsets, Math.max(0, top - overscan))
-    );
+    let start = Math.min(count - 1, findWindowStart(options.offsets, Math.max(0, top - overscan)));
     let end = start + 1;
     while (end < count && options.offsets[end]! < bottom + overscan) {
         end += 1;
+    }
+
+    const pinnedIndex = options.pinnedIndex;
+    if (typeof pinnedIndex === 'number' && pinnedIndex >= 0 && pinnedIndex < count) {
+        start = Math.min(start, Math.max(0, pinnedIndex - PINNED_NEIGHBOR_COUNT));
+        end = Math.max(end, Math.min(count, pinnedIndex + PINNED_NEIGHBOR_COUNT + 1));
     }
 
     return {
