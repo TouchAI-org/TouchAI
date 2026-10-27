@@ -56,4 +56,20 @@ describe('when the quick search panel highlights what the user typed', () => {
             },
         ]);
     });
+
+    it('returns the same array instance for repeated identical input', () => {
+        const first = splitNameByTokens('TouchAI Desktop', ['touch']);
+        const second = splitNameByTokens('TouchAI Desktop', ['touch']);
+
+        expect(second).toBe(first);
+    });
+
+    it('keeps results separate when tokens differ', () => {
+        const touch = splitNameByTokens('TouchAI Desktop', ['touch']);
+        const desktop = splitNameByTokens('TouchAI Desktop', ['desktop']);
+
+        expect(touch).not.toBe(desktop);
+        expect(touch.map((segment) => segment.matched)).toContain(true);
+        expect(desktop.map((segment) => segment.matched)).toContain(true);
+    });
 });
