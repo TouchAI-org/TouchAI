@@ -279,6 +279,106 @@ function extractProviderErrorDetails(error: unknown): ProviderErrorDetails | nul
     return Object.keys(details).length > 0 ? details : null;
 }
 
+/**
+ * 日志里只保留可以安全落盘的诊断字段。
+ * provider 错误对象上的 responseBody、requestBodyValues 和 data 都是正文，
+ * 完整内容仍随失败结果返回给调用方，但绝不写进日志。
+ */
+function summarizeProviderErrorDetails(details: ProviderErrorDetails): Record<string, unknown> {
+    const summary: Record<string, unknown> = {};
+
+    if (typeof details.statusCode === 'number') {
+        summary.statusCode = details.statusCode;
+    }
+    if (typeof details.url === 'string') {
+        summary.url = redactLogUrl(details.url);
+    }
+    if (details.responseBody !== undefined) {
+        summary.responseBodyBytes = serializedByteLength(details.responseBody);
+    }
+    if (details.requestBodyValues !== undefined) {
+        summary.requestBodyBytes = serializedByteLength(details.requestBodyValues);
+    }
+    if (details.data !== undefined) {
+        summary.dataBytes = serializedByteLength(details.data);
+    }
+
+    const providerErrorCode =
+        extractProviderErrorCode(details.data) ?? extractProviderErrorCode(details.responseBody);
+    if (providerErrorCode) {
+        summary.providerErrorCode = providerErrorCode;
+    }
+
+    return summary;
+}
+
+/** 错误本身进日志时同样要去掉可能夹带正文的 message。 */
+function describeErrorForLog(error: unknown): Record<string, unknown> {
+    if (!(error instanceof Error)) {
+        return { type: typeof error };
+    }
+
+    const details = extractProviderErrorDetails(error);
+    const description: Record<string, unknown> = { name: error.name };
+
+    if (details?.statusCode !== undefined) {
+        description.statusCode = details.statusCode;
+    }
+
+    const code = (error as { code?: unknown }).code;
+    if (typeof code === 'string' && code.length <= 64) {
+        description.code = code;
+    }
+
+    if (details?.responseBody !== undefined || details?.requestBodyValues !== undefined) {
+        description.messageLength = error.message.length;
+    } else {
+        description.message = error.message.slice(0, 300);
+    }
+
+    return description;
+}
+
+function extractProviderErrorCode(value: unknown): string | null {
+    if (!value || typeof value !== 'object') return null;
+
+    const record = value as Record<string, unknown>;
+    const nested = record.error;
+    const nestedRecord =
+        nested && typeof nested === 'object' ? (nested as Record<string, unknown>) : undefined;
+    const candidates = [nestedRecord?.code, nestedRecord?.type, record.code, record.type];
+
+    for (const candidate of candidates) {
+        if (typeof candidate === 'string' && /^[A-Za-z0-9_.-]{1,64}$/.test(candidate)) {
+            return candidate;
+        }
+    }
+    return null;
+}
+
+function serializedByteLength(value: unknown): number | null {
+    try {
+        const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+        return serialized === undefined ? null : new TextEncoder().encode(serialized).length;
+    } catch {
+        return null;
+    }
+}
+
+function redactLogUrl(raw: string): string {
+    try {
+        const url = new URL(raw);
+        url.username = '';
+        url.password = '';
+        url.search = '';
+        url.hash = '';
+        return url.toString();
+    } catch {
+        const withoutFragment = raw.split('#')[0] ?? raw;
+        return withoutFragment.split('?')[0] ?? withoutFragment;
+    }
+}
+
 function cloneAiMessages(messages: AiMessage[]): AiMessage[] {
     return JSON.parse(JSON.stringify(messages)) as AiMessage[];
 }
@@ -1197,10 +1297,13 @@ export class AiRequestExecutor {
         } catch (error) {
             // AI SDK RetryError 包装了真正的错误——解包后传递给分类器
             const unwrapped = unwrapRetryError(error);
-            console.warn('[AiRequestExecutor] Request failed:', unwrapped, typeof unwrapped);
+            console.warn('[AiRequestExecutor] Request failed:', describeErrorForLog(unwrapped));
             const providerErrorDetails = extractProviderErrorDetails(unwrapped);
             if (providerErrorDetails) {
-                console.warn('[AiRequestExecutor] Provider error details:', providerErrorDetails);
+                console.warn(
+                    '[AiRequestExecutor] Provider error details:',
+                    summarizeProviderErrorDetails(providerErrorDetails)
+                );
             }
 
             // 先让 provider 自己分类，再 fallback 到通用启发式。

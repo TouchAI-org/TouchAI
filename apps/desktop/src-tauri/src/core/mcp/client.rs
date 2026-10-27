@@ -2,6 +2,7 @@
 
 //! 基于 rmcp SDK 的 MCP 客户端实现。
 
+use super::redact::{http_connect_message, stdio_actual_command_message, stdio_connect_message};
 use super::types::*;
 use log::{debug, error, info, warn};
 use reqwest as mcp_reqwest;
@@ -58,10 +59,7 @@ impl McpClient {
         env: Option<HashMap<String, String>>,
         cwd: Option<String>,
     ) -> Result<(), String> {
-        info!(
-            "Connecting to MCP server {} (stdio): {} {:?}",
-            self.server_id, command, args
-        );
+        info!("{}", stdio_connect_message(self.server_id, &command, &args));
 
         self.set_status(ServerStatus::Connecting).await;
         self.clear_error().await;
@@ -80,8 +78,8 @@ impl McpClient {
         };
 
         info!(
-            "Actual command for MCP server {}: {} {:?}",
-            self.server_id, actual_command, actual_args
+            "{}",
+            stdio_actual_command_message(self.server_id, &actual_command, &actual_args)
         );
 
         // 使用 tokio::process::Command 构建命令
@@ -133,10 +131,7 @@ impl McpClient {
         url: String,
         headers: Option<HashMap<String, String>>,
     ) -> Result<(), String> {
-        info!(
-            "Connecting to MCP server {} (HTTP): {}",
-            self.server_id, url
-        );
+        info!("{}", http_connect_message(self.server_id, &url));
 
         self.set_status(ServerStatus::Connecting).await;
         self.clear_error().await;
@@ -279,7 +274,8 @@ impl McpClient {
                 ) {
                     header_values.insert(name, val);
                 } else {
-                    warn!("Skipping invalid header: {}={}", key, value);
+                    warn!("Skipping invalid header: {}", key);
+                    debug!("Invalid header value length: {}", value.len());
                 }
             }
             client_builder = client_builder.default_headers(header_values);

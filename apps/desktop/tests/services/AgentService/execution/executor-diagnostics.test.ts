@@ -2,7 +2,7 @@
  * Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import { AiRequestExecutor } from '@/services/AgentService/execution';
@@ -117,6 +117,10 @@ beforeEach(() => {
     resolveToolDefinitionsMock.mockResolvedValue([]);
 });
 
+afterEach(() => {
+    vi.restoreAllMocks();
+});
+
 describe('user sees why the provider request failed', () => {
     it('user gets the HTTP status and url kept for diagnosis', async () => {
         const failure = Object.assign(new Error('unauthorized'), {
@@ -210,6 +214,59 @@ describe('user sees why the provider request failed', () => {
         const result = await failWith(failure);
 
         expect(result).toMatchObject({ providerErrorDetails: null });
+    });
+});
+
+describe('user reads a failure log without conversation content', () => {
+    it('user does not see request or response bodies in the failure log', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const failure = Object.assign(new Error('bad request'), {
+            statusCode: 400,
+            url: 'https://example.test/v1/chat/completions?api_key=sk-live-secret',
+            responseBody: {
+                error: { code: 'invalid_request_error', message: 'secret-response-marker' },
+            },
+            requestBodyValues: {
+                messages: [{ role: 'user', content: 'secret-prompt-marker' }],
+            },
+            data: { retryable: false },
+        });
+
+        await failWith(failure);
+
+        const logged = JSON.stringify(warn.mock.calls);
+        expect(logged).not.toContain('secret-response-marker');
+        expect(logged).not.toContain('secret-prompt-marker');
+        expect(logged).not.toContain('sk-live-secret');
+        expect(logged).toContain('invalid_request_error');
+    });
+
+    it('user still sees the provider status and url path in the failure log', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const failure = Object.assign(new Error('rate limited'), {
+            statusCode: 429,
+            url: 'https://example.test/v1/chat/completions',
+        });
+
+        await failWith(failure);
+
+        const logged = JSON.stringify(warn.mock.calls);
+        expect(logged).toContain('429');
+        expect(logged).toContain('https://example.test/v1/chat/completions');
+        expect(logged).toContain('rate limited');
+    });
+
+    it('user does not see query values when the provider url cannot be parsed', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const failure = Object.assign(new Error('edge case'), {
+            url: 'custom-endpoint?token=secret-query-marker',
+        });
+
+        await failWith(failure);
+
+        const logged = JSON.stringify(warn.mock.calls);
+        expect(logged).not.toContain('secret-query-marker');
+        expect(logged).toContain('custom-endpoint');
     });
 });
 
