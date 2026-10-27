@@ -22,8 +22,6 @@ const REDACTED: &str = "[redacted]";
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogEnvelope {
-    #[serde(default)]
-    pub ts: Option<f64>,
     pub level: u8,
     pub event: String,
     #[serde(default)]
@@ -194,7 +192,6 @@ mod tests {
 
     fn envelope(event: &str) -> LogEnvelope {
         LogEnvelope {
-            ts: None,
             level: 4,
             event: event.to_string(),
             window: Some("main".to_string()),
