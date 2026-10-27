@@ -158,6 +158,9 @@ jobs:
         steps:
             - name: Decide whether this language has to be analysed
               id: gate
+              # The Rust entry of the matrix runs on a Windows runner, where the default
+              # shell is PowerShell and the `[ ... ]` tests below are not syntax it knows.
+              shell: bash
               env:
                   DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
                   RUST_CHANGED: ${{ needs.changes.outputs.rust_changed }}
