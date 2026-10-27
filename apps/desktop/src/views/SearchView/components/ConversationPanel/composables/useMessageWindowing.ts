@@ -30,6 +30,13 @@ export interface UseMessageWindowingOptions {
     clientHeight: Ref<number>;
     estimateHeight?: (message: SessionMessage) => number;
     overscanPx?: number;
+    /**
+     * 即将程序性地调整 `scrollTop` 前回调。
+     *
+     * 容器需要据此区分「用户滚动」与「布局修正」，否则高度补偿产生的滚动事件
+     * 会被误当成用户回到顶部/底部，从而错误地开关自动跟随。
+     */
+    onProgrammaticScroll?: () => void;
 }
 
 export function useMessageWindowing(options: UseMessageWindowingOptions) {
@@ -98,6 +105,7 @@ export function useMessageWindowing(options: UseMessageWindowingOptions) {
                 containerTop
             );
             if (aboveDelta !== 0) {
+                options.onProgrammaticScroll?.();
                 container.scrollTop += aboveDelta;
             }
         }
@@ -175,6 +183,7 @@ export function useMessageWindowing(options: UseMessageWindowingOptions) {
 
             const insertedHeight = offsets.value[anchorIndex] ?? 0;
             if (insertedHeight > 0) {
+                options.onProgrammaticScroll?.();
                 container.scrollTop += insertedHeight;
             }
         },

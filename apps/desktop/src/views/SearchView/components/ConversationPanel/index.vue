@@ -105,6 +105,7 @@
     import ConversationToolbar from './components/ConversationToolbar.vue';
     import MessageItem from './components/MessageItem.vue';
     import { useMessageWindowing } from './composables/useMessageWindowing';
+    import { resolveFollowScrollState } from './followScrollState';
     import { buildMessageListRevision } from './messageListRevision';
 
     defineOptions({
@@ -186,6 +187,10 @@
             enabled: windowingEnabled,
             scrollTop,
             clientHeight,
+            // 布局补偿产生的滚动不是用户意图，不能据此切换自动跟随。
+            onProgrammaticScroll: () => {
+                lastAutoScrollAt.value = Date.now();
+            },
         });
 
     function setMessageElement(
@@ -309,25 +314,22 @@
             clientHeight.value = container.clientHeight;
         }
 
-        if (mode === 'follow_output') {
-            if (atBottom) {
-                isAutoScrollEnabled.value = true;
-                showScrollToBottom.value = false;
-            } else if (hasScrollbar()) {
-                const userScrolledUp = currentScrollTop < lastScrollTop.value - 1;
-                const hasRecentUserIntent = Date.now() - lastUserScrollIntentAt.value < 280;
-                const isLikelyProgrammaticScroll = Date.now() - lastAutoScrollAt.value < 180;
-                if (userScrolledUp && (hasRecentUserIntent || !isLikelyProgrammaticScroll)) {
-                    isAutoScrollEnabled.value = false;
-                    showScrollToBottom.value = true;
-                } else if (!isAutoScrollEnabled.value) {
-                    showScrollToBottom.value = true;
-                }
-            }
-        } else {
-            isAutoScrollEnabled.value = false;
-            showScrollToBottom.value = hasScrollbar() && !atBottom;
-        }
+        const now = Date.now();
+        // 程序性滚动（自动跟随、时间轴跳转、窗口化高度补偿）不能用来切换跟随状态。
+        const isProgrammaticScroll = now - lastAutoScrollAt.value < 180;
+        const hasRecentUserIntent = now - lastUserScrollIntentAt.value < 800;
+
+        const followState = resolveFollowScrollState({
+            mode,
+            atBottom,
+            hasScrollbar: hasScrollbar(),
+            scrolledUp: currentScrollTop < lastScrollTop.value - 1,
+            isProgrammatic: isProgrammaticScroll,
+            hasRecentUserIntent,
+            isFollowing: isAutoScrollEnabled.value,
+        });
+        isAutoScrollEnabled.value = followState.isFollowing;
+        showScrollToBottom.value = followState.showScrollToBottom;
 
         lastScrollTop.value = currentScrollTop;
         emitLatestContentVisibility();

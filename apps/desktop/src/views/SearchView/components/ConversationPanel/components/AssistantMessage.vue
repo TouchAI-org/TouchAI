@@ -331,7 +331,13 @@ import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
             }
 
             if (part.type === 'widget') {
-                const widget = widgetMap.get(part.widgetId);
+                // 流式草稿阶段 widgetId 可能还停在 callId 上；用 callId 回退，
+                // 避免 id 切换瞬间把部件过滤掉造成整块闪现。
+                const widget =
+                    widgetMap.get(part.widgetId) ??
+                    (props.message.widgets ?? []).find(
+                        (candidate) => candidate.callId === part.widgetId
+                    );
                 if (widget) {
                     parts.push({
                         id: part.id,

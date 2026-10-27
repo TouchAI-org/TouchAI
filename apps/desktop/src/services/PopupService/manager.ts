@@ -146,9 +146,7 @@ export class PopupManager {
      * 显示弹窗
      */
     async show(type: PopupType, triggerElement: HTMLElement, data: PopupData): Promise<string> {
-        const trace = createPerfTrace('popup.show', {
-            enabled: true,
-        });
+        const trace = createPerfTrace('popup.show');
         const session = this.sessionState.openSession(type);
         const initializedAtStart = this.isInitialized;
 

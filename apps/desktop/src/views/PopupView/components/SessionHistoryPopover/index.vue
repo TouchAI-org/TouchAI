@@ -270,6 +270,11 @@
         return searchQuery.value.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
     });
     const isWaitingForSearchResults = computed(() => {
+        // 已有结果时保留旧列表（即使正在检索），避免每敲一个字把列表整体抽掉再填回。
+        if (groupedSessions.value.length > 0 && isLoading.value) {
+            return false;
+        }
+
         return localSearchQuery.value !== searchQuery.value || isLoading.value;
     });
 
