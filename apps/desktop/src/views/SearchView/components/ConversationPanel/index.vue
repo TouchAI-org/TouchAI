@@ -106,6 +106,7 @@
     import MessageItem from './components/MessageItem.vue';
     import { useMessageWindowing } from './composables/useMessageWindowing';
     import { resolveFollowScrollState } from './followScrollState';
+    import { classifyMessageListChange } from './messageListChange';
     import { buildMessageListRevision } from './messageListRevision';
 
     defineOptions({
@@ -492,56 +493,62 @@
 
     // 重置自动滚动状态
     watch(
-        () => props.messages.length,
-        (newLength, oldLength) => {
+        () => props.messages.map((message) => message.id),
+        (nextIds, previousIds) => {
+            const change = classifyMessageListChange(previousIds ?? [], nextIds);
+
             // 消息被清空（新请求开始）
-            if (newLength === 0 && oldLength > 0) {
+            if (change === 'clear') {
                 isAutoScrollEnabled.value = outputScrollBehavior.value === 'follow_output';
                 showScrollToBottom.value = false;
                 lastScrollTop.value = 0;
+                return;
             }
 
-            // 新消息添加（用户提交了新请求）
-            if (newLength > oldLength) {
-                const appendedMessages = props.messages.slice(oldLength, newLength);
-                const latestAppendedUserMessage = [...appendedMessages]
-                    .reverse()
-                    .find((message) => message.role === 'user');
+            // 只有尾部追加才可能代表新一轮提问；
+            // 向顶部加载历史页（prepend）不能改变跟随状态，否则刚上滚的视图会被拉回底部。
+            if (change !== 'append') {
+                return;
+            }
 
-                if (outputScrollBehavior.value === 'follow_output') {
-                    /**
-                     * 只有“新的用户提问”才代表一轮新请求开始，应当重新进入跟随模式。
-                     * 如果只是用户点击时间轴后，AI继续产出新消息，则要保持停留在当前阅读位置。
-                     */
-                    if (latestAppendedUserMessage) {
-                        isAutoScrollEnabled.value = true;
-                        showScrollToBottom.value = false;
-                        nextTick(() => {
-                            syncToBottom();
-                        });
-                    } else if (!isAutoScrollEnabled.value) {
-                        nextTick(() => {
-                            refreshScrollToBottomVisibility();
-                        });
-                    }
-                } else if (outputScrollBehavior.value === 'jump_to_top') {
-                    isAutoScrollEnabled.value = false;
+            const appendedMessages = props.messages.slice(previousIds?.length ?? 0);
+            const latestAppendedUserMessage = [...appendedMessages]
+                .reverse()
+                .find((message) => message.role === 'user');
+
+            if (outputScrollBehavior.value === 'follow_output') {
+                /**
+                 * 只有“新的用户提问”才代表一轮新请求开始，应当重新进入跟随模式。
+                 * 如果只是用户点击时间轴后，AI继续产出新消息，则要保持停留在当前阅读位置。
+                 */
+                if (latestAppendedUserMessage) {
+                    isAutoScrollEnabled.value = true;
+                    showScrollToBottom.value = false;
                     nextTick(() => {
-                        if (latestAppendedUserMessage) {
-                            void scrollToUserMessageTop(latestAppendedUserMessage.id).then(() => {
-                                refreshScrollToBottomVisibility();
-                            });
-                            return;
-                        }
-                        refreshScrollToBottomVisibility();
+                        syncToBottom();
                     });
-                } else {
-                    isAutoScrollEnabled.value = false;
+                } else if (!isAutoScrollEnabled.value) {
                     nextTick(() => {
                         refreshScrollToBottomVisibility();
-                        emitLatestContentVisibility();
                     });
                 }
+            } else if (outputScrollBehavior.value === 'jump_to_top') {
+                isAutoScrollEnabled.value = false;
+                nextTick(() => {
+                    if (latestAppendedUserMessage) {
+                        void scrollToUserMessageTop(latestAppendedUserMessage.id).then(() => {
+                            refreshScrollToBottomVisibility();
+                        });
+                        return;
+                    }
+                    refreshScrollToBottomVisibility();
+                });
+            } else {
+                isAutoScrollEnabled.value = false;
+                nextTick(() => {
+                    refreshScrollToBottomVisibility();
+                    emitLatestContentVisibility();
+                });
             }
         }
     );

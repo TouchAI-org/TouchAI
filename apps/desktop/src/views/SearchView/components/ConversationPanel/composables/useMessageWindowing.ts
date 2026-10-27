@@ -53,10 +53,7 @@ export function useMessageWindowing(options: UseMessageWindowingOptions) {
     const heights = computed(() => {
         void version.value;
         return options.messages.value.map(
-            (message) =>
-                measuredHeights.get(message.id) ??
-                options.estimateHeight?.(message) ??
-                DEFAULT_ESTIMATE_HEIGHT
+            (message) => measuredHeights.get(message.id) ?? estimateFor(message)
         );
     });
     const offsets = computed(() => buildHeightOffsets(heights.value));
@@ -90,19 +87,26 @@ export function useMessageWindowing(options: UseMessageWindowingOptions) {
         options.messages.value.slice(windowRange.value.start, windowRange.value.end)
     );
 
-    function measureElement(element: HTMLElement, messageId: string): void {
+    function estimateFor(message: SessionMessage): number {
+        return options.estimateHeight?.(message) ?? DEFAULT_ESTIMATE_HEIGHT;
+    }
+
+    function measureElement(element: HTMLElement, message: SessionMessage): void {
         const height = element.offsetHeight;
         if (!(height > 0)) {
             return;
         }
 
-        const previousHeight = measuredHeights.get(messageId) ?? null;
+        const messageId = message.id;
+        // 首次测量要和“当前估算值”比较：向顶部加载历史页时，新插入的行先按估值
+        // 预留了空间，真实高度与估值的差额必须补偿到 scrollTop，否则阅读位置会漂移。
+        const previousHeight = measuredHeights.get(messageId) ?? estimateFor(message);
         if (previousHeight === height) {
             return;
         }
 
         const container = options.container.value;
-        const delta = previousHeight === null ? 0 : height - previousHeight;
+        const delta = height - previousHeight;
         measuredHeights.set(messageId, height);
         version.value += 1;
 
@@ -121,8 +125,8 @@ export function useMessageWindowing(options: UseMessageWindowingOptions) {
         }
     }
 
-    function observeMessageElement(element: HTMLElement, messageId: string): void {
-        const refresh = () => measureElement(element, messageId);
+    function observeMessageElement(element: HTMLElement, message: SessionMessage): void {
+        const refresh = () => measureElement(element, message);
         observedTargets.set(element, refresh);
         itemObserver?.observe(element);
         refresh();
@@ -142,7 +146,7 @@ export function useMessageWindowing(options: UseMessageWindowingOptions) {
             return;
         }
 
-        observeMessageElement(element, message.id);
+        observeMessageElement(element, message);
     }
 
     if (typeof ResizeObserver !== 'undefined') {
