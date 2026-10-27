@@ -105,6 +105,56 @@ function executeBuiltInTool(
 }
 
 describe('user runs a built-in tool', () => {
+    it('user does not see api keys in a built-in tool log entry', async () => {
+        createBuiltInToolLogMock.mockResolvedValue({ id: 19 });
+        findBuiltInToolByToolIdMock.mockResolvedValue({
+            tool_id: 'bash',
+            enabled: 1,
+            config_json: null,
+        });
+        touchBuiltInToolLastUsedMock.mockResolvedValue(undefined);
+        updateBuiltInToolLogByCallIdMock.mockResolvedValue(undefined);
+        registryGetMock.mockReturnValue({
+            id: 'bash',
+            displayName: 'Bash',
+            description: 'Run a command',
+            inputSchema: { type: 'object', properties: {} },
+            defaultConfig: {},
+            parseConfig: vi.fn(() => ({})),
+            buildConversationSemantic: vi.fn(() => ({ action: 'run', target: 'script' })),
+            buildApprovalRequest: vi.fn(async () => null),
+            execute: vi.fn(async () => ({
+                result: 'failed with sk-live-secret-123456',
+                isError: false,
+                status: 'success',
+            })),
+        });
+
+        const builtInToolService = await loadBuiltInToolService();
+        await builtInToolService.executeTool({
+            toolCall: createToolCall(),
+            toolArgs: { command: 'deploy', apiKey: 'sk-live-secret-123456' },
+            iteration: 0,
+            currentModel: {} as never,
+            hasExecutedBuiltInTool: vi.fn(() => false),
+            sessionId: null,
+            toolCallMessageId: null,
+            emitToolEvent: vi.fn(),
+        });
+
+        expect(createBuiltInToolLogMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                input: expect.not.stringContaining('sk-live-secret-123456'),
+            })
+        );
+        expect(updateBuiltInToolLogByCallIdMock).toHaveBeenLastCalledWith(
+            'call-builtin-1',
+            expect.objectContaining({
+                output: expect.not.stringContaining('sk-live-secret-123456'),
+            })
+        );
+    });
+
     it('user sees the tool call start reported with its start time before the tool runs', async () => {
         createBuiltInToolLogMock.mockResolvedValue({ id: 17 });
         findBuiltInToolByToolIdMock.mockResolvedValue({

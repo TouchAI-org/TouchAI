@@ -1,6 +1,12 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { redactAttributes, redactText, redactUrl } from '@services/ObservabilityService/redact';
+import {
+    MAX_AUDIT_PAYLOAD_BYTES,
+    redactAttributes,
+    redactText,
+    redactUrl,
+    serializeAuditPayload,
+} from '@services/ObservabilityService/redact';
 import { describe, expect, it } from 'vitest';
 
 describe('user does not leak secrets into logs', () => {
@@ -98,5 +104,43 @@ describe('user does not leak secrets into logs', () => {
         expect(redactUrl('https://example.test/')).toBe('https://example.test');
         expect(redactUrl('not-a-url?token=secret')).toBe('[redacted-url]');
         expect(redactUrl('https://user:pass@')).toBe('[redacted-url]');
+    });
+
+    it('user gets common api tokens redacted without a key name', () => {
+        expect(redactText('failed with sk-live-secret-123456')).not.toContain(
+            'sk-live-secret-123456'
+        );
+    });
+
+    it('user gets secret object fields redacted in audit payloads', () => {
+        const payload = serializeAuditPayload({
+            command: 'deploy',
+            apiKey: 'sk-live-secret-123456',
+            nested: { token: 'secret-token-value' },
+        });
+
+        expect(payload).not.toContain('sk-live-secret-123456');
+        expect(payload).not.toContain('secret-token-value');
+        expect(JSON.parse(payload)).toMatchObject({
+            command: 'deploy',
+            apiKey: '[redacted]',
+            nested: { token: '[redacted]' },
+        });
+    });
+
+    it('user keeps ordinary tool output beyond the log attribute limit', () => {
+        const output = serializeAuditPayload(`result: ${'x'.repeat(2000)}`);
+
+        expect(output).toContain('x'.repeat(2000));
+        expect(output).not.toContain('[truncated');
+    });
+
+    it('user gets a marked payload when tool output exceeds the audit ceiling', () => {
+        const output = serializeAuditPayload('x'.repeat(MAX_AUDIT_PAYLOAD_BYTES + 1024));
+
+        expect(new TextEncoder().encode(output).byteLength).toBeLessThanOrEqual(
+            MAX_AUDIT_PAYLOAD_BYTES
+        );
+        expect(output).toContain('[truncated original_bytes=');
     });
 });

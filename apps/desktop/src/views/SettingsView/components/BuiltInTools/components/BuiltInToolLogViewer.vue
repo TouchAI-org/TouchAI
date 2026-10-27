@@ -114,7 +114,9 @@
                             'error',
                             'timeout',
                             'awaiting_approval',
+                            'approved',
                             'rejected',
+                            'cancelled',
                             'pending',
                         ]"
                         :key="status"

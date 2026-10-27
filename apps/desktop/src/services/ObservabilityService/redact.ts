@@ -6,6 +6,7 @@ const REDACTED_EMAIL = '[redacted-email]';
 const MAX_ATTRIBUTE_LENGTH = 1024;
 const TRUNCATION_MARKER = '…';
 const URL_PATTERN = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi;
+export const MAX_AUDIT_PAYLOAD_BYTES = 64 * 1024;
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/gi;
 /** 没有 `Authorization:` 前缀的 Basic/Digest 凭据同样不能落盘。 */
@@ -28,6 +29,8 @@ const SENSITIVE_COOKIE_PATTERN = new RegExp(
     `(["']?)\\b((?:set-)?cookie)\\1(\\s*[=:]\\s*)("[^"]*"|'[^']*'|[^\\r\\n]+)`,
     'gi'
 );
+const COMMON_SECRET_TOKEN_PATTERN =
+    /\b(?:sk|pk|ghp|gho|ghu|ghs|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{8,}\b/g;
 const HOME_PATTERN = /(?:\/(?:Users|home)\/[^/\s"'<>]+|\/root\b|C:\\Users\\[^\\\s"'<>]+)/gi;
 
 const SECRET_KEY_TOKENS = new Set([
@@ -114,13 +117,14 @@ function truncateBytes(value: string, maxBytes: number): string {
 }
 
 /** 自由文本里的 URL、邮箱、令牌、凭据赋值和主目录路径都脱敏。 */
-export function redactText(value: string): string {
+export function redactText(value: string, maxLength = MAX_ATTRIBUTE_LENGTH): string {
     const redacted = value
         .replace(HOME_PATTERN, '~')
         .replace(URL_PATTERN, (match) => redactUrl(match))
         .replace(EMAIL_PATTERN, REDACTED_EMAIL)
         .replace(BEARER_PATTERN, `Bearer ${REDACTED}`)
         .replace(BASIC_CREDENTIAL_PATTERN, (_match, scheme: string) => `${scheme} ${REDACTED}`)
+        .replace(COMMON_SECRET_TOKEN_PATTERN, REDACTED)
         .replace(
             SENSITIVE_HEADER_PATTERN,
             (_match, quote: string, key: string, separator: string) =>
@@ -143,5 +147,58 @@ export function redactText(value: string): string {
             }
         );
 
-    return truncateBytes(redacted, MAX_ATTRIBUTE_LENGTH);
+    return truncateBytes(redacted, maxLength);
+}
+
+function sanitizeAuditValue(value: unknown, depth = 0): unknown {
+    if (depth > 8) return '[redacted-depth]';
+    if (typeof value === 'string') return redactText(value, 8192);
+    if (typeof value !== 'object' || value === null) return value;
+    if (Array.isArray(value)) {
+        return value.slice(0, 100).map((entry) => sanitizeAuditValue(entry, depth + 1));
+    }
+
+    const sanitized: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value).slice(0, 200)) {
+        sanitized[key] = isSecretKey(key) ? REDACTED : sanitizeAuditValue(entry, depth + 1);
+    }
+    return sanitized;
+}
+
+function utf8Length(value: string): number {
+    return new TextEncoder().encode(value).byteLength;
+}
+
+/** Serialize audit content with key-aware redaction and a hard 64KB ceiling. */
+export function serializeAuditPayload(payload: unknown): string {
+    if (typeof payload === 'string') {
+        const redacted = redactText(payload, Number.MAX_SAFE_INTEGER);
+        const encoded = new TextEncoder().encode(redacted);
+        if (encoded.length <= MAX_AUDIT_PAYLOAD_BYTES) return redacted;
+
+        const marker = `\n[truncated original_bytes=${encoded.length}]`;
+        const preview = new TextDecoder().decode(
+            encoded.slice(0, MAX_AUDIT_PAYLOAD_BYTES - utf8Length(marker))
+        );
+        return `${preview}${marker}`;
+    }
+
+    const serialized = JSON.stringify(sanitizeAuditValue(payload)) ?? 'null';
+    const originalBytes = utf8Length(serialized);
+    if (originalBytes <= MAX_AUDIT_PAYLOAD_BYTES) return serialized;
+
+    const encoded = new TextEncoder().encode(serialized);
+    let previewBytes = MAX_AUDIT_PAYLOAD_BYTES - 256;
+    while (previewBytes > 0) {
+        const preview = new TextDecoder().decode(encoded.slice(0, previewBytes));
+        const truncated = JSON.stringify({
+            _truncated: true,
+            originalBytes,
+            preview,
+        });
+        if (utf8Length(truncated) <= MAX_AUDIT_PAYLOAD_BYTES) return truncated;
+        previewBytes = Math.floor(previewBytes * 0.9);
+    }
+
+    return JSON.stringify({ _truncated: true, originalBytes });
 }

@@ -12,6 +12,7 @@ import {
 import type { ModelWithProvider } from '@database/queries/models';
 import type { ToolLogKind } from '@database/schema';
 import { log } from '@services/ObservabilityService';
+import { serializeAuditPayload } from '@services/ObservabilityService/redact';
 
 import { tt } from '@/i18n';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
@@ -368,7 +369,7 @@ class BuiltInToolService {
                 session_id: options.sessionId,
                 message_id: options.toolCallMessageId,
                 iteration: options.iteration,
-                input: JSON.stringify(options.toolArgs),
+                input: serializeAuditPayload(options.toolArgs),
                 status: 'pending',
                 approval_state: 'none',
             });
@@ -541,7 +542,7 @@ class BuiltInToolService {
         });
 
         await updateBuiltInToolLogByCallId(options.toolCall.id, {
-            output: toolResult.result,
+            output: serializeAuditPayload(toolResult.result),
             conversation_semantic_json: toolResult.conversationSemantic
                 ? JSON.stringify(toolResult.conversationSemantic)
                 : null,
@@ -557,7 +558,7 @@ class BuiltInToolService {
                       : 'error',
             duration_ms: durationMs,
             error_message: toolResult.isError
-                ? (toolResult.errorMessage ?? toolResult.result)
+                ? serializeAuditPayload(toolResult.errorMessage ?? toolResult.result)
                 : null,
         }).catch((error) => {
             log.error('[BuiltInToolService] Failed to update built-in tool log:', error);
