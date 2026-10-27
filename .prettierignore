@@ -72,7 +72,5 @@ apps/desktop/.vite-cache/
 # WiX installer templates
 *.wxs
 
-# Playwright and Storybook output
+# The JSON report the component visual layer writes when CI runs it
 apps/desktop/test-results/
-playwright-report/
-.storybook-static/

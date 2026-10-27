@@ -38,7 +38,6 @@
         "test:coverage:patch": "node ./scripts/ci/coverage/patch-coverage-cli.mjs --coverage .coverage/unit/coverage-final.json --base origin/main --root . --floor 85",
         "test:e2e:visual:update": "node ./scripts/run-e2e-command.mjs --update-baselines",
         "storybook": "storybook dev --port 6006",
-        "storybook:build": "storybook build --output-dir ../../.storybook-static",
         "test:visual:components": "playwright test",
         "test:visual:components:update": "playwright test --update-snapshots"
     },

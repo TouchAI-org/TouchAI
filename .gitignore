@@ -51,7 +51,5 @@ rust-temp/
 apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/gen/
 
-# Visual test artifacts
-.storybook-static/
+# The JSON report the component visual layer writes when CI runs it.
 test-results/
-playwright-report/
