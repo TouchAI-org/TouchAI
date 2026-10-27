@@ -40,7 +40,7 @@ import { normalizeString } from '@/utils/text';
 import { AiError } from '../contracts/errors';
 import { getRetryStatusMessage } from '../execution/retry';
 import type { PromptSnapshot } from '../prompt/types';
-import { getSessionData, getSessionDataPage, type SessionData } from './manager';
+import { getSessionData, type SessionData } from './manager';
 import {
     ensureAssistantWidgets,
     ensureWidgetPart,
@@ -982,7 +982,7 @@ export async function buildSessionHistoryFromData(
 }
 
 /**
- * 按会话主键直接加载页面历史。
+ * 按会话主键直接加载历史消息。
  */
 export async function loadSessionHistory(sessionId: number): Promise<SessionMessage[]> {
     const { messages, turns, attempts } = await getSessionData(sessionId);
@@ -993,43 +993,23 @@ export async function loadSessionHistory(sessionId: number): Promise<SessionMess
     });
 }
 
-/** 分页加载的首项结果。 */
-export interface SessionHistoryPage {
+/**
+ * 按会话主键直接加载完整历史（含会话行与最近模型）。
+ *
+ * 展示层不再分页：一次读完，滚动条高度与时间轴定位才是真实值。
+ * 长会话的渲染开销由布界挂载（窗口化）控制。
+ */
+export async function loadCompleteSessionHistory(sessionId: number): Promise<{
     history: SessionMessage[];
-    /** 是否还有更早的消息可继续向前取。 */
-    hasMore: boolean;
-    /** 本页最早的消息 id，作为下一页的 `beforeMessageId`。 */
-    oldestMessageId: number | null;
-    /** 会话行与最近使用模型（首屏需要用于展示当前模型）。 */
     session: SessionData['session'];
     model: SessionData['model'];
-}
-
-/**
- * 向前分页加载会话展示历史。
- *
- * 首屏只读取最新一页（建议 40–80 条），滚动到顶部时用 `oldestMessageId`
- * 继续向前取；返回的消息保持 id 升序，可直接拼接到现有列表前面。
- */
-export async function loadSessionHistoryPage(
-    sessionId: number,
-    options: { limit: number; beforeMessageId?: number | null }
-): Promise<SessionHistoryPage> {
-    const { messages, turns, attempts, hasMoreMessages, session, model } = await getSessionDataPage(
-        sessionId,
-        options
-    );
+}> {
+    const { messages, turns, attempts, session, model } = await getSessionData(sessionId);
     const history = await buildSessionHistoryFromData({
         messages,
         turns,
         attempts,
     });
 
-    return {
-        history,
-        hasMore: hasMoreMessages,
-        oldestMessageId: messages[0]?.id ?? null,
-        session,
-        model,
-    };
+    return { history, session, model };
 }

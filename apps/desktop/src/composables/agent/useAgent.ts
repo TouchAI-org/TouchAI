@@ -10,13 +10,10 @@ import { t } from '@/i18n';
 import { sessionTaskCenter } from '@/services/AgentService';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import { type Index } from '@/services/AgentService/infrastructure/attachments';
-import { loadSessionHistoryPage } from '@/services/AgentService/session';
+import { loadCompleteSessionHistory } from '@/services/AgentService/session';
 import type { InputHistorySnapshot, LoadedSessionInfo } from '@/types/session';
 
 import { useAgentState } from './useAgentState';
-
-/** 首屏/向前分页每次加载的消息数。 */
-const SESSION_HISTORY_PAGE_SIZE = 50;
 
 export interface UseAiRequestOptions {
     sessionId?: number;
@@ -55,13 +52,6 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         pendingToolApproval,
         pendingApprovalQueue,
         pendingUserQuestion,
-        hasOlderHistory,
-        isLoadingOlderHistory,
-        oldestLoadedMessageId,
-        prependHistory,
-        resetHistoryPaging,
-        applyFirstHistoryPage,
-        applyOlderHistoryPage,
         attachTaskView,
         detachTaskView,
         resetTaskViewState,
@@ -139,65 +129,21 @@ export function useAgent(options: UseAiRequestOptions = {}) {
     /**
      * 从持久化数据恢复指定会话。
      *
-     * 首屏只读最新一页；用户向上滑动时再用 `loadOlderHistory` 向前取。
+     * 一次读完整个会话：展示层不分页，滚动条高度与时间轴定位才是真实值；
+     * 长会话的渲染开销由布界挂载（窗口化）控制，不会随消息数线性增长 DOM。
      */
     async function loadPersistedSession(sessionId: number): Promise<LoadedSessionInfo> {
-        const page = await loadSessionHistoryPage(sessionId, {
-            limit: SESSION_HISTORY_PAGE_SIZE,
-        });
-        sessionHistory.value = page.history;
-        applyFirstHistoryPage({ hasMore: page.hasMore, oldestMessageId: page.oldestMessageId });
-
-        currentSessionId.value = page.session.id;
+        const loaded = await loadCompleteSessionHistory(sessionId);
+        sessionHistory.value = loaded.history;
+        currentSessionId.value = loaded.session.id;
         resetTransientState();
 
         return {
-            sessionId: page.session.id,
-            title: page.session.title,
-            modelId: page.model?.model_id ?? page.session.model ?? null,
-            providerId: page.model?.provider_id ?? page.session.provider_id ?? null,
+            sessionId: loaded.session.id,
+            title: loaded.session.title,
+            modelId: loaded.model?.model_id ?? loaded.session.model ?? null,
+            providerId: loaded.model?.provider_id ?? loaded.session.provider_id ?? null,
         };
-    }
-
-    /**
-     * 向前加载更早的历史页（滚动到顶部时调用）。
-     *
-     * 未发生变化时返回 false，避免滚动监听器重复触发无意义的查询。
-     */
-    async function loadOlderHistory(): Promise<boolean> {
-        const sessionId = currentSessionId.value;
-        if (
-            sessionId === null ||
-            !hasOlderHistory.value ||
-            isLoadingOlderHistory.value ||
-            attachedTaskId.value !== null
-        ) {
-            return false;
-        }
-
-        const beforeMessageId = oldestLoadedMessageId.value;
-        if (beforeMessageId === null) {
-            return false;
-        }
-
-        isLoadingOlderHistory.value = true;
-        try {
-            const page = await loadSessionHistoryPage(sessionId, {
-                limit: SESSION_HISTORY_PAGE_SIZE,
-                beforeMessageId,
-            });
-            prependHistory(page.history);
-            applyOlderHistoryPage({
-                hasMore: page.hasMore,
-                oldestMessageId: page.oldestMessageId,
-            });
-            return page.history.length > 0;
-        } catch (loadError) {
-            console.error('[useAgent] Failed to load older session history:', loadError);
-            return false;
-        } finally {
-            isLoadingOlderHistory.value = false;
-        }
     }
 
     /**
@@ -210,7 +156,6 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         detachTaskView();
         sessionHistory.value = [];
         currentSessionId.value = null;
-        resetHistoryPaging();
         resetTransientState();
     }
 
@@ -408,9 +353,6 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         openSession,
         currentSessionId,
         sessionHistory,
-        hasOlderHistory,
-        isLoadingOlderHistory,
-        loadOlderHistory,
         clearSession,
         pendingToolApproval,
         pendingApprovalQueue,

@@ -33,11 +33,6 @@
             @keydown="handleScrollIntentByKeyboard"
         >
             <!-- 消息列表 -->
-            <div v-if="hasOlderMessages || isLoadingOlderMessages" class="flex justify-center py-2">
-                <span v-if="isLoadingOlderMessages" class="text-xs">
-                    {{ t('conversation.loadingOlderMessages') }}
-                </span>
-            </div>
             <div ref="messageListRef" class="mt-4">
                 <div
                     v-if="windowingEnabled && windowRange.topSpacer > 0"
@@ -97,7 +92,6 @@
     import { storeToRefs } from 'pinia';
     import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 
-    import { t } from '@/i18n';
     import { useSettingsStore } from '@/stores/settings';
     import type { SessionMessage } from '@/types/session';
 
@@ -106,6 +100,7 @@
     import MessageItem from './components/MessageItem.vue';
     import { useMessageWindowing } from './composables/useMessageWindowing';
     import { resolveFollowScrollState } from './followScrollState';
+    import { estimateMessageHeight } from './messageHeightEstimate';
     import { classifyMessageListChange } from './messageListChange';
     import { buildMessageListRevision } from './messageListRevision';
 
@@ -123,10 +118,6 @@
         historyOpen: boolean;
         toolbarDisabled?: boolean;
         maxHeight?: number;
-        /** 是否还有更早的历史消息可加载。 */
-        hasOlderMessages?: boolean;
-        /** 是否正在加载更早一页。 */
-        isLoadingOlderMessages?: boolean;
     }
 
     const props = withDefaults(defineProps<Props>(), {
@@ -134,8 +125,6 @@
         toolbarDisabled: false,
         isMaximized: false,
         fillAvailableHeight: false,
-        hasOlderMessages: false,
-        isLoadingOlderMessages: false,
     });
 
     const emit = defineEmits<{
@@ -148,8 +137,6 @@
         dragStart: [];
         dragEnd: [];
         latestContentVisibilityChange: [visible: boolean];
-        /** 滚动接近顶部时请求加载更早一页历史。 */
-        requestOlderMessages: [];
     }>();
 
     const conversationContainer = ref<HTMLElement | null>(null);
@@ -169,8 +156,6 @@
     const lastAutoScrollAt = ref(0);
     const USER_MESSAGE_SCROLL_GAP = 12;
     const TIMELINE_JUMP_OFFSET = 80;
-    /** 滚动到距顶部该距离内时请求加载更早的历史页。 */
-    const OLDER_MESSAGES_TRIGGER_PX = 200;
     let messageListObserver: ResizeObserver | null = null;
 
     // 时间轴相关状态
@@ -194,6 +179,7 @@
         enabled: windowingEnabled,
         scrollTop,
         clientHeight,
+        estimateHeight: estimateMessageHeight,
         // 布局补偿产生的滚动不是用户意图，不能据此切换自动跟随。
         onProgrammaticScroll: () => {
             lastAutoScrollAt.value = Date.now();
@@ -229,6 +215,11 @@
      */
     function revealLatestContent() {
         syncToBottom();
+        // 窗口化下首帧的累计高度还包含估值，测量落地后再对齐一次底部；
+        // 否则打开长会话会停在“估值底部”而不是真实底部。
+        void nextTick(() => {
+            syncToBottom();
+        });
         isAutoScrollEnabled.value = outputScrollBehavior.value === 'follow_output';
         showScrollToBottom.value = false;
     }
@@ -340,15 +331,6 @@
 
         lastScrollTop.value = currentScrollTop;
         emitLatestContentVisibility();
-
-        // 接近顶部时请求更早一页；父级自行去重（hasMore/加载中/任务进行中）。
-        if (
-            props.hasOlderMessages &&
-            !props.isLoadingOlderMessages &&
-            currentScrollTop <= OLDER_MESSAGES_TRIGGER_PX
-        ) {
-            emit('requestOlderMessages');
-        }
     }
 
     function syncToBottom() {

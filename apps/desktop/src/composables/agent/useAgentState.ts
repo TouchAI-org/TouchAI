@@ -63,59 +63,11 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
     const pendingToolApproval = ref<SessionTaskViewSnapshot['pendingToolApproval']>(null);
     const pendingApprovalQueue = ref<SessionTaskViewSnapshot['pendingApprovals']>([]);
     const pendingUserQuestion = ref<SessionTaskViewSnapshot['pendingUserQuestion']>(null);
-    // 历史分页：首屏只加载最新一页，向前加载时记录游标。
-    const hasOlderHistory = ref(false);
-    const oldestLoadedMessageId = ref<number | null>(null);
-    const isLoadingOlderHistory = ref(false);
     const hasError = computed(() => error.value !== null);
     const hasResponse = computed(() => response.value.length > 0);
 
     let unsubscribeTask: (() => void) | null = null;
     let lastObservedModelSwitchCount = 0;
-
-    /**
-     * 把旧一页消息拼到列表前面。
-     *
-     * 去重按消息 id：任务快照重新发布时可能已包含同一 id，避免重复渲染。
-     */
-    function prependHistory(messages: SessionMessage[]): void {
-        if (messages.length === 0) {
-            return;
-        }
-
-        const existingIds = new Set(sessionHistory.value.map((message) => message.id));
-        const appended = messages.filter((message) => !existingIds.has(message.id));
-        if (appended.length === 0) {
-            return;
-        }
-
-        sessionHistory.value = [...appended, ...sessionHistory.value];
-    }
-
-    /** 重置历史分页状态（切会话/清空时调用）。 */
-    function resetHistoryPaging(): void {
-        hasOlderHistory.value = false;
-        oldestLoadedMessageId.value = null;
-        isLoadingOlderHistory.value = false;
-    }
-
-    /** 记录首屏分页结果。 */
-    function applyFirstHistoryPage(state: {
-        hasMore: boolean;
-        oldestMessageId: number | null;
-    }): void {
-        hasOlderHistory.value = state.hasMore;
-        oldestLoadedMessageId.value = state.oldestMessageId;
-    }
-
-    /** 记录向前加载结果。 */
-    function applyOlderHistoryPage(state: {
-        hasMore: boolean;
-        oldestMessageId: number | null;
-    }): void {
-        hasOlderHistory.value = state.hasMore;
-        oldestLoadedMessageId.value = state.oldestMessageId ?? oldestLoadedMessageId.value;
-    }
 
     let lastObservedTurnId: number | null = null;
     let lastDeliveredResponse = '';
@@ -260,13 +212,6 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
         pendingToolApproval,
         pendingApprovalQueue,
         pendingUserQuestion,
-        hasOlderHistory,
-        oldestLoadedMessageId,
-        isLoadingOlderHistory,
-        prependHistory,
-        resetHistoryPaging,
-        applyFirstHistoryPage,
-        applyOlderHistoryPage,
         attachTaskView,
         detachTaskView,
         resetTaskViewState,
