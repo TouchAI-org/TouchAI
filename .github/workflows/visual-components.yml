@@ -217,7 +217,7 @@ jobs:
                   RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
                   VISUAL_SUMMARY_OUTPUT: ${{ runner.temp }}/visual-summary.md
                   VISUAL_EVIDENCE_URLS: ${{ runner.temp }}/visual-evidence.json
-              run: node ./scripts/ci/visual-summary.mjs test-results/results.json
+              run: node ./scripts/ci/visual-report.mjs --layer components --report test-results/results.json
 
             # The report is posted by the App rather than by `github-actions`, so the
             # comment is attributable and so a fork pull request can still receive it: the
@@ -241,57 +241,22 @@ jobs:
                   permission-pull-requests: write
                   permission-issues: write
 
+            # One comment holds both visual layers, so it is upserted rather than posted:
+            # the script rewrites only this layer's block and leaves the app layer's
+            # report, written by the other workflow, untouched. The App token goes in
+            # `GH_TOKEN` because the comment has to be written by the bot and not by
+            # `github-actions`, and because the attachment URLs it embeds are only
+            # readable from a comment an author posted.
             - name: Post the report on the pull request
               if: steps.app.outputs.token != ''
-              uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+              working-directory: apps/desktop
               env:
-                  SUMMARY_PATH: ${{ runner.temp }}/visual-summary.md
-              with:
-                  # The App token, not the workflow token, so the comment is written by the
-                  # bot and not by `github-actions`.
-                  github-token: ${{ steps.app.outputs.token }}
-                  script: |
-                      const fs = require('node:fs');
-                      const path = process.env.SUMMARY_PATH;
-
-                      if (!fs.existsSync(path)) {
-                        core.info('No summary was written; skipping the comment.');
-                        return;
-                      }
-
-                      const marker = '<!-- component-visual-report -->';
-                      const body = `${marker}\n${fs.readFileSync(path, 'utf8')}`;
-
-                      // One comment per pull request, updated in place. Appending a new
-                      // one on every push would bury the conversation, and a stale report
-                      // is worse than none: it would describe a run that no longer exists.
-                      const comments = await github.paginate(github.rest.issues.listComments, {
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        issue_number: context.issue.number,
-                        per_page: 100,
-                      });
-
-                      const existing = comments.find((comment) => comment.body?.includes(marker));
-
-                      if (existing) {
-                        await github.rest.issues.updateComment({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          comment_id: existing.id,
-                          body,
-                        });
-                        core.info(`Updated comment ${existing.id}.`);
-                        return;
-                      }
-
-                      await github.rest.issues.createComment({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        issue_number: context.issue.number,
-                        body,
-                      });
-                      core.info('Created the report comment.');
+                  GH_TOKEN: ${{ steps.app.outputs.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  LAYER: components
+                  SECTION_PATH: ${{ runner.temp }}/visual-summary.md
+              run: node ./scripts/ci/visual-comment.mjs
 
             - name: Upload component baselines
               if: ${{ inputs.update_visual_baselines }}

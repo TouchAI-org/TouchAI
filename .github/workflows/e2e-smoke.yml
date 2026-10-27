@@ -207,6 +207,7 @@ jobs:
                   "TOUCHAI_MSEDGEDRIVER_PATH=$driverPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
             - name: Run desktop smoke tests
+              id: tests
               if: ${{ !inputs.update_visual_baselines }}
               run: pnpm test:e2e
 
@@ -217,6 +218,105 @@ jobs:
               if: ${{ inputs.update_visual_baselines }}
               run: pnpm --filter @touchai/desktop test:e2e:visual:update
 
+            # A failing comparison leaves the actual and diff images under
+            # `.e2e-runtime/visual`, which is deleted with the runner. They have to reach
+            # the reviewer, so they are gathered here first. The service names all three
+            # images after the baseline, and a report needs them side by side, so each
+            # copy is renamed with the same `-expected` / `-actual` / `-diff` suffix the
+            # component layer uses — that is also the name the report looks up.
+            - name: Gather the diff images
+              if: ${{ !cancelled() && !inputs.update_visual_baselines }}
+              shell: pwsh
+              run: |
+                  $imagesDir = Join-Path $env:RUNNER_TEMP 'visual-diffs'
+                  $visualRoot = Join-Path $env:GITHUB_WORKSPACE '.e2e-runtime/visual'
+                  $baselineDir = Join-Path $env:GITHUB_WORKSPACE 'apps/desktop/e2e-tests/__snapshots__'
+
+                  Remove-Item -LiteralPath $imagesDir -Recurse -Force -ErrorAction SilentlyContinue
+                  New-Item -ItemType Directory -Force -Path $imagesDir | Out-Null
+
+                  $diffDir = Join-Path $visualRoot 'diff'
+                  $diffs = @()
+                  if (Test-Path -LiteralPath $diffDir) {
+                      $diffs = @(Get-ChildItem -LiteralPath $diffDir -Filter '*.png' -File)
+                  }
+
+                  foreach ($diff in $diffs) {
+                      $stem = $diff.BaseName
+                      Copy-Item -LiteralPath $diff.FullName -Destination (Join-Path $imagesDir "$stem-diff.png")
+
+                      $actual = Join-Path $visualRoot "actual/$($diff.Name)"
+                      if (Test-Path -LiteralPath $actual) {
+                          Copy-Item -LiteralPath $actual -Destination (Join-Path $imagesDir "$stem-actual.png")
+                      }
+
+                      $baseline = Join-Path $baselineDir $diff.Name
+                      if (Test-Path -LiteralPath $baseline) {
+                          Copy-Item -LiteralPath $baseline -Destination (Join-Path $imagesDir "$stem-expected.png")
+                      }
+                  }
+
+                  Write-Host "collected $($diffs.Count) snapshot(s)."
+
+            # The same upload the component layer uses, for the same reasons: an artifact
+            # needs authentication, so a markdown image pointing at it renders nothing,
+            # and GitHub's attachment store is the one place that serves these publicly.
+            # Without `UI_PREVIEW_TOKEN` — a fork pull request, or a repository that has
+            # not configured it — nothing is uploaded and the report links the artifact
+            # instead, which is a worse report rather than a failed run.
+            - name: Publish the diff images
+              id: publish
+              if: ${{ !cancelled() && !inputs.update_visual_baselines }}
+              working-directory: apps/desktop
+              env:
+                  UI_PREVIEW_TOKEN: ${{ secrets.UI_PREVIEW_TOKEN }}
+                  UI_PREVIEW_REPOSITORY_ID: ${{ github.event.repository.id }}
+                  VISUAL_EVIDENCE_URLS: ${{ runner.temp }}/visual-evidence.json
+              run: node ./scripts/ci/publish-evidence.mjs "${{ runner.temp }}/visual-diffs" "${{ runner.temp }}/visual-evidence.json"
+
+            # The report section for this layer. `visual-comment.mjs` merges it into the
+            # one pull request comment that also holds the component layer's section.
+            - name: Summarise the visual differences
+              if: ${{ !cancelled() && !inputs.update_visual_baselines }}
+              working-directory: apps/desktop
+              env:
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  VISUAL_SUMMARY_OUTPUT: ${{ runner.temp }}/visual-summary.md
+                  VISUAL_EVIDENCE_URLS: ${{ runner.temp }}/visual-evidence.json
+                  VISUAL_TESTS_OUTCOME: ${{ steps.tests.outcome }}
+              run: node ./scripts/ci/visual-report.mjs --layer e2e --diff-dir "${{ github.workspace }}/.e2e-runtime/visual/diff" --baseline-dir "${{ github.workspace }}/apps/desktop/e2e-tests/__snapshots__" --actual-dir "${{ github.workspace }}/.e2e-runtime/visual/actual"
+
+            # Minted rather than derived from `GITHUB_TOKEN`, because the comment has to
+            # be written by the App: the pull request's own token is read-only for fork
+            # runs, and `github-actions` cannot author the attachment URLs the report
+            # embeds. The `if:` keeps the token away from fork code, since the App can
+            # write anywhere it is installed.
+            - name: Mint an App token
+              id: app
+              if: |
+                  !cancelled() &&
+                  !inputs.update_visual_baselines &&
+                  github.event_name == 'pull_request' &&
+                  github.event.pull_request.head.repo.full_name == github.repository
+              uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+              with:
+                  app-id: ${{ secrets.BOT_APP_ID }}
+                  private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+                  owner: ${{ github.repository_owner }}
+                  repositories: ${{ github.event.repository.name }}
+                  permission-pull-requests: write
+                  permission-issues: write
+
+            - name: Post the report on the pull request
+              if: steps.app.outputs.token != ''
+              env:
+                  GH_TOKEN: ${{ steps.app.outputs.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  LAYER: e2e
+                  SECTION_PATH: ${{ runner.temp }}/visual-summary.md
+              run: node apps/desktop/scripts/ci/visual-comment.mjs
+
             - name: Upload visual baselines
               if: ${{ inputs.update_visual_baselines }}
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -224,6 +324,14 @@ jobs:
                   name: visual-baselines
                   path: apps/desktop/e2e-tests/__snapshots__/
                   if-no-files-found: error
+
+            - name: Upload diff artifacts
+              if: ${{ failure() && !inputs.update_visual_baselines }}
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: app-visual-diffs
+                  path: ${{ runner.temp }}/visual-diffs/
+                  if-no-files-found: ignore
 
     e2e-required:
         name: E2E Required

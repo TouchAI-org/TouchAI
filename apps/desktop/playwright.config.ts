@@ -33,7 +33,8 @@ export default defineConfig({
     retries: process.env.CI ? 1 : 0,
     workers: process.env.CI ? 2 : undefined,
     // `github` annotates failures on the PR, `list` keeps the log readable, and the
-    // JSON file is what `scripts/ci/visual-summary.mjs` turns into the job summary.
+    // JSON file is what `scripts/ci/visual-report.mjs --layer components` turns into the
+    // section the pull request comment shows.
     // Without it the reviewer learns that something moved but not what, and the
     // images die with the runner.
     reporter: process.env.CI

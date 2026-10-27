@@ -59,6 +59,18 @@ name: Approve visual baselines
 #     /approve-visuals              regenerate both layers
 #     /approve-visuals components   regenerate the component layer only
 #     /approve-visuals e2e          regenerate the app (WebView2) layer only
+#
+# The shape of the file follows from the two layers being the same job with different
+# inputs. `plan` decides which layers were asked for; one matrix job then regenerates
+# each of them, serialised so the two commits land one after the other. The layers differ
+# only in which workflow to dispatch, which artifact to download, which directory to
+# commit and what to call the commit, so those four values are the matrix and everything
+# else is shared. A job per layer meant two copies of the dispatch, wait, download and
+# push steps, which is how they drifted apart before.
+#
+# There is no separate report job. The outcome is a status line handed to
+# `visual-comment.mjs`, which writes it into the one pull request comment the comparison
+# workflows already maintain, next to that layer's last report.
 
 on:
     issue_comment:
@@ -96,8 +108,7 @@ jobs:
             # never touches the branch.
             pull-requests: write
         outputs:
-            components: ${{ steps.parse.outputs.components }}
-            e2e: ${{ steps.parse.outputs.e2e }}
+            layers: ${{ steps.parse.outputs.layers }}
             head_ref: ${{ steps.pr.outputs.head_ref }}
         steps:
             # `author_association` only says how the author relates to the repository,
@@ -171,8 +182,20 @@ jobs:
                       e2e=true
                   fi
 
-                  echo "components=$components" >> "$GITHUB_OUTPUT"
-                  echo "e2e=$e2e" >> "$GITHUB_OUTPUT"
+                  # One JSON array rather than an output per layer: the matrix job asks
+                  # `contains(...)` once, and a third layer later is one more matrix entry
+                  # instead of one more condition to keep in sync with the others.
+                  layers='[]'
+
+                  if [ "$components" = true ]; then
+                      layers="$(printf '%s' "$layers" | jq -c '. + ["components"]')"
+                  fi
+
+                  if [ "$e2e" = true ]; then
+                      layers="$(printf '%s' "$layers" | jq -c '. + ["e2e"]')"
+                  fi
+
+                  echo "layers=$layers" >> "$GITHUB_OUTPUT"
 
             - name: Acknowledge the command
               env:
@@ -188,10 +211,13 @@ jobs:
                       "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID/reactions" \
                       -f content=eyes >/dev/null
 
-    components:
-        name: Regenerate component baselines
+    regenerate:
+        name: Regenerate ${{ matrix.layer }} baselines
         needs: plan
-        if: needs.plan.outputs.components == 'true'
+        # `fromJSON`, because only the plan job knows which layers were asked for. A
+        # layer that was not requested has to skip without taking the other one with it,
+        # which chaining the two jobs with `needs:` could not express.
+        if: contains(fromJSON(needs.plan.outputs.layers), matrix.layer)
         runs-on: ubuntu-latest
         permissions:
             # Checkout and the baseline commit.
@@ -199,6 +225,26 @@ jobs:
             # Dispatching the regeneration run, watching it, and downloading the
             # artifact it leaves behind.
             actions: write
+        strategy:
+            # Both entries push to the same branch, so they run one at a time in matrix
+            # order. That is what keeps the second push from being rejected as a
+            # non-fast-forward, and it replaces the old `needs: [plan, components]`
+            # chaining.
+            max-parallel: 1
+            # The only things the two layers disagree on. Everything else is shared, so it
+            # lives in the steps below and cannot drift between them.
+            matrix:
+                include:
+                    - layer: components
+                      workflow: visual-components.yml
+                      artifact: component-baselines
+                      snapshots: apps/desktop/tests/visual/__snapshots__
+                      message: 'test(ui): refresh the component visual baselines'
+                    - layer: e2e
+                      workflow: e2e-smoke.yml
+                      artifact: visual-baselines
+                      snapshots: apps/desktop/e2e-tests/__snapshots__
+                      message: 'test(ui): refresh the app visual baselines'
         steps:
             # The push below has to be an ordinary push, so that its `push` event starts
             # the workflows whose checks the branch protection rule waits for. A token
@@ -212,12 +258,13 @@ jobs:
                   app-id: ${{ secrets.BOT_APP_ID }}
                   private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
                   # Only the repositories this App is installed on, and only what the
-                  # commit and the dispatch need.
+                  # commit, the dispatch and the comment need.
                   owner: ${{ github.repository_owner }}
                   repositories: ${{ github.event.repository.name }}
                   permission-contents: write
                   permission-actions: write
                   permission-pull-requests: write
+                  permission-issues: write
 
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
@@ -225,16 +272,17 @@ jobs:
                   # Push as the App, so the resulting `push` event is not suppressed.
                   token: ${{ steps.app.outputs.token }}
 
-            - name: Regenerate in the pinned renderer
+            - name: Regenerate in the pinned environment
               id: regenerate
               env:
                   # `GITHUB_TOKEN` is enough to dispatch and read runs; the push is the
                   # only thing that needs the App.
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   HEAD_REF: ${{ needs.plan.outputs.head_ref }}
+                  WORKFLOW: ${{ matrix.workflow }}
               run: |
                   set -euo pipefail
-                  workflow='visual-components.yml'
+                  workflow="$WORKFLOW"
 
                   # The dispatch is asynchronous and `gh run list` can only report what
                   # already exists, so the run that existed before the dispatch is the
@@ -254,7 +302,7 @@ jobs:
                   done
 
                   if [ -z "$run_id" ]; then
-                      echo "::error::The component baseline run never appeared. Check the Actions tab for $workflow on $HEAD_REF."
+                      echo "::error::The baseline run never appeared. Check the Actions tab for $workflow on $HEAD_REF."
                       exit 1
                   fi
 
@@ -273,15 +321,19 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   RUN_ID: ${{ steps.regenerate.outputs.run_id }}
+                  ARTIFACT: ${{ matrix.artifact }}
+                  SNAPSHOTS: ${{ matrix.snapshots }}
               run: |
                   set -euo pipefail
-                  gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name component-baselines --dir apps/desktop/tests/visual/__snapshots__
+                  gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT" --dir "$SNAPSHOTS"
 
             - name: Commit the regenerated baselines
               id: commit
               env:
                   HEAD_REF: ${{ needs.plan.outputs.head_ref }}
                   APP_SLUG: ${{ steps.app.outputs.app-slug }}
+                  SNAPSHOTS: ${{ matrix.snapshots }}
+                  MESSAGE: ${{ matrix.message }}
               run: |
                   set -euo pipefail
                   # Attributed to the App rather than to `github-actions`, so `git log`
@@ -289,15 +341,15 @@ jobs:
                   git config user.name "${APP_SLUG}[bot]"
                   git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
-                  git add apps/desktop/tests/visual/__snapshots__
+                  git add "$SNAPSHOTS"
 
                   if git diff --cached --quiet; then
-                      echo 'The component baselines already match; nothing to commit.'
+                      echo 'These baselines already match; nothing to commit.'
                       echo "pushed=false" >> "$GITHUB_OUTPUT"
                       exit 0
                   fi
 
-                  git commit -m 'test(ui): refresh the component visual baselines'
+                  git commit -m "$MESSAGE"
 
                   # The checkout is a snapshot from the start of the job, and the
                   # regeneration ran for minutes. If the author pushed in that window the
@@ -317,169 +369,20 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   HEAD_REF: ${{ needs.plan.outputs.head_ref }}
+                  WORKFLOW: ${{ matrix.workflow }}
               run: |
                   set -euo pipefail
-                  gh workflow run visual-components.yml --repo "$GITHUB_REPOSITORY" --ref "$HEAD_REF" -f update_visual_baselines=false
+                  gh workflow run "$WORKFLOW" --repo "$GITHUB_REPOSITORY" --ref "$HEAD_REF" -f update_visual_baselines=false
 
-    e2e:
-        name: Regenerate app baselines
-        # Serialised behind `components`, not just `plan`. Both jobs commit and push to
-        # the same branch, and a bare `/approve-visuals` asks for both, so running them
-        # concurrently meant whichever pushed second was rejected as a non-fast-forward
-        # and its baselines were lost. `always()` keeps the job reachable when
-        # `components` was skipped because only the app layer was requested; a failed
-        # `components` still stops this job, because that push may have half-landed.
-        needs:
-            - plan
-            - components
-        if: |
-            always() &&
-            needs.plan.outputs.e2e == 'true' &&
-            (needs.components.result == 'success' || needs.components.result == 'skipped')
-        runs-on: ubuntu-latest
-        permissions:
-            # Checkout and the baseline commit.
-            contents: write
-            # Dispatching the regeneration run, watching it, and downloading the
-            # artifact it leaves behind.
-            actions: write
-        steps:
-            # Same reason as the components job: the push must be an ordinary push so its
-            # `push` event starts the workflows whose checks gate the pull request.
-            - name: Mint an App token
-              id: app
-              uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-              with:
-                  app-id: ${{ secrets.BOT_APP_ID }}
-                  private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-                  owner: ${{ github.repository_owner }}
-                  repositories: ${{ github.event.repository.name }}
-                  permission-contents: write
-                  permission-actions: write
-                  permission-pull-requests: write
-
-            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with:
-                  ref: ${{ needs.plan.outputs.head_ref }}
-                  token: ${{ steps.app.outputs.token }}
-
-            - name: Regenerate in the Windows/WebView2 environment
-              id: regenerate
+            # The outcome goes into the comment the comparison workflows already maintain,
+            # not into a second comment about the same pixels: one flow, one comment. The
+            # next comparison run replaces this layer's section with its own, so the line
+            # describes what was done rather than claiming the baselines now match.
+            - name: Report the outcome in the shared comment
               env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  HEAD_REF: ${{ needs.plan.outputs.head_ref }}
-              run: |
-                  set -euo pipefail
-                  workflow='e2e-smoke.yml'
-
-                  before="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --branch "$HEAD_REF" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')"
-
-                  gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$HEAD_REF" -f update_visual_baselines=true
-
-                  run_id=''
-                  for _ in $(seq 1 30); do
-                      current="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --branch "$HEAD_REF" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0')"
-                      if [ -n "$current" ] && [ "$current" != "$before" ] && [ "$current" != '0' ]; then
-                          run_id="$current"
-                          break
-                      fi
-                      sleep 5
-                  done
-
-                  if [ -z "$run_id" ]; then
-                      echo "::error::The app baseline run never appeared. Check the Actions tab for $workflow on $HEAD_REF."
-                      exit 1
-                  fi
-
-                  echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-                  echo "Watching run $run_id."
-
-            - name: Wait for the run to finish
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  RUN_ID: ${{ steps.regenerate.outputs.run_id }}
-              run: |
-                  set -euo pipefail
-                  gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --exit-status --interval 15
-
-            - name: Download the regenerated baselines
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  RUN_ID: ${{ steps.regenerate.outputs.run_id }}
-              run: |
-                  set -euo pipefail
-                  gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name visual-baselines --dir apps/desktop/e2e-tests/__snapshots__
-
-            - name: Commit the regenerated baselines
-              id: commit
-              env:
-                  HEAD_REF: ${{ needs.plan.outputs.head_ref }}
-                  APP_SLUG: ${{ steps.app.outputs.app-slug }}
-              run: |
-                  set -euo pipefail
-                  git config user.name "${APP_SLUG}[bot]"
-                  git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-
-                  git add apps/desktop/e2e-tests/__snapshots__
-
-                  if git diff --cached --quiet; then
-                      echo 'The app baselines already match; nothing to commit.'
-                      echo "pushed=false" >> "$GITHUB_OUTPUT"
-                      exit 0
-                  fi
-
-                  git commit -m 'test(ui): refresh the app visual baselines'
-
-                  # Same reason as the component job: the regeneration took minutes, so
-                  # the author may have pushed in that window and a plain push would be
-                  # rejected.
-                  git pull --rebase origin "$HEAD_REF"
-                  git push origin "HEAD:$HEAD_REF"
-                  echo "pushed=true" >> "$GITHUB_OUTPUT"
-
-            # The App push started the `pull_request` workflows on the new commit, so the
-            # required checks appear on their own. Dispatching is kept because it also
-            # re-runs the comparison against the baselines that were just written.
-            - name: Re-run the comparison against the new baselines
-              if: steps.commit.outputs.pushed == 'true'
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  HEAD_REF: ${{ needs.plan.outputs.head_ref }}
-              run: |
-                  set -euo pipefail
-                  gh workflow run e2e-smoke.yml --repo "$GITHUB_REPOSITORY" --ref "$HEAD_REF" -f update_visual_baselines=false
-
-    report:
-        name: Report the outcome
-        needs:
-            - plan
-            - components
-            - e2e
-        if: always() && needs.plan.result == 'success'
-        runs-on: ubuntu-latest
-        permissions:
-            # `gh pr comment` is the only thing this job does.
-            pull-requests: write
-        steps:
-            - name: Comment on the pull request
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GH_TOKEN: ${{ steps.app.outputs.token }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.issue.number }}
-                  COMPONENTS_RESULT: ${{ needs.components.result }}
-                  E2E_RESULT: ${{ needs.e2e.result }}
-              run: |
-                  set -euo pipefail
-
-                  status_for() {
-                      if [ "$1" = 'skipped' ]; then
-                          printf 'not requested'
-                      else
-                          printf '%s' "$1"
-                      fi
-                  }
-
-                  body="$(printf 'Regenerated the visual baselines in the environment that gates this pull request.\n\n| Layer | Outcome |\n| --- | --- |\n| Component | %s |\n| App (WebView2) | %s |\n\nReview the new commits on this branch before approving. A baseline is only worth committing once someone has looked at what changed.' \
-                      "$(status_for "$COMPONENTS_RESULT")" \
-                      "$(status_for "$E2E_RESULT")")"
-
-                  gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$body"
+                  LAYER: ${{ matrix.layer }}
+                  STATUS_LINE: ${{ steps.commit.outputs.pushed == 'true' && 'Regenerated these baselines in the environment that gates this pull request and committed them to this branch. Review the new commit before approving.' || 'These baselines already matched, so nothing was committed.' }}
+              run: node apps/desktop/scripts/ci/visual-comment.mjs

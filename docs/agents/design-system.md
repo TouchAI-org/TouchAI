@@ -229,33 +229,42 @@ to the repository rather than what they may do in it. It dispatches the existing
 workflows rather than re-implementing them, and commits the result to the branch under
 review.
 
-That commit is pushed with the built-in `GITHUB_TOKEN`, and GitHub suppresses workflow
-runs for events that token causes — so the `pull_request` workflows do not start on it.
-The workflow therefore dispatches the comparison runs itself after pushing.
+That commit is pushed with a GitHub App installation token (`BOT_APP_ID` /
+`BOT_APP_PRIVATE_KEY`), not with the built-in `GITHUB_TOKEN`. The difference matters:
+GitHub suppresses workflow runs for events `GITHUB_TOKEN` causes, so a commit pushed with
+it lands on the branch without starting the `pull_request` workflows that gate the pull
+request, and branch protection then waits for statuses that will never arrive. An App
+token's push is an ordinary push, so its checks are eligible and appear on their own.
 
-That dispatch re-runs the comparison, but it does **not** clear the required status
-checks. GitHub only counts check runs from `push`, `pull_request`, `pull_request_review`,
-`pull_request_target`, `deployment` and `deployment_status`; a `workflow_dispatch` run's
-checks never appear in the pull request, even when they pass on its head commit. The
-ruleset on `main` requires `Conventional Commits`, `Dependency Review`, `CI Required` and
-`E2E Required`, so after a baseline push the branch still needs either a human re-run or
-an empty commit from a human.
+The App token is the narrow credential here, not a broad one: it is issued per run, it
+expires after an hour, and it is scoped to the repositories the App is installed on. A
+personal access token able to push would also have to be readable by every workflow in a
+public repository, which is why it was rejected.
 
-This is deliberately done without a personal access token. The repository is public, and
-a token able to push here also has to be readable by any workflow in it, so a long-lived
-credential in a secret would buy one saved step at a real cost. The escalation that would
-actually fix the required-check gap is a GitHub App installation token scoped to this
-repository, whose `push` event produces eligible checks — not a broad personal token.
+A `workflow_dispatch` run cannot substitute for this. GitHub only counts check runs from
+`push`, `pull_request`, `pull_request_review`, `pull_request_target`, `deployment` and
+`deployment_status`, so a dispatched run's checks never appear in the pull request even
+when they pass on its head commit. The dispatch is still made after the push, but for a
+different reason: it re-runs the comparison against the baselines that were just written,
+which catches a renderer that cannot reproduce its own output.
 
 **Never regenerate automatically.** A baseline that rewrites itself on push or on a
 schedule is not a baseline; it is a recording of whatever the code currently does, and
 every regression it was meant to catch gets absorbed silently. Approving a baseline is
 a decision, and the person who makes it is the reviewer, not the author.
 
-**Reading a failure without leaving the PR.** The component job posts one comment on the
-pull request — updated in place, never duplicated — that says which snapshot moved and
-shows the expected, actual and diff images side by side. It is written by
-`apps/desktop/scripts/ci/visual-summary.mjs` and posted by the workflow.
+**Reading a failure without leaving the PR.** Both layers report into a single comment on
+the pull request, updated in place and never duplicated. The comment carries one block per
+layer, so a reviewer sees the component primitives and the real application window in the
+same place instead of hunting through two workflows' comments for whichever one moved.
+
+The two layers run in separate workflows, on different runners, finishing at unpredictable
+times, so each writes only its own block. `apps/desktop/scripts/ci/visual-report.mjs`
+turns a layer's result into markdown; `apps/desktop/scripts/ci/visual-comment.mjs` merges
+that block into the shared comment, and `visual-comment-merge.mjs` holds the merge itself
+as a pure function. The workflows serialise their comment jobs on one concurrency group so
+two merges cannot interleave and silently drop a layer — a correct merge function is not
+enough when the read-modify-write spans two processes.
 
 The images are published through GitHub's attachment store by
 `apps/desktop/scripts/ci/publish-evidence.mjs`, which posts to
@@ -271,16 +280,16 @@ rather than assumed:
   same secret the UI preview workflow uses for the same reason.
 
 When that secret is absent — a fork pull request, or a repository that has not configured
-it — nothing is uploaded and the report names the files and links the
-`component-visual-diffs` artifact instead. That is a worse report, not a failed run, and
-the comparison result is still reported.
+it — nothing is uploaded and the report names the files and links the layer's artifact
+(`component-visual-diffs` or `app-visual-diffs`) instead. That is a worse report, not a
+failed run, and the comparison result is still reported.
 
 The report also sanitises every value it prints. Test titles come from the Playwright
 report verbatim, and adding a file under `tests/visual/` is both what triggers the
 workflow and what supplies the title, so a title is attacker-controlled by the pull
 request author. Left raw it could close a table cell or inject a heading and a link into
 a comment posted by the automation — on the very report a reviewer uses as evidence. See
-`apps/desktop/tests/ci/visual-summary.test.ts`.
+`apps/desktop/tests/ci/visual-report.test.ts`.
 
 #### Fidelity: the font and the window size
 
