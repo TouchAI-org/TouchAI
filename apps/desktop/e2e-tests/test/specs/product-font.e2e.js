@@ -27,36 +27,35 @@ describe('user sees the interface rendered in the product typeface', () => {
         await waitForE2eBridge();
         await waitForTestIdDisplayed('search-view');
 
-        const report = await browser.executeAsync((done) => {
+        // WebdriverIO 10 removed `executeAsync`; `execute` awaits an async script and
+        // resolves with its return value, so the callback form is no longer needed. A
+        // throw inside it rejects the call, which is why the success flag is the only
+        // shape the result needs.
+        const report = await browser.execute(async () => {
             // The function body runs in the renderer, so it cannot close over a
             // module-scope constant.
             const probe = "16px 'TouchAI Source Han Serif SC'";
             const style = document.querySelector('style[data-touchai-font-face]');
 
             if (!style) {
-                done({ ok: false, error: 'the app did not inject its @font-face rule' });
-                return;
+                return { ok: false, error: 'the app did not inject its @font-face rule' };
             }
 
             const source = style.textContent ?? '';
             const url = source.match(/url\('([^']+)'\)/)?.[1] ?? null;
 
-            (async () => {
-                // `document.fonts.load` resolves only once the browser has fetched and
-                // parsed the file, so this waits for the real network path rather than
-                // checking a computed style that would report a fallback either way.
-                await document.fonts.load(probe);
-                await document.fonts.ready;
+            // `document.fonts.load` resolves only once the browser has fetched and
+            // parsed the file, so this waits for the real network path rather than
+            // checking a computed style that would report a fallback either way.
+            await document.fonts.load(probe);
+            await document.fonts.ready;
 
-                return {
-                    ok: true,
-                    url,
-                    usesDataUrl: source.includes('data:font'),
-                    available: document.fonts.check(probe),
-                };
-            })()
-                .then((result) => done(result))
-                .catch((error) => done({ ok: false, error: String(error) }));
+            return {
+                ok: true,
+                url,
+                usesDataUrl: source.includes('data:font'),
+                available: document.fonts.check(probe),
+            };
         });
 
         if (!report?.ok) {

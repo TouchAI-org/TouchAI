@@ -148,91 +148,81 @@ export async function useProductFont() {
     const family = 'TouchAI Source Han Serif SC';
     const referenceFamily = 'TouchAI E2E Reference';
 
-    const report = await browser.executeAsync(
-        (productFamily, refFamily, done) => {
-            (async () => {
-                await document.fonts.load(`52px '${productFamily}'`);
-                await document.fonts.ready;
+    // WebdriverIO 10 removed `executeAsync`; `execute` now awaits an async script and
+    // resolves with its return value, so the same measurement is written as a plain
+    // async function. The `done` callback form no longer exists on the driver.
+    const report = await browser.execute(
+        async (productFamily, refFamily) => {
+            await document.fonts.load(`52px '${productFamily}'`);
+            await document.fonts.ready;
 
-                const injected = document.querySelector(
-                    'style[data-touchai-font-face]'
-                )?.textContent;
-                const fontUrl = injected?.match(/url\('([^']+)'\)/)?.[1];
+            const injected = document.querySelector('style[data-touchai-font-face]')?.textContent;
+            const fontUrl = injected?.match(/url\('([^']+)'\)/)?.[1];
 
-                function rasterise(target) {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = 460;
-                    canvas.height = 110;
-                    const context = canvas.getContext('2d');
-                    context.fillStyle = '#ffffff';
-                    context.fillRect(0, 0, canvas.width, canvas.height);
-                    context.fillStyle = '#000000';
-                    context.font = `52px ${target}`;
-                    context.textBaseline = 'top';
-                    context.fillText('通用启动', 6, 10);
-                    return context.getImageData(0, 0, canvas.width, canvas.height).data;
-                }
+            function rasterise(target) {
+                const canvas = document.createElement('canvas');
+                canvas.width = 460;
+                canvas.height = 110;
+                const context = canvas.getContext('2d');
+                context.fillStyle = '#ffffff';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                context.fillStyle = '#000000';
+                context.font = `52px ${target}`;
+                context.textBaseline = 'top';
+                context.fillText('通用启动', 6, 10);
+                return context.getImageData(0, 0, canvas.width, canvas.height).data;
+            }
 
-                function differingPixels(first, second) {
-                    let changed = 0;
-                    for (let index = 0; index < first.length; index += 4) {
-                        if (first[index] !== second[index]) {
-                            changed += 1;
-                        }
+            function differingPixels(first, second) {
+                let changed = 0;
+                for (let index = 0; index < first.length; index += 4) {
+                    if (first[index] !== second[index]) {
+                        changed += 1;
                     }
-                    return changed;
                 }
+                return changed;
+            }
 
-                // The reference declares the same format hint the product uses. If the
-                // engine rejects it, no face appears and step 1 below fails loudly
-                // instead of the comparison silently agreeing with itself.
-                const referenceRule = document.createElement('style');
-                referenceRule.textContent = `
-                    @font-face {
-                        font-family: '${refFamily}';
-                        src: url('${fontUrl}') format('woff2-variations');
-                        font-weight: 250 900;
-                        font-style: normal;
-                        font-display: block;
-                    }
-                `;
-                document.head.appendChild(referenceRule);
-                await document.fonts.load(`52px '${refFamily}'`);
-                await document.fonts.ready;
-                // Rasterising before the face settles silently measures the fallback.
-                await new Promise((resolve) => setTimeout(resolve, 300));
+            // The reference declares the same format hint the product uses. If the
+            // engine rejects it, no face appears and step 1 below fails loudly
+            // instead of the comparison silently agreeing with itself.
+            const referenceRule = document.createElement('style');
+            referenceRule.textContent = `
+                @font-face {
+                    font-family: '${refFamily}';
+                    src: url('${fontUrl}') format('woff2-variations');
+                    font-weight: 250 900;
+                    font-style: normal;
+                    font-display: block;
+                }
+            `;
+            document.head.appendChild(referenceRule);
+            await document.fonts.load(`52px '${refFamily}'`);
+            await document.fonts.ready;
+            // Rasterising before the face settles silently measures the fallback.
+            await new Promise((resolve) => setTimeout(resolve, 300));
 
-                const referenceFaces = [...document.fonts].filter(
-                    (face) => face.family === refFamily
-                );
-                const productFaces = [...document.fonts].filter(
-                    (face) => face.family === productFamily
-                );
+            const referenceFaces = [...document.fonts].filter((face) => face.family === refFamily);
+            const productFaces = [...document.fonts].filter(
+                (face) => face.family === productFamily
+            );
 
-                const product = rasterise(`'${productFamily}'`);
-                const reference = rasterise(`'${refFamily}'`);
+            const product = rasterise(`'${productFamily}'`);
+            const reference = rasterise(`'${refFamily}'`);
 
-                return {
-                    usesDataUrl: (injected ?? '').includes('data:font'),
-                    againstReference: differingPixels(product, reference),
-                    referenceFaceCount: referenceFaces.length,
-                    referenceFaceStatus: referenceFaces.map((face) => face.status),
-                    productFaceCount: productFaces.length,
-                    declaredFormat: injected?.match(/format\('([^']+)'\)/)?.[1] ?? 'none',
-                    declaredWeight:
-                        injected?.match(/font-weight:\s*([^;]+);/)?.[1]?.trim() ?? 'none',
-                };
-            })()
-                .then((result) => done(result))
-                .catch((error) => done({ error: String(error) }));
+            return {
+                usesDataUrl: (injected ?? '').includes('data:font'),
+                againstReference: differingPixels(product, reference),
+                referenceFaceCount: referenceFaces.length,
+                referenceFaceStatus: referenceFaces.map((face) => face.status),
+                productFaceCount: productFaces.length,
+                declaredFormat: injected?.match(/format\('([^']+)'\)/)?.[1] ?? 'none',
+                declaredWeight: injected?.match(/font-weight:\s*([^;]+);/)?.[1]?.trim() ?? 'none',
+            };
         },
         family,
         referenceFamily
     );
-
-    if (report?.error) {
-        throw new Error(`The product font could not be measured: ${report.error}`);
-    }
 
     if (report.usesDataUrl) {
         throw new Error(
