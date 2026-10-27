@@ -4,6 +4,7 @@
 
 use super::redact::{http_connect_message, stdio_actual_command_message, stdio_connect_message};
 use super::types::*;
+use crate::core::observability::stderr::{append_chunk, buffer_for};
 use log::{debug, error, info, warn};
 use reqwest as mcp_reqwest;
 use rmcp::{
@@ -115,10 +116,11 @@ impl McpClient {
                 err_msg
             })?;
 
-        let stderr_collector = Self::spawn_stderr_collector(stderr);
+        let stderr_collector = Self::spawn_stderr_collector(self.server_id, stderr);
         let result = Self::format_stdio_connect_result(
             ().serve(transport).await.map_err(|e| e.to_string()),
             stderr_collector,
+            self.server_id,
         )
         .await;
 
@@ -158,15 +160,14 @@ impl McpClient {
     /// 实际的错误详情通常由服务器进程打印到 stderr
     /// 通过捕获 stderr，我们可以为用户提供更有帮助的错误消息
     ///
-    /// 32KB 限制可防止服务器大量输出 stderr 导致的内存耗尽
+    /// 64KB 限制可防止服务器大量输出 stderr 导致的内存耗尽。连接成功后
+    /// 收集任务继续读取并保留最后一段输出，避免管道写满阻塞 MCP 进程。
     fn spawn_stderr_collector(
+        server_id: i64,
         stderr: Option<ChildStderr>,
-    ) -> Option<(Arc<Mutex<Vec<u8>>>, JoinHandle<std::io::Result<()>>)> {
-        const MAX_CAPTURED_STDERR_BYTES: usize = 32 * 1024;
-
+    ) -> Option<JoinHandle<std::io::Result<()>>> {
         stderr.map(|mut stderr| {
-            let output = Arc::new(Mutex::new(Vec::new()));
-            let output_clone = Arc::clone(&output);
+            let output = buffer_for(server_id);
 
             let task = tokio::spawn(async move {
                 let mut buffer = [0u8; 4096];
@@ -176,36 +177,32 @@ impl McpClient {
                         break;
                     }
 
-                    let mut stderr_output = output_clone.lock().await;
-                    // 达到限制后停止收集以防止内存问题
-                    if stderr_output.len() >= MAX_CAPTURED_STDERR_BYTES {
-                        continue;
-                    }
-
-                    let remaining = MAX_CAPTURED_STDERR_BYTES - stderr_output.len();
-                    stderr_output.extend_from_slice(&buffer[..bytes_read.min(remaining)]);
+                    let mut stderr_output = output.lock().await;
+                    append_chunk(&mut stderr_output, &buffer[..bytes_read]);
                 }
 
+                debug!("MCP server {} stderr stream closed", server_id);
                 Ok(())
             });
 
-            (output, task)
+            task
         })
     }
 
     async fn format_stdio_connect_result(
         result: Result<McpService, String>,
-        stderr_collector: Option<(Arc<Mutex<Vec<u8>>>, JoinHandle<std::io::Result<()>>)>,
+        stderr_collector: Option<JoinHandle<std::io::Result<()>>>,
+        server_id: i64,
     ) -> Result<McpService, String> {
         match result {
             Ok(service) => {
-                if let Some((_output, task)) = stderr_collector {
+                if let Some(task) = stderr_collector {
                     drop(task);
                 }
                 Ok(service)
             }
             Err(error_message) => {
-                let stderr_output = Self::collect_stderr_output(stderr_collector).await;
+                let stderr_output = Self::collect_stderr_output(server_id, stderr_collector).await;
                 Err(Self::merge_stdio_error(stderr_output, error_message))
             }
         }
@@ -216,9 +213,10 @@ impl McpClient {
     /// 连接失败后，我们给 stderr 收集任务 300ms 的时间来完成读取
     /// 这通常足够捕获错误消息，但可以防止进程卡住时无限期挂起
     async fn collect_stderr_output(
-        stderr_collector: Option<(Arc<Mutex<Vec<u8>>>, JoinHandle<std::io::Result<()>>)>,
+        server_id: i64,
+        stderr_collector: Option<JoinHandle<std::io::Result<()>>>,
     ) -> Option<String> {
-        let Some((output, mut task)) = stderr_collector else {
+        let Some(mut task) = stderr_collector else {
             return None;
         };
 
@@ -237,9 +235,10 @@ impl McpClient {
             }
         }
 
+        let output = buffer_for(server_id);
         let output = output.lock().await;
-        let stderr_output = String::from_utf8_lossy(&output).trim().to_string();
-        (!stderr_output.is_empty()).then_some(stderr_output)
+        let stderr_output = super::redact_stderr(&String::from_utf8_lossy(&output));
+        (!stderr_output.trim().is_empty()).then_some(stderr_output)
     }
 
     /// 智能地合并 stderr 输出和 SDK 错误消息

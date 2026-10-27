@@ -5,6 +5,10 @@
 //! 命令包装放在这里，`tauri::command` 生成的名字才能被 `generate_handler!` 找到。
 
 use crate::core::observability::ingest::{ingest_batch, run_id_string, LogEnvelope};
+use crate::core::observability::{
+    bundle::{self, BundlePreview},
+    level::{self, DiagnosticModeStatus},
+};
 
 /// 接收前端批量日志。
 #[tauri::command]
@@ -16,4 +20,29 @@ pub fn obs_ingest(batch: Vec<LogEnvelope>) -> Result<(), String> {
 #[tauri::command]
 pub fn obs_run_id() -> String {
     run_id_string()
+}
+
+#[tauri::command]
+pub fn obs_set_diagnostic_mode(enabled: bool) -> DiagnosticModeStatus {
+    level::set_diagnostic_mode(enabled)
+}
+
+#[tauri::command]
+pub fn obs_diagnostic_mode_status() -> DiagnosticModeStatus {
+    level::status()
+}
+
+#[tauri::command]
+pub async fn obs_preview_bundle() -> Result<BundlePreview, String> {
+    bundle::preview().await
+}
+
+#[tauri::command]
+pub async fn obs_export_bundle(destination: String) -> Result<BundlePreview, String> {
+    bundle::export(&destination).await
+}
+
+#[tauri::command]
+pub fn obs_dismiss_crashes() -> Result<usize, String> {
+    bundle::dismiss_crashes()
 }

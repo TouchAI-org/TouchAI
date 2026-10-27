@@ -2,10 +2,14 @@
 
 //! 本地诊断日志：运行标识、目录准备、格式化和前端批量入口。
 
+pub mod bundle;
 pub mod error_code;
 pub mod format;
 pub mod ingest;
 pub mod layout;
+pub mod level;
+pub mod panic;
+pub mod stderr;
 pub mod trace;
 
 use std::path::{Path, PathBuf};
@@ -24,6 +28,16 @@ pub(crate) fn initialize(logs_path: &Path) -> PathBuf {
         .clone()
 }
 
+/// Directory holding the current and rotated diagnostic logs.
+pub(crate) fn log_directory() -> Option<PathBuf> {
+    LOG_DIRECTORY.get().cloned()
+}
+
+/// Directory for synchronous crash records.
+pub(crate) fn crash_directory() -> Option<PathBuf> {
+    log_directory().map(|directory| directory.join("crashes"))
+}
+
 /// 只生成运行标识，不创建日志目录。dev 下不落盘，但仍需要 run id。
 pub(crate) fn initialize_run_id() {
     RUN_ID.get_or_init(|| uuid::Uuid::new_v4().simple().to_string());
@@ -38,6 +52,7 @@ pub(crate) fn run_id() -> &'static str {
 pub(crate) fn log_header(app_version: &str) {
     let message = format::header_line(run_id(), app_version);
     log::info!(target: OBS_TARGET, "{}", message);
+    layout::log_startup_events();
 }
 
 #[cfg(test)]

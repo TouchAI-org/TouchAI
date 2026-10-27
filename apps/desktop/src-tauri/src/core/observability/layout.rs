@@ -5,32 +5,71 @@
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use super::format::OBS_TARGET;
+use crate::core::system::paths::{app_directory_path, AppDirectory};
 
 pub(crate) const LOG_FILE_NAME: &str = "TouchAI";
 const PROBE_FILE_NAME: &str = ".write-probe";
+static FALLBACK_USED: AtomicBool = AtomicBool::new(false);
+static DISCARDED_LEGACY_FILES: AtomicUsize = AtomicUsize::new(0);
 
 /// 准备日志目录并返回实际使用的目录。
 ///
 /// 目录不可写时退到当前目录，并保证当前日志文件存在且为 0600。
 pub(crate) fn prepare(logs_path: &Path) -> PathBuf {
+    FALLBACK_USED.store(false, Ordering::SeqCst);
     let directory = match ensure_directory(logs_path) {
         Ok(()) => logs_path.to_path_buf(),
-        Err(error) => {
-            log::warn!(
-                target: OBS_TARGET,
-                "log.dir.fallback reason={} path={}",
-                super::format::escape_value(&error.to_string()),
-                super::format::escape_value(&logs_path.display().to_string())
-            );
-            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+        Err(_error) => {
+            FALLBACK_USED.store(true, Ordering::SeqCst);
+            fallback_directory(logs_path)
         }
     };
 
-    discard_legacy_files(&directory);
+    DISCARDED_LEGACY_FILES.store(discard_legacy_files(&directory), Ordering::SeqCst);
     ensure_current_file(&directory);
     directory
+}
+
+fn fallback_directory(primary: &Path) -> PathBuf {
+    let data_directory = app_directory_path(AppDirectory::Data)
+        .map(|path| path.join("logs"))
+        .ok();
+    let temporary_directory = std::env::temp_dir().join("TouchAI").join("logs");
+
+    for candidate in [data_directory, Some(temporary_directory.clone())]
+        .into_iter()
+        .flatten()
+    {
+        if candidate != primary && ensure_directory(&candidate).is_ok() {
+            return candidate;
+        }
+    }
+
+    temporary_directory
+}
+
+pub(crate) fn fallback_used() -> bool {
+    FALLBACK_USED.load(Ordering::SeqCst)
+}
+
+/// Emit startup layout events after the logger target is installed.
+pub(crate) fn log_startup_events() {
+    if fallback_used() {
+        let path = super::log_directory().unwrap_or_default();
+        log::warn!(
+            target: OBS_TARGET,
+            "log.dir.fallback path={}",
+            super::format::escape_value(&path.display().to_string())
+        );
+    }
+
+    let discarded = DISCARDED_LEGACY_FILES.swap(0, Ordering::SeqCst);
+    if discarded > 0 {
+        log::info!(target: OBS_TARGET, "log.legacy.discarded count={discarded}");
+    }
 }
 
 fn ensure_directory(path: &Path) -> std::io::Result<()> {
@@ -95,9 +134,6 @@ pub(crate) fn discard_legacy_files(directory: &Path) -> usize {
         }
     }
 
-    if discarded > 0 {
-        log::info!(target: OBS_TARGET, "log.legacy.discarded count={discarded}");
-    }
     discarded
 }
 

@@ -172,10 +172,12 @@ pub fn run() {
 
     let app_result = builder
         .setup(|app| {
+            let version = app.package_info().version.to_string();
+            core::observability::panic::install_panic_hook(&version);
             if let Err(err) = setup::setup_app(app) {
                 return Err(Box::new(std::io::Error::other(err)));
             }
-            core::observability::log_header(&app.package_info().version.to_string());
+            core::observability::log_header(&version);
             Ok(())
         })
         .run(context);

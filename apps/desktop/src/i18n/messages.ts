@@ -997,6 +997,22 @@ const zhCNMessages = {
     'agent.persistenceIssue.retryStarted': '保存重试检查点失败，但本轮仍会继续重试。',
     'agent.persistenceIssue.turnFailed': '保存会话失败状态失败，对话记录可能不完整。',
     'agent.mcp.toolDescriptionFallback': '工具：{toolName}',
+    'settings.diagnostics.title': '诊断日志',
+    'settings.diagnostics.diagnosticMode': '调试日志',
+    'settings.diagnostics.remaining': '剩余 {time}',
+    'settings.diagnostics.exportBundle': '导出诊断包',
+    'settings.diagnostics.exporting': '正在导出...',
+    'settings.diagnostics.crashRecords': '崩溃记录',
+    'settings.diagnostics.crashRecordsCount': '{count} 条',
+    'settings.diagnostics.dismissCrashes': '忽略',
+    'settings.diagnostics.exportConfirm':
+        '将导出 {count} 个文件（{size} KB），不包含数据库、对话或工具正文。继续？',
+    'settings.diagnostics.exportTitle': '导出诊断包',
+    'settings.diagnostics.exportSuccess': '诊断包已导出',
+    'settings.diagnostics.exportFailed': '导出诊断包失败',
+    'settings.diagnostics.modeFailed': '切换调试日志失败',
+    'settings.diagnostics.logFallback': '日志目录正在使用备用位置',
+    'settings.diagnostics.dialogFilter': '诊断包',
 } as const;
 
 const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
@@ -2087,6 +2103,22 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'agent.persistenceIssue.turnFailed':
         'Failed to save session failure state. Conversation records may be incomplete.',
     'agent.mcp.toolDescriptionFallback': 'Tool: {toolName}',
+    'settings.diagnostics.title': 'Diagnostics',
+    'settings.diagnostics.diagnosticMode': 'Debug logging',
+    'settings.diagnostics.remaining': '{time} remaining',
+    'settings.diagnostics.exportBundle': 'Export diagnostics',
+    'settings.diagnostics.exporting': 'Exporting...',
+    'settings.diagnostics.crashRecords': 'Crash records',
+    'settings.diagnostics.crashRecordsCount': '{count} records',
+    'settings.diagnostics.dismissCrashes': 'Dismiss',
+    'settings.diagnostics.exportConfirm':
+        'Export {count} files ({size} KB)? The bundle excludes the database, conversations and tool content.',
+    'settings.diagnostics.exportTitle': 'Export diagnostics',
+    'settings.diagnostics.exportSuccess': 'Diagnostics exported',
+    'settings.diagnostics.exportFailed': 'Failed to export diagnostics',
+    'settings.diagnostics.modeFailed': 'Failed to change debug logging',
+    'settings.diagnostics.logFallback': 'Logs are using a fallback directory',
+    'settings.diagnostics.dialogFilter': 'Diagnostic bundle',
 };
 
 export type MessageKey = keyof typeof zhCNMessages;

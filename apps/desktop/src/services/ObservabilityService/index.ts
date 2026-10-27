@@ -1,6 +1,8 @@
 import { native } from '@services/NativeService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
+import { attachEarlyErrorSink, resetEarlyErrorsForTests } from '@/utils/early-errors';
+
 import { ATTR } from './attributes';
 import {
     installConsoleInterceptor,
@@ -57,6 +59,7 @@ export function initObservability(): void {
     });
     queue.start();
     installConsoleInterceptor(emit);
+    attachEarlyErrorSink(({ level, event: name, attrs, msg }) => emit(level, name, attrs, msg));
     event('app.start', { [ATTR.window]: resolveWindowLabel() ?? 'unknown' });
 
     if (!visibilityListenerInstalled && typeof document !== 'undefined') {
@@ -243,4 +246,5 @@ export function resetObservabilityForTests(): void {
     shutdownFlushInstalled = false;
     restoreConsoleInterceptor();
     resetTracingForTests();
+    resetEarlyErrorsForTests();
 }

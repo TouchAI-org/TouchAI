@@ -62,11 +62,12 @@ fn current_trace_suffix() -> String {
 
 /// 生成头部记录，用于区分日志格式和运行。
 pub(crate) fn header_line(run: &str, app_version: &str) -> String {
+    let os_version = os_info::get().version().to_string();
     format!(
         "log.header log.format=1 run={run} app.version={} os.type={} os.version={} arch={}",
         escape_value(app_version),
         escape_value(std::env::consts::OS),
-        escape_value(std::env::consts::OS),
+        escape_value(&os_version),
         escape_value(std::env::consts::ARCH)
     )
 }

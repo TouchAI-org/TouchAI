@@ -5,6 +5,22 @@ import type { SessionStatusReminderKind } from '@/utils/session';
 export type { AppUpdateChannel } from '@/config/appUpdate';
 export type { SearchWindowDefaultSize, SearchWindowHeightMode };
 
+export interface DiagnosticModeStatus {
+    enabled: boolean;
+    expiresAtMs: number;
+}
+
+export interface DiagnosticBundleFile {
+    name: string;
+    bytes: number;
+}
+
+export interface DiagnosticBundlePreview {
+    files: DiagnosticBundleFile[];
+    totalBytes: number;
+    logDirectoryFallback: boolean;
+}
+
 export interface PopupConfig {
     id: string;
     width: number;

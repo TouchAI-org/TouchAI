@@ -287,6 +287,51 @@ fn redact_header(value: &str) -> String {
     }
 }
 
+/// Redact credentials from captured MCP stderr before it reaches disk or a bundle.
+pub(crate) fn redact_stderr(raw: &str) -> String {
+    let mut output = Vec::new();
+    let mut redact_next = false;
+    for token in raw.split_whitespace() {
+        if redact_next {
+            // `Authorization: Bearer x` 里 Bearer 只是方案名，值在下一个 token。
+            if token.eq_ignore_ascii_case("bearer") {
+                output.push(token.to_string());
+                continue;
+            }
+            output.push(REDACTED.to_string());
+            redact_next = false;
+            continue;
+        }
+
+        if token.eq_ignore_ascii_case("bearer") {
+            output.push(token.to_string());
+            redact_next = true;
+            continue;
+        }
+
+        if token.starts_with("http://") || token.starts_with("https://") {
+            output.push(redact_url(token));
+            continue;
+        }
+
+        if let Some((name, _value)) = token.split_once('=') {
+            if is_secret_name(name) {
+                output.push(format!("{name}={REDACTED}"));
+                continue;
+            }
+        }
+
+        // 任何 Name: 之后的值都按凭据处理：未知头也可能带会话令牌。
+        if token.ends_with(':') {
+            output.push(token.to_string());
+            redact_next = true;
+            continue;
+        }
+
+        output.push(token.to_string());
+    }
+    output.join(" ")
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,6 +426,20 @@ mod tests {
                 "--env=FOO=opaque-value"
             ]
         );
+    }
+
+    #[test]
+    fn user_does_not_see_mcp_stderr_secrets_in_a_diagnostic_bundle() {
+        let redacted = redact_stderr(
+            "startup failed token=secret-value Authorization: Bearer secret-header \
+             https://user:pass@mcp.example.test/sse?api_key=secret-query",
+        );
+
+        assert!(!redacted.contains("secret-value"));
+        assert!(!redacted.contains("secret-header"));
+        assert!(!redacted.contains("secret-query"));
+        assert!(redacted.contains("mcp.example.test"));
+        assert!(!redacted.contains("/sse"));
     }
 
     #[test]

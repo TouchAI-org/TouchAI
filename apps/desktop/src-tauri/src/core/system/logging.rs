@@ -136,6 +136,8 @@ fn build_file_target(logs_path: std::path::PathBuf) -> Target {
 /// 构建 Tauri 日志插件
 pub fn build_plugin<R: Runtime>() -> TauriPlugin<R> {
     let timezone_strategy = TimezoneStrategy::UseUtc;
+    let startup_level = resolve_log_level();
+    crate::core::observability::level::initialize(startup_level);
     let logs_path = app_directory_path(AppDirectory::Logs).unwrap_or_else(|error| {
         eprintln!(
             "[logging] Failed to resolve logs directory from init module: {}. Falling back to current directory.",
@@ -144,17 +146,17 @@ pub fn build_plugin<R: Runtime>() -> TauriPlugin<R> {
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
     });
     crate::core::observability::initialize_run_id();
+    let logs_path = crate::core::observability::initialize(&logs_path);
 
     let mut targets = vec![build_stdout_target(timezone_strategy.clone())];
 
     // 生产环境启用文件日志
     if !cfg!(debug_assertions) {
-        let logs_path = crate::core::observability::initialize(&logs_path);
         targets.push(build_file_target(logs_path));
     }
 
     Builder::new()
-        .level(resolve_log_level())
+        .level(startup_level)
         .rotation_strategy(RotationStrategy::KeepSome(MAX_ARCHIVED_FILES))
         .timezone_strategy(timezone_strategy)
         .clear_format()
