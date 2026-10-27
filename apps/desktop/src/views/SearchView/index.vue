@@ -20,11 +20,12 @@
 
     import type { SearchKeybindingActionId } from '@/config/searchKeybindings';
     import { type AppLocale, t } from '@/i18n';
+    import type { ToolApprovalDecisionRequest } from '@/services/AgentService/contracts/tooling';
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
     import type { SessionTaskStatus } from '@/services/AgentService/task/types';
     import { clipboardService } from '@/services/ClipboardService';
     import type { ClipboardPayload } from '@/services/NativeService/types';
-    import { useAskUserStore } from '@/stores/askUser';
+    import { type AskUserConfirmOptions, useAskUserStore } from '@/stores/askUser';
     import { useMcpStore } from '@/stores/mcp';
     import { useSettingsStore } from '@/stores/settings';
     import {
@@ -84,13 +85,6 @@
         clipboardPayloadHasAttachmentFragments,
         trimClipboardPayloadTextBoundary,
     } from './utils/clipboardDraft';
-    import {
-        copyE2eConversationFixture,
-        describeE2eApprovalFixture,
-        describeE2eConfirmFixture,
-        type E2eAskUserFixture,
-        getE2eQuickSearchFallbackResults,
-    } from './utils/e2eFixtures';
     defineOptions({
         name: 'SearchViewPage',
     });
@@ -137,6 +131,15 @@
     const { searchWindowDefaultSize, searchKeybindings } = storeToRefs(settingsStore);
     const { sessionStatuses, refreshAllStatuses: refreshSessionStatuses } = useSessionStatus();
     const { isPinned, syncWindowPinState, setWindowPinned, toggleWindowPin } = useSearchWindowPin();
+    /**
+     * A pending ask-user prompt the E2E bridge can put in front of the user.
+     *
+     * The bridge only routes this to the store; what the prompt says is the caller's data.
+     */
+    type E2eAskUserRequest =
+        | { kind: 'confirm'; options: AskUserConfirmOptions }
+        | { kind: 'approval'; payload: ToolApprovalDecisionRequest };
+
     const widgetBridgeWindow = window as Window & {
         sendPrompt?: (text: string) => void;
         openLink?: (url: string) => void;
@@ -156,9 +159,11 @@
             }) => Promise<void>;
             resetSearchWindowBounds: () => Promise<void>;
             setLanguage: (locale: AppLocale) => Promise<void>;
-            setConversationFixture: (messages: SessionMessage[]) => void;
-            setAskUserFixture: (request: E2eAskUserFixture) => void;
-            clearAskUserFixture: () => void;
+            /** Registers the results the search panel shows for one query. */
+            setSearchFixture: (query: string, results: QuickShortcutItem[]) => void;
+            setConversation: (messages: SessionMessage[]) => void;
+            setAskUserRequest: (request: E2eAskUserRequest) => void;
+            clearAskUser: () => void;
         };
     };
     const searchInteractionContext = createSearchInteractionContext();
@@ -1103,19 +1108,23 @@
         queryText.value = restoredText;
     }
 
-    function applyE2eConversationFixture(messages: SessionMessage[]) {
-        // `sessionHistory` is owned by the agent composable and rewritten from a task
-        // snapshot; writing it here is enough because no request is running.
-        sessionHistory.value = copyE2eConversationFixture(messages) as SessionMessage[];
-    }
+    /**
+     * The search results the E2E bridge was asked to show for one query.
+     *
+     * Real file search reads the machine's disk, so a screenshot of the results panel
+     * would differ per machine for reasons unrelated to the code under test. The caller
+     * registers the rows it wants and this view holds none of its own, which keeps the
+     * fixture data out of the shipped bundle.
+     */
+    const e2eSearchFixture = ref<{ query: string; results: QuickShortcutItem[] } | null>(null);
 
-    function applyE2eAskUserFixture(request: E2eAskUserFixture) {
+    function applyE2eAskUserRequest(request: E2eAskUserRequest) {
         if (request.kind === 'confirm') {
-            askUserStore.enqueueConfirm(describeE2eConfirmFixture(request), () => undefined);
+            askUserStore.enqueueConfirm(request.options, () => undefined);
             return;
         }
 
-        askUserStore.enqueueApproval(describeE2eApprovalFixture(request), () => undefined);
+        askUserStore.enqueueApproval(request.payload, () => undefined);
     }
 
     async function installE2eBridge() {
@@ -1140,7 +1149,15 @@
                 await handleSubmit(text, snapshot);
             },
             getQuickSearchFallbackResults(query: string) {
-                return getE2eQuickSearchFallbackResults(query);
+                const fixture = e2eSearchFixture.value;
+
+                if (!fixture) {
+                    return [];
+                }
+
+                return fixture.query.trim().toLowerCase() === query.trim().toLowerCase()
+                    ? fixture.results
+                    : [];
             },
             // Window-level flows drive the real commands and read the real state back, so an
             // E2E assertion covers the native side rather than a stubbed renderer value.
@@ -1158,6 +1175,10 @@
             resetSearchWindowBounds() {
                 return native.window.resetSearchWindowBounds();
             },
+            /** Records the rows the search panel should show for `query`. */
+            setSearchFixture(query: string, results: QuickShortcutItem[]) {
+                e2eSearchFixture.value = { query, results };
+            },
             /**
              * Seeds the conversation panel with a fixed transcript.
              *
@@ -1166,9 +1187,15 @@
              * stream timing, none of which belong in a pixel comparison. This fills
              * the same reactive state the agent fills, so the panel renders through
              * its normal code path.
+             *
+             * The values arrive already detached from the caller: `browser.execute`
+             * serialises its arguments into the page, so a spec that reuses its own
+             * fixture object afterwards cannot change what is being rendered.
              */
-            setConversationFixture(messages: SessionMessage[]) {
-                applyE2eConversationFixture(messages);
+            setConversation(messages: SessionMessage[]) {
+                // `sessionHistory` is owned by the agent composable and rewritten from a
+                // task snapshot; writing it here is enough because no request is running.
+                sessionHistory.value = messages;
             },
             /**
              * Puts the ask-user panel in front of the user without running a tool.
@@ -1177,12 +1204,12 @@
              * densest screen in the main window. Rendering it from a real tool call
              * would need a model; this enqueues the same request the tool enqueues.
              */
-            setAskUserFixture(request: E2eAskUserFixture) {
-                applyE2eAskUserFixture(request);
+            setAskUserRequest(request: E2eAskUserRequest) {
+                applyE2eAskUserRequest(request);
             },
-            /** Drops whatever the fixture enqueued so a later spec starts clean. */
-            clearAskUserFixture() {
-                askUserStore.clearAll('e2e fixture reset');
+            /** Drops whatever the request enqueued so a later spec starts clean. */
+            clearAskUser() {
+                askUserStore.clearAll('e2e request reset');
             },
             /**
              * Pins the interface language for E2E runs.

@@ -16,11 +16,13 @@ import {
     callE2eBridge,
     useInterfaceLanguage,
     useProductFont,
+    useSearchFixture,
     visualMismatchTolerance,
     waitForE2eBridge,
     waitForTestIdDisplayed,
     waitForTestIdNotDisplayed,
 } from '../support/desktop.js';
+import { APPROVAL_REQUEST, SEARCH_FIXTURE_QUERY } from '../support/fixtures.js';
 
 const ASSISTANT_ANSWER = [
     'The migration replaced bespoke scanners with standard tooling:',
@@ -71,14 +73,17 @@ describe('user works in the main window with a conversation', () => {
         await waitForE2eBridge();
         await useInterfaceLanguage();
         await useProductFont();
+        // Registered here rather than inside one case, because the panel has to answer
+        // the same way for every spec that opens it.
+        await useSearchFixture();
     });
 
     after(async () => {
         // The specs run in one session, and this one leaves a transcript and a
         // pending approval behind. Clearing both, and shrinking the window back,
         // is what keeps the search spec that follows independent.
-        await callE2eBridge('setConversationFixture', []);
-        await callE2eBridge('clearAskUserFixture');
+        await callE2eBridge('setConversation', []);
+        await callE2eBridge('clearAskUser');
         await browser.execute(() => window.__TOUCHAI_E2E__?.setSearchQuery?.(''));
         await browser.setWindowSize(750, 60);
         await browser.pause(500);
@@ -86,10 +91,12 @@ describe('user works in the main window with a conversation', () => {
 
     it('user sees the search results panel keep its layout while typing', async () => {
         await browser.setWindowSize(750, 80);
-        // A query no real file matches: the bridge answers for it, so the pixels do
-        // not depend on what happens to be on this machine's disk.
-        await browser.execute(() =>
-            window.__TOUCHAI_E2E__.setSearchQuery('touchai-visual-fixture')
+        // A query no real file matches: the bridge answers for it from the fixture this
+        // spec registered, so the pixels do not depend on what happens to be on this
+        // machine's disk.
+        await browser.execute(
+            (query) => window.__TOUCHAI_E2E__.setSearchQuery(query),
+            SEARCH_FIXTURE_QUERY
         );
 
         const panel = await waitForTestIdDisplayed('quick-search-panel');
@@ -106,7 +113,7 @@ describe('user works in the main window with a conversation', () => {
     });
 
     it('user sees the conversation panel with a finished answer', async () => {
-        await callE2eBridge('setConversationFixture', CONVERSATION_FIXTURE);
+        await callE2eBridge('setConversation', CONVERSATION_FIXTURE);
 
         // The window grows to fit the conversation, so it is resized first and the
         // element is queried afterwards: a handle taken before the reflow goes stale
@@ -122,19 +129,7 @@ describe('user works in the main window with a conversation', () => {
     });
 
     it('user sees the ask-user panel when a tool needs a decision', async () => {
-        await callE2eBridge('setAskUserFixture', {
-            kind: 'approval',
-            title: 'Run a shell command',
-            description: 'The agent wants to list the files in the current directory.',
-            command: 'ls -la',
-            riskLabel: 'Low risk',
-            reason: 'Read-only command that only prints file names.',
-            commandLabel: 'Command',
-            approveLabel: 'Run',
-            rejectLabel: 'Cancel',
-            enterHint: 'Enter to run',
-            escHint: 'Esc to cancel',
-        });
+        await callE2eBridge('setAskUserRequest', APPROVAL_REQUEST);
 
         await browser.setWindowSize(750, 520);
         const panel = await waitForTestIdDisplayed('ask-user-panel');

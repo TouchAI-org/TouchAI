@@ -10,6 +10,8 @@
  * broke.
  */
 
+import { SEARCH_FIXTURE_QUERY, SEARCH_FIXTURE_RESULTS } from './fixtures.js';
+
 const DEFAULT_TIMEOUT_MS = 15000;
 
 /**
@@ -88,6 +90,20 @@ export const E2E_INTERFACE_LANGUAGE = 'en-US';
  */
 export async function useInterfaceLanguage(locale = E2E_INTERFACE_LANGUAGE) {
     await callE2eBridge('setLanguage', locale);
+}
+
+/**
+ * Pins what the search panel finds for one query.
+ *
+ * The app holds no results of its own: without this a search reads the machine's disk, so
+ * the baseline would depend on what happens to be installed there. Registering the rows
+ * from the test keeps the data out of the shipped bundle and the screenshot reproducible.
+ */
+export async function useSearchFixture(
+    query = SEARCH_FIXTURE_QUERY,
+    results = SEARCH_FIXTURE_RESULTS
+) {
+    await callE2eBridge('setSearchFixture', query, results);
 }
 
 /**
