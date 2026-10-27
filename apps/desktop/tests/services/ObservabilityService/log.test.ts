@@ -20,6 +20,10 @@ function sentEntries() {
     );
 }
 
+function sentEvent(event: string) {
+    return sentEntries().find((entry) => entry.event === event);
+}
+
 describe('user gets service logs as structured events', () => {
     it('user sees a trailing object kept as structured fields', async () => {
         initObservability();
@@ -27,7 +31,7 @@ describe('user gets service logs as structured events', () => {
         log.warn('connection failed', { code: 'mcp.connect_failed', retries: 2 });
         await flushObservability();
 
-        const [entry] = sentEntries();
+        const entry = sentEvent('app.log');
         expect(entry).toMatchObject({
             level: 4,
             event: 'app.log',
@@ -42,7 +46,7 @@ describe('user gets service logs as structured events', () => {
         log.error('tool failed', new Error('boom'));
         await flushObservability();
 
-        const [entry] = sentEntries();
+        const entry = sentEvent('app.log');
         expect(entry?.msg).toContain('tool failed');
         expect(entry?.msg).toContain('boom');
     });
@@ -53,7 +57,7 @@ describe('user gets service logs as structured events', () => {
         log.info('GET https://example.test/v1?token=secret-value');
         await flushObservability();
 
-        const [entry] = sentEntries();
+        const entry = sentEvent('app.log');
         expect(entry?.msg).not.toContain('secret-value');
     });
 
@@ -89,7 +93,7 @@ describe('user gets third-party console failures as structured events', () => {
         await flushObservability();
 
         expect(nativeWarn).toHaveBeenCalledWith('third-party warning');
-        expect(sentEntries()[0]).toMatchObject({
+        expect(sentEvent('external.console')).toMatchObject({
             level: 4,
             event: 'external.console',
             attrs: {
@@ -108,7 +112,7 @@ describe('user gets third-party console failures as structured events', () => {
         await flushObservability();
 
         expect(debug).toHaveBeenCalledWith('third-party debug');
-        expect(sentEntries()).toEqual([]);
+        expect(sentEvent('external.console')).toBeUndefined();
     });
 
     it('user gets a third-party value that cannot be serialised kept as text', async () => {

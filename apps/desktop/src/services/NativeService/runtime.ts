@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-
+import { invoke } from './invoke';
 import type { RuntimeInfo } from './types';
 
 export const runtime = {

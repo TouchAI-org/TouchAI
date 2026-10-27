@@ -38,8 +38,24 @@ pub(crate) fn format_line(
     if target == OBS_TARGET {
         format!("{timestamp} {} {body}", level_label(level))
     } else {
-        format!("{timestamp} {} {target} {body}", level_label(level))
+        format!(
+            "{timestamp} {} {target} {body}{}",
+            level_label(level),
+            current_trace_suffix()
+        )
     }
+}
+
+fn current_trace_suffix() -> String {
+    super::trace::current_trace()
+        .map(|trace| {
+            format!(
+                " trace_id={} span_id={}",
+                escape_value(&trace.trace_id),
+                escape_value(&trace.span_id)
+            )
+        })
+        .unwrap_or_default()
 }
 
 /// 生成头部记录，用于区分日志格式和运行。

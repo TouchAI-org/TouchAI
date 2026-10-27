@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-
+import { invoke } from './invoke';
 import type { ObservabilityLogEnvelope } from './types';
 
 export const observability = {

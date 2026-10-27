@@ -2,9 +2,11 @@
 
 //! 本地诊断日志：运行标识、目录准备、格式化和前端批量入口。
 
+pub mod error_code;
 pub mod format;
 pub mod ingest;
 pub mod layout;
+pub mod trace;
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;

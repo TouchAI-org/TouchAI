@@ -3,7 +3,10 @@
 import { updateModelLastUsed } from '@database/queries';
 import { findModelPricing } from '@database/queries/llmMetadata';
 import type { SessionTurnEntity } from '@database/types';
-import { log } from '@services/ObservabilityService';
+import { event, log } from '@services/ObservabilityService';
+import { ATTR } from '@services/ObservabilityService/attributes';
+import { classifyError } from '@services/ObservabilityService/errors';
+import { withSpan } from '@services/ObservabilityService/tracing';
 
 import { t } from '@/i18n';
 import {
@@ -457,6 +460,22 @@ export class AiConversationRuntime {
      * Run the full request lifecycle.
      */
     async run(): Promise<ExecuteRequestResult> {
+        const attributes: Record<string, string | number> = {
+            [ATTR.requestModel]: this.options.modelId ?? 'unknown',
+        };
+        if (this.options.sessionId !== undefined) {
+            attributes[ATTR.conversationId] = this.options.sessionId;
+        }
+        if (this.options.taskId) {
+            attributes[ATTR.turnId] = this.options.taskId;
+        }
+
+        return withSpan('touchai.turn', attributes, (turnSpan) => this.runInSpan(turnSpan));
+    }
+
+    private async runInSpan(
+        turnSpan: import('@opentelemetry/api').Span
+    ): Promise<ExecuteRequestResult> {
         const context = await this.createRuntimeContext();
         let resumeCheckpoint = context.initialCheckpoint;
 
@@ -472,19 +491,26 @@ export class AiConversationRuntime {
             this.liveTracker?.start();
 
             for (let retryAttempt = 0; retryAttempt <= MAX_REQUEST_RETRIES; retryAttempt += 1) {
-                const attemptResult = await this.executor.runAttempt({
-                    startCheckpoint: resumeCheckpoint,
-                    persister: context.persister,
-                    taskId: this.options.taskId,
-                    signal: this.options.signal,
-                    onChunk: (chunk) => {
-                        this.liveTracker?.consume(chunk);
-                        this.options.onChunk?.(chunk);
-                    },
-                    onTurnEvent: this.options.onTurnEvent,
-                    requestToolApproval: this.options.requestToolApproval,
-                    requestUserQuestions: this.options.requestUserQuestions,
-                });
+                const attemptResult = await withSpan(
+                    'touchai.attempt',
+                    { [ATTR.attempt]: retryAttempt + 1 },
+                    (attemptSpan) =>
+                        this.executor.runAttempt({
+                            startCheckpoint: resumeCheckpoint,
+                            persister: context.persister,
+                            taskId: this.options.taskId,
+                            signal: this.options.signal,
+                            parentSpan: attemptSpan,
+                            onChunk: (chunk) => {
+                                this.liveTracker?.consume(chunk);
+                                this.options.onChunk?.(chunk);
+                            },
+                            onTurnEvent: this.options.onTurnEvent,
+                            requestToolApproval: this.options.requestToolApproval,
+                            requestUserQuestions: this.options.requestUserQuestions,
+                        }),
+                    turnSpan
+                );
 
                 await context.requestStartRecordPromise;
 
@@ -572,6 +598,10 @@ export class AiConversationRuntime {
                         resumeCheckpoint,
                         attemptResult
                     );
+                    event('agent.retry.scheduled', {
+                        [ATTR.attempt]: nextAttempt,
+                        [ATTR.errorCode]: classifyError(attemptResult.error),
+                    });
                     await waitForRetryDelay(getRetryDelayMs(nextAttempt), this.options.signal);
                     continue;
                 }

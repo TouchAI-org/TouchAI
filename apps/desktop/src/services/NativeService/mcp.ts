@@ -6,7 +6,7 @@
  * 封装所有 MCP 相关的 Rust 后端命令
  */
 
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './invoke';
 
 // ===== Types =====
 

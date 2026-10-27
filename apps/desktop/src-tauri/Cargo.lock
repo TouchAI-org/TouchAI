@@ -1032,7 +1032,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a"
 dependencies = [
  "quote",
- "syn 2.0.111",
+ "syn 3.0.9",
 ]
 
 [[package]]
@@ -6785,6 +6785,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-tungstenite",
+ "tracing",
  "ureq 2.12.1",
  "uuid",
  "velopack",

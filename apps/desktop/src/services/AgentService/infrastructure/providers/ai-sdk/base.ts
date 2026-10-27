@@ -32,6 +32,13 @@ import { normalizeResponsesReasoningStream } from './responsesStream';
 import { createAiSdkStreamProcessor } from './stream';
 import { createTauriFetch } from './tauriFetch';
 
+export const AI_SDK_TELEMETRY = {
+    isEnabled: true,
+    functionId: 'touchai.model.stream',
+    recordInputs: false,
+    recordOutputs: false,
+} as const;
+
 /**
  * base URL 只负责移除尾部斜杠，绝不追加供应商路径。
  */
@@ -275,6 +282,7 @@ export abstract class AiSdkProviderBase implements AiProvider {
             includeRawChunks: this.shouldIncludeRawChunks(),
             // 禁用 AI SDK 内部重试，由应用层 runtime 统一管理重试与 UI 反馈
             maxRetries: 0,
+            experimental_telemetry: AI_SDK_TELEMETRY,
         });
 
         for await (const part of result.fullStream) {

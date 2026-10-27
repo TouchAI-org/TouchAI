@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from './invoke';
 
 export type AppDirectoryKey = 'DATA' | 'LOGS' | 'CACHE' | 'CACHE_ICONS' | 'ASSETS' | 'ASSETS_FONT';
 

@@ -1,7 +1,8 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
 import type { SqlValue } from '@database/schema';
-import { invoke } from '@tauri-apps/api/core';
+
+import { invoke } from './invoke';
 
 export type DatabaseQueryMethod = 'run' | 'all' | 'get' | 'values';
 export type DatabaseTransactionBehavior = 'deferred' | 'immediate' | 'exclusive';

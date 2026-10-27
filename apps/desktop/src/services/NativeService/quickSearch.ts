@@ -1,5 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
-
+import { invoke } from './invoke';
 import type { QuickSearchFileItem, QuickSearchResult, QuickSearchStatus } from './types';
 
 const DEFAULT_PAGE_SIZE = 60;

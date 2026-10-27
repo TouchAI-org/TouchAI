@@ -4,11 +4,19 @@ import { describe, expect, it } from 'vitest';
 
 import { AiErrorCode } from '@/services/AgentService/contracts/errors';
 import {
+    AI_SDK_TELEMETRY,
     buildUrlWithQueryParams,
     extractApiCallError,
     mapHttpStatusToAiError,
     normalizeProviderBaseUrl,
 } from '@/services/AgentService/infrastructure/providers/ai-sdk/base';
+
+describe('user keeps prompts out of provider telemetry', () => {
+    it('user gets inputs and outputs disabled for every AI SDK span', () => {
+        expect(AI_SDK_TELEMETRY.recordInputs).toBe(false);
+        expect(AI_SDK_TELEMETRY.recordOutputs).toBe(false);
+    });
+});
 
 /**
  * A provider base URL is typed by the user. Appending or keeping a trailing slash produces a
