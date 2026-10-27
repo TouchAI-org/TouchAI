@@ -19,6 +19,26 @@ export function buildMatchTokens(query: string): string[] {
 }
 
 /**
+ * 高亮分段缓存。
+ *
+ * 模板会在每次重渲染时对每条结果重新调用分段；同一 (name, tokens) 的结果不变，
+ * 因此缓存最近用到的分段，只保留有限条目。
+ */
+const SEGMENT_CACHE_LIMIT = 256;
+const segmentCache = new Map<string, NameSegment[]>();
+
+function cacheSegments(key: string, segments: NameSegment[]): NameSegment[] {
+    segmentCache.set(key, segments);
+    if (segmentCache.size > SEGMENT_CACHE_LIMIT) {
+        const oldestKey = segmentCache.keys().next().value;
+        if (oldestKey !== undefined) {
+            segmentCache.delete(oldestKey);
+        }
+    }
+    return segments;
+}
+
+/**
  * 将名称按 token 匹配结果拆分成高亮片段。
  *
  * @param name 原始名称文本。
@@ -28,6 +48,12 @@ export function buildMatchTokens(query: string): string[] {
 export function splitNameByTokens(name: string, tokens: string[]): NameSegment[] {
     if (!name) return [{ text: '', matched: false }];
     if (tokens.length === 0) return [{ text: name, matched: false }];
+
+    const cacheKey = `${tokens.join('\u0000')}\u0001${name}`;
+    const cached = segmentCache.get(cacheKey);
+    if (cached) {
+        return cached;
+    }
 
     const lowerName = name.toLowerCase();
     // 每个字符位置是否命中任一 token，后续再据此合并连续区间。
@@ -70,5 +96,5 @@ export function splitNameByTokens(name: string, tokens: string[]): NameSegment[]
         segments.push({ text: currentText, matched: currentMatched });
     }
 
-    return segments;
+    return cacheSegments(cacheKey, segments);
 }
