@@ -201,21 +201,33 @@ describe('user works in the settings window', () => {
             );
         });
         it('user finds a setting by its English name while the interface is in Chinese', async () => {
-            const searchInput = await waitForTestIdDisplayed('settings-search-input');
-            await searchInput.click();
-            await searchInput.clearValue();
+            // The spec pins the interface to English in `before` so the visual baselines
+            // are stable, which means this case would otherwise search an English
+            // interface and prove nothing: an English query finding an English row is not
+            // the cross-language behaviour its name promises. The language is switched
+            // here, checked, and put back, so the baselines captured by the other cases
+            // still see English.
+            await useInterfaceLanguage('zh-CN');
 
-            // The interface language is the app default, so this is the cross-language case:
-            // an English query must still find the row that is displayed in Chinese.
-            await searchInput.addValue('start minimized');
+            try {
+                const searchInput = await waitForTestIdDisplayed('settings-search-input');
+                await searchInput.click();
+                await searchInput.clearValue();
 
-            const results = await waitForTestIdDisplayed('settings-search-results');
-            const matched = await results.$('[role="option"]', { strict: false });
-            await matched.waitForDisplayed();
-            assertVisible(
-                await matched.isDisplayed(),
-                'Settings search found nothing for an English name on a Chinese interface.'
-            );
+                // The rows are now rendered in Chinese, so an English query only matches
+                // if search reads the untranslated names too.
+                await searchInput.addValue('start minimized');
+
+                const results = await waitForTestIdDisplayed('settings-search-results');
+                const matched = await results.$('[role="option"]', { strict: false });
+                await matched.waitForDisplayed();
+                assertVisible(
+                    await matched.isDisplayed(),
+                    'Settings search found nothing for an English name on a Chinese interface.'
+                );
+            } finally {
+                await useInterfaceLanguage();
+            }
         });
 
         it('user gets no options for a word that appears in no translation', async () => {

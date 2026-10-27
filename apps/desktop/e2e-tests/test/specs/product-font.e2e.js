@@ -18,7 +18,7 @@
  * spec fails loudly if it cannot. A baseline rendered with a fallback face is worse
  * than no baseline, because it looks green while depicting an interface nobody sees.
  */
-import { waitForE2eBridge, waitForTestIdDisplayed } from '../support/desktop.js';
+import { useProductFont, waitForE2eBridge, waitForTestIdDisplayed } from '../support/desktop.js';
 
 const PRODUCT_FAMILY = 'TouchAI Source Han Serif SC';
 
@@ -77,5 +77,12 @@ describe('user sees the interface rendered in the product typeface', () => {
                 `The product font " ${PRODUCT_FAMILY} " is declared but does not resolve, so the interface is rendering a fallback face.`
             );
         }
+
+        // `document.fonts.check()` is not enough on its own: it answers true for a family
+        // that exists nowhere, and it answers true here even when the engine declined to
+        // paint the face. The painted-glyph check is what proves the interface is really
+        // rendering the shipped typeface rather than a fallback that happens to share the
+        // declared name.
+        await useProductFont();
     });
 });
