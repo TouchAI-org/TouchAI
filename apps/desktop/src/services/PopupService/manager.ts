@@ -5,6 +5,8 @@ import { native } from '@services/NativeService';
 import { log } from '@services/ObservabilityService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
+import { createPerfTrace } from '@/utils/perfTrace';
+
 import { createPopupPositionCalculator } from './position';
 import { initializeBuiltInPopups, popupRegistry } from './registry';
 import { createPopupSessionState, type PopupSessionState } from './sessionState';
@@ -144,7 +146,11 @@ export class PopupManager {
      * 显示弹窗
      */
     async show(type: PopupType, triggerElement: HTMLElement, data: PopupData): Promise<string> {
+        const trace = createPerfTrace('popup.show', {
+            enabled: true,
+        });
         const session = this.sessionState.openSession(type);
+        const initializedAtStart = this.isInitialized;
 
         try {
             if (!this.isInitialized) {
@@ -175,6 +181,8 @@ export class PopupManager {
                     isShow: true,
                 })
             );
+            // 首次展示与保温复用区分统计，作为多窗口保温预算（05）的输入。
+            trace.end({ type, cold: !initializedAtStart });
             return session.popupId;
         } catch (error) {
             this.sessionState.resetCurrentSession(session.popupId);
