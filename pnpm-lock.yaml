@@ -38,6 +38,9 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.12.0(jiti@2.7.0))
+      '@types/node':
+        specifier: ^25.9.9
+        version: 25.9.9
       eslint:
         specifier: ^10.12.0
         version: 10.12.0(jiti@2.7.0)
@@ -80,6 +83,9 @@ importers:
       typescript-eslint:
         specifier: ^8.71.1
         version: 8.71.1(eslint@10.12.0(jiti@2.7.0))(typescript@6.0.3)
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.9.1)(@types/node@25.9.9)(@vitest/coverage-v8@4.1.12)(@vitest/ui@4.1.12)(jsdom@29.1.1)(vite@8.3.3(@types/node@25.9.9)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
       vue-eslint-parser:
         specifier: ^10.4.1
         version: 10.4.1(eslint@10.12.0(jiti@2.7.0))

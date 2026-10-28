@@ -49,6 +49,7 @@ Exceptions: exploratory spikes, pure layout tweaks, config changes. Say why in t
 ```bash
 pnpm test              # Vitest watch mode (development)
 pnpm test:unit         # Single run (CI mode)
+pnpm test:ci           # Repository workflow and CODEOWNERS contract tests
 pnpm test:coverage     # Run with frontend coverage report
 pnpm test:e2e          # Desktop E2E smoke (requires tauri-driver)
 pnpm site:build        # Build the Astro Starlight site
@@ -128,6 +129,7 @@ Rust branch coverage is **not** collected: `--branch` needs nightly, and this jo
 ## File Placement
 
 ```
+tests/ci/workflows/        # Repository workflow and CODEOWNERS contract tests
 apps/desktop/tests/
 ├── setup/                  # Vitest global setup, Tauri mocks
 ├── utils/                  # Shared test helpers and fixtures
@@ -142,6 +144,7 @@ apps/desktop/src-tauri/tests/ # Rust integration / command tests
 ```
 
 - Frontend tests: `apps/desktop/tests/**/*.test.ts`, mirroring the `src/` structure (`src/services/PopupService/manager.ts` → `tests/services/PopupService/manager.test.ts`)
+- Repository workflow tests: `tests/ci/workflows/**/*.test.ts`. A test that imports `apps/desktop/scripts/**` stays in `apps/desktop/tests/ci/`, because it covers desktop build or release tooling.
 - Desktop E2E: `apps/desktop/e2e-tests/**/*.e2e.js`
 - Rust unit tests: `#[cfg(test)]` within the module
 - Rust integration tests: `apps/desktop/src-tauri/tests/**/*.rs`

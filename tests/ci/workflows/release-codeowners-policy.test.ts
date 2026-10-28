@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
-const repositoryRoot = resolve(testDirectory, '../../../..');
+const repositoryRoot = resolve(testDirectory, '../../..');
 
 async function readCodeowners() {
     return readFile(resolve(repositoryRoot, '.github/CODEOWNERS'), 'utf8');

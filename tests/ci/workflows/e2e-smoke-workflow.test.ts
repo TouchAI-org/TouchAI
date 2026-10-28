@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
-const repositoryRoot = resolve(testDirectory, '../../../..');
+const repositoryRoot = resolve(testDirectory, '../../..');
 
 describe('desktop e2e smoke workflow', () => {
     it('sets WebView2 remote-debugging browser args for Windows CI', async () => {

@@ -1,0 +1,7 @@
+{
+    "extends": "../../apps/desktop/tsconfig.json",
+    "compilerOptions": {
+        "types": ["node"]
+    },
+    "include": ["**/*.ts"]
+}

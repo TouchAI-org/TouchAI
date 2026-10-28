@@ -316,8 +316,8 @@ behind them, so `runtimeConstants.ts` supplied hardcoded fallbacks: a neutral gr
 did not match the interface they sat in, which is the opposite of what the prompt asks for
 ("users shouldn't notice where TouchAI ends and your widget begins").
 
-`tests/ci/design-widget-contract.test.ts` fails if a declared variable stops resolving to
-a token, or if a fallback value diverges from its token.
+`apps/desktop/tests/ci/design-widget-contract.test.ts` fails if a declared variable stops
+resolving to a token, or if a fallback value diverges from its token.
 
 ### Not covered
 
