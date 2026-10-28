@@ -45,7 +45,14 @@
             >
                 <template #default="{ item }">
                     <div :data-message-id="item.id" :data-message-role="item.role">
-                        <MessageItem :message="item" @regenerate="handleRegenerateMessage" />
+                        <!--
+                            仅开发期的诊断开关（window.__TOUCHAI_PLAIN_MESSAGES__ = true）：
+                            用纯文本代替完整消息组件，用来区分“我们的渲染开销”与“浏览器文本排版开销”。
+                        -->
+                        <div v-if="plainMessageMode" class="break-words whitespace-pre-wrap">
+                            {{ item.content }}
+                        </div>
+                        <MessageItem v-else :message="item" @regenerate="handleRegenerateMessage" />
                     </div>
                 </template>
             </Virtualizer>
@@ -138,6 +145,12 @@
         getHistoryAnchor: () => HTMLElement | null;
     } | null>(null);
     const messageVirtualizer = ref<VirtualizerHandle | null>(null);
+    // 诊断开关：仅 DEV 生效，用来隔离“组件渲染”与“浏览器排版”两类开销。
+    const plainMessageMode =
+        import.meta.env.DEV &&
+        typeof window !== 'undefined' &&
+        (window as Window & { __TOUCHAI_PLAIN_MESSAGES__?: boolean }).__TOUCHAI_PLAIN_MESSAGES__ ===
+            true;
     let resizeSyncFrame: number | null = null;
     // 首屏先隐藏列表，等定位到底后再显示，否则会先闪一下顶部。
     const isListPositioned = ref(true);

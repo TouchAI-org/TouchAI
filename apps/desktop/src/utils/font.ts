@@ -250,6 +250,10 @@ export function initializeFontLoader(): void {
     ensureFontReadyListener().finally(() => {
         void loadFontFace({ requireExistingFile: true })
             .then(() => {
+                if (import.meta.env.DEV) {
+                    console.warn('[glyph-warmup]', { stage: 'font-face-ready' });
+                }
+
                 // 字体就绪后同步把字形缓存预热掉：
                 // 否则“首次看到大量中文”的那一帧要把 500ms+ 花在 shaping 上。
                 scheduleCjkGlyphWarmup();
