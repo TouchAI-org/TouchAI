@@ -62,6 +62,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         observability::obs_run_id,
         observability::obs_set_diagnostic_mode,
         observability::obs_diagnostic_mode_status,
+        observability::obs_flush_done,
         observability::obs_preview_bundle,
         observability::obs_export_bundle,
         observability::obs_dismiss_crashes,

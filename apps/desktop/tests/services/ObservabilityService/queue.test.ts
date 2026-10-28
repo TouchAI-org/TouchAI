@@ -146,4 +146,24 @@ describe('user keeps diagnostics when the log queue is under pressure', () => {
         expect(delivered).toEqual(['event']);
         expect(queue.size()).toBe(0);
     });
+
+    it('user gets the last lines delivered when the backend fails during exit', async () => {
+        let attempt = 0;
+        const delivered: string[] = [];
+        const queue = queueWith(
+            async (batch) => {
+                attempt += 1;
+                if (attempt === 1) throw new Error('backend down');
+                delivered.push(...batch.map((entry) => entry.event));
+            },
+            10,
+            50
+        );
+
+        queue.push(envelope(3, 'last line'));
+        await queue.flushWithRetry();
+
+        expect(delivered).toEqual(['last line']);
+        expect(queue.size()).toBe(0);
+    });
 });

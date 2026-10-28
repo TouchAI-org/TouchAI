@@ -2,13 +2,15 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { windowMock, ingestMock } = vi.hoisted(() => ({
+const { windowMock, ingestMock, flushDoneMock, flushListener } = vi.hoisted(() => ({
     windowMock: {
         label: 'main',
-        onCloseRequested: vi.fn(),
+        onCloseRequested: vi.fn(async () => () => {}),
         destroy: vi.fn(async () => undefined),
     },
     ingestMock: vi.fn(async (): Promise<void> => {}),
+    flushDoneMock: vi.fn(async (): Promise<void> => {}),
+    flushListener: { handler: null as null | (() => Promise<void>) },
 }));
 
 vi.mock('@tauri-apps/api/window', () => ({
@@ -16,7 +18,14 @@ vi.mock('@tauri-apps/api/window', () => ({
 }));
 
 vi.mock('@services/NativeService', () => ({
-    native: { observability: { ingest: ingestMock } },
+    native: { observability: { ingest: ingestMock, flushDone: flushDoneMock } },
+}));
+
+vi.mock('@tauri-apps/api/event', () => ({
+    listen: async (_event: string, handler: () => Promise<void>) => {
+        flushListener.handler = handler;
+        return () => {};
+    },
 }));
 
 import { initObservability, log, resetObservabilityForTests } from '@services/ObservabilityService';
@@ -55,5 +64,16 @@ describe('user closes a window with logs still queued', () => {
         await handleClose?.({ preventDefault: vi.fn() });
 
         expect(windowMock.destroy).toHaveBeenCalled();
+    });
+
+    it('user gets queued logs written when the app quits from the tray', async () => {
+        ingestMock.mockImplementation(async () => {});
+        initObservability();
+        log.info('last line before tray quit');
+
+        await flushListener.handler?.();
+
+        expect(ingestMock).toHaveBeenCalled();
+        expect(flushDoneMock).toHaveBeenCalled();
     });
 });

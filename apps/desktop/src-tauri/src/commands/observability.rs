@@ -8,6 +8,7 @@ use crate::core::observability::ingest::{ingest_batch, run_id_string, LogEnvelop
 use crate::core::observability::{
     bundle::{self, BundlePreview},
     level::{self, DiagnosticModeStatus},
+    shutdown,
 };
 
 /// 接收前端批量日志。写盘是阻塞操作，放到阻塞线程池，避免卡住主线程事件循环。
@@ -34,6 +35,12 @@ pub fn obs_diagnostic_mode_status() -> DiagnosticModeStatus {
     level::status()
 }
 
+/// 前端在退出前刷完队列后回报，让等待中的退出流程继续。
+#[tauri::command]
+pub fn obs_flush_done() {
+    shutdown::mark_flushed();
+}
+
 #[tauri::command]
 pub async fn obs_preview_bundle() -> Result<BundlePreview, String> {
     bundle::preview().await
@@ -41,10 +48,18 @@ pub async fn obs_preview_bundle() -> Result<BundlePreview, String> {
 
 #[tauri::command]
 pub async fn obs_export_bundle(destination: String) -> Result<BundlePreview, String> {
-    bundle::export(&destination).await
+    // 打包要读取并压缩最多几十 MB 的日志和崩溃记录，放到阻塞线程池执行。
+    tauri::async_runtime::spawn_blocking(move || {
+        tauri::async_runtime::block_on(bundle::export(&destination))
+    })
+    .await
+    .map_err(|error| format!("log bundle task failed: {error}"))?
 }
 
 #[tauri::command]
-pub fn obs_dismiss_crashes() -> Result<usize, String> {
-    bundle::dismiss_crashes()
+pub async fn obs_dismiss_crashes() -> Result<usize, String> {
+    // 删除最多 50 个崩溃记录同样不该占用主线程。
+    tauri::async_runtime::spawn_blocking(bundle::dismiss_crashes)
+        .await
+        .map_err(|error| format!("crash dismiss task failed: {error}"))?
 }

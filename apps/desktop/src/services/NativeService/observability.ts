@@ -9,6 +9,9 @@ export const observability = {
     ingest(batch: ObservabilityLogEnvelope[]): Promise<void> {
         return invoke('obs_ingest', { batch });
     },
+    flushDone(): Promise<void> {
+        return invoke('obs_flush_done');
+    },
     runId(): Promise<string> {
         return invoke('obs_run_id');
     },

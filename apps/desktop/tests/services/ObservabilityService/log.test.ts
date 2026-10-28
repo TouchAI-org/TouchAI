@@ -67,6 +67,20 @@ describe('user gets service logs as structured events', () => {
         expect(entry?.msg).not.toContain('secret-value');
     });
 
+    it('user does not get a multi-line provider error body written to the log', async () => {
+        initObservability();
+
+        log.error(
+            'request failed',
+            new Error('400 Bad Request\n{"prompt":"private conversation text"}')
+        );
+        await flushObservability();
+
+        const entry = sentEvent('app.log');
+        expect(entry?.msg).toContain('400 Bad Request');
+        expect(entry?.msg).not.toContain('private conversation text');
+    });
+
     it('user gets an event with no message when nothing was logged', async () => {
         initObservability();
 

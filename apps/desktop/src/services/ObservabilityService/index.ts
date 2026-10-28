@@ -1,4 +1,5 @@
 import { native } from '@services/NativeService';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import { attachEarlyErrorSink, resetEarlyErrorsForTests } from '@/utils/early-errors';
@@ -31,9 +32,12 @@ let windowLabel: string | null = null;
 let initialized = false;
 let visibilityListenerInstalled = false;
 let shutdownFlushInstalled = false;
+let flushUnlisten: UnlistenFn | null = null;
 
 /** 关闭前等待日志落盘的上限；后端卡住时不能让窗口关不掉。 */
 const SHUTDOWN_FLUSH_TIMEOUT_MS = 800;
+/** Rust 在退出前发出的刷盘事件，覆盖托盘退出和更新重启。 */
+export const QUIT_FLUSH_EVENT = 'obs://flush';
 
 function resolveWindowLabel(): string | null {
     if (windowLabel) return windowLabel;
@@ -79,34 +83,57 @@ export function initObservability(): void {
 
 /**
  * 窗口关闭前把队列刷完。WebView 销毁后 IPC 不再可用，只靠 pagehide 不保证送达。
+ *
+ * 关闭钩子同步注册：放进异步 IIFE 会让启动后极短时间内的关闭丢掉监听。
+ * 托盘退出和更新重启不触发窗口关闭，改由 Rust 的退出事件补齐。
  */
 function installShutdownFlush(): void {
     if (shutdownFlushInstalled) return;
     shutdownFlushInstalled = true;
 
-    void (async () => {
-        try {
-            const currentWindow = getCurrentWindow();
-            await currentWindow.onCloseRequested(async (event) => {
+    try {
+        const currentWindow = getCurrentWindow();
+        void currentWindow
+            .onCloseRequested(async (event) => {
                 event.preventDefault();
-                try {
-                    await Promise.race([
-                        flushObservability(),
-                        new Promise((resolve) => setTimeout(resolve, SHUTDOWN_FLUSH_TIMEOUT_MS)),
-                    ]);
-                } catch (error) {
-                    reportLoggingFailure(error);
-                }
+                await flushBeforeExit();
                 try {
                     await currentWindow.destroy();
                 } catch (error) {
                     reportLoggingFailure(error);
                 }
+            })
+            .catch(reportLoggingFailure);
+
+        void listen(QUIT_FLUSH_EVENT, async () => {
+            await flushBeforeExit();
+            try {
+                await native.observability.flushDone();
+            } catch (error) {
+                reportLoggingFailure(error);
+            }
+        })
+            .then((unlisten) => {
+                flushUnlisten = unlisten;
+            })
+            .catch(() => {
+                // 非 Tauri 环境（测试、浏览器预览）没有事件总线。
             });
-        } catch {
-            // 非 Tauri 环境（测试、浏览器预览）没有关闭钩子。
-        }
-    })();
+    } catch {
+        // 非 Tauri 环境（测试、浏览器预览）没有关闭钩子。
+    }
+}
+
+/** 有上限地刷一次队列；后端卡住时也要让退出继续。 */
+async function flushBeforeExit(): Promise<void> {
+    try {
+        await Promise.race([
+            queue?.flushWithRetry() ?? Promise.resolve(),
+            new Promise((resolve) => setTimeout(resolve, SHUTDOWN_FLUSH_TIMEOUT_MS)),
+        ]);
+    } catch (error) {
+        reportLoggingFailure(error);
+    }
 }
 
 /** 记录一条结构化事件。未初始化时静默丢弃，避免启动早期产生副作用。 */
@@ -175,7 +202,7 @@ export async function flushObservability(): Promise<void> {
 }
 
 function stringifyArg(arg: unknown): string {
-    if (arg instanceof Error) return arg.stack ?? arg.message;
+    if (arg instanceof Error) return describeError(arg);
     if (typeof arg === 'string') return arg;
 
     try {
@@ -183,6 +210,24 @@ function stringifyArg(arg: unknown): string {
     } catch {
         return String(arg);
     }
+}
+
+/**
+ * 错误只保留第一行消息和调用帧。
+ *
+ * provider 和工具的报错经常把整个响应体塞进 `message`，原样落盘会把对话内容和
+ * 工具输出写进日志，也会跟着诊断包一起外发。
+ */
+function describeError(error: Error): string {
+    const firstLine = (error.message.split('\n')[0] ?? '').trim();
+    const summary = `${error.name}: ${firstLine}`;
+    const frames = (error.stack ?? '')
+        .split('\n')
+        .slice(1)
+        .filter((line) => line.trim().startsWith('at '))
+        .join('\n');
+
+    return frames ? `${summary}\n${frames}` : summary;
 }
 
 function isAttributeBag(value: unknown): value is Record<string, LogAttributeValue> {
@@ -239,6 +284,8 @@ export function observabilityQueueSize(): number {
 /** 仅用于测试：把模块状态复位，便于验证初始化和丢弃策略。 */
 export function resetObservabilityForTests(): void {
     queue?.stop();
+    flushUnlisten?.();
+    flushUnlisten = null;
     queue = null;
     windowLabel = null;
     initialized = false;

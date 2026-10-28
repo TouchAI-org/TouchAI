@@ -170,7 +170,7 @@ pub fn run() {
         }
     }
 
-    let app_result = builder
+    let app = builder
         .setup(|app| {
             let version = app.package_info().version.to_string();
             core::observability::panic::install_panic_hook(&version);
@@ -180,12 +180,28 @@ pub fn run() {
             core::observability::log_header(&version);
             Ok(())
         })
-        .run(context);
+        .build(context);
 
-    if let Err(err) = app_result {
-        error!("Error while running tauri application: {}", err);
-        panic!("error while running tauri application: {}", err);
-    }
+    let app = match app {
+        Ok(app) => app,
+        Err(err) => {
+            error!("Error while running tauri application: {}", err);
+            panic!("error while running tauri application: {}", err);
+        }
+    };
+
+    app.run(|app_handle, event| {
+        // 托盘退出和更新重启不经过窗口的关闭回调，在这里补一次刷盘。
+        if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+            // 重启依赖这个退出码，拦下来会把重启变成退出。
+            if code == Some(tauri::RESTART_EXIT_CODE) {
+                return;
+            }
+            if core::observability::shutdown::begin(app_handle) {
+                api.prevent_exit();
+            }
+        }
+    });
 }
 
 #[cfg(test)]

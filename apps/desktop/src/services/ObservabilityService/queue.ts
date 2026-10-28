@@ -100,6 +100,19 @@ export class LogQueue {
         await this.flushing;
     }
 
+    /**
+     * 退出前刷盘：发送失败时再试一次。
+     *
+     * 常规 flush 失败后把批次放回队列等下一次定时刷写，但进程退出后不会再有
+     * 下一次，所以这里给最后一批多一次机会。
+     */
+    async flushWithRetry(attempts = 2): Promise<void> {
+        for (let attempt = 0; attempt < attempts; attempt += 1) {
+            await this.flush();
+            if (this.items.length === 0 && this.droppedTotal() === 0) return;
+        }
+    }
+
     private async sendBatch(): Promise<void> {
         while (this.items.length > 0 || this.droppedTotal() > 0) {
             const batch: LogEnvelope[] = [];
