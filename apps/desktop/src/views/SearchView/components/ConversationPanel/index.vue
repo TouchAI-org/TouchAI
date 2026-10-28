@@ -558,6 +558,22 @@
         // 初始化时间轴滚动状态
         syncScrollMetrics();
         emitLatestContentVisibility();
+
+        // 首次挂载时消息可能已经就绪（面板晚于会话数据挂载），
+        // 这时没有 watcher 可依赖，必须在这里主动定位到底部。
+        if (props.messages.length > 0) {
+            isListPositioned.value = false;
+            void nextTick(() => {
+                syncToBottom();
+                requestAnimationFrame(() => {
+                    syncToBottom();
+                    isListPositioned.value = true;
+                    if (import.meta.env.DEV) {
+                        logFirstRenderCost(props.messages.length);
+                    }
+                });
+            });
+        }
     });
 </script>
 
