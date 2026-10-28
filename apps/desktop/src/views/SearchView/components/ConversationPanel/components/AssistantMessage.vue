@@ -16,30 +16,34 @@
                 <template v-else>
                     <div v-if="renderedParts.length > 0" class="assistant-message-parts">
                         <div
-                            v-for="part in renderedParts"
-                            :key="part.id"
+                            v-for="block in renderedBlocks"
+                            :key="block.kind === 'tool-run' ? block.id : block.part.id"
                             class="assistant-message-part"
                         >
+                            <ToolRunGroup v-if="block.kind === 'tool-run'" :parts="block.parts" />
                             <ReasoningBlock
-                                v-if="part.type === 'reasoning'"
-                                :content="part.content"
-                                :is-streaming="part.isStreaming"
-                                :started-at="part.startedAt"
-                                :ended-at="part.endedAt"
+                                v-else-if="block.part.type === 'reasoning'"
+                                :content="block.part.content"
+                                :is-streaming="block.part.isStreaming"
+                                :started-at="block.part.startedAt"
+                                :ended-at="block.part.endedAt"
                             />
                             <MarkdownContent
-                                v-else-if="part.type === 'text'"
-                                :content="part.content"
+                                v-else-if="block.part.type === 'text'"
+                                :content="block.part.content"
                                 :final="!message.isStreaming"
                             />
                             <ToolCallItem
-                                v-else-if="part.type === 'tool_call'"
-                                :tool-call="part.toolCall"
+                                v-else-if="block.part.type === 'tool_call'"
+                                :tool-call="block.part.toolCall"
                             />
-                            <WidgetFrame v-else-if="part.type === 'widget'" :widget="part.widget" />
+                            <WidgetFrame
+                                v-else-if="block.part.type === 'widget'"
+                                :widget="block.part.widget"
+                            />
                             <ToolApprovalHistoryCard
-                                v-else-if="part.type === 'approval'"
-                                :approval="part.approval"
+                                v-else-if="block.part.type === 'approval'"
+                                :approval="block.part.approval"
                             />
                         </div>
                     </div>
@@ -111,9 +115,11 @@ import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
         type WebSearchCitationRegistry,
     } from '@/views/SearchView/components/WebSearch/citations';
 
+    import { groupToolRuns } from '../toolRunGroups';
     import ReasoningBlock from './ReasoningBlock.vue';
     import ToolApprovalHistoryCard from './ToolApprovalHistoryCard.vue';
     import ToolCallItem from './ToolCallItem.vue';
+    import ToolRunGroup from './ToolRunGroup.vue';
     import WidgetFrame from './WidgetFrame.vue';
 
     interface Props {
@@ -364,6 +370,25 @@ import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 
         return parts;
     });
+
+    /**
+     * 连续工具调用折叠。
+     *
+     * 流式期间不折：用户需要看到每个工具的实时进度；
+     * 历史消息里连续 ≥3 个工具调用合并成一行摘要，展开时才挂载卡片。
+     * 这是首屏最大的单项开销（单条消息可能连开十几个工具卡）。
+     */
+    const renderedBlocks = computed(() =>
+        groupToolRuns<RenderedPart, Extract<RenderedPart, { type: 'tool_call' }>>(
+            renderedParts.value,
+            {
+                isToolCall: (part): part is Extract<RenderedPart, { type: 'tool_call' }> =>
+                    part.type === 'tool_call',
+                getId: (part) => part.id,
+                minRun: props.message.isStreaming ? Number.MAX_SAFE_INTEGER : 3,
+            }
+        )
+    );
     const streamingIndicatorClass = computed(() => {
         const marginTop = 'mt-5';
 
