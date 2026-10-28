@@ -93,6 +93,7 @@ describe('user sees a failed attempt marked as an error in the trace', () => {
             async (span) => {
                 vi.spyOn(span, 'setStatus').mockImplementation((value) => {
                     status = value;
+                    return span;
                 });
                 return { type: 'failed' as const, error: { code: 'provider.rate_limited' } };
             },
