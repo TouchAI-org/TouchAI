@@ -60,6 +60,12 @@ name: Approve visual baselines
 #     /approve-visuals components   regenerate the component layer only
 #     /approve-visuals e2e          regenerate the app (WebView2) layer only
 #
+# The command has to start a line, and it has to come from a person. The visual report
+# itself mentions `/approve-visuals` in a sentence, and the report is posted as a bot, so a
+# substring match made every first report start a run that failed the write-access check.
+# A reply that quotes the hint is the same hazard for a human: it would push a baseline
+# commit nobody asked for.
+#
 # The shape of the file follows from the two layers being the same job with different
 # inputs. `plan` decides which layers were asked for; one matrix job then regenerates
 # each of them, serialised so the two commits land one after the other. The layers differ
@@ -98,11 +104,13 @@ jobs:
     plan:
         name: Decide what to regenerate
         # `issue_comment` fires for plain issues too and carries write permissions, so
-        # the trigger is narrowed to "a pull request" and "a comment that contains the
-        # command". Whether the author may actually run it is decided by the first step
-        # below, which asks the API for the real permission.
+        # the trigger is narrowed to "a pull request", "a person" and "a comment that
+        # mentions the command". Whether the author may actually run it is decided by a
+        # step below, which asks the API for the real permission; whether the comment
+        # really is the command is decided by the parse step.
         if: |
             github.event.issue.pull_request &&
+            github.event.comment.user.type != 'Bot' &&
             contains(github.event.comment.body, '/approve-visuals')
         runs-on: ubuntu-latest
         permissions:
@@ -113,51 +121,10 @@ jobs:
             # never touches the branch.
             pull-requests: write
         outputs:
+            command: ${{ steps.parse.outputs.command }}
             matrix: ${{ steps.parse.outputs.matrix }}
             head_ref: ${{ steps.pr.outputs.head_ref }}
         steps:
-            # `author_association` only says how the author relates to the repository,
-            # not what they may do in it: an organisation member or a collaborator can
-            # hold read-only or triage access. Rewriting the baselines needs push
-            # access, so that is what is checked. Without this any member who can
-            # comment could erase the evidence of a regression.
-            - name: Require write access
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  AUTHOR: ${{ github.event.comment.user.login }}
-              run: |
-                  set -euo pipefail
-                  permission="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$AUTHOR/permission" --jq .permission)"
-
-                  case "$permission" in
-                      admin|maintain|write)
-                          echo "$AUTHOR has '$permission' access; the command is allowed."
-                          ;;
-                      *)
-                          echo "::error::$AUTHOR has '$permission' access to $GITHUB_REPOSITORY. Regenerating the baselines needs write access, because it pushes a commit to the branch under review."
-                          exit 1
-                          ;;
-                  esac
-
-            - name: Read the pull request
-              id: pr
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  PR_NUMBER: ${{ github.event.issue.number }}
-              run: |
-                  set -euo pipefail
-                  head_ref="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefName --jq .headRefName)"
-                  head_repo="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRepositoryOwner,headRepository --jq '.headRepositoryOwner.login + "/" + .headRepository.name')"
-
-                  # Pushing back to a fork needs a token that can write there, which the
-                  # workflow token cannot do. Say so instead of failing at the push.
-                  if [ "$head_repo" != "$GITHUB_REPOSITORY" ]; then
-                      echo "::error::This pull request comes from the fork $head_repo. Regenerate the baselines there and push them yourself; the workflow token cannot write to a fork."
-                      exit 1
-                  fi
-
-                  echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
-
             - name: Parse the requested layers
               id: parse
               env:
@@ -167,6 +134,20 @@ jobs:
                   # The body arrives through the environment, never interpolated into
                   # the script, so a comment cannot smuggle shell syntax into the run.
                   body="$(printf '%s' "$COMMENT_BODY")"
+
+                  # Anchored to the start of a line: the report comment and any reply that
+                  # quotes the hint contain the command mid-sentence, and neither is an
+                  # approval. The first matching line is the command; its arguments decide
+                  # which layers run.
+                  command_line="$(printf '%s' "$body" | grep -iE '^[[:space:]]*/approve-visuals([[:space:]]|$)' | head -n1 || true)"
+
+                  if [ -z "$command_line" ]; then
+                      echo "command=false" >> "$GITHUB_OUTPUT"
+                      echo 'No /approve-visuals command line in this comment; nothing to do.'
+                      exit 0
+                  fi
+
+                  echo "command=true" >> "$GITHUB_OUTPUT"
 
                   # Every input a layer needs, in the order the layers run. This is the
                   # one place a layer is defined: the selection below narrows this list,
@@ -178,11 +159,11 @@ jobs:
 
                   requested='[]'
 
-                  if printf '%s' "$body" | grep -qiE '/approve-visuals[[:space:]]+components'; then
+                  if printf '%s' "$command_line" | grep -qiE '/approve-visuals[[:space:]]+components'; then
                       requested="$(printf '%s' "$requested" | jq -c '. + ["components"]')"
                   fi
 
-                  if printf '%s' "$body" | grep -qiE '/approve-visuals[[:space:]]+e2e'; then
+                  if printf '%s' "$command_line" | grep -qiE '/approve-visuals[[:space:]]+e2e'; then
                       requested="$(printf '%s' "$requested" | jq -c '. + ["e2e"]')"
                   fi
 
@@ -202,7 +183,52 @@ jobs:
 
                   echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
+            # `author_association` only says how the author relates to the repository,
+            # not what they may do in it: an organisation member or a collaborator can
+            # hold read-only or triage access. Rewriting the baselines needs push
+            # access, so that is what is checked. Without this any member who can
+            # comment could erase the evidence of a regression.
+            - name: Require write access
+              if: steps.parse.outputs.command == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  AUTHOR: ${{ github.event.comment.user.login }}
+              run: |
+                  set -euo pipefail
+                  permission="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$AUTHOR/permission" --jq .permission)"
+
+                  case "$permission" in
+                      admin|maintain|write)
+                          echo "$AUTHOR has '$permission' access; the command is allowed."
+                          ;;
+                      *)
+                          echo "::error::$AUTHOR has '$permission' access to $GITHUB_REPOSITORY. Regenerating the baselines needs write access, because it pushes a commit to the branch under review."
+                          exit 1
+                          ;;
+                  esac
+
+            - name: Read the pull request
+              id: pr
+              if: steps.parse.outputs.command == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  PR_NUMBER: ${{ github.event.issue.number }}
+              run: |
+                  set -euo pipefail
+                  head_ref="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefName --jq .headRefName)"
+                  head_repo="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRepositoryOwner,headRepository --jq '.headRepositoryOwner.login + "/" + .headRepository.name')"
+
+                  # Pushing back to a fork needs a token that can write there, which the
+                  # workflow token cannot do. Say so instead of failing at the push.
+                  if [ "$head_repo" != "$GITHUB_REPOSITORY" ]; then
+                      echo "::error::This pull request comes from the fork $head_repo. Regenerate the baselines there and push them yourself; the workflow token cannot write to a fork."
+                      exit 1
+                  fi
+
+                  echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
+
             - name: Acknowledge the command
+              if: steps.parse.outputs.command == 'true'
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   COMMENT_ID: ${{ github.event.comment.id }}
@@ -219,6 +245,9 @@ jobs:
     regenerate:
         name: Regenerate ${{ matrix.layer }} baselines
         needs: plan
+        # A comment that merely mentions the command parses to `command=false` and leaves
+        # this job skipped, so quoting the hint costs nothing and touches no branch.
+        if: needs.plan.outputs.command == 'true'
         runs-on: ubuntu-latest
         permissions:
             # Checkout and the baseline commit.
