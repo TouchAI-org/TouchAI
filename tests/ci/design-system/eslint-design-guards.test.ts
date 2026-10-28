@@ -20,7 +20,7 @@ import { ESLint } from 'eslint';
 import { describe, expect, it, vi } from 'vitest';
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
-const repositoryRoot = resolve(testDirectory, '../../../..');
+const repositoryRoot = resolve(testDirectory, '../../..');
 
 /** Created once: constructing ESLint reloads the flat config and is slow on first use. */
 const eslint = new ESLint({ cwd: repositoryRoot });

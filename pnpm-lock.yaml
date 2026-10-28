@@ -41,6 +41,9 @@ importers:
       '@types/node':
         specifier: ^25.9.9
         version: 25.9.9
+      '@types/semver':
+        specifier: ^7.8.0
+        version: 7.8.0
       eslint:
         specifier: ^10.12.0
         version: 10.12.0(jiti@2.7.0)
@@ -77,6 +80,9 @@ importers:
       prettier-plugin-tailwindcss:
         specifier: ^0.8.1
         version: 0.8.1(@trivago/prettier-plugin-sort-imports@6.0.0(@vue/compiler-sfc@3.5.43)(prettier@3.8.5))(prettier-plugin-astro@0.14.1)(prettier@3.8.5)
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       typescript:
         specifier: ~6.0.3
         version: 6.0.3

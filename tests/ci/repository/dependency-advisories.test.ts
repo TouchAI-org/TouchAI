@@ -1,11 +1,14 @@
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import semver from 'semver';
 import { describe, expect, it } from 'vitest';
 
-const lockfilePath = join(process.cwd(), '..', '..', 'pnpm-lock.yaml');
-const cargoLockfilePath = join(process.cwd(), 'src-tauri', 'Cargo.lock');
+const testDirectory = dirname(fileURLToPath(import.meta.url));
+const repositoryRoot = resolve(testDirectory, '../../..');
+const lockfilePath = join(repositoryRoot, 'pnpm-lock.yaml');
+const cargoLockfilePath = join(repositoryRoot, 'apps/desktop/src-tauri/Cargo.lock');
 
 /**
  * A root-level pnpm override can silently pull a patched direct dependency back
