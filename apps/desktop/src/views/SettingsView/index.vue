@@ -1,6 +1,7 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    // Probe comment: verifies the UI preview Record job without changing behaviour.
     import LoadingState from '@components/LoadingState.vue';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { useScrollFade } from '@composables/useScrollFade';
