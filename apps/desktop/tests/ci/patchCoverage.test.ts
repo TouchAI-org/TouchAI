@@ -334,3 +334,44 @@ describe('when the change touches a file the coverage config excludes', () => {
         expect(result.files).toEqual([]);
     });
 });
+
+/**
+ * `coverage.include` is `src/**\/*.{ts,vue}`, so a JSON, CSS or SVG file under `src` is never
+ * in the report. The gate reads an absent file as "nothing loaded it", which turns a
+ * generated metadata snapshot into tens of thousands of uncovered lines and fails the
+ * release pull request that regenerates it.
+ */
+describe('when the change touches a file the coverage report cannot contain', () => {
+    const unmeasuredPaths = [
+        'apps/desktop/src/services/AgentService/infrastructure/modelMetadata/snapshot.json',
+        'apps/desktop/src/styles/tokens.css',
+        'apps/desktop/src/assets/logo.svg',
+    ];
+
+    it('user is not asked to cover a file the report never measures', async () => {
+        const { runPatchCoverage } =
+            await import('../../scripts/ci/coverage/patch-coverage-cli.mjs');
+        const { mkdtempSync, writeFileSync } = await import('node:fs');
+        const { tmpdir } = await import('node:os');
+        const { join } = await import('node:path');
+
+        const dir = mkdtempSync(join(tmpdir(), 'patch-cov-'));
+        const reportPath = join(dir, 'coverage-final.json');
+        writeFileSync(reportPath, '{}', 'utf8');
+
+        const diff = unmeasuredPaths
+            .map(
+                (path) =>
+                    `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -0,0 +1,3 @@\n+one\n+two\n+three\n`
+            )
+            .join('');
+
+        const { result } = runPatchCoverage(
+            { coveragePath: reportPath, base: 'main-tip', root: 'apps/desktop', floor: 85 },
+            { resolveBase: () => 'main-tip', readDiff: () => diff }
+        );
+
+        expect(result.total).toBe(0);
+        expect(result.files).toEqual([]);
+    });
+});

@@ -59,7 +59,21 @@ const COVERAGE_EXCLUDED = [
     /\.stories\.ts$/,
 ];
 
+/**
+ * Mirrors `coverage.include` in `vitest.config.ts`.
+ *
+ * Exclusions alone are not enough: a file outside `include` is absent from the report for
+ * the same reason an excluded one is, and the gate reads an absent file as "nothing loaded
+ * it". A generated JSON snapshot under `src` is therefore tens of thousands of uncovered
+ * lines, which failed every release pull request. Measuring only what the report can
+ * contain keeps the gate about coverage instead of about file extensions.
+ */
+const MEASURED = /^apps\/desktop\/src\/.*\.(?:ts|vue)$/;
+
 const SKIPPED = [...IGNORED, ...COVERAGE_EXCLUDED];
+
+const isMeasured = (path) =>
+    MEASURED.test(path) && !SKIPPED.some((pattern) => pattern.test(path));
 
 function readOption(argv, index, name) {
     const value = argv[index + 1];
@@ -193,7 +207,7 @@ export function runPatchCoverage(options, { readDiff: diff = readDiff, resolveBa
 
     const result = measurePatchCoverage(changed, report, {
         repoRoot: options.root,
-        ignore: (path) => SKIPPED.some((pattern) => pattern.test(path)),
+        ignore: (path) => !isMeasured(path),
     });
 
     const markdown = formatPatchCoverage(result, options.floor);

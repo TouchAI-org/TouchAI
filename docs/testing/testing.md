@@ -87,6 +87,7 @@ The keys must stay at the top level of `thresholds`. A nested `global` object is
 **The floor alone is not enough for a pull request.** A global percentage cannot see a change that adds 400 uncovered lines while covering 400 old ones: the total stays flat and the gate stays green. So the `frontend-tests` job also runs a **patch coverage** check (`scripts/ci/coverage/patch-coverage.mjs`), which takes the lines the diff added to `apps/desktop/src` and asks the v8 report how many of them ran. It fails below **85%**.
 
 - A changed source file that no test ever loaded counts as fully uncovered, which is the point: new behaviour has to arrive with a test that exercises it.
+- Only files the report can contain are measured: `apps/desktop/src/**/*.{ts,vue}`, mirroring `coverage.include`. A generated snapshot, a stylesheet or an asset under `src` is skipped instead of counting as uncovered, because it can never appear in the v8 report.
 - Blank lines, comments and closing braces carry no statement, so they are skipped rather than counted as failures.
 - Deleted lines, test files and scripts are out of scope.
 - Run it locally with `pnpm test:coverage:patch` after `pnpm test:coverage`.
