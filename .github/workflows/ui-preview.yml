@@ -297,12 +297,22 @@ jobs:
               run: |
                   sudo apt-get update
                   sudo apt-get install -y --no-install-recommends \
+                    build-essential \
+                    curl \
                     ffmpeg \
+                    file \
                     fonts-noto-cjk \
                     imagemagick \
-                    libwebkit2gtk-4.1-0 \
+                    libayatana-appindicator3-dev \
+                    libglib2.0-dev \
+                    librsvg2-dev \
+                    libssl-dev \
+                    libwebkit2gtk-4.1-dev \
+                    libxdo-dev \
                     openbox \
                     picom \
+                    pkg-config \
+                    wget \
                     webkit2gtk-driver \
                     x11-utils \
                     x11-xserver-utils \

@@ -13,7 +13,21 @@ export const MAIN_WINDOW_TIMEOUT_MS = 30000;
 
 export async function boot({ application, port = 4444 }) {
     const driver = await startDriver({ port });
-    const session = await createSession({ port, application });
+
+    let session;
+    try {
+        session = await createSession({ port, application });
+    } catch (error) {
+        // `exited` separates "the driver died" from "the driver waited and the
+        // app never registered", which are fixed in different places.
+        console.error(
+            `ui-preview: WebDriver session failed on port ${port} (driver exited: ${JSON.stringify(driver.exited)})`
+        );
+        // A driver left running keeps the port, so the next boot fails to bind
+        // and reports a port conflict instead of the original session error.
+        driver.stop();
+        throw error;
+    }
 
     return {
         driver,

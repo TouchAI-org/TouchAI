@@ -16,6 +16,29 @@ function jobBlock(name) {
     return next === -1 ? workflow.slice(start) : workflow.slice(start, start + 1 + next);
 }
 
+function installedPackages(job) {
+    const lines = job.split('\n');
+    const start = lines.findIndex((line) => line.includes('apt-get install'));
+    const packages = [];
+
+    for (let index = start + 1; index < lines.length; index += 1) {
+        const line = lines[index].trim();
+        const name = line.replace(/\\$/, '').trim();
+
+        if (!name) {
+            break;
+        }
+
+        packages.push(name);
+
+        if (!line.endsWith('\\')) {
+            break;
+        }
+    }
+
+    return new Set(packages);
+}
+
 describe('user opens a pull request that runs the preview', () => {
     it('user gets a preview trigger that never uses the default write token', () => {
         expect(workflow).toContain('pull_request_target');
@@ -54,6 +77,16 @@ describe('user opens a pull request that runs the preview', () => {
         expect(record).not.toContain('needs.detect.outputs.head_repo');
         expect(record).not.toContain('secrets.');
         expect(record).not.toContain('environment:');
+    });
+
+    it('user gets the recording job installed with every library the build job needs', () => {
+        const explorePackages = installedPackages(jobBlock('explore'));
+        const recordPackages = installedPackages(jobBlock('record'));
+
+        // Both jobs drive the same binary through tauri-driver, so a package the
+        // build job needs to reach a session is needed by the recorder too.
+        expect([...explorePackages].filter((name) => !recordPackages.has(name))).toEqual([]);
+        expect(recordPackages.has('libwebkit2gtk-4.1-dev')).toBe(true);
     });
 
     it('user gets the model key only in a job that does not run pull-request code', () => {
