@@ -63,6 +63,63 @@ describe('user reaches the native backend through one facade', () => {
     });
 });
 
+describe('user diagnostics reach the native backend', () => {
+    const envelope = {
+        ts: 1_760_000_000_000,
+        level: 3,
+        event: 'app.log',
+        msg: 'hello',
+        attrs: { scope: 'test' },
+    };
+
+    it.each([
+        {
+            name: 'user sends a structured log batch',
+            call: () => native.observability.ingest([envelope]),
+            cmd: 'obs_ingest',
+            payload: { batch: [envelope] },
+        },
+        {
+            name: 'user reads the run identifier',
+            call: () => native.observability.runId(),
+            cmd: 'obs_run_id',
+            payload: undefined,
+        },
+        {
+            name: 'user turns diagnostic mode on',
+            call: () => native.observability.setDiagnosticMode(true),
+            cmd: 'obs_set_diagnostic_mode',
+            payload: { enabled: true },
+        },
+        {
+            name: 'user reads the diagnostic mode status',
+            call: () => native.observability.diagnosticModeStatus(),
+            cmd: 'obs_diagnostic_mode_status',
+            payload: undefined,
+        },
+        {
+            name: 'user previews the diagnostic bundle',
+            call: () => native.observability.previewBundle(),
+            cmd: 'obs_preview_bundle',
+            payload: undefined,
+        },
+        {
+            name: 'user exports the diagnostic bundle',
+            call: () => native.observability.exportBundle('/tmp/bundle.zip'),
+            cmd: 'obs_export_bundle',
+            payload: { destination: '/tmp/bundle.zip' },
+        },
+        {
+            name: 'user dismisses recorded crashes',
+            call: () => native.observability.dismissCrashes(),
+            cmd: 'obs_dismiss_crashes',
+            payload: undefined,
+        },
+    ])('$name', async ({ call, cmd, payload }) => {
+        await callAndExpectInvoke(call, cmd, payload);
+    });
+});
+
 describe('user drives a browser through the app', () => {
     it.each([
         {
