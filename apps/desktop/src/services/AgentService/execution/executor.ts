@@ -6,6 +6,7 @@ import type { ProviderDriver } from '@database/schema';
 import type { Span } from '@opentelemetry/api';
 import { error as obsError, event, log } from '@services/ObservabilityService';
 import { ATTR } from '@services/ObservabilityService/attributes';
+import { serializeAuditPayload } from '@services/ObservabilityService/redact';
 import { withSpan } from '@services/ObservabilityService/tracing';
 
 import { tt } from '@/i18n';
@@ -672,7 +673,7 @@ export class AiRequestExecutor {
                 session_id: options.sessionId,
                 message_id: options.toolCallMessageId,
                 iteration: options.iteration,
-                input: JSON.stringify(options.toolArgs),
+                input: serializeAuditPayload(options.toolArgs),
                 status: 'pending',
             });
             toolLogId = toolLog.id;
@@ -716,10 +717,10 @@ export class AiRequestExecutor {
         });
 
         await updateMcpToolLogByCallId(options.toolCall.id, {
-            output: toolResult.result,
+            output: serializeAuditPayload(toolResult.result),
             status: toolResult.isError ? 'error' : 'success',
             duration_ms: durationMs,
-            error_message: toolResult.isError ? toolResult.result : null,
+            error_message: toolResult.isError ? serializeAuditPayload(toolResult.result) : null,
         }).catch((error) => {
             log.error('[AiRequestExecutor] Failed to update MCP tool log:', error);
         });

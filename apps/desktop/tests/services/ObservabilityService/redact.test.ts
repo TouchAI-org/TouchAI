@@ -128,6 +128,42 @@ describe('user does not leak secrets into logs', () => {
         });
     });
 
+    it('user gets camelCase credential fields redacted in audit payloads', () => {
+        const payload = serializeAuditPayload({
+            accessToken: 'plain-access-token',
+            refreshToken: 'plain-refresh-token',
+            clientSecret: 'plain-client-secret',
+            privateKey: 'plain-private-key',
+            sessionId: 'kept',
+        });
+
+        expect(payload).not.toContain('plain-access-token');
+        expect(payload).not.toContain('plain-refresh-token');
+        expect(payload).not.toContain('plain-client-secret');
+        expect(payload).not.toContain('plain-private-key');
+        expect(JSON.parse(payload)).toEqual({
+            accessToken: '[redacted]',
+            refreshToken: '[redacted]',
+            clientSecret: '[redacted]',
+            privateKey: '[redacted]',
+            sessionId: 'kept',
+        });
+    });
+
+    it('user gets nested truncation marked in audit payloads', () => {
+        const payload = serializeAuditPayload({
+            items: Array.from({ length: 102 }, (_, index) => index),
+            wide: Object.fromEntries(
+                Array.from({ length: 202 }, (_, index) => [`k${index}`, index])
+            ),
+        });
+        const parsed = JSON.parse(payload);
+
+        expect(parsed.items).toHaveLength(101);
+        expect(parsed.items[100]).toBe('[truncated 2 entries]');
+        expect(parsed.wide._truncated_keys).toBe(2);
+    });
+
     it('user keeps ordinary tool output beyond the log attribute limit', () => {
         const output = serializeAuditPayload(`result: ${'x'.repeat(2000)}`);
 

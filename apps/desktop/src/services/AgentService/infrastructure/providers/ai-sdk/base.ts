@@ -32,6 +32,10 @@ import { normalizeResponsesReasoningStream } from './responsesStream';
 import { createAiSdkStreamProcessor } from './stream';
 import { createTauriFetch } from './tauriFetch';
 
+/**
+ * AI SDK 的 span 只在进程内交给本地 tracer，没有任何 exporter，因此不会离开本机。
+ * 以后接入远程遥测时，必须改成由用户开关控制，不能沿用这里的固定值。
+ */
 export const AI_SDK_TELEMETRY = {
     isEnabled: true,
     functionId: 'touchai.model.stream',

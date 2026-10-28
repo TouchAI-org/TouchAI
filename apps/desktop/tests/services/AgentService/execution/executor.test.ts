@@ -434,6 +434,43 @@ describe('user runs a tool call and watches it start', () => {
             startedAt: expect.any(Number),
         });
     }, 30_000);
+
+    it('user does not get mcp tool secrets stored in the audit log', async () => {
+        vi.clearAllMocks();
+        createMcpToolLogMock.mockResolvedValue({ id: 23 });
+        updateMcpToolLogByCallIdMock.mockResolvedValue(undefined);
+        resolveToolCallMock.mockResolvedValue({
+            serverId: 1,
+            originalName: 'search',
+            toolTimeout: 30000,
+        });
+        executeToolMock.mockResolvedValue({
+            result: 'called https://api.example.test/v1?token=result-secret',
+            isError: false,
+        });
+
+        const executor = new AiRequestExecutor();
+        await (executor as unknown as TestExecutor).executeMcpToolCall({
+            toolCall: createToolCall(),
+            toolArgs: { query: 'alpha', accessToken: 'argument-secret' },
+            iteration: 0,
+            sessionId: null,
+            toolCallMessageId: null,
+        });
+
+        const storedInput = createMcpToolLogMock.mock.calls[0]?.[0] as { input: string };
+        const storedOutput = updateMcpToolLogByCallIdMock.mock.calls[0]?.[1] as {
+            output: string;
+        };
+
+        expect(storedInput.input).not.toContain('argument-secret');
+        expect(JSON.parse(storedInput.input)).toMatchObject({
+            query: 'alpha',
+            accessToken: '[redacted]',
+        });
+        expect(storedOutput.output).not.toContain('result-secret');
+        expect(storedOutput.output).toContain('https://api.example.test/v1');
+    }, 30_000);
 });
 
 describe('user calls a tool the agent does not have', () => {

@@ -127,6 +127,11 @@ describe('user runs a built-in tool', () => {
                 result: 'failed with sk-live-secret-123456',
                 isError: false,
                 status: 'success',
+                conversationSemantic: {
+                    action: 'run',
+                    target: 'https://api.example.test/v1?token=semantic-secret',
+                },
+                structuredPayload: { accessToken: 'structured-secret' },
             })),
         });
 
@@ -151,6 +156,8 @@ describe('user runs a built-in tool', () => {
             'call-builtin-1',
             expect.objectContaining({
                 output: expect.not.stringContaining('sk-live-secret-123456'),
+                conversation_semantic_json: expect.not.stringContaining('semantic-secret'),
+                structured_payload_json: expect.not.stringContaining('structured-secret'),
             })
         );
     });

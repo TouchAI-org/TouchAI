@@ -544,11 +544,11 @@ class BuiltInToolService {
         await updateBuiltInToolLogByCallId(options.toolCall.id, {
             output: serializeAuditPayload(toolResult.result),
             conversation_semantic_json: toolResult.conversationSemantic
-                ? JSON.stringify(toolResult.conversationSemantic)
+                ? serializeAuditPayload(toolResult.conversationSemantic)
                 : null,
             // 结构化载荷单独存一列，避免往模型可见的 output 里塞 JSON。
             structured_payload_json: toolResult.structuredPayload
-                ? JSON.stringify(toolResult.structuredPayload)
+                ? serializeAuditPayload(toolResult.structuredPayload)
                 : null,
             status:
                 toolResult.status === 'success'

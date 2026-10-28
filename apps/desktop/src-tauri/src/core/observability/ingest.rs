@@ -65,16 +65,16 @@ impl LogEnvelope {
         }
 
         for (key, value) in &self.attrs {
-            let key = sanitize_key(key);
-            if key.is_empty() {
+            let sanitized = sanitize_key(key);
+            if sanitized.is_empty() {
                 continue;
             }
-            if is_secret_key(&key) {
-                fields.push(format!("{key}={REDACTED}"));
+            if is_secret_key(key) {
+                fields.push(format!("{sanitized}={REDACTED}"));
                 continue;
             }
             if let Some(value) = format_value(value) {
-                fields.push(format!("{key}={value}"));
+                fields.push(format!("{sanitized}={value}"));
             }
         }
 
@@ -152,24 +152,51 @@ fn sanitize_key(key: &str) -> String {
         .collect()
 }
 
-fn is_secret_key(key: &str) -> bool {
-    key.split(|character: char| !character.is_ascii_alphanumeric())
+/// 字段名先按 camelCase 拆词，避免 `accessToken` 被当成一个普通单词放过。
+fn key_parts(key: &str) -> Vec<String> {
+    let characters: Vec<char> = key.chars().collect();
+    let mut split = String::with_capacity(key.len() + 4);
+
+    for (index, character) in characters.iter().enumerate() {
+        let previous = index.checked_sub(1).map(|position| characters[position]);
+        let next = characters.get(index + 1);
+        let starts_word = previous.is_some_and(|previous| {
+            previous.is_ascii_lowercase()
+                || previous.is_ascii_digit()
+                || (previous.is_ascii_uppercase()
+                    && next.is_some_and(|next| next.is_ascii_lowercase()))
+        });
+
+        if starts_word && character.is_ascii_uppercase() {
+            split.push('_');
+        }
+        split.push(*character);
+    }
+
+    split
+        .to_ascii_lowercase()
+        .split(|character: char| !character.is_ascii_alphanumeric())
         .filter(|part| !part.is_empty())
-        .any(|part| {
-            matches!(
-                part,
-                "authorization"
-                    | "cookie"
-                    | "password"
-                    | "passwd"
-                    | "secret"
-                    | "token"
-                    | "key"
-                    | "apikey"
-                    | "credential"
-                    | "auth"
-            )
-        })
+        .map(str::to_string)
+        .collect()
+}
+
+fn is_secret_key(key: &str) -> bool {
+    key_parts(key).iter().any(|part| {
+        matches!(
+            part.as_str(),
+            "authorization"
+                | "cookie"
+                | "password"
+                | "passwd"
+                | "secret"
+                | "token"
+                | "key"
+                | "apikey"
+                | "credential"
+                | "auth"
+        )
+    })
 }
 
 fn format_value(value: &Value) -> Option<String> {
@@ -378,6 +405,31 @@ mod tests {
         assert!(!line.contains("/path"));
         assert!(line.contains("db.example.test"));
         assert!(line.contains("example.test"));
+    }
+
+    #[test]
+    fn user_does_not_see_camel_case_secret_attributes() {
+        let mut event = envelope("mcp.connect.failed");
+        event
+            .attrs
+            .insert("accessToken".to_string(), json!("plain-access-token"));
+        event
+            .attrs
+            .insert("clientSecret".to_string(), json!("plain-client-secret"));
+        event
+            .attrs
+            .insert("privateKey".to_string(), json!("plain-private-key"));
+        event.attrs.insert("sessionId".to_string(), json!("kept"));
+
+        let line = event.to_line("7f3a9c");
+
+        assert!(!line.contains("plain-access-token"));
+        assert!(!line.contains("plain-client-secret"));
+        assert!(!line.contains("plain-private-key"));
+        assert!(line.contains("accesstoken=[redacted]"));
+        assert!(line.contains("clientsecret=[redacted]"));
+        assert!(line.contains("privatekey=[redacted]"));
+        assert!(line.contains("sessionid=kept"));
     }
 
     #[test]

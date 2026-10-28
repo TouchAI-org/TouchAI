@@ -46,13 +46,22 @@ const SECRET_KEY_TOKENS = new Set([
     'auth',
 ]);
 
-/** 字段名按分隔符拆词，避免 `monkey` 这类单词被误判为密钥。 */
-export function isSecretKey(key: string): boolean {
+/**
+ * Split camelCase before matching, so `accessToken` and `privateKey` are treated like
+ * `access_token` and `private_key`. A plain lowercase split missed them entirely.
+ */
+function keyParts(key: string): string[] {
     return key
+        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
         .toLowerCase()
         .split(/[^a-z0-9]+/)
-        .filter(Boolean)
-        .some((part) => SECRET_KEY_TOKENS.has(part));
+        .filter(Boolean);
+}
+
+/** 字段名按分隔符拆词，避免 `monkey` 这类单词被误判为密钥。 */
+export function isSecretKey(key: string): boolean {
+    return keyParts(key).some((part) => SECRET_KEY_TOKENS.has(part));
 }
 
 /** 属性值进入队列前统一脱敏；密钥字段整体替换。 */
@@ -155,12 +164,20 @@ function sanitizeAuditValue(value: unknown, depth = 0): unknown {
     if (typeof value === 'string') return redactText(value, 8192);
     if (typeof value !== 'object' || value === null) return value;
     if (Array.isArray(value)) {
-        return value.slice(0, 100).map((entry) => sanitizeAuditValue(entry, depth + 1));
+        const kept = value.slice(0, 100).map((entry) => sanitizeAuditValue(entry, depth + 1));
+        if (value.length > 100) {
+            kept.push(`[truncated ${value.length - 100} entries]`);
+        }
+        return kept;
     }
 
     const sanitized: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value).slice(0, 200)) {
+    const entries = Object.entries(value);
+    for (const [key, entry] of entries.slice(0, 200)) {
         sanitized[key] = isSecretKey(key) ? REDACTED : sanitizeAuditValue(entry, depth + 1);
+    }
+    if (entries.length > 200) {
+        sanitized._truncated_keys = entries.length - 200;
     }
     return sanitized;
 }
