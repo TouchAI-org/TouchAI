@@ -300,12 +300,6 @@
         if (section !== activeSection.value) return;
 
         resolvedSection.value = section;
-        if (import.meta.env.DEV) {
-            console.warn('[settings-section]', {
-                section,
-                sinceNavigation: Math.round(performance.now()),
-            });
-        }
         if (section === 'general') {
             void invokePendingUpdateRequest();
         }
@@ -354,12 +348,6 @@
     }
 
     onMounted(() => {
-        if (import.meta.env.DEV) {
-            // 白屏排查：从窗口开始导航到 Vue 挂载的耗时（含 dev 下的模块编译）。
-            console.warn('[settings-open]', {
-                sinceNavigation: Math.round(performance.now()),
-            });
-        }
         syncNativeWindowTitle();
         checkForUpdatesOnOpen();
         if (new URLSearchParams(window.location.hash.split('?')[1]).get('section') === 'updates') {

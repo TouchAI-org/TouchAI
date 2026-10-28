@@ -16,34 +16,30 @@
                 <template v-else>
                     <div v-if="renderedParts.length > 0" class="assistant-message-parts">
                         <div
-                            v-for="block in renderedBlocks"
-                            :key="block.kind === 'tool-run' ? block.id : block.part.id"
+                            v-for="part in renderedParts"
+                            :key="part.id"
                             class="assistant-message-part"
                         >
-                            <ToolRunGroup v-if="block.kind === 'tool-run'" :parts="block.parts" />
                             <ReasoningBlock
-                                v-else-if="block.part.type === 'reasoning'"
-                                :content="block.part.content"
-                                :is-streaming="block.part.isStreaming"
-                                :started-at="block.part.startedAt"
-                                :ended-at="block.part.endedAt"
+                                v-if="part.type === 'reasoning'"
+                                :content="part.content"
+                                :is-streaming="part.isStreaming"
+                                :started-at="part.startedAt"
+                                :ended-at="part.endedAt"
                             />
                             <MarkdownContent
-                                v-else-if="block.part.type === 'text'"
-                                :content="block.part.content"
+                                v-else-if="part.type === 'text'"
+                                :content="part.content"
                                 :final="!message.isStreaming"
                             />
                             <ToolCallItem
-                                v-else-if="block.part.type === 'tool_call'"
-                                :tool-call="block.part.toolCall"
+                                v-else-if="part.type === 'tool_call'"
+                                :tool-call="part.toolCall"
                             />
-                            <WidgetFrame
-                                v-else-if="block.part.type === 'widget'"
-                                :widget="block.part.widget"
-                            />
+                            <WidgetFrame v-else-if="part.type === 'widget'" :widget="part.widget" />
                             <ToolApprovalHistoryCard
-                                v-else-if="block.part.type === 'approval'"
-                                :approval="block.part.approval"
+                                v-else-if="part.type === 'approval'"
+                                :approval="part.approval"
                             />
                         </div>
                     </div>
@@ -115,11 +111,9 @@ import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
         type WebSearchCitationRegistry,
     } from '@/views/SearchView/components/WebSearch/citations';
 
-    import { groupToolRuns } from '../toolRunGroups';
     import ReasoningBlock from './ReasoningBlock.vue';
     import ToolApprovalHistoryCard from './ToolApprovalHistoryCard.vue';
     import ToolCallItem from './ToolCallItem.vue';
-    import ToolRunGroup from './ToolRunGroup.vue';
     import WidgetFrame from './WidgetFrame.vue';
 
     interface Props {
@@ -246,21 +240,6 @@ import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
     );
 
     onMounted(() => {
-        if (import.meta.env.DEV) {
-            // 首屏定位排查：单条消息从挂载到首帧的耗时（含 Markdown/工具/Widget）。
-            const startedAt = performance.now();
-            requestAnimationFrame(() => {
-                const elapsed = Math.round(performance.now() - startedAt);
-                if (elapsed > 50) {
-                    console.warn('[msg-mount]', {
-                        id: props.message.id,
-                        parts: props.message.parts.length,
-                        textChars: props.message.content.length,
-                        ms: elapsed,
-                    });
-                }
-            });
-        }
         document.addEventListener('visibilitychange', handleVisibilityChange);
     });
 
@@ -386,26 +365,6 @@ import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
         return parts;
     });
 
-    /**
-     * 连续工具调用折叠。
-     *
-     * 流式期间不折：用户需要看到每个工具的实时进度；
-     * 历史消息里连续 ≥3 个工具调用合并成一行摘要，展开时才挂载卡片。
-     * 这是首屏最大的单项开销（单条消息可能连开十几个工具卡）。
-     */
-    const renderedBlocks = computed(() =>
-        groupToolRuns<RenderedPart, Extract<RenderedPart, { type: 'tool_call' }>>(
-            renderedParts.value,
-            {
-                isToolCall: (part): part is Extract<RenderedPart, { type: 'tool_call' }> =>
-                    part.type === 'tool_call',
-                getId: (part) => part.id,
-                minRun: 3,
-                // 流式期间按连续折叠（保留实时进度），历史消息把整条的工具调用聚合成一行。
-                mode: props.message.isStreaming ? 'consecutive' : 'all',
-            }
-        )
-    );
     const streamingIndicatorClass = computed(() => {
         const marginTop = 'mt-5';
 

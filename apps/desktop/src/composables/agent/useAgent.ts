@@ -133,20 +133,10 @@ export function useAgent(options: UseAiRequestOptions = {}) {
      * 长会话的渲染开销由布界挂载（窗口化）控制，不会随消息数线性增长 DOM。
      */
     async function loadPersistedSession(sessionId: number): Promise<LoadedSessionInfo> {
-        const startedAt = performance.now();
         const loaded = await loadCompleteSessionHistory(sessionId);
         sessionHistory.value = loaded.history;
         currentSessionId.value = loaded.session.id;
         resetTransientState();
-
-        // 开发期埋点：打开会话的总耗时与消息数（会落到 Rust 日志，不依赖 DevTools）。
-        if (import.meta.env.DEV) {
-            console.warn('[history-open]', {
-                sessionId,
-                messages: loaded.history.length,
-                totalMs: Math.round(performance.now() - startedAt),
-            });
-        }
 
         return {
             sessionId: loaded.session.id,

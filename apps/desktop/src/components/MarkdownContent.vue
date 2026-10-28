@@ -283,30 +283,12 @@
             return [];
         }
 
-        const startedAt = import.meta.env.DEV ? performance.now() : 0;
-        const parsed = parseMarkdownToStructure(
-            input.content,
-            getTouchAiMarkdownParser(input.final),
-            {
-                final: input.final,
-                // 未闭合的数学边界会让增量 parser 吞掉后续标题，只有这种情况回退全量解析；
-                // 公式已闭合时继续使用增量缓存，避免每个 chunk 全量重解析长文。
-                streamParse: hasUnclosedMathDelimiterOutsideCode(input.content) ? false : 'auto',
-            }
-        );
-        if (import.meta.env.DEV) {
-            const elapsed = Math.round(performance.now() - startedAt);
-            if (elapsed > 8) {
-                console.warn('[md-parse]', {
-                    chars: input.content.length,
-                    nodes: parsed.length,
-                    final: input.final,
-                    ms: elapsed,
-                });
-            }
-        }
-
-        return parsed;
+        return parseMarkdownToStructure(input.content, getTouchAiMarkdownParser(input.final), {
+            final: input.final,
+            // 未闭合的数学边界会让增量 parser 吞掉后续标题，只有这种情况回退全量解析；
+            // 公式已闭合时继续使用增量缓存，避免每个 chunk 全量重解析长文。
+            streamParse: hasUnclosedMathDelimiterOutsideCode(input.content) ? false : 'auto',
+        });
     }
 
     const nodes = ref<ParsedNode[]>([]);
