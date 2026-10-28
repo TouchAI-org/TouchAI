@@ -446,6 +446,44 @@
      *
      * 打开长会话卡顿时，这个值与 `[history-open]` 一起能区分是「取数」还是「渲染」。
      */
+    /**
+     * 切换到某个会话时的首屏定位。
+     *
+     * 先隐藏列表（保留布局供测量）→ 定位到底 → 一帧后校正 → 显示，
+     * 避免“先看到顶部再滑到底”的闪烁；同时按阶段计时，便于定位卡顿位置。
+     *
+     * @param messageCount 本会话消息条数。
+     */
+    function positionListAtBottom(messageCount: number) {
+        const phaseStartedAt = performance.now();
+        isListPositioned.value = false;
+        void nextTick(() => {
+            const patchedAt = performance.now();
+            syncToBottom();
+            const scrolledAt = performance.now();
+            requestAnimationFrame(() => {
+                const frame1At = performance.now();
+                syncToBottom();
+                isListPositioned.value = true;
+                requestAnimationFrame(() => {
+                    if (import.meta.env.DEV) {
+                        console.warn('[open-phase]', {
+                            messages: messageCount,
+                            patch: Math.round(patchedAt - phaseStartedAt),
+                            scroll: Math.round(scrolledAt - patchedAt),
+                            frame1: Math.round(frame1At - scrolledAt),
+                            frame2: Math.round(performance.now() - frame1At),
+                            mounted:
+                                conversationContainer.value?.querySelectorAll('[data-message-id]')
+                                    .length,
+                        });
+                    }
+                    logFirstRenderCost(messageCount);
+                });
+            });
+        });
+    }
+
     function logFirstRenderCost(messageCount: number) {
         const startedAt = performance.now();
         void nextTick(() => {
@@ -483,36 +521,8 @@
             // 向顶部加载历史页（prepend）不能改变跟随状态，否则刚上滚的视图会被拉回底部。
             if (change !== 'append') {
                 if (change === 'replace') {
-                    // 整表替换 = 切换到了另一个会话：先隐藏，等定位到底后再显示，
-                    // 否则用户会看到“先停在顶部、下一帧才跳到底部”的闪烁。
-                    const phaseStartedAt = performance.now();
-                    isListPositioned.value = false;
-                    void nextTick(() => {
-                        const patchedAt = performance.now();
-                        syncToBottom();
-                        const scrolledAt = performance.now();
-                        requestAnimationFrame(() => {
-                            const frame1At = performance.now();
-                            syncToBottom();
-                            isListPositioned.value = true;
-                            requestAnimationFrame(() => {
-                                if (import.meta.env.DEV) {
-                                    console.warn('[open-phase]', {
-                                        messages: nextIds.length,
-                                        patch: Math.round(patchedAt - phaseStartedAt),
-                                        scroll: Math.round(scrolledAt - patchedAt),
-                                        frame1: Math.round(frame1At - scrolledAt),
-                                        frame2: Math.round(performance.now() - frame1At),
-                                        mounted:
-                                            conversationContainer.value?.querySelectorAll(
-                                                '[data-message-id]'
-                                            ).length,
-                                    });
-                                }
-                                logFirstRenderCost(nextIds.length);
-                            });
-                        });
-                    });
+                    // 整表替换 = 切换到了另一个会话。
+                    positionListAtBottom(nextIds.length);
                 }
                 return;
             }
@@ -585,17 +595,7 @@
         // 首次挂载时消息可能已经就绪（面板晚于会话数据挂载），
         // 这时没有 watcher 可依赖，必须在这里主动定位到底部。
         if (props.messages.length > 0) {
-            isListPositioned.value = false;
-            void nextTick(() => {
-                syncToBottom();
-                requestAnimationFrame(() => {
-                    syncToBottom();
-                    isListPositioned.value = true;
-                    if (import.meta.env.DEV) {
-                        logFirstRenderCost(props.messages.length);
-                    }
-                });
-            });
+            positionListAtBottom(props.messages.length);
         }
     });
 </script>

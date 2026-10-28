@@ -296,7 +296,7 @@
         );
         if (import.meta.env.DEV) {
             const elapsed = Math.round(performance.now() - startedAt);
-            if (elapsed > 40) {
+            if (elapsed > 8) {
                 console.warn('[md-parse]', {
                     chars: input.content.length,
                     nodes: parsed.length,
