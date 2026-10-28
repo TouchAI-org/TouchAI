@@ -11,7 +11,15 @@ export function invoke<T>(command: string, args?: InvokeArgs, options?: InvokeOp
     }
 
     const traceparent = currentTraceparent();
-    const payload =
-        traceparent && (!args || !Array.isArray(args)) ? { ...(args ?? {}), traceparent } : args;
+    // 只有对象形式的参数能安全合并；数组和二进制负载必须原样传递。
+    const canAttachTrace = args === undefined || isPlainObject(args);
+    const payload = traceparent && canAttachTrace ? { ...args, traceparent } : args;
     return tauriInvoke<T>(command, payload, options);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+    if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return false;
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
 }

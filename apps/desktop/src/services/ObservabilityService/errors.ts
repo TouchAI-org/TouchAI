@@ -59,8 +59,9 @@ export function classifyError(error: unknown): ObservabilityErrorCode {
     const message = error instanceof Error ? error.message : String(error);
     if (/abort|cancel|取消/i.test(message)) return 'request.cancelled';
     if (/timeout|timed out|超时/i.test(message)) return 'network.timeout';
-    if (/rate.?limit|429/i.test(message)) return 'provider.rate_limited';
-    if (/unauthori[sz]ed|forbidden|api.?key|401|403/i.test(message)) return 'provider.auth';
+    // 状态码按整段匹配：`port 14290 refused` 不是 429。
+    if (/rate.?limit|\b429\b/i.test(message)) return 'provider.rate_limited';
+    if (/unauthori[sz]ed|forbidden|api.?key|\b40[13]\b/i.test(message)) return 'provider.auth';
     if (/mcp/i.test(message)) return 'mcp.connect_failed';
     if (/fetch|network|offline/i.test(message)) return 'network.offline';
     return 'unknown';

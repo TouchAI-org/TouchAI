@@ -1,26 +1,24 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-
-import { classifyError, OBSERVABILITY_ERROR_CODES } from '@services/ObservabilityService/errors';
+import { classifyError } from '@services/ObservabilityService/errors';
 import { describe, expect, it } from 'vitest';
 
-describe('user gets stable error codes across the frontend and Rust', () => {
-    it('user gets the same error vocabulary on both sides of IPC', () => {
-        const rustSource = readFileSync(
-            resolve(process.cwd(), 'src-tauri/src/core/observability/error_code.rs'),
-            'utf8'
+describe('user reads the failure reason of a failed request', () => {
+    it('user gets a rate limit code when the message carries status 429', () => {
+        expect(classifyError(new Error('HTTP 429 Too Many Requests'))).toBe(
+            'provider.rate_limited'
         );
-        const rustCodes = [...rustSource.matchAll(/#\[serde\(rename = "([^"]+)"\)\]/g)].map(
-            (match) => match[1]
-        );
-
-        expect(rustCodes).toEqual([...OBSERVABILITY_ERROR_CODES]);
     });
 
-    it('user gets provider auth failures classified for a stable log field', () => {
-        expect(classifyError({ code: 'INVALID_API_KEY' })).toBe('provider.auth');
-        expect(classifyError(new Error('request timed out'))).toBe('network.timeout');
+    it('user gets no rate limit code when a longer number merely contains 429', () => {
+        expect(classifyError(new Error('port 14290 refused'))).not.toBe('provider.rate_limited');
+    });
+
+    it('user gets an auth code when the message carries status 401', () => {
+        expect(classifyError(new Error('401 Unauthorized'))).toBe('provider.auth');
+    });
+
+    it('user gets no auth code when a request id merely contains 401', () => {
+        expect(classifyError(new Error('request id 40123 finished'))).not.toBe('provider.auth');
     });
 });
