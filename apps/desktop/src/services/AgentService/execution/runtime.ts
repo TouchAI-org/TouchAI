@@ -43,6 +43,20 @@ import {
     waitForRetryDelay,
 } from './retry';
 
+/** 取消是用户主动操作，不应把 attempt span 标记为错误。 */
+export function attemptSpanStatus(
+    attemptResult: AttemptExecutionResult
+): { code: SpanStatusCode; message: string } | undefined {
+    if (attemptResult.type !== 'failed' || attemptResult.error.is(AiErrorCode.REQUEST_CANCELLED)) {
+        return undefined;
+    }
+
+    return {
+        code: SpanStatusCode.ERROR,
+        message: attemptResult.error.code,
+    };
+}
+
 /**
  * Host environment the runtime needs before it can run a turn.
  *
@@ -511,13 +525,7 @@ export class AiConversationRuntime {
                             requestUserQuestions: this.options.requestUserQuestions,
                         }),
                     turnSpan,
-                    (attemptResult) =>
-                        attemptResult.type === 'failed'
-                            ? {
-                                  code: SpanStatusCode.ERROR,
-                                  message: attemptResult.error.code,
-                              }
-                            : undefined
+                    attemptSpanStatus
                 );
 
                 await context.requestStartRecordPromise;

@@ -2,6 +2,7 @@
  * Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
  */
 
+import { SpanStatusCode } from '@opentelemetry/api';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
@@ -12,6 +13,7 @@ import type {
 } from '@/services/AgentService/execution/executor';
 import {
     AiConversationRuntime,
+    attemptSpanStatus,
     type ExecuteRequestOptions,
     summarizeTaskModel,
     type TurnEvent,
@@ -1010,6 +1012,27 @@ describe('user cancels a running request', () => {
         await expect(runtime.run()).rejects.toBeInstanceOf(AiError);
         expect(events).toEqual([]);
         expect(projectorMock.markCancelled).toHaveBeenCalled();
+    });
+});
+
+describe('user sees attempt spans reflect the request outcome', () => {
+    it('user sees a cancelled attempt leave the span status unset', () => {
+        const status = attemptSpanStatus(
+            failedResult({ error: new AiError(AiErrorCode.REQUEST_CANCELLED) })
+        );
+
+        expect(status).toBeUndefined();
+    });
+
+    it('user sees a failed attempt mark the span as an error', () => {
+        const status = attemptSpanStatus(
+            failedResult({ error: new AiError(AiErrorCode.RATE_LIMIT) })
+        );
+
+        expect(status).toEqual({
+            code: SpanStatusCode.ERROR,
+            message: AiErrorCode.RATE_LIMIT,
+        });
     });
 });
 
