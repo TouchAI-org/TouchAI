@@ -309,14 +309,24 @@ fn redact_stderr_line(line: &str) -> String {
     let mut tokens = line.split_whitespace().peekable();
 
     while let Some(token) = tokens.next() {
-        if token.starts_with("http://") || token.starts_with("https://") {
-            output.push(redact_url(token));
+        let core = token.trim_matches(|character: char| {
+            matches!(
+                character,
+                '"' | '\'' | '(' | '[' | '{' | '<' | ')' | ']' | '}' | '>' | ',' | ';'
+            )
+        });
+        if is_url_like(core) {
+            output.push(redact_url(core));
             continue;
         }
 
-        if let Some((name, _value)) = token.split_once('=') {
-            if is_secret_name(name) {
+        if let Some((name, value)) = core.split_once('=') {
+            if is_secret_name(name) || looks_like_secret_value(value) {
                 output.push(format!("{name}={REDACTED}"));
+                continue;
+            }
+            if is_url_like(value) {
+                output.push(format!("{name}={}", redact_url(value)));
                 continue;
             }
         }
@@ -483,6 +493,29 @@ mod tests {
 
         assert!(!redacted.contains("json-secret-value"));
         assert!(redacted.contains("[redacted]"));
+    }
+
+    #[test]
+    fn user_does_not_see_credentials_in_a_non_http_stderr_url() {
+        let redacted =
+            redact_stderr("connect postgres://user:pass@db.example.test:5432/app?sslkey=secret");
+
+        assert_eq!(
+            redacted,
+            "connect postgres://db.example.test:5432/[redacted-path]"
+        );
+        assert!(!redacted.contains("pass"));
+        assert!(!redacted.contains("secret"));
+    }
+
+    #[test]
+    fn user_does_not_see_url_credentials_after_a_harmless_key() {
+        let redacted =
+            redact_stderr("\"dsn=postgres://user:pass@db.example.test/app?token=secret\"");
+
+        assert_eq!(redacted, "dsn=postgres://db.example.test/[redacted-path]");
+        assert!(!redacted.contains("pass"));
+        assert!(!redacted.contains("secret"));
     }
 
     #[test]
