@@ -101,11 +101,19 @@ fn redact_positional(arg: &str) -> String {
     };
 
     if name.starts_with('-') {
+        // `--url=postgres://user:pass@host/db?token=...` 的 scheme 不是 http(s)，
+        // 但同样可能携带凭据，先按 URL 脱敏再考虑内层赋值。
+        if is_url_like(value) {
+            return format!("{name}={}", redact_url(value));
+        }
         return match value.split_once('=') {
             Some((inner_name, inner_value))
                 if is_secret_name(inner_name) || looks_like_secret_value(inner_value) =>
             {
                 format!("{name}={inner_name}={REDACTED}")
+            }
+            Some((inner_name, inner_value)) if is_url_like(inner_value) => {
+                format!("{name}={inner_name}={}", redact_url(inner_value))
             }
             _ => arg.to_string(),
         };
@@ -114,12 +122,31 @@ fn redact_positional(arg: &str) -> String {
     if is_secret_name(name) || looks_like_secret_value(value) {
         return format!("{name}={REDACTED}");
     }
+    if is_url_like(value) {
+        return format!("{name}={}", redact_url(value));
+    }
 
     arg.to_string()
 }
 
+/// 判断一个 token 是否带有 `scheme://`，不限定 http(s)。
+fn is_url_like(token: &str) -> bool {
+    let Some((scheme, rest)) = token.split_once("://") else {
+        return false;
+    };
+
+    !rest.is_empty()
+        && scheme
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_ascii_alphabetic())
+        && scheme.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '+' | '.' | '-')
+        })
+}
+
 /// 常见令牌前缀；键名本身没有密钥含义时，值也能单独判定。
-fn looks_like_secret_value(value: &str) -> bool {
+pub(crate) fn looks_like_secret_value(value: &str) -> bool {
     const PREFIXES: [&str; 6] = ["sk-", "pk-", "ghp_", "github_pat_", "xoxb-", "xoxp-"];
 
     PREFIXES
@@ -418,6 +445,22 @@ mod tests {
         assert_eq!(
             command_label("C:\\Program Files\\nodejs\\npx.cmd"),
             "npx.cmd"
+        );
+    }
+
+    #[test]
+    fn user_does_not_see_credentials_in_a_non_http_argument_url() {
+        let redacted = redact_args(&args(&[
+            "--url=postgres://user:pass@db.example.test:5432/app?sslmode=require",
+            "--env=DATABASE_URL=redis://:secret@cache.example.test/0",
+        ]));
+
+        assert_eq!(
+            redacted,
+            vec![
+                "--url=postgres://db.example.test:5432/[redacted-path]",
+                "--env=DATABASE_URL=redis://cache.example.test/[redacted-path]",
+            ]
         );
     }
 }
