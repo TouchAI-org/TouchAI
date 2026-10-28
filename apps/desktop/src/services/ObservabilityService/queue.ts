@@ -113,9 +113,19 @@ export class LogQueue {
             try {
                 await this.send(batch);
             } catch (error) {
+                // 发送失败时把这一批放回队首，等下一次 flush 重试，避免整批日志丢失。
+                this.requeue(batch);
                 this.onError(error);
                 return;
             }
+        }
+    }
+
+    /** 放回队首并保持容量上限；溢出时优先丢弃低级别日志。 */
+    private requeue(batch: LogEnvelope[]): void {
+        this.items.unshift(...batch);
+        while (this.items.length > this.capacity) {
+            this.dropOne();
         }
     }
 

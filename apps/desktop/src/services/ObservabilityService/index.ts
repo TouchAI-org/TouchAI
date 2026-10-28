@@ -19,6 +19,10 @@ let queue: LogQueue | null = null;
 let windowLabel: string | null = null;
 let initialized = false;
 let visibilityListenerInstalled = false;
+let shutdownFlushInstalled = false;
+
+/** 关闭前等待日志落盘的上限；后端卡住时不能让窗口关不掉。 */
+const SHUTDOWN_FLUSH_TIMEOUT_MS = 800;
 
 function resolveWindowLabel(): string | null {
     if (windowLabel) return windowLabel;
@@ -55,6 +59,40 @@ export function initObservability(): void {
             void flushObservability();
         });
     }
+
+    installShutdownFlush();
+}
+
+/**
+ * 窗口关闭前把队列刷完。WebView 销毁后 IPC 不再可用，只靠 pagehide 不保证送达。
+ */
+function installShutdownFlush(): void {
+    if (shutdownFlushInstalled) return;
+    shutdownFlushInstalled = true;
+
+    void (async () => {
+        try {
+            const currentWindow = getCurrentWindow();
+            await currentWindow.onCloseRequested(async (event) => {
+                event.preventDefault();
+                try {
+                    await Promise.race([
+                        flushObservability(),
+                        new Promise((resolve) => setTimeout(resolve, SHUTDOWN_FLUSH_TIMEOUT_MS)),
+                    ]);
+                } catch (error) {
+                    reportLoggingFailure(error);
+                }
+                try {
+                    await currentWindow.destroy();
+                } catch (error) {
+                    reportLoggingFailure(error);
+                }
+            });
+        } catch {
+            // 非 Tauri 环境（测试、浏览器预览）没有关闭钩子。
+        }
+    })();
 }
 
 /** 记录一条结构化事件。未初始化时静默丢弃，避免启动早期产生副作用。 */
@@ -149,5 +187,6 @@ export function resetObservabilityForTests(): void {
     windowLabel = null;
     initialized = false;
     visibilityListenerInstalled = false;
+    shutdownFlushInstalled = false;
     restoreConsoleInterceptor();
 }

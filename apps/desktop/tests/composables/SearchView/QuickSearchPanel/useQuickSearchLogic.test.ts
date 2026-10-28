@@ -134,16 +134,15 @@ function createQuickSearchDeps(
 ): UseQuickSearchDeps {
     return {
         quickSearch: {
-            getStatus:
-                overrides.getStatus ??
+            getStatus: (overrides.getStatus ??
                 vi.fn().mockResolvedValue({
                     provider: 'everything',
                     db_loaded: true,
                     index_warmed: true,
                     last_refresh_ms: null,
                     last_error: null,
-                }),
-            prepareIndex: overrides.prepareIndex ?? vi.fn().mockResolvedValue(undefined),
+                })) as never,
+            prepareIndex: (overrides.prepareIndex ?? vi.fn().mockResolvedValue(undefined)) as never,
             searchShortcuts: (overrides.searchShortcuts ??
                 vi.fn().mockResolvedValue(createSearchResult())) as never,
         },

@@ -124,4 +124,26 @@ describe('user keeps diagnostics when the log queue is under pressure', () => {
         queue.push(envelope(3, 'event'));
         await expect(queue.flush()).resolves.toBeUndefined();
     });
+
+    it('user keeps pending entries when the log backend fails once', async () => {
+        let attempt = 0;
+        const delivered: string[] = [];
+        const queue = queueWith(
+            async (batch) => {
+                attempt += 1;
+                if (attempt === 1) throw new Error('backend down');
+                delivered.push(...batch.map((entry) => entry.event));
+            },
+            10,
+            50
+        );
+
+        queue.push(envelope(3, 'event'));
+        await queue.flush();
+        expect(queue.size()).toBe(1);
+
+        await queue.flush();
+        expect(delivered).toEqual(['event']);
+        expect(queue.size()).toBe(0);
+    });
 });
