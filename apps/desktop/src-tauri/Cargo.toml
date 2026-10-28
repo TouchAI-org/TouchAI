@@ -11,6 +11,11 @@ edition = "2021"
 name = "TouchAI"
 path = "src/main.rs"
 
+[features]
+# The UI preview workflow builds with this feature so the app can be driven by
+# the embedded W3C WebDriver server. Release builds with it fail on purpose.
+ui-preview-webdriver = ["dep:tauri-plugin-wdio-webdriver"]
+
 [lib]
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
@@ -34,6 +39,7 @@ zip = { version = "9.1", default-features = false, features = ["deflate"] }
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api", "protocol-asset", "test", "tray-icon"] }
 tauri-plugin-log = { version = "2", features = ["colored"] }
+tauri-plugin-wdio-webdriver = { version = "1.5.1", optional = true }
 tauri-plugin-opener = "2"
 tauri-plugin-global-shortcut = "2.3.2"
 tauri-plugin-autostart = "2"

@@ -413,6 +413,14 @@ pub fn set_search_window_min_size<R: Runtime>(
     min_height: f64,
     max_height: Option<f64>,
 ) -> Result<(), String> {
+    // The idle search window constrains its maximum height to the search bar.
+    // In preview mode that would immediately collapse the recorder's fixed
+    // frame on platforms that apply constraints eagerly, so leave the frame
+    // chosen by the recorder alone for the whole clip.
+    if crate::core::system::runtime::is_ui_preview_mode() {
+        return Ok(());
+    }
+
     let window = app_handle
         .get_webview_window("main")
         .ok_or_else(|| "Failed to get main window".to_string())?;
@@ -423,6 +431,12 @@ pub fn set_search_window_min_size<R: Runtime>(
 pub fn reset_search_window_to_defaults<R: Runtime>(
     window: &WebviewWindow<R>,
 ) -> Result<(), String> {
+    // The preview sets one stable frame before recording; restoring the
+    // default height here would shrink it back to the search bar and move it.
+    if crate::core::system::runtime::is_ui_preview_mode() {
+        return Ok(());
+    }
+
     let runtime = window
         .app_handle()
         .try_state::<crate::core::window::search::surface::SearchWindowRuntime>()
@@ -500,6 +514,13 @@ pub async fn resize_window_height<R: Runtime>(
     respect_manual_override: Option<bool>,
 ) -> Result<(), String> {
     let label = window.label().to_string();
+
+    // A preview must not move while the viewer reads it. The recorder chooses
+    // the search window frame once and keeps it for the whole clip.
+    if label == "main" && crate::core::system::runtime::is_ui_preview_mode() {
+        return Ok(());
+    }
+
     if !is_content_driven_resize_allowed(&window)? {
         return Ok(());
     }

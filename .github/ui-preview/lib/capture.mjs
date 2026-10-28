@@ -1,27 +1,23 @@
 /**
  * X11 capture helpers.
  *
- * Screenshots come from the Xvfb root and are cropped to the focused window, so
- * native transparency and rounded corners are visible against a known desktop
- * colour. The video records the whole virtual display at 30 fps.
+ * On Linux, screenshots come from the Xvfb root and are cropped to the focused
+ * window. The display wrapper paints a light backdrop window so transparency,
+ * rounded corners, and compositor shadows remain visible. macOS and Windows use
+ * the WebDriver screenshot of the current webview. Video capture lives in
+ * native-capture.mjs.
  */
 
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-export const SCREEN_WIDTH = 1280;
-export const SCREEN_HEIGHT = 900;
-// The active window starts below the burned-in title, so the caption never
-// covers the app.
-export const STAGE_TOP = 64;
-// picom renders the root window black on this Xvfb build even after the root
-// pixmap is set, so black is the colour the capture actually shows.
-export const DESKTOP_COLOUR = '#000000';
+// Keep this in sync with the workflow env and the platform display helpers.
+export const DESKTOP_COLOUR = '#d9d4c8';
 
-// The recorder requests 10 fps because 30 fps on a shared runner drops most
-// frames and produces a video that is far shorter than the session.
-export const RECORDING_FPS = 10;
+// A solid black 750x60 PNG is about 312 bytes. A real compact search bar is
+// larger even when it contains almost no content.
+const MIN_PAINTED_WINDOW_BYTES = 1024;
 
 function run(command, args, options = {}) {
     const result = spawnSync(command, args, { encoding: 'utf8', ...options });
@@ -37,8 +33,27 @@ export function hasCommand(command) {
     return spawnSync('sh', ['-c', `command -v ${command}`], { encoding: 'utf8' }).status === 0;
 }
 
+function hasDesktopPixmap(display) {
+    const result = run('xprop', ['-root', '_XROOTPMAP_ID'], {
+        env: { ...process.env, DISPLAY: display },
+    });
+
+    return result.status === 0 && !result.stdout.includes('not found');
+}
+
 export function paintDesktop(display) {
+    // feh publishes a real root pixmap that picom can composite. Calling
+    // xsetroot after that point makes this Xvfb/picom build render black, so
+    // retain it only for standalone recorder runs without the wrapper.
+    if (hasDesktopPixmap(display)) {
+        return;
+    }
+
     run('xsetroot', ['-solid', DESKTOP_COLOUR], { env: { ...process.env, DISPLAY: display } });
+}
+
+export function isPaintedWindowFrame(file) {
+    return fs.existsSync(file) && fs.statSync(file).size >= MIN_PAINTED_WINDOW_BYTES;
 }
 
 /**
@@ -129,7 +144,7 @@ export function windowGeometry(display, id) {
  * surface decides by size. This does not depend on input focus, which is not
  * reliable when the driver drives the app instead of a person.
  */
-export function windowForSurface(display, surface) {
+export function windowForSurface(display, surface, scale = 1) {
     const env = { ...process.env, DISPLAY: display };
     const listed = run('xdotool', ['search', '--onlyvisible', '--name', 'TouchAI'], { env });
     const ids = listed.stdout
@@ -146,10 +161,10 @@ export function windowForSurface(display, surface) {
 
     const score = (geometry) =>
         surface === 'settings'
-            ? (geometry.width >= 900 && geometry.height >= 500 ? 0 : 10000) +
-              Math.abs(geometry.width - 1120) +
-              Math.abs(geometry.height - 700)
-            : (geometry.width <= 900 ? 0 : 10000) + Math.abs(geometry.width - 750);
+            ? (geometry.width >= 900 * scale && geometry.height >= 500 * scale ? 0 : 10000) +
+              Math.abs(geometry.width - 1120 * scale) +
+              Math.abs(geometry.height - 700 * scale)
+            : (geometry.width <= 900 * scale ? 0 : 10000) + Math.abs(geometry.width - 750 * scale);
 
     return candidates.sort((left, right) => score(left) - score(right))[0];
 }
@@ -172,6 +187,12 @@ export function listAppWindows(display) {
 
 export function moveWindow(display, id, x, y) {
     run('xdotool', ['windowmove', id, String(x), String(y)], {
+        env: { ...process.env, DISPLAY: display },
+    });
+}
+
+export function resizeWindow(display, id, width, height) {
+    run('xdotool', ['windowsize', id, String(width), String(height)], {
         env: { ...process.env, DISPLAY: display },
     });
 }
@@ -230,11 +251,14 @@ export function cropToElement({
     const wanted = {
         width: Math.min(
             size.width,
-            Math.max(minWidth, Math.round((rect.width + padding * 2) * scaleX))
+            Math.max(Math.round(minWidth * scaleX), Math.round((rect.width + padding * 2) * scaleX))
         ),
         height: Math.min(
             size.height,
-            Math.max(minHeight, Math.round((rect.height + padding * 2) * scaleY))
+            Math.max(
+                Math.round(minHeight * scaleY),
+                Math.round((rect.height + padding * 2) * scaleY)
+            )
         ),
     };
     const centerX = (rect.x + rect.width / 2) * scaleX;
@@ -248,12 +272,20 @@ export function cropToElement({
         Math.min(size.height - wanted.height, Math.round(centerY - wanted.height / 2))
     );
     const scratch = `${file}.crop.png`;
-    const convert = hasCommand('magick') ? 'magick' : 'convert';
-    const result = run(convert, [
+    // ffmpeg is required on every platform for the recording, so it is the
+    // one crop tool that is always present. ImageMagick is only needed for
+    // the X11 window capture itself.
+    const result = run('ffmpeg', [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-i',
         file,
-        '-crop',
-        `${wanted.width}x${wanted.height}+${x}+${y}`,
-        '+repage',
+        '-vf',
+        `crop=${wanted.width}:${wanted.height}:${x}:${y}`,
+        '-frames:v',
+        '1',
         scratch,
     ]);
 
@@ -310,71 +342,6 @@ export function captureScreenshot({ display, file, geometry, id }) {
     }
 
     return { width: geometry.width, height: geometry.height };
-}
-
-export function startRecording({ display, file }) {
-    const args = [
-        '-hide_banner',
-        '-loglevel',
-        'error',
-        '-y',
-        '-f',
-        'x11grab',
-        '-framerate',
-        String(RECORDING_FPS),
-        '-thread_queue_size',
-        '1024',
-        '-video_size',
-        `${SCREEN_WIDTH}x${SCREEN_HEIGHT}`,
-        '-i',
-        `${display}.0+0,0`,
-        '-c:v',
-        'libx264',
-        '-preset',
-        'ultrafast',
-        '-tune',
-        'zerolatency',
-        '-crf',
-        '26',
-        '-r',
-        '30',
-        '-fps_mode',
-        'cfr',
-        '-pix_fmt',
-        'yuv420p',
-        '-movflags',
-        '+faststart',
-        file,
-    ];
-
-    const child = spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
-    let stderr = '';
-    child.stderr.on('data', (chunk) => {
-        stderr += chunk.toString();
-    });
-
-    return {
-        child,
-        async stop() {
-            if (child.exitCode !== null) {
-                return { ok: false, stderr };
-            }
-
-            child.kill('SIGINT');
-            await new Promise((resolve) => {
-                const timer = setTimeout(() => {
-                    child.kill('SIGKILL');
-                    resolve();
-                }, 8000);
-                child.on('exit', () => {
-                    clearTimeout(timer);
-                    resolve();
-                });
-            });
-
-            return { ok: fs.existsSync(file), stderr };
-        },
-    };
 }
 
 /**
@@ -495,22 +462,28 @@ function assText(value) {
  * Builds a subtitle file for the burned-in captions. Captions live outside the
  * app window so they never cover the pixels a reviewer judges.
  *
- * @param {{ title?: string, durationMs: number, steps: Array<{ startMs: number, endMs: number, text: string }> }} input
+ * @param {{ title?: string, durationMs: number, steps: Array<{ startMs: number, endMs: number, text: string }>, stage?: { width: number, height: number } }} input
  */
 export function buildAss(input) {
     const duration = Math.max(1000, Math.round(input.durationMs));
+    const stage = input.stage ?? { width: 1280, height: 900 };
+    const scale = Math.max(0.85, Math.min(1.5, stage.width / 1280));
+    const titleSize = Math.round(20 * scale);
+    const stepSize = Math.round(18 * scale);
+    const titleMargin = Math.max(2, Math.round(4 * scale));
+    const stepMargin = Math.max(4, Math.round(8 * scale));
     const lines = [
         '[Script Info]',
         'ScriptType: v4.00+',
-        `PlayResX: ${SCREEN_WIDTH}`,
-        `PlayResY: ${SCREEN_HEIGHT}`,
+        `PlayResX: ${stage.width}`,
+        `PlayResY: ${stage.height}`,
         'WrapStyle: 0',
         'ScaledBorderAndShadow: yes',
         '',
         '[V4+ Styles]',
         'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
-        'Style: Title,Noto Sans CJK SC,24,&H00FFFFFF,&H000000FF,&H00101010,&H80000000,-1,0,0,0,100,100,0,0,1,2,0,8,24,24,26,1',
-        'Style: Step,Noto Sans CJK SC,22,&H00FFFFFF,&H000000FF,&H80000000,&H80000000,0,0,0,0,100,100,0,0,3,6,0,2,24,24,34,1',
+        `Style: Title,Noto Sans CJK SC,${titleSize},&H00FFFFFF,&H000000FF,&H00101010,&H80000000,-1,0,0,0,100,100,0,0,1,2,0,8,24,24,${titleMargin},1`,
+        `Style: Step,Noto Sans CJK SC,${stepSize},&H00FFFFFF,&H000000FF,&H80000000,&H80000000,0,0,0,0,100,100,0,0,3,5,0,2,24,24,${stepMargin},1`,
         '',
         '[Events]',
         'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
@@ -539,15 +512,8 @@ function filterPath(file) {
     return file.replace(/\\/g, '\\\\').replace(/:/g, '\\:').replace(/'/g, "\\'");
 }
 
-/**
- * Burns the captions into a copy of the recording. Returns the output path, or
- * null when ffmpeg cannot render subtitles in this environment.
- */
-export function burnCaptions({ input, output, title, durationMs, steps }) {
-    const assFile = `${output}.ass`;
-    fs.writeFileSync(assFile, buildAss({ title, durationMs, steps }));
-
-    const result = run('ffmpeg', [
+function encodeVideo({ input, output, filter, runFfmpeg = run }) {
+    return runFfmpeg('ffmpeg', [
         '-hide_banner',
         '-loglevel',
         'error',
@@ -555,7 +521,7 @@ export function burnCaptions({ input, output, title, durationMs, steps }) {
         '-i',
         input,
         '-vf',
-        `ass=${filterPath(assFile)}`,
+        filter,
         '-c:v',
         'libx264',
         '-preset',
@@ -568,15 +534,102 @@ export function burnCaptions({ input, output, title, durationMs, steps }) {
         '+faststart',
         output,
     ]);
+}
+
+/**
+ * Burns the captions into a copy of the recording. Returns the output path, or
+ * null when ffmpeg cannot render subtitles in this environment.
+ */
+export function burnCaptions({
+    input,
+    output,
+    title,
+    durationMs,
+    steps,
+    stage,
+    crop = null,
+    runFfmpeg = run,
+}) {
+    // A basename in the current working directory avoids escaping drive letters
+    // and separators in the filter graph. New ffmpeg builds also require the
+    // explicit `filename` option that older builds accepted implicitly.
+    const assFile = path.join(
+        process.cwd(),
+        `.touchai-ui-preview-${process.pid}-${Date.now()}.ass`
+    );
+    fs.writeFileSync(assFile, buildAss({ title, durationMs, steps, stage }));
+    const filters = [crop, `ass=filename=${filterPath(path.basename(assFile))}`]
+        .filter(Boolean)
+        .join(',');
+    const result = encodeVideo({ input, output, filter: filters, runFfmpeg });
 
     if (result.status !== 0) {
         console.log(`could not burn captions: ${result.stderr.slice(0, 500)}`);
         fs.rmSync(assFile, { force: true });
+        fs.rmSync(output, { force: true });
         return null;
     }
 
     fs.rmSync(assFile, { force: true });
     return output;
+}
+
+/**
+ * Crops a recording without captions. This is the fallback when the runner's
+ * ffmpeg build cannot render subtitles, so the preview still has its stage size.
+ */
+export function cropVideo({ input, output, crop, runFfmpeg = run }) {
+    const result = encodeVideo({ input, output, filter: crop, runFfmpeg });
+
+    if (result.status !== 0) {
+        console.log(`could not crop the recording: ${result.stderr.slice(0, 500)}`);
+        fs.rmSync(output, { force: true });
+        return null;
+    }
+
+    return output;
+}
+
+/**
+ * Produces the final recording. Captions are best-effort; the display crop is
+ * not, because the hosted runners can record a larger desktop than the stage.
+ *
+ * @returns {{ output: string | null, captionsBurned: boolean, cropped: boolean }}
+ */
+export function finalizeRecording({
+    input,
+    output,
+    title,
+    durationMs,
+    steps,
+    stage,
+    crop = null,
+    runFfmpeg = run,
+}) {
+    const captioned = burnCaptions({
+        input,
+        output,
+        title,
+        durationMs,
+        steps,
+        stage,
+        crop,
+        runFfmpeg,
+    });
+
+    if (captioned) {
+        return { output: captioned, captionsBurned: true, cropped: Boolean(crop) };
+    }
+
+    if (crop) {
+        const cropped = cropVideo({ input, output, crop, runFfmpeg });
+
+        if (cropped) {
+            return { output: cropped, captionsBurned: false, cropped: true };
+        }
+    }
+
+    return { output: null, captionsBurned: false, cropped: false };
 }
 
 export function ensureDir(directory) {

@@ -1,40 +1,86 @@
 /**
  * Shared app-driving helpers for the explore and record jobs.
  *
- * Both jobs boot the same binary the same way: Xvfb with a window manager, a
- * tauri-driver session, and the app's own E2E bridge. Nothing here reads or
- * writes user data; the app runs against a temporary root.
+ * Both jobs boot the same binary the same way: the app's embedded WebDriver
+ * server plus its own E2E bridge. Linux adds Xvfb and a window manager. Nothing
+ * here reads or writes user data; the app runs against a temporary root.
  */
 
+import { spawn, spawnSync } from 'node:child_process';
+
 import { OVERLAY_SCRIPT } from './overlay.mjs';
-import { createSession, isSearchUrl, startDriver } from './webdriver.mjs';
+import { detectPlatform } from './platform.mjs';
+import { createSession, isSearchUrl, waitForPort } from './webdriver.mjs';
 
 export const MAIN_WINDOW_TIMEOUT_MS = 30000;
+export const EMBEDDED_DRIVER_PORT = 4445;
 
-export async function boot({ application, port = 4444 }) {
-    const driver = await startDriver({ port });
+function stopProcess(child) {
+    if (!child || child.exitCode !== null) {
+        return;
+    }
+
+    if (process.platform === 'win32') {
+        spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+            stdio: 'ignore',
+            windowsHide: true,
+        });
+        return;
+    }
+
+    child.kill('SIGTERM');
+}
+
+/**
+ * Boots the app with the embedded WebDriver server enabled. The same path
+ * works on Linux, macOS, and Windows, so the recorder does not depend on an
+ * external driver process.
+ */
+export async function boot({ application, platform = detectPlatform() }) {
+    const port = EMBEDDED_DRIVER_PORT;
+    const child = spawn(application, [], {
+        env: { ...process.env, TAURI_WEBDRIVER_PORT: String(port) },
+        stdio: ['ignore', 'inherit', 'inherit'],
+        windowsHide: true,
+    });
+    const exited = { value: null };
+    child.once('exit', (code, signal) => {
+        exited.value = { code, signal };
+    });
+
+    try {
+        await waitForPort(port);
+    } catch (error) {
+        stopProcess(child);
+        throw new Error(
+            `the ${platform} app did not expose the embedded WebDriver server: ${error.message}`,
+            { cause: error }
+        );
+    }
 
     let session;
     try {
-        session = await createSession({ port, application });
+        session = await createSession({ port, application, driver: 'embedded' });
     } catch (error) {
-        // `exited` separates "the driver died" from "the driver waited and the
-        // app never registered", which are fixed in different places.
+        // `exited` separates "the app died" from "the app waited and never
+        // registered", which are fixed in different places.
         console.error(
-            `ui-preview: WebDriver session failed on port ${port} (driver exited: ${JSON.stringify(driver.exited)})`
+            `ui-preview: WebDriver session failed on port ${port} (app exited: ${JSON.stringify(exited.value)})`
         );
-        // A driver left running keeps the port, so the next boot fails to bind
-        // and reports a port conflict instead of the original session error.
-        await driver.stop();
+        stopProcess(child);
         throw error;
     }
 
     return {
-        driver,
+        child,
+        port,
         session,
+        get exited() {
+            return exited.value;
+        },
         async close() {
             await session.quit();
-            await driver.stop();
+            stopProcess(child);
         },
     };
 }
@@ -69,26 +115,68 @@ export async function waitForBridge(session, timeoutMs = 30000) {
 }
 
 export async function bridge(session, method, args = []) {
-    const result = await session.executeAsync(
+    const started = await session.execute(
         `
-        const done = arguments[arguments.length - 1];
         const name = arguments[0];
         const bridgeArgs = arguments[1] || [];
         const bridge = window.__TOUCHAI_E2E__;
         if (!bridge || typeof bridge[name] !== 'function') {
-            done({ ok: false, error: 'bridge method ' + name + ' is unavailable' });
-            return;
+            return { ok: false, error: 'bridge method ' + name + ' is unavailable' };
         }
-        Promise.resolve(bridge[name](...bridgeArgs))
-            .then(() => done({ ok: true }))
-            .catch((error) => done({ ok: false, error: String(error) }));
+        const state = {
+            id: String(Date.now()) + '-' + Math.random(),
+            status: 'pending',
+            error: ''
+        };
+        window.__UI_PREVIEW_BRIDGE_STATE__ = state;
+        try {
+            Promise.resolve(bridge[name](...bridgeArgs)).catch((error) => {
+                state.status = 'error';
+                state.error = String(error);
+            }).then(() => {
+                if (state.status === 'pending') {
+                    state.status = 'done';
+                }
+            });
+            return { ok: true, id: state.id };
+        } catch (error) {
+            return { ok: false, error: String(error) };
+        }
         `,
         [method, args]
     );
 
-    if (!result?.ok) {
-        throw new Error(result?.error ?? `bridge call ${method} failed`);
+    if (!started?.ok) {
+        throw new Error(started?.error ?? `bridge call ${method} failed`);
     }
+
+    // The Windows WebDriver async transport posts a private WebView2 message
+    // that Tauri's IPC parser also consumes. Poll a synchronous result instead
+    // of using executeAsync, so a bridge failure still reaches the recorder.
+    const deadline = Date.now() + 15000;
+
+    while (Date.now() < deadline) {
+        const state = await session.execute(`
+            const state = window.__UI_PREVIEW_BRIDGE_STATE__;
+            return state ? { id: state.id, status: state.status, error: state.error } : null;
+        `);
+
+        if (state?.id !== started.id) {
+            throw new Error(`bridge call ${method} lost its window state`);
+        }
+
+        if (state.status === 'done') {
+            return;
+        }
+
+        if (state.status === 'error') {
+            throw new Error(state.error || `bridge call ${method} failed`);
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    throw new Error(`bridge call ${method} did not finish within 15 seconds`);
 }
 
 export async function windowHandles(session) {
@@ -96,7 +184,14 @@ export async function windowHandles(session) {
 }
 
 export async function mainWindowHandle(session) {
-    for (const handle of await session.windowHandles()) {
+    const handles = await session.windowHandles();
+
+    if (handles.includes('main')) {
+        await session.switchTo('main');
+        return 'main';
+    }
+
+    for (const handle of handles) {
         await session.switchTo(handle);
         const url = String(await session.currentUrl());
 
@@ -113,6 +208,7 @@ export async function openSettings(session) {
     await bridge(session, 'openSettingsWindow');
     const settings = await session.switchToWindowContaining('/settings');
     await session.waitForElement("[data-testid='settings-view']");
+    await session.focusWindow();
     await ensureOverlay(session);
 
     return { main, settings };
@@ -123,6 +219,7 @@ export async function switchToSurface(session, surface, state = {}) {
         const handle = state.settingsHandle ?? (await openSettings(session)).settings;
         await session.switchTo(handle);
         await session.waitForElement("[data-testid='settings-view']");
+        await session.focusWindow();
         await ensureOverlay(session);
         return handle;
     }
@@ -130,8 +227,32 @@ export async function switchToSurface(session, surface, state = {}) {
     const handle = state.mainHandle ?? (await mainWindowHandle(session));
     await session.switchTo(handle);
     await session.waitForElement("[data-testid='search-view']");
+    await session.focusWindow();
     await ensureOverlay(session);
     return handle;
+}
+
+/**
+ * Hides the current WebDriver window without closing it.
+ *
+ * Windows clamps setWindowRect coordinates to the desktop, so moving an
+ * inactive window off-screen leaves it visible behind the active surface.
+ * Hiding it keeps the recording focused on the window under test.
+ */
+export async function hideCurrentWindow(session) {
+    try {
+        await session.execute(`
+            const current = window.__TAURI__?.window?.getCurrentWindow?.();
+            if (!current) {
+                return false;
+            }
+            current.hide().catch(() => {});
+            return true;
+        `);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+    } catch {
+        // A window that is already closing has nothing to hide.
+    }
 }
 
 export async function collectTestIds(session) {

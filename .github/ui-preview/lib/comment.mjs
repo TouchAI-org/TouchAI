@@ -8,6 +8,8 @@
  *   duplicate from a previous identity is never edited by accident.
  */
 
+import { platformLabel } from './platform.mjs';
+
 export const MARKER = '<!-- touchai-ui-preview -->';
 
 export function hasMarker(body) {
@@ -57,36 +59,113 @@ function renderChecks(checks) {
     return rows.join('\n');
 }
 
-function screenshotAlt(sceneTitle, shot) {
-    const title = String(sceneTitle ?? '').replace(/[[\]]/g, '');
+function screenshotAlt(scene, shot) {
+    const title = String(scene.title ?? '').replace(/[[\]]/g, '');
     const caption = String(shot.caption ?? '').replace(/[[\]]/g, '');
     return [title, caption].filter(Boolean).join(': ') || 'UI preview screenshot';
 }
 
 /**
- * Key screenshots are rendered as images inside one collapsed block. The video
- * stays visible, and the collapsed block keeps a multi-step preview readable.
+ * Screenshots use Markdown image syntax so GitHub renders them inline. The
+ * video stays a bare URL, because that is what makes GitHub show its player.
  */
-function renderScreenshots(scenes, assets) {
-    const rendered = (scenes ?? []).flatMap((scene) =>
-        (scene.shots ?? [])
-            .filter((shot) => assets[shot.file])
-            .map((shot) => ({ scene: scene.title, shot }))
-    );
+function renderScene(scene, assets) {
+    const lines = [`### ${scene.title}`];
+    const shots = scene.shots ?? [];
 
-    if (rendered.length === 0) {
-        return '';
-    }
+    for (const shot of shots) {
+        const url = assets[shot.file];
 
-    const lines = [`<details><summary>Key screenshots (${rendered.length})</summary>`, ''];
+        if (!url) {
+            continue;
+        }
 
-    for (const { scene, shot } of rendered) {
-        lines.push(`![${screenshotAlt(scene, shot)}](${assets[shot.file]})`);
         lines.push('');
-        lines.push(shot.caption ? `${scene}: ${shot.caption}` : scene, '');
+        lines.push(`![${screenshotAlt(scene, shot)}](${url})`);
+
+        if (shot.caption) {
+            lines.push('');
+            lines.push(shot.caption);
+        }
     }
 
-    lines.push('</details>');
+    return lines.join('\n');
+}
+
+function renderSkippedSteps(skippedSteps) {
+    if (!skippedSteps?.length) {
+        return [];
+    }
+
+    return [
+        '',
+        `<details><summary>${skippedSteps.length} step(s) did not run</summary>`,
+        '',
+        skippedSteps
+            .map(
+                (item) =>
+                    `- ${item.scene ? `${item.scene}: ` : ''}${item.step ?? 'step'} - ${item.error ?? 'failed'}`
+            )
+            .join('\n'),
+        '',
+        '</details>',
+    ];
+}
+
+/**
+ * One platform section. The video stays visible; every key screenshot is
+ * collected into a single collapsed block so three platforms do not bury the
+ * rest of the pull request.
+ */
+function renderPlatform(platform, fallbackAssets) {
+    const assets = platform.assets ?? fallbackAssets ?? {};
+    const label = platform.label ?? platformLabel(platform.platform);
+    const mode = platform.captureMode ? ` · ${platform.captureMode}` : '';
+    const display = platform.display
+        ? ` · ${platform.display.width}x${platform.display.height}`
+        : '';
+    const scale = Number(platform.scale) > 1 ? ` · ${platform.scale}x` : '';
+    const lines = [`### ${label}${mode}${display}${scale}`];
+
+    if (platform.failure) {
+        lines.push('', `**Recording stopped:** ${platform.failure}`);
+    }
+
+    if (platform.videoUrl) {
+        lines.push('', platform.videoUrl);
+    } else if (platform.artifactUrl) {
+        lines.push('', `Evidence: [workflow artifact](${platform.artifactUrl})`);
+    }
+
+    const shots = (platform.scenes ?? []).flatMap((scene) =>
+        (scene.shots ?? []).map((shot) => ({ ...shot, scene: scene.title }))
+    );
+    const rendered = shots.filter((shot) => assets[shot.file]);
+
+    if (rendered.length > 0) {
+        lines.push('', `<details><summary>Key screenshots (${rendered.length})</summary>`, '');
+
+        for (const shot of rendered) {
+            lines.push(`![${screenshotAlt({ title: shot.scene }, shot)}](${assets[shot.file]})`);
+            lines.push('');
+            lines.push(shot.caption ? `${shot.scene}: ${shot.caption}` : shot.scene, '');
+        }
+
+        lines.push('</details>');
+    }
+
+    if (platform.checks?.length) {
+        lines.push(
+            '',
+            '<details><summary>Checks</summary>',
+            '',
+            renderChecks(platform.checks),
+            '',
+            '</details>'
+        );
+    }
+
+    lines.push(...renderSkippedSteps(platform.skippedSteps));
     return lines.join('\n');
 }
 
@@ -138,40 +217,36 @@ export function buildPreviewComment(input) {
         lines.push('', `Video and screenshots: [workflow artifact](${input.artifactUrl})`);
     }
 
-    const screenshots = renderScreenshots(input.scenes, input.assets ?? {});
+    if (input.platforms?.length) {
+        for (const platform of input.platforms) {
+            lines.push('', renderPlatform(platform, input.assets));
+        }
+    } else {
+        for (const scene of input.scenes ?? []) {
+            const rendered = renderScene(scene, input.assets ?? {});
 
-    if (screenshots) {
-        lines.push('', screenshots);
+            if (rendered.includes('\n\n')) {
+                lines.push('', rendered);
+            }
+        }
     }
 
     if (input.unseen) {
         lines.push('', `**Not shown:** ${input.unseen}`);
     }
 
-    if (input.skippedSteps?.length) {
+    lines.push(...renderSkippedSteps(input.skippedSteps));
+
+    if (!input.platforms?.length) {
         lines.push(
             '',
-            `<details><summary>${input.skippedSteps.length} step(s) did not run</summary>`,
+            '<details><summary>Checks</summary>',
             '',
-            input.skippedSteps
-                .map(
-                    (item) =>
-                        `- ${item.scene ? `${item.scene}: ` : ''}${item.step ?? 'step'} - ${item.error ?? 'failed'}`
-                )
-                .join('\n'),
+            renderChecks(input.checks),
             '',
             '</details>'
         );
     }
-
-    lines.push(
-        '',
-        '<details><summary>Checks</summary>',
-        '',
-        renderChecks(input.checks),
-        '',
-        '</details>'
-    );
 
     if (input.note) {
         lines.push('', input.note);
@@ -179,7 +254,9 @@ export function buildPreviewComment(input) {
 
     lines.push(
         '',
-        '<sub>Updated for each commit. Advisory only, and rendered from a Linux WebKitGTK build; Windows and macOS may differ. Ask a maintainer to add `status:ui-preview-skip` to silence this pull request.</sub>'
+        input.platforms?.length
+            ? '<sub>Updated for each commit. Advisory only, rendered from native Linux, macOS, and Windows builds. Ask a maintainer to add `status:ui-preview-skip` to silence this pull request.</sub>'
+            : '<sub>Updated for each commit. Advisory only, and rendered from a Linux WebKitGTK build; Windows and macOS may differ. Ask a maintainer to add `status:ui-preview-skip` to silence this pull request.</sub>'
     );
 
     return `${lines.join('\n')}\n`;
