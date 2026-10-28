@@ -14,10 +14,7 @@ keeps pull-request code and credentials in separate jobs.
 | `doctor.mjs` | Check the model and publishing credentials |
 | `with-display.sh` | Window manager and compositor for Xvfb |
 
-`lib/` contains the reusable logic. Its tests live in `tests/` and run with:
-
-```bash
-pnpm test:ui-preview
-```
+`lib/` contains the reusable logic. Every script is plain Node ESM, so the preview jobs do not
+install the workspace to run them.
 
 To check credentials, dispatch the workflow with `mode: doctor`; no pull request is needed.
