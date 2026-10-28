@@ -153,9 +153,7 @@ export class LogQueue {
             return;
         }
 
-        const index = this.items.findIndex((item) => LEVEL_NAMES[item.level] === weakest);
-        this.items.splice(index, 1);
-        this.dropped[weakest] += 1;
+        this.dropOne();
     }
 
     private dropOne(): void {
