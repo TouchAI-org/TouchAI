@@ -56,8 +56,13 @@ export async function startDriver({ port = DRIVER_PORT, env = process.env } = {}
     });
 
     let exited = null;
+    let resolveExit;
+    const exitPromise = new Promise((resolve) => {
+        resolveExit = resolve;
+    });
     child.on('exit', (code, signal) => {
         exited = { code, signal };
+        resolveExit();
     });
 
     await waitForPort(port);
@@ -68,10 +73,29 @@ export async function startDriver({ port = DRIVER_PORT, env = process.env } = {}
         get exited() {
             return exited;
         },
-        stop() {
+        /**
+         * Stops the driver and waits for it to exit. The native driver keeps the
+         * next port busy while it shuts down, so callers must await this before
+         * starting another driver.
+         */
+        async stop({ timeoutMs = 10000 } = {}) {
+            if (exited) {
+                return;
+            }
+
             child.kill('SIGTERM');
+            await Promise.race([exitPromise, sleep(timeoutMs)]);
+
+            if (!exited) {
+                child.kill('SIGKILL');
+                await Promise.race([exitPromise, sleep(2000)]);
+            }
         },
     };
+}
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class Session {

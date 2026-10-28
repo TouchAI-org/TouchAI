@@ -25,7 +25,7 @@ export async function boot({ application, port = 4444 }) {
         );
         // A driver left running keeps the port, so the next boot fails to bind
         // and reports a port conflict instead of the original session error.
-        driver.stop();
+        await driver.stop();
         throw error;
     }
 
@@ -34,7 +34,7 @@ export async function boot({ application, port = 4444 }) {
         session,
         async close() {
             await session.quit();
-            driver.stop();
+            await driver.stop();
         },
     };
 }
