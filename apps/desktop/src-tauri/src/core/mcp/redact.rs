@@ -337,7 +337,11 @@ fn redact_stderr_line(line: &str) -> String {
             break;
         }
 
-        if token.eq_ignore_ascii_case("bearer") {
+        // Bearer/Basic/Digest 的凭据在下一个 token，且与 scheme 之间可能没有冒号。
+        if token.eq_ignore_ascii_case("bearer")
+            || token.eq_ignore_ascii_case("basic")
+            || token.eq_ignore_ascii_case("digest")
+        {
             output.push(token.to_string());
             if tokens.next().is_some() {
                 output.push(REDACTED.to_string());
@@ -485,6 +489,18 @@ mod tests {
         assert!(!redacted.contains("sk-live-1234567890"));
         assert!(!redacted.contains("ghp_abcdefghijklmnop"));
         assert!(redacted.contains("retrying"));
+    }
+
+    #[test]
+    fn user_does_not_see_basic_credentials_outside_a_header_line() {
+        // 没有 `Name:` 前缀时，scheme 和凭据是两个普通 token。
+        let redacted = redact_stderr("retry using Basic dXNlcjpwYXNz and Digest YWRtaW46c2VjcmV0");
+
+        assert!(!redacted.contains("dXNlcjpwYXNz"));
+        assert!(!redacted.contains("YWRtaW46c2VjcmV0"));
+        assert!(redacted.contains("Basic"));
+        assert!(redacted.contains("Digest"));
+        assert!(redacted.contains("retry using"));
     }
 
     #[test]

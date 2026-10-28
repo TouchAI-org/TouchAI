@@ -3,12 +3,12 @@
 //! 本地诊断日志：运行标识、目录准备、格式化和前端批量入口。
 
 pub mod bundle;
-pub mod error_code;
 pub mod format;
 pub mod ingest;
 pub mod layout;
 pub mod level;
 pub mod panic;
+pub mod shutdown;
 pub mod stderr;
 pub mod trace;
 

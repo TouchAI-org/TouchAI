@@ -31,6 +31,7 @@ pub(crate) fn prepare(logs_path: &Path) -> PathBuf {
 
     DISCARDED_LEGACY_FILES.store(discard_legacy_files(&directory), Ordering::SeqCst);
     ensure_current_file(&directory);
+    restrict_log_file_permissions(&directory);
     directory
 }
 
@@ -179,6 +180,32 @@ fn ensure_current_file(directory: &Path) {
     }
 }
 
+/// 轮转文件由日志插件以默认权限创建，启动时统一收紧到 0600。
+///
+/// 目录已经是 0700，但这层保护在 Windows 上不存在，所以每个文件自己也要受限。
+#[cfg(unix)]
+fn restrict_log_file_permissions(directory: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !name.starts_with(LOG_FILE_NAME) || !name.ends_with(".log") {
+            continue;
+        }
+        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    }
+}
+
+#[cfg(not(unix))]
+fn restrict_log_file_permissions(_directory: &Path) {}
+
 /// 判断一行是否符合 `log.format=1`：UTC 毫秒时间加 5 字符级别。
 pub(crate) fn is_current_format(line: &str) -> bool {
     let bytes = line.as_bytes();
@@ -303,5 +330,29 @@ mod tests {
         }
         #[cfg(not(unix))]
         let _ = prepared;
+    }
+
+    #[test]
+    fn user_gets_rotated_log_files_restricted_on_startup() {
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let logs = root.path().join("logs");
+        fs::create_dir_all(&logs).expect("logs dir");
+
+        // 日志插件轮转出来的文件带默认权限，启动时统一收紧。
+        let rotated = logs.join("TouchAI_2026-10-29_05-41-32.log");
+        fs::write(&rotated, "2026-10-29T05:41:32.118Z INFO  obs.app.start\n")
+            .expect("write rotated");
+
+        let _prepared = prepare(&logs);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&rotated)
+                .expect("metadata")
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
     }
 }

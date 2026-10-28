@@ -231,7 +231,10 @@ fn redact_value_text(value: &str) -> String {
         let redacted = if redact_next {
             redact_next = false;
             REDACTED.to_string()
-        } else if core.eq_ignore_ascii_case("bearer") {
+        } else if core.eq_ignore_ascii_case("bearer")
+            || core.eq_ignore_ascii_case("basic")
+            || core.eq_ignore_ascii_case("digest")
+        {
             redact_next = true;
             core.to_string()
         } else {
@@ -405,6 +408,22 @@ mod tests {
         assert!(!line.contains("/path"));
         assert!(line.contains("db.example.test"));
         assert!(line.contains("example.test"));
+    }
+
+    #[test]
+    fn user_does_not_see_basic_or_digest_credentials_without_a_header() {
+        let mut event = envelope("agent.request.failed");
+        event.attrs.insert(
+            "error.detail".to_string(),
+            json!("retry using Basic dXNlcjpwYXNz and Digest YWRtaW46c2VjcmV0"),
+        );
+
+        let line = event.to_line("7f3a9c");
+
+        assert!(!line.contains("dXNlcjpwYXNz"));
+        assert!(!line.contains("YWRtaW46c2VjcmV0"));
+        assert!(line.contains("Basic"));
+        assert!(line.contains("Digest"));
     }
 
     #[test]

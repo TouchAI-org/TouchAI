@@ -115,8 +115,11 @@ async fn create_bundle(log_directory: &Path, destination: &Path) -> Result<Bundl
         arch: std::env::consts::ARCH,
         log_directory_fallback: super::layout::fallback_used(),
         files: preview.files.clone(),
+        // 日志里的错误文本可能引用工具输出或供应商响应片段，所以这里只承诺
+        // 不包含数据库和对话本体，不承诺日志文本里没有业务片段。
         note:
-            "Contains local diagnostics only; no database, conversation, prompt, or tool payload.",
+            "Contains local diagnostics only: no database, conversation store, or prompt files. \
+             Log lines are redacted for credentials but may quote error text from providers and tools.",
     };
     zip.start_file("manifest.json", options)
         .map_err(|error| error.to_string())?;
