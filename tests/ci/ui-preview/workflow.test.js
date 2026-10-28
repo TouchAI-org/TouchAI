@@ -103,6 +103,7 @@ describe('user opens a pull request that runs the preview', () => {
         // than the recording step's own env.
         expect(report).not.toContain('env:');
         expect(record).toContain('TOUCHAI_APP_ROOT: ${{ runner.temp }}/ui-preview-app-root');
+        expect(record).toContain('echo "TOUCHAI_APP_ROOT=$TOUCHAI_APP_ROOT" >> "$GITHUB_ENV"');
     });
 
     it('user gets the model key only in a job that does not run pull-request code', () => {
