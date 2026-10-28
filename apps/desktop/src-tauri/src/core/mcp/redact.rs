@@ -10,7 +10,7 @@ use reqwest::Url;
 const REDACTED: &str = "[redacted]";
 const REDACTED_URL: &str = "[redacted-url]";
 
-/// 只保留 scheme、host、port 和 path，去掉 userinfo、query 和 fragment。
+/// 只保留 scheme、host 和 port，去掉 userinfo、path、query 和 fragment。
 ///
 /// 解析失败或没有 host 的形态（例如 `user:pass@host/path` 会被解析成
 /// scheme=`user`，`Bearer sk-live-...` 干脆解析失败）无法区分 userinfo 和路径，
@@ -22,7 +22,10 @@ pub(crate) fn redact_url(raw: &str) -> String {
             if let Some(port) = url.port() {
                 redacted.push_str(&format!(":{port}"));
             }
-            redacted.push_str(url.path());
+            // 路径里可能直接放着令牌（`/mcp/<token>`），只留固定标记。
+            if url.path().len() > 1 {
+                redacted.push_str("/[redacted-path]");
+            }
             redacted
         }
         _ => REDACTED_URL.to_string(),
@@ -48,9 +51,12 @@ pub(crate) fn redact_args(args: &[String]) -> Vec<String> {
     for arg in args {
         match pending {
             Pending::Secret => {
+                // 值缺失时下一个参数其实是开关：先补一个占位，再按开关重新分类。
                 redacted.push(REDACTED.to_string());
                 pending = Pending::None;
-                continue;
+                if classify_flag(arg).is_none() {
+                    continue;
+                }
             }
             Pending::Header => {
                 redacted.push(redact_header(arg));
@@ -87,16 +93,29 @@ pub(crate) fn redact_args(args: &[String]) -> Vec<String> {
 }
 
 /// 位置参数里 `KEY=VALUE` 的键名带密钥含义时只保留键名，其余原样。
+///
+/// `--env=KEY=VALUE` 这类内联环境变量还有第二层赋值，同样要拆开判断。
 fn redact_positional(arg: &str) -> String {
-    match arg.split_once('=') {
-        Some((name, value))
-            if !name.starts_with('-')
-                && (is_secret_name(name) || looks_like_secret_value(value)) =>
-        {
-            format!("{name}={REDACTED}")
-        }
-        _ => arg.to_string(),
+    let Some((name, value)) = arg.split_once('=') else {
+        return arg.to_string();
+    };
+
+    if name.starts_with('-') {
+        return match value.split_once('=') {
+            Some((inner_name, inner_value))
+                if is_secret_name(inner_name) || looks_like_secret_value(inner_value) =>
+            {
+                format!("{name}={inner_name}={REDACTED}")
+            }
+            _ => arg.to_string(),
+        };
     }
+
+    if is_secret_name(name) || looks_like_secret_value(value) {
+        return format!("{name}={REDACTED}");
+    }
+
+    arg.to_string()
 }
 
 /// 常见令牌前缀；键名本身没有密钥含义时，值也能单独判定。
@@ -233,8 +252,9 @@ mod tests {
         let redacted =
             redact_url("https://user:pass@mcp.example.test:8443/v1/sse?api_key=secret-query#token");
 
-        assert_eq!(redacted, "https://mcp.example.test:8443/v1/sse");
+        assert_eq!(redacted, "https://mcp.example.test:8443/[redacted-path]");
         assert!(!redacted.contains("secret-query"));
+        assert!(!redacted.contains("v1/sse"));
     }
 
     #[test]
@@ -268,6 +288,51 @@ mod tests {
         assert_eq!(redacted, "[redacted-url]");
         assert!(!redacted.contains("pass"));
         assert!(!redacted.contains("secret-query"));
+    }
+
+    #[test]
+    fn user_does_not_see_a_credential_carried_in_the_url_path() {
+        let redacted = redact_url("https://mcp.example.test/mcp/sk-live-secret");
+
+        assert_eq!(redacted, "https://mcp.example.test/[redacted-path]");
+        assert!(!redacted.contains("sk-live-secret"));
+    }
+
+    #[test]
+    fn user_does_not_see_a_header_after_a_missing_secret_value() {
+        let redacted = redact_args(&args(&[
+            "--api-key",
+            "--header",
+            "Authorization: Bearer secret-header",
+        ]));
+
+        assert_eq!(
+            redacted,
+            vec![
+                "--api-key",
+                "[redacted]",
+                "--header",
+                "Authorization: [redacted]"
+            ]
+        );
+    }
+
+    #[test]
+    fn user_does_not_see_inline_environment_assignments_in_the_log() {
+        let redacted = redact_args(&args(&[
+            "--env=API_KEY=opaque-secret",
+            "-e=DEBUG=1",
+            "--env=FOO=opaque-value",
+        ]));
+
+        assert_eq!(
+            redacted,
+            vec![
+                "--env=API_KEY=[redacted]",
+                "-e=DEBUG=1",
+                "--env=FOO=opaque-value"
+            ]
+        );
     }
 
     #[test]
