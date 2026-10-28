@@ -106,6 +106,15 @@ describe('user opens a pull request that runs the preview', () => {
         expect(record).toContain('echo "TOUCHAI_APP_ROOT=$TOUCHAI_APP_ROOT" >> "$GITHUB_ENV"');
     });
 
+    it('user gets the database contract the debug build reads from disk', () => {
+        const record = jobBlock('record');
+
+        // `tauri build --debug` resolves the contract from
+        // `CARGO_MANIFEST_DIR/../src/database`, so a sparse checkout without it
+        // starts the app into a blocking failure dialog and no session appears.
+        expect(record).toContain('apps/desktop/src/database');
+    });
+
     it('user gets the model key only in a job that does not run pull-request code', () => {
         const plan = jobBlock('plan');
 
