@@ -29,6 +29,9 @@ let warmupScheduled = false;
  */
 export function warmUpCjkGlyphs(fontFamily = 'var(--font-serif)'): void {
     if (typeof document === 'undefined' || !document.body) {
+        if (import.meta.env.DEV) {
+            console.warn('[glyph-warmup]', { stage: 'skipped-no-body' });
+        }
         return;
     }
 
@@ -73,6 +76,10 @@ export function scheduleCjkGlyphWarmup(): void {
     }
 
     warmupScheduled = true;
+    if (import.meta.env.DEV) {
+        console.warn('[glyph-warmup]', { stage: 'scheduled' });
+    }
+
     const run = () => warmUpCjkGlyphs();
     const requestIdle = (globalThis as FontWarmupWindow).requestIdleCallback;
 
