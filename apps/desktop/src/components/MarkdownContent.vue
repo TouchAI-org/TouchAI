@@ -44,33 +44,19 @@
         MARKDOWN_SCROLL_ROOT_KEY,
         type MarkdownScrollRootResolver,
     } from '@components/markdownScrollRoot';
-    import { full as markdownItEmoji } from 'markdown-it-emoji';
     import {
-        enableKatex,
-        enableMermaid,
-        getMarkdown,
         languageMap,
         type MarkdownIt,
         setCustomComponents,
         setDefaultI18nMap,
     } from 'markstream-vue';
 
+    import {
+        applyMarkdownBasePlugins,
+        finishedMarkdownParser,
+        streamingMarkdownParser,
+    } from '@/utils/markdown/parserSetup';
     import WebSearchCitationLink from '@/views/SearchView/components/WebSearch/WebSearchCitationLink.vue';
-
-    const markdownParser = getMarkdown('touchai-markdown-stream', {
-        enableContainers: false,
-        markdownItOptions: {
-            breaks: true,
-        },
-    });
-    // 已完成内容与流式内容使用独立的增量缓存，避免相互重置 tokenizer 状态。
-    const staticMarkdownParser = getMarkdown('touchai-markdown-static', {
-        enableContainers: false,
-        markdownItOptions: {
-            breaks: true,
-        },
-    });
-    const markdownItEmojiPlugin = markdownItEmoji as unknown as Parameters<MarkdownIt['use']>[0];
 
     let isConfigured = false;
 
@@ -132,30 +118,8 @@
 
     function getTouchAiMarkdownParser(final = false): MarkdownIt {
         if (!isConfigured) {
-            markdownParser.use(markdownItEmojiPlugin);
-            staticMarkdownParser.use(markdownItEmojiPlugin);
-
-            // 首次渲染时这两个大模块是动态 import：dev 下要现编译，冷启动可能几百毫秒。
-            // 这里把加载耗时打出来，便于判断“首次打开卡”是否来自它们。
-            const loadLazy = <T,>(
-                moduleName: string,
-                loader: () => Promise<T>
-            ): (() => Promise<T>) => {
-                return async () => {
-                    const startedAt = performance.now();
-                    const loaded = await loader();
-                    if (import.meta.env.DEV) {
-                        console.warn('[md-lazy]', {
-                            module: moduleName,
-                            ms: Math.round(performance.now() - startedAt),
-                        });
-                    }
-                    return loaded;
-                };
-            };
-
-            enableKatex(loadLazy('katex', () => import('katex')));
-            enableMermaid(loadLazy('mermaid', () => import('mermaid')));
+            // 与具体组件无关的基础插件（emoji / katex / mermaid）在模块级注册一次。
+            applyMarkdownBasePlugins();
             // 只接管外部链接节点：命中搜索来源的会渲染成行内引用 chip，
             // 其余链接由 WebSearchCitationLink 自己透传成普通 <a>。
             // 测试环境会把 markstream-vue 整体 mock 掉，所以要容忍缺失。
@@ -163,7 +127,7 @@
             isConfigured = true;
         }
 
-        return final ? staticMarkdownParser : markdownParser;
+        return final ? finishedMarkdownParser : streamingMarkdownParser;
     }
 </script>
 
