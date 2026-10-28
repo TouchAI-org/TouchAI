@@ -34,7 +34,6 @@
         type InputHistorySnapshot,
         type SessionMessage,
     } from '@/types/session';
-    import { scheduleMarkdownWarmup } from '@/utils/markdown/parserSetup';
     import { isE2eTestMode } from '@/utils/runtimeMode';
 
     import {
@@ -1493,9 +1492,6 @@
         widgetBridgeWindow.openLink = handleWidgetOpenLink;
         void installE2eBridge();
         void initialize();
-        // 首屏后空闲预热 Markdown 渲染链：
-        // 否则这笔初始化成本会落在“启动后第一次打开会话”上。
-        scheduleMarkdownWarmup();
     });
 
     onUnmounted(() => {

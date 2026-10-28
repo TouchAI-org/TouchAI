@@ -37,7 +37,6 @@
                 ref="messageVirtualizer"
                 :data="messages"
                 :scroll-ref="conversationContainer || undefined"
-                :buffer-size="200"
                 :item-size="320"
                 :class="isListPositioned ? '' : 'invisible'"
                 @scroll="handleScroll"
@@ -45,14 +44,7 @@
             >
                 <template #default="{ item }">
                     <div :data-message-id="item.id" :data-message-role="item.role">
-                        <!--
-                            仅开发期的诊断开关（window.__TOUCHAI_PLAIN_MESSAGES__ = true）：
-                            用纯文本代替完整消息组件，用来区分“我们的渲染开销”与“浏览器文本排版开销”。
-                        -->
-                        <div v-if="plainMessageMode" class="break-words whitespace-pre-wrap">
-                            {{ item.content }}
-                        </div>
-                        <MessageItem v-else :message="item" @regenerate="handleRegenerateMessage" />
+                        <MessageItem :message="item" @regenerate="handleRegenerateMessage" />
                     </div>
                 </template>
             </Virtualizer>
@@ -145,12 +137,6 @@
         getHistoryAnchor: () => HTMLElement | null;
     } | null>(null);
     const messageVirtualizer = ref<VirtualizerHandle | null>(null);
-    // 诊断开关：仅 DEV 生效，用来隔离“组件渲染”与“浏览器排版”两类开销。
-    const plainMessageMode =
-        import.meta.env.DEV &&
-        typeof window !== 'undefined' &&
-        (window as Window & { __TOUCHAI_PLAIN_MESSAGES__?: boolean }).__TOUCHAI_PLAIN_MESSAGES__ ===
-            true;
     let resizeSyncFrame: number | null = null;
     // 首屏先隐藏列表，等定位到底后再显示，否则会先闪一下顶部。
     const isListPositioned = ref(true);
@@ -455,67 +441,21 @@
     );
 
     /**
-     * 开发期埋点：记录一次会话首屏从数据到首帧稳定布局的耗时。
-     *
-     * 打开长会话卡顿时，这个值与 `[history-open]` 一起能区分是「取数」还是「渲染」。
-     */
-    /**
      * 切换到某个会话时的首屏定位。
      *
      * 先隐藏列表（保留布局供测量）→ 定位到底 → 一帧后校正 → 显示，
-     * 避免“先看到顶部再滑到底”的闪烁；同时按阶段计时，便于定位卡顿位置。
-     *
-     * @param messageCount 本会话消息条数。
+     * 避免“先看到顶部再滑到底”的闪烁。
      */
-    function positionListAtBottom(messageCount: number) {
-        const phaseStartedAt = performance.now();
+    function positionListAtBottom() {
         isListPositioned.value = false;
         void nextTick(() => {
-            const patchedAt = performance.now();
             syncToBottom();
-            const scrolledAt = performance.now();
             requestAnimationFrame(() => {
-                const frame1At = performance.now();
                 syncToBottom();
                 isListPositioned.value = true;
-                requestAnimationFrame(() => {
-                    if (import.meta.env.DEV) {
-                        console.warn('[open-phase]', {
-                            messages: messageCount,
-                            patch: Math.round(patchedAt - phaseStartedAt),
-                            scroll: Math.round(scrolledAt - patchedAt),
-                            frame1: Math.round(frame1At - scrolledAt),
-                            frame2: Math.round(performance.now() - frame1At),
-                            mounted:
-                                conversationContainer.value?.querySelectorAll('[data-message-id]')
-                                    .length,
-                        });
-                    }
-                    logFirstRenderCost(messageCount);
-                });
             });
         });
     }
-
-    function logFirstRenderCost(messageCount: number) {
-        const startedAt = performance.now();
-        void nextTick(() => {
-            requestAnimationFrame(() => {
-                // 再等一帧：虚拟滚动首帧只挂少量条目，测量后会再调整一次，
-                // 这里要看的是稳定后的挂载数量与总耗时。
-                requestAnimationFrame(() => {
-                    console.warn('[chat-render]', {
-                        messages: messageCount,
-                        mounted:
-                            conversationContainer.value?.querySelectorAll('[data-message-id]')
-                                .length,
-                        ms: Math.round(performance.now() - startedAt),
-                    });
-                });
-            });
-        });
-    }
-
     // 重置自动滚动状态
     watch(
         () => props.messages.map((message) => message.id),
@@ -535,7 +475,7 @@
             if (change !== 'append') {
                 if (change === 'replace') {
                     // 整表替换 = 切换到了另一个会话。
-                    positionListAtBottom(nextIds.length);
+                    positionListAtBottom();
                 }
                 return;
             }
@@ -608,7 +548,7 @@
         // 首次挂载时消息可能已经就绪（面板晚于会话数据挂载），
         // 这时没有 watcher 可依赖，必须在这里主动定位到底部。
         if (props.messages.length > 0) {
-            positionListAtBottom(props.messages.length);
+            positionListAtBottom();
         }
     });
 </script>

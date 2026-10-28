@@ -40,7 +40,7 @@
             </span>
         </button>
 
-        <MotionCollapse :open="isOpen && (sources.length > 0 || searching)" lazy>
+        <MotionCollapse :open="isOpen && (sources.length > 0 || searching)">
             <!--
               横向滚动轨道，不再换行堆成多行。
               两侧用渐变色覆盖层提示还有内容（不用 mask：遮罩会把滚动条一起裁掉）。
