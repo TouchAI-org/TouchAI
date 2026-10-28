@@ -164,15 +164,15 @@
     const clientHeight = ref(0);
 
     // 长会话只挂载视口附近的消息，避免 DOM 数量与会话总长度线性增长。
-    const WINDOWING_MIN_MESSAGES = 8;
+    // 门槛刻意保守：小会话不进入窗口化，避免与 widget/图片等异步测量互相扰动。
+    const WINDOWING_MIN_MESSAGES = 40;
     const WINDOWING_MIN_PARTS = 24;
-    const WINDOWING_MIN_APPROX_HEIGHT = 2600;
 
     /**
      * 是否启用有界挂载。
      *
      * 只看消息数不够：一个 assistant 消息里可能带几十个工具调用（每条 10KB+ 输出），
-     * 消息数很少也可能一次挂载上千个部件。所以同时看部件数与估算高度。
+     * 消息数很少也可能一次挂载上千个部件，所以同时看部件数。
      */
     const windowingEnabled = computed(() => {
         const messages = props.messages;
@@ -181,16 +181,9 @@
         }
 
         let parts = 0;
-        let approximateHeight = 0;
         for (const message of messages) {
-            const partCount = message.parts?.length ?? 0;
-            parts += partCount;
+            parts += message.parts?.length ?? 0;
             if (parts > WINDOWING_MIN_PARTS) {
-                return true;
-            }
-
-            approximateHeight += estimateMessageHeight(message) + partCount * 64;
-            if (approximateHeight > WINDOWING_MIN_APPROX_HEIGHT) {
                 return true;
             }
         }

@@ -49,6 +49,8 @@ export function useMessageWindowing(options: UseMessageWindowingOptions) {
     let itemObserver: ResizeObserver | null = null;
     let containerObserver: ResizeObserver | null = null;
     let pinTimer: ReturnType<typeof setTimeout> | null = null;
+    let measureFrame: number | null = null;
+    const pendingMeasureTargets = new Set<HTMLElement>();
 
     const heights = computed(() => {
         void version.value;
@@ -149,12 +151,33 @@ export function useMessageWindowing(options: UseMessageWindowingOptions) {
         observeMessageElement(element, message);
     }
 
+    /**
+     * 把测量合并到下一帧。
+     *
+     * RO 回调里直接测量 + 补值 `scrollTop` 会反复中断布局，连成 `ResizeObserver loop`；
+     * 合批后一帧只跑一次。
+     */
+    function scheduleMeasure(element: HTMLElement): void {
+        pendingMeasureTargets.add(element);
+        if (measureFrame !== null) {
+            return;
+        }
+
+        measureFrame = requestAnimationFrame(() => {
+            measureFrame = null;
+            const targets = [...pendingMeasureTargets];
+            pendingMeasureTargets.clear();
+            for (const target of targets) {
+                observedTargets.get(target)?.();
+            }
+        });
+    }
+
     if (typeof ResizeObserver !== 'undefined') {
         itemObserver = new ResizeObserver((entries) => {
             for (const entry of entries) {
                 if (entry.target instanceof HTMLElement) {
-                    const refresh = observedTargets.get(entry.target);
-                    refresh?.();
+                    scheduleMeasure(entry.target);
                 }
             }
         });
@@ -245,6 +268,11 @@ export function useMessageWindowing(options: UseMessageWindowingOptions) {
             clearTimeout(pinTimer);
             pinTimer = null;
         }
+        if (measureFrame !== null) {
+            cancelAnimationFrame(measureFrame);
+            measureFrame = null;
+        }
+        pendingMeasureTargets.clear();
         itemObserver?.disconnect();
         containerObserver?.disconnect();
         observedTargets.clear();
