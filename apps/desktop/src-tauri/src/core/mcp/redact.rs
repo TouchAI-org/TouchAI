@@ -8,11 +8,15 @@
 use reqwest::Url;
 
 const REDACTED: &str = "[redacted]";
+const REDACTED_URL: &str = "[redacted-url]";
 
 /// 只保留 scheme、host、port 和 path，去掉 userinfo、query 和 fragment。
+///
+/// 没有 host 的形态（例如 `user:pass@host/path` 会被解析成 scheme=`user`）
+/// 无法安全拆分，整体替换成固定标记。
 pub(crate) fn redact_url(raw: &str) -> String {
     match Url::parse(raw) {
-        Ok(url) => {
+        Ok(url) if url.host_str().is_some_and(|host| !host.is_empty()) => {
             let mut redacted = format!("{}://{}", url.scheme(), url.host_str().unwrap_or_default());
             if let Some(port) = url.port() {
                 redacted.push_str(&format!(":{port}"));
@@ -20,6 +24,7 @@ pub(crate) fn redact_url(raw: &str) -> String {
             redacted.push_str(url.path());
             redacted
         }
+        Ok(_) => REDACTED_URL.to_string(),
         Err(_) => redact_url_without_parser(raw),
     }
 }
@@ -27,6 +32,11 @@ pub(crate) fn redact_url(raw: &str) -> String {
 fn redact_url_without_parser(raw: &str) -> String {
     let without_fragment = raw.split('#').next().unwrap_or_default();
     let without_query = without_fragment.split('?').next().unwrap_or_default();
+
+    // 解析失败时 `@` 前后无法区分 userinfo 和路径，直接放弃整段。
+    if without_query.contains('@') {
+        return REDACTED_URL.to_string();
+    }
 
     match without_query.split_once("://") {
         Some((scheme, rest)) => {
@@ -89,11 +99,33 @@ pub(crate) fn redact_args(args: &[String]) -> Vec<String> {
                 redacted.push(name.to_string());
                 pending = Pending::Header;
             }
-            None => redacted.push(arg.clone()),
+            None => redacted.push(redact_positional(arg)),
         }
     }
 
     redacted
+}
+
+/// 位置参数里 `KEY=VALUE` 的键名带密钥含义时只保留键名，其余原样。
+fn redact_positional(arg: &str) -> String {
+    match arg.split_once('=') {
+        Some((name, value))
+            if !name.starts_with('-')
+                && (is_secret_name(name) || looks_like_secret_value(value)) =>
+        {
+            format!("{name}={REDACTED}")
+        }
+        _ => arg.to_string(),
+    }
+}
+
+/// 常见令牌前缀；键名本身没有密钥含义时，值也能单独判定。
+fn looks_like_secret_value(value: &str) -> bool {
+    const PREFIXES: [&str; 6] = ["sk-", "pk-", "ghp_", "github_pat_", "xoxb-", "xoxp-"];
+
+    PREFIXES
+        .iter()
+        .any(|prefix| value.starts_with(prefix) && value.len() >= prefix.len() + 8)
 }
 
 /// 进入日志的 stdio 连接信息。
@@ -200,19 +232,12 @@ fn is_secret_name(name: &str) -> bool {
         })
 }
 
+/// 请求头名字保留下来做诊断，值一律替换：未知头也可能携带会话凭据。
 fn redact_header(value: &str) -> String {
     match value.split_once(':') {
-        Some((name, _)) if is_secret_header(name) => format!("{name}: {REDACTED}"),
-        _ => value.to_string(),
+        Some((name, _)) => format!("{}: {REDACTED}", name.trim()),
+        None => REDACTED.to_string(),
     }
-}
-
-fn is_secret_header(name: &str) -> bool {
-    let normalized = name.trim().to_ascii_lowercase().replace('_', "-");
-    matches!(
-        normalized.as_str(),
-        "authorization" | "cookie" | "proxy-authorization"
-    ) || is_secret_name(&normalized)
 }
 
 #[cfg(test)]
@@ -237,6 +262,23 @@ mod tests {
         let redacted = redact_url("mcp.example.test/sse?token=secret-query");
 
         assert_eq!(redacted, "mcp.example.test/sse");
+        assert!(!redacted.contains("secret-query"));
+    }
+
+    #[test]
+    fn user_does_not_see_credentials_in_an_opaque_url() {
+        let redacted = redact_url("user:pass@mcp.example.test/sse");
+
+        assert_eq!(redacted, "[redacted-url]");
+        assert!(!redacted.contains("pass"));
+    }
+
+    #[test]
+    fn user_does_not_see_credentials_when_the_url_has_no_scheme() {
+        let redacted = redact_url("user:pass@mcp.example.test/sse?token=secret-query");
+
+        assert_eq!(redacted, "[redacted-url]");
+        assert!(!redacted.contains("pass"));
         assert!(!redacted.contains("secret-query"));
     }
 
@@ -267,9 +309,55 @@ mod tests {
 
     #[test]
     fn user_keeps_harmless_arguments_readable_in_the_log() {
-        let redacted = redact_args(&args(&["--model", "gpt-4.1", "-H", "X-Trace: abc"]));
+        let redacted = redact_args(&args(&["--model", "gpt-4.1"]));
 
-        assert_eq!(redacted, vec!["--model", "gpt-4.1", "-H", "X-Trace: abc"]);
+        assert_eq!(redacted, vec!["--model", "gpt-4.1"]);
+    }
+
+    #[test]
+    fn user_does_not_see_unknown_header_values_in_the_log() {
+        let redacted = redact_args(&args(&["-H", "X-Session: session-secret"]));
+
+        assert_eq!(redacted, vec!["-H", "X-Session: [redacted]"]);
+    }
+
+    #[test]
+    fn user_does_not_see_environment_values_in_the_log() {
+        let redacted = redact_args(&args(&[
+            "run",
+            "-e",
+            "API_KEY=sk-live-secret",
+            "--env",
+            "DEBUG=1",
+            "FOO=sk-live-unknown-name",
+            "API_KEY=sk-live-inline",
+        ]));
+
+        assert_eq!(
+            redacted,
+            vec![
+                "run",
+                "-e",
+                "API_KEY=[redacted]",
+                "--env",
+                "DEBUG=1",
+                "FOO=[redacted]",
+                "API_KEY=[redacted]",
+            ]
+        );
+    }
+
+    #[test]
+    fn user_does_not_see_environment_values_in_a_windows_command_list() {
+        let message = stdio_actual_command_message(
+            3,
+            "C:\\Windows\\System32\\cmd.exe",
+            &args(&["/c", "npx", "-e", "API_KEY=sk-live-secret", "server"]),
+        );
+
+        assert!(!message.contains("sk-live-secret"));
+        assert!(message.contains("cmd.exe"));
+        assert!(message.contains("server"));
     }
 
     #[test]

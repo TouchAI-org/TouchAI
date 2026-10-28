@@ -333,7 +333,7 @@ function describeErrorForLog(error: unknown): Record<string, unknown> {
     if (details?.responseBody !== undefined || details?.requestBodyValues !== undefined) {
         description.messageLength = error.message.length;
     } else {
-        description.message = error.message.slice(0, 300);
+        description.message = redactLogText(error.message).slice(0, 300);
     }
 
     return description;
@@ -365,6 +365,8 @@ function serializedByteLength(value: unknown): number | null {
     }
 }
 
+const REDACTED_URL = '[redacted-url]';
+
 function redactLogUrl(raw: string): string {
     try {
         const url = new URL(raw);
@@ -374,9 +376,14 @@ function redactLogUrl(raw: string): string {
         url.hash = '';
         return url.toString();
     } catch {
-        const withoutFragment = raw.split('#')[0] ?? raw;
-        return withoutFragment.split('?')[0] ?? withoutFragment;
+        // 解析失败时无法判断 userinfo 和路径的边界，整体丢弃而不是猜。
+        return REDACTED_URL;
     }
+}
+
+/** 错误文本里的 URL 同样可能带 userinfo 或 query，进日志前替换成脱敏形式。 */
+function redactLogText(text: string): string {
+    return text.replace(/\bhttps?:\/\/[^\s"'<>]+/gi, (match) => redactLogUrl(match));
 }
 
 function cloneAiMessages(messages: AiMessage[]): AiMessage[] {

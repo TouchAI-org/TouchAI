@@ -266,7 +266,21 @@ describe('user reads a failure log without conversation content', () => {
 
         const logged = JSON.stringify(warn.mock.calls);
         expect(logged).not.toContain('secret-query-marker');
-        expect(logged).toContain('custom-endpoint');
+        expect(logged).toContain('[redacted-url]');
+    });
+
+    it('user does not see credentials inside a provider error message', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const failure = new Error(
+            'request to https://alice:secret@example.test/v1?api_key=sk-live-secret failed'
+        );
+
+        await failWith(failure);
+
+        const logged = JSON.stringify(warn.mock.calls);
+        expect(logged).not.toContain('alice');
+        expect(logged).not.toContain('sk-live-secret');
+        expect(logged).toContain('https://example.test/v1');
     });
 });
 
