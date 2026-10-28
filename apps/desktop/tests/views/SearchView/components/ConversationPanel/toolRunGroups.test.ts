@@ -63,4 +63,39 @@ describe('groupToolRuns', () => {
 
         expect(blocks).toEqual([{ kind: 'part', part: { id: 'only', type: 'tool_call' } }]);
     });
+
+    it('collates every tool call of a message in all mode', () => {
+        // 真实数据里是 reasoning/tool_call/text 交替，连续合并合不掉。
+        const alternating: Part[] = [
+            { id: 'r1', type: 'text' },
+            { id: 't1', type: 'tool_call' },
+            { id: 'r2', type: 'text' },
+            { id: 't2', type: 'tool_call' },
+            { id: 'r3', type: 'text' },
+            { id: 't3', type: 'tool_call' },
+        ];
+
+        const blocks = groupToolRuns(alternating, { ...options, mode: 'all' });
+
+        expect(blocks.map((block) => block.kind)).toEqual(['part', 'tool-run', 'part', 'part']);
+        const group = blocks[1]!;
+        expect(group.kind).toBe('tool-run');
+        if (group.kind === 'tool-run') {
+            expect(group.parts.map((part) => part.id)).toEqual(['t1', 't2', 't3']);
+        }
+    });
+
+    it('keeps every part when all mode finds too few tool calls', () => {
+        const blocks = groupToolRuns(
+            [
+                { id: 'a', type: 'text' },
+                { id: 'b', type: 'tool_call' },
+                { id: 'c', type: 'text' },
+            ],
+            { ...options, mode: 'all' }
+        );
+
+        expect(blocks.every((block) => block.kind === 'part')).toBe(true);
+        expect(blocks).toHaveLength(3);
+    });
 });
