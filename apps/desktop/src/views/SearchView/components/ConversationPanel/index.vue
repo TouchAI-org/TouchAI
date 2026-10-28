@@ -32,30 +32,21 @@
             @touchstart.passive="markUserScrollIntent"
             @keydown="handleScrollIntentByKeyboard"
         >
-            <!-- 消息列表 -->
-            <div ref="messageListRef" class="mt-4">
-                <div
-                    v-if="windowingEnabled && windowRange.topSpacer > 0"
-                    class="w-full"
-                    :style="{ height: `${windowRange.topSpacer}px` }"
-                    aria-hidden="true"
-                />
-                <div
-                    v-for="message in renderedMessages"
-                    :key="message.id"
-                    :ref="(el) => setMessageElement(message, el)"
-                    :data-message-id="message.id"
-                    :data-message-role="message.role"
-                >
-                    <MessageItem :message="message" @regenerate="handleRegenerateMessage" />
-                </div>
-                <div
-                    v-if="windowingEnabled && windowRange.bottomSpacer > 0"
-                    class="w-full"
-                    :style="{ height: `${windowRange.bottomSpacer}px` }"
-                    aria-hidden="true"
-                />
-            </div>
+            <!-- 消息列表：虚拟滚动由 virtua 负责测量与锦点，打开时直接定位到底部 -->
+            <Virtualizer
+                ref="messageVirtualizer"
+                :data="messages"
+                :scroll-ref="conversationContainer || undefined"
+                :buffer-size="600"
+                @scroll="handleScroll"
+                @resize="handleVirtualResize"
+            >
+                <template #default="{ item }">
+                    <div :data-message-id="item.id" :data-message-role="item.role">
+                        <MessageItem :message="item" @regenerate="handleRegenerateMessage" />
+                    </div>
+                </template>
+            </Virtualizer>
 
             <!-- 对话时间轴 -->
             <ConversationTimeline
@@ -90,7 +81,8 @@
     import { MARKDOWN_SCROLL_ROOT_KEY } from '@components/markdownScrollRoot';
     import { useScrollbarStabilizer } from '@composables/useScrollbarStabilizer';
     import { storeToRefs } from 'pinia';
-    import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue';
+    import { Virtualizer, type VirtualizerHandle } from 'virtua/vue';
+    import { computed, nextTick, onMounted, provide, ref, watch } from 'vue';
 
     import { useSettingsStore } from '@/stores/settings';
     import type { SessionMessage } from '@/types/session';
@@ -98,9 +90,7 @@
     import ConversationTimeline from './components/ConversationTimeline.vue';
     import ConversationToolbar from './components/ConversationToolbar.vue';
     import MessageItem from './components/MessageItem.vue';
-    import { useMessageWindowing } from './composables/useMessageWindowing';
     import { resolveFollowScrollState } from './followScrollState';
-    import { estimateMessageHeight } from './messageHeightEstimate';
     import { classifyMessageListChange } from './messageListChange';
     import { buildMessageListRevision } from './messageListRevision';
 
@@ -145,7 +135,7 @@
     const conversationToolbar = ref<{
         getHistoryAnchor: () => HTMLElement | null;
     } | null>(null);
-    const messageListRef = ref<HTMLElement | null>(null);
+    const messageVirtualizer = ref<VirtualizerHandle | null>(null);
     const settingsStore = useSettingsStore();
     const { outputScrollBehavior } = storeToRefs(settingsStore);
     useScrollbarStabilizer(conversationContainer);
@@ -156,66 +146,12 @@
     const lastAutoScrollAt = ref(0);
     const USER_MESSAGE_SCROLL_GAP = 12;
     const TIMELINE_JUMP_OFFSET = 80;
-    let messageListObserver: ResizeObserver | null = null;
 
     // 时间轴相关状态
     const scrollTop = ref(0);
     const scrollHeight = ref(0);
     const clientHeight = ref(0);
 
-    // 长会话只挂载视口附近的消息，避免 DOM 数量与会话总长度线性增长。
-    // 门槛刻意保守：小会话不进入窗口化，避免与 widget/图片等异步测量互相扰动。
-    const WINDOWING_MIN_MESSAGES = 40;
-    const WINDOWING_MIN_PARTS = 24;
-
-    /**
-     * 是否启用有界挂载。
-     *
-     * 只看消息数不够：一个 assistant 消息里可能带几十个工具调用（每条 10KB+ 输出），
-     * 消息数很少也可能一次挂载上千个部件，所以同时看部件数。
-     */
-    const windowingEnabled = computed(() => {
-        const messages = props.messages;
-        if (messages.length > WINDOWING_MIN_MESSAGES) {
-            return true;
-        }
-
-        let parts = 0;
-        for (const message of messages) {
-            parts += message.parts?.length ?? 0;
-            if (parts > WINDOWING_MIN_PARTS) {
-                return true;
-            }
-        }
-
-        return false;
-    });
-    const {
-        windowRange,
-        renderedMessages,
-        registerMessageElement,
-        messageOffsetTop,
-        pinMessage,
-        releasePin,
-    } = useMessageWindowing({
-        container: conversationContainer,
-        messages: computed(() => props.messages),
-        enabled: windowingEnabled,
-        scrollTop,
-        clientHeight,
-        estimateHeight: estimateMessageHeight,
-        // 布局补偿产生的滚动不是用户意图，不能据此切换自动跟随。
-        onProgrammaticScroll: () => {
-            lastAutoScrollAt.value = Date.now();
-        },
-    });
-
-    function setMessageElement(
-        message: SessionMessage,
-        target: Element | { $el?: Element } | null
-    ) {
-        registerMessageElement(message, target);
-    }
     const conversationContainerStyle = computed(() =>
         props.fillAvailableHeight
             ? {
@@ -234,18 +170,19 @@
     }
 
     /**
-     * 切换历史会话时需要丢弃当前滚动状态，
-     * 否则用户手动离底后的偏移会被带到新会话，初始视图会停在最早内容附近。
+     * 切换历史会话时直接定位到最底部。
+     *
+     * 用虚拟滚动的 `scrollToIndex` 而不是 `scrollTop = scrollHeight`：
+     * 后者在未测量完之前会落在中间，用户会看到内容从顶部往下“滚过去”。
      */
     function revealLatestContent() {
-        syncToBottom();
-        // 窗口化下首帧的累计高度还包含估值，测量落地后再对齐一次底部；
-        // 否则打开长会话会停在“估值底部”而不是真实底部。
-        void nextTick(() => {
-            syncToBottom();
-        });
         isAutoScrollEnabled.value = outputScrollBehavior.value === 'follow_output';
         showScrollToBottom.value = false;
+        syncToBottom();
+        // 首帧测量完成后校正一次，避免“先到估值底部再跳”的视觉跳动。
+        requestAnimationFrame(() => {
+            syncToBottom();
+        });
     }
 
     function scrollByDelta(deltaY: number) {
@@ -371,25 +308,42 @@
         emitLatestContentVisibility();
     }
 
+    /** 滚到最后一条消息（虚拟滚动自带测量与铺底，不靠 scrollHeight 估算）。 */
     function syncToBottom() {
-        if (!conversationContainer.value) return;
+        const lastIndex = props.messages.length - 1;
+        if (lastIndex < 0) {
+            return;
+        }
+
         lastAutoScrollAt.value = Date.now();
-        conversationContainer.value.scrollTop = conversationContainer.value.scrollHeight;
-        lastScrollTop.value = conversationContainer.value.scrollTop;
+        messageVirtualizer.value?.scrollToIndex(lastIndex, { align: 'end' });
+        lastScrollTop.value = conversationContainer.value?.scrollTop ?? 0;
         syncScrollMetrics();
         emitLatestContentVisibility();
     }
 
     function smoothScrollToBottom() {
-        if (!conversationContainer.value) return;
+        const lastIndex = props.messages.length - 1;
+        if (lastIndex < 0) {
+            return;
+        }
+
         lastAutoScrollAt.value = Date.now();
-        conversationContainer.value.scrollTo({
-            top: conversationContainer.value.scrollHeight,
-            behavior: 'smooth',
-        });
-        lastScrollTop.value = conversationContainer.value.scrollTop;
+        messageVirtualizer.value?.scrollToIndex(lastIndex, { align: 'end', smooth: true });
+        lastScrollTop.value = conversationContainer.value?.scrollTop ?? 0;
         syncScrollMetrics();
         emitLatestContentVisibility();
+    }
+
+    /** 虚拟滚动视口/条目尺寸变化：跟随中则继续贴底，否则只刷新按钮。 */
+    function handleVirtualResize() {
+        syncScrollMetrics();
+        if (shouldAutoScrollOnOutput()) {
+            syncToBottom();
+            return;
+        }
+
+        showScrollToBottom.value = !isScrolledToBottom(conversationContainer.value);
     }
 
     /**
@@ -406,78 +360,30 @@
         emitLatestContentVisibility();
     }
 
-    /** 构造消息节点的属性选择器（转义后避免 id 里的特殊字符破坏选择器）。 */
-    function buildMessageSelector(messageId: string): string | null {
-        const escaped =
-            typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
-                ? CSS.escape(messageId)
-                : messageId;
-        return `[data-message-id="${escaped}"]`;
-    }
-
     /**
      * 滚到指定消息顶部。
      *
-     * 目标不在有界挂载窗口内时，先把它钉进渲染区间再按真实 DOM 位置定位：
-     * 未挂载项只有估算高度，直接按累计估值滚动会越跳越偏（长会话尤其明显）。
+     * 交给虚拟滚动的 `scrollToIndex`：未测量的条目先按估值跳过去，
+     * 测量完成后由库自己校正，不会出现手写方案那种“来回滚动还落错位置”。
+     *
+     * @returns 是否已定位（找不到消息时返回 false）。
      */
-    async function scrollToUserMessageTop(
-        messageId: string,
-        gap = USER_MESSAGE_SCROLL_GAP
-    ): Promise<boolean> {
-        const container = conversationContainer.value;
-        if (!container || !messageListRef.value) {
+    function scrollToUserMessageTop(messageId: string, gap = USER_MESSAGE_SCROLL_GAP): boolean {
+        const virtualizer = messageVirtualizer.value;
+        const index = props.messages.findIndex((message) => message.id === messageId);
+        if (!virtualizer || index < 0) {
             return false;
         }
 
-        const selector = buildMessageSelector(messageId);
-        let target = selector ? messageListRef.value.querySelector<HTMLElement>(selector) : null;
-
-        if (!target) {
-            if (messageOffsetTop(messageId) === null) {
-                return false;
-            }
-
-            pinMessage(messageId);
-            await nextTick();
-            target = selector ? messageListRef.value.querySelector<HTMLElement>(selector) : null;
-        }
-
         lastAutoScrollAt.value = Date.now();
-
-        if (target) {
-            const containerRect = container.getBoundingClientRect();
-            const targetRect = target.getBoundingClientRect();
-            const targetScrollTop =
-                container.scrollTop + (targetRect.top - containerRect.top) - gap;
-            container.scrollTop = Math.max(0, targetScrollTop);
-        } else {
-            // 极端情况（目标仍未挂载）：退回累计高度估算。
-            const offset = messageOffsetTop(messageId);
-            if (offset === null) {
-                releasePin();
-                return false;
-            }
-
-            const listTop =
-                messageListRef.value.getBoundingClientRect().top -
-                container.getBoundingClientRect().top +
-                container.scrollTop;
-            container.scrollTop = Math.max(0, listTop + offset - gap);
-        }
-
-        lastScrollTop.value = container.scrollTop;
-        handleScroll();
-
-        // 下一帧再释放：此时窗口已按新的 scrollTop 重算，目标仍在渲染区间内。
-        requestAnimationFrame(() => {
-            releasePin();
-        });
+        virtualizer.scrollToIndex(index, { align: 'start', offset: -gap });
+        lastScrollTop.value = conversationContainer.value?.scrollTop ?? 0;
+        syncScrollMetrics();
         return true;
     }
 
-    async function handleTimelineJump(messageId: string) {
-        const didJump = await scrollToUserMessageTop(
+    function handleTimelineJump(messageId: string) {
+        const didJump = scrollToUserMessageTop(
             messageId,
             USER_MESSAGE_SCROLL_GAP + TIMELINE_JUMP_OFFSET
         );
@@ -524,7 +430,8 @@
             requestAnimationFrame(() => {
                 console.warn('[chat-render]', {
                     messages: messageCount,
-                    mounted: renderedMessages.value.length,
+                    mounted:
+                        conversationContainer.value?.querySelectorAll('[data-message-id]').length,
                     ms: Math.round(performance.now() - startedAt),
                 });
             });
@@ -579,9 +486,8 @@
                 isAutoScrollEnabled.value = false;
                 nextTick(() => {
                     if (latestAppendedUserMessage) {
-                        void scrollToUserMessageTop(latestAppendedUserMessage.id).then(() => {
-                            refreshScrollToBottomVisibility();
-                        });
+                        scrollToUserMessageTop(latestAppendedUserMessage.id);
+                        refreshScrollToBottomVisibility();
                         return;
                     }
                     refreshScrollToBottomVisibility();
@@ -617,33 +523,8 @@
         await settingsStore.initialize();
 
         // 初始化时间轴滚动状态
-        if (conversationContainer.value) {
-            scrollTop.value = conversationContainer.value.scrollTop;
-            scrollHeight.value = conversationContainer.value.scrollHeight;
-            clientHeight.value = conversationContainer.value.clientHeight;
-            emitLatestContentVisibility();
-        }
-
-        if (messageListRef.value) {
-            messageListObserver = new ResizeObserver(() => {
-                if (!shouldAutoScrollOnOutput()) {
-                    emitLatestContentVisibility();
-                    return;
-                }
-
-                nextTick(() => {
-                    syncToBottom();
-                });
-            });
-            messageListObserver.observe(messageListRef.value);
-        }
-    });
-
-    onUnmounted(() => {
-        if (messageListObserver) {
-            messageListObserver.disconnect();
-            messageListObserver = null;
-        }
+        syncScrollMetrics();
+        emitLatestContentVisibility();
     });
 </script>
 
@@ -651,7 +532,6 @@
     .conversation-container {
         scrollbar-width: none;
     }
-
     .conversation-container::-webkit-scrollbar {
         display: none;
     }

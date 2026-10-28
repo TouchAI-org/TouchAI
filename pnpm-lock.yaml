@@ -242,6 +242,9 @@ importers:
       vercel-minimax-ai-provider:
         specifier: ^0.0.2
         version: 0.0.2(zod@4.6.7)
+      virtua:
+        specifier: ^0.54.0
+        version: 0.54.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vue@3.5.43(typescript@6.0.3))
       vue:
         specifier: ^3.5.43
         version: 3.5.43(typescript@6.0.3)
@@ -7080,6 +7083,32 @@ packages:
 
   vfile@6.0.3:
     resolution: {integrity: sha512-KzIbH/9tXat2u30jf+smMwFCsno4wHVdNmzFyL+T/L3UGqqk6JKfVqOFOZEpZSHADH1k40ab6NUIXZq422ov3Q==}
+
+  virtua@0.54.0:
+    resolution: {integrity: sha512-8nGGrDhX61MDVeqgyIaWrJqhRm9z2Nqa1WDqt0tk1m+ZWrvLesMP0iL0vL6xNsLCF2jE2ohwY+PqufdbVmRgEw==}
+    peerDependencies:
+      '@angular/common': '>=20.0.0'
+      '@angular/core': '>=20.0.0'
+      react: '>=16.14.0'
+      react-dom: '>=16.14.0'
+      solid-js: '>=1.0'
+      svelte: '>=5.0'
+      vue: '>=3.2'
+    peerDependenciesMeta:
+      '@angular/common':
+        optional: true
+      '@angular/core':
+        optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+      solid-js:
+        optional: true
+      svelte:
+        optional: true
+      vue:
+        optional: true
 
   vite-plugin-monaco-editor-esm@2.0.3:
     resolution: {integrity: sha512-9nA73gcWtO+XDsLmBBQXoY4NMv6D2ZKDZHdHgVl1lfADnXEwdBPr1iL8qGqDKXGgEmYo1F12rFPEnymFe2aibA==}
@@ -14199,6 +14228,12 @@ snapshots:
     dependencies:
       '@types/unist': 3.0.3
       vfile-message: 4.0.3
+
+  virtua@0.54.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vue@3.5.43(typescript@6.0.3)):
+    optionalDependencies:
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      vue: 3.5.43(typescript@6.0.3)
 
   vite-plugin-monaco-editor-esm@2.0.3(monaco-editor@0.55.1):
     dependencies:
