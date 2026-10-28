@@ -5,16 +5,33 @@ export const REDACTED = '[redacted]';
 const REDACTED_EMAIL = '[redacted-email]';
 const MAX_ATTRIBUTE_LENGTH = 1024;
 const TRUNCATION_MARKER = '…';
-const URL_PATTERN = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"'<>]+/gi;
+/**
+ * scheme 和邮箱的本地部分都写成有界量词。
+ *
+ * 无界写法会在每个词边界重扫剩余文本：`a-a-a-…` 这类输入上 URL 与邮箱正则
+ * 都是 O(n²)，128KB 就能占住渲染线程几十秒。
+ */
+const URL_PATTERN = /\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s"'<>]+/gi;
 export const MAX_AUDIT_PAYLOAD_BYTES = 64 * 1024;
-const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+/**
+ * 脱敏阶段最多扫描的字节数：审计载荷上限的两倍。
+ *
+ * 两倍足够填满 64KB 结果，同时让最坏情况的扫描成本有上界。
+ */
+const MAX_REDACTION_INPUT_BYTES = MAX_AUDIT_PAYLOAD_BYTES * 2;
+const EMAIL_PATTERN = /\b[A-Z0-9._%+-]{1,64}@[A-Z0-9.-]{1,255}\.[A-Z]{2,24}\b/gi;
 const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/gi;
 /** 没有 `Authorization:` 前缀的 Basic/Digest 凭据同样不能落盘。 */
 const BASIC_CREDENTIAL_PATTERN = /\b(Basic|Digest)\s+[A-Za-z0-9+/=._~-]{8,}/gi;
-const SECRET_KEY_PATTERN =
-    '(?:[a-z0-9]+[_-])*(?:api[_-]?key|access[_-]?key|token|secret|password|passwd|authorization|cookie|auth)';
+/**
+ * 键名先按普通标识符匹配，再交给 `isSecretKey` 判定。
+ *
+ * 旧写法把密钥词表和重复分组写进正则，`a-a-a-…` 这类输入会触发灾难性回溯：
+ * 32KB 要 1.3s，128KB 要 19s，足够卡死渲染线程。现在键名是有界字符类，
+ * 匹配与判定都是线性的。
+ */
 const SECRET_ASSIGNMENT_PATTERN = new RegExp(
-    `(["']?)\\b(${SECRET_KEY_PATTERN})\\1(\\s*[=:]\\s*)("[^"]*"|'[^']*'|[^\\s,;}]+)`,
+    `(["']?)([A-Za-z0-9_.-]{1,64})\\1(\\s*[=:]\\s*)("(?:[^"\\\\]|\\\\.)*"|'[^']*'|[^\\s,;}]+)`,
     'gi'
 );
 const SENSITIVE_HEADER_PATTERN = new RegExp(
@@ -127,7 +144,9 @@ function truncateBytes(value: string, maxBytes: number): string {
 
 /** 自由文本里的 URL、邮箱、令牌、凭据赋值和主目录路径都脱敏。 */
 export function redactText(value: string, maxLength = MAX_ATTRIBUTE_LENGTH): string {
-    const redacted = value
+    // 正则只扫描有界文本：超长工具输出不应该在脱敏阶段阻塞渲染线程。
+    const scanBudget = Math.min(maxLength + 512, MAX_REDACTION_INPUT_BYTES);
+    const redacted = truncateBytes(value, scanBudget)
         .replace(HOME_PATTERN, '~')
         .replace(URL_PATTERN, (match) => redactUrl(match))
         .replace(EMAIL_PATTERN, REDACTED_EMAIL)
@@ -146,7 +165,8 @@ export function redactText(value: string, maxLength = MAX_ATTRIBUTE_LENGTH): str
         )
         .replace(
             SECRET_ASSIGNMENT_PATTERN,
-            (_match, quote: string, key: string, separator: string, valueText: string) => {
+            (match, quote: string, key: string, separator: string, valueText: string) => {
+                if (!isSecretKey(key)) return match;
                 const replacement = valueText.startsWith('"')
                     ? `"${REDACTED}"`
                     : valueText.startsWith("'")
@@ -189,11 +209,12 @@ function utf8Length(value: string): number {
 /** Serialize audit content with key-aware redaction and a hard 64KB ceiling. */
 export function serializeAuditPayload(payload: unknown): string {
     if (typeof payload === 'string') {
-        const redacted = redactText(payload, Number.MAX_SAFE_INTEGER);
+        const originalBytes = utf8Length(payload);
+        const redacted = redactText(payload, MAX_REDACTION_INPUT_BYTES);
         const encoded = new TextEncoder().encode(redacted);
         if (encoded.length <= MAX_AUDIT_PAYLOAD_BYTES) return redacted;
 
-        const marker = `\n[truncated original_bytes=${encoded.length}]`;
+        const marker = `\n[truncated original_bytes=${originalBytes}]`;
         const preview = new TextDecoder().decode(
             encoded.slice(0, MAX_AUDIT_PAYLOAD_BYTES - utf8Length(marker))
         );

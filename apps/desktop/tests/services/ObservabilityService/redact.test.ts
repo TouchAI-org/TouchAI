@@ -204,4 +204,22 @@ describe('user does not leak secrets into logs', () => {
         );
         expect(output).toContain('[truncated original_bytes=');
     });
+
+    it('user gets adversarial tool output redacted without stalling the window', () => {
+        // Dash-joined identifiers used to make the key pattern backtrack
+        // catastrophically: 128KB took ~20s on the renderer thread.
+        const hostile = `result: ${'a-'.repeat(64 * 1024)}done`;
+        const startedAt = performance.now();
+        const output = serializeAuditPayload(hostile);
+        const elapsedMs = performance.now() - startedAt;
+
+        expect(output).toContain('result:');
+        expect(elapsedMs).toBeLessThan(1000);
+    });
+
+    it('user gets an ordinary assignment left alone when the key is not a secret', () => {
+        const output = serializeAuditPayload('status=completed attempts=3 path=a-b-c');
+
+        expect(output).toBe('status=completed attempts=3 path=a-b-c');
+    });
 });
