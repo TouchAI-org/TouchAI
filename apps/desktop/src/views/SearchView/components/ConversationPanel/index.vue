@@ -37,7 +37,7 @@
                 ref="messageVirtualizer"
                 :data="messages"
                 :scroll-ref="conversationContainer || undefined"
-                :buffer-size="600"
+                :buffer-size="200"
                 @scroll="handleScroll"
                 @resize="handleVirtualResize"
             >
@@ -136,6 +136,7 @@
         getHistoryAnchor: () => HTMLElement | null;
     } | null>(null);
     const messageVirtualizer = ref<VirtualizerHandle | null>(null);
+    let resizeSyncFrame: number | null = null;
     const settingsStore = useSettingsStore();
     const { outputScrollBehavior } = storeToRefs(settingsStore);
     useScrollbarStabilizer(conversationContainer);
@@ -335,15 +336,32 @@
         emitLatestContentVisibility();
     }
 
-    /** 虚拟滚动视口/条目尺寸变化：跟随中则继续贴底，否则只刷新按钮。 */
+    /** 虚拟滚动视口/条目尺寸变化：跟随中则贴底。
+     *
+     * 这里必须闸一下：`scrollToIndex` 会触发重新测量 → 再次 onResize，
+     * 重消息场景下会反复几百毫秒。已经到底时直接返回即可断掉这个环。
+     */
     function handleVirtualResize() {
         syncScrollMetrics();
-        if (shouldAutoScrollOnOutput()) {
-            syncToBottom();
+
+        if (resizeSyncFrame !== null) {
             return;
         }
 
-        showScrollToBottom.value = !isScrolledToBottom(conversationContainer.value);
+        resizeSyncFrame = requestAnimationFrame(() => {
+            resizeSyncFrame = null;
+
+            if (!shouldAutoScrollOnOutput()) {
+                refreshScrollToBottomVisibility();
+                return;
+            }
+
+            if (isScrolledToBottom(conversationContainer.value)) {
+                return;
+            }
+
+            syncToBottom();
+        });
     }
 
     /**
