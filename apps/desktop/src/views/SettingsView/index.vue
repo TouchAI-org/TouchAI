@@ -30,6 +30,7 @@
     } from './components/NavigationSidebar.vue';
     import SettingsWindowTitleBar from './components/SettingsWindowTitleBar.vue';
     import { createSectionPreloader } from './sectionPreloader';
+    import { captureScrollSnapshot, resolveRestoredScrollTop } from './sectionScrollMemory';
     import type { SettingsSearchResult } from './settingsSearch';
 
     defineOptions({
@@ -158,6 +159,31 @@
     useScrollbarStabilizer(contentScrollRef);
     const { scrollFadeStyle } = useScrollFade(contentScrollRef);
     const activeContentSection = computed(() => settingsContentSections[activeSection.value]);
+    // 每个设置分区各记一份滚动位置：容器只有一个，不记就会互相污染。
+    const sectionScrollSnapshots = new Map<NavigationSection, number>();
+
+    /** 记录当前分区的滚动位置（切走之前调用）。 */
+    function rememberSectionScroll() {
+        const snapshot = captureScrollSnapshot(contentElementRef.value);
+        if (snapshot) {
+            sectionScrollSnapshots.set(activeSection.value, snapshot.scrollTop);
+        }
+    }
+
+    /** 切回分区时恢复它自己的滚动位置（或从顶部开始）。 */
+    async function restoreSectionScroll(section: NavigationSection) {
+        await nextTick();
+        const element = contentElementRef.value;
+        if (!element) {
+            return;
+        }
+
+        element.scrollTop = resolveRestoredScrollTop(
+            sectionScrollSnapshots.get(section),
+            element.scrollHeight,
+            element.clientHeight
+        );
+    }
 
     const currentWindow = (() => {
         try {
@@ -178,8 +204,10 @@
     const handleNavigate = (section: NavigationSection) => {
         cancelPendingSearch();
         pendingUpdateRequest.value = null;
+        rememberSectionScroll();
         if (activeSection.value !== section) resolvedSection.value = null;
         activeSection.value = section;
+        void restoreSectionScroll(section);
         sectionPreloader.prefetch(section, { priority: true });
     };
 
@@ -231,6 +259,7 @@
 
     const handleSearchSelect = async (result: SettingsSearchResult) => {
         cancelPendingSearch();
+        rememberSectionScroll();
         if (activeSection.value !== result.section) resolvedSection.value = null;
         pendingSearchResult = result;
         activeSection.value = result.section;
