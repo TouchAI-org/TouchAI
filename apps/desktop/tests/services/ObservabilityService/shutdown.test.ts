@@ -8,7 +8,7 @@ const { windowMock, ingestMock } = vi.hoisted(() => ({
         onCloseRequested: vi.fn(),
         destroy: vi.fn(async () => undefined),
     },
-    ingestMock: vi.fn(async () => undefined),
+    ingestMock: vi.fn(async (): Promise<void> => {}),
 }));
 
 vi.mock('@tauri-apps/api/window', () => ({
