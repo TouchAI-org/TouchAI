@@ -64,9 +64,14 @@ name: Approve visual baselines
 # inputs. `plan` decides which layers were asked for; one matrix job then regenerates
 # each of them, serialised so the two commits land one after the other. The layers differ
 # only in which workflow to dispatch, which artifact to download, which directory to
-# commit and what to call the commit, so those four values are the matrix and everything
-# else is shared. A job per layer meant two copies of the dispatch, wait, download and
-# push steps, which is how they drifted apart before.
+# commit and what to call the commit, so those four values are the matrix entries and
+# everything else is shared. A job per layer meant two copies of the dispatch, wait,
+# download and push steps, which is how they drifted apart before.
+#
+# `plan` emits the matrix itself rather than a list of layer names. A job-level `if`
+# cannot read `matrix` — GitHub rejects the file, since the matrix is not expanded when
+# the condition is evaluated — and a static `include` entry that matches no requested
+# layer is expanded into a job of its own, so filtering has to happen before the matrix.
 #
 # There is no separate report job. The outcome is a status line handed to
 # `visual-comment.mjs`, which writes it into the one pull request comment the comparison
@@ -108,7 +113,7 @@ jobs:
             # never touches the branch.
             pull-requests: write
         outputs:
-            layers: ${{ steps.parse.outputs.layers }}
+            matrix: ${{ steps.parse.outputs.matrix }}
             head_ref: ${{ steps.pr.outputs.head_ref }}
         steps:
             # `author_association` only says how the author relates to the repository,
@@ -163,39 +168,39 @@ jobs:
                   # the script, so a comment cannot smuggle shell syntax into the run.
                   body="$(printf '%s' "$COMMENT_BODY")"
 
-                  components=false
-                  e2e=false
+                  # Every input a layer needs, in the order the layers run. This is the
+                  # one place a layer is defined: the selection below narrows this list,
+                  # it does not repeat it.
+                  catalog='[
+                    {"layer":"components","workflow":"visual-components.yml","artifact":"component-baselines","snapshots":"apps/desktop/tests/visual/__snapshots__","message":"test(ui): refresh the component visual baselines"},
+                    {"layer":"e2e","workflow":"e2e-smoke.yml","artifact":"visual-baselines","snapshots":"apps/desktop/e2e-tests/__snapshots__","message":"test(ui): refresh the app visual baselines"}
+                  ]'
+
+                  requested='[]'
 
                   if printf '%s' "$body" | grep -qiE '/approve-visuals[[:space:]]+components'; then
-                      components=true
+                      requested="$(printf '%s' "$requested" | jq -c '. + ["components"]')"
                   fi
 
                   if printf '%s' "$body" | grep -qiE '/approve-visuals[[:space:]]+e2e'; then
-                      e2e=true
+                      requested="$(printf '%s' "$requested" | jq -c '. + ["e2e"]')"
                   fi
 
                   # A bare command means "everything that moved". Requiring the caller
                   # to name a layer every time would make it easy to approve half a
                   # change and leave the other half failing.
-                  if [ "$components" = false ] && [ "$e2e" = false ]; then
-                      components=true
-                      e2e=true
+                  if [ "$requested" = '[]' ]; then
+                      requested='["components","e2e"]'
                   fi
 
-                  # One JSON array rather than an output per layer: the matrix job asks
-                  # `contains(...)` once, and a third layer later is one more matrix entry
-                  # instead of one more condition to keep in sync with the others.
-                  layers='[]'
+                  matrix="$(printf '%s' "$catalog" | jq -c --argjson requested "$requested" '[.[] | select(.layer as $layer | $requested | index($layer))]')"
 
-                  if [ "$components" = true ]; then
-                      layers="$(printf '%s' "$layers" | jq -c '. + ["components"]')"
+                  if [ "$(printf '%s' "$matrix" | jq 'length')" -eq 0 ]; then
+                      echo "::error::No layer matched the requested layers $requested; the catalog and the parser disagree."
+                      exit 1
                   fi
 
-                  if [ "$e2e" = true ]; then
-                      layers="$(printf '%s' "$layers" | jq -c '. + ["e2e"]')"
-                  fi
-
-                  echo "layers=$layers" >> "$GITHUB_OUTPUT"
+                  echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
             - name: Acknowledge the command
               env:
@@ -214,10 +219,6 @@ jobs:
     regenerate:
         name: Regenerate ${{ matrix.layer }} baselines
         needs: plan
-        # `fromJSON`, because only the plan job knows which layers were asked for. A
-        # layer that was not requested has to skip without taking the other one with it,
-        # which chaining the two jobs with `needs:` could not express.
-        if: contains(fromJSON(needs.plan.outputs.layers), matrix.layer)
         runs-on: ubuntu-latest
         permissions:
             # Checkout and the baseline commit.
@@ -231,20 +232,14 @@ jobs:
             # non-fast-forward, and it replaces the old `needs: [plan, components]`
             # chaining.
             max-parallel: 1
-            # The only things the two layers disagree on. Everything else is shared, so it
-            # lives in the steps below and cannot drift between them.
             matrix:
-                include:
-                    - layer: components
-                      workflow: visual-components.yml
-                      artifact: component-baselines
-                      snapshots: apps/desktop/tests/visual/__snapshots__
-                      message: 'test(ui): refresh the component visual baselines'
-                    - layer: e2e
-                      workflow: e2e-smoke.yml
-                      artifact: visual-baselines
-                      snapshots: apps/desktop/e2e-tests/__snapshots__
-                      message: 'test(ui): refresh the app visual baselines'
+                # The layers that were asked for, already narrowed by `plan`. Each entry
+                # is one job; `matrix` is unavailable in a job-level `if`, so a layer that
+                # was not requested has to be absent from the matrix rather than skipped
+                # by a condition. Each entry carries `layer`, `workflow`, `artifact`,
+                # `snapshots` and `message`; `plan` defines them and the steps below only
+                # read them, so the two layers cannot drift apart.
+                include: ${{ fromJSON(needs.plan.outputs.matrix) }}
         steps:
             # The push below has to be an ordinary push, so that its `push` event starts
             # the workflows whose checks the branch protection rule waits for. A token

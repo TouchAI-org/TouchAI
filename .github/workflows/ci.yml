@@ -133,6 +133,32 @@ jobs:
                   echo "desktop_changed=${{ steps.classify.outputs.desktop_changed }}"
                   echo "site_changed=${{ steps.classify.outputs.site_changed }}"
 
+    # A workflow file that GitHub cannot parse never starts a job: the run fails in
+    # zero seconds with an "Invalid workflow file" annotation and nothing to read. The
+    # only way to see that before merging is to validate the files here, and the only
+    # way to keep it from recurring is to fail the pull request that introduces it.
+    workflow-lint:
+        name: Workflow Lint
+        needs: changes
+        if: needs.changes.outputs.docs_only != 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install actionlint
+              env:
+                  ACTIONLINT_VERSION: 1.7.12
+                  ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+              run: |
+                  set -euo pipefail
+                  archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+                  curl -sSfLo "$archive" "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+                  printf '%s  %s\n' "$ACTIONLINT_SHA256" "$archive" | sha256sum -c -
+                  tar -xzf "$archive" actionlint
+
+            - name: Lint workflows
+              run: ./actionlint
+
     conventional-commits:
         name: Conventional Commits
         if: github.event_name == 'pull_request'
@@ -506,6 +532,7 @@ jobs:
         if: always()
         needs:
             - changes
+            - workflow-lint
             - conventional-commits
             - dependency-review
             - frontend-quality
@@ -523,6 +550,7 @@ jobs:
                   DESKTOP_CHANGED: ${{ needs.changes.outputs.desktop_changed }}
                   SITE_CHANGED: ${{ needs.changes.outputs.site_changed }}
                   CHANGES_RESULT: ${{ needs.changes.result }}
+                  WORKFLOW_LINT_RESULT: ${{ needs['workflow-lint'].result }}
                   CONVENTIONAL_COMMITS_RESULT: ${{ needs['conventional-commits'].result }}
                   DEPENDENCY_REVIEW_RESULT: ${{ needs['dependency-review'].result }}
                   FRONTEND_QUALITY_RESULT: ${{ needs['frontend-quality'].result }}
@@ -541,6 +569,8 @@ jobs:
                   fi
 
                   if [ "$DOCS_ONLY" != "true" ]; then
+                    required+=("workflow-lint:$WORKFLOW_LINT_RESULT")
+
                     if [ "$EVENT_NAME" = "pull_request" ]; then
                       required+=("dependency-review:$DEPENDENCY_REVIEW_RESULT")
                     fi
@@ -564,6 +594,7 @@ jobs:
                   failed=0
                   observed=(
                     "changes:$CHANGES_RESULT"
+                    "workflow-lint:$WORKFLOW_LINT_RESULT"
                     "conventional-commits:$CONVENTIONAL_COMMITS_RESULT"
                     "dependency-review:$DEPENDENCY_REVIEW_RESULT"
                     "frontend-quality:$FRONTEND_QUALITY_RESULT"
