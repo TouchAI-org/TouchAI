@@ -56,6 +56,7 @@ describe('user does not leak secrets into logs', () => {
         expect(redactUrl('https://user:pass@example.test/path?token=1#frag')).toBe(
             'https://example.test/path'
         );
-        expect(redactUrl('not-a-url?token=secret')).toBe('not-a-url');
+        expect(redactUrl('not-a-url?token=secret')).toBe('[redacted-url]');
+        expect(redactUrl('https://user:pass@')).toBe('[redacted-url]');
     });
 });

@@ -55,7 +55,12 @@ export function redactAttributes(
     return redacted;
 }
 
-/** 去掉 URL 的 userinfo、query 和 hash。 */
+/**
+ * 去掉 URL 的 userinfo、query 和 hash。
+ *
+ * 解析失败时无法判断 `@` 前后哪一段是 userinfo，整段替换成固定标记，
+ * 与 Rust 侧的 `redact_url` 保持一致。
+ */
 export function redactUrl(value: string): string {
     try {
         const url = new URL(value);
@@ -65,8 +70,7 @@ export function redactUrl(value: string): string {
         url.hash = '';
         return url.toString();
     } catch {
-        const withoutFragment = value.split('#')[0] ?? value;
-        return withoutFragment.split('?')[0] ?? withoutFragment;
+        return '[redacted-url]';
     }
 }
 
