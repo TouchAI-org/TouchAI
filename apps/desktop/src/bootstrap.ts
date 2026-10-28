@@ -231,13 +231,24 @@ function scheduleUsageMaintenance(pinia: ReturnType<typeof createPinia>): void {
 }
 
 export async function initializeApp() {
-    // 先启动日志队列，后面的动态 import 失败时才有地方落盘。
-    initObservability();
-
-    // zone.js is only needed in the real WebView. Importing it in Vitest
-    // patches timers and changes microtask ordering for unrelated tests.
+    // zone.js 必须在 initTracing() 选择 context manager 之前加载，否则 await 之后
+    // 拿不到当前 span。Vitest 里导入它会改写定时器，所以只在真实 WebView 加载。
+    let zoneLoadError: unknown;
     if (import.meta.env.MODE !== 'test') {
-        await import('zone.js');
+        try {
+            await import('zone.js');
+        } catch (error) {
+            zoneLoadError = error;
+        }
+    }
+
+    // 日志队列尽早启动，后续任何一步失败才有地方落盘。
+    initObservability();
+    if (zoneLoadError) {
+        log.error(
+            '[Bootstrap] Failed to load zone.js, trace context will not follow awaits:',
+            zoneLoadError
+        );
     }
     setupLinkInterceptor();
     document.addEventListener('contextmenu', (event) => event.preventDefault());
