@@ -400,7 +400,9 @@ import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
                 isToolCall: (part): part is Extract<RenderedPart, { type: 'tool_call' }> =>
                     part.type === 'tool_call',
                 getId: (part) => part.id,
-                minRun: props.message.isStreaming ? Number.MAX_SAFE_INTEGER : 3,
+                minRun: 3,
+                // 流式期间按连续折叠（保留实时进度），历史消息把整条的工具调用聚合成一行。
+                mode: props.message.isStreaming ? 'consecutive' : 'all',
             }
         )
     );
