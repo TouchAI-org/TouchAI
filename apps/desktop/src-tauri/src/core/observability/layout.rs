@@ -75,6 +75,7 @@ pub(crate) fn log_startup_events() {
 
 fn ensure_directory(path: &Path) -> std::io::Result<()> {
     fs::create_dir_all(path)?;
+    restrict_directory_permissions(path);
 
     let probe = path.join(PROBE_FILE_NAME);
     {
@@ -89,6 +90,16 @@ fn ensure_directory(path: &Path) -> std::io::Result<()> {
 
     Ok(())
 }
+
+/// 目录只允许当前用户进入；轮转出来的日志文件即使仍是默认权限也读不到。
+#[cfg(unix)]
+fn restrict_directory_permissions(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o700));
+}
+
+#[cfg(not(unix))]
+fn restrict_directory_permissions(_path: &Path) {}
 
 /// 旧格式文件与新格式混在一起会让解析器读到两种行，直接丢弃。
 pub(crate) fn discard_legacy_files(directory: &Path) -> usize {
@@ -272,5 +283,25 @@ mod tests {
 
         assert_eq!(prepared, logs);
         assert!(logs.join("TouchAI.log").exists());
+    }
+
+    #[test]
+    fn user_gets_a_private_log_directory() {
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let logs = root.path().join("logs");
+
+        let prepared = prepare(&logs);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&prepared)
+                .expect("metadata")
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o700);
+        }
+        #[cfg(not(unix))]
+        let _ = prepared;
     }
 }
