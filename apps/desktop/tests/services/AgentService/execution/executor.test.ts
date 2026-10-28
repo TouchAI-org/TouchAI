@@ -469,7 +469,7 @@ describe('user runs a tool call and watches it start', () => {
             accessToken: '[redacted]',
         });
         expect(storedOutput.output).not.toContain('result-secret');
-        expect(storedOutput.output).toContain('https://api.example.test/v1');
+        expect(storedOutput.output).toContain('https://api.example.test/[redacted-path]');
     }, 30_000);
 });
 
