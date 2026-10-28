@@ -135,8 +135,27 @@
             markdownParser.use(markdownItEmojiPlugin);
             staticMarkdownParser.use(markdownItEmojiPlugin);
 
-            enableKatex(() => import('katex'));
-            enableMermaid(() => import('mermaid'));
+            // 首次渲染时这两个大模块是动态 import：dev 下要现编译，冷启动可能几百毫秒。
+            // 这里把加载耗时打出来，便于判断“首次打开卡”是否来自它们。
+            const loadLazy = <T,>(
+                moduleName: string,
+                loader: () => Promise<T>
+            ): (() => Promise<T>) => {
+                return async () => {
+                    const startedAt = performance.now();
+                    const loaded = await loader();
+                    if (import.meta.env.DEV) {
+                        console.warn('[md-lazy]', {
+                            module: moduleName,
+                            ms: Math.round(performance.now() - startedAt),
+                        });
+                    }
+                    return loaded;
+                };
+            };
+
+            enableKatex(loadLazy('katex', () => import('katex')));
+            enableMermaid(loadLazy('mermaid', () => import('mermaid')));
             // 只接管外部链接节点：命中搜索来源的会渲染成行内引用 chip，
             // 其余链接由 WebSearchCitationLink 自己透传成普通 <a>。
             // 测试环境会把 markstream-vue 整体 mock 掉，所以要容忍缺失。

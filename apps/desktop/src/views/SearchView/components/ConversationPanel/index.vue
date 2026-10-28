@@ -485,17 +485,34 @@
                 if (change === 'replace') {
                     // 整表替换 = 切换到了另一个会话：先隐藏，等定位到底后再显示，
                     // 否则用户会看到“先停在顶部、下一帧才跳到底部”的闪烁。
+                    const phaseStartedAt = performance.now();
                     isListPositioned.value = false;
                     void nextTick(() => {
+                        const patchedAt = performance.now();
                         syncToBottom();
+                        const scrolledAt = performance.now();
                         requestAnimationFrame(() => {
+                            const frame1At = performance.now();
                             syncToBottom();
                             isListPositioned.value = true;
+                            requestAnimationFrame(() => {
+                                if (import.meta.env.DEV) {
+                                    console.warn('[open-phase]', {
+                                        messages: nextIds.length,
+                                        patch: Math.round(patchedAt - phaseStartedAt),
+                                        scroll: Math.round(scrolledAt - patchedAt),
+                                        frame1: Math.round(frame1At - scrolledAt),
+                                        frame2: Math.round(performance.now() - frame1At),
+                                        mounted:
+                                            conversationContainer.value?.querySelectorAll(
+                                                '[data-message-id]'
+                                            ).length,
+                                    });
+                                }
+                                logFirstRenderCost(nextIds.length);
+                            });
                         });
                     });
-                    if (import.meta.env.DEV) {
-                        logFirstRenderCost(nextIds.length);
-                    }
                 }
                 return;
             }
