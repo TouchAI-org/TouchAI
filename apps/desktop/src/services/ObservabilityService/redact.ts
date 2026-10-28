@@ -205,17 +205,7 @@ export function serializeAuditPayload(payload: unknown): string {
     if (originalBytes <= MAX_AUDIT_PAYLOAD_BYTES) return serialized;
 
     const encoded = new TextEncoder().encode(serialized);
-    let previewBytes = MAX_AUDIT_PAYLOAD_BYTES - 256;
-    while (previewBytes > 0) {
-        const preview = new TextDecoder().decode(encoded.slice(0, previewBytes));
-        const truncated = JSON.stringify({
-            _truncated: true,
-            originalBytes,
-            preview,
-        });
-        if (utf8Length(truncated) <= MAX_AUDIT_PAYLOAD_BYTES) return truncated;
-        previewBytes = Math.floor(previewBytes * 0.9);
-    }
-
-    return JSON.stringify({ _truncated: true, originalBytes });
+    // 预览比上限少 256 字节，给 `_truncated` 包装留出空间，保证结果不超限。
+    const preview = new TextDecoder().decode(encoded.slice(0, MAX_AUDIT_PAYLOAD_BYTES - 256));
+    return JSON.stringify({ _truncated: true, originalBytes, preview });
 }

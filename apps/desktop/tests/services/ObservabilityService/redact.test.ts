@@ -164,6 +164,31 @@ describe('user does not leak secrets into logs', () => {
         expect(parsed.wide._truncated_keys).toBe(2);
     });
 
+    it('user gets deep nesting marked in audit payloads', () => {
+        let deep: Record<string, unknown> = { leaf: 'value' };
+        for (let level = 0; level < 12; level += 1) {
+            deep = { nested: deep };
+        }
+
+        const payload = serializeAuditPayload(deep);
+
+        expect(payload).toContain('[redacted-depth]');
+    });
+
+    it('user gets a marked preview when a large object exceeds the audit ceiling', () => {
+        const payload = serializeAuditPayload({
+            output: Array.from({ length: 200 }, () => 'y'.repeat(1000)),
+        });
+        const parsed = JSON.parse(payload);
+
+        expect(new TextEncoder().encode(payload).byteLength).toBeLessThanOrEqual(
+            MAX_AUDIT_PAYLOAD_BYTES
+        );
+        expect(parsed._truncated).toBe(true);
+        expect(parsed.originalBytes).toBeGreaterThan(MAX_AUDIT_PAYLOAD_BYTES);
+        expect(typeof parsed.preview).toBe('string');
+    });
+
     it('user keeps ordinary tool output beyond the log attribute limit', () => {
         const output = serializeAuditPayload(`result: ${'x'.repeat(2000)}`);
 
