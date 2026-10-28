@@ -38,6 +38,7 @@
                 :data="messages"
                 :scroll-ref="conversationContainer || undefined"
                 :buffer-size="200"
+                :item-size="320"
                 :class="isListPositioned ? '' : 'invisible'"
                 @scroll="handleScroll"
                 @resize="handleVirtualResize"
@@ -449,11 +450,16 @@
         const startedAt = performance.now();
         void nextTick(() => {
             requestAnimationFrame(() => {
-                console.warn('[chat-render]', {
-                    messages: messageCount,
-                    mounted:
-                        conversationContainer.value?.querySelectorAll('[data-message-id]').length,
-                    ms: Math.round(performance.now() - startedAt),
+                // 再等一帧：虚拟滚动首帧只挂少量条目，测量后会再调整一次，
+                // 这里要看的是稳定后的挂载数量与总耗时。
+                requestAnimationFrame(() => {
+                    console.warn('[chat-render]', {
+                        messages: messageCount,
+                        mounted:
+                            conversationContainer.value?.querySelectorAll('[data-message-id]')
+                                .length,
+                        ms: Math.round(performance.now() - startedAt),
+                    });
                 });
             });
         });
