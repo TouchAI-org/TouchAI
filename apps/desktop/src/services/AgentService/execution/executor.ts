@@ -1335,9 +1335,25 @@ export class AiRequestExecutor {
             // AI SDK RetryError 包装了真正的错误——解包后传递给分类器
             const unwrapped = unwrapRetryError(error);
             const providerErrorDetails = extractProviderErrorDetails(unwrapped);
+
+            // 先让 provider 自己分类，再 fallback 到通用启发式。
+            // 分类器只负责提升错误信息，不能覆盖真正的请求失败原因。
+            let classifiedError: AiError;
+            try {
+                classifiedError =
+                    runtime.provider.classifyError?.(unwrapped) ?? AiError.fromError(unwrapped);
+            } catch (classificationError) {
+                log.warn(
+                    '[AiRequestExecutor] Provider error classification failed:',
+                    classificationError
+                );
+                classifiedError = AiError.fromError(unwrapped);
+            }
+
+            // 事件带的是分类后的 code，否则 429 之类只带状态码的失败会记成 unknown。
             obsError(
                 'agent.request.failed',
-                unwrapped,
+                classifiedError,
                 {
                     [ATTR.providerName]: runtime.activeModel.provider_name,
                     [ATTR.requestModel]: runtime.activeModel.model_id,
@@ -1353,20 +1369,6 @@ export class AiRequestExecutor {
                     '[AiRequestExecutor] Provider error details:',
                     summarizeProviderErrorDetails(providerErrorDetails)
                 );
-            }
-
-            // 先让 provider 自己分类，再 fallback 到通用启发式。
-            // 分类器只负责提升错误信息，不能覆盖真正的请求失败原因。
-            let classifiedError: AiError;
-            try {
-                classifiedError =
-                    runtime.provider.classifyError?.(unwrapped) ?? AiError.fromError(unwrapped);
-            } catch (classificationError) {
-                log.warn(
-                    '[AiRequestExecutor] Provider error classification failed:',
-                    classificationError
-                );
-                classifiedError = AiError.fromError(unwrapped);
             }
 
             return {

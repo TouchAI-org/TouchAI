@@ -3,6 +3,7 @@
 import { updateModelLastUsed } from '@database/queries';
 import { findModelPricing } from '@database/queries/llmMetadata';
 import type { SessionTurnEntity } from '@database/types';
+import { SpanStatusCode } from '@opentelemetry/api';
 import { event, log } from '@services/ObservabilityService';
 import { ATTR } from '@services/ObservabilityService/attributes';
 import { classifyError } from '@services/ObservabilityService/errors';
@@ -509,7 +510,14 @@ export class AiConversationRuntime {
                             requestToolApproval: this.options.requestToolApproval,
                             requestUserQuestions: this.options.requestUserQuestions,
                         }),
-                    turnSpan
+                    turnSpan,
+                    (attemptResult) =>
+                        attemptResult.type === 'failed'
+                            ? {
+                                  code: SpanStatusCode.ERROR,
+                                  message: attemptResult.error.code,
+                              }
+                            : undefined
                 );
 
                 await context.requestStartRecordPromise;

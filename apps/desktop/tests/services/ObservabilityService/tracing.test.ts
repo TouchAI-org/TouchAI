@@ -1,11 +1,13 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { SpanStatusCode } from '@opentelemetry/api';
 import { native } from '@services/NativeService';
+import { invoke } from '@services/NativeService/invoke';
 import { initObservability, resetObservabilityForTests } from '@services/ObservabilityService';
 import { currentTraceparent, isValidTraceparent } from '@services/ObservabilityService/traceparent';
 import { resetTracingForTests, withSpan } from '@services/ObservabilityService/tracing';
 import { getLastTauriInvokeCall } from '@tests/utils/tauri';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
     resetObservabilityForTests();
@@ -65,5 +67,45 @@ describe('user can correlate native work with the active turn', () => {
         expect(typeof (call?.payload as Record<string, unknown> | undefined)?.traceparent).toBe(
             'string'
         );
+    });
+});
+
+describe('user keeps binary command payloads intact', () => {
+    it('user gets the raw bytes passed through instead of a spread object', async () => {
+        initObservability();
+        const payload = new Uint8Array([1, 2, 3]);
+
+        await withSpan('touchai.tool', { 'gen_ai.tool.name': 'file' }, async () => {
+            await invoke('write_bytes', payload);
+        });
+
+        expect(getLastTauriInvokeCall('write_bytes')?.payload).toBe(payload);
+    });
+});
+
+describe('user sees a failed attempt marked as an error in the trace', () => {
+    it('user gets the error status when the attempt returns a failure', async () => {
+        let status: { code: SpanStatusCode; message?: string } | undefined;
+
+        await withSpan(
+            'touchai.attempt',
+            {},
+            async (span) => {
+                vi.spyOn(span, 'setStatus').mockImplementation((value) => {
+                    status = value;
+                });
+                return { type: 'failed' as const, error: { code: 'provider.rate_limited' } };
+            },
+            undefined,
+            (result) =>
+                result.type === 'failed'
+                    ? { code: SpanStatusCode.ERROR, message: result.error.code }
+                    : undefined
+        );
+
+        expect(status).toMatchObject({
+            code: SpanStatusCode.ERROR,
+            message: 'provider.rate_limited',
+        });
     });
 });

@@ -28,11 +28,17 @@ export function initTracing(): void {
     tracer = provider.getTracer('touchai.desktop');
 }
 
+export interface SpanOutcome {
+    code: SpanStatusCode;
+    message?: string;
+}
+
 export async function withSpan<T>(
     name: string,
     attributes: Attributes,
     fn: (span: Span) => Promise<T>,
-    parentSpan?: Span
+    parentSpan?: Span,
+    mapStatus?: (result: T) => SpanOutcome | undefined
 ): Promise<T> {
     initTracing();
     const parentContext = parentSpan
@@ -50,7 +56,8 @@ export async function withSpan<T>(
     return context.with(trace.setSpan(parentContext, span), async () => {
         try {
             const result = await fn(span);
-            span.setStatus({ code: SpanStatusCode.OK });
+            // 失败以返回值而不是异常表达时，由调用方决定 span 状态。
+            span.setStatus(mapStatus?.(result) ?? { code: SpanStatusCode.OK });
             return result;
         } catch (error) {
             span.recordException(error instanceof Error ? error : String(error));
