@@ -15,6 +15,10 @@ keeps pull-request code and credentials in separate jobs.
 | `with-display.sh` | Window manager and compositor for Xvfb |
 
 `lib/` contains the reusable logic. Every script is plain Node ESM, so the preview jobs do not
-install the workspace to run them.
+install the workspace to run them. The tests live in `tests/ci/ui-preview/` and run with:
+
+```bash
+pnpm test:ui-preview
+```
 
 To check credentials, dispatch the workflow with `mode: doctor`; no pull request is needed.

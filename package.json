@@ -19,6 +19,7 @@
         "test:unit": "pnpm --filter @touchai/desktop test:unit",
         "test:ci": "vitest run --config vitest.ci.config.ts",
         "test:ci:typecheck": "tsc -p tests/ci/tsconfig.json --noEmit",
+        "test:ui-preview": "pnpm --filter @touchai/desktop exec vitest run --config ../../tests/ci/ui-preview/vitest.config.mjs --configLoader runner",
         "test:coverage": "pnpm --filter @touchai/desktop test:coverage",
         "test:e2e": "pnpm --filter @touchai/desktop test:e2e",
         "test:rust": "pnpm --filter @touchai/desktop test:rust",
