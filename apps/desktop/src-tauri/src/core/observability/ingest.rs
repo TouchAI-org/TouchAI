@@ -83,12 +83,19 @@ impl LogEnvelope {
             fields.push(format!("msg={}", escape_value(&message)));
         }
 
-        let mut line = format!("{} {}", sanitize_event_name(&self.event), fields.join(" "));
-        if truncated || line.len() > MAX_LINE_BYTES {
-            line = truncate(
-                &line,
-                MAX_LINE_BYTES.saturating_sub(" truncated=true".len()),
-            );
+        // 按整字段裁剪：半个字段（例如截断的引号值）会让 logfmt 解析出错。
+        let budget = MAX_LINE_BYTES.saturating_sub(" truncated=true".len());
+        let mut line = sanitize_event_name(&self.event);
+        for field in fields {
+            if line.len() + 1 + field.len() > budget {
+                truncated = true;
+                break;
+            }
+            line.push(' ');
+            line.push_str(&field);
+        }
+
+        if truncated {
             line.push_str(" truncated=true");
         }
         line
@@ -275,6 +282,33 @@ mod tests {
 
         assert!(line.len() <= MAX_LINE_BYTES);
         assert!(line.ends_with("truncated=true"));
+    }
+
+    #[test]
+    fn user_gets_only_complete_fields_when_the_line_is_too_long() {
+        let mut event = envelope("legacy.console");
+        for index in 0..40 {
+            event
+                .attrs
+                .insert(format!("k{index:02}"), json!("v".repeat(300)));
+        }
+
+        let line = event.to_line("7f3a9c");
+
+        assert!(line.len() <= MAX_LINE_BYTES);
+        assert!(line.ends_with(" truncated=true"));
+
+        let body = line.trim_end_matches(" truncated=true");
+        let mut kept = 0;
+        for field in body.split(' ') {
+            if let Some(rest) = field.strip_prefix('k') {
+                let (_, value) = rest.split_once('=').expect("field keeps its value");
+                assert_eq!(value.len(), 300, "partial field: {field}");
+                kept += 1;
+            }
+        }
+        assert!(kept > 0);
+        assert!(!body.contains("k39="));
     }
 
     #[test]

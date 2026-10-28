@@ -6,6 +6,8 @@ export const DEFAULT_FLUSH_INTERVAL_MS = 250;
 
 type DropCounts = Record<LogLevelName, number>;
 
+const LEVEL_ORDER: LogLevelName[] = ['trace', 'debug', 'info', 'warn', 'error'];
+
 const LEVEL_NAMES: Record<LogEnvelope['level'], LogLevelName> = {
     1: 'trace',
     2: 'debug',
@@ -19,7 +21,6 @@ export interface LogQueueOptions {
     capacity?: number;
     batchSize?: number;
     flushIntervalMs?: number;
-    now?: () => number;
     onError?: (error: unknown) => void;
 }
 
@@ -33,7 +34,6 @@ export class LogQueue {
     private readonly capacity: number;
     private readonly batchSize: number;
     private readonly flushIntervalMs: number;
-    private readonly now: () => number;
     private readonly onError: (error: unknown) => void;
     private readonly dropped: DropCounts = {
         trace: 0,
@@ -50,15 +50,16 @@ export class LogQueue {
         this.capacity = options.capacity ?? DEFAULT_QUEUE_CAPACITY;
         this.batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
         this.flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
-        this.now = options.now ?? Date.now;
         this.onError = options.onError ?? (() => {});
     }
 
     push(envelope: LogEnvelope): void {
         if (this.items.length >= this.capacity) {
-            this.dropOne();
+            this.makeRoomFor(envelope);
         }
-        this.items.push(envelope);
+        if (this.items.length < this.capacity) {
+            this.items.push(envelope);
+        }
 
         if (this.items.length >= this.batchSize) {
             void this.flush();
@@ -131,16 +132,31 @@ export class LogQueue {
         }
 
         return {
-            ts: this.now(),
             level: 4,
             event: 'obs.dropped',
             attrs,
         };
     }
 
+    /** 满了以后比较严重程度：新事件更弱就丢它，否则挤掉队里最弱的一条。 */
+    private makeRoomFor(incoming: LogEnvelope): void {
+        const incomingLevel = LEVEL_NAMES[incoming.level];
+        const weakest = LEVEL_ORDER.find((level) =>
+            this.items.some((item) => LEVEL_NAMES[item.level] === level)
+        );
+
+        if (weakest === undefined || LEVEL_ORDER.indexOf(incomingLevel) < LEVEL_ORDER.indexOf(weakest)) {
+            this.dropped[incomingLevel] += 1;
+            return;
+        }
+
+        const index = this.items.findIndex((item) => LEVEL_NAMES[item.level] === weakest);
+        this.items.splice(index, 1);
+        this.dropped[weakest] += 1;
+    }
+
     private dropOne(): void {
-        const order: LogLevelName[] = ['trace', 'debug', 'info', 'warn', 'error'];
-        for (const level of order) {
+        for (const level of LEVEL_ORDER) {
             const index = this.items.findIndex((item) => LEVEL_NAMES[item.level] === level);
             if (index >= 0) {
                 this.items.splice(index, 1);

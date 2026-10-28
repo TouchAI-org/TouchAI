@@ -221,7 +221,6 @@ export interface TauriLogPayload {
 }
 
 export interface ObservabilityLogEnvelope {
-    ts: number;
     level: number;
     event: string;
     window?: string;

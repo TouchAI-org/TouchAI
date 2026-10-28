@@ -5,7 +5,7 @@ import type { LogEnvelope } from '@services/ObservabilityService/types';
 import { describe, expect, it, vi } from 'vitest';
 
 function envelope(level: LogEnvelope['level'], event: string): LogEnvelope {
-    return { ts: 0, level, event, attrs: {} };
+    return { level, event, attrs: {} };
 }
 
 function queueWith(
@@ -13,7 +13,7 @@ function queueWith(
     capacity: number,
     batchSize = 50
 ) {
-    return new LogQueue({ send, capacity, batchSize, now: () => 1 });
+    return new LogQueue({ send, capacity, batchSize });
 }
 
 describe('user keeps diagnostics when the log queue is under pressure', () => {
@@ -72,6 +72,44 @@ describe('user keeps diagnostics when the log queue is under pressure', () => {
         const [dropped] = batches[0] ?? [];
         expect(dropped?.event).toBe('obs.dropped');
         expect(dropped?.attrs['dropped.debug']).toBe(1);
+    });
+
+    it('user keeps the error when a debug flood arrives at a full queue', async () => {
+        const batches: LogEnvelope[][] = [];
+        const queue = queueWith(
+            async (batch) => {
+                batches.push(batch);
+            },
+            1,
+            50
+        );
+
+        queue.push(envelope(5, 'error.line'));
+        queue.push(envelope(2, 'debug.line'));
+        await queue.flush();
+
+        const events = batches[0]?.map((item) => item.event) ?? [];
+        expect(events).toContain('error.line');
+        expect(events).not.toContain('debug.line');
+    });
+
+    it('user loses the oldest debug line when a warning arrives at a full queue', async () => {
+        const batches: LogEnvelope[][] = [];
+        const queue = queueWith(
+            async (batch) => {
+                batches.push(batch);
+            },
+            1,
+            50
+        );
+
+        queue.push(envelope(2, 'debug.line'));
+        queue.push(envelope(4, 'warn.line'));
+        await queue.flush();
+
+        const events = batches[0]?.map((item) => item.event) ?? [];
+        expect(events).toContain('warn.line');
+        expect(events).not.toContain('debug.line');
     });
 
     it('user does not get an exception when the log backend fails', async () => {

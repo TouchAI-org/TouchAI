@@ -63,7 +63,6 @@ export function emit(
     if (!queue) return;
 
     const envelope: LogEnvelope = {
-        ts: Date.now(),
         level: LOG_LEVEL_NUMBERS[level],
         event,
         window: resolveWindowLabel() ?? undefined,

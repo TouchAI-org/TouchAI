@@ -4,7 +4,6 @@ export type LogAttributeValue = string | number | boolean;
 
 /** 前端到 Rust 的线上格式。字段名与 `LogEnvelope` 的 camelCase 反序列化一致。 */
 export interface LogEnvelope {
-    ts: number;
     level: 1 | 2 | 3 | 4 | 5;
     event: string;
     window?: string;
