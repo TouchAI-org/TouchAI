@@ -277,6 +277,7 @@ jobs:
             contents: read
         env:
             TOUCHAI_E2E: '1'
+            TOUCHAI_APP_ROOT: ${{ runner.temp }}/ui-preview-app-root
         steps:
             - name: Check out trusted scripts
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -334,7 +335,6 @@ jobs:
                   UI_PREVIEW_RUN_URL: ${{ needs.detect.outputs.run_url }}
                   UI_PREVIEW_TRIGGER: ${{ needs.detect.outputs.trigger }}
                   UI_PREVIEW_SEED: '1'
-                  TOUCHAI_APP_ROOT: ${{ runner.temp }}/ui-preview-app-root
               run: |
                   chmod +x ui-preview-out/debug/TouchAI
                   xvfb-run -a --server-args='-screen 0 1280x900x24' \

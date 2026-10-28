@@ -97,8 +97,12 @@ describe('user opens a pull request that runs the preview', () => {
         // or stalled, so the job has to print what it can observe.
         expect(report).toContain('if: failure()');
         expect(report).toContain('tauri-driver');
-        expect(report).toContain('TOUCHAI_APP_ROOT');
         expect(report).toContain('tail -n 40');
+
+        // The report reads the app root, so it must come from the job env rather
+        // than the recording step's own env.
+        expect(report).not.toContain('env:');
+        expect(record).toContain('TOUCHAI_APP_ROOT: ${{ runner.temp }}/ui-preview-app-root');
     });
 
     it('user gets the model key only in a job that does not run pull-request code', () => {
