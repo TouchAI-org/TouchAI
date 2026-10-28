@@ -30,7 +30,7 @@
     } from './components/NavigationSidebar.vue';
     import SettingsWindowTitleBar from './components/SettingsWindowTitleBar.vue';
     import { createSectionPreloader } from './sectionPreloader';
-    import { captureScrollSnapshot, resolveRestoredScrollTop } from './sectionScrollMemory';
+    import { readScrollTop, resolveRestoredScrollTop } from './sectionScrollMemory';
     import type { SettingsSearchResult } from './settingsSearch';
 
     defineOptions({
@@ -164,9 +164,9 @@
 
     /** 记录当前分区的滚动位置（切走之前调用）。 */
     function rememberSectionScroll() {
-        const snapshot = captureScrollSnapshot(contentElementRef.value);
-        if (snapshot) {
-            sectionScrollSnapshots.set(activeSection.value, snapshot.scrollTop);
+        const scrollTop = readScrollTop(contentElementRef.value);
+        if (scrollTop !== null) {
+            sectionScrollSnapshots.set(activeSection.value, scrollTop);
         }
     }
 
