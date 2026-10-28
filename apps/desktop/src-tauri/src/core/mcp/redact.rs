@@ -61,7 +61,10 @@ pub(crate) fn redact_args(args: &[String]) -> Vec<String> {
             Pending::Header => {
                 redacted.push(redact_header(arg));
                 pending = Pending::None;
-                continue;
+                // 值缺失时下一个参数其实是开关：先补一个占位，再按开关重新分类。
+                if classify_flag(arg).is_none() {
+                    continue;
+                }
             }
             Pending::None => {}
         }
@@ -96,8 +99,18 @@ pub(crate) fn redact_args(args: &[String]) -> Vec<String> {
 ///
 /// `--env=KEY=VALUE` 这类内联环境变量还有第二层赋值，同样要拆开判断。
 fn redact_positional(arg: &str) -> String {
+    // 裸 URL 没有 `=`，必须在赋值拆分之前处理，否则 userinfo 和路径会原样落盘。
+    if is_url_like(arg) {
+        return redact_url(arg);
+    }
+
     let Some((name, value)) = arg.split_once('=') else {
-        return arg.to_string();
+        // 没有键名的独立令牌同样不能落盘。
+        return if looks_like_secret_value(arg) {
+            REDACTED.to_string()
+        } else {
+            arg.to_string()
+        };
     };
 
     if name.starts_with('-') {
@@ -169,10 +182,18 @@ pub(crate) fn stdio_actual_command_message(
     command: &str,
     args: &[String],
 ) -> String {
-    stdio_message(
-        &format!("Actual command for MCP server {server_id}"),
-        command,
-        args,
+    let mut redacted_args = redact_args(args);
+    // Windows 下 `cmd /c <command> ...` 把真实命令放在第一个参数里，
+    // 这条参数走的是位置参数分支，同样只保留可执行文件名。
+    if redacted_args.len() > 1 && redacted_args[0].eq_ignore_ascii_case("/c") {
+        redacted_args[1] = command_label(&args[1]);
+    }
+
+    format!(
+        "Actual command for MCP server {server_id}: {} arg_count={} args={:?}",
+        command_label(command),
+        args.len(),
+        redacted_args
     )
 }
 
@@ -462,5 +483,43 @@ mod tests {
                 "--env=DATABASE_URL=redis://cache.example.test/[redacted-path]",
             ]
         );
+    }
+
+    #[test]
+    fn user_does_not_see_a_secret_flag_swallowed_as_a_header_value() {
+        let redacted = redact_args(&args(&["--header", "--api-key", "opaque-secret"]));
+
+        assert_eq!(
+            redacted,
+            vec!["--header", "[redacted]", "--api-key", "[redacted]"]
+        );
+    }
+
+    #[test]
+    fn user_does_not_see_credentials_in_a_positional_url() {
+        let redacted = redact_args(&args(&[
+            "https://user:pass@mcp.example.test/mcp/secret-token",
+        ]));
+
+        assert_eq!(redacted, vec!["https://mcp.example.test/[redacted-path]"]);
+    }
+
+    #[test]
+    fn user_does_not_see_a_windows_command_path_in_the_actual_command() {
+        let message = stdio_actual_command_message(
+            4,
+            "cmd",
+            &args(&[
+                "/c",
+                "C:\\Users\\alice\\private\\npx.cmd",
+                "--model",
+                "gpt-4.1",
+            ]),
+        );
+
+        assert!(!message.contains("alice"));
+        assert!(!message.contains("private"));
+        assert!(message.contains("npx.cmd"));
+        assert!(message.contains("gpt-4.1"));
     }
 }
