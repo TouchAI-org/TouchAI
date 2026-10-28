@@ -21,6 +21,18 @@ Conventional Commits in English, imperative mood, lowercase type, no trailing pe
 6. Use Draft PR for work in progress; never `[WIP]` or `[DO NOT MERGE]` title prefixes.
 7. One PR per issue. Do not open, merge, or reply on repository surfaces without explicit user approval.
 
+## UI preview
+
+A pull request that changes desktop interface files gets one advisory comment with screenshots and an
+mp4, updated in place on each commit. It is not part of `CI Required` and never blocks a merge.
+
+- Never edit the preview comment by hand; the next run overwrites it.
+- Never put a credential in the comment, the workflow, or an artifact. Publishing uses two: a user
+  token for the asset upload and an App token for the comment.
+- A failed recording is published as a failure. Do not describe it as a pass.
+
+Ownership, trust model, and credentials are in [ui-preview.md](ui-preview.md).
+
 ## AI assistance disclosure
 
 If an AI tool materially shaped the work, the PR body states the model, tools, and user review status. Do not leave fields blank or infer them.

@@ -1,0 +1,390 @@
+name: UI Preview
+
+on:
+    pull_request_target:
+        types:
+            - opened
+            - synchronize
+            - reopened
+            - ready_for_review
+            - labeled
+            - unlabeled
+    issue_comment:
+        types:
+            - created
+    workflow_dispatch:
+        inputs:
+            pr:
+                description: Pull request number
+                required: true
+                type: number
+            force:
+                description: Run even when no UI file changed
+                required: false
+                type: boolean
+                default: false
+            plan_json:
+                description: A plan JSON to use instead of the model
+                required: false
+                type: string
+
+permissions: {}
+
+concurrency:
+    # The App adds the approval label during the /ui-preview run. That label
+    # event must not cancel the run that just started, so bot-authored
+    # approval labels get their own group. Every other event still cancels an
+    # older preview for the same pull request.
+    group: ui-preview-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}-${{ github.event_name == 'pull_request_target' && github.event.action == 'labeled' && github.event.label.name == 'status:ui-preview-approved' && endsWith(github.actor, '[bot]') && 'approval' || 'run' }}
+    cancel-in-progress: true
+
+jobs:
+    detect:
+        name: Decide
+        if: |
+            (github.event_name != 'pull_request_target' ||
+              !contains(fromJSON('["labeled","unlabeled"]'), github.event.action) ||
+              contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name)) &&
+            (github.event_name != 'issue_comment' ||
+              (github.event.issue.pull_request != null &&
+               startsWith(github.event.comment.body, '/ui-preview')))
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        environment: ui-preview-publish
+        permissions:
+            contents: read
+        outputs:
+            decision: ${{ steps.decide.outputs.decision }}
+            pr: ${{ steps.decide.outputs.pr }}
+            title: ${{ steps.decide.outputs.title }}
+            sha: ${{ steps.decide.outputs.sha }}
+            head_repo: ${{ steps.decide.outputs.head_repo }}
+            base_sha: ${{ steps.decide.outputs.base_sha }}
+            run_url: ${{ steps.decide.outputs.run_url }}
+            trigger: ${{ steps.decide.outputs.trigger }}
+            touched_i18n: ${{ steps.decide.outputs.touched_i18n }}
+            touched_window: ${{ steps.decide.outputs.touched_window }}
+        steps:
+            - name: Check out trusted scripts
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/ui-preview
+                  sparse-checkout-cone-mode: false
+
+            - name: Mint the comment token
+              id: app
+              uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+              with:
+                  app-id: ${{ secrets.BOT_APP_ID }}
+                  private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+                  owner: ${{ github.repository_owner }}
+                  repositories: ${{ github.event.repository.name }}
+                  permission-issues: write
+                  permission-pull-requests: write
+
+            - name: Decide and comment
+              id: decide
+              env:
+                  GH_TOKEN: ${{ steps.app.outputs.token }}
+                  UI_PREVIEW_BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]
+                  INPUT_PR: ${{ inputs.pr }}
+                  INPUT_FORCE: ${{ inputs.force }}
+              run: node .github/ui-preview/detect.mjs
+
+    explore:
+        name: Build and outline
+        needs: detect
+        if: needs.detect.outputs.decision == 'run'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 60
+        permissions:
+            contents: read
+        env:
+            CARGO_TARGET_DIR: ${{ github.workspace }}/.ui-preview-target
+            TOUCHAI_E2E: '1'
+        steps:
+            - name: Check out the pull request
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  repository: ${{ needs.detect.outputs.head_repo }}
+                  ref: ${{ needs.detect.outputs.sha }}
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            # The build uses pull-request code, the recorder must not. A second
+            # checkout keeps the scripts on the default branch even when the pull
+            # request edits .github/ui-preview.
+            - name: Check out trusted scripts
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+                  path: trusted
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/ui-preview
+                  sparse-checkout-cone-mode: false
+
+            - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
+
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+              with:
+                  node-version: 22
+                  package-manager-cache: false
+
+            - name: Install Linux dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y --no-install-recommends \
+                    build-essential \
+                    curl \
+                    ffmpeg \
+                    file \
+                    fonts-noto-cjk \
+                    imagemagick \
+                    libayatana-appindicator3-dev \
+                    libglib2.0-dev \
+                    librsvg2-dev \
+                    libssl-dev \
+                    libwebkit2gtk-4.1-dev \
+                    libxdo-dev \
+                    openbox \
+                    picom \
+                    pkg-config \
+                    wget \
+                    webkit2gtk-driver \
+                    x11-utils \
+                    x11-xserver-utils \
+                    xdotool \
+                    xvfb
+
+            - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+            - uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+              with:
+                  workspaces: apps/desktop/src-tauri -> ../../../.ui-preview-target
+
+            - name: Install frontend dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Install the WebDriver bridge
+              run: cargo install tauri-driver --locked --version 2.1.0
+
+            - name: Build the desktop app
+              run: pnpm tauri build --debug --no-bundle
+
+            - name: Collect the outline
+              env:
+                  UI_PREVIEW_APP_BINARY: ${{ env.CARGO_TARGET_DIR }}/debug/TouchAI
+                  UI_PREVIEW_OUT: ${{ github.workspace }}/ui-preview-out
+                  UI_PREVIEW_SHA: ${{ needs.detect.outputs.sha }}
+                  UI_PREVIEW_BASE_SHA: ${{ needs.detect.outputs.base_sha }}
+                  TOUCHAI_APP_ROOT: ${{ runner.temp }}/ui-preview-app-root
+              run: |
+                  xvfb-run -a --server-args='-screen 0 1280x900x24' \
+                    trusted/.github/ui-preview/with-display.sh \
+                    node trusted/.github/ui-preview/explore.mjs
+
+            - name: Stage the artifact
+              run: |
+                  mkdir -p ui-preview-build/debug
+                  cp .ui-preview-target/debug/TouchAI ui-preview-build/debug/TouchAI
+                  cp ui-preview-out/facts.json ui-preview-build/facts.json
+                  if [ -f ui-preview-out/baseline-search.png ]; then
+                    cp ui-preview-out/baseline-search.png ui-preview-build/baseline-search.png
+                  fi
+
+            - name: Upload the build and facts
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: ui-preview-build
+                  if-no-files-found: error
+                  compression-level: 0
+                  retention-days: 3
+                  path: ui-preview-build
+
+    plan:
+        name: Plan scenes
+        needs:
+            - detect
+            - explore
+        if: needs.detect.outputs.decision == 'run'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        environment: ui-preview
+        permissions:
+            contents: read
+            pull-requests: read
+        steps:
+            - name: Check out trusted scripts
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/ui-preview
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+              with:
+                  name: ui-preview-build
+                  path: ui-preview-out
+
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+              with:
+                  node-version: 22
+                  package-manager-cache: false
+
+            - name: Plan
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  UI_PREVIEW_OUT: ${{ github.workspace }}/ui-preview-out
+                  UI_PREVIEW_PR: ${{ needs.detect.outputs.pr }}
+                  UI_PREVIEW_MODEL_API_KEY: ${{ secrets.UI_PREVIEW_MODEL_API_KEY }}
+                  UI_PREVIEW_MODEL_BASE_URL: ${{ vars.UI_PREVIEW_MODEL_BASE_URL }}
+                  UI_PREVIEW_MODEL: ${{ vars.UI_PREVIEW_MODEL }}
+                  UI_PREVIEW_PLAN_JSON: ${{ inputs.plan_json }}
+              run: node .github/ui-preview/plan.mjs
+
+            - name: Upload the plan
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: ui-preview-plan
+                  if-no-files-found: error
+                  retention-days: 3
+                  path: ui-preview-out/plan.json
+
+    record:
+        name: Record
+        needs:
+            - detect
+            - plan
+        if: needs.detect.outputs.decision == 'run'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        permissions:
+            contents: read
+        env:
+            TOUCHAI_E2E: '1'
+        steps:
+            - name: Check out trusted scripts
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/ui-preview
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+              with:
+                  pattern: ui-preview-*
+                  path: ui-preview-out
+                  merge-multiple: true
+
+            - name: Install Linux dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y --no-install-recommends \
+                    ffmpeg \
+                    fonts-noto-cjk \
+                    imagemagick \
+                    libwebkit2gtk-4.1-0 \
+                    openbox \
+                    picom \
+                    webkit2gtk-driver \
+                    x11-utils \
+                    x11-xserver-utils \
+                    xdotool \
+                    xvfb
+
+            - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+            - name: Install the WebDriver bridge
+              run: cargo install tauri-driver --locked --version 2.1.0
+
+            - name: Record
+              env:
+                  UI_PREVIEW_APP_BINARY: ${{ github.workspace }}/ui-preview-out/debug/TouchAI
+                  UI_PREVIEW_OUT: ${{ github.workspace }}/ui-preview-out
+                  UI_PREVIEW_SHA: ${{ needs.detect.outputs.sha }}
+                  UI_PREVIEW_PR: ${{ needs.detect.outputs.pr }}
+                  UI_PREVIEW_TITLE: ${{ needs.detect.outputs.title }}
+                  UI_PREVIEW_RUN_URL: ${{ needs.detect.outputs.run_url }}
+                  UI_PREVIEW_TRIGGER: ${{ needs.detect.outputs.trigger }}
+                  UI_PREVIEW_SEED: '1'
+                  TOUCHAI_APP_ROOT: ${{ runner.temp }}/ui-preview-app-root
+              run: |
+                  chmod +x ui-preview-out/debug/TouchAI
+                  xvfb-run -a --server-args='-screen 0 1280x900x24' \
+                    .github/ui-preview/with-display.sh node .github/ui-preview/record.mjs
+
+            - name: Upload evidence
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: ui-preview-evidence
+                  if-no-files-found: warn
+                  retention-days: 14
+                  path: |
+                      ui-preview-out/manifest.json
+                      ui-preview-out/evidence
+
+    publish:
+        name: Publish
+        needs:
+            - detect
+            - record
+        if: always() && needs.detect.outputs.decision == 'run'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        environment: ui-preview-publish
+        permissions:
+            contents: read
+        steps:
+            - name: Check out trusted scripts
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/ui-preview
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+              continue-on-error: true
+              with:
+                  pattern: ui-preview-evidence
+                  path: ui-preview-out
+                  merge-multiple: true
+
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+              with:
+                  node-version: 22
+                  package-manager-cache: false
+
+            - name: Mint the comment token
+              id: app
+              uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+              with:
+                  app-id: ${{ secrets.BOT_APP_ID }}
+                  private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+                  owner: ${{ github.repository_owner }}
+                  repositories: ${{ github.event.repository.name }}
+                  permission-issues: write
+                  permission-pull-requests: write
+
+            - name: Publish the comment
+              env:
+                  GH_TOKEN: ${{ steps.app.outputs.token }}
+                  UI_PREVIEW_BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]
+                  ATTACHMENT_TOKEN: ${{ secrets.ATTACHMENT_TOKEN }}
+                  UI_PREVIEW_OUT: ${{ github.workspace }}/ui-preview-out
+                  UI_PREVIEW_PR: ${{ needs.detect.outputs.pr }}
+                  UI_PREVIEW_SHA: ${{ needs.detect.outputs.sha }}
+                  UI_PREVIEW_TRIGGER: ${{ needs.detect.outputs.trigger }}
+                  UI_PREVIEW_REPOSITORY_ID: ${{ github.event.repository.id }}
+                  UI_PREVIEW_ARTIFACT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
+              run: node .github/ui-preview/publish.mjs

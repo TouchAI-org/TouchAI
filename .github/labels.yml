@@ -52,3 +52,12 @@
 - name: 'claimed'
   color: 'c2e0c6'
   description: Currently claimed by a contributor
+- name: 'ui-preview'
+  color: '0969da'
+  description: Force or request a UI preview on this pull request
+- name: 'status:ui-preview-approved'
+  color: '0e8a16'
+  description: Maintainer approval for UI previews on later commits
+- name: 'status:ui-preview-skip'
+  color: '6e7781'
+  description: Skip the UI preview for this pull request

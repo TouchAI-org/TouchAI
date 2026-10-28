@@ -38,6 +38,7 @@ TouchAI is a local-first desktop AI agent built with Tauri 2 + Vue 3 + Rust + SQ
 | [docs/agents/product-rules.md](docs/agents/product-rules.md) | Touching data, UI, or performance | Database approval rule, layout-first UI, performance budgets |
 | [docs/agents/design-system.md](docs/agents/design-system.md) | Touching styles, tokens, or `components/ui/` | Token layers, naming rules, primitive rules, visual-change scopes, drift guards |
 | [docs/agents/delivery.md](docs/agents/delivery.md) | Committing, releasing, or handling input | Commits, PRs, AI disclosure, release readiness, production behavior, definition of done, security |
+| [docs/agents/ui-preview.md](docs/agents/ui-preview.md) | Changing the UI preview workflow, its scripts, or its comment | Trigger rules, trust model, credentials, comment editing, limitations |
 | [docs/testing/testing.md](docs/testing/testing.md) | Writing or reviewing tests | BDD then TDD, behavior over implementation, the `user` Given / When / Then naming convention, full testing guide and coverage expectations |
 | [docs/ai-assisted-contributions.md](docs/ai-assisted-contributions.md) | Contributing with AI | AI contribution policy |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Before opening a PR | Issue-first flow, RFC-first areas, checks, PR titles, CLA |

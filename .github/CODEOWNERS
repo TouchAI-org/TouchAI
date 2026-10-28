@@ -2,6 +2,7 @@
 /.github/CODEOWNERS @hiqiancheng
 /.github/workflows/ @hiqiancheng
 /.github/actions/ @hiqiancheng
+/.github/ui-preview/ @hiqiancheng
 /.github/dependabot.yml @hiqiancheng
 /.github/labeler.yml @hiqiancheng
 /.github/labels.yml @hiqiancheng
