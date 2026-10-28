@@ -486,9 +486,13 @@ describe('user keeps working when mcp bookkeeping fails', () => {
         mocks.extractMcpToolAttachments.mockRejectedValue(new Error('unsupported content'));
         const manager = new McpManager();
 
-        const result = await manager.executeTool('read', {}, {
-            resolved: { serverId: 1, originalName: 'read', toolTimeout: 30 },
-        });
+        const result = await manager.executeTool(
+            'read',
+            {},
+            {
+                resolved: { serverId: 1, originalName: 'read', toolTimeout: 30 },
+            }
+        );
 
         expect(result.isError).toBeFalsy();
         expect(result.result).toContain('ok');

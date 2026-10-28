@@ -105,9 +105,9 @@ describe('user receives app events across windows', () => {
             return next();
         });
 
-        await expect(
-            eventService.once(AppEvent.FONT_READY, () => undefined)
-        ).rejects.toThrow(backendError);
+        await expect(eventService.once(AppEvent.FONT_READY, () => undefined)).rejects.toThrow(
+            backendError
+        );
         expect(consoleErrorSpy).toHaveBeenCalled();
     });
 });

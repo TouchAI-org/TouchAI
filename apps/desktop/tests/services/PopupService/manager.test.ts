@@ -449,7 +449,11 @@ describe('user keeps the search surface usable when popup plumbing fails', () =>
     it('user gets the popup kept open when an update cannot be delivered', async () => {
         const popupManager = createPopupManager();
         const anchor = buildAnchor();
-        await popupManager.show('session-history-popup', anchor, createSessionHistoryData('initial'));
+        await popupManager.show(
+            'session-history-popup',
+            anchor,
+            createSessionHistoryData('initial')
+        );
 
         interceptTauriInvoke((call, next) => {
             if (call.cmd === 'plugin:event|emit' && isPopupDataCall(call)) {
@@ -468,7 +472,11 @@ describe('user keeps the search surface usable when popup plumbing fails', () =>
     it('user gets the popup ready replay failure contained', async () => {
         const popupManager = createPopupManager();
         const anchor = buildAnchor();
-        await popupManager.show('session-history-popup', anchor, createSessionHistoryData('initial'));
+        await popupManager.show(
+            'session-history-popup',
+            anchor,
+            createSessionHistoryData('initial')
+        );
         await popupManager.updateData(createSessionHistoryData('queued'));
 
         interceptTauriInvoke((call, next) => {
