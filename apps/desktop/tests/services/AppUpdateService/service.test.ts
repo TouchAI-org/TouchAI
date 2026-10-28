@@ -4,6 +4,7 @@ import type {
     AppUpdateCheckResult,
     AppUpdateInfo,
 } from '@services/AppUpdateService/types';
+import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { describe, expect, it, vi } from 'vitest';
 
 import { APP_PRODUCT_CONFIG } from '@/config/product';
@@ -312,6 +313,47 @@ describe('user checks for and installs app updates', () => {
             lastCheckedAt: '2026-05-22T13:00:00.000Z',
         });
         expect(checkForUpdates).toHaveBeenCalledTimes(1);
+    });
+
+    it('user still gets update checks when the progress listener cannot start', async () => {
+        interceptTauriInvoke((call, next) => {
+            if (call.cmd === 'plugin:event|listen') {
+                throw new Error('listener unavailable');
+            }
+
+            return next();
+        });
+        const { controller, checkForUpdates } = createController();
+
+        await expect(controller.initialize()).resolves.toBeUndefined();
+        await expect(controller.checkNow('manual')).resolves.toBe(true);
+
+        expect(checkForUpdates).toHaveBeenCalledTimes(1);
+    });
+
+    it('user still gets update checks when another window cannot share them', async () => {
+        const checkEvents = {
+            listen: vi.fn().mockRejectedValue(new Error('bridge down')),
+            publish: vi.fn().mockResolvedValue(undefined),
+        };
+        const { controller, checkForUpdates } = createController({ checkEvents });
+
+        await expect(controller.initialize()).resolves.toBeUndefined();
+        await expect(controller.checkNow('manual')).resolves.toBe(true);
+
+        expect(checkForUpdates).toHaveBeenCalledTimes(1);
+    });
+
+    it('user still gets the update when another window cannot be told about the check', async () => {
+        const checkEvents = {
+            listen: vi.fn(async () => () => undefined),
+            publish: vi.fn().mockRejectedValue(new Error('bridge down')),
+        };
+        const { controller } = createController({ checkEvents });
+
+        await expect(controller.checkNow('manual')).resolves.toBe(true);
+
+        expect(controller.getState()).toMatchObject({ status: 'available' });
     });
 
     it('user keeps the downloaded update when reopening settings or checking automatically', async () => {

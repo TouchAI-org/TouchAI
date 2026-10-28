@@ -510,6 +510,29 @@ describe('user configures keyboard shortcuts', () => {
         expect((input.element as HTMLInputElement).value).toBe('F1');
     });
 
+    it('user keeps the previous search shortcut when saving it fails', async () => {
+        settingsStoreMock.settings.value.searchKeybindings['search.history.open'] = 'Mod+Shift+H';
+        settingsStoreMock.updateSearchKeybindings.mockRejectedValueOnce(
+            new Error('settings locked')
+        );
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const input = wrapper.get(
+            '[data-testid="settings-search-shortcut-input-search.history.open"]'
+        );
+        await input.trigger('focus');
+        await flushPromises();
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
+        await flushPromises();
+
+        expect(settingsStoreMock.settings.value.searchKeybindings['search.history.open']).toBe(
+            'Mod+Shift+H'
+        );
+        expect((input.element as HTMLInputElement).value).toBe('Ctrl+Shift+H');
+    });
+
     it('user captures Windows system key events while editing a search shortcut', async () => {
         settingsStoreMock.settings.value.globalShortcut = 'Ctrl+Space';
         settingsStoreMock.settings.value.searchKeybindings['search.history.open'] = 'Mod+Shift+H';

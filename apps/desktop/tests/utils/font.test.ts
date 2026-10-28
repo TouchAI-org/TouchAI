@@ -1,6 +1,6 @@
 import { AppEvent } from '@services/EventService';
 import { emit } from '@tauri-apps/api/event';
-import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
+import { getTauriInvokeCalls, interceptTauriInvoke, mockTauriCommand } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const existsMock = vi.hoisted(() => vi.fn(async () => true));
@@ -83,6 +83,25 @@ describe('user reads text in the bundled serif font', () => {
             expect(commandOrder.indexOf('plugin:event|listen')).toBeLessThan(
                 commandOrder.indexOf('get_app_directory_path')
             );
+        },
+        FONT_TEST_TIMEOUT_MS
+    );
+
+    it(
+        'user still gets the cached font when the font-ready listener cannot be registered',
+        async () => {
+            interceptTauriInvoke((call, next) => {
+                if (call.cmd === 'plugin:event|listen') {
+                    throw new Error('listener unavailable');
+                }
+
+                return next();
+            });
+            const { initializeFontLoader } = await import('@/utils/font');
+
+            initializeFontLoader();
+
+            await vi.waitFor(() => expect(fontStyles()).toHaveLength(1));
         },
         FONT_TEST_TIMEOUT_MS
     );

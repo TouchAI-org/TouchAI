@@ -109,4 +109,34 @@ describe('user controls the settings window', () => {
             wrapper.unmount();
         }
     });
+
+    it('user still gets the titlebar when the window state cannot be read', async () => {
+        windowApiMock.currentWindow.isMaximized.mockRejectedValue(new Error('window gone'));
+
+        const wrapper = mount(SettingsWindowTitleBar);
+        try {
+            await flushPromises();
+
+            expect(
+                wrapper.get('[data-testid="settings-window-maximize"]').attributes('aria-label')
+            ).toBe('最大化');
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it('user still gets the titlebar when resize events cannot be observed', async () => {
+        windowApiMock.currentWindow.onResized.mockRejectedValue(new Error('listener unavailable'));
+
+        const wrapper = mount(SettingsWindowTitleBar);
+        try {
+            await flushPromises();
+
+            expect(
+                wrapper.get('[data-testid="settings-window-maximize"]').attributes('aria-label')
+            ).toBe('最大化');
+        } finally {
+            wrapper.unmount();
+        }
+    });
 });

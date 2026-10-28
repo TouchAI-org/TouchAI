@@ -405,3 +405,93 @@ describe('user opens a popup next to the search bar', () => {
         unlisten();
     });
 });
+
+describe('user keeps the search surface usable when popup plumbing fails', () => {
+    beforeEach(() => {
+        installTauriMocks();
+        document.body.innerHTML = '';
+    });
+
+    afterEach(() => {
+        document.body.innerHTML = '';
+        resetTauriMocks();
+    });
+
+    it('user gets the popup system usable when preloading fails', async () => {
+        interceptTauriInvoke((call, next) => {
+            if (call.cmd === 'preload_popup_windows') {
+                throw new Error('preload failed');
+            }
+
+            return next();
+        });
+        const popupManager = createPopupManager();
+
+        await expect(popupManager.initialize()).resolves.toBeUndefined();
+    });
+
+    it('user gets the popup hidden without an error surfaced when hiding fails', async () => {
+        const popupManager = createPopupManager();
+        const anchor = buildAnchor();
+        await popupManager.show('session-history-popup', anchor, createSessionHistoryData());
+
+        interceptTauriInvoke((call, next) => {
+            if (call.cmd === 'hide_popup_window') {
+                throw new Error('hide failed');
+            }
+
+            return next();
+        });
+
+        await expect(popupManager.hide()).resolves.toBeUndefined();
+    });
+
+    it('user gets the popup kept open when an update cannot be delivered', async () => {
+        const popupManager = createPopupManager();
+        const anchor = buildAnchor();
+        await popupManager.show('session-history-popup', anchor, createSessionHistoryData('initial'));
+
+        interceptTauriInvoke((call, next) => {
+            if (call.cmd === 'plugin:event|emit' && isPopupDataCall(call)) {
+                throw new Error('emit failed');
+            }
+
+            return next();
+        });
+
+        await expect(
+            popupManager.updateData(createSessionHistoryData('updated'))
+        ).resolves.toBeUndefined();
+        expect(popupManager.state.isOpen).toBe(true);
+    });
+
+    it('user gets the popup ready replay failure contained', async () => {
+        const popupManager = createPopupManager();
+        const anchor = buildAnchor();
+        await popupManager.show('session-history-popup', anchor, createSessionHistoryData('initial'));
+        await popupManager.updateData(createSessionHistoryData('queued'));
+
+        interceptTauriInvoke((call, next) => {
+            if (call.cmd === 'plugin:event|emit' && isPopupDataCall(call)) {
+                throw new Error('emit failed');
+            }
+
+            return next();
+        });
+
+        await emit(AppEvent.POPUP_READY, { windowLabel: 'popup-session-history-popup' });
+        await Promise.resolve();
+
+        expect(popupManager.state.isOpen).toBe(true);
+    });
+});
+
+function isPopupDataCall(call: { payload?: unknown }): boolean {
+    return (
+        !!call.payload &&
+        !Array.isArray(call.payload) &&
+        typeof call.payload === 'object' &&
+        'event' in call.payload &&
+        (call.payload as { event?: unknown }).event === AppEvent.POPUP_DATA
+    );
+}

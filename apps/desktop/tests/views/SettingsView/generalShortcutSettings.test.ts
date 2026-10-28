@@ -263,6 +263,18 @@ describe('user records a new activation shortcut', () => {
         expect(alertMock.success).toHaveBeenCalledTimes(1);
     });
 
+    it('user keeps the old shortcut when saving it fails', async () => {
+        settingsMock.updateGlobalShortcut.mockRejectedValueOnce(new Error('settings locked'));
+        const wrapper = await mountSection();
+        await startCapture(wrapper);
+
+        await pressKeys({ key: 'n', ctrlKey: true });
+
+        expect(alertMock.error).toHaveBeenCalled();
+        expect(settingsMock.settings.value.globalShortcut).toBe('Alt+Space');
+        expect(fieldValue(wrapper)).toBe('Alt+Space');
+    });
+
     it('user keeps the old shortcut when the system refuses to register the new one', async () => {
         nativeMock.shortcut.registerGlobalShortcut.mockRejectedValue(
             new Error('shortcut already registered')

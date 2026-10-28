@@ -243,4 +243,20 @@ describe('user watches the search window follow its content', () => {
 
         expect(disconnectMock).toHaveBeenCalled();
     });
+
+    it('user keeps the window usable when a resize request fails', async () => {
+        resizeWindowHeightMock.mockRejectedValueOnce(new Error('window gone'));
+        const target = ref<HTMLElement | null>(null);
+        const { unmount } = await mountComposable(() => useWindowResize({ target }));
+        target.value = elementWithHeight(120, 180);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        observerCallback?.([resizeEntry(target.value as Element, 120)]);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(resizeWindowHeightMock).toHaveBeenCalled();
+        unmount();
+    });
 });

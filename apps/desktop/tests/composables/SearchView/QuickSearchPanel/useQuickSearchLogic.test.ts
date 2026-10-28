@@ -128,18 +128,22 @@ function createQuickSearchDeps(
     overrides: {
         searchShortcuts?: ReturnType<typeof vi.fn>;
         openPath?: ReturnType<typeof vi.fn>;
+        getStatus?: ReturnType<typeof vi.fn>;
+        prepareIndex?: ReturnType<typeof vi.fn>;
     } = {}
 ): UseQuickSearchDeps {
     return {
         quickSearch: {
-            getStatus: vi.fn().mockResolvedValue({
-                provider: 'everything',
-                db_loaded: true,
-                index_warmed: true,
-                last_refresh_ms: null,
-                last_error: null,
-            }),
-            prepareIndex: vi.fn().mockResolvedValue(undefined),
+            getStatus:
+                overrides.getStatus ??
+                vi.fn().mockResolvedValue({
+                    provider: 'everything',
+                    db_loaded: true,
+                    index_warmed: true,
+                    last_refresh_ms: null,
+                    last_error: null,
+                }),
+            prepareIndex: overrides.prepareIndex ?? vi.fn().mockResolvedValue(undefined),
             searchShortcuts: (overrides.searchShortcuts ??
                 vi.fn().mockResolvedValue(createSearchResult())) as never,
         },
@@ -437,6 +441,49 @@ describe('when the user opens a search result', () => {
         await flushAsyncWork();
 
         await expect(result.handleItemClick(0)).resolves.toBeUndefined();
+
+        unmount();
+    });
+
+    it('user gets the Enter launch failure contained when the file is gone', async () => {
+        const shortcut = createShortcut('TouchAI');
+        const deps = createQuickSearchDeps({
+            searchShortcuts: vi.fn().mockResolvedValue(createSearchResult([shortcut])),
+            openPath: vi.fn().mockRejectedValue(new Error('file is gone')),
+        });
+        const { result, searchQuery, unmount } = await mountQuickSearch(deps);
+
+        searchQuery.value = 'touch';
+        result.triggerSearch('touch');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+
+        result.highlightedIndex.value = 0;
+        await expect(result.openHighlightedItem()).resolves.toBeUndefined();
+
+        unmount();
+    });
+
+    it('user still gets the panel when the search backend status cannot be read', async () => {
+        const deps = createQuickSearchDeps({
+            getStatus: vi.fn().mockRejectedValue(new Error('backend unavailable')),
+        });
+        const { result, searchQuery, unmount } = await mountQuickSearch(deps);
+
+        searchQuery.value = 'touch';
+        result.open();
+        await flushAsyncWork();
+
+        unmount();
+    });
+
+    it('user still gets search results when the index cannot be rebuilt', async () => {
+        const deps = createQuickSearchDeps({
+            prepareIndex: vi.fn().mockRejectedValue(new Error('index locked')),
+        });
+        const { unmount } = await mountQuickSearch(deps);
+
+        await flushAsyncWork();
 
         unmount();
     });

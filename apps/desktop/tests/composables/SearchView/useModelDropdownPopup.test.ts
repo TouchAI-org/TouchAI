@@ -272,4 +272,59 @@ describe('when the user opens the model dropdown', () => {
 
         expect(lateCleanup).toHaveBeenCalledTimes(1);
     });
+
+    it('user keeps the dropdown open when a popup callback fails', async () => {
+        let handlers:
+            | {
+                  onModelSelect: (modelDbId: number) => void;
+                  onModelSearchQueryChange: (query: string) => void;
+              }
+            | undefined;
+        vi.mocked(popupManager.listen).mockImplementation(async (nextHandlers) => {
+            handlers = nextHandlers as typeof handlers;
+            return () => undefined;
+        });
+        const mounted = await mountComposable(() =>
+            useModelDropdownPopup({
+                getAnchorElement: () => document.createElement('button'),
+                getPopupData: () => createPopupData(),
+                isModelDropdownActive: () => true,
+                onModelSelect: () => Promise.reject(new Error('select failed')),
+                onModelSearchQueryChange: () => Promise.reject(new Error('search failed')),
+                onClose: () => undefined,
+            })
+        );
+
+        await mounted.result.open();
+        handlers?.onModelSelect(3);
+        handlers?.onModelSearchQueryChange('missing');
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(mounted.result.isOpen.value).toBe(true);
+
+        mounted.unmount();
+    });
+
+    it('user still gets the dropdown when listener registration fails', async () => {
+        vi.mocked(popupManager.listen).mockRejectedValue(new Error('listener unavailable'));
+        const mounted = await mountComposable(() =>
+            useModelDropdownPopup({
+                getAnchorElement: () => document.createElement('button'),
+                getPopupData: () => createPopupData(),
+                isModelDropdownActive: () => true,
+                onModelSelect: () => undefined,
+                onModelSearchQueryChange: () => undefined,
+                onClose: () => undefined,
+            })
+        );
+
+        await Promise.resolve();
+        await Promise.resolve();
+        await mounted.result.open();
+
+        expect(mounted.result.isOpen.value).toBe(true);
+
+        mounted.unmount();
+    });
 });

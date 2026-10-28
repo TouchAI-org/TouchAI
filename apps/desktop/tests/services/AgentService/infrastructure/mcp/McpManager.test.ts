@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
     getServerStatus: vi.fn(),
     getAllServerStatuses: vi.fn(),
     emit: vi.fn(),
+    extractMcpToolAttachments: vi.fn(),
 }));
 
 vi.mock('@database', async (importOriginal) => ({
@@ -66,6 +67,11 @@ vi.mock('@services/EventService', async (importOriginal) => ({
     eventService: { emit: mocks.emit },
 }));
 
+vi.mock('@/services/AgentService/infrastructure/mcp/utils', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@/services/AgentService/infrastructure/mcp/utils')>()),
+    extractMcpToolAttachments: mocks.extractMcpToolAttachments,
+}));
+
 function server(overrides: Partial<McpServerEntity> = {}): McpServerEntity {
     return {
         id: 1,
@@ -98,6 +104,7 @@ beforeEach(() => {
     mocks.getAllServerStatuses.mockResolvedValue([]);
     // Connecting syncs the tool list, so it has to resolve by default.
     mocks.listTools.mockResolvedValue([]);
+    mocks.extractMcpToolAttachments.mockResolvedValue(undefined);
 });
 
 describe('user sees a server connection state', () => {
@@ -354,5 +361,137 @@ describe('user calls a tool on a server', () => {
         const manager = new McpManager();
 
         await expect(manager.listTools(1)).rejects.toThrow('server gone');
+    });
+});
+
+describe('user keeps working when mcp bookkeeping fails', () => {
+    it('user gets the original connection failure when the error cannot be saved', async () => {
+        mocks.connectServer.mockRejectedValue(new Error('spawn ENOENT'));
+        mocks.updateMcpServer.mockRejectedValue(new Error('database is locked'));
+        const manager = new McpManager();
+
+        // A bookkeeping failure must not replace the reason the server did not start.
+        await expect(manager.connectServer(server())).rejects.toThrow('spawn ENOENT');
+        expect(manager.getServerStatus(1)).toBe('error');
+    });
+
+    it('user gets a connected server when its version cannot be read', async () => {
+        mocks.getServerStatus.mockRejectedValue(new Error('status unavailable'));
+        const manager = new McpManager();
+
+        await manager.connectServer(server());
+
+        expect(manager.getServerStatus(1)).toBe('connected');
+        expect(mocks.updateMcpServer).not.toHaveBeenCalledWith(
+            1,
+            expect.objectContaining({ version: expect.anything() })
+        );
+    });
+
+    it('user gets a connected server when its tool list cannot be saved', async () => {
+        const { db } = await import('@database');
+        vi.spyOn(db, 'transaction').mockRejectedValueOnce(new Error('disk full'));
+        const manager = new McpManager();
+
+        await manager.connectServer(server());
+
+        expect(manager.getServerStatus(1)).toBe('connected');
+    });
+
+    it('user gets every status cleared after a normal disconnect', async () => {
+        const manager = new McpManager();
+        manager.setStatusFromEvent(1, 'connected', null);
+
+        await manager.disconnectAll();
+
+        expect(manager.getServerStatus(1)).toBe('disconnected');
+    });
+
+    it('user gets a disconnect timeout and the late success still clears state', async () => {
+        vi.useFakeTimers();
+        let releaseDisconnect: () => void = () => undefined;
+        mocks.disconnectAll.mockImplementation(
+            () =>
+                new Promise<void>((resolve) => {
+                    releaseDisconnect = resolve;
+                })
+        );
+        const manager = new McpManager();
+        manager.setStatusFromEvent(1, 'connected', null);
+
+        const pending = manager.disconnectAll(50);
+        const expectation = expect(pending).rejects.toThrow();
+        await vi.advanceTimersByTimeAsync(50);
+        await expectation;
+
+        releaseDisconnect();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(manager.getServerStatus(1)).toBe('disconnected');
+        vi.useRealTimers();
+    });
+
+    it('user keeps the last known statuses when the backend refresh fails', async () => {
+        mocks.getAllServerStatuses.mockRejectedValue(new Error('bridge down'));
+        const manager = new McpManager();
+        manager.setStatusFromEvent(1, 'connected', null);
+
+        await expect(manager.refreshAllServerStatuses()).resolves.toBeUndefined();
+
+        expect(manager.getServerStatus(1)).toBe('connected');
+    });
+
+    it('user gets a late disconnect rejection contained after the timeout', async () => {
+        vi.useFakeTimers();
+        let rejectDisconnect: (error: Error) => void = () => undefined;
+        mocks.disconnectAll.mockImplementation(
+            () =>
+                new Promise<void>((_, reject) => {
+                    rejectDisconnect = reject;
+                })
+        );
+        const manager = new McpManager();
+
+        const pending = manager.disconnectAll(50);
+        const expectation = expect(pending).rejects.toThrow();
+        await vi.advanceTimersByTimeAsync(50);
+        await expectation;
+
+        rejectDisconnect(new Error('bridge closed'));
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(manager.getServerStatus(1)).toBe('disconnected');
+        vi.useRealTimers();
+    });
+
+    it('user gets no tool resolved when the server no longer has it', async () => {
+        mocks.findMcpServerById.mockResolvedValue(server());
+        mocks.findMcpToolByServerIdAndName.mockResolvedValue(undefined);
+        const manager = new McpManager();
+
+        await expect(manager.resolveToolCall('mcp__1__missing')).resolves.toBeNull();
+    });
+
+    it('user gets no tool resolved when the lookup itself fails', async () => {
+        mocks.findMcpServerById.mockRejectedValue(new Error('database is locked'));
+        const manager = new McpManager();
+
+        await expect(manager.resolveToolCall('mcp__1__read')).resolves.toBeNull();
+    });
+
+    it('user still gets the tool result when attachments cannot be extracted', async () => {
+        mocks.callTool.mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] });
+        mocks.extractMcpToolAttachments.mockRejectedValue(new Error('unsupported content'));
+        const manager = new McpManager();
+
+        const result = await manager.executeTool('read', {}, {
+            resolved: { serverId: 1, originalName: 'read', toolTimeout: 30 },
+        });
+
+        expect(result.isError).toBeFalsy();
+        expect(result.result).toContain('ok');
+        expect(result.attachments).toBeUndefined();
     });
 });

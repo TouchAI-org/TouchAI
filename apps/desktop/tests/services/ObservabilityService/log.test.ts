@@ -6,6 +6,7 @@ import {
     log,
     resetObservabilityForTests,
 } from '@services/ObservabilityService';
+import { reportLoggingFailure } from '@services/ObservabilityService/console';
 import { getTauriInvokeCalls } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -55,6 +56,28 @@ describe('user gets service logs as structured events', () => {
         const [entry] = sentEntries();
         expect(entry?.msg).not.toContain('secret-value');
     });
+
+    it('user gets an event with no message when nothing was logged', async () => {
+        initObservability();
+
+        log.trace();
+        await flushObservability();
+
+        const [entry] = sentEntries();
+        expect(entry).toMatchObject({ level: 1, event: 'app.log' });
+        expect(entry?.msg).toBeUndefined();
+    });
+
+    it('user gets a value that cannot be serialised kept as text', async () => {
+        initObservability();
+        const circular: Record<string, unknown> = {};
+        circular.self = circular;
+
+        log.warn(circular, 'state');
+        await flushObservability();
+
+        expect(sentEntries()[0]?.msg).toContain('[object Object]');
+    });
 });
 
 describe('user gets third-party console failures as structured events', () => {
@@ -86,5 +109,45 @@ describe('user gets third-party console failures as structured events', () => {
 
         expect(debug).toHaveBeenCalledWith('third-party debug');
         expect(sentEntries()).toEqual([]);
+    });
+
+    it('user gets a third-party value that cannot be serialised kept as text', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        initObservability();
+        const circular: Record<string, unknown> = {};
+        circular.self = circular;
+
+        console.warn(circular, undefined);
+        await flushObservability();
+
+        const [entry] = sentEntries();
+        expect(entry?.msg).toContain('[object Object]');
+        expect(entry?.msg).toContain('undefined');
+    });
+
+    it('user gets a third-party error without a stack described by its message', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        initObservability();
+        const error = new Error('connection dropped');
+        error.stack = undefined;
+
+        console.error(error);
+        await flushObservability();
+
+        expect(sentEntries()[0]?.msg).toContain('Error: connection dropped');
+    });
+});
+
+describe('user keeps a logging failure visible on the native console', () => {
+    it('user sees the original console error when a log batch cannot be sent', () => {
+        const nativeError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        initObservability();
+
+        reportLoggingFailure(new Error('ipc closed'));
+
+        expect(nativeError).toHaveBeenCalledWith(
+            '[Observability] failed to send log batch',
+            expect.any(Error)
+        );
     });
 });

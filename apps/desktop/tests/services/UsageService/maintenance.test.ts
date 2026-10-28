@@ -428,6 +428,25 @@ describe('user sees usage maintenance run at startup', () => {
         expect(rollups.n).toBe(1);
     });
 
+    it('user sees expired usage detail pruned by the maintenance run', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        seed(database);
+        database
+            .prepare(
+                `INSERT INTO message_parts (id, message_id, type, content, sort_order, created_at)
+                 VALUES (1, 1, 'llm_call', '', 1, '2000-01-01 00:00:00')`
+            )
+            .run();
+
+        await runUsageMaintenance(30);
+
+        const remaining = database.prepare('SELECT count(*) AS n FROM message_parts').get() as {
+            n: number;
+        };
+        expect(remaining.n).toBe(0);
+    });
+
     it('user sees the rollup re-run once the recorded timestamp is stale', async () => {
         const database = openDatabase();
         routeQueriesTo(database);

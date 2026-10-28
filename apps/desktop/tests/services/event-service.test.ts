@@ -92,4 +92,22 @@ describe('user receives app events across windows', () => {
         ).rejects.toThrow(backendError);
         expect(consoleErrorSpy).toHaveBeenCalled();
     });
+
+    it('user sees a one-shot subscription failure instead of a silent no-op', async () => {
+        const backendError = new Error('listen failed');
+        const consoleErrorSpy = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+
+        interceptTauriInvoke((call, next) => {
+            if (call.cmd === 'plugin:event|listen') {
+                throw backendError;
+            }
+
+            return next();
+        });
+
+        await expect(
+            eventService.once(AppEvent.FONT_READY, () => undefined)
+        ).rejects.toThrow(backendError);
+        expect(consoleErrorSpy).toHaveBeenCalled();
+    });
 });

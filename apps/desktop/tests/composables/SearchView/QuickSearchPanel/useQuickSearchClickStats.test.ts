@@ -92,4 +92,18 @@ describe('when the quick search panel ranks results by what the user clicks', ()
         await expect(stats.rankResults('alpha', [alpha, beta])).resolves.toEqual([alpha, beta]);
         expect(warnSpy).toHaveBeenCalled();
     });
+
+    it('user gets the click counted even when it cannot be saved', async () => {
+        const stats = useQuickSearchClickStats();
+        const warnSpy = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+        const foo = createShortcut('Foo', 'D:/Tools/Foo.lnk');
+        const bar = createShortcut('Bar', 'D:/Tools/Bar.lnk');
+        upsertQuickSearchClickMock.mockRejectedValue(new Error('sqlite unavailable'));
+
+        stats.recordClick('touch', 'D:/Tools/Foo.lnk');
+        await flushAsyncWork();
+
+        await expect(stats.rankResults('touch', [bar, foo])).resolves.toEqual([foo, bar]);
+        expect(warnSpy).toHaveBeenCalled();
+    });
 });

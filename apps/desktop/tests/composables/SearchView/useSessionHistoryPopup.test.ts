@@ -269,4 +269,119 @@ describe('when the user opens the session history panel', () => {
 
         expect(lateCleanup).toHaveBeenCalledTimes(1);
     });
+
+    it('user keeps the panel open when a popup callback fails', async () => {
+        let handlers:
+            | {
+                  onSessionOpen: (sessionId: number) => void;
+                  onSessionSearchQueryChange: (query: string) => void;
+              }
+            | undefined;
+        vi.mocked(popupManager.listen).mockImplementation(async (nextHandlers) => {
+            handlers = nextHandlers as typeof handlers;
+            return () => undefined;
+        });
+        const mounted = await mountComposable(() =>
+            useSessionHistoryPopup({
+                getAnchorElement: () => document.createElement('button'),
+                getPopupData: () => createPopupData(),
+                isSessionHistoryActive: () => true,
+                onSessionOpen: () => Promise.reject(new Error('open failed')),
+                onSessionSearchQueryChange: () => Promise.reject(new Error('search failed')),
+                onClose: () => undefined,
+            })
+        );
+
+        await mounted.result.open();
+        handlers?.onSessionOpen(3);
+        handlers?.onSessionSearchQueryChange('missing');
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(mounted.result.isOpen.value).toBe(true);
+
+        mounted.unmount();
+    });
+
+    it('user gets the panel closed even when the close handler fails', async () => {
+        let onCloseListener:
+            | ((payload: {
+                  popupId: string;
+                  popupSessionVersion: number;
+                  windowLabel: string;
+                  type: 'session-history-popup';
+              }) => void)
+            | undefined;
+        vi.mocked(popupManager.listen).mockImplementation(async (handlers) => {
+            onCloseListener = handlers.onClose as typeof onCloseListener;
+            return () => undefined;
+        });
+        const mounted = await mountComposable(() =>
+            useSessionHistoryPopup({
+                getAnchorElement: () => document.createElement('button'),
+                getPopupData: () => createPopupData(),
+                isSessionHistoryActive: () => true,
+                onSessionOpen: () => undefined,
+                onSessionSearchQueryChange: () => undefined,
+                onClose: () => Promise.reject(new Error('close failed')),
+            })
+        );
+
+        await mounted.result.open();
+        onCloseListener?.({
+            popupId: 'popup-session-history-popup:1',
+            popupSessionVersion: 1,
+            windowLabel: 'popup-session-history-popup',
+            type: 'session-history-popup',
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(mounted.result.isOpen.value).toBe(false);
+
+        mounted.unmount();
+    });
+
+    it('user still gets the panel when listener registration fails', async () => {
+        vi.mocked(popupManager.listen).mockRejectedValue(new Error('listener unavailable'));
+        const mounted = await mountComposable(() =>
+            useSessionHistoryPopup({
+                getAnchorElement: () => document.createElement('button'),
+                getPopupData: () => createPopupData(),
+                isSessionHistoryActive: () => true,
+                onSessionOpen: () => undefined,
+                onSessionSearchQueryChange: () => undefined,
+                onClose: () => undefined,
+            })
+        );
+
+        await Promise.resolve();
+        await Promise.resolve();
+        await mounted.result.open();
+
+        expect(mounted.result.isOpen.value).toBe(true);
+
+        mounted.unmount();
+    });
+
+    it('user still leaves the search view when the popup cannot be hidden', async () => {
+        vi.mocked(popupManager.hide).mockRejectedValue(new Error('hide failed'));
+        const mounted = await mountComposable(() =>
+            useSessionHistoryPopup({
+                getAnchorElement: () => document.createElement('button'),
+                getPopupData: () => createPopupData(),
+                isSessionHistoryActive: () => true,
+                onSessionOpen: () => undefined,
+                onSessionSearchQueryChange: () => undefined,
+                onClose: () => undefined,
+            })
+        );
+
+        await mounted.result.open();
+        expect(() => mounted.unmount()).not.toThrow();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(popupManager.hide).toHaveBeenCalledTimes(1);
+    });
 });

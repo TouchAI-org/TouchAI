@@ -148,4 +148,20 @@ describe('user reads a tool log entry', () => {
             output: 'file content',
         });
     });
+
+    it('user keeps the log readable when copying is unavailable', async () => {
+        vi.mocked(clipboardService.writeText).mockRejectedValueOnce(
+            new Error('clipboard unavailable')
+        );
+        const wrapper = mount(ToolLogContent, {
+            props: { input: bashInput, output: bashOutput, isBash: true },
+        });
+
+        await wrapper.get('[aria-label="复制输入参数"]').trigger('click');
+        await Promise.resolve();
+
+        expect(wrapper.get('[data-testid="tool-log-input-section"]').text()).toContain(
+            'Get-ChildItem -Force'
+        );
+    });
 });

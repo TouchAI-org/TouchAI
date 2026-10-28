@@ -350,4 +350,26 @@ describe('user is reminded about an available update', () => {
         expect(reminder.unsubscribe).toHaveBeenCalledTimes(1);
         expect(reminder.unlisten).toHaveBeenCalledTimes(1);
     });
+
+    it('user still gets reminders when the saved history is unreadable', async () => {
+        const reminder = createReminder({ raw: '{not json' });
+
+        await reminder.controller.initialize();
+        await flushReminder();
+
+        expect(reminder.show).toHaveBeenCalledTimes(1);
+    });
+
+    it('user who opens a notification still reaches the update when opening the page fails once', async () => {
+        const reminder = createReminder();
+        reminder.openSettings.mockRejectedValueOnce(new Error('settings window unavailable'));
+        await reminder.controller.initialize();
+
+        reminder.action('update');
+        await flushReminder();
+        reminder.action('update');
+        await flushReminder();
+
+        expect(reminder.openSettings).toHaveBeenCalledTimes(2);
+    });
 });
