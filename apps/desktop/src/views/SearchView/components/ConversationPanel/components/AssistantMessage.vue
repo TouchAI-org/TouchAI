@@ -246,6 +246,21 @@ import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
     );
 
     onMounted(() => {
+        if (import.meta.env.DEV) {
+            // 首屏定位排查：单条消息从挂载到首帧的耗时（含 Markdown/工具/Widget）。
+            const startedAt = performance.now();
+            requestAnimationFrame(() => {
+                const elapsed = Math.round(performance.now() - startedAt);
+                if (elapsed > 50) {
+                    console.warn('[msg-mount]', {
+                        id: props.message.id,
+                        parts: props.message.parts.length,
+                        textChars: props.message.content.length,
+                        ms: elapsed,
+                    });
+                }
+            });
+        }
         document.addEventListener('visibilitychange', handleVisibilityChange);
     });
 

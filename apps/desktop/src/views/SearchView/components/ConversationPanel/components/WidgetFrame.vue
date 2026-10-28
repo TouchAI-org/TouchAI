@@ -77,6 +77,7 @@
             htmlLength: props.widget.html?.length ?? 0,
             phase: props.widget.phase,
         });
+        const startedAt = import.meta.env.DEV ? performance.now() : 0;
         renderer?.render({
             widgetId: props.widget.widgetId,
             title: props.widget.title,
@@ -84,6 +85,16 @@
             html: props.widget.html,
             phase: props.widget.phase,
         });
+        if (import.meta.env.DEV) {
+            const elapsed = Math.round(performance.now() - startedAt);
+            if (elapsed > 30) {
+                console.warn('[widget-render]', {
+                    widgetId: props.widget.widgetId,
+                    htmlLength: props.widget.html?.length ?? 0,
+                    ms: elapsed,
+                });
+            }
+        }
         logWidgetDiagnostics('render');
     }
 
