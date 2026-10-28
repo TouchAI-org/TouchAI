@@ -7,6 +7,8 @@ const MAX_ATTRIBUTE_LENGTH = 1024;
 const URL_PATTERN = /\bhttps?:\/\/[^\s"'<>]+/gi;
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/gi;
+/** 没有 `Authorization:` 前缀的 Basic/Digest 凭据同样不能落盘。 */
+const BASIC_CREDENTIAL_PATTERN = /\b(Basic|Digest)\s+[A-Za-z0-9+/=._~-]{8,}/gi;
 const SECRET_KEY_PATTERN =
     '(?:[a-z0-9]+[_-])*(?:api[_-]?key|access[_-]?key|token|secret|password|passwd|authorization|cookie)';
 const SECRET_ASSIGNMENT_PATTERN = new RegExp(
@@ -81,6 +83,7 @@ export function redactText(value: string): string {
         .replace(URL_PATTERN, (match) => redactUrl(match))
         .replace(EMAIL_PATTERN, REDACTED_EMAIL)
         .replace(BEARER_PATTERN, `Bearer ${REDACTED}`)
+        .replace(BASIC_CREDENTIAL_PATTERN, (_match, scheme: string) => `${scheme} ${REDACTED}`)
         .replace(
             SENSITIVE_HEADER_PATTERN,
             (_match, quote: string, key: string, separator: string) =>

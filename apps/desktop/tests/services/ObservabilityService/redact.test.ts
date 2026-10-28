@@ -32,6 +32,14 @@ describe('user does not leak secrets into logs', () => {
         expect(redacted).not.toContain('secret-value');
     });
 
+    it('user gets standalone basic credentials removed', () => {
+        const redacted = redactText('connect failed Basic dXNlcjpwYXNz retrying');
+
+        expect(redacted).not.toContain('dXNlcjpwYXNz');
+        expect(redacted).toContain('Basic [redacted]');
+        expect(redacted).toContain('retrying');
+    });
+
     it('user gets mixed-case and prefixed credential keys removed', () => {
         const text =
             'X-Api-Key: sk-live-secret Proxy-Authorization: Basic dXNlcjpwYXNz Cookie=session=abc123';
