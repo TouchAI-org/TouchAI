@@ -340,6 +340,24 @@ jobs:
                   xvfb-run -a --server-args='-screen 0 1280x900x24' \
                     .github/ui-preview/with-display.sh node .github/ui-preview/record.mjs
 
+            # A session that never registers looks identical whether the app
+            # crashed, stalled, or lost its webview, so the job prints the state
+            # it can see instead of only the recorder's timeout.
+            - name: Report the app state
+              if: failure()
+              run: |
+                  echo "== processes"
+                  ps -eo pid,ppid,stat,etime,cmd \
+                    | grep -E 'TouchAI|tauri-driver|WebKit' \
+                    | grep -v grep \
+                    || echo "no app process is running"
+                  echo "== app root"
+                  find "$TOUCHAI_APP_ROOT" -maxdepth 3 -printf '%y %s %p\n' \
+                    || echo "the app root was not created"
+                  echo "== app logs"
+                  find "$TOUCHAI_APP_ROOT" -type f \( -name '*.log' -o -name '*.jsonl' \) \
+                    -exec sh -c 'echo "-- $1"; tail -n 40 "$1"' _ {} \;
+
             - name: Upload evidence
               if: always()
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

@@ -89,6 +89,18 @@ describe('user opens a pull request that runs the preview', () => {
         expect(recordPackages.has('libwebkit2gtk-4.1-dev')).toBe(true);
     });
 
+    it('user gets the app state printed when the recording session never starts', () => {
+        const record = jobBlock('record');
+        const report = record.slice(record.indexOf('- name: Report the app state'));
+
+        // A session that never registers looks the same whether the app crashed
+        // or stalled, so the job has to print what it can observe.
+        expect(report).toContain('if: failure()');
+        expect(report).toContain('tauri-driver');
+        expect(report).toContain('TOUCHAI_APP_ROOT');
+        expect(report).toContain('tail -n 40');
+    });
+
     it('user gets the model key only in a job that does not run pull-request code', () => {
         const plan = jobBlock('plan');
 
