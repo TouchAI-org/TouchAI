@@ -156,7 +156,11 @@ pub fn build_plugin<R: Runtime>() -> TauriPlugin<R> {
     }
 
     Builder::new()
-        .level(startup_level)
+        // 分发层固定接收 Trace，级别取舍由 `level::allows` 做。
+        // `Builder::level` 是 fern 分发层的过滤器：这里写死启动级别会让
+        // 诊断模式打开的 debug 日志在到达任何 target 之前就被丢掉。
+        .level(log::LevelFilter::Trace)
+        .filter(|record| crate::core::observability::level::allows(record.level()))
         .rotation_strategy(RotationStrategy::KeepSome(MAX_ARCHIVED_FILES))
         .timezone_strategy(timezone_strategy)
         .clear_format()
