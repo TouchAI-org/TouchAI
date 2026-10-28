@@ -38,6 +38,7 @@
                 :data="messages"
                 :scroll-ref="conversationContainer || undefined"
                 :buffer-size="200"
+                :class="isListPositioned ? '' : 'invisible'"
                 @scroll="handleScroll"
                 @resize="handleVirtualResize"
             >
@@ -137,6 +138,8 @@
     } | null>(null);
     const messageVirtualizer = ref<VirtualizerHandle | null>(null);
     let resizeSyncFrame: number | null = null;
+    // 首屏先隐藏列表，等定位到底后再显示，否则会先闪一下顶部。
+    const isListPositioned = ref(true);
     const settingsStore = useSettingsStore();
     const { outputScrollBehavior } = storeToRefs(settingsStore);
     useScrollbarStabilizer(conversationContainer);
@@ -473,8 +476,20 @@
             // 只有尾部追加才可能代表新一轮提问；
             // 向顶部加载历史页（prepend）不能改变跟随状态，否则刚上滚的视图会被拉回底部。
             if (change !== 'append') {
-                if (change === 'replace' && import.meta.env.DEV) {
-                    logFirstRenderCost(nextIds.length);
+                if (change === 'replace') {
+                    // 整表替换 = 切换到了另一个会话：先隐藏，等定位到底后再显示，
+                    // 否则用户会看到“先停在顶部、下一帧才跳到底部”的闪烁。
+                    isListPositioned.value = false;
+                    void nextTick(() => {
+                        syncToBottom();
+                        requestAnimationFrame(() => {
+                            syncToBottom();
+                            isListPositioned.value = true;
+                        });
+                    });
+                    if (import.meta.env.DEV) {
+                        logFirstRenderCost(nextIds.length);
+                    }
                 }
                 return;
             }
