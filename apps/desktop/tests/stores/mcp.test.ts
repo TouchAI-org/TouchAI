@@ -1,10 +1,14 @@
 import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { findAllMcpServersMock, findMcpToolsByServerIdMock } = vi.hoisted(() => ({
-    findAllMcpServersMock: vi.fn(),
-    findMcpToolsByServerIdMock: vi.fn(),
-}));
+const { findAllMcpServersMock, findMcpToolsByServerIdMock, onMock, obsErrorMock } = vi.hoisted(
+    () => ({
+        findAllMcpServersMock: vi.fn(),
+        findMcpToolsByServerIdMock: vi.fn(),
+        onMock: vi.fn(),
+        obsErrorMock: vi.fn(),
+    })
+);
 
 vi.mock('@database/queries', () => ({
     findAllMcpServers: findAllMcpServersMock,
@@ -20,7 +24,12 @@ vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
 
 vi.mock('@services/EventService', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@services/EventService')>()),
-    eventService: { on: vi.fn() },
+    eventService: { on: onMock },
+}));
+
+vi.mock('@services/ObservabilityService', () => ({
+    error: obsErrorMock,
+    log: { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 describe('user sees the saved mcp servers', () => {
@@ -48,5 +57,31 @@ describe('user sees the saved mcp servers', () => {
         await expect(store.loadServerTools(1)).resolves.toBeUndefined();
 
         expect(store.getServerTools(1)).toEqual([]);
+    });
+
+    it('user gets one connect failure event when a server enters the error state', async () => {
+        findAllMcpServersMock.mockResolvedValue([]);
+        const { useMcpStore } = await import('@/stores/mcp');
+        const store = useMcpStore();
+
+        await store.initialize();
+
+        const handleStatus = onMock.mock.calls[0]?.[1] as (event: {
+            serverId: number;
+            status: string;
+            error?: string | null;
+        }) => void;
+        handleStatus({ serverId: 3, status: 'error', error: 'spawn failed' });
+        handleStatus({ serverId: 3, status: 'error', error: 'spawn failed' });
+        handleStatus({ serverId: 3, status: 'connected' });
+        handleStatus({ serverId: 3, status: 'error', error: 'spawn failed again' });
+
+        expect(obsErrorMock).toHaveBeenCalledTimes(2);
+        expect(obsErrorMock).toHaveBeenCalledWith(
+            'mcp.connect.failed',
+            'spawn failed',
+            { 'mcp.server.id': 3 },
+            expect.any(String)
+        );
     });
 });

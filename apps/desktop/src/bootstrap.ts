@@ -231,12 +231,14 @@ function scheduleUsageMaintenance(pinia: ReturnType<typeof createPinia>): void {
 }
 
 export async function initializeApp() {
+    // 先启动日志队列，后面的动态 import 失败时才有地方落盘。
+    initObservability();
+
     // zone.js is only needed in the real WebView. Importing it in Vitest
     // patches timers and changes microtask ordering for unrelated tests.
     if (import.meta.env.MODE !== 'test') {
         await import('zone.js');
     }
-    initObservability();
     setupLinkInterceptor();
     document.addEventListener('contextmenu', (event) => event.preventDefault());
 

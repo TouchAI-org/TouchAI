@@ -25,6 +25,11 @@ function sentEvent(event: string) {
     return sentEntries().find((entry) => entry.event === event);
 }
 
+function lastEntry() {
+    const entries = sentEntries();
+    return entries[entries.length - 1];
+}
+
 describe('user gets service logs as structured events', () => {
     it('user sees a trailing object kept as structured fields', async () => {
         initObservability();
@@ -68,7 +73,7 @@ describe('user gets service logs as structured events', () => {
         log.trace();
         await flushObservability();
 
-        const entry = sentEntries().at(-1);
+        const entry = lastEntry();
         expect(entry).toMatchObject({ level: 1, event: 'app.log' });
         expect(entry?.msg).toBeUndefined();
     });
@@ -81,7 +86,7 @@ describe('user gets service logs as structured events', () => {
         log.warn(circular, 'state');
         await flushObservability();
 
-        expect(sentEntries().at(-1)?.msg).toContain('[object Object]');
+        expect(lastEntry()?.msg).toContain('[object Object]');
     });
 
     it('user still gets the result when a typed event does not match its schema', async () => {
@@ -137,7 +142,7 @@ describe('user gets third-party console failures as structured events', () => {
         console.warn(circular, undefined);
         await flushObservability();
 
-        const entry = sentEntries().at(-1);
+        const entry = lastEntry();
         expect(entry?.msg).toContain('[object Object]');
         expect(entry?.msg).toContain('undefined');
     });
@@ -151,7 +156,7 @@ describe('user gets third-party console failures as structured events', () => {
         console.error(error);
         await flushObservability();
 
-        expect(sentEntries().at(-1)?.msg).toContain('Error: connection dropped');
+        expect(lastEntry()?.msg).toContain('Error: connection dropped');
     });
 });
 

@@ -38,9 +38,11 @@ pub(crate) fn format_line(
     if target == OBS_TARGET {
         format!("{timestamp} {} {body}", level_label(level))
     } else {
+        // 每行都带 run，跨运行关联不必依赖头部记录的位置。
         format!(
-            "{timestamp} {} {target} {body}{}",
+            "{timestamp} {} {target} run={} {body}{}",
             level_label(level),
+            super::run_id(),
             current_trace_suffix()
         )
     }
@@ -101,7 +103,10 @@ mod tests {
 
         assert_eq!(
             line,
-            "2026-10-28T03:12:45.123Z WARN  touchai::core::mcp connected"
+            format!(
+                "2026-10-28T03:12:45.123Z WARN  touchai::core::mcp run={} connected",
+                super::super::run_id()
+            )
         );
     }
 

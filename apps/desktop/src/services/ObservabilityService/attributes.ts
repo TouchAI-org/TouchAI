@@ -9,6 +9,7 @@ export const ATTR = {
     conversationId: 'gen_ai.conversation.id',
     toolCallId: 'gen_ai.tool.call.id',
     toolName: 'gen_ai.tool.name',
+    mcpServerId: 'mcp.server.id',
     turnId: 'touchai.turn.id',
     attempt: 'touchai.attempt',
     errorCode: 'error.code',

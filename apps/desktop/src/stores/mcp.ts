@@ -3,7 +3,8 @@
 import { findAllMcpServers, findMcpToolsByServerId } from '@database/queries';
 import type { McpServerEntity, McpToolEntity } from '@database/types';
 import { AppEvent, eventService, type McpServerStatus } from '@services/EventService';
-import { log } from '@services/ObservabilityService';
+import { error as obsError, log } from '@services/ObservabilityService';
+import { ATTR } from '@services/ObservabilityService/attributes';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 
@@ -92,8 +93,18 @@ export const useMcpStore = defineStore('mcp', () => {
         // 当一个窗口中的服务器连接/断开时，所有窗口都需要反映相同的状态
         // 事件系统处理这种广播
         await eventService.on(AppEvent.MCP_STATUS, (event) => {
+            const previousStatus = statuses.value[event.serverId];
             setServerStatus(event.serverId, event.status);
             setServerError(event.serverId, event.error ?? null);
+            // 只在进入错误状态时记一次，避免各窗口重复广播同一失败。
+            if (event.status === 'error' && previousStatus !== 'error') {
+                obsError(
+                    'mcp.connect.failed',
+                    event.error ?? 'MCP connection failed',
+                    { [ATTR.mcpServerId]: event.serverId },
+                    `MCP server ${event.serverId} failed to connect`
+                );
+            }
             // 同步状态到 mcpManager 的缓存，以便 getEnabledToolDefinitions
             // 在为 AI 请求构建工具列表时能读取最新状态
             mcpManager.setStatusFromEvent(event.serverId, event.status, event.error ?? null);

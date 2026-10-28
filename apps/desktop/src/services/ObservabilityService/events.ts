@@ -70,17 +70,10 @@ export const OBSERVABILITY_EVENTS = {
     },
     'mcp.connect.failed': {
         level: 'error',
-        attrs: z.object(errorAttributes).strict(),
-        telemetry: true,
-    },
-    'mcp.tool.completed': {
-        level: 'info',
         attrs: z
             .object({
-                [ATTR.toolCallId]: boundedString,
-                [ATTR.toolName]: boundedString,
-                'tool.success': z.boolean(),
-                [ATTR.durationMs]: z.number().nonnegative(),
+                ...errorAttributes,
+                [ATTR.mcpServerId]: z.number().int().positive().optional(),
             })
             .strict(),
         telemetry: true,
