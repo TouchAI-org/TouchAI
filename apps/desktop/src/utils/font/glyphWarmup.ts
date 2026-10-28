@@ -35,6 +35,27 @@ export function warmUpCjkGlyphs(fontFamily = 'var(--font-serif)'): void {
         return;
     }
 
+    const measure = (family: string): number => {
+        const element = createWarmupElement(family);
+        document.body.append(element);
+        const startedAt = performance.now();
+        // 强制布局，让字形匹配/ shaping 现在发生。
+        void element.getBoundingClientRect();
+        const elapsed = performance.now() - startedAt;
+        element.remove();
+        return Math.round(elapsed);
+    };
+
+    const customMs = measure(fontFamily);
+    // DEV 下额外量一次系统字体：两者的差值就是「自定义 20MB 可变字体」的净成本。
+    const systemMs = import.meta.env.DEV ? measure("Georgia, 'Times New Roman', serif") : 0;
+
+    if (import.meta.env.DEV) {
+        console.warn('[glyph-warmup]', { customMs, systemMs, chars: CJK_SAMPLE.length });
+    }
+}
+
+function createWarmupElement(family: string): HTMLElement {
     const host = document.createElement('div');
     host.setAttribute('aria-hidden', 'true');
     host.dataset.touchaiGlyphWarmup = 'true';
@@ -48,21 +69,10 @@ export function warmUpCjkGlyphs(fontFamily = 'var(--font-serif)'): void {
         'white-space:normal',
         'line-height:1.6',
         'font-size:16px',
-        `font-family:${fontFamily}`,
+        `font-family:${family}`,
     ].join(';');
     host.textContent = CJK_SAMPLE;
-    document.body.append(host);
-
-    const startedAt = import.meta.env.DEV ? performance.now() : 0;
-    // 强制布局，让字形匹配/ shaping 现在发生。
-    void host.getBoundingClientRect();
-    if (import.meta.env.DEV) {
-        console.warn('[glyph-warmup]', { ms: Math.round(performance.now() - startedAt) });
-    }
-
-    requestAnimationFrame(() => {
-        host.remove();
-    });
+    return host;
 }
 
 /**
