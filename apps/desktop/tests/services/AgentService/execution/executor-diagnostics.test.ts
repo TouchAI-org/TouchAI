@@ -218,7 +218,7 @@ describe('user sees why the provider request failed', () => {
 });
 
 describe('user reads a failure log without conversation content', () => {
-    it('user does not see request or response bodies in the failure log', async () => {
+    it('user sees no request or response bodies when the provider reports them', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const failure = Object.assign(new Error('bad request'), {
             statusCode: 400,
@@ -241,7 +241,7 @@ describe('user reads a failure log without conversation content', () => {
         expect(logged).toContain('invalid_request_error');
     });
 
-    it('user still sees the provider status and url path in the failure log', async () => {
+    it('user sees the provider status and url path when the request is rate limited', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const failure = Object.assign(new Error('rate limited'), {
             statusCode: 429,
@@ -256,7 +256,7 @@ describe('user reads a failure log without conversation content', () => {
         expect(logged).toContain('rate limited');
     });
 
-    it('user does not see query values when the provider url cannot be parsed', async () => {
+    it('user sees no query values when the provider url cannot be parsed', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const failure = Object.assign(new Error('edge case'), {
             url: 'custom-endpoint?token=secret-query-marker',
@@ -269,7 +269,7 @@ describe('user reads a failure log without conversation content', () => {
         expect(logged).toContain('[redacted-url]');
     });
 
-    it('user does not see credentials inside a provider error message', async () => {
+    it('user sees no credentials when a provider error message embeds a url', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const failure = new Error(
             'request to https://alice:secret@example.test/v1?api_key=sk-live-secret failed'

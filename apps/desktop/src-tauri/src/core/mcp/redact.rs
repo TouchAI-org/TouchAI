@@ -12,8 +12,9 @@ const REDACTED_URL: &str = "[redacted-url]";
 
 /// 只保留 scheme、host、port 和 path，去掉 userinfo、query 和 fragment。
 ///
-/// 没有 host 的形态（例如 `user:pass@host/path` 会被解析成 scheme=`user`）
-/// 无法安全拆分，整体替换成固定标记。
+/// 解析失败或没有 host 的形态（例如 `user:pass@host/path` 会被解析成
+/// scheme=`user`，`Bearer sk-live-...` 干脆解析失败）无法区分 userinfo 和路径，
+/// 整段替换成固定标记，宁可少一条诊断也不落盘疑似凭据。
 pub(crate) fn redact_url(raw: &str) -> String {
     match Url::parse(raw) {
         Ok(url) if url.host_str().is_some_and(|host| !host.is_empty()) => {
@@ -24,28 +25,7 @@ pub(crate) fn redact_url(raw: &str) -> String {
             redacted.push_str(url.path());
             redacted
         }
-        Ok(_) => REDACTED_URL.to_string(),
-        Err(_) => redact_url_without_parser(raw),
-    }
-}
-
-fn redact_url_without_parser(raw: &str) -> String {
-    let without_fragment = raw.split('#').next().unwrap_or_default();
-    let without_query = without_fragment.split('?').next().unwrap_or_default();
-
-    // 解析失败时 `@` 前后无法区分 userinfo 和路径，直接放弃整段。
-    if without_query.contains('@') {
-        return REDACTED_URL.to_string();
-    }
-
-    match without_query.split_once("://") {
-        Some((scheme, rest)) => {
-            let path_start = rest.find('/').unwrap_or(rest.len());
-            let authority = &rest[..path_start];
-            let host = authority.rsplit('@').next().unwrap_or(authority);
-            format!("{scheme}://{host}{}", &rest[path_start..])
-        }
-        None => without_query.to_string(),
+        _ => REDACTED_URL.to_string(),
     }
 }
 
@@ -258,11 +238,19 @@ mod tests {
     }
 
     #[test]
-    fn user_does_not_see_query_values_when_the_url_cannot_be_parsed() {
+    fn user_does_not_see_any_part_of_a_url_the_parser_rejects() {
         let redacted = redact_url("mcp.example.test/sse?token=secret-query");
 
-        assert_eq!(redacted, "mcp.example.test/sse");
+        assert_eq!(redacted, "[redacted-url]");
         assert!(!redacted.contains("secret-query"));
+    }
+
+    #[test]
+    fn user_does_not_see_a_credential_mistaken_for_a_url() {
+        let redacted = redact_url("Bearer sk-live-secret-token");
+
+        assert_eq!(redacted, "[redacted-url]");
+        assert!(!redacted.contains("sk-live-secret-token"));
     }
 
     #[test]
