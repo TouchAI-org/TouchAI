@@ -15,9 +15,8 @@ import {
     findOwnPreviewComment,
     isUnchanged,
 } from './lib/comment.mjs';
-import { APPROVED_LABEL, decide, DECISION, FORCE_LABEL } from './lib/decision.mjs';
+import { APPROVED_LABEL, classifyFiles, decide, DECISION, FORCE_LABEL } from './lib/decision.mjs';
 import { createClient, resolveBotLogin } from './lib/github.mjs';
-import { classifyFiles } from './lib/paths.mjs';
 
 function readEvent() {
     const eventPath = process.env.GITHUB_EVENT_PATH;

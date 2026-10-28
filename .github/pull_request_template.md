@@ -70,7 +70,7 @@ Include UI evidence here when the change affects the interface.
 
 A pull request that changes desktop interface files also gets an advisory UI preview comment with
 screenshots and an mp4. It is generated, so it does not replace evidence of the state you actually
-changed. See [docs/agents/ui-preview.md](../docs/agents/ui-preview.md).
+changed. See [.github/ui-preview/README.md](../.github/ui-preview/README.md).
 
 ## Checklist
 

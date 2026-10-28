@@ -76,14 +76,10 @@ TouchAI uses GitHub `Draft PR` as the only supported work-in-progress flow.
 ## UI previews
 
 A pull request that changes desktop interface files gets one advisory comment with screenshots and
-an mp4 of the built app. It is generated on Linux and does not block merge.
-
-- Maintainers get it automatically.
-- Outside contributors need a maintainer to comment `/ui-preview` or add
-  `status:ui-preview-approved`; the approval covers later commits.
-- Add `status:ui-preview-skip` to skip it.
-
-See [docs/agents/ui-preview.md](docs/agents/ui-preview.md).
+an mp4 of the built app. Maintainers get it automatically; outside contributors need a maintainer
+to comment `/ui-preview` or add `status:ui-preview-approved`. Add `status:ui-preview-skip` to skip
+it. The generated preview does not block merge. See
+[.github/ui-preview/README.md](.github/ui-preview/README.md).
 
 ## Commit messages and PR titles
 

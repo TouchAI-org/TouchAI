@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-    MAX_FILE_CHARS,
-    selectUiDiff,
-    splitDiff,
-} from '../../../../.github/ui-preview/lib/diff.mjs';
+import { MAX_FILE_CHARS, selectUiDiff, splitDiff } from '../lib/model.mjs';
 
 const diff = [
     'diff --git a/apps/desktop/src/views/SettingsView/index.vue b/apps/desktop/src/views/SettingsView/index.vue',
@@ -15,10 +11,10 @@ const diff = [
     ' <template>',
     '+  <div data-testid="settings-new-section">New</div>',
     ' </template>',
-    'diff --git a/docs/agents/ui-preview.md b/docs/agents/ui-preview.md',
+    'diff --git a/docs/agents/delivery.md b/docs/agents/delivery.md',
     'index 3333333..4444444 100644',
-    '--- a/docs/agents/ui-preview.md',
-    '+++ b/docs/agents/ui-preview.md',
+    '--- a/docs/agents/delivery.md',
+    '+++ b/docs/agents/delivery.md',
     '@@ -1,2 +1,3 @@',
     ' # UI Preview',
     '+More words.',
@@ -36,7 +32,7 @@ describe('user reads a pull request diff', () => {
     it('user gets one entry per changed file', () => {
         expect(splitDiff(diff).map((file) => file.path)).toEqual([
             'apps/desktop/src/views/SettingsView/index.vue',
-            'docs/agents/ui-preview.md',
+            'docs/agents/delivery.md',
             'apps/desktop/tests/ci/ui-preview-comment.test.js',
         ]);
     });
@@ -46,7 +42,7 @@ describe('user reads a pull request diff', () => {
 
         expect(selected.files).toEqual(['apps/desktop/src/views/SettingsView/index.vue']);
         expect(selected.dropped).toEqual([
-            'docs/agents/ui-preview.md',
+            'docs/agents/delivery.md',
             'apps/desktop/tests/ci/ui-preview-comment.test.js',
         ]);
         expect(selected.text).toContain(

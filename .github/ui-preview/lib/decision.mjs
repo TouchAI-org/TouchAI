@@ -1,9 +1,10 @@
 /**
- * Pure decision logic for the UI preview workflow.
+ * Pure decision and path-classification logic for the UI preview workflow.
  *
  * The caller resolves the facts (who wrote the pull request, whether they have
- * write access, which labels are present) and this module answers one question:
- * should the preview run, wait for a maintainer, be skipped, or stay silent.
+ * write access, which labels are present) and this module decides whether the
+ * preview should run, wait for a maintainer, be skipped, or stay silent. It also
+ * classifies changed files so the workflow only builds for interface changes.
  */
 
 export const FORCE_LABEL = 'ui-preview';
@@ -18,6 +19,74 @@ export const DECISION = {
     skipped: 'skipped',
     none: 'none',
 };
+
+const UI_PATH_PATTERNS = [
+    /^apps\/desktop\/src\/views\//,
+    /^apps\/desktop\/src\/components\//,
+    /^apps\/desktop\/src\/styles\//,
+    /^apps\/desktop\/src\/i18n\//,
+    /^apps\/desktop\/src\/assets\//,
+    /^apps\/desktop\/src\/router\//,
+    /^apps\/desktop\/index\.html$/,
+    /^apps\/desktop\/src-tauri\/src\/core\/window\//,
+    /^apps\/desktop\/src-tauri\/tauri\.conf\.json$/,
+    /^apps\/desktop\/src-tauri\/tauri\.(linux|windows|macos)\.conf\.json$/,
+];
+
+const EXCLUDED_PATTERNS = [
+    /^\.github\//,
+    /^docs\//,
+    /^apps\/desktop\/tests\//,
+    /^apps\/desktop\/e2e-tests\//,
+    /^apps\/desktop\/src-tauri\/tests\//,
+    /\.(test|spec)\.[cm]?[jt]sx?$/,
+    /\.md$/,
+];
+
+const I18N_PATTERN = /^apps\/desktop\/src\/i18n\//;
+const WINDOW_PATTERN = /^apps\/desktop\/src-tauri\/(src\/core\/window\/|tauri[^/]*\.conf\.json$)/;
+const SETTINGS_PATTERN = /^apps\/desktop\/src\/views\/SettingsView\//;
+const SEARCH_PATTERN = /^apps\/desktop\/src\/views\/SearchView\//;
+
+export function normalizePath(filePath) {
+    return String(filePath ?? '')
+        .replace(/\\/g, '/')
+        .replace(/^\.\//, '');
+}
+
+export function isUiPath(filePath) {
+    const normalized = normalizePath(filePath);
+
+    if (!normalized) {
+        return false;
+    }
+
+    if (EXCLUDED_PATTERNS.some((pattern) => pattern.test(normalized))) {
+        return false;
+    }
+
+    return UI_PATH_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+/**
+ * @param {Array<string | { filename?: string }>} files
+ */
+export function classifyFiles(files) {
+    const names = (files ?? [])
+        .map((file) => normalizePath(typeof file === 'string' ? file : file?.filename))
+        .filter(Boolean);
+    const ui = names.filter((name) => isUiPath(name));
+
+    return {
+        files: names,
+        ui,
+        hasUiChange: ui.length > 0,
+        touchedI18n: ui.some((name) => I18N_PATTERN.test(name)),
+        touchedWindow: ui.some((name) => WINDOW_PATTERN.test(name)),
+        touchedSettings: ui.some((name) => SETTINGS_PATTERN.test(name)),
+        touchedSearch: ui.some((name) => SEARCH_PATTERN.test(name)),
+    };
+}
 
 /**
  * A command is the whole comment, or its first line, starting with `/ui-preview`

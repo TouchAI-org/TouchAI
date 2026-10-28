@@ -9,9 +9,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { selectUiDiff } from './lib/diff.mjs';
 import { createClient } from './lib/github.mjs';
-import { buildPrompt, requestPlan } from './lib/model.mjs';
+import { buildPrompt, requestPlan, selectUiDiff } from './lib/model.mjs';
 import { defaultPlan, validatePlan } from './lib/scenarios.mjs';
 
 function env(name, fallback = '') {

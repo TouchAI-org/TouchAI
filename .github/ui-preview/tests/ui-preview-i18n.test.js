@@ -3,10 +3,10 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { checkLocaleParity, extractKeys } from '../../../../.github/ui-preview/lib/i18n.mjs';
+import { checkLocaleParity, extractKeys } from '../lib/i18n.mjs';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
-const i18nDirectory = path.resolve(testDirectory, '../../src/i18n');
+const i18nDirectory = path.resolve(testDirectory, '../../../apps/desktop/src/i18n');
 
 describe('user reads the app in either locale', () => {
     it('user sees the same keys in zh-CN and en-US', () => {

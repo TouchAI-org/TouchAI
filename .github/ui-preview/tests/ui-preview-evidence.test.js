@@ -5,11 +5,7 @@ import zlib from 'node:zlib';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import {
-    isMp4,
-    readPngSize,
-    validateEvidence,
-} from '../../../../.github/ui-preview/lib/evidence.mjs';
+import { isMp4, readPngSize, validateEvidence } from '../lib/evidence.mjs';
 
 const roots = [];
 

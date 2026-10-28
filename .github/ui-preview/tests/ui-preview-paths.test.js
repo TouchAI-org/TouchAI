@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { classifyFiles, isUiPath } from '../../../../.github/ui-preview/lib/paths.mjs';
+import { classifyFiles, isUiPath } from '../lib/decision.mjs';
 
 describe('user changes a desktop surface', () => {
     it('user gets a preview when a settings view changes', () => {
@@ -40,7 +40,7 @@ describe('user changes something that cannot alter the rendered interface', () =
     });
 
     it('user gets no preview for documentation', () => {
-        expect(isUiPath('docs/agents/ui-preview.md')).toBe(false);
+        expect(isUiPath('docs/agents/delivery.md')).toBe(false);
     });
 
     it('user gets no preview for the official site', () => {
@@ -59,7 +59,7 @@ describe('user changes something that cannot alter the rendered interface', () =
 describe('user opens a pull request that mixes files', () => {
     it('user gets one preview when at least one file is a UI file', () => {
         const result = classifyFiles([
-            'docs/agents/ui-preview.md',
+            'docs/agents/delivery.md',
             'apps/desktop/src/views/SearchView/index.vue',
         ]);
 

@@ -13,9 +13,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { buildPreviewComment, findOwnPreviewComment, isUnchanged } from './lib/comment.mjs';
-import { MIME_TYPES, validateEvidence } from './lib/evidence.mjs';
+import { findSecret, MIME_TYPES, validateEvidence } from './lib/evidence.mjs';
 import { createClient, resolveBotLogin } from './lib/github.mjs';
-import { findSecret } from './lib/secret-scan.mjs';
 
 const MAX_SHOTS = 10;
 

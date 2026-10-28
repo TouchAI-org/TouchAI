@@ -33,6 +33,12 @@ import {
     windowForSurface,
     windowGeometry,
 } from './lib/capture.mjs';
+import {
+    MIN_COVERAGE,
+    MIN_DISTINCT_STATES,
+    MIN_VIDEO_FRAMES,
+    MIN_VIDEO_SECONDS,
+} from './lib/evidence.mjs';
 import { ELEMENT_CENTER_SCRIPT, ELEMENT_ROW_RECT_SCRIPT } from './lib/overlay.mjs';
 import {
     boot,
@@ -46,12 +52,6 @@ import {
     waitForBridge,
 } from './lib/runtime.mjs';
 import { testIdFromSelector } from './lib/scenarios.mjs';
-import {
-    MIN_COVERAGE,
-    MIN_DISTINCT_STATES,
-    MIN_VIDEO_FRAMES,
-    MIN_VIDEO_SECONDS,
-} from './lib/video-limits.mjs';
 
 function env(name, fallback = '') {
     return process.env[name] ?? fallback;

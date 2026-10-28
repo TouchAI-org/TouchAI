@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildAss } from '../../../../.github/ui-preview/lib/capture.mjs';
+import { buildAss } from '../lib/capture.mjs';
 
 describe('user reads the burned-in captions', () => {
     it('user sees a title for the whole recording and one caption per step', () => {

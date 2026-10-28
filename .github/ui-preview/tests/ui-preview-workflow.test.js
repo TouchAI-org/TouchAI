@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
-const repositoryRoot = path.resolve(testDirectory, '../../../..');
+const repositoryRoot = path.resolve(testDirectory, '../../..');
 const workflowPath = path.join(repositoryRoot, '.github/workflows/ui-preview.yml');
 const workflow = fs.readFileSync(workflowPath, 'utf8');
 
@@ -30,6 +30,13 @@ describe('user opens a pull request that runs the preview', () => {
     it('user gets the preview run preserved when the App adds its approval label', () => {
         expect(workflow).toContain("endsWith(github.actor, '[bot]')");
         expect(workflow).toContain("'approval' || 'run'");
+    });
+
+    it('user can check credentials from the same workflow without a pull request', () => {
+        expect(workflow).toContain('mode:');
+        expect(workflow).toContain("inputs.mode == 'doctor'");
+        expect(workflow).toContain('doctor-model');
+        expect(workflow).toContain('doctor-publish');
     });
 
     it('user gets the pull request code built only in a job without secrets', () => {
@@ -89,6 +96,10 @@ describe('user opens a pull request that runs the preview', () => {
 
             for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
                 const full = path.join(current, entry.name);
+
+                if (entry.isDirectory() && full === path.join(directory, 'tests')) {
+                    continue;
+                }
 
                 if (entry.isDirectory()) {
                     queue.push(full);

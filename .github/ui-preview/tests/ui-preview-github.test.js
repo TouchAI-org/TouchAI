@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createClient, resolveBotLogin } from '../../../../.github/ui-preview/lib/github.mjs';
+import { createClient, resolveBotLogin } from '../lib/github.mjs';
 
 describe('user resolves the preview bot identity', () => {
     it('user gets the workflow App slug without calling GET /user', async () => {

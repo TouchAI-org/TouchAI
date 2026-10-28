@@ -6,7 +6,7 @@ import {
     DECISION,
     FORCE_LABEL,
     isPreviewCommand,
-} from '../../../../.github/ui-preview/lib/decision.mjs';
+} from '../lib/decision.mjs';
 
 const base = {
     eventName: 'pull_request_target',

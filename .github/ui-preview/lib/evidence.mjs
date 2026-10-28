@@ -1,5 +1,5 @@
 /**
- * Validates the evidence directory before anything is published.
+ * Validates evidence, holds the recording minimums, and scans for credentials.
  *
  * Publishing is the only step with credentials, so it re-checks the artifacts
  * instead of trusting the job that produced them: a missing file, a truncated
@@ -9,18 +9,38 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import {
-    MIN_COVERAGE,
-    MIN_DISTINCT_STATES,
-    MIN_VIDEO_FRAMES,
-    MIN_VIDEO_SECONDS,
-} from './video-limits.mjs';
-
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const MP4_FTYP = Buffer.from('ftyp');
 
 export const MIN_PNG_BYTES = 1024;
 export const MIN_MP4_BYTES = 8192;
+export const MIN_VIDEO_SECONDS = 6;
+export const MIN_VIDEO_FRAMES = 60;
+export const MIN_DISTINCT_STATES = 5;
+export const MIN_COVERAGE = 0.8;
+
+const SECRET_PATTERNS = [
+    /\bsk-[A-Za-z0-9_-]{16,}/,
+    /\bgh[pousr]_[A-Za-z0-9]{20,}/,
+    /\bgithub_pat_[A-Za-z0-9_]{20,}/,
+    /\bxox[baprs]-[A-Za-z0-9-]{10,}/,
+    /\bAKIA[0-9A-Z]{16}\b/,
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+];
+
+export function findSecret(text) {
+    const value = String(text ?? '');
+
+    for (const pattern of SECRET_PATTERNS) {
+        const match = pattern.exec(value);
+
+        if (match) {
+            return { kind: pattern.source, sample: `${match[0].slice(0, 6)}...` };
+        }
+    }
+
+    return null;
+}
 
 function isInside(root, candidate) {
     const relative = path.relative(root, candidate);

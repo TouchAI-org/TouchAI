@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { findSecret } from '../../../../.github/ui-preview/lib/secret-scan.mjs';
+import { findSecret } from '../lib/evidence.mjs';
 
 describe('user publishes evidence', () => {
     it('user gets no warning for ordinary prose and links', () => {

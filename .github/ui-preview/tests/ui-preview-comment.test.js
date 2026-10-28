@@ -9,7 +9,7 @@ import {
     hasMarker,
     isUnchanged,
     MARKER,
-} from '../../../../.github/ui-preview/lib/comment.mjs';
+} from '../lib/comment.mjs';
 
 const baseComment = {
     sha: 'a1b2c3d4e5f6',

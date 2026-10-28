@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-    defaultPlan,
-    testIdFromSelector,
-    validatePlan,
-} from '../../../../.github/ui-preview/lib/scenarios.mjs';
+import { defaultPlan, testIdFromSelector, validatePlan } from '../lib/scenarios.mjs';
 
 const facts = {
     testIds: {
