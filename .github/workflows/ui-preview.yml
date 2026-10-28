@@ -347,9 +347,7 @@ jobs:
               if: failure()
               run: |
                   echo "== processes"
-                  ps -eo pid,ppid,stat,etime,cmd \
-                    | grep -E 'TouchAI|tauri-driver|WebKit' \
-                    | grep -v grep \
+                  pgrep -a -f 'TouchAI|tauri-driver|WebKit' \
                     || echo "no app process is running"
                   echo "== app root"
                   find "$TOUCHAI_APP_ROOT" -maxdepth 3 -printf '%y %s %p\n' \
