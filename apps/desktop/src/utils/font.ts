@@ -7,6 +7,8 @@ import { convertFileSrc } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { exists } from '@tauri-apps/plugin-fs';
 
+import { scheduleCjkGlyphWarmup } from './font/glyphWarmup';
+
 const FONT_FILENAME = 'SourceHanSerifSC-VF.ttf.woff2';
 const FONT_FACE_FAMILY = 'TouchAI Source Han Serif SC';
 const FONT_FACE_STYLE_ATTRIBUTE = 'data-touchai-font-face';
@@ -246,6 +248,12 @@ function ensureFontReadyListener(): Promise<void> {
 
 export function initializeFontLoader(): void {
     ensureFontReadyListener().finally(() => {
-        void loadFontFace({ requireExistingFile: true }).catch(logFontLoadError);
+        void loadFontFace({ requireExistingFile: true })
+            .then(() => {
+                // 字体就绪后同步把字形缓存预热掉：
+                // 否则“首次看到大量中文”的那一帧要把 500ms+ 花在 shaping 上。
+                scheduleCjkGlyphWarmup();
+            })
+            .catch(logFontLoadError);
     });
 }
