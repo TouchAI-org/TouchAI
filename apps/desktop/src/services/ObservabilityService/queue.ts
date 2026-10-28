@@ -145,7 +145,10 @@ export class LogQueue {
             this.items.some((item) => LEVEL_NAMES[item.level] === level)
         );
 
-        if (weakest === undefined || LEVEL_ORDER.indexOf(incomingLevel) < LEVEL_ORDER.indexOf(weakest)) {
+        if (
+            weakest === undefined ||
+            LEVEL_ORDER.indexOf(incomingLevel) < LEVEL_ORDER.indexOf(weakest)
+        ) {
             this.dropped[incomingLevel] += 1;
             return;
         }
