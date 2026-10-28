@@ -11,6 +11,8 @@ use log::Level;
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::core::mcp::redact::{looks_like_secret_value, redact_url};
+
 use super::format::{escape_value, OBS_TARGET};
 
 const MAX_BATCH_SIZE: usize = 200;
@@ -78,8 +80,9 @@ impl LogEnvelope {
 
         let mut truncated = false;
         if let Some(message) = &self.msg {
+            let message = redact_value_text(message);
             truncated = message.len() > 1024;
-            let message = truncate(message, 1024);
+            let message = truncate(&message, 1024);
             fields.push(format!("msg={}", escape_value(&message)));
         }
 
@@ -164,6 +167,7 @@ fn is_secret_key(key: &str) -> bool {
                     | "key"
                     | "apikey"
                     | "credential"
+                    | "auth"
             )
         })
 }
@@ -173,12 +177,103 @@ fn format_value(value: &Value) -> Option<String> {
         Value::Null => None,
         Value::Bool(value) => Some(value.to_string()),
         Value::Number(value) => Some(value.to_string()),
-        Value::String(value) => Some(escape_value(&truncate(value, 1024))),
+        Value::String(value) => Some(escape_value(&truncate(&redact_value_text(value), 1024))),
         Value::Array(_) | Value::Object(_) => {
             let serialized = serde_json::to_string(value).ok()?;
             Some(format!("<json bytes={}>", serialized.len()))
         }
     }
+}
+
+/// 字段名没有密钥含义时，值本身仍可能带 URL 凭据、Bearer 令牌或独立令牌。
+/// 这里按空白逐 token 扫描，并保留原有分隔符，避免改变日志的可读性。
+fn redact_value_text(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    let mut redact_next = false;
+
+    for segment in value.split_inclusive(char::is_whitespace) {
+        let token = segment.trim_end_matches(char::is_whitespace);
+        let whitespace = &segment[token.len()..];
+
+        if token.is_empty() {
+            output.push_str(whitespace);
+            continue;
+        }
+
+        let (prefix, core, suffix) = split_wrapping_punctuation(token);
+        let redacted = if redact_next {
+            redact_next = false;
+            REDACTED.to_string()
+        } else if core.eq_ignore_ascii_case("bearer") {
+            redact_next = true;
+            core.to_string()
+        } else {
+            redact_free_token(core)
+        };
+
+        output.push_str(prefix);
+        output.push_str(&redacted);
+        output.push_str(suffix);
+        output.push_str(whitespace);
+    }
+
+    output
+}
+
+fn redact_free_token(token: &str) -> String {
+    if is_url_like(token) {
+        return redact_url(token);
+    }
+    if let Some((name, value)) = token.split_once('=') {
+        if is_secret_key(name) || looks_like_secret_value(value) {
+            return format!("{name}={REDACTED}");
+        }
+        if is_url_like(value) {
+            return format!("{name}={}", redact_url(value));
+        }
+    }
+    if looks_like_secret_value(token) {
+        return REDACTED.to_string();
+    }
+    token.to_string()
+}
+
+/// 拆掉 token 两端的引号、括号和标点，只对核心部分脱敏。
+fn split_wrapping_punctuation(token: &str) -> (&str, &str, &str) {
+    let start = token
+        .char_indices()
+        .find(|(_, character)| !matches!(character, '"' | '\'' | '(' | '[' | '{' | '<'))
+        .map(|(index, _)| index)
+        .unwrap_or(token.len());
+    let end = token
+        .char_indices()
+        .rev()
+        .find(|(index, character)| {
+            *index >= start
+                && !matches!(
+                    character,
+                    '"' | '\'' | ')' | ']' | '}' | '>' | ',' | ';' | ':'
+                )
+        })
+        .map(|(index, character)| index + character.len_utf8())
+        .unwrap_or(start);
+
+    (&token[..start], &token[start..end], &token[end..])
+}
+
+fn is_url_like(token: &str) -> bool {
+    let Some((scheme, rest)) = token.split_once("://") else {
+        return false;
+    };
+
+    !rest.is_empty()
+        && scheme
+            .chars()
+            .next()
+            .is_some_and(|character| character.is_ascii_alphabetic())
+        && scheme.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '+' | '.' | '-')
+        })
 }
 
 fn truncate(value: &str, max_bytes: usize) -> String {
@@ -260,6 +355,29 @@ mod tests {
         assert!(!line.contains("secret-token"));
         assert!(line.contains("authorization=[redacted]"));
         assert!(line.contains("apikey=[redacted]"));
+    }
+
+    #[test]
+    fn user_does_not_see_secrets_left_in_a_harmless_attribute_value() {
+        let mut event = envelope("agent.request.failed");
+        event.attrs.insert(
+            "error.detail".to_string(),
+            json!(
+                "GET postgres://user:pass@db.example.test/app?token=secret \
+                 Authorization: Bearer abcdefghijklmnop sk-live-secret"
+            ),
+        );
+        event.msg = Some("retry auth=opaque-secret from https://example.test/path".to_string());
+
+        let line = event.to_line("7f3a9c");
+
+        assert!(!line.contains("pass"));
+        assert!(!line.contains("secret"));
+        assert!(!line.contains("abcdefghijklmnop"));
+        assert!(!line.contains("/app"));
+        assert!(!line.contains("/path"));
+        assert!(line.contains("db.example.test"));
+        assert!(line.contains("example.test"));
     }
 
     #[test]
