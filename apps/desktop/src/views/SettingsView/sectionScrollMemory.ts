@@ -7,29 +7,10 @@
  * 于是「在通用页滚到底，切到模型页」会直接落在半截位置。这里按分区记住位置，
  * 切回时恢复，且按新内容高度裁剪，避免内容变短后停在空白处。
  */
-export interface SectionScrollSnapshot {
-    scrollTop: number;
-    scrollHeight: number;
-    clientHeight: number;
-}
 
-/** 记录滚动快照；容器不可用时返回 null。 */
-export function captureScrollSnapshot(
-    element: {
-        scrollTop: number;
-        scrollHeight: number;
-        clientHeight: number;
-    } | null
-): SectionScrollSnapshot | null {
-    if (!element) {
-        return null;
-    }
-
-    return {
-        scrollTop: element.scrollTop,
-        scrollHeight: element.scrollHeight,
-        clientHeight: element.clientHeight,
-    };
+/** 读取容器当前滚动位置；容器不可用时返回 null。 */
+export function readScrollTop(element: { scrollTop: number } | null): number | null {
+    return element ? element.scrollTop : null;
 }
 
 /**

@@ -1,16 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-    captureScrollSnapshot,
-    resolveRestoredScrollTop,
-} from '@/views/SettingsView/sectionScrollMemory';
+import { readScrollTop, resolveRestoredScrollTop } from '@/views/SettingsView/sectionScrollMemory';
 
 describe('settings section scroll memory', () => {
-    it('captures the container position', () => {
-        expect(
-            captureScrollSnapshot({ scrollTop: 120, scrollHeight: 900, clientHeight: 400 })
-        ).toEqual({ scrollTop: 120, scrollHeight: 900, clientHeight: 400 });
-        expect(captureScrollSnapshot(null)).toBeNull();
+    it('reads the container position', () => {
+        expect(readScrollTop({ scrollTop: 120 })).toBe(120);
+        expect(readScrollTop(null)).toBeNull();
     });
 
     it('starts a never-visited section at the top', () => {

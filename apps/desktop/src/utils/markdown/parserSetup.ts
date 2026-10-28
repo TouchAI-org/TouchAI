@@ -27,7 +27,7 @@ export const finishedMarkdownParser = getMarkdown('touchai-markdown-static', {
     },
 });
 
-export const markdownEmojiPlugin = markdownItEmoji as unknown as Parameters<MarkdownIt['use']>[0];
+const markdownEmojiPlugin = markdownItEmoji as unknown as Parameters<MarkdownIt['use']>[0];
 
 let basePluginsApplied = false;
 
