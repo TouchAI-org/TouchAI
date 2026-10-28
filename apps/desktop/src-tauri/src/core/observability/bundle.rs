@@ -100,7 +100,7 @@ async fn create_bundle(log_directory: &Path, destination: &Path) -> Result<Bundl
     let files = collect_files(log_directory)?;
     let stderr = super::stderr::snapshots().await;
     let preview = preview_with_stderr(&files, &stderr);
-    let file = File::create(destination).map_err(|error| error.to_string())?;
+    let file = create_private_file(destination).map_err(|error| error.to_string())?;
     let mut zip = ZipWriter::new(file);
     let options = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Deflated)
@@ -146,6 +146,28 @@ async fn create_bundle(log_directory: &Path, destination: &Path) -> Result<Bundl
 
     zip.finish().map_err(|error| error.to_string())?;
     Ok(preview)
+}
+
+/// 诊断包可能含本地路径和运行信息，只允许当前用户读写。
+fn create_private_file(path: &Path) -> std::io::Result<File> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+
+    let file = options.open(path)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+    }
+
+    Ok(file)
 }
 
 fn preview_with_stderr(
@@ -278,5 +300,32 @@ mod tests {
             valid.extension().and_then(|value| value.to_str()),
             Some("zip")
         );
+    }
+
+    #[tokio::test]
+    async fn user_gets_relative_or_non_zip_destinations_rejected() {
+        let relative = export("diagnostics.zip").await;
+        assert!(relative.is_err());
+
+        let directory = tempfile::TempDir::new().expect("temp dir");
+        let wrong_extension = directory.path().join("diagnostics.txt");
+        let rejected = export(&wrong_extension.to_string_lossy()).await;
+        assert!(rejected.is_err());
+        assert!(!wrong_extension.exists());
+    }
+
+    #[test]
+    fn user_gets_a_private_bundle_file() {
+        let directory = tempfile::TempDir::new().expect("temp dir");
+        let path = directory.path().join("diagnostics.zip");
+        let file = create_private_file(&path).expect("create bundle file");
+        drop(file);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&path).expect("metadata").permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
     }
 }

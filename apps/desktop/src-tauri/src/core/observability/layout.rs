@@ -12,6 +12,7 @@ use crate::core::system::paths::{app_directory_path, AppDirectory};
 
 pub(crate) const LOG_FILE_NAME: &str = "TouchAI";
 const PROBE_FILE_NAME: &str = ".write-probe";
+const LEGACY_DETECTION_SAMPLE_LINES: usize = 20;
 static FALLBACK_USED: AtomicBool = AtomicBool::new(false);
 static DISCARDED_LEGACY_FILES: AtomicUsize = AtomicUsize::new(0);
 
@@ -106,9 +107,8 @@ pub(crate) fn discard_legacy_files(directory: &Path) -> usize {
         }
 
         let is_current = fs::read_to_string(&path)
-            .ok()
-            .and_then(|content| content.lines().next().map(str::to_string))
-            .is_some_and(|line| is_current_format(&line));
+            .map(|content| has_current_format_line(&content))
+            .unwrap_or(false);
 
         if is_current {
             continue;
@@ -135,6 +135,15 @@ pub(crate) fn discard_legacy_files(directory: &Path) -> usize {
     }
 
     discarded
+}
+
+/// 只看首行会误判：崩溃或并发写入可能留下半行。取前若干非空行判断。
+fn has_current_format_line(content: &str) -> bool {
+    content
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .take(LEGACY_DETECTION_SAMPLE_LINES)
+        .any(is_current_format)
 }
 
 fn ensure_current_file(directory: &Path) {
@@ -232,6 +241,20 @@ mod tests {
         let directory = tempfile::TempDir::new().expect("temp dir");
         let current = directory.path().join("TouchAI.log");
         let content = "2026-10-28T03:12:45.123Z INFO  app.start run=7f3a\n";
+        fs::write(&current, content).expect("write");
+
+        let discarded = discard_legacy_files(directory.path());
+
+        assert_eq!(discarded, 0);
+        assert_eq!(fs::read_to_string(&current).expect("read"), content);
+    }
+
+    #[test]
+    fn user_keeps_a_current_log_whose_first_line_is_partial() {
+        let directory = tempfile::TempDir::new().expect("temp dir");
+        let current = directory.path().join("TouchAI.log");
+        let content = "2026-10-28T03:12:45.123Z INFO  app.st\n\
+                       2026-10-28T03:12:46.001Z INFO  app.start run=7f3a\n";
         fs::write(&current, content).expect("write");
 
         let discarded = discard_legacy_files(directory.path());

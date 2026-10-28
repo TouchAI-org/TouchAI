@@ -10,10 +10,12 @@ use crate::core::observability::{
     level::{self, DiagnosticModeStatus},
 };
 
-/// 接收前端批量日志。
+/// 接收前端批量日志。写盘是阻塞操作，放到阻塞线程池，避免卡住主线程事件循环。
 #[tauri::command]
-pub fn obs_ingest(batch: Vec<LogEnvelope>) -> Result<(), String> {
-    ingest_batch(batch)
+pub async fn obs_ingest(batch: Vec<LogEnvelope>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || ingest_batch(batch))
+        .await
+        .map_err(|error| format!("log ingest task failed: {error}"))?
 }
 
 /// 返回本次运行的标识。

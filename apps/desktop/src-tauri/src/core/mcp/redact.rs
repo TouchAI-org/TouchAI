@@ -287,28 +287,28 @@ fn redact_header(value: &str) -> String {
     }
 }
 
+/// 常见的独立令牌前缀；命中即整段脱敏，即使没有字段名。
+fn is_common_secret_token(token: &str) -> bool {
+    let trimmed = token.trim_matches(|character: char| {
+        matches!(character, '"' | '\'' | ',' | ';' | ')' | '(' | ']' | '[')
+    });
+
+    looks_like_secret_value(trimmed)
+}
 /// Redact credentials from captured MCP stderr before it reaches disk or a bundle.
 pub(crate) fn redact_stderr(raw: &str) -> String {
+    raw.split('\n')
+        .map(redact_stderr_line)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 单行脱敏。凭据类请求头之后的内容整行丢弃，避免 `Basic`/`Digest` 的值残留。
+fn redact_stderr_line(line: &str) -> String {
     let mut output = Vec::new();
-    let mut redact_next = false;
-    for token in raw.split_whitespace() {
-        if redact_next {
-            // `Authorization: Bearer x` 里 Bearer 只是方案名，值在下一个 token。
-            if token.eq_ignore_ascii_case("bearer") {
-                output.push(token.to_string());
-                continue;
-            }
-            output.push(REDACTED.to_string());
-            redact_next = false;
-            continue;
-        }
+    let mut tokens = line.split_whitespace().peekable();
 
-        if token.eq_ignore_ascii_case("bearer") {
-            output.push(token.to_string());
-            redact_next = true;
-            continue;
-        }
-
+    while let Some(token) = tokens.next() {
         if token.starts_with("http://") || token.starts_with("https://") {
             output.push(redact_url(token));
             continue;
@@ -321,10 +321,21 @@ pub(crate) fn redact_stderr(raw: &str) -> String {
             }
         }
 
-        // 任何 Name: 之后的值都按凭据处理：未知头也可能带会话令牌。
+        // 任何 Name: 之后的内容整行丢弃：未知头也可能带会话凭据。
         if token.ends_with(':') {
+            output.push(format!("{token} {REDACTED}"));
+            break;
+        }
+
+        if token.eq_ignore_ascii_case("bearer") {
             output.push(token.to_string());
-            redact_next = true;
+            if tokens.next().is_some() {
+                output.push(REDACTED.to_string());
+            }
+            continue;
+        }
+        if is_common_secret_token(token) {
+            output.push(REDACTED.to_string());
             continue;
         }
 
@@ -431,8 +442,9 @@ mod tests {
     #[test]
     fn user_does_not_see_mcp_stderr_secrets_in_a_diagnostic_bundle() {
         let redacted = redact_stderr(
-            "startup failed token=secret-value Authorization: Bearer secret-header \
-             https://user:pass@mcp.example.test/sse?api_key=secret-query",
+            "startup failed token=secret-value\n\
+             Authorization: Bearer secret-header\n\
+             GET https://user:pass@mcp.example.test/sse?api_key=secret-query",
         );
 
         assert!(!redacted.contains("secret-value"));
@@ -440,6 +452,37 @@ mod tests {
         assert!(!redacted.contains("secret-query"));
         assert!(redacted.contains("mcp.example.test"));
         assert!(!redacted.contains("/sse"));
+    }
+
+    #[test]
+    fn user_does_not_see_basic_or_digest_credentials_in_mcp_stderr() {
+        let redacted = redact_stderr(
+            "Authorization: Basic dXNlcjpwYXNz\nerror 401 Proxy-Authorization: Digest username=\"u\"",
+        );
+
+        assert!(!redacted.contains("dXNlcjpwYXNz"));
+        assert!(!redacted.contains("username="));
+        assert!(redacted.contains("Authorization: [redacted]"));
+        assert!(redacted.contains("Proxy-Authorization: [redacted]"));
+    }
+
+    #[test]
+    fn user_does_not_see_standalone_tokens_in_mcp_stderr() {
+        let redacted = redact_stderr(
+            "request failed with sk-live-1234567890 and ghp_abcdefghijklmnop, retrying",
+        );
+
+        assert!(!redacted.contains("sk-live-1234567890"));
+        assert!(!redacted.contains("ghp_abcdefghijklmnop"));
+        assert!(redacted.contains("retrying"));
+    }
+
+    #[test]
+    fn user_does_not_see_json_credentials_in_mcp_stderr() {
+        let redacted = redact_stderr(r#"{"authorization": "Bearer json-secret-value"}"#);
+
+        assert!(!redacted.contains("json-secret-value"));
+        assert!(redacted.contains("[redacted]"));
     }
 
     #[test]

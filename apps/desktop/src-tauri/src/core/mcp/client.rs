@@ -316,10 +316,18 @@ impl McpClient {
                 Ok(())
             }
             Err(e) => {
-                let err_msg = if e.contains('\n') {
-                    format!("Failed to connect via {}:\n{}", transport_name, e)
+                // SDK 错误可能带命令行、URL 或请求头，进入日志和 UI 前统一脱敏。
+                let redacted_error = super::redact_stderr(&e);
+                let err_msg = if redacted_error.contains('\n') {
+                    format!(
+                        "Failed to connect via {}:\n{}",
+                        transport_name, redacted_error
+                    )
                 } else {
-                    format!("Failed to connect via {}: {}", transport_name, e)
+                    format!(
+                        "Failed to connect via {}: {}",
+                        transport_name, redacted_error
+                    )
                 };
                 error!("{}", err_msg);
                 self.set_error(err_msg.clone()).await;

@@ -59,13 +59,10 @@ fn write_crash_record_values(
 
     let timestamp = OffsetDateTime::now_utc()
         .format(format_description!(
-            "[year][month][day]T[hour][minute][second]Z"
+            "[year][month][day]T[hour][minute][second].[subsecond digits:3]Z"
         ))
         .unwrap_or_else(|_| "unknown".to_string());
-    let path = directory.join(format!(
-        "{timestamp}-{}.txt",
-        &run_id[..run_id.len().min(6)]
-    ));
+    let stem = format!("{timestamp}-{}", &run_id[..run_id.len().min(6)]);
     let backtrace = std::backtrace::Backtrace::force_capture();
     let redacted_payload = crate::core::mcp::redact_stderr(payload);
     let content = format!(
@@ -76,13 +73,26 @@ fn write_crash_record_values(
     );
 
     let mut options = OpenOptions::new();
-    options.create(true).truncate(true).write(true);
+    // create_new 保证同一毫秒内的两次崩溃不会互相覆盖。
+    options.create_new(true).write(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let mut file = options.open(&path)?;
+
+    let mut path = directory.join(format!("{stem}.txt"));
+    let mut attempt = 0;
+    let mut file = loop {
+        match options.open(&path) {
+            Ok(file) => break file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists && attempt < 9 => {
+                attempt += 1;
+                path = directory.join(format!("{stem}-{attempt}.txt"));
+            }
+            Err(error) => return Err(error),
+        }
+    };
     file.write_all(content.as_bytes())?;
     file.sync_all()?;
     prune_old_crash_records(directory, MAX_CRASH_RECORDS);
@@ -173,5 +183,36 @@ mod tests {
         assert_eq!(remaining, MAX_CRASH_RECORDS);
         assert!(!directory.path().join("record-00.txt").exists());
         assert!(directory.path().join("record-54.txt").exists());
+    }
+
+    #[test]
+    fn user_keeps_every_crash_record_written_in_the_same_second() {
+        let directory = tempfile::TempDir::new().expect("temp dir");
+        let first = write_crash_record_values(
+            directory.path(),
+            "7f3a9cdeadbeef",
+            "1.2.2",
+            "main",
+            "test.rs:10",
+            "first panic",
+        )
+        .expect("write first crash record");
+        let second = write_crash_record_values(
+            directory.path(),
+            "7f3a9cdeadbeef",
+            "1.2.2",
+            "main",
+            "test.rs:20",
+            "second panic",
+        )
+        .expect("write second crash record");
+
+        assert_ne!(first, second);
+        assert!(fs::read_to_string(&first)
+            .expect("read")
+            .contains("first panic"));
+        assert!(fs::read_to_string(&second)
+            .expect("read")
+            .contains("second panic"));
     }
 }
