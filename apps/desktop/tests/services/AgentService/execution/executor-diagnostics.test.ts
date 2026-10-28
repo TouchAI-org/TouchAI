@@ -271,7 +271,7 @@ describe('user reads a failure log without conversation content', () => {
     });
 
     it('user sees no credentials when a provider error message embeds a url', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
         const failure = new Error(
             'request to https://alice:secret@example.test/v1?api_key=sk-live-secret failed'
         );
