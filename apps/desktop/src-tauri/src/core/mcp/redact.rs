@@ -322,6 +322,13 @@ fn is_log_level_prefix(token: &str) -> bool {
     )
 }
 
+fn is_credential_header_name(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "authorization" | "proxy-authorization" | "cookie" | "set-cookie"
+    )
+}
+
 /// 紧凑写法的请求头（`Authorization:Bearer x`、`Cookie:session=abc`）。
 ///
 /// 冒号两侧没有空格时整段是一个 token，走不到按 token 结尾判断的分支。
@@ -331,11 +338,7 @@ fn inline_header_name(token: &str) -> Option<&str> {
         !(character.is_ascii_alphanumeric() || character == '-' || character == '_')
     });
 
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "authorization" | "proxy-authorization" | "cookie" | "set-cookie"
-    )
-    .then_some(name)
+    is_credential_header_name(name).then_some(name)
 }
 
 fn is_name_byte(byte: u8) -> bool {
@@ -349,10 +352,17 @@ fn is_value_delimiter(byte: u8) -> bool {
     )
 }
 
+enum InlineRedaction {
+    Unchanged,
+    Redacted(String),
+    /// 值的引号没有在本 token 内闭合，剩下的整行都要盖住。
+    RedactedToEnd(String),
+}
+
 /// 同一个 token 里的 `name:value` / `name=value`（例如 JSON 片段）。
 ///
-/// 只替换值本身，周围的引号和字段名保留，返回 `None` 表示没有改动。
-fn redact_inline_secret_values(token: &str) -> Option<String> {
+/// 只替换值本身，周围的引号和字段名保留。
+fn redact_inline_secret_values(token: &str) -> InlineRedaction {
     let bytes = token.as_bytes();
     let mut output = String::with_capacity(token.len());
     let mut copied = 0;
@@ -376,20 +386,39 @@ fn redact_inline_secret_values(token: &str) -> Option<String> {
         let name = &token[name_start..name_end];
 
         let mut value_start = index + 1;
-        while value_start < bytes.len() && matches!(bytes[value_start], b'"' | b'\'' | b' ') {
+        while value_start < bytes.len() && bytes[value_start] == b' ' {
             value_start += 1;
         }
+        let quote = if value_start < bytes.len() && matches!(bytes[value_start], b'"' | b'\'') {
+            let quote = bytes[value_start];
+            value_start += 1;
+            Some(quote)
+        } else {
+            None
+        };
+
         let mut value_end = value_start;
-        while value_end < bytes.len() && !is_value_delimiter(bytes[value_end]) {
+        while value_end < bytes.len()
+            && Some(bytes[value_end]) != quote
+            && !is_value_delimiter(bytes[value_end])
+        {
             value_end += 1;
         }
 
         if !name.is_empty()
-            && (is_secret_name(name) || looks_like_secret_value(&token[value_start..value_end]))
+            && (is_secret_name(name)
+                || is_credential_header_name(name)
+                || looks_like_secret_value(&token[value_start..value_end]))
         {
             output.push_str(&token[copied..value_start]);
             output.push_str(REDACTED);
             copied = value_end;
+            // 值跨 token（`"correct horse"`）时，本 token 里只有前半句。
+            if let Some(quote) = quote {
+                if bytes.get(value_end) != Some(&quote) {
+                    return InlineRedaction::RedactedToEnd(output);
+                }
+            }
             index = value_end;
             continue;
         }
@@ -398,11 +427,11 @@ fn redact_inline_secret_values(token: &str) -> Option<String> {
     }
 
     if copied == 0 {
-        return None;
+        return InlineRedaction::Unchanged;
     }
 
     output.push_str(&token[copied..]);
-    Some(output)
+    InlineRedaction::Redacted(output)
 }
 /// Redact credentials from captured MCP stderr before it reaches disk or a bundle.
 pub(crate) fn redact_stderr(raw: &str) -> String {
@@ -429,6 +458,13 @@ fn redact_stderr_line(line: &str) -> String {
             continue;
         }
 
+        // 紧凑写法的请求头整段是一个 token，且冒号后面可能还有 `=`：
+        // `Cookie:session_token=abc; csrf=xyz` 必须整行丢弃，否则尾部会漏。
+        if let Some(name) = inline_header_name(core) {
+            output.push(format!("{name}: {REDACTED}"));
+            break;
+        }
+
         if let Some((name, value)) = core.split_once('=') {
             if is_secret_name(name) || looks_like_secret_value(value) {
                 output.push(format!("{name}={REDACTED}"));
@@ -438,12 +474,6 @@ fn redact_stderr_line(line: &str) -> String {
                 output.push(format!("{name}={}", redact_url(value)));
                 continue;
             }
-        }
-
-        // 紧凑写法的请求头整段是一个 token，后面的内容同样整行丢弃。
-        if let Some(name) = inline_header_name(core) {
-            output.push(format!("{name}: {REDACTED}"));
-            break;
         }
 
         // 任何 Name: 之后的内容整行丢弃：未知头也可能带会话凭据。
@@ -471,9 +501,16 @@ fn redact_stderr_line(line: &str) -> String {
             }
             break;
         }
-        if let Some(redacted) = redact_inline_secret_values(token) {
-            output.push(redacted);
-            continue;
+        match redact_inline_secret_values(token) {
+            InlineRedaction::Unchanged => {}
+            InlineRedaction::Redacted(redacted) => {
+                output.push(redacted);
+                continue;
+            }
+            InlineRedaction::RedactedToEnd(redacted) => {
+                output.push(redacted);
+                break;
+            }
         }
         if is_common_secret_token(token) {
             output.push(REDACTED.to_string());
@@ -673,6 +710,25 @@ mod tests {
         let redacted = redact_stderr("Error: Cannot find module 'left-pad'");
 
         assert_eq!(redacted, "Error: Cannot find module 'left-pad'");
+    }
+
+    #[test]
+    fn user_does_not_see_a_header_or_a_multi_word_value_in_compact_json() {
+        let redacted = redact_stderr(
+            r#"{"level":30,"headers":{"authorization":"Bearer abc123"}} and {"password":"correct horse"}"#,
+        );
+
+        assert!(!redacted.contains("abc123"));
+        assert!(!redacted.contains("correct"));
+        assert!(!redacted.contains("horse"));
+    }
+
+    #[test]
+    fn user_does_not_see_the_tail_of_a_compact_cookie_header() {
+        let redacted = redact_stderr("Cookie:session_token=abc; csrf=xyz");
+
+        assert!(!redacted.contains("abc"));
+        assert!(!redacted.contains("xyz"));
     }
 
     #[test]

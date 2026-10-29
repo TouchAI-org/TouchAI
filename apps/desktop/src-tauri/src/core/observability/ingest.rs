@@ -258,11 +258,20 @@ fn redact_value_text(value: &str) -> String {
                     // Digest 后面是整段参数列表，只盖住第一个 token 会漏掉其余部分。
                     redact = Redact::Rest;
                     core.to_string()
-                } else if suffix.starts_with(':') && is_secret_key(core) {
+                } else if suffix.trim_start_matches(['"', '\'']).starts_with(':')
+                    && is_secret_key(core)
+                {
                     // `credential: value` 的值在下一个 token；取值到行尾，
                     // 带空格的引号值也不会漏掉后半段。
                     redact = Redact::Rest;
                     core.to_string()
+                } else if let Some((name, _)) = core
+                    .split_once(':')
+                    .filter(|(name, _)| is_secret_key(name) && !is_url_like(core))
+                {
+                    // 紧凑 JSON：`"password":"hunter2"` 整段在一个 token 里。
+                    redact = Redact::Rest;
+                    format!("{name}:{REDACTED}")
                 } else {
                     redact_free_token(core)
                 }
@@ -459,6 +468,20 @@ mod tests {
         assert!(!line.contains("YWRtaW46c2VjcmV0"));
         assert!(line.contains("Basic"));
         assert!(line.contains("Digest"));
+    }
+
+    #[test]
+    fn user_does_not_see_a_credential_in_compact_or_pretty_json() {
+        let mut event = envelope("agent.request.failed");
+        event.attrs.insert(
+            "error.detail".to_string(),
+            json!("compact {\"password\":\"hunter2\"} pretty {\"password\": \"hunter3\"}"),
+        );
+
+        let line = event.to_line("7f3a9c");
+
+        assert!(!line.contains("hunter2"));
+        assert!(!line.contains("hunter3"));
     }
 
     #[test]
