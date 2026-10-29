@@ -67,7 +67,7 @@ describe('user gets service logs as structured events', () => {
         expect(entry?.msg).not.toContain('secret-value');
     });
 
-    it('user does not get a multi-line provider error body written to the log', async () => {
+    it('user does not get a provider error body written to the log when the message spans lines', async () => {
         initObservability();
 
         log.error(
@@ -81,7 +81,7 @@ describe('user gets service logs as structured events', () => {
         expect(entry?.msg).not.toContain('private conversation text');
     });
 
-    it('user gets the call frames on a webkit stack that carries no message line', async () => {
+    it('user gets the call frames when a webkit stack carries no message line', async () => {
         initObservability();
         const error = new Error('boom');
         // WebKit 的 stack 只有 `fn@url:line:col`，没有 `name: message` 首行。

@@ -450,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn user_does_not_see_any_parameter_of_a_digest_credential() {
+    fn user_does_not_see_a_parameter_when_the_credential_is_a_digest() {
         let mut event = envelope("agent.request.failed");
         event.attrs.insert(
             "error.detail".to_string(),
@@ -466,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn user_does_not_see_a_secret_under_irregular_capitalization() {
+    fn user_does_not_see_a_secret_when_the_key_has_irregular_capitalization() {
         let mut event = envelope("mcp.connect.failed");
         event
             .attrs

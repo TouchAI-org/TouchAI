@@ -511,7 +511,7 @@ mod tests {
     }
 
     #[test]
-    fn user_does_not_see_a_quoted_credential_scheme_in_mcp_stderr() {
+    fn user_does_not_see_a_credential_when_the_scheme_is_quoted() {
         let redacted = redact_stderr(r#"retry using "Basic dXNlcjpwYXNz""#);
 
         assert!(!redacted.contains("dXNlcjpwYXNz"));
@@ -519,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    fn user_does_not_see_any_parameter_of_a_digest_credential() {
+    fn user_does_not_see_a_parameter_when_the_credential_is_a_digest() {
         let redacted =
             redact_stderr("retry using Digest username=\"u\", nonce=\"n\", response=\"signature\"");
 

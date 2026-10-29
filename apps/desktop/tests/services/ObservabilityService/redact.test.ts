@@ -90,7 +90,7 @@ describe('user does not leak secrets into logs', () => {
         expect(redactText('/root/project/file.ts')).toBe('~/project/file.ts');
     });
 
-    it('user does not see an email followed by line and column numbers', () => {
+    it('user does not see an email when it is followed by line and column numbers', () => {
         expect(redactText('contact alice@example.com:12:34 for details')).not.toContain(
             'alice@example.com'
         );
@@ -195,7 +195,7 @@ describe('user does not leak secrets into logs', () => {
         expect(typeof parsed.preview).toBe('string');
     });
 
-    it('user gets a quote-dense preview that still fits the audit ceiling', () => {
+    it('user gets a preview that still fits the audit ceiling when the payload is quote-dense', () => {
         const payload = serializeAuditPayload({
             output: Array.from({ length: 200 }, () => '"\\"'.repeat(500)),
         });
