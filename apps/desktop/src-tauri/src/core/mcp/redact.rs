@@ -759,6 +759,8 @@ mod tests {
                 "secret-separate",
                 "-H",
                 "Authorization: Bearer secret-header",
+                "--accessToken",
+                "secret-camel",
                 "--header=Content-Type: application/json",
             ]),
         );
@@ -766,9 +768,10 @@ mod tests {
         assert!(!message.contains("secret-inline"));
         assert!(!message.contains("secret-separate"));
         assert!(!message.contains("secret-header"));
+        assert!(!message.contains("secret-camel"));
         assert!(!message.contains("/usr/local/bin"));
         assert!(message.contains("npx"));
-        assert!(message.contains("arg_count=8"));
+        assert!(message.contains("arg_count=10"));
     }
 
     #[test]
