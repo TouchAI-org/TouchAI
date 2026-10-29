@@ -542,9 +542,7 @@ impl McpClient {
 
     /// 仅测试使用：持有状态锁以模拟在途 RPC。
     #[cfg(test)]
-    pub(crate) async fn lock_status_for_test(
-        &self,
-    ) -> tokio::sync::MutexGuard<'_, ServerStatus> {
+    pub(crate) async fn lock_status_for_test(&self) -> tokio::sync::MutexGuard<'_, ServerStatus> {
         self.status.lock().await
     }
 

@@ -19,7 +19,10 @@ use tokio_tungstenite::{
 
 use super::{
     actions::BrowserResolvedAction,
-    endpoint::{shared_http_client, validate_loopback_websocket, validate_stale_navigation_token, BrowserEndpoint},
+    endpoint::{
+        shared_http_client, validate_loopback_websocket, validate_stale_navigation_token,
+        BrowserEndpoint,
+    },
     types::{BrowserActOperation, BrowserActResult, BrowserDomRef, BrowserTab},
 };
 
