@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils';
 import { describe, expect, it, vi } from 'vitest';
 
+import type { SessionMessage } from '@/types/session';
 import UserMessage from '@/views/SearchView/components/ConversationPanel/components/UserMessage.vue';
 
 vi.mock('@services/NotificationService', () => ({ notify: vi.fn() }));
@@ -27,7 +28,7 @@ describe('UserMessage attachment images', () => {
     it('decodes off the main thread and defers offscreen images', () => {
         const wrapper = mount(UserMessage, {
             props: {
-                message: createImageMessage() as Parameters<typeof UserMessage>[0]['message'],
+                message: createImageMessage() as unknown as SessionMessage,
             },
         });
 
@@ -46,7 +47,7 @@ describe('UserMessage attachment images', () => {
                 message: {
                     ...createImageMessage(),
                     attachments: [{ type: 'image', name: 'photo.png', preview }],
-                } as Parameters<typeof UserMessage>[0]['message'],
+                } as unknown as SessionMessage,
             },
         });
 
