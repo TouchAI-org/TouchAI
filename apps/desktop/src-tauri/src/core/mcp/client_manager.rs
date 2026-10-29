@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3.
+// Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
 //! MCP 客户端管理器 - 管理多个 MCP 客户端连接。
 
@@ -369,12 +369,11 @@ mod tests {
         // A server that never connected must not linger in the registry.
         assert!(manager.get_all_servers().await.is_empty());
     }
-async fn insert_client(manager: &McpClientManager, server_id: i64) {
-        manager
-            .clients
-            .write()
-            .await
-            .insert(server_id, Arc::new(McpClient::new(server_id, "demo".into())));
+    async fn insert_client(manager: &McpClientManager, server_id: i64) {
+        manager.clients.write().await.insert(
+            server_id,
+            Arc::new(McpClient::new(server_id, "demo".into())),
+        );
     }
 
     // 连接/断开需要写锁；读锁不能跨 RPC 持有，否则在途请求会阻塞写锁。

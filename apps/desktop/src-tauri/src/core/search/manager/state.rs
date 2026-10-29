@@ -217,10 +217,7 @@ mod tests {
     #[test]
     fn replace_records_rebuilds_path_index() {
         let mut state = QuickSearchState::default();
-        state.replace_records(vec![
-            record("C:/a.lnk", 1, 10),
-            record("C:/b.lnk", 1, 10),
-        ]);
+        state.replace_records(vec![record("C:/a.lnk", 1, 10), record("C:/b.lnk", 1, 10)]);
 
         assert_eq!(state.record_index.len(), 2);
         assert_eq!(state.record_index.get("c:/b.lnk"), Some(&1));

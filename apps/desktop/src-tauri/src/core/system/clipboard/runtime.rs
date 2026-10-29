@@ -554,7 +554,7 @@ mod tests {
 
         // Nothing authorised the paste, so a plain read must not produce one.
         assert!(state
-            .consume_shortcut_auto_paste_payload(60_000, 2_000)
+            .reserve_shortcut_auto_paste(60_000, 2_000)
             .is_none());
     }
 
@@ -564,8 +564,11 @@ mod tests {
         state.remember_snapshot(snapshot("clip-1", 1_000));
         state.authorize_shortcut_auto_paste();
 
+        let reserved = state
+            .reserve_shortcut_auto_paste(60_000, 2_000)
+            .expect("a fresh snapshot is reserved");
         let payload = state
-            .consume_shortcut_auto_paste_payload(60_000, 2_000)
+            .take_reserved_payload(&reserved)
             .expect("a fresh snapshot pastes");
 
         assert_eq!(payload.snapshot_id, "clip-1");
@@ -576,13 +579,13 @@ mod tests {
         let mut state = ClipboardRuntimeState::default();
         state.remember_snapshot(snapshot("clip-1", 1_000));
         state.authorize_shortcut_auto_paste();
-        let _ = state.consume_shortcut_auto_paste_payload(60_000, 2_000);
+        let _ = state.reserve_shortcut_auto_paste(60_000, 2_000);
 
         state.authorize_shortcut_auto_paste();
 
         // A second press on unchanged content must not paste it again.
         assert!(state
-            .consume_shortcut_auto_paste_payload(60_000, 3_000)
+            .reserve_shortcut_auto_paste(60_000, 3_000)
             .is_none());
     }
 
@@ -591,13 +594,16 @@ mod tests {
         let mut state = ClipboardRuntimeState::default();
         state.remember_snapshot(snapshot("clip-1", 1_000));
         state.authorize_shortcut_auto_paste();
-        let _ = state.consume_shortcut_auto_paste_payload(60_000, 2_000);
+        let _ = state.reserve_shortcut_auto_paste(60_000, 2_000);
 
         state.remember_snapshot(snapshot("clip-2", 3_000));
         state.authorize_shortcut_auto_paste();
 
+        let reserved = state
+            .reserve_shortcut_auto_paste(60_000, 4_000)
+            .expect("new content is reserved");
         let payload = state
-            .consume_shortcut_auto_paste_payload(60_000, 4_000)
+            .take_reserved_payload(&reserved)
             .expect("new content pastes");
 
         assert_eq!(payload.snapshot_id, "clip-2");
@@ -611,7 +617,7 @@ mod tests {
 
         // Older than the window the caller allows.
         assert!(state
-            .consume_shortcut_auto_paste_payload(500, 5_000)
+            .reserve_shortcut_auto_paste(500, 5_000)
             .is_none());
     }
 
@@ -620,11 +626,11 @@ mod tests {
         let mut state = ClipboardRuntimeState::default();
         state.remember_snapshot(snapshot("clip-1", 1_000));
         state.authorize_shortcut_auto_paste();
-        let _ = state.consume_shortcut_auto_paste_payload(60_000, 2_000);
+        let _ = state.reserve_shortcut_auto_paste(60_000, 2_000);
 
         // The authorisation is one-shot, so a stale read does not silently reuse it.
         assert!(state
-            .consume_shortcut_auto_paste_payload(60_000, 2_000)
+            .reserve_shortcut_auto_paste(60_000, 2_000)
             .is_none());
     }
 
@@ -634,7 +640,7 @@ mod tests {
         state.authorize_shortcut_auto_paste();
 
         assert!(state
-            .consume_shortcut_auto_paste_payload(60_000, 2_000)
+            .reserve_shortcut_auto_paste(60_000, 2_000)
             .is_none());
     }
 

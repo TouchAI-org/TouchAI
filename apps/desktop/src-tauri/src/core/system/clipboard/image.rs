@@ -91,7 +91,8 @@ impl ClipboardImageCache {
     pub(super) fn resolve_html_image_source(
         &self,
         source: &str,
-    ) -> Result<Option<(String, u64)>, String> {        if source.to_ascii_lowercase().starts_with("data:image/") {
+    ) -> Result<Option<(String, u64)>, String> {
+        if source.to_ascii_lowercase().starts_with("data:image/") {
             let data = decode_data_image_source(source)?;
             if data.mime_type == "image/svg+xml" || bytes_start_with_svg(&data.bytes) {
                 return self

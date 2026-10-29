@@ -167,7 +167,8 @@ impl BrowserRuntime {
         let deadline = Instant::now() + EXISTING_BROWSER_DISCOVERY_TIMEOUT;
         let mut sessions = Vec::new();
 
-        for ports in EXISTING_BROWSER_DISCOVERY_PORTS.chunks(EXISTING_BROWSER_DISCOVERY_CONCURRENCY) {
+        for ports in EXISTING_BROWSER_DISCOVERY_PORTS.chunks(EXISTING_BROWSER_DISCOVERY_CONCURRENCY)
+        {
             let probes = ports.iter().copied().map(|port| {
                 let endpoint = BrowserEndpoint {
                     host: "127.0.0.1".to_string(),
