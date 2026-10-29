@@ -62,6 +62,16 @@ describe('user opens a pull request that runs the preview', () => {
         expect(workflow).toContain('doctor-publish');
     });
 
+    it('user gets a decision for a fork pull request without an environment gate', () => {
+        const detect = jobBlock('detect');
+
+        // Fork pull_request_target runs deploy a head branch ref, which a
+        // protected environment rejects before any step starts.
+        expect(detect).not.toContain('environment:');
+        expect(detect).toContain('secrets.BOT_APP_ID');
+        expect(detect).toContain('secrets.BOT_APP_PRIVATE_KEY');
+    });
+
     it('user gets the pull request code built only in a job without secrets', () => {
         const explore = jobBlock('explore');
 
@@ -118,7 +128,7 @@ describe('user opens a pull request that runs the preview', () => {
     it('user gets the model key only in a job that does not run pull-request code', () => {
         const plan = jobBlock('plan');
 
-        expect(plan).toContain('environment: ui-preview');
+        expect(plan).not.toContain('environment:');
         expect(plan).toContain('secrets.UI_PREVIEW_MODEL_API_KEY');
         expect(plan).not.toContain('head_repo');
     });
@@ -126,7 +136,7 @@ describe('user opens a pull request that runs the preview', () => {
     it('user gets both publishing credentials only in the publish job', () => {
         const publish = jobBlock('publish');
 
-        expect(publish).toContain('environment: ui-preview-publish');
+        expect(publish).not.toContain('environment:');
         expect(publish).toContain('secrets.ATTACHMENT_TOKEN');
         expect(publish).toContain('secrets.BOT_APP_ID');
         expect(publish).toContain('secrets.BOT_APP_PRIVATE_KEY');

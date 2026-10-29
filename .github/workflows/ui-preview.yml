@@ -47,6 +47,10 @@ concurrency:
     cancel-in-progress: true
 
 jobs:
+    # These jobs run trusted code only and read repository-level secrets. They
+    # must not declare an environment: protected environments reject fork
+    # pull_request_target deployments before the job starts, which would stop
+    # contributors from even receiving the waiting comment.
     detect:
         name: Decide
         if: |
@@ -59,7 +63,6 @@ jobs:
                startsWith(github.event.comment.body, '/ui-preview')))
         runs-on: ubuntu-24.04
         timeout-minutes: 10
-        environment: ui-preview-publish
         permissions:
             contents: read
         outputs:
@@ -222,7 +225,6 @@ jobs:
         if: needs.detect.outputs.decision == 'run'
         runs-on: ubuntu-24.04
         timeout-minutes: 15
-        environment: ui-preview
         permissions:
             contents: read
             pull-requests: read
@@ -383,7 +385,6 @@ jobs:
         if: always() && needs.detect.outputs.decision == 'run'
         runs-on: ubuntu-24.04
         timeout-minutes: 15
-        environment: ui-preview-publish
         permissions:
             contents: read
         steps:
