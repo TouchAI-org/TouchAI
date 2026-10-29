@@ -54,7 +54,7 @@ describe('user reads the burned-in captions', () => {
     });
 });
 
-describe('user sees native window shadows against a light preview desktop', () => {
+describe('user sees the real window edge against a light preview desktop', () => {
     it('user gets the same non-black backdrop on every capture platform', () => {
         const red = Number.parseInt(DESKTOP_COLOUR.slice(1, 3), 16);
         const green = Number.parseInt(DESKTOP_COLOUR.slice(3, 5), 16);
@@ -89,8 +89,10 @@ describe('user sees native window shadows against a light preview desktop', () =
             path.join(repoRoot, '.github/ui-preview/with-display.sh'),
             'utf8'
         );
-        expect(displayWrapper).toContain('--shadow');
-        expect(displayWrapper).toContain('--corner-radius=8');
+        // The app disables native shadows on every platform. A compositor
+        // shadow here would show a Linux-only edge that users never see.
+        expect(displayWrapper).not.toContain('--shadow');
+        expect(displayWrapper).not.toContain('--corner-radius');
 
         expect(
             fs.readFileSync(path.join(repoRoot, '.github/ui-preview/lib/capture.mjs'), 'utf8')

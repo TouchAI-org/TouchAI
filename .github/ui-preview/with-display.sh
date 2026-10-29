@@ -21,19 +21,10 @@ read -r display_width display_height < <(xdotool getdisplaygeometry)
 convert -size "${display_width}x${display_height}" "xc:${DESKTOP_COLOUR}" "$DESKTOP_IMAGE"
 feh --no-fehbg --bg-fill "$DESKTOP_IMAGE"
 
-# The app's Linux window is transparent, so the compositor owns the shadow.
-# Match the 8px CSS shell radius so the shadow follows the visible edge instead
-# of the square native window bounds.
-picom \
-    --backend xrender \
-    --config /dev/null \
-    --shadow \
-    --shadow-radius=18 \
-    --shadow-opacity=0.35 \
-    --shadow-offset-x=0 \
-    --shadow-offset-y=6 \
-    --corner-radius=8 \
-    >/tmp/picom.log 2>&1 &
+# Keep the compositor for alpha, but do not invent a shadow that the app does
+# not request: every platform currently builds with shadow disabled, so a
+# Linux-only compositor shadow would make the evidence disagree with the UI.
+picom --backend xrender --config /dev/null >/tmp/picom.log 2>&1 &
 picom_pid=$!
 
 cleanup() {
