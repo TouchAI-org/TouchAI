@@ -189,6 +189,18 @@ describe('user does not leak secrets into logs', () => {
         expect(typeof parsed.preview).toBe('string');
     });
 
+    it('user gets a quote-dense preview that still fits the audit ceiling', () => {
+        const payload = serializeAuditPayload({
+            output: Array.from({ length: 200 }, () => '"\\"'.repeat(500)),
+        });
+        const parsed = JSON.parse(payload);
+
+        expect(new TextEncoder().encode(payload).byteLength).toBeLessThanOrEqual(
+            MAX_AUDIT_PAYLOAD_BYTES
+        );
+        expect(parsed._truncated).toBe(true);
+    });
+
     it('user keeps ordinary tool output beyond the log attribute limit', () => {
         const output = serializeAuditPayload(`result: ${'x'.repeat(2000)}`);
 

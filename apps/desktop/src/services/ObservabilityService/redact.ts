@@ -19,7 +19,11 @@ export const MAX_AUDIT_PAYLOAD_BYTES = 64 * 1024;
  * 两倍足够填满 64KB 结果，同时让最坏情况的扫描成本有上界。
  */
 const MAX_REDACTION_INPUT_BYTES = MAX_AUDIT_PAYLOAD_BYTES * 2;
-const EMAIL_PATTERN = /\b[A-Z0-9._%+-]{1,64}@[A-Z0-9.-]{1,255}\.[A-Z]{2,24}\b/gi;
+/**
+ * 末尾的负向前瞻放过 `fn@file.js:10:20` 这类调用帧：
+ * WebKit 的栈没有 `at ` 前缀，误判成邮箱会把函数名整段替换掉。
+ */
+const EMAIL_PATTERN = /\b[A-Z0-9._%+-]{1,64}@[A-Z0-9.-]{1,255}\.[A-Z]{2,24}\b(?!:\d+:\d+)/gi;
 const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}\b/gi;
 /** 没有 `Authorization:` 前缀的 Basic/Digest 凭据同样不能落盘。 */
 const BASIC_CREDENTIAL_PATTERN = /\b(Basic|Digest)\s+[A-Za-z0-9+/=._~-]{8,}/gi;
@@ -215,8 +219,9 @@ export function serializeAuditPayload(payload: unknown): string {
         if (encoded.length <= MAX_AUDIT_PAYLOAD_BYTES) return redacted;
 
         const marker = `\n[truncated original_bytes=${originalBytes}]`;
+        // 多留 2 字节：截断点落在多字节字符中间时 TextDecoder 会补一个 U+FFFD。
         const preview = new TextDecoder().decode(
-            encoded.slice(0, MAX_AUDIT_PAYLOAD_BYTES - utf8Length(marker))
+            encoded.slice(0, MAX_AUDIT_PAYLOAD_BYTES - utf8Length(marker) - 2)
         );
         return `${preview}${marker}`;
     }
@@ -226,7 +231,15 @@ export function serializeAuditPayload(payload: unknown): string {
     if (originalBytes <= MAX_AUDIT_PAYLOAD_BYTES) return serialized;
 
     const encoded = new TextEncoder().encode(serialized);
-    // 预览比上限少 256 字节，给 `_truncated` 包装留出空间，保证结果不超限。
-    const preview = new TextDecoder().decode(encoded.slice(0, MAX_AUDIT_PAYLOAD_BYTES - 256));
-    return JSON.stringify({ _truncated: true, originalBytes, preview });
+    // 包装后的 JSON 会转义预览里的引号和反斜杠，所以按编码后的实际长度收敛，
+    // 不能只留一个固定余量。
+    let budget = MAX_AUDIT_PAYLOAD_BYTES - 256;
+    for (;;) {
+        const preview = new TextDecoder().decode(encoded.slice(0, Math.max(budget, 0)));
+        const wrapped = JSON.stringify({ _truncated: true, originalBytes, preview });
+        if (utf8Length(wrapped) <= MAX_AUDIT_PAYLOAD_BYTES || budget <= 0) {
+            return wrapped;
+        }
+        budget -= Math.max(Math.ceil((utf8Length(wrapped) - MAX_AUDIT_PAYLOAD_BYTES) * 1.5), 64);
+    }
 }
