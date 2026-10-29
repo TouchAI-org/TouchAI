@@ -197,7 +197,7 @@ pub fn run() {
             if code == Some(tauri::RESTART_EXIT_CODE) {
                 return;
             }
-            if core::observability::shutdown::begin(app_handle) {
+            if core::observability::shutdown::begin(app_handle, code.unwrap_or(0)) {
                 api.prevent_exit();
             }
         }

@@ -81,6 +81,21 @@ describe('user gets service logs as structured events', () => {
         expect(entry?.msg).not.toContain('private conversation text');
     });
 
+    it('user gets the call frames on a webkit stack that carries no message line', async () => {
+        initObservability();
+        const error = new Error('boom');
+        // WebKit 的 stack 只有 `fn@url:line:col`，没有 `name: message` 首行。
+        error.stack = 'runAttempt@tauri://localhost/assets/main.js:10:20\nrunTurn@main.js:30:4';
+
+        log.error('request failed', error);
+        await flushObservability();
+
+        const entry = sentEvent('app.log');
+        expect(entry?.msg).toContain('runAttempt@');
+        expect(entry?.msg).toContain('runTurn@');
+        expect(entry?.msg).toContain('boom');
+    });
+
     it('user gets an event with no message when nothing was logged', async () => {
         initObservability();
 

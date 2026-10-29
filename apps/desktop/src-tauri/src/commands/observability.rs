@@ -37,8 +37,8 @@ pub fn obs_diagnostic_mode_status() -> DiagnosticModeStatus {
 
 /// 前端在退出前刷完队列后回报，让等待中的退出流程继续。
 #[tauri::command]
-pub fn obs_flush_done() {
-    shutdown::mark_flushed();
+pub fn obs_flush_done(window: String) {
+    shutdown::mark_flushed(&window);
 }
 
 #[tauri::command]

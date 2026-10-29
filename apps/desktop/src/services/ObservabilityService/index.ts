@@ -108,7 +108,7 @@ function installShutdownFlush(): void {
         void listen(QUIT_FLUSH_EVENT, async () => {
             await flushBeforeExit();
             try {
-                await native.observability.flushDone();
+                await native.observability.flushDone(resolveWindowLabel() ?? 'unknown');
             } catch (error) {
                 reportLoggingFailure(error);
             }
@@ -221,10 +221,19 @@ function stringifyArg(arg: unknown): string {
 function describeError(error: Error): string {
     const firstLine = (error.message.split('\n')[0] ?? '').trim();
     const summary = `${error.name}: ${firstLine}`;
-    const frames = (error.stack ?? '')
+    const stack = error.stack ?? '';
+    // V8 的 stack 以 `name: message` 开头（message 可能多行），WebKit 只有调用帧。
+    // 按值定位 message，避免在 WebKit 上把第一帧当成消息删掉。
+    const messageEnd =
+        error.message && stack.includes(error.message)
+            ? stack.indexOf(error.message) + error.message.length
+            : 0;
+    const frames = stack
+        .slice(messageEnd)
         .split('\n')
-        .slice(1)
-        .filter((line) => line.trim().startsWith('at '))
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && line !== error.name)
+        .slice(0, 20)
         .join('\n');
 
     return frames ? `${summary}\n${frames}` : summary;

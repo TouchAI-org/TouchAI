@@ -82,6 +82,6 @@ describe('user closes a window with logs still queued', () => {
         await flushListener.handler?.();
 
         expect(ingestMock).toHaveBeenCalled();
-        expect(flushDoneMock).toHaveBeenCalled();
+        expect(flushDoneMock).toHaveBeenCalledWith('main');
     });
 });

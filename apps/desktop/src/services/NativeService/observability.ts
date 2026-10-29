@@ -9,8 +9,9 @@ export const observability = {
     ingest(batch: ObservabilityLogEnvelope[]): Promise<void> {
         return invoke('obs_ingest', { batch });
     },
-    flushDone(): Promise<void> {
-        return invoke('obs_flush_done');
+    /** 报告某个窗口已经刷完队列，供退出流程等待。 */
+    flushDone(window: string): Promise<void> {
+        return invoke('obs_flush_done', { window });
     },
     runId(): Promise<string> {
         return invoke('obs_run_id');
