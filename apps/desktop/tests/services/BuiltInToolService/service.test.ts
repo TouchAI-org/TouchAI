@@ -107,44 +107,19 @@ function executeBuiltInTool(
 describe('user runs a built-in tool', () => {
     it('user does not see api keys in a built-in tool log entry', async () => {
         createBuiltInToolLogMock.mockResolvedValue({ id: 19 });
-        findBuiltInToolByToolIdMock.mockResolvedValue({
-            tool_id: 'bash',
-            enabled: 1,
-            config_json: null,
-        });
-        touchBuiltInToolLastUsedMock.mockResolvedValue(undefined);
-        updateBuiltInToolLogByCallIdMock.mockResolvedValue(undefined);
-        registryGetMock.mockReturnValue({
-            id: 'bash',
-            displayName: 'Bash',
-            description: 'Run a command',
-            inputSchema: { type: 'object', properties: {} },
-            defaultConfig: {},
-            parseConfig: vi.fn(() => ({})),
-            buildConversationSemantic: vi.fn(() => ({ action: 'run', target: 'script' })),
-            buildApprovalRequest: vi.fn(async () => null),
-            execute: vi.fn(async () => ({
-                result: 'failed with sk-live-secret-123456',
-                isError: false,
-                status: 'success',
-                conversationSemantic: {
-                    action: 'run',
-                    target: 'https://api.example.test/v1?token=semantic-secret',
-                },
-                structuredPayload: { accessToken: 'structured-secret' },
-            })),
-        });
+        registryGetMock.mockReturnValue(
+            createRegistryTool({
+                execute: vi.fn(async () => ({
+                    result: 'failed with sk-live-secret-123456',
+                    isError: false,
+                    status: 'success',
+                })),
+            })
+        );
 
         const builtInToolService = await loadBuiltInToolService();
-        await builtInToolService.executeTool({
-            toolCall: createToolCall(),
+        await executeBuiltInTool(builtInToolService, {
             toolArgs: { command: 'deploy', apiKey: 'sk-live-secret-123456' },
-            iteration: 0,
-            currentModel: {} as never,
-            hasExecutedBuiltInTool: vi.fn(() => false),
-            sessionId: null,
-            toolCallMessageId: null,
-            emitToolEvent: vi.fn(),
         });
 
         expect(createBuiltInToolLogMock).toHaveBeenCalledWith(
@@ -156,10 +131,38 @@ describe('user runs a built-in tool', () => {
             'call-builtin-1',
             expect.objectContaining({
                 output: expect.not.stringContaining('sk-live-secret-123456'),
-                conversation_semantic_json: expect.not.stringContaining('semantic-secret'),
-                structured_payload_json: expect.not.stringContaining('structured-secret'),
             })
         );
+    });
+
+    it('user gets the same tool card back when the stored payload holds a query string', async () => {
+        const conversationSemantic = {
+            action: 'search',
+            target: 'https://api.example.test/v1?token=semantic-secret',
+        };
+        const structuredPayload = {
+            sources: [{ url: 'https://example.test/a?q=1#frag' }],
+        };
+        registryGetMock.mockReturnValue(
+            createRegistryTool({
+                execute: vi.fn(async () => ({
+                    result: 'alpha',
+                    isError: false,
+                    status: 'success',
+                    conversationSemantic,
+                    structuredPayload,
+                })),
+            })
+        );
+
+        await executeBuiltInTool(await loadBuiltInToolService());
+
+        const payload = updateBuiltInToolLogByCallIdMock.mock.lastCall?.[1] as {
+            conversation_semantic_json: string;
+            structured_payload_json: string;
+        };
+        expect(JSON.parse(payload.conversation_semantic_json)).toEqual(conversationSemantic);
+        expect(JSON.parse(payload.structured_payload_json)).toEqual(structuredPayload);
     });
 
     it('user sees the tool call start reported with its start time before the tool runs', async () => {

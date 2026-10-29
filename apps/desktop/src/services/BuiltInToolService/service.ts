@@ -543,12 +543,14 @@ class BuiltInToolService {
 
         await updateBuiltInToolLogByCallId(options.toolCall.id, {
             output: serializeAuditPayload(toolResult.result),
+            // 语义和结构化载荷会读回来重建工具卡片，不是审计字段：脱敏会改掉来源链接，
+            // 截断会破坏 JSON 契约，所以这两列保持原样。
             conversation_semantic_json: toolResult.conversationSemantic
-                ? serializeAuditPayload(toolResult.conversationSemantic)
+                ? JSON.stringify(toolResult.conversationSemantic)
                 : null,
             // 结构化载荷单独存一列，避免往模型可见的 output 里塞 JSON。
             structured_payload_json: toolResult.structuredPayload
-                ? serializeAuditPayload(toolResult.structuredPayload)
+                ? JSON.stringify(toolResult.structuredPayload)
                 : null,
             status:
                 toolResult.status === 'success'
