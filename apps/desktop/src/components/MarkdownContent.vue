@@ -39,11 +39,11 @@
 </template>
 
 <script lang="ts">
-    import { log } from '@services/ObservabilityService';
     import {
         MARKDOWN_SCROLL_ROOT_KEY,
         type MarkdownScrollRootResolver,
     } from '@components/markdownScrollRoot';
+    import { log } from '@services/ObservabilityService';
     import {
         languageMap,
         type MarkdownIt,

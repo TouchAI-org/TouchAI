@@ -1,5 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { log } from '@services/ObservabilityService';
 import type { Logger } from 'drizzle-orm/logger';
 
 /**
@@ -40,11 +41,11 @@ export function createSqlLogger(): Logger {
                     serialized.length > MAX_PARAM_PREVIEW_LENGTH
                         ? `${serialized.slice(0, MAX_PARAM_PREVIEW_LENGTH)}…(${serialized.length} chars)`
                         : serialized;
-                console.log(`Query: ${sql} -- params: ${preview}`);
+                log.debug(`Query: ${sql} -- params: ${preview}`);
                 return;
             }
 
-            console.log(`Query: ${sql} -- params: ${params.length}`);
+            log.debug(`Query: ${sql} -- params: ${params.length}`);
         },
     };
 }

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SearchView 请求层。
  * 收口请求提交、排队与会话续发逻辑，让输入层与页面层保持解耦。
  */
@@ -375,7 +375,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                 sessionSearchDebounceTimer = null;
                 void refreshSessionList()
                     .catch((error) => {
-                        console.error('[SearchView] Failed to refresh session history:', error);
+                        log.error('[SearchView] Failed to refresh session history:', error);
                     })
                     .finally(resolve);
             }, SESSION_SEARCH_DEBOUNCE_MS);
