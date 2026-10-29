@@ -72,4 +72,25 @@ describe('when the quick search panel highlights what the user typed', () => {
         expect(touch.map((segment) => segment.matched)).toContain(true);
         expect(desktop.map((segment) => segment.matched)).toContain(true);
     });
+
+    it('user sees a blank segment for an empty name', () => {
+        expect(splitNameByTokens('', ['touch'])).toEqual([{ text: '', matched: false }]);
+    });
+
+    it('user still gets highlights after the segment cache evicts old entries', () => {
+        for (let index = 0; index < 300; index += 1) {
+            splitNameByTokens(`filler-${index}`, ['filler']);
+        }
+
+        const segments = splitNameByTokens('TouchAI Desktop', ['touch']);
+
+        expect(segments.map((segment) => segment.text).join('')).toBe('TouchAI Desktop');
+        expect(segments.some((segment) => segment.matched)).toBe(true);
+    });
+
+    it('user gets no highlight when the query never appears in the name', () => {
+        expect(splitNameByTokens('TouchAI Desktop', ['zzz'])).toEqual([
+            { text: 'TouchAI Desktop', matched: false },
+        ]);
+    });
 });
