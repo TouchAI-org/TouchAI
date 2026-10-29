@@ -282,7 +282,14 @@ mod tests {
         let file = File::open(destination).expect("open bundle");
         let mut archive = zip::ZipArchive::new(file).expect("read bundle");
         let names = (0..archive.len())
-            .map(|index| archive.by_index(index).expect("entry").name().to_string())
+            .map(|index| {
+                archive
+                    .by_index(index)
+                    .expect("entry")
+                    .name()
+                    .expect("entry name")
+                    .to_string()
+            })
             .collect::<Vec<_>>();
         assert!(names.contains(&"logs/TouchAI.log".to_string()));
         assert!(names.iter().any(|name| name.starts_with("crashes/")));
