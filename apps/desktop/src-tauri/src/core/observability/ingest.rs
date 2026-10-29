@@ -182,21 +182,30 @@ fn key_parts(key: &str) -> Vec<String> {
 }
 
 fn is_secret_key(key: &str) -> bool {
-    key_parts(key).iter().any(|part| {
-        matches!(
-            part.as_str(),
-            "authorization"
-                | "cookie"
-                | "password"
-                | "passwd"
-                | "secret"
-                | "token"
-                | "key"
-                | "apikey"
-                | "credential"
-                | "auth"
-        )
-    })
+    // 拆词之外再比一次整键：`ToKen` 会被拆成 `to` 和 `ken`，整键匹配才认得出。
+    let normalized: String = key
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .collect::<String>()
+        .to_ascii_lowercase();
+
+    is_secret_word(&normalized) || key_parts(key).iter().any(|part| is_secret_word(part))
+}
+
+fn is_secret_word(word: &str) -> bool {
+    matches!(
+        word,
+        "authorization"
+            | "cookie"
+            | "password"
+            | "passwd"
+            | "secret"
+            | "token"
+            | "key"
+            | "apikey"
+            | "credential"
+            | "auth"
+    )
 }
 
 fn format_value(value: &Value) -> Option<String> {
@@ -216,7 +225,7 @@ fn format_value(value: &Value) -> Option<String> {
 /// 这里按空白逐 token 扫描，并保留原有分隔符，避免改变日志的可读性。
 fn redact_value_text(value: &str) -> String {
     let mut output = String::with_capacity(value.len());
-    let mut redact_next = false;
+    let mut redact = Redact::None;
 
     for segment in value.split_inclusive(char::is_whitespace) {
         let token = segment.trim_end_matches(char::is_whitespace);
@@ -228,17 +237,24 @@ fn redact_value_text(value: &str) -> String {
         }
 
         let (prefix, core, suffix) = split_wrapping_punctuation(token);
-        let redacted = if redact_next {
-            redact_next = false;
-            REDACTED.to_string()
-        } else if core.eq_ignore_ascii_case("bearer")
-            || core.eq_ignore_ascii_case("basic")
-            || core.eq_ignore_ascii_case("digest")
-        {
-            redact_next = true;
-            core.to_string()
-        } else {
-            redact_free_token(core)
+        let redacted = match redact {
+            Redact::Rest => REDACTED.to_string(),
+            Redact::OneToken => {
+                redact = Redact::None;
+                REDACTED.to_string()
+            }
+            Redact::None => {
+                if core.eq_ignore_ascii_case("bearer") || core.eq_ignore_ascii_case("basic") {
+                    redact = Redact::OneToken;
+                    core.to_string()
+                } else if core.eq_ignore_ascii_case("digest") {
+                    // Digest 后面是整段参数列表，只盖住第一个 token 会漏掉其余部分。
+                    redact = Redact::Rest;
+                    core.to_string()
+                } else {
+                    redact_free_token(core)
+                }
+            }
         };
 
         output.push_str(prefix);
@@ -248,6 +264,13 @@ fn redact_value_text(value: &str) -> String {
     }
 
     output
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Redact {
+    None,
+    OneToken,
+    Rest,
 }
 
 fn redact_free_token(token: &str) -> String {
@@ -424,6 +447,34 @@ mod tests {
         assert!(!line.contains("YWRtaW46c2VjcmV0"));
         assert!(line.contains("Basic"));
         assert!(line.contains("Digest"));
+    }
+
+    #[test]
+    fn user_does_not_see_any_parameter_of_a_digest_credential() {
+        let mut event = envelope("agent.request.failed");
+        event.attrs.insert(
+            "error.detail".to_string(),
+            json!("Digest username=\"u\", nonce=\"n\", response=\"signature\""),
+        );
+
+        let line = event.to_line("7f3a9c");
+
+        assert!(!line.contains("username="));
+        assert!(!line.contains("nonce="));
+        assert!(!line.contains("signature"));
+        assert!(line.contains("Digest"));
+    }
+
+    #[test]
+    fn user_does_not_see_a_secret_under_irregular_capitalization() {
+        let mut event = envelope("mcp.connect.failed");
+        event
+            .attrs
+            .insert("ToKen".to_string(), json!("plain-irregular-token"));
+
+        let line = event.to_line("7f3a9c");
+
+        assert!(!line.contains("plain-irregular-token"));
     }
 
     #[test]

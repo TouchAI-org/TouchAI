@@ -338,15 +338,22 @@ fn redact_stderr_line(line: &str) -> String {
         }
 
         // Bearer/Basic/Digest 的凭据在下一个 token，且与 scheme 之间可能没有冒号。
-        if token.eq_ignore_ascii_case("bearer")
-            || token.eq_ignore_ascii_case("basic")
-            || token.eq_ignore_ascii_case("digest")
-        {
+        // 比较去掉引号后的 `core`：`"Basic dXNlcjpwYXNz"` 里的 scheme 带引号。
+        if core.eq_ignore_ascii_case("bearer") || core.eq_ignore_ascii_case("basic") {
             output.push(token.to_string());
             if tokens.next().is_some() {
                 output.push(REDACTED.to_string());
             }
             continue;
+        }
+        // Digest 是 `username=..., nonce=..., response=...` 的参数列表，
+        // 只替换一个 token 会把剩下的参数留在日志里。
+        if core.eq_ignore_ascii_case("digest") {
+            output.push(token.to_string());
+            if tokens.next().is_some() {
+                output.push(REDACTED.to_string());
+            }
+            break;
         }
         if is_common_secret_token(token) {
             output.push(REDACTED.to_string());
@@ -501,6 +508,25 @@ mod tests {
         assert!(redacted.contains("Basic"));
         assert!(redacted.contains("Digest"));
         assert!(redacted.contains("retry using"));
+    }
+
+    #[test]
+    fn user_does_not_see_a_quoted_credential_scheme_in_mcp_stderr() {
+        let redacted = redact_stderr(r#"retry using "Basic dXNlcjpwYXNz""#);
+
+        assert!(!redacted.contains("dXNlcjpwYXNz"));
+        assert!(redacted.contains("Basic"));
+    }
+
+    #[test]
+    fn user_does_not_see_any_parameter_of_a_digest_credential() {
+        let redacted =
+            redact_stderr("retry using Digest username=\"u\", nonce=\"n\", response=\"signature\"");
+
+        assert!(!redacted.contains("username="));
+        assert!(!redacted.contains("nonce="));
+        assert!(!redacted.contains("signature"));
+        assert!(redacted.contains("Digest"));
     }
 
     #[test]
