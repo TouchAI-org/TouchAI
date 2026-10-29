@@ -52,7 +52,6 @@ function seedLegacyDatabase(db: ReturnType<typeof createMigrationFixtureDatabase
     } finally {
         db.exec('COMMIT');
     }
-    insertBulk.finalize?.();
 }
 
 function tableExists(db: ReturnType<typeof createMigrationFixtureDatabase>, name: string): boolean {

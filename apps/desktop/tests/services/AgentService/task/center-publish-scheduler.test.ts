@@ -19,6 +19,7 @@ describe('cloneTaskViewSnapshot', () => {
                 fragments: [],
                 userPrompt: 'hello',
                 attachments: [],
+                modelLanguageContext: { locale: 'zh-CN', label: 'Chinese' },
             },
             lastCheckpoint: {
                 messages: [{ role: 'user', content: 'hello' }],
@@ -93,10 +94,7 @@ describe('shouldPublishTaskSnapshotImmediately', () => {
                 createSnapshot({
                     pendingToolApproval: {
                         callId: 'call-1',
-                        sourceMessageId: 'assistant-1',
-                        toolName: 'builtin__bash',
-                        arguments: '{}',
-                    },
+                    } as never,
                 })
             )
         ).toBe(true);
@@ -105,7 +103,7 @@ describe('shouldPublishTaskSnapshotImmediately', () => {
                 createSnapshot({
                     pendingUserQuestion: {
                         callId: 'question-1',
-                        sourceMessageId: 'assistant-1',
+                        sourceMessageId: 'message-1',
                         createdAt: 1,
                         questions: [],
                     },
@@ -209,20 +207,14 @@ describe('cloneTaskViewSnapshot structural sharing', () => {
             pendingApprovals: [
                 {
                     callId: 'call-1',
-                    sourceMessageId: 'assistant-1',
-                    toolName: 'builtin__bash',
-                    arguments: '{}',
-                },
+                } as never,
             ],
         });
 
         const view = cloneTaskViewSnapshot(snapshot);
         snapshot.pendingApprovals.push({
             callId: 'call-2',
-            sourceMessageId: 'assistant-1',
-            toolName: 'builtin__bash',
-            arguments: '{}',
-        });
+        } as never);
 
         expect(view.pendingApprovals).toHaveLength(1);
     });

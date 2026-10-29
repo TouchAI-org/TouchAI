@@ -50,6 +50,8 @@ function createToolCallRow(messageCreatedAt: string, toolLogCreatedAt: string): 
                 }),
                 tool_call_id: 'call-bash-1',
                 tool_kind: 'builtin',
+                tool_id: null,
+                server_id: null,
                 created_at: toolLogCreatedAt,
                 updated_at: toolLogCreatedAt,
             },
@@ -77,6 +79,8 @@ function builtinToolPart(options: {
         sort_order: options.sortOrder,
         tool_call_id: options.callId,
         tool_kind: 'builtin',
+        tool_id: null,
+        server_id: null,
         data: JSON.stringify({
             toolCallId: options.callId,
             toolKind: 'builtin',
@@ -108,6 +112,8 @@ function rawBuiltinToolPart(id: number, sortOrder: number, data: Record<string, 
         sort_order: sortOrder,
         tool_call_id: typeof data.toolCallId === 'string' ? data.toolCallId : null,
         tool_kind: 'builtin',
+        tool_id: null,
+        server_id: null,
         data: JSON.stringify(data),
     });
 }
@@ -129,6 +135,8 @@ function mcpToolPart(options: {
         sort_order: options.sortOrder,
         tool_call_id: options.callId,
         tool_kind: 'mcp',
+        tool_id: null,
+        server_id: null,
         data: JSON.stringify({
             toolCallId: options.callId,
             toolKind: 'mcp',

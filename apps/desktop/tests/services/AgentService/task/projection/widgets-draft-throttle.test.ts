@@ -31,6 +31,7 @@ function createHistory(): SessionMessage[] {
 
 function createDelta(callId: string, argumentsBuffer: string): AiToolCallDelta {
     return {
+        index: 0,
         callId,
         name: 'builtin__show_widget',
         argumentsBuffer,

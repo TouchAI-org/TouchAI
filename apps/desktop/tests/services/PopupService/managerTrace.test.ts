@@ -53,19 +53,19 @@ describe('PopupManager show instrumentation', () => {
         endMock.mockClear();
         const manager = createManager({});
 
-        await manager.show('emoji', document.createElement('div'), {});
+        await manager.show('session-history-popup', document.createElement('div'), {} as never);
 
         expect(endMock).toHaveBeenCalledWith(
-            expect.objectContaining({ type: 'emoji', cold: false })
+            expect.objectContaining({ type: 'session-history-popup', cold: false })
         );
     });
 
     it('marks the first show after initialization as cold', async () => {
         endMock.mockClear();
         const manager = createManager({});
-        manager.isInitialized = false;
+        (manager as unknown as { isInitialized: boolean }).isInitialized = false;
 
-        await manager.show('emoji', document.createElement('div'), {});
+        await manager.show('session-history-popup', document.createElement('div'), {} as never);
 
         expect(endMock).toHaveBeenCalledWith(expect.objectContaining({ cold: true }));
     });
@@ -78,9 +78,9 @@ describe('PopupManager show instrumentation', () => {
             }),
         });
 
-        await expect(manager.show('emoji', document.createElement('div'), {})).rejects.toThrow(
-            'show failed'
-        );
+        await expect(
+            manager.show('session-history-popup', document.createElement('div'), {} as never)
+        ).rejects.toThrow('show failed');
         expect(endMock).not.toHaveBeenCalled();
     });
 });

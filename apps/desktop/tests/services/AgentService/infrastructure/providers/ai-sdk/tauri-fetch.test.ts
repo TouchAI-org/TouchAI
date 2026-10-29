@@ -11,6 +11,7 @@ vi.mock('@tauri-apps/plugin-http', () => ({
 type PullProbe = {
     pulls: number;
     queued: number;
+    cancelled: number;
 };
 
 function createPullStream(probe: PullProbe, totalChunks: number): ReadableStream<Uint8Array> {
