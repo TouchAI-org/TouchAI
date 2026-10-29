@@ -274,7 +274,14 @@ fn is_secret_name(name: &str) -> bool {
         .any(|part| {
             matches!(
                 part,
-                "key" | "apikey" | "token" | "secret" | "password" | "passwd" | "auth"
+                "key"
+                    | "apikey"
+                    | "token"
+                    | "secret"
+                    | "password"
+                    | "passwd"
+                    | "auth"
+                    | "credential"
             )
         })
 }
@@ -294,6 +301,108 @@ fn is_common_secret_token(token: &str) -> bool {
     });
 
     looks_like_secret_value(trimmed)
+}
+
+/// 日志级别前缀不是请求头：`Error: Cannot find module` 的后半句是诊断信息，要留着。
+fn is_log_level_prefix(token: &str) -> bool {
+    matches!(
+        token
+            .trim_matches(|character: char| !character.is_ascii_alphabetic() && character != ':')
+            .to_ascii_lowercase()
+            .as_str(),
+        "error:"
+            | "err:"
+            | "warn:"
+            | "warning:"
+            | "info:"
+            | "debug:"
+            | "trace:"
+            | "fatal:"
+            | "panic:"
+    )
+}
+
+/// 紧凑写法的请求头（`Authorization:Bearer x`、`Cookie:session=abc`）。
+///
+/// 冒号两侧没有空格时整段是一个 token，走不到按 token 结尾判断的分支。
+fn inline_header_name(token: &str) -> Option<&str> {
+    let (name, _) = token.split_once(':')?;
+    let name = name.trim_matches(|character: char| {
+        !(character.is_ascii_alphanumeric() || character == '-' || character == '_')
+    });
+
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "authorization" | "proxy-authorization" | "cookie" | "set-cookie"
+    )
+    .then_some(name)
+}
+
+fn is_name_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.')
+}
+
+fn is_value_delimiter(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'"' | b'\'' | b',' | b';' | b'}' | b']' | b' ' | b'\t' | b'\r'
+    )
+}
+
+/// 同一个 token 里的 `name:value` / `name=value`（例如 JSON 片段）。
+///
+/// 只替换值本身，周围的引号和字段名保留，返回 `None` 表示没有改动。
+fn redact_inline_secret_values(token: &str) -> Option<String> {
+    let bytes = token.as_bytes();
+    let mut output = String::with_capacity(token.len());
+    let mut copied = 0;
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if !matches!(bytes[index], b':' | b'=') {
+            index += 1;
+            continue;
+        }
+
+        // JSON 里字段名自带引号：`"password":"hunter2"`，跳过收尾引号再取名字。
+        let mut name_end = index;
+        if name_end > copied && matches!(bytes[name_end - 1], b'"' | b'\'') {
+            name_end -= 1;
+        }
+        let mut name_start = name_end;
+        while name_start > copied && is_name_byte(bytes[name_start - 1]) {
+            name_start -= 1;
+        }
+        let name = &token[name_start..name_end];
+
+        let mut value_start = index + 1;
+        while value_start < bytes.len() && matches!(bytes[value_start], b'"' | b'\'' | b' ') {
+            value_start += 1;
+        }
+        let mut value_end = value_start;
+        while value_end < bytes.len() && !is_value_delimiter(bytes[value_end]) {
+            value_end += 1;
+        }
+
+        if !name.is_empty()
+            && (is_secret_name(name) || looks_like_secret_value(&token[value_start..value_end]))
+        {
+            output.push_str(&token[copied..value_start]);
+            output.push_str(REDACTED);
+            copied = value_end;
+            index = value_end;
+            continue;
+        }
+
+        index += 1;
+    }
+
+    if copied == 0 {
+        return None;
+    }
+
+    output.push_str(&token[copied..]);
+    Some(output)
 }
 /// Redact credentials from captured MCP stderr before it reaches disk or a bundle.
 pub(crate) fn redact_stderr(raw: &str) -> String {
@@ -331,8 +440,15 @@ fn redact_stderr_line(line: &str) -> String {
             }
         }
 
+        // 紧凑写法的请求头整段是一个 token，后面的内容同样整行丢弃。
+        if let Some(name) = inline_header_name(core) {
+            output.push(format!("{name}: {REDACTED}"));
+            break;
+        }
+
         // 任何 Name: 之后的内容整行丢弃：未知头也可能带会话凭据。
-        if token.ends_with(':') {
+        // 日志级别前缀不是请求头，否则 `Error: Cannot find module` 会丢掉原因。
+        if token.ends_with(':') && !is_log_level_prefix(token) {
             output.push(format!("{token} {REDACTED}"));
             break;
         }
@@ -354,6 +470,10 @@ fn redact_stderr_line(line: &str) -> String {
                 output.push(REDACTED.to_string());
             }
             break;
+        }
+        if let Some(redacted) = redact_inline_secret_values(token) {
+            output.push(redacted);
+            continue;
         }
         if is_common_secret_token(token) {
             output.push(REDACTED.to_string());
@@ -535,6 +655,24 @@ mod tests {
 
         assert!(!redacted.contains("json-secret-value"));
         assert!(redacted.contains("[redacted]"));
+    }
+
+    #[test]
+    fn user_does_not_see_a_secret_written_without_a_space_after_the_colon() {
+        let redacted = redact_stderr(
+            r#"{"level":"error","password":"hunter2"} Authorization:Bearer abcdefghijklmnop"#,
+        );
+
+        assert!(!redacted.contains("hunter2"));
+        assert!(!redacted.contains("abcdefghijklmnop"));
+        assert!(redacted.contains("\"level\":\"error\""));
+    }
+
+    #[test]
+    fn user_sees_the_failure_reason_after_a_log_level_prefix() {
+        let redacted = redact_stderr("Error: Cannot find module 'left-pad'");
+
+        assert_eq!(redacted, "Error: Cannot find module 'left-pad'");
     }
 
     #[test]

@@ -10,7 +10,7 @@ use tokio::sync::Mutex as AsyncMutex;
 
 pub(crate) const MAX_STDERR_BYTES: usize = 64 * 1024;
 
-type SharedBuffer = Arc<AsyncMutex<Vec<u8>>>;
+pub(crate) type SharedBuffer = Arc<AsyncMutex<Vec<u8>>>;
 
 fn buffers() -> &'static Mutex<HashMap<i64, SharedBuffer>> {
     static BUFFERS: OnceLock<Mutex<HashMap<i64, SharedBuffer>>> = OnceLock::new();
@@ -26,6 +26,14 @@ pub(crate) fn buffer_for(server_id: i64) -> SharedBuffer {
             .entry(server_id)
             .or_insert_with(|| Arc::new(AsyncMutex::new(Vec::new()))),
     )
+}
+
+/// 单次连接尝试专用的缓冲。
+///
+/// per-server 历史保留所有尝试的输出供诊断包使用；连接失败时报告的错误文本
+/// 只应包含本次尝试的输出，否则会带上更早一次会话的 stderr。
+pub(crate) fn attempt_buffer() -> SharedBuffer {
+    Arc::new(AsyncMutex::new(Vec::new()))
 }
 
 /// Keep the latest bytes from a long-running process without blocking its stderr pipe.

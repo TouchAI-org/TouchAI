@@ -4,7 +4,7 @@
 
 use super::redact::{http_connect_message, stdio_actual_command_message, stdio_connect_message};
 use super::types::*;
-use crate::core::observability::stderr::{append_chunk, buffer_for};
+use crate::core::observability::stderr::{append_chunk, attempt_buffer, buffer_for, SharedBuffer};
 use log::{debug, error, info, warn};
 use reqwest as mcp_reqwest;
 use rmcp::{
@@ -18,6 +18,15 @@ use rmcp::{
 use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::Arc;
+
+/// 一次 stdio 连接尝试的 stderr 收集器。
+///
+/// `attempt` 只保存本次尝试的输出，用于连接失败时的错误文本；
+/// `task` 同时把同样的字节写进 per-server 历史，供诊断包使用。
+struct StderrCollector {
+    task: JoinHandle<std::io::Result<()>>,
+    attempt: SharedBuffer,
+}
 use tokio::{
     io::AsyncReadExt,
     process::ChildStderr,
@@ -120,7 +129,6 @@ impl McpClient {
         let result = Self::format_stdio_connect_result(
             ().serve(transport).await.map_err(|e| e.to_string()),
             stderr_collector,
-            self.server_id,
         )
         .await;
 
@@ -165,9 +173,12 @@ impl McpClient {
     fn spawn_stderr_collector(
         server_id: i64,
         stderr: Option<ChildStderr>,
-    ) -> Option<JoinHandle<std::io::Result<()>>> {
+    ) -> Option<StderrCollector> {
         stderr.map(|mut stderr| {
-            let output = buffer_for(server_id);
+            let history = buffer_for(server_id);
+            // 连接失败时只报本次尝试的输出；历史缓冲继续累积给诊断包用。
+            let attempt = attempt_buffer();
+            let attempt_for_task = Arc::clone(&attempt);
 
             let task = tokio::spawn(async move {
                 let mut buffer = [0u8; 4096];
@@ -177,32 +188,31 @@ impl McpClient {
                         break;
                     }
 
-                    let mut stderr_output = output.lock().await;
-                    append_chunk(&mut stderr_output, &buffer[..bytes_read]);
+                    append_chunk(&mut *history.lock().await, &buffer[..bytes_read]);
+                    append_chunk(&mut *attempt_for_task.lock().await, &buffer[..bytes_read]);
                 }
 
                 debug!("MCP server {} stderr stream closed", server_id);
                 Ok(())
             });
 
-            task
+            StderrCollector { task, attempt }
         })
     }
 
     async fn format_stdio_connect_result(
         result: Result<McpService, String>,
-        stderr_collector: Option<JoinHandle<std::io::Result<()>>>,
-        server_id: i64,
+        stderr_collector: Option<StderrCollector>,
     ) -> Result<McpService, String> {
         match result {
             Ok(service) => {
-                if let Some(task) = stderr_collector {
-                    drop(task);
+                if let Some(collector) = stderr_collector {
+                    drop(collector.task);
                 }
                 Ok(service)
             }
             Err(error_message) => {
-                let stderr_output = Self::collect_stderr_output(server_id, stderr_collector).await;
+                let stderr_output = Self::collect_stderr_output(stderr_collector).await;
                 Err(Self::merge_stdio_error(stderr_output, error_message))
             }
         }
@@ -212,11 +222,8 @@ impl McpClient {
     ///
     /// 连接失败后，我们给 stderr 收集任务 300ms 的时间来完成读取
     /// 这通常足够捕获错误消息，但可以防止进程卡住时无限期挂起
-    async fn collect_stderr_output(
-        server_id: i64,
-        stderr_collector: Option<JoinHandle<std::io::Result<()>>>,
-    ) -> Option<String> {
-        let Some(mut task) = stderr_collector else {
+    async fn collect_stderr_output(stderr_collector: Option<StderrCollector>) -> Option<String> {
+        let Some(StderrCollector { mut task, attempt }) = stderr_collector else {
             return None;
         };
 
@@ -235,8 +242,7 @@ impl McpClient {
             }
         }
 
-        let output = buffer_for(server_id);
-        let output = output.lock().await;
+        let output = attempt.lock().await;
         let stderr_output = super::redact_stderr(&String::from_utf8_lossy(&output));
         (!stderr_output.trim().is_empty()).then_some(stderr_output)
     }

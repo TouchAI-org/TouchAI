@@ -76,7 +76,9 @@ pub(crate) fn log_startup_events() {
 
 fn ensure_directory(path: &Path) -> std::io::Result<()> {
     fs::create_dir_all(path)?;
-    restrict_directory_permissions(path);
+    // 共享临时目录（`/tmp/TouchAI/logs`）可能已被别的用户先建好。
+    // 收紧权限失败说明目录不归我们所有，必须当成不可用，否则日志会写进别人控制的目录。
+    restrict_directory_permissions(path)?;
 
     let probe = path.join(PROBE_FILE_NAME);
     {
@@ -94,13 +96,15 @@ fn ensure_directory(path: &Path) -> std::io::Result<()> {
 
 /// 目录只允许当前用户进入；轮转出来的日志文件即使仍是默认权限也读不到。
 #[cfg(unix)]
-fn restrict_directory_permissions(path: &Path) {
+fn restrict_directory_permissions(path: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o700));
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
 }
 
 #[cfg(not(unix))]
-fn restrict_directory_permissions(_path: &Path) {}
+fn restrict_directory_permissions(_path: &Path) -> std::io::Result<()> {
+    Ok(())
+}
 
 /// 旧格式文件与新格式混在一起会让解析器读到两种行，直接丢弃。
 pub(crate) fn discard_legacy_files(directory: &Path) -> usize {
@@ -330,6 +334,33 @@ mod tests {
         }
         #[cfg(not(unix))]
         let _ = prepared;
+    }
+
+    #[test]
+    fn user_gets_a_shared_directory_tightened_before_logs_land_in_it() {
+        let root = tempfile::TempDir::new().expect("temp dir");
+        let logs = root.path().join("logs");
+        fs::create_dir_all(&logs).expect("logs dir");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            // 模拟别人先建好的可写目录：`/tmp/TouchAI/logs` 就是这样被抢占的。
+            fs::set_permissions(&logs, fs::Permissions::from_mode(0o777)).expect("permissions");
+        }
+
+        let prepared = prepare(&logs);
+
+        assert_eq!(prepared, logs);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&prepared)
+                .expect("metadata")
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o700);
+        }
     }
 
     #[test]

@@ -24,6 +24,7 @@
     const preview = ref<DiagnosticBundlePreview | null>(null);
     const exporting = ref(false);
     let timer: ReturnType<typeof setInterval> | null = null;
+    let unmounted = false;
 
     const crashCount = computed(
         () => preview.value?.files.filter((file) => file.name.startsWith('crashes/')).length ?? 0
@@ -110,6 +111,8 @@
 
     onMounted(async () => {
         await loadStatus();
+        // 加载状态期间可能已经切走页面，此时再建 interval 就没人清理了。
+        if (unmounted) return;
         timer = setInterval(() => {
             nowMs.value = Date.now();
             if (expiresAtMs.value > 0 && nowMs.value >= expiresAtMs.value) {
@@ -120,6 +123,7 @@
     });
 
     onUnmounted(() => {
+        unmounted = true;
         if (timer) clearInterval(timer);
     });
 </script>
