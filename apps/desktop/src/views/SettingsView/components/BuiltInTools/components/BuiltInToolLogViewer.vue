@@ -93,7 +93,7 @@
                 details.value = { ...details.value, [logId]: detail };
             }
         } catch (error) {
-            console.error('[BuiltInToolLogViewer] Failed to load log detail:', error);
+            appLog.error('[BuiltInToolLogViewer] Failed to load log detail:', error);
         }
     }
 

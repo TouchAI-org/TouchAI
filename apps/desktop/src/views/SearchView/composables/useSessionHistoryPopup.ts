@@ -112,7 +112,7 @@ export function useSessionHistoryPopup(options: UseSessionHistoryPopupOptions) {
             try {
                 await popupManager.updateData(getPopupData());
             } catch (error) {
-                console.error('[SearchView] Failed to sync history popup data:', error);
+                log.error('[SearchView] Failed to sync history popup data:', error);
             }
         } catch (error) {
             activePopupId = null;

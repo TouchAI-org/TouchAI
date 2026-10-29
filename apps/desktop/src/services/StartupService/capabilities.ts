@@ -9,6 +9,8 @@
  * 能力是「尽力而为」：单个能力失败只记录警告，不阻塞请求。
  */
 
+import { log } from '@services/ObservabilityService';
+
 export type StartupCapabilityName = 'built-in-tools' | 'built-in-bash' | 'model-metadata';
 
 /** Agent 请求启动前必须就绪的能力集合。 */
@@ -24,7 +26,7 @@ export function registerStartupCapability(name: string, task: Promise<unknown>):
     const settled = task
         .then(() => undefined)
         .catch((error: unknown) => {
-            console.warn(`[StartupService] Capability "${name}" failed to initialize:`, error);
+            log.warn(`[StartupService] Capability "${name}" failed to initialize:`, error);
         });
 
     settledCapabilities.set(name, settled);

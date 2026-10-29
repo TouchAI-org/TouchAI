@@ -86,7 +86,7 @@
                 details.value = { ...details.value, [logId]: detail };
             }
         } catch (error) {
-            console.error('Failed to load log detail:', error);
+            appLog.error('Failed to load log detail:', error);
         }
     };
 

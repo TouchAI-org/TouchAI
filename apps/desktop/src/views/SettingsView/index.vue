@@ -128,7 +128,7 @@
             await sectionLoaderBySection.get(section as NavigationSection)?.();
         },
         onError: (section, error) => {
-            console.warn(`[SettingsView] Failed to preload section ${section}:`, error);
+            log.warn(`[SettingsView] Failed to preload section ${section}:`, error);
         },
     });
 
