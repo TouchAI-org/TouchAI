@@ -91,10 +91,11 @@ describe('user gets service logs as structured events', () => {
         await flushObservability();
 
         const entry = sentEvent('app.log');
+        const message = String(entry?.msg ?? '');
         // 帧里的 URL 会被脱敏，函数名和行号保留，帧本身不能丢。
-        expect(entry?.msg).toContain('runAttempt@');
-        expect(entry?.msg).toContain('boom');
-        expect(entry?.msg?.split('\n').length).toBeGreaterThan(1);
+        expect(message).toContain('runAttempt@');
+        expect(message).toContain('boom');
+        expect(message.split('\n').length).toBeGreaterThan(1);
     });
 
     it('user gets an event with no message when nothing was logged', async () => {
