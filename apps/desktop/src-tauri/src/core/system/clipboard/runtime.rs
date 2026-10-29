@@ -553,9 +553,7 @@ mod tests {
         state.remember_snapshot(snapshot("clip-1", 1_000));
 
         // Nothing authorised the paste, so a plain read must not produce one.
-        assert!(state
-            .reserve_shortcut_auto_paste(60_000, 2_000)
-            .is_none());
+        assert!(state.reserve_shortcut_auto_paste(60_000, 2_000).is_none());
     }
 
     #[test]
@@ -584,9 +582,7 @@ mod tests {
         state.authorize_shortcut_auto_paste();
 
         // A second press on unchanged content must not paste it again.
-        assert!(state
-            .reserve_shortcut_auto_paste(60_000, 3_000)
-            .is_none());
+        assert!(state.reserve_shortcut_auto_paste(60_000, 3_000).is_none());
     }
 
     #[test]
@@ -616,9 +612,7 @@ mod tests {
         state.authorize_shortcut_auto_paste();
 
         // Older than the window the caller allows.
-        assert!(state
-            .reserve_shortcut_auto_paste(500, 5_000)
-            .is_none());
+        assert!(state.reserve_shortcut_auto_paste(500, 5_000).is_none());
     }
 
     #[test]
@@ -629,9 +623,7 @@ mod tests {
         let _ = state.reserve_shortcut_auto_paste(60_000, 2_000);
 
         // The authorisation is one-shot, so a stale read does not silently reuse it.
-        assert!(state
-            .reserve_shortcut_auto_paste(60_000, 2_000)
-            .is_none());
+        assert!(state.reserve_shortcut_auto_paste(60_000, 2_000).is_none());
     }
 
     #[test]
@@ -639,9 +631,7 @@ mod tests {
         let mut state = ClipboardRuntimeState::default();
         state.authorize_shortcut_auto_paste();
 
-        assert!(state
-            .reserve_shortcut_auto_paste(60_000, 2_000)
-            .is_none());
+        assert!(state.reserve_shortcut_auto_paste(60_000, 2_000).is_none());
     }
 
     #[test]
