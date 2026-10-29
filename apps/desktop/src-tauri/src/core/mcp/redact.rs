@@ -263,27 +263,8 @@ fn is_header_name(name: &str) -> bool {
 }
 
 fn is_secret_name(name: &str) -> bool {
-    let normalized = name
-        .trim_start_matches('-')
-        .to_ascii_lowercase()
-        .replace('_', "-");
-
-    normalized
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .filter(|part| !part.is_empty())
-        .any(|part| {
-            matches!(
-                part,
-                "key"
-                    | "apikey"
-                    | "token"
-                    | "secret"
-                    | "password"
-                    | "passwd"
-                    | "auth"
-                    | "credential"
-            )
-        })
+    // 与日志写入侧共用一份词表：camelCase（`accessToken`）也要能认出来。
+    crate::core::observability::ingest::is_secret_key(name.trim_start_matches('-'))
 }
 
 /// 请求头名字保留下来做诊断，值一律替换：未知头也可能携带会话凭据。
@@ -721,6 +702,17 @@ mod tests {
         assert!(!redacted.contains("abc123"));
         assert!(!redacted.contains("correct"));
         assert!(!redacted.contains("horse"));
+    }
+
+    #[test]
+    fn user_does_not_see_a_camel_case_secret_field_in_mcp_stderr() {
+        let redacted = redact_stderr(
+            r#"{"accessToken":"abc123"} {"clientSecret":"xyz789"} refreshToken=def456"#,
+        );
+
+        assert!(!redacted.contains("abc123"));
+        assert!(!redacted.contains("xyz789"));
+        assert!(!redacted.contains("def456"));
     }
 
     #[test]

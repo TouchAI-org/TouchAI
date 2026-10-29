@@ -188,7 +188,8 @@ fn key_parts(key: &str) -> Vec<String> {
         .collect()
 }
 
-fn is_secret_key(key: &str) -> bool {
+/// 键名是否指向凭据。MCP stderr 脱敏复用同一份词表，避免两处判定漂移。
+pub(crate) fn is_secret_key(key: &str) -> bool {
     // 拆词之外再比一次整键：`ToKen` 会被拆成 `to` 和 `ken`，整键匹配才认得出。
     let normalized: String = key
         .chars()
@@ -265,13 +266,13 @@ fn redact_value_text(value: &str) -> String {
                     // 带空格的引号值也不会漏掉后半段。
                     redact = Redact::Rest;
                     core.to_string()
-                } else if let Some((name, _)) = core
-                    .split_once(':')
-                    .filter(|(name, _)| is_secret_key(name) && !is_url_like(core))
-                {
-                    // 紧凑 JSON：`"password":"hunter2"` 整段在一个 token 里。
-                    redact = Redact::Rest;
-                    format!("{name}:{REDACTED}")
+                } else if let Some((redacted, unterminated)) = redact_compact_json(core, suffix) {
+                    // 紧凑 JSON：一个 token 里可能有多个键，
+                    // `"level":"error","password":"hunter2"` 只有第二个是凭据。
+                    if unterminated {
+                        redact = Redact::Rest;
+                    }
+                    redacted
                 } else {
                     redact_free_token(core)
                 }
@@ -310,6 +311,39 @@ fn redact_free_token(token: &str) -> String {
         return REDACTED.to_string();
     }
     token.to_string()
+}
+
+/// 紧凑 JSON 里一个 token 可能带多个键，逐个冒号检查名字。
+///
+/// `"level":"error","password":"hunter2"` 的第一个键不是凭据，第二个才是。
+/// 返回脱敏后的 token 核心，以及值是否跨过了 token 边界（需要盖到行尾）。
+fn redact_compact_json(core: &str, suffix: &str) -> Option<(String, bool)> {
+    if is_url_like(core) {
+        return None;
+    }
+
+    for (index, _) in core.match_indices(':') {
+        // 字段名可能带引号：`"password":` 的冒号前面还有一个收尾引号。
+        let name = core[..index]
+            .trim_end_matches(|character: char| !is_name_character(character))
+            .rsplit(|character: char| !is_name_character(character))
+            .next()
+            .unwrap_or_default();
+        if name.is_empty() || !is_secret_key(name) {
+            continue;
+        }
+
+        // 引号数为奇数说明值还没闭合，后面的 token 仍属于这个值。
+        let unterminated =
+            (core[index + 1..].matches('"').count() + suffix.matches('"').count()) % 2 == 1;
+        return Some((format!("{}:{REDACTED}", &core[..index]), unterminated));
+    }
+
+    None
+}
+
+fn is_name_character(character: char) -> bool {
+    character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
 }
 
 /// 拆掉 token 两端的引号、括号和标点，只对核心部分脱敏。
@@ -468,6 +502,23 @@ mod tests {
         assert!(!line.contains("YWRtaW46c2VjcmV0"));
         assert!(line.contains("Basic"));
         assert!(line.contains("Digest"));
+    }
+
+    #[test]
+    fn user_does_not_see_a_credential_that_is_not_the_first_key_in_compact_json() {
+        let mut event = envelope("agent.request.failed");
+        event.attrs.insert(
+            "error.detail".to_string(),
+            json!(
+                r#"{"level":"error","password":"hunter2"} {"error":{"code":401,"headers":{"authorization":"Bearer abc123"}}}"#
+            ),
+        );
+
+        let line = event.to_line("7f3a9c");
+
+        assert!(!line.contains("hunter2"));
+        assert!(!line.contains("abc123"));
+        assert!(line.contains("401"));
     }
 
     #[test]
