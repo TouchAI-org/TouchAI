@@ -70,6 +70,13 @@ describe('user does not leak secrets into logs', () => {
         expect(redacted).toBe('auth=[redacted] retrying');
     });
 
+    it('user gets a credential assignment removed whether it is written with a colon or an equals sign', () => {
+        const redacted = redactText('retry credential: "opaque123" then credential=opaque456');
+
+        expect(redacted).not.toContain('opaque123');
+        expect(redacted).not.toContain('opaque456');
+    });
+
     it('user gets mixed-case and prefixed credential keys removed', () => {
         const text =
             'X-Api-Key: sk-live-secret Proxy-Authorization: Basic dXNlcjpwYXNz Cookie=session=abc123';

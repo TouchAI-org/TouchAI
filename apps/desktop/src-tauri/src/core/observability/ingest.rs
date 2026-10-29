@@ -18,6 +18,8 @@ use super::format::{escape_value, OBS_TARGET};
 const MAX_BATCH_SIZE: usize = 200;
 const MAX_LINE_BYTES: usize = 4096;
 const MAX_EVENT_NAME_LENGTH: usize = 64;
+/// `to_line` 自己写出的字段名。属性与它们同名时会产生重复键。
+const RESERVED_FIELDS: [&str; 6] = ["run", "window", "trace_id", "span_id", "msg", "truncated"];
 const REDACTED: &str = "[redacted]";
 
 /// 一条前端事件。字段名与 `ObservabilityService` 的线上格式一致。
@@ -65,9 +67,14 @@ impl LogEnvelope {
         }
 
         for (key, value) in &self.attrs {
-            let sanitized = sanitize_key(key);
+            let mut sanitized = sanitize_key(key);
             if sanitized.is_empty() {
                 continue;
+            }
+            // 属性名撞上 `to_line` 自己写出的字段时会生成重复键，
+            // 解析方无法判断哪个 `run=` 才是运行标识；加前缀而不是丢弃，值仍然可查。
+            if RESERVED_FIELDS.contains(&sanitized.as_str()) {
+                sanitized = format!("attr.{sanitized}");
             }
             if is_secret_key(key) {
                 fields.push(format!("{sanitized}={REDACTED}"));
@@ -249,6 +256,11 @@ fn redact_value_text(value: &str) -> String {
                     core.to_string()
                 } else if core.eq_ignore_ascii_case("digest") {
                     // Digest 后面是整段参数列表，只盖住第一个 token 会漏掉其余部分。
+                    redact = Redact::Rest;
+                    core.to_string()
+                } else if suffix.starts_with(':') && is_secret_key(core) {
+                    // `credential: value` 的值在下一个 token；取值到行尾，
+                    // 带空格的引号值也不会漏掉后半段。
                     redact = Redact::Rest;
                     core.to_string()
                 } else {
@@ -447,6 +459,34 @@ mod tests {
         assert!(!line.contains("YWRtaW46c2VjcmV0"));
         assert!(line.contains("Basic"));
         assert!(line.contains("Digest"));
+    }
+
+    #[test]
+    fn user_does_not_see_a_credential_assignment_written_with_a_colon() {
+        let mut event = envelope("agent.request.failed");
+        event.attrs.insert(
+            "error.detail".to_string(),
+            json!("retry credential: \"opaque123\" and credential: opaque456"),
+        );
+
+        let line = event.to_line("7f3a9c");
+
+        assert!(!line.contains("opaque123"));
+        assert!(!line.contains("opaque456"));
+    }
+
+    #[test]
+    fn user_gets_a_reserved_attribute_name_namespaced() {
+        let mut event = envelope("agent.request.failed");
+        event.attrs.insert("run".to_string(), json!("fake-run"));
+        event.attrs.insert("msg".to_string(), json!("fake-message"));
+
+        let line = event.to_line("7f3a9c");
+
+        assert_eq!(line.matches(" run=").count(), 1);
+        assert!(line.contains("run=7f3a9c"));
+        assert!(line.contains("attr.run=fake-run"));
+        assert!(line.contains("attr.msg=fake-message"));
     }
 
     #[test]
