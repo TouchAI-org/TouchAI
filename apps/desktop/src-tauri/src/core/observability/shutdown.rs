@@ -92,7 +92,11 @@ pub fn begin<R: Runtime>(app: &AppHandle<R>, code: i32) -> bool {
 /// 窗口刷完队列后回报，全部确认后等待方立即退出。
 pub fn mark_flushed(window: &str) {
     let mut state = lock();
-    state.pending.remove(window);
+    // 未知标签（重复回报、已经销毁的窗口）不能开启宽限期，否则还在写盘的窗口
+    // 会被提前切断。
+    if !state.pending.remove(window) {
+        return;
+    }
     if state.first_ack_at.is_none() {
         state.first_ack_at = Some(Instant::now());
     }
@@ -166,6 +170,19 @@ mod tests {
         wait_for_flush(Duration::from_secs(5), Duration::from_millis(100));
 
         assert!(started.elapsed() < Duration::from_secs(1));
+        reset(&[]);
+    }
+
+    #[test]
+    fn user_keeps_the_full_wait_when_an_unknown_window_reports_back() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        reset(&["main"]);
+        mark_flushed("ghost");
+
+        let started = Instant::now();
+        wait_for_flush(Duration::from_millis(150), Duration::from_millis(10));
+
+        assert!(started.elapsed() >= Duration::from_millis(100));
         reset(&[]);
     }
 }

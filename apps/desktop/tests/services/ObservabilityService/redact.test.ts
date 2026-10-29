@@ -90,6 +90,12 @@ describe('user does not leak secrets into logs', () => {
         expect(redactText('/root/project/file.ts')).toBe('~/project/file.ts');
     });
 
+    it('user does not see an email followed by line and column numbers', () => {
+        expect(redactText('contact alice@example.com:12:34 for details')).not.toContain(
+            'alice@example.com'
+        );
+    });
+
     it('user gets long multibyte text truncated by utf8 bytes', () => {
         const redacted = redactText('汉'.repeat(400));
 
