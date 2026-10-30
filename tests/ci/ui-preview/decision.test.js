@@ -6,6 +6,7 @@ import {
     DECISION,
     FORCE_LABEL,
     isPreviewCommand,
+    previewTrigger,
 } from '../../../.github/ui-preview/lib/decision.mjs';
 
 const base = {
@@ -34,8 +35,20 @@ describe('user opens a pull request that changes the interface', () => {
         expect(result.decision).toBe(DECISION.awaitingApproval);
     });
 
+    it('user sees a waiting comment on an outside contributor draft', () => {
+        const result = decide({ ...base, draft: true });
+
+        expect(result.decision).toBe(DECISION.awaitingApproval);
+    });
+
     it('user gets no preview when no interface file changed', () => {
         const result = decide({ ...base, maintainer: true, hasUiChange: false });
+
+        expect(result.decision).toBe(DECISION.none);
+    });
+
+    it('user gets no comment when an outside contributor changed no interface file', () => {
+        const result = decide({ ...base, hasUiChange: false });
 
         expect(result.decision).toBe(DECISION.none);
     });
@@ -111,6 +124,19 @@ describe('user works with an approval label', () => {
             labelName: APPROVED_LABEL,
             labels: [APPROVED_LABEL],
             labelActorMaintainer: true,
+        });
+
+        expect(result.decision).toBe(DECISION.run);
+    });
+
+    it('user gets a preview when a maintainer approves a draft', () => {
+        const result = decide({
+            ...base,
+            action: 'labeled',
+            labelName: APPROVED_LABEL,
+            labels: [APPROVED_LABEL],
+            labelActorMaintainer: true,
+            draft: true,
         });
 
         expect(result.decision).toBe(DECISION.run);
@@ -215,6 +241,26 @@ describe('user triggers a manual run', () => {
         });
 
         expect(result.decision).toBe(DECISION.none);
+    });
+
+    it('user gets pipeline-demo wording when validating branch scripts', () => {
+        expect(
+            previewTrigger({
+                eventName: 'workflow_dispatch',
+                maintainer: true,
+                validationScripts: true,
+            })
+        ).toBe('native validation');
+    });
+
+    it('user gets ordinary manual-run wording without branch scripts', () => {
+        expect(
+            previewTrigger({
+                eventName: 'workflow_dispatch',
+                maintainer: true,
+                validationScripts: false,
+            })
+        ).toBe('manual run');
     });
 });
 

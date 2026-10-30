@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import { buildPrompt } from '../../../.github/ui-preview/lib/model.mjs';
 import {
     defaultPlan,
+    LIMITS,
     testIdFromSelector,
     validatePlan,
 } from '../../../.github/ui-preview/lib/scenarios.mjs';
@@ -29,6 +31,54 @@ function planWithSteps(steps, surface = 'settings') {
 }
 
 describe('user reads a plan from the model', () => {
+    it('user gets the same interaction minimum in the prompt and the validator', () => {
+        const prompt = buildPrompt({
+            title: 'Change the shortcuts section',
+            body: '',
+            files: [],
+            diff: '',
+            diffFiles: [],
+            diffDropped: [],
+            outline: facts,
+        });
+
+        expect(prompt).toContain('Every scene needs at least three interactions');
+        expect(prompt).toContain('Shot and wait steps do not count');
+        expect(prompt).toContain('The whole plan needs at least six interactions');
+        expect(prompt).toContain('the whole plan needs at least three screenshots');
+        expect(prompt).toContain('compact empty search bar');
+        expect(prompt).toContain('A clean runner may return no local results');
+        expect(prompt).toContain('Never claim that a query-only state is expanded');
+        expect(prompt).toContain('Do not describe preview-only window sizing');
+        expect(prompt).toContain('native desktop capture');
+        expect(prompt).toContain(
+            'Window shadows, rounded corners, and desktop context are visible'
+        );
+        expect(prompt).toContain('Screenshots capture the app content only');
+        expect(prompt).toContain('must never claim a shadow or frame is visible');
+        expect(prompt).toContain(
+            'Workflow, test, documentation, and backend files are outside this diff'
+        );
+        expect(prompt).not.toContain('what this headless capture cannot show');
+        expect(prompt).not.toContain('Every scene needs at least two interactions');
+    });
+
+    it('user gets the numeric step limits the validator enforces', () => {
+        const prompt = buildPrompt({
+            title: 'Change the shortcuts section',
+            body: '',
+            files: [],
+            diff: '',
+            diffFiles: [],
+            diffDropped: [],
+            outline: facts,
+        });
+
+        expect(prompt).toContain(`between -${LIMITS.scrollPixels} and ${LIMITS.scrollPixels}`);
+        expect(prompt).toContain(`between 0 and ${LIMITS.waitMs}`);
+        expect(prompt).toContain(`under ${LIMITS.captionLength} characters`);
+    });
+
     it('user gets a valid plan when every action and target is known', () => {
         const result = validatePlan(
             planWithSteps([
@@ -71,6 +121,16 @@ describe('user reads a plan from the model', () => {
 
         expect(result.ok).toBe(false);
         expect(result.errors.join(' ')).toContain('not allowed');
+    });
+
+    it('user gets the allowed range back when a scroll is rejected', () => {
+        const result = validatePlan(
+            planWithSteps([{ do: 'scroll', value: LIMITS.scrollPixels + 400 }]),
+            facts
+        );
+
+        expect(result.ok).toBe(false);
+        expect(result.errors.join(' ')).toContain(String(LIMITS.scrollPixels));
     });
 
     it('user gets a rejection when the plan calls a bridge method that is not exposed', () => {

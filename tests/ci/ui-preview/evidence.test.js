@@ -5,7 +5,12 @@ import zlib from 'node:zlib';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { isMp4, readPngSize, validateEvidence } from '../../../.github/ui-preview/lib/evidence.mjs';
+import {
+    isFixtureProviderError,
+    isMp4,
+    readPngSize,
+    validateEvidence,
+} from '../../../.github/ui-preview/lib/evidence.mjs';
 
 const roots = [];
 
@@ -78,6 +83,8 @@ function manifest(overrides = {}) {
     return {
         version: 1,
         sha: 'a1b2c3d4e5f6',
+        platform: 'linux',
+        captureMode: 'x11grab',
         scenes: [{ title: 'Search', shots: [{ file: 'evidence/search.png', caption: 'Search' }] }],
         video: 'evidence/recording.mp4',
         videoInfo: {
@@ -87,6 +94,7 @@ function manifest(overrides = {}) {
             coverage: 0.98,
             width: 1280,
             height: 900,
+            mode: 'x11grab',
         },
         ...overrides,
     };
@@ -164,6 +172,7 @@ describe('user publishes evidence that was recorded', () => {
                     coverage: 0.001,
                     width: 1280,
                     height: 900,
+                    mode: 'x11grab',
                 },
             })
         );
@@ -196,6 +205,85 @@ describe('user publishes evidence that was recorded', () => {
         const result = validateEvidence(makeRoot(), manifest({ sha: 'not-a-sha' }));
 
         expect(result.ok).toBe(false);
+    });
+
+    it('user gets a failure when the platform and capture mode disagree', () => {
+        const result = validateEvidence(
+            makeRoot(),
+            manifest({ platform: 'macos', captureMode: 'x11grab' })
+        );
+
+        expect(result.ok).toBe(false);
+        expect(result.errors.join(' ')).toContain('does not match macos');
+    });
+
+    it('user gets a failure when the video was not captured natively', () => {
+        const root = makeRoot();
+        fs.mkdirSync(path.join(root, 'evidence'));
+        fs.writeFileSync(path.join(root, 'evidence/search.png'), png(400, 200));
+        fs.writeFileSync(path.join(root, 'evidence/recording.mp4'), mp4());
+
+        const result = validateEvidence(
+            root,
+            manifest({ videoInfo: { ...manifest().videoInfo, mode: 'screenshot-sequence' } })
+        );
+
+        expect(result.ok).toBe(false);
+        expect(result.errors.join(' ')).toContain('video capture mode');
+    });
+
+    it('user gets a failure when the platform is unknown', () => {
+        const result = validateEvidence(
+            makeRoot(),
+            manifest({ platform: 'beos', captureMode: 'gdigrab' })
+        );
+
+        expect(result.ok).toBe(false);
+        expect(result.errors.join(' ')).toContain('platform is not supported');
+    });
+
+    it('user gets a failure when the video is not the native high-resolution stage', () => {
+        const root = makeRoot();
+        fs.mkdirSync(path.join(root, 'evidence'));
+        fs.writeFileSync(path.join(root, 'evidence/search.png'), png(400, 200));
+        fs.writeFileSync(path.join(root, 'evidence/recording.mp4'), mp4());
+
+        const result = validateEvidence(
+            root,
+            manifest({
+                stage: { width: 1280, height: 800, top: 40 },
+                scale: 2,
+                physicalStage: { width: 2560, height: 1600, top: 80 },
+                videoInfo: {
+                    ...manifest().videoInfo,
+                    width: 1280,
+                    height: 800,
+                },
+            })
+        );
+
+        expect(result.ok).toBe(false);
+        expect(result.errors.join(' ')).toContain('not the native 2560x1600 stage');
+    });
+
+    it('user gets a failure when a failed recording does not say why', () => {
+        const result = validateEvidence(makeRoot(), manifest({ video: null, videoInfo: null }));
+
+        expect(result.ok).toBe(false);
+        expect(result.errors.join(' ')).toContain('does not report a capture failure');
+    });
+});
+
+describe('user separates fixture traffic from renderer failures', () => {
+    it('user ignores only the intentionally unreachable fixture provider', () => {
+        expect(
+            isFixtureProviderError(
+                'error sending request for url (http://127.0.0.1:9/v1/chat/completions)'
+            )
+        ).toBe(true);
+        expect(isFixtureProviderError('TypeError: cannot read properties of undefined')).toBe(
+            false
+        );
     });
 });
 

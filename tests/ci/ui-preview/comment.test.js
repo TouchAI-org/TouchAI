@@ -41,7 +41,7 @@ describe('user reads the preview comment', () => {
         expect(body).toContain('\nhttps://github.com/user-attachments/assets/video\n');
     });
 
-    it('user sees screenshots as images inside one collapsed block', () => {
+    it('user sees each screenshot as an image instead of a link', () => {
         const body = buildPreviewComment({
             ...baseComment,
             scenes: [
@@ -53,7 +53,6 @@ describe('user reads the preview comment', () => {
             assets: { 'a.png': 'https://github.com/user-attachments/assets/a' },
         });
 
-        expect(body).toContain('<details><summary>Key screenshots (1)</summary>');
         expect(body).toContain(
             '![Shortcuts: Shortcuts section](https://github.com/user-attachments/assets/a)'
         );
@@ -104,6 +103,17 @@ describe('user reads the preview comment', () => {
         expect(body).toContain('Locale key parity (**fail**): missing in en-US: a.b');
     });
 
+    it('user sees when a native validation run is demonstrating the pipeline itself', () => {
+        const body = buildPreviewComment({
+            ...baseComment,
+            trigger: 'native validation',
+            note: 'the clips below are the feature demonstration for this pull request.',
+        });
+
+        expect(body).toContain('native validation');
+        expect(body).toContain('feature demonstration for this pull request');
+    });
+
     it('user sees which steps did not run, collapsed below the media', () => {
         const body = buildPreviewComment({
             ...baseComment,
@@ -119,6 +129,20 @@ describe('user reads the preview comment', () => {
         expect(body).toContain('<details><summary>1 step(s) did not run</summary>');
         expect(body).toContain('Shortcuts: click');
         expect(body).toContain('element was not visible');
+    });
+
+    it('user sees a collapsed note when the preview fell back to a weaker plan', () => {
+        const body = buildPreviewComment({
+            ...baseComment,
+            warnings: ['no model is configured; the default scene was used'],
+        });
+
+        expect(body).toContain('<details><summary>Preview notes (1)</summary>');
+        expect(body).toContain('- no model is configured; the default scene was used');
+    });
+
+    it('user sees no notes block when nothing degraded', () => {
+        expect(buildPreviewComment(baseComment)).not.toContain('Preview notes');
     });
 });
 
@@ -137,6 +161,7 @@ describe('user reads the waiting and skipped comments', () => {
 
         expect(body).toContain('/ui-preview');
         expect(body).toContain('status:ui-preview-approved');
+        expect(body).toContain('Nothing is built or recorded');
         expect(hasMarker(body)).toBe(true);
     });
 
@@ -146,6 +171,124 @@ describe('user reads the waiting and skipped comments', () => {
         expect(body).toContain('skipped');
         expect(body).toContain('status:ui-preview-skip');
         expect(hasMarker(body)).toBe(true);
+    });
+});
+
+describe('user reads one preview comment for three native builds', () => {
+    const platforms = [
+        {
+            platform: 'linux',
+            captureMode: 'x11grab',
+            display: { width: 2560, height: 1600 },
+            scale: 2,
+            videoUrl: 'https://github.com/user-attachments/assets/linux-video',
+            scenes: [
+                {
+                    title: 'Search',
+                    shots: [
+                        { file: 'linux-search.png', caption: 'Query typed' },
+                        { file: 'linux-settings.png', caption: 'Settings section' },
+                    ],
+                },
+            ],
+            assets: {
+                'linux-search.png': 'https://github.com/user-attachments/assets/linux-search',
+                'linux-settings.png': 'https://github.com/user-attachments/assets/linux-settings',
+            },
+            checks: [{ name: 'Native recording (x11grab)', status: 'pass' }],
+        },
+        {
+            platform: 'macos',
+            captureMode: 'avfoundation',
+            display: { width: 2560, height: 1600 },
+            scale: 2,
+            videoUrl: 'https://github.com/user-attachments/assets/macos-video',
+            scenes: [
+                {
+                    title: 'Search',
+                    shots: [{ file: 'macos-search.png', caption: 'Query typed' }],
+                },
+            ],
+            assets: {
+                'macos-search.png': 'https://github.com/user-attachments/assets/macos-search',
+            },
+            checks: [{ name: 'Native recording (avfoundation)', status: 'pass' }],
+        },
+        {
+            platform: 'windows',
+            captureMode: 'gdigrab',
+            display: { width: 1920, height: 1080 },
+            scale: 1,
+            videoUrl: 'https://github.com/user-attachments/assets/windows-video',
+            scenes: [
+                {
+                    title: 'Search',
+                    shots: [{ file: 'windows-search.png', caption: 'Query typed' }],
+                },
+            ],
+            assets: {
+                'windows-search.png': 'https://github.com/user-attachments/assets/windows-search',
+            },
+            checks: [{ name: 'Native recording (gdigrab)', status: 'pass' }],
+        },
+    ];
+
+    it('user sees a labelled section and a visible video for every platform', () => {
+        const body = buildPreviewComment({ ...baseComment, platforms });
+
+        expect(body).toContain('### Linux · x11grab · 2560x1600 · 2x');
+        expect(body).toContain('### macOS · avfoundation · 2560x1600 · 2x');
+        expect(body).toContain('### Windows · gdigrab · 1920x1080');
+        expect(body).toContain('\nhttps://github.com/user-attachments/assets/linux-video\n');
+        expect(body).toContain('\nhttps://github.com/user-attachments/assets/macos-video\n');
+        expect(body).toContain('\nhttps://github.com/user-attachments/assets/windows-video\n');
+    });
+
+    it('user gets all screenshots in one collapsed block per platform', () => {
+        const body = buildPreviewComment({ ...baseComment, platforms });
+
+        expect(body).toContain('<details><summary>Key screenshots (2)</summary>');
+        expect(body.match(/<details><summary>Key screenshots \(1\)<\/summary>/g)).toHaveLength(2);
+        expect(body).toContain(
+            '![Search: Query typed](https://github.com/user-attachments/assets/linux-search)'
+        );
+        expect(body).toContain(
+            '![Search: Query typed](https://github.com/user-attachments/assets/macos-search)'
+        );
+        expect(body).toContain(
+            '![Search: Query typed](https://github.com/user-attachments/assets/windows-search)'
+        );
+        expect(body).toContain('Search: Query typed');
+        expect(body).not.toContain('<img');
+    });
+
+    it('user sees a missing platform instead of an omitted section', () => {
+        const body = buildPreviewComment({
+            ...baseComment,
+            platforms: [
+                ...platforms.slice(0, 1),
+                {
+                    platform: 'macos',
+                    failure: 'the recording job did not produce a manifest',
+                },
+            ],
+        });
+
+        expect(body).toContain('### macOS');
+        expect(body).toContain('the recording job did not produce a manifest');
+    });
+
+    it('user sees a platform failure without losing the other videos', () => {
+        const body = buildPreviewComment({
+            ...baseComment,
+            platforms: [
+                { ...platforms[0], failure: 'recording: ffmpeg did not start' },
+                platforms[1],
+            ],
+        });
+
+        expect(body).toContain('**Recording stopped:** recording: ffmpeg did not start');
+        expect(body).toContain('https://github.com/user-attachments/assets/macos-video');
     });
 });
 
