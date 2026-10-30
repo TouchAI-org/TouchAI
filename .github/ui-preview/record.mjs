@@ -1480,7 +1480,9 @@ async function main() {
                     fs.rmSync(videoFile, { force: true });
                     fs.renameSync(rawVideo, videoFile);
                     manifest.warnings.push(
-                        'the display crop and captions could not be applied; the native recording was published as-is'
+                        crop
+                            ? 'the display crop and captions could not be applied; the native recording was published as-is'
+                            : 'captions could not be burned in; the native recording was published as-is'
                     );
                 }
 
