@@ -331,7 +331,14 @@ export function captureScreenshot({ display, file, geometry, id }) {
         throw new Error(`import failed: ${shot.stderr.trim()}`);
     }
 
-    const crop = `${geometry.width}x${geometry.height}+${geometry.x}+${geometry.y}`;
+    const target = geometry ?? (id ? windowGeometry(display, id) : null);
+
+    if (!target) {
+        fs.rmSync(scratch, { force: true });
+        throw new Error('the window disappeared before its screenshot could be cropped');
+    }
+
+    const crop = `${target.width}x${target.height}+${target.x}+${target.y}`;
     const convert = hasCommand('magick') ? 'magick' : 'convert';
     const result = run(convert, [scratch, '-crop', crop, '+repage', file]);
 
@@ -341,7 +348,7 @@ export function captureScreenshot({ display, file, geometry, id }) {
         throw new Error(`${convert} failed: ${result.stderr.trim()}`);
     }
 
-    return { width: geometry.width, height: geometry.height };
+    return { width: target.width, height: target.height };
 }
 
 /**

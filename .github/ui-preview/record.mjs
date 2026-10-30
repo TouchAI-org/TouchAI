@@ -81,6 +81,43 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Windows runners surface system dialogs after the app starts. The workflow
+ * hides them once, but the paging-file dialog can appear later, so hide the
+ * known runner windows again immediately before capture.
+ */
+function hideWindowsRunnerWindows(platform) {
+    if (platform !== 'windows') {
+        return;
+    }
+
+    const script = `
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class UiPreviewRunnerWindow {
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
+"@
+Get-Process |
+  Where-Object {
+    $_.MainWindowHandle -ne 0 -and
+    ($_.MainWindowTitle -match 'GitHub Actions|ProgramData|PowerShell|Command Prompt|System Properties|Server Manager')
+  } |
+  ForEach-Object { [UiPreviewRunnerWindow]::ShowWindow($_.MainWindowHandle, 0) | Out-Null }
+`;
+    const result = spawnSync(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', script],
+        { encoding: 'utf8', windowsHide: true }
+    );
+
+    if (result.status !== 0) {
+        console.log(`runner window cleanup skipped: ${(result.stderr || '').trim()}`);
+    }
+}
+
 async function waitForPaint(_session) {
     // Keep the wait outside WebDriver's async transport. On Windows that
     // transport posts a private message through WebView2, which Tauri's IPC
@@ -1037,6 +1074,8 @@ async function main() {
         await isolateSurface({ session, platform, display, surface: 'search', state });
 
         await sleep(300);
+        hideWindowsRunnerWindows(platform);
+        await sleep(300);
 
         try {
             recording = await startNativeRecording({
@@ -1532,10 +1571,11 @@ async function main() {
     logErrors = findLogErrors(appRoot);
     const shots = manifest.scenes.flatMap((scene) => scene.shots);
 
+    // The seeded provider points at a closed port on purpose, so its connection
+    // errors are expected and stay out of the manifest: the comment only lists
+    // warnings a reviewer has to act on.
     if (fixtureProviderErrors > 0) {
-        manifest.warnings.push(
-            `ignored ${fixtureProviderErrors} expected provider connection error(s) from the seeded fixture endpoint`
-        );
+        console.log(`ignored ${fixtureProviderErrors} fixture provider error(s)`);
     }
 
     manifest.checks.push(

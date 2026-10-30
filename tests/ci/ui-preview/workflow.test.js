@@ -255,6 +255,12 @@ describe('user opens a pull request that runs the preview', () => {
         expect(publishScript).toContain('warnings,');
     });
 
+    it('user gets only actionable notes in the comment', () => {
+        // The seeded provider points at a closed port on purpose, so its
+        // connection errors are expected and must stay out of the manifest.
+        expect(recordScript).not.toContain('expected provider connection error');
+    });
+
     it('user gets no credential written into the workflow or the scripts', () => {
         const directory = path.join(repositoryRoot, '.github/ui-preview');
         const files = [];
