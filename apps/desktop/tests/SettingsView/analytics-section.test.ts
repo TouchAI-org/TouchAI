@@ -78,4 +78,18 @@ describe('user configures product analytics', () => {
         expect(nativeAnalytics.clearPending).toHaveBeenCalledWith(1);
         expect(wrapper.find('[data-testid="settings-analytics-clear"]').exists()).toBe(false);
     });
+
+    it('user is told when a clear loses a consent race instead of a false success', async () => {
+        nativeAnalytics.getState.mockResolvedValue(state({ queueDepth: 3, consentEpoch: 1 }));
+        nativeAnalytics.clearPending.mockRejectedValue(new Error('stale_consent_epoch'));
+
+        const wrapper = mount(AnalyticsSection);
+        await flushPromises();
+
+        await wrapper.get('[data-testid="settings-analytics-clear"]').trigger('click');
+        await flushPromises();
+
+        expect(wrapper.find('[data-testid="settings-analytics-clear"]').exists()).toBe(true);
+        expect(nativeAnalytics.getState).toHaveBeenCalledTimes(2);
+    });
 });

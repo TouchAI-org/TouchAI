@@ -6,7 +6,7 @@
 //! there is no second database, connection or schema framework. These are
 //! crate-internal typed statements, not a generic SQL IPC surface.
 
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{Row, SqlitePool};
 use time::OffsetDateTime;
 
 pub(crate) const MAX_EVENTS: i64 = 10_000;
@@ -22,6 +22,7 @@ pub(crate) fn now_millis() -> i64 {
         .unwrap_or_default()
 }
 
+/// Fixed-format `YYYY-MM-DD` UTC day for a millisecond timestamp.
 pub(crate) fn utc_day_from_ms(millis: i64) -> String {
     let seconds = millis.div_euclid(1000);
     match OffsetDateTime::from_unix_timestamp(seconds) {
@@ -38,7 +39,7 @@ pub(crate) fn utc_day_from_ms(millis: i64) -> String {
     }
 }
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone)]
 pub(crate) struct AnalyticsStateRow {
     pub(crate) status: String,
     pub(crate) consent_explicit: i64,
@@ -46,11 +47,35 @@ pub(crate) struct AnalyticsStateRow {
     pub(crate) consent_epoch: i64,
 }
 
-#[derive(Debug, Clone, FromRow)]
+// `sqlx` is built without the `macros` feature, so the `FromRow` derive is not
+// available. These small manual impls keep typed decoding without adding a
+// dependency feature or a second schema definition.
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for AnalyticsStateRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            status: row.try_get("status")?,
+            consent_explicit: row.try_get("consent_explicit")?,
+            installation_id: row.try_get("installation_id")?,
+            consent_epoch: row.try_get("consent_epoch")?,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct AnalyticsOutboxRow {
     pub(crate) event_id: String,
     pub(crate) payload_json: String,
     pub(crate) attempt_count: i64,
+}
+
+impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for AnalyticsOutboxRow {
+    fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            event_id: row.try_get("event_id")?,
+            payload_json: row.try_get("payload_json")?,
+            attempt_count: row.try_get("attempt_count")?,
+        })
+    }
 }
 
 pub(crate) struct OutboxInsert {
@@ -283,6 +308,15 @@ pub(crate) async fn clear_pending(
     Ok(Some(updated))
 }
 
+/// Persist one validated event.
+///
+/// ## Durability
+///
+/// Enqueue commits in a single SQLite transaction on the existing `touchai.db`
+/// pool, which runs the shared WAL + `synchronous=NORMAL` policy. A committed row
+/// therefore survives a process/OS crash and is retried after restart. It is not a
+/// power-loss or storage-failure durability guarantee, and this module never changes
+/// the shared journal/fsync policy.
 pub(crate) async fn enqueue(
     pool: &SqlitePool,
     insert: OutboxInsert,

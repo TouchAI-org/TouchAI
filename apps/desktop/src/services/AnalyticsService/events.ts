@@ -4,8 +4,26 @@ import { z } from '@/utils/zod';
 
 import { ANALYTICS_EVENT_NAMES, type AnalyticsAttributes, type AnalyticsEventName } from './types';
 
-const uuidSchema = z.string().uuid();
-const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+// Canonical hyphenated UUID, matched byte-for-byte by the Rust validator so the
+// two registries accept and reject exactly the same strings.
+const uuidSchema = z
+    .string()
+    .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+
+function isRealUtcDay(value: string): boolean {
+    const [year, month, day] = value.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return (
+        date.getUTCFullYear() === year &&
+        date.getUTCMonth() === month - 1 &&
+        date.getUTCDate() === day
+    );
+}
+
+const daySchema = z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine(isRealUtcDay, { message: 'invalid_day' });
 const textSchema = z.string().min(1).max(200);
 
 const latencyMsSchema = z.number().int().min(0).max(86_400_000);
@@ -184,6 +202,11 @@ export function validateAnalyticsAttributes<T extends AnalyticsEventName>(
     eventName: T,
     attributes: AnalyticsAttributes
 ): AnalyticsEventAttributes<T> {
+    // Explicitly reject unregistered names (including Object prototype keys such
+    // as "constructor") instead of relying on an incidental missing-schema error.
+    if (!isAnalyticsEventName(eventName)) {
+        throw new Error(`unknown_analytics_event:${String(eventName)}`);
+    }
     const schema = ANALYTICS_EVENT_SCHEMAS[eventName];
     return schema.parse(attributes) as AnalyticsEventAttributes<T>;
 }

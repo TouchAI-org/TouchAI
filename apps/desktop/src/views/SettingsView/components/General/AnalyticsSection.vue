@@ -48,6 +48,7 @@
         } catch (error) {
             log.error('[Analytics] Failed to clear pending analytics data:', error);
             alert.error(t('settings.analytics.saveFailed'));
+            await load();
         }
     }
 
@@ -67,7 +68,7 @@
                 <Switch
                     size="lg"
                     data-testid="settings-analytics-toggle"
-                    :disabled="state.status === 'uninitialized'"
+                    :disabled="state.status === 'uninitialized' || !state.transportReady"
                     :model-value="state.status === 'enabled'"
                     @update:model-value="toggle"
                 />

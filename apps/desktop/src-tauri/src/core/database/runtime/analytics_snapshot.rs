@@ -27,7 +27,7 @@ pub(crate) async fn sanitize_analytics_snapshot(path: &Path) -> Result<(), Strin
     .await
     .map_err(|error| format!("Failed to open analytics snapshot: {error}"))?;
 
-    let result = async {
+    let result: Result<(), String> = async {
         for table in ANALYTICS_TABLES {
             let present: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -63,7 +63,7 @@ mod tests {
     use super::*;
     use crate::core::database::DatabaseRuntime;
 
-    use super::super::contract::create_sqlite_pool;
+    use crate::core::database::contract::create_sqlite_pool;
 
     #[tokio::test]
     async fn user_gets_a_sanitized_snapshot_without_analytics_identity_or_payloads() {

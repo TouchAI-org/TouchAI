@@ -9,9 +9,7 @@
 //! together, and the shared fixtures prove they agree.
 
 use serde_json::{Map as JsonMap, Value as JsonValue};
-use uuid::Uuid;
 
-pub(crate) const PROTOCOL_VERSION: u32 = 1;
 pub(crate) const SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,30 +36,6 @@ pub(crate) enum AnalyticsEventName {
 }
 
 impl AnalyticsEventName {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::AnalyticsSessionStarted => "analytics.session_started",
-            Self::AnalyticsHealthReported => "analytics.health_reported",
-            Self::ProductSurfaceOpened => "product.surface_opened",
-            Self::ProductFeatureExposed => "product.feature_exposed",
-            Self::ProviderConfigurationStarted => "provider.configuration_started",
-            Self::ProviderConfigurationCompleted => "provider.configuration_completed",
-            Self::AgentRequestSubmitted => "agent.request_submitted",
-            Self::AgentFirstOutputReceived => "agent.first_output_received",
-            Self::AgentRequestCompleted => "agent.request_completed",
-            Self::AgentToolCompleted => "agent.tool_completed",
-            Self::AgentApprovalResolved => "agent.approval_resolved",
-            Self::McpConnectionCompleted => "mcp.connection_completed",
-            Self::AttachmentPreparationCompleted => "attachment.preparation_completed",
-            Self::SearchCompleted => "search.completed",
-            Self::SearchResultSelected => "search.result_selected",
-            Self::ResultActionCompleted => "result.action_completed",
-            Self::AppUpdateTransition => "app.update_transition",
-            Self::AppStarted => "app.started",
-            Self::AppStartupCompleted => "app.startup_completed",
-        }
-    }
-
     pub(crate) fn parse(value: &str) -> Option<Self> {
         Some(match value {
             "analytics.session_started" => Self::AnalyticsSessionStarted,
@@ -103,7 +77,7 @@ enum AttrKind {
     Bool,
 }
 
-fn required(key: &'static str, kind: AttrKind) -> AttrSpec {
+const fn required(key: &'static str, kind: AttrKind) -> AttrSpec {
     AttrSpec {
         key,
         required: true,
@@ -111,7 +85,7 @@ fn required(key: &'static str, kind: AttrKind) -> AttrSpec {
     }
 }
 
-fn optional(key: &'static str, kind: AttrKind) -> AttrSpec {
+const fn optional(key: &'static str, kind: AttrKind) -> AttrSpec {
     AttrSpec {
         key,
         required: false,
@@ -119,7 +93,7 @@ fn optional(key: &'static str, kind: AttrKind) -> AttrSpec {
     }
 }
 
-fn int_kind(minimum: i64, maximum: i64) -> AttrKind {
+const fn int_kind(minimum: i64, maximum: i64) -> AttrKind {
     AttrKind::Int { minimum, maximum }
 }
 
@@ -127,234 +101,291 @@ fn event_spec(name: AnalyticsEventName) -> &'static [AttrSpec] {
     use AnalyticsEventName::*;
 
     match name {
-        AnalyticsSessionStarted => &[
-            required("configured", AttrKind::Bool),
-            optional("first_observed_day", AttrKind::Day),
-            optional("first_success_day", AttrKind::Day),
-        ],
-        AnalyticsHealthReported => &[
-            required("accepted_count", int_kind(0, 1_000_000)),
-            optional("duplicate_count", int_kind(0, 1_000_000)),
-            optional("rejected_count", int_kind(0, 1_000_000)),
-            optional("dropped_count", int_kind(0, 1_000_000)),
-            optional("send_failure_count", int_kind(0, 1_000_000)),
-            optional("queue_depth", int_kind(0, 1_000_000)),
-            required(
-                "consent_state",
-                AttrKind::Enum(&["enabled", "disabled", "pending"]),
-            ),
-        ],
-        ProductSurfaceOpened => &[required(
-            "surface",
-            AttrKind::Enum(&["shortcut", "tray", "main", "history", "other"]),
-        )],
-        ProductFeatureExposed => &[required(
-            "feature",
-            AttrKind::Enum(&[
-                "quick_search",
-                "attachments",
-                "mcp",
-                "tools",
-                "history",
-                "other",
-            ]),
-        )],
-        ProviderConfigurationStarted => &[
-            required("configuration_id", AttrKind::Uuid),
-            required(
-                "provider_category",
-                AttrKind::Enum(&["openai", "anthropic", "google", "local", "other"]),
-            ),
-            required(
-                "entry",
-                AttrKind::Enum(&["onboarding", "settings", "test", "other"]),
-            ),
-        ],
-        ProviderConfigurationCompleted => &[
-            required("configuration_id", AttrKind::Uuid),
-            required("stage", AttrKind::Enum(&["saved", "validated"])),
-            required("result", AttrKind::Enum(&["success", "failure"])),
-            optional(
-                "error_category",
-                AttrKind::Enum(&["auth", "network", "invalid_config", "provider", "other"]),
-            ),
-            optional("duration_ms", int_kind(0, 86_400_000)),
-        ],
-        AgentRequestSubmitted => &[
-            required("request_id", AttrKind::Uuid),
-            required(
-                "request_kind",
-                AttrKind::Enum(&["chat", "tool", "agent", "other"]),
-            ),
-            required(
+        AnalyticsSessionStarted => {
+            static SPECS: &[AttrSpec] = &[
+                required("configured", AttrKind::Bool),
+                optional("first_observed_day", AttrKind::Day),
+                optional("first_success_day", AttrKind::Day),
+            ];
+            SPECS
+        }
+        AnalyticsHealthReported => {
+            static SPECS: &[AttrSpec] = &[
+                required("accepted_count", int_kind(0, 1_000_000)),
+                optional("duplicate_count", int_kind(0, 1_000_000)),
+                optional("rejected_count", int_kind(0, 1_000_000)),
+                optional("dropped_count", int_kind(0, 1_000_000)),
+                optional("send_failure_count", int_kind(0, 1_000_000)),
+                optional("queue_depth", int_kind(0, 1_000_000)),
+                required(
+                    "consent_state",
+                    AttrKind::Enum(&["enabled", "disabled", "pending"]),
+                ),
+            ];
+            SPECS
+        }
+        ProductSurfaceOpened => {
+            static SPECS: &[AttrSpec] = &[required(
                 "surface",
-                AttrKind::Enum(&["main", "quick_search", "history", "other"]),
-            ),
-            required(
-                "attachment_count_bucket",
-                AttrKind::Enum(&["0", "1", "2-5", "6+"]),
-            ),
-            optional(
-                "capability",
-                AttrKind::Enum(&["none", "tools", "mcp", "browser", "other"]),
-            ),
-        ],
-        AgentFirstOutputReceived => &[
-            required("request_id", AttrKind::Uuid),
-            required("first_output_latency_ms", int_kind(0, 86_400_000)),
-        ],
-        AgentRequestCompleted => &[
-            required("request_id", AttrKind::Uuid),
-            required(
-                "result",
-                AttrKind::Enum(&["success", "failure", "cancelled", "unknown"]),
-            ),
-            required("duration_ms", int_kind(0, 86_400_000)),
-            optional("provider_ttft_ms", int_kind(0, 86_400_000)),
-            required("retry_count", int_kind(0, 10_000)),
-            optional("tool_count", int_kind(0, 10_000)),
-            optional("approval_count", int_kind(0, 10_000)),
-            optional("model_switch_count", int_kind(0, 1_000)),
-            optional("total_tokens", int_kind(0, 10_000_000_000)),
-            optional("cost_usd_micros", int_kind(0, 10_000_000_000_000)),
-            required(
-                "usage_coverage",
-                AttrKind::Enum(&["observed", "partial", "unavailable"]),
-            ),
-            required(
-                "persistence_result",
-                AttrKind::Enum(&["saved", "failed", "not_applicable"]),
-            ),
-            optional(
-                "cancel_stage",
+                AttrKind::Enum(&["shortcut", "tray", "main", "history", "other"]),
+            )];
+            SPECS
+        }
+        ProductFeatureExposed => {
+            static SPECS: &[AttrSpec] = &[required(
+                "feature",
                 AttrKind::Enum(&[
-                    "submitted",
-                    "streaming",
-                    "tool",
-                    "approval",
-                    "persistence",
+                    "quick_search",
+                    "attachments",
+                    "mcp",
+                    "tools",
+                    "history",
                     "other",
                 ]),
-            ),
-        ],
-        AgentToolCompleted => &[
-            required("request_id", AttrKind::Uuid),
-            required("tool_id", AttrKind::Uuid),
-            required(
-                "tool_category",
-                AttrKind::Enum(&["file", "command", "network", "browser", "mcp", "other"]),
-            ),
-            required(
-                "result",
-                AttrKind::Enum(&["success", "failure", "cancelled"]),
-            ),
-            required("duration_ms", int_kind(0, 86_400_000)),
-        ],
-        AgentApprovalResolved => &[
-            required("request_id", AttrKind::Uuid),
-            required("approval_id", AttrKind::Uuid),
-            required(
-                "resolution",
-                AttrKind::Enum(&["approved", "rejected", "cancelled", "timeout"]),
-            ),
-            required("wait_ms", int_kind(0, 86_400_000)),
-        ],
-        McpConnectionCompleted => &[
-            required("connection_id", AttrKind::Uuid),
-            required(
-                "connection_kind",
-                AttrKind::Enum(&["user", "background_reconnect"]),
-            ),
-            required(
-                "result",
-                AttrKind::Enum(&["success", "failure", "cancelled"]),
-            ),
-            optional("duration_ms", int_kind(0, 86_400_000)),
-            optional(
-                "error_category",
-                AttrKind::Enum(&["network", "auth", "protocol", "other"]),
-            ),
-        ],
-        AttachmentPreparationCompleted => &[
-            required("preparation_id", AttrKind::Uuid),
-            required(
-                "attachment_type",
-                AttrKind::Enum(&["image", "document", "code", "other"]),
-            ),
-            required("count_bucket", AttrKind::Enum(&["1", "2-5", "6+"])),
-            required("result", AttrKind::Enum(&["success", "failure"])),
-            optional("duration_ms", int_kind(0, 86_400_000)),
-            optional(
-                "error_category",
-                AttrKind::Enum(&["too_large", "unsupported", "io", "other"]),
-            ),
-        ],
-        SearchCompleted => &[
-            required("interaction_id", AttrKind::Uuid),
-            required(
-                "search_scope",
-                AttrKind::Enum(&["quick", "history", "other"]),
-            ),
-            required("has_results", AttrKind::Bool),
-            required("duration_ms", int_kind(0, 86_400_000)),
-            optional(
-                "result_count_bucket",
-                AttrKind::Enum(&["0", "1", "2-5", "6+"]),
-            ),
-        ],
-        SearchResultSelected => &[
-            required("interaction_id", AttrKind::Uuid),
-            required(
-                "result_category",
-                AttrKind::Enum(&["conversation", "message", "file", "setting", "other"]),
-            ),
-            required("opened", AttrKind::Bool),
-        ],
-        ResultActionCompleted => &[
-            required("action_id", AttrKind::Uuid),
-            required(
-                "action",
-                AttrKind::Enum(&["copy_answer", "copy_code", "open_external", "other"]),
-            ),
-            required("result", AttrKind::Enum(&["success", "failure"])),
-        ],
-        AppUpdateTransition => &[
-            required("update_operation_id", AttrKind::Uuid),
-            required(
-                "phase",
-                AttrKind::Enum(&[
-                    "check_started",
-                    "check_finished",
-                    "download_started",
-                    "download_finished",
-                    "install_handoff",
-                    "restart_confirmed",
-                ]),
-            ),
-            optional("from_version", AttrKind::Text),
-            optional("to_version", AttrKind::Text),
-            required(
-                "result",
-                AttrKind::Enum(&["success", "failure", "unavailable"]),
-            ),
-            required("source", AttrKind::Enum(&["background", "user", "other"])),
-        ],
-        AppStarted => &[
-            required("run_id", AttrKind::Uuid),
-            required(
-                "startup_source",
-                AttrKind::Enum(&["foreground", "background", "autostart", "other"]),
-            ),
-        ],
-        AppStartupCompleted => &[
-            required("startup_id", AttrKind::Uuid),
-            required("startup_kind", AttrKind::Enum(&["cold", "reactivation"])),
-            required(
-                "startup_source",
-                AttrKind::Enum(&["foreground", "background", "autostart", "other"]),
-            ),
-            required("duration_ms", int_kind(0, 86_400_000)),
-        ],
+            )];
+            SPECS
+        }
+        ProviderConfigurationStarted => {
+            static SPECS: &[AttrSpec] = &[
+                required("configuration_id", AttrKind::Uuid),
+                required(
+                    "provider_category",
+                    AttrKind::Enum(&["openai", "anthropic", "google", "local", "other"]),
+                ),
+                required(
+                    "entry",
+                    AttrKind::Enum(&["onboarding", "settings", "test", "other"]),
+                ),
+            ];
+            SPECS
+        }
+        ProviderConfigurationCompleted => {
+            static SPECS: &[AttrSpec] = &[
+                required("configuration_id", AttrKind::Uuid),
+                required("stage", AttrKind::Enum(&["saved", "validated"])),
+                required("result", AttrKind::Enum(&["success", "failure"])),
+                optional(
+                    "error_category",
+                    AttrKind::Enum(&["auth", "network", "invalid_config", "provider", "other"]),
+                ),
+                optional("duration_ms", int_kind(0, 86_400_000)),
+            ];
+            SPECS
+        }
+        AgentRequestSubmitted => {
+            static SPECS: &[AttrSpec] = &[
+                required("request_id", AttrKind::Uuid),
+                required(
+                    "request_kind",
+                    AttrKind::Enum(&["chat", "tool", "agent", "other"]),
+                ),
+                required(
+                    "surface",
+                    AttrKind::Enum(&["main", "quick_search", "history", "other"]),
+                ),
+                required(
+                    "attachment_count_bucket",
+                    AttrKind::Enum(&["0", "1", "2-5", "6+"]),
+                ),
+                optional(
+                    "capability",
+                    AttrKind::Enum(&["none", "tools", "mcp", "browser", "other"]),
+                ),
+            ];
+            SPECS
+        }
+        AgentFirstOutputReceived => {
+            static SPECS: &[AttrSpec] = &[
+                required("request_id", AttrKind::Uuid),
+                required("first_output_latency_ms", int_kind(0, 86_400_000)),
+            ];
+            SPECS
+        }
+        AgentRequestCompleted => {
+            static SPECS: &[AttrSpec] = &[
+                required("request_id", AttrKind::Uuid),
+                required(
+                    "result",
+                    AttrKind::Enum(&["success", "failure", "cancelled", "unknown"]),
+                ),
+                required("duration_ms", int_kind(0, 86_400_000)),
+                optional("provider_ttft_ms", int_kind(0, 86_400_000)),
+                required("retry_count", int_kind(0, 10_000)),
+                optional("tool_count", int_kind(0, 10_000)),
+                optional("approval_count", int_kind(0, 10_000)),
+                optional("model_switch_count", int_kind(0, 1_000)),
+                optional("total_tokens", int_kind(0, 10_000_000_000)),
+                optional("cost_usd_micros", int_kind(0, 10_000_000_000_000)),
+                required(
+                    "usage_coverage",
+                    AttrKind::Enum(&["observed", "partial", "unavailable"]),
+                ),
+                required(
+                    "persistence_result",
+                    AttrKind::Enum(&["saved", "failed", "not_applicable"]),
+                ),
+                optional(
+                    "cancel_stage",
+                    AttrKind::Enum(&[
+                        "submitted",
+                        "streaming",
+                        "tool",
+                        "approval",
+                        "persistence",
+                        "other",
+                    ]),
+                ),
+            ];
+            SPECS
+        }
+        AgentToolCompleted => {
+            static SPECS: &[AttrSpec] = &[
+                required("request_id", AttrKind::Uuid),
+                required("tool_id", AttrKind::Uuid),
+                required(
+                    "tool_category",
+                    AttrKind::Enum(&["file", "command", "network", "browser", "mcp", "other"]),
+                ),
+                required(
+                    "result",
+                    AttrKind::Enum(&["success", "failure", "cancelled"]),
+                ),
+                required("duration_ms", int_kind(0, 86_400_000)),
+            ];
+            SPECS
+        }
+        AgentApprovalResolved => {
+            static SPECS: &[AttrSpec] = &[
+                required("request_id", AttrKind::Uuid),
+                required("approval_id", AttrKind::Uuid),
+                required(
+                    "resolution",
+                    AttrKind::Enum(&["approved", "rejected", "cancelled", "timeout"]),
+                ),
+                required("wait_ms", int_kind(0, 86_400_000)),
+            ];
+            SPECS
+        }
+        McpConnectionCompleted => {
+            static SPECS: &[AttrSpec] = &[
+                required("connection_id", AttrKind::Uuid),
+                required(
+                    "connection_kind",
+                    AttrKind::Enum(&["user", "background_reconnect"]),
+                ),
+                required(
+                    "result",
+                    AttrKind::Enum(&["success", "failure", "cancelled"]),
+                ),
+                optional("duration_ms", int_kind(0, 86_400_000)),
+                optional(
+                    "error_category",
+                    AttrKind::Enum(&["network", "auth", "protocol", "other"]),
+                ),
+            ];
+            SPECS
+        }
+        AttachmentPreparationCompleted => {
+            static SPECS: &[AttrSpec] = &[
+                required("preparation_id", AttrKind::Uuid),
+                required(
+                    "attachment_type",
+                    AttrKind::Enum(&["image", "document", "code", "other"]),
+                ),
+                required("count_bucket", AttrKind::Enum(&["1", "2-5", "6+"])),
+                required("result", AttrKind::Enum(&["success", "failure"])),
+                optional("duration_ms", int_kind(0, 86_400_000)),
+                optional(
+                    "error_category",
+                    AttrKind::Enum(&["too_large", "unsupported", "io", "other"]),
+                ),
+            ];
+            SPECS
+        }
+        SearchCompleted => {
+            static SPECS: &[AttrSpec] = &[
+                required("interaction_id", AttrKind::Uuid),
+                required(
+                    "search_scope",
+                    AttrKind::Enum(&["quick", "history", "other"]),
+                ),
+                required("has_results", AttrKind::Bool),
+                required("duration_ms", int_kind(0, 86_400_000)),
+                optional(
+                    "result_count_bucket",
+                    AttrKind::Enum(&["0", "1", "2-5", "6+"]),
+                ),
+            ];
+            SPECS
+        }
+        SearchResultSelected => {
+            static SPECS: &[AttrSpec] = &[
+                required("interaction_id", AttrKind::Uuid),
+                required(
+                    "result_category",
+                    AttrKind::Enum(&["conversation", "message", "file", "setting", "other"]),
+                ),
+                required("opened", AttrKind::Bool),
+            ];
+            SPECS
+        }
+        ResultActionCompleted => {
+            static SPECS: &[AttrSpec] = &[
+                required("action_id", AttrKind::Uuid),
+                required(
+                    "action",
+                    AttrKind::Enum(&["copy_answer", "copy_code", "open_external", "other"]),
+                ),
+                required("result", AttrKind::Enum(&["success", "failure"])),
+            ];
+            SPECS
+        }
+        AppUpdateTransition => {
+            static SPECS: &[AttrSpec] = &[
+                required("update_operation_id", AttrKind::Uuid),
+                required(
+                    "phase",
+                    AttrKind::Enum(&[
+                        "check_started",
+                        "check_finished",
+                        "download_started",
+                        "download_finished",
+                        "install_handoff",
+                        "restart_confirmed",
+                    ]),
+                ),
+                optional("from_version", AttrKind::Text),
+                optional("to_version", AttrKind::Text),
+                required(
+                    "result",
+                    AttrKind::Enum(&["success", "failure", "unavailable"]),
+                ),
+                required("source", AttrKind::Enum(&["background", "user", "other"])),
+            ];
+            SPECS
+        }
+        AppStarted => {
+            static SPECS: &[AttrSpec] = &[
+                required("run_id", AttrKind::Uuid),
+                required(
+                    "startup_source",
+                    AttrKind::Enum(&["foreground", "background", "autostart", "other"]),
+                ),
+            ];
+            SPECS
+        }
+        AppStartupCompleted => {
+            static SPECS: &[AttrSpec] = &[
+                required("startup_id", AttrKind::Uuid),
+                required("startup_kind", AttrKind::Enum(&["cold", "reactivation"])),
+                required(
+                    "startup_source",
+                    AttrKind::Enum(&["foreground", "background", "autostart", "other"]),
+                ),
+                required("duration_ms", int_kind(0, 86_400_000)),
+            ];
+            SPECS
+        }
     }
 }
 
@@ -413,9 +444,11 @@ fn validate_value(kind: &AttrKind, value: &JsonValue) -> Result<(), String> {
         }
         AttrKind::Uuid => {
             let value = value.as_str().ok_or("expected_string")?;
-            Uuid::parse_str(value)
-                .map(|_| ())
-                .map_err(|_| "expected_uuid".to_string())
+            if is_canonical_uuid(value) {
+                Ok(())
+            } else {
+                Err("expected_uuid".to_string())
+            }
         }
         AttrKind::Day => {
             let value = value.as_str().ok_or("expected_string")?;
@@ -464,6 +497,21 @@ fn is_utc_day(value: &str) -> bool {
         return false;
     };
     time::Date::from_calendar_date(year, month, day).is_ok()
+}
+
+/// Canonical hyphenated UUID: `8-4-4-4-12` hexadecimal, case-insensitive.
+///
+/// This is the single rule shared with the TypeScript registry, so the two
+/// validators accept and reject exactly the same strings.
+fn is_canonical_uuid(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 36 {
+        return false;
+    }
+    bytes.iter().enumerate().all(|(index, byte)| match index {
+        8 | 13 | 18 | 23 => *byte == b'-',
+        _ => byte.is_ascii_hexdigit(),
+    })
 }
 
 #[cfg(test)]

@@ -16,9 +16,9 @@ use tokio::sync::{Mutex, Notify};
 use crate::core::database::DatabaseRuntime;
 use crate::core::product_config::product_config;
 
-use super::events::{self, PROTOCOL_VERSION};
+use super::events;
 use super::store::{self, AnalyticsOutboxRow, AnalyticsStateRow, EnqueueOutcome, OutboxInsert};
-use super::transport::{AnalyticsEventEnvelope, AnalyticsTransport, SendOutcome};
+use super::transport::{AnalyticsEventEnvelope, AnalyticsTransport, EventSender, SendOutcome};
 use super::{
     AnalyticsConsentStatus, AnalyticsState, AnalyticsSubmitResult, AnalyticsSubmitStatus,
     AnalyticsTrackRequest,
@@ -27,14 +27,18 @@ use super::{
 const POLICY_VERSION: i64 = 1;
 const MIN_OCCURRED_AT_MS: i64 = 1_577_836_800_000;
 const SEND_INTERVAL: Duration = Duration::from_secs(30);
+/// Upper bound for a manual/background flush pass so a slow endpoint cannot hold
+/// the sender for the whole batch worth of timeouts.
+const FLUSH_BUDGET: Duration = Duration::from_secs(12);
 const BACKOFF_BASE_MS: i64 = 1_000;
 const BACKOFF_MAX_MS: i64 = 300_000;
 const CONFIG_RETRY_MS: i64 = 300_000;
+const FUTURE_OCCURRED_AT_TOLERANCE_MS: i64 = 86_400_000;
 
 struct AnalyticsConfig {
     policy_version: i64,
     default_enabled: bool,
-    transport: Option<AnalyticsTransport>,
+    transport: Option<Arc<dyn EventSender>>,
 }
 
 #[derive(Default)]
@@ -55,6 +59,9 @@ struct AnalyticsRuntimeInner {
     consent_epoch: AtomicI64,
     transport_ready: bool,
     session_id: Mutex<Option<String>>,
+    /// Serializes the single sender: the background loop and a manual flush can
+    /// never process the same rows at the same time.
+    flush_lock: Mutex<()>,
     counters: Counters,
     notify: Notify,
     app_version: String,
@@ -86,6 +93,7 @@ impl AnalyticsRuntime {
                 consent_epoch: AtomicI64::new(0),
                 transport_ready,
                 session_id: Mutex::new(None),
+                flush_lock: Mutex::new(()),
                 counters: Counters::default(),
                 notify: Notify::new(),
                 app_version,
@@ -155,11 +163,15 @@ impl AnalyticsRuntime {
         if self.inner.config.is_none() {
             return self.inner.build_state().await;
         }
-        let updated = store::clear_pending(self.inner.database.pool(), expected_epoch).await?;
-        if let Some(row) = updated {
-            self.inner.apply_state(&row);
+        match store::clear_pending(self.inner.database.pool(), expected_epoch).await? {
+            Some(row) => {
+                self.inner.apply_state(&row);
+                self.inner.build_state().await
+            }
+            // The caller's consent view is stale. Report it instead of returning an
+            // unchanged queue that the UI would report as a successful clear.
+            None => Err("stale_consent_epoch".to_string()),
         }
-        self.inner.build_state().await
     }
 
     pub async fn flush(&self) -> Result<(), String> {
@@ -167,12 +179,21 @@ impl AnalyticsRuntime {
     }
 
     pub async fn track(&self, request: AnalyticsTrackRequest) -> AnalyticsSubmitResult {
-        let Some(config) = &self.inner.config else {
+        if self.inner.config.is_none() {
             return AnalyticsSubmitResult::with_reason(
                 AnalyticsSubmitStatus::Unavailable,
                 "not_configured",
             );
-        };
+        }
+        // An unprovisioned or unreadable deployment fails closed: no event is
+        // queued until the endpoint is ready. The stored consent decision is left
+        // untouched, so real provisioning later is not silently suppressed.
+        if !self.inner.transport_ready {
+            return AnalyticsSubmitResult::with_reason(
+                AnalyticsSubmitStatus::Unavailable,
+                "analytics_not_provisioned",
+            );
+        }
 
         if events::validate_event(&request.event_name, &request.attributes).is_err() {
             return AnalyticsSubmitResult::with_reason(
@@ -180,7 +201,9 @@ impl AnalyticsRuntime {
                 "invalid_attributes",
             );
         }
-        if request.occurred_at_ms < MIN_OCCURRED_AT_MS {
+        if request.occurred_at_ms < MIN_OCCURRED_AT_MS
+            || request.occurred_at_ms > store::now_millis() + FUTURE_OCCURRED_AT_TOLERANCE_MS
+        {
             return AnalyticsSubmitResult::with_reason(
                 AnalyticsSubmitStatus::Rejected,
                 "invalid_timestamp",
@@ -204,10 +227,14 @@ impl AnalyticsRuntime {
         };
 
         let session_id = self.inner.session_for(&request.event_name).await;
+        // Read the success marker before `attributes` moves into the envelope so
+        // the persisted payload and the outbox row agree.
+        let marks_first_success = marks_first_success(&request.event_name, &request.attributes);
         let envelope = AnalyticsEventEnvelope {
             schema_version: events::SCHEMA_VERSION,
             event_id: uuid::Uuid::new_v4().to_string(),
             occurred_at_ms: request.occurred_at_ms,
+            client_sent_at_ms: store::now_millis(),
             installation_id: state.installation_id.clone().unwrap_or_default(),
             analytics_session_id: session_id,
             event_name: request.event_name.clone(),
@@ -230,11 +257,11 @@ impl AnalyticsRuntime {
         let insert = OutboxInsert {
             event_id: envelope.event_id.clone(),
             consent_epoch: request.consent_epoch,
-            schema_version: i64::from(PROTOCOL_VERSION),
+            schema_version: i64::from(events::SCHEMA_VERSION),
             event_name: request.event_name.clone(),
             payload_json,
             priority: events::event_priority(&request.event_name),
-            marks_first_success: marks_first_success(&request.event_name, &request.attributes),
+            marks_first_success,
         };
 
         match store::enqueue(self.inner.database.pool(), insert).await {
@@ -277,9 +304,16 @@ impl AnalyticsRuntime {
         let pool = self.inner.database.pool();
         let now = store::now_millis();
         let _ = store::purge_expired(pool, now).await;
+        // Single sender: the background loop and a manual flush take this lock so
+        // the same row is never sent twice and attempt counts do not double-count.
+        let _guard = self.inner.flush_lock.lock().await;
+        let started = std::time::Instant::now();
         let batch = store::due_batch(pool, now).await?;
 
         for row in batch {
+            if started.elapsed() >= FLUSH_BUDGET {
+                break;
+            }
             // Consent can be withdrawn while a batch is in flight; re-check the
             // gate before each send so nothing leaves after a withdrawal.
             if !self.inner.enabled.load(Ordering::SeqCst) {
@@ -339,7 +373,7 @@ impl AnalyticsRuntime {
 
     async fn send_row(
         &self,
-        transport: &AnalyticsTransport,
+        transport: &Arc<dyn EventSender>,
         row: &AnalyticsOutboxRow,
     ) -> SendOutcome {
         let envelope: AnalyticsEventEnvelope = match serde_json::from_str(&row.payload_json) {
@@ -420,14 +454,23 @@ fn resolve_config() -> Option<AnalyticsConfig> {
     }
     // Release eligibility is a build property; the deployment default only
     // participates in an eligible build. Nothing here is a persisted user choice.
-    let default_enabled = !cfg!(debug_assertions) && analytics.default_enabled;
-    let transport = if analytics.is_transport_ready() {
-        analytics.send_url().ok().and_then(|send_url| {
-            AnalyticsTransport::new(send_url, analytics.website_id.trim().to_string()).ok()
-        })
+    let transport: Option<Arc<dyn EventSender>> = if analytics.is_transport_ready() {
+        analytics
+            .send_url()
+            .ok()
+            .and_then(|send_url| {
+                AnalyticsTransport::new(send_url, analytics.website_id.trim().to_string()).ok()
+            })
+            .map(|transport| Arc::new(transport) as Arc<dyn EventSender>)
     } else {
         None
     };
+    // The derived default only turns collection on once this build can actually
+    // deliver. It is a non-explicit value, so real provisioning re-derives it
+    // later without overwriting an explicit user choice, and a community build
+    // never queues events that a later official build would flush.
+    let default_enabled =
+        !cfg!(debug_assertions) && analytics.default_enabled && transport.is_some();
     Some(AnalyticsConfig {
         policy_version: POLICY_VERSION,
         default_enabled,
@@ -465,8 +508,245 @@ fn platform() -> (String, String) {
 }
 
 #[cfg(test)]
+impl AnalyticsRuntime {
+    /// Test constructor with an injected sender so the sender loop can be
+    /// exercised without network. `None` models an unprovisioned deployment.
+    async fn initialize_with_sender_for_tests(
+        database: DatabaseRuntime,
+        sender: Option<Arc<dyn EventSender>>,
+        default_enabled: bool,
+    ) -> Result<Self, String> {
+        let config = AnalyticsConfig {
+            policy_version: POLICY_VERSION,
+            default_enabled,
+            transport: sender,
+        };
+        let runtime = Self {
+            inner: Arc::new(AnalyticsRuntimeInner {
+                database,
+                transport_ready: config.transport.is_some(),
+                config: Some(config),
+                enabled: AtomicBool::new(false),
+                consent_epoch: AtomicI64::new(0),
+                session_id: Mutex::new(None),
+                flush_lock: Mutex::new(()),
+                counters: Counters::default(),
+                notify: Notify::new(),
+                app_version: "1.0.0-test".to_string(),
+                release_channel: "stable".to_string(),
+                os_family: "linux".to_string(),
+                architecture: "x86_64".to_string(),
+            }),
+        };
+        let row = store::ensure_state(
+            runtime.inner.database.pool(),
+            POLICY_VERSION,
+            default_enabled,
+        )
+        .await?;
+        runtime.inner.apply_state(&row);
+        Ok(runtime)
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+    use std::{future::Future, pin::Pin, sync::atomic::AtomicI64};
+
+    async fn test_database() -> (tempfile::TempDir, DatabaseRuntime) {
+        let root = tempfile::tempdir().expect("temp dir");
+        let runtime = DatabaseRuntime::initialize_for_tests(root.path())
+            .await
+            .expect("database runtime");
+        (root, runtime)
+    }
+
+    fn outbox_insert(event_id: &str) -> OutboxInsert {
+        OutboxInsert {
+            event_id: event_id.to_string(),
+            consent_epoch: 0,
+            schema_version: 1,
+            event_name: "app.started".to_string(),
+            payload_json: r#"{"event_id":"x"}"#.to_string(),
+            priority: 100,
+            marks_first_success: false,
+        }
+    }
+
+    struct Probe {
+        active: AtomicI64,
+        max_active: AtomicI64,
+        sends: AtomicI64,
+        hold: Duration,
+        make: Box<dyn Fn() -> SendOutcome + Send + Sync>,
+    }
+
+    impl Probe {
+        fn new(make: impl Fn() -> SendOutcome + Send + Sync + 'static) -> Self {
+            Self {
+                active: AtomicI64::new(0),
+                max_active: AtomicI64::new(0),
+                sends: AtomicI64::new(0),
+                hold: Duration::from_millis(30),
+                make: Box::new(make),
+            }
+        }
+    }
+
+    impl EventSender for Probe {
+        fn send<'a>(
+            &'a self,
+            _envelope: &'a AnalyticsEventEnvelope,
+        ) -> Pin<Box<dyn Future<Output = SendOutcome> + Send + 'a>> {
+            Box::pin(async move {
+                let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+                self.max_active.fetch_max(active, Ordering::SeqCst);
+                tokio::time::sleep(self.hold).await;
+                self.active.fetch_sub(1, Ordering::SeqCst);
+                self.sends.fetch_add(1, Ordering::SeqCst);
+                (self.make)()
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn user_does_not_send_the_same_rows_twice_when_a_manual_flush_overlaps_the_sender() {
+        let (_root, database) = test_database().await;
+        let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
+        let runtime =
+            AnalyticsRuntime::initialize_with_sender_for_tests(database, Some(probe.clone()), true)
+                .await
+                .expect("runtime");
+
+        for index in 0..4 {
+            store::enqueue(
+                runtime.inner.database.pool(),
+                outbox_insert(&format!("e{index}")),
+            )
+            .await
+            .expect("enqueue");
+        }
+
+        let (first, second) = tokio::join!(runtime.flush_once(), runtime.flush_once());
+        first.expect("first flush");
+        second.expect("second flush");
+
+        assert_eq!(probe.max_active.load(Ordering::SeqCst), 1);
+        assert_eq!(probe.sends.load(Ordering::SeqCst), 4);
+        assert_eq!(
+            store::queue_stats(runtime.inner.database.pool())
+                .await
+                .expect("stats")
+                .0,
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_delivered_event_removed_and_never_resent() {
+        let (_root, database) = test_database().await;
+        let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
+        let runtime =
+            AnalyticsRuntime::initialize_with_sender_for_tests(database, Some(probe.clone()), true)
+                .await
+                .expect("runtime");
+        store::enqueue(runtime.inner.database.pool(), outbox_insert("e1"))
+            .await
+            .expect("enqueue");
+
+        runtime.flush_once().await.expect("flush");
+        assert_eq!(
+            store::queue_stats(runtime.inner.database.pool())
+                .await
+                .expect("stats")
+                .0,
+            0
+        );
+
+        runtime.flush_once().await.expect("flush again");
+        assert_eq!(probe.sends.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn user_keeps_an_event_when_the_sender_reports_a_configuration_fault() {
+        let (_root, database) = test_database().await;
+        let probe = Arc::new(Probe::new(|| SendOutcome::ConfigurationFailure {
+            reason: "bot_rejected".to_string(),
+        }));
+        let runtime =
+            AnalyticsRuntime::initialize_with_sender_for_tests(database, Some(probe.clone()), true)
+                .await
+                .expect("runtime");
+        store::enqueue(runtime.inner.database.pool(), outbox_insert("e1"))
+            .await
+            .expect("enqueue");
+
+        runtime.flush_once().await.expect("flush");
+
+        assert_eq!(
+            store::queue_stats(runtime.inner.database.pool())
+                .await
+                .expect("stats")
+                .0,
+            1,
+            "a bot rejection must not discard the event"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_gets_no_collection_until_the_deployment_is_provisioned() {
+        let (_root, database) = test_database().await;
+        let runtime = AnalyticsRuntime::initialize_with_sender_for_tests(database, None, false)
+            .await
+            .expect("runtime");
+
+        let result = runtime
+            .track(AnalyticsTrackRequest {
+                event_name: "app.started".to_string(),
+                occurred_at_ms: store::now_millis(),
+                consent_epoch: 0,
+                attributes: JsonMap::from_iter([
+                    (
+                        "run_id".to_string(),
+                        serde_json::Value::String(
+                            "92a3b4c5-d6e7-4bf8-8c09-eafb0c1d2e09".to_string(),
+                        ),
+                    ),
+                    (
+                        "startup_source".to_string(),
+                        serde_json::Value::String("foreground".to_string()),
+                    ),
+                ]),
+            })
+            .await;
+
+        assert_eq!(result.status, AnalyticsSubmitStatus::Unavailable);
+        assert_eq!(result.reason.as_deref(), Some("analytics_not_provisioned"));
+        assert_eq!(
+            store::queue_stats(runtime.inner.database.pool())
+                .await
+                .expect("stats")
+                .0,
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn user_gets_an_explicit_stale_result_when_clearing_with_an_outdated_epoch() {
+        let (_root, database) = test_database().await;
+        let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
+        let runtime =
+            AnalyticsRuntime::initialize_with_sender_for_tests(database, Some(probe), true)
+                .await
+                .expect("runtime");
+
+        let error = runtime
+            .clear_pending(99)
+            .await
+            .expect_err("a stale epoch must not report a successful clear");
+        assert_eq!(error, "stale_consent_epoch");
+    }
 
     #[test]
     fn user_gets_jittered_bounded_backoff() {
