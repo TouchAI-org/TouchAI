@@ -45,6 +45,7 @@ import type {
     ToolApprovalDecisionRequest,
     ToolEventModelSummary,
 } from '../contracts/tooling';
+import { type AgentRequestAnalytics, toolCategoryForName } from '../infrastructure/analytics';
 import {
     type AttachmentIndex,
     buildAttachmentParts,
@@ -104,6 +105,8 @@ export interface RequestExecutionCallbacks {
     signal?: AbortSignal;
     onChunk?: (chunk: AiStreamChunk) => void;
     onTurnEvent?: (event: TurnEvent) => void;
+    /** Per-logical-request analytics sink; absent for callers without one. */
+    analytics?: AgentRequestAnalytics;
     onAttachmentManifestResolved?: (
         request: import('../contracts/protocol').AttachmentDeliveryManifestRequest
     ) => Promise<void> | void;
@@ -152,6 +155,8 @@ interface AttemptRuntime {
     firstTextMs: number | null;
     /** 工具参数解析失败次数（量化结构化输出能力） */
     toolArgumentErrors: number;
+    /** 真正由供应商返回 usage 的调用数（含显式零），用于用量覆盖率 */
+    usageReportedCalls: number;
     /** 工具调用被用户拒绝次数 */
     /** 是否触达模型切换上限 */
     hitModelSwitchCeiling: boolean;
@@ -192,6 +197,7 @@ export type AttemptExecutionResult =
           firstTtftMs: number | null;
           firstTextMs: number | null;
           toolArgumentErrors: number;
+          usageReportedCalls: number;
           modelSwitchCount: number;
           hitModelSwitchCeiling: boolean;
       }
@@ -210,6 +216,7 @@ export type AttemptExecutionResult =
           firstTtftMs: number | null;
           firstTextMs: number | null;
           toolArgumentErrors: number;
+          usageReportedCalls: number;
           modelSwitchCount: number;
           hitModelSwitchCeiling: boolean;
       };
@@ -784,6 +791,7 @@ export class AiRequestExecutor {
             firstTtftMs: null,
             firstTextMs: null,
             toolArgumentErrors: 0,
+            usageReportedCalls: 0,
             hitModelSwitchCeiling: false,
         };
     }
@@ -1015,6 +1023,12 @@ export class AiRequestExecutor {
 
         runtime.calls.push(call);
         runtime.totalUsage = addAiUsage(runtime.totalUsage, usage);
+        // A provider that returned no usage leaves `finalUsage` undefined; a
+        // normalized all-zero usage still counts as reported, so zero defaults
+        // never masquerade as "the provider reported zero".
+        if (finalUsage !== undefined) {
+            runtime.usageReportedCalls += 1;
+        }
         runtime.toolArgumentErrors += stepToolArgumentErrors;
         if (runtime.firstTtftMs === null && call.timing.ttftMs !== undefined) {
             runtime.firstTtftMs = call.timing.ttftMs;
@@ -1154,16 +1168,36 @@ export class AiRequestExecutor {
                         [ATTR.toolCallId]: toolCall.id,
                         [ATTR.toolName]: toolCall.name,
                     },
-                    () =>
-                        this.executeToolCall(runtime, {
-                            toolCall,
-                            toolCallMessageId,
-                            persister: options.persister,
-                            signal: options.signal,
-                            onChunk: options.onChunk,
-                            requestToolApproval: options.requestToolApproval,
-                            requestUserQuestions: options.requestUserQuestions,
-                        }),
+                    async () => {
+                        const startedAt = performance.now();
+                        try {
+                            const result = await this.executeToolCall(runtime, {
+                                toolCall,
+                                toolCallMessageId,
+                                persister: options.persister,
+                                signal: options.signal,
+                                onChunk: options.onChunk,
+                                requestToolApproval: options.requestToolApproval,
+                                requestUserQuestions: options.requestUserQuestions,
+                            });
+                            options.analytics?.noteToolCompleted({
+                                category: toolCategoryForName(toolCall.name),
+                                result: result.isError ? 'failure' : 'success',
+                                durationMs: performance.now() - startedAt,
+                            });
+                            return result;
+                        } catch (error) {
+                            const aiError = AiError.fromError(error);
+                            options.analytics?.noteToolCompleted({
+                                category: toolCategoryForName(toolCall.name),
+                                result: aiError.is(AiErrorCode.REQUEST_CANCELLED)
+                                    ? 'cancelled'
+                                    : 'failure',
+                                durationMs: performance.now() - startedAt,
+                            });
+                            throw error;
+                        }
+                    },
                     options.parentSpan
                 )
             )
@@ -1296,6 +1330,7 @@ export class AiRequestExecutor {
                     parentSpan: options.parentSpan,
                     signal: options.signal,
                     onChunk: options.onChunk,
+                    analytics: options.analytics,
                     requestToolApproval: options.requestToolApproval,
                     requestUserQuestions: options.requestUserQuestions,
                 });
@@ -1329,6 +1364,7 @@ export class AiRequestExecutor {
                 firstTtftMs: runtime.firstTtftMs,
                 firstTextMs: runtime.firstTextMs,
                 toolArgumentErrors: runtime.toolArgumentErrors,
+                usageReportedCalls: runtime.usageReportedCalls,
                 modelSwitchCount: runtime.modelSwitchCount,
                 hitModelSwitchCeiling: runtime.hitModelSwitchCeiling,
             };
@@ -1387,6 +1423,7 @@ export class AiRequestExecutor {
                 firstTtftMs: runtime.firstTtftMs,
                 firstTextMs: runtime.firstTextMs,
                 toolArgumentErrors: runtime.toolArgumentErrors,
+                usageReportedCalls: runtime.usageReportedCalls,
                 modelSwitchCount: runtime.modelSwitchCount,
                 hitModelSwitchCeiling: runtime.hitModelSwitchCeiling,
             };
