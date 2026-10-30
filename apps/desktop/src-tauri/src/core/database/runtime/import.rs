@@ -607,4 +607,88 @@ mod tests {
             .all(|entry| !entry.unwrap().path().is_dir()));
         source.close().await;
     }
+    #[tokio::test]
+    async fn user_keeps_local_analytics_state_and_imports_no_remote_events() {
+        let root = tempfile::tempdir().unwrap();
+        let source_path = root.path().join("source.db");
+        // 6 entries cover the full released chain, including the analytics tables.
+        let source = backup(&source_path, 6).await;
+        sqlx::raw_sql(
+            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, consent_epoch) \
+             VALUES (1, 'enabled', 1, 'remote-install', 7);\n             INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at) \
+             VALUES ('remote-e1', 7, 1, 'app.started', '{\"a\":1}', 7, 1, 9, 1);\n             INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'imported-chat', 'Imported', 'test');",
+        )
+        .execute(&source)
+        .await
+        .unwrap();
+
+        let target_path = root.path().join("target.db");
+        let target = create_sqlite_pool(&target_path).await.unwrap();
+        migrate_database(&mut *target.acquire().await.unwrap(), &contract())
+            .await
+            .unwrap();
+        sqlx::raw_sql(
+            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, consent_epoch) \
+             VALUES (1, 'disabled', 1, 'local-install', 5);\n             INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at) \
+             VALUES ('local-e1', 5, 1, 'app.started', '{\"b\":2}', 7, 1, 9, 1);",
+        )
+        .execute(&target)
+        .await
+        .unwrap();
+
+        run_import_backup(
+            target.clone(),
+            target_path,
+            contract(),
+            DatabaseImportRequest {
+                source_path: source_path.to_string_lossy().into_owned(),
+                mode: DatabaseImportMode::Full,
+            },
+        )
+        .await
+        .unwrap();
+
+        // The local identity, consent and epoch survive; nothing remote is adopted.
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT installation_id FROM analytics_state WHERE id = 1"
+            )
+            .fetch_one(&target)
+            .await
+            .unwrap(),
+            "local-install"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT consent_epoch FROM analytics_state WHERE id = 1")
+                .fetch_one(&target)
+                .await
+                .unwrap(),
+            5
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM analytics_outbox")
+                .fetch_one(&target)
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>("SELECT event_id FROM analytics_outbox")
+                .fetch_one(&target)
+                .await
+                .unwrap(),
+            "local-e1"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM sessions WHERE session_id = 'imported-chat'"
+            )
+            .fetch_one(&target)
+            .await
+            .unwrap(),
+            1
+        );
+        source.close().await;
+        target.close().await;
+    }
 }

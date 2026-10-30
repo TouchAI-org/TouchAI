@@ -468,3 +468,144 @@ pub(crate) async fn queue_stats(pool: &SqlitePool) -> Result<(i64, i64), String>
             .map_err(|error| format!("Failed to size analytics outbox: {error}"))?;
     Ok((depth, bytes))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::database::DatabaseRuntime;
+
+    async fn test_runtime() -> (tempfile::TempDir, DatabaseRuntime) {
+        let root = tempfile::tempdir().expect("temp dir");
+        let runtime = DatabaseRuntime::initialize_for_tests(root.path())
+            .await
+            .expect("database runtime");
+        (root, runtime)
+    }
+
+    fn insert(event_id: &str, epoch: i64, event_name: &str) -> OutboxInsert {
+        OutboxInsert {
+            event_id: event_id.to_string(),
+            consent_epoch: epoch,
+            schema_version: 1,
+            event_name: event_name.to_string(),
+            payload_json: r#"{"eventId":"placeholder"}"#.to_string(),
+            priority: 100,
+            marks_first_success: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_release_default_that_an_explicit_disable_never_re_derives() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+
+        let created = ensure_state(pool, 1, true).await.expect("create state");
+        assert_eq!(created.status, "enabled");
+        assert_eq!(created.consent_explicit, 0);
+
+        let disabled = set_enabled(pool, false, 0, 1)
+            .await
+            .expect("disable")
+            .expect("matching epoch");
+        assert_eq!(disabled.status, "disabled");
+        assert_eq!(disabled.consent_epoch, 1);
+        assert_eq!(disabled.consent_explicit, 1);
+
+        // A later default-policy change must not override the explicit choice.
+        let reconciled = ensure_state(pool, 2, true).await.expect("reconcile");
+        assert_eq!(reconciled.status, "disabled");
+        assert_eq!(reconciled.consent_epoch, 1);
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_default_off_status_re_derived_when_the_policy_changes() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+
+        let off = ensure_state(pool, 1, false).await.expect("create state");
+        assert_eq!(off.status, "disabled");
+
+        let on = ensure_state(pool, 2, true).await.expect("reconcile");
+        assert_eq!(on.status, "enabled");
+        assert_eq!(on.consent_epoch, 0);
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_stale_consent_epoch_rejected_without_changing_status() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+
+        ensure_state(pool, 1, true).await.expect("create state");
+        assert!(set_enabled(pool, false, 99, 1)
+            .await
+            .expect("disable")
+            .is_none());
+
+        let reloaded = load_state(pool).await.expect("load").expect("row");
+        assert_eq!(reloaded.status, "enabled");
+        assert_eq!(reloaded.consent_epoch, 0);
+    }
+
+    #[tokio::test]
+    async fn user_gets_the_outbox_cleared_in_one_step_when_sharing_is_turned_off() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+
+        ensure_state(pool, 1, true).await.expect("create state");
+        assert_eq!(
+            enqueue(pool, insert("e1", 0, "app.started"))
+                .await
+                .expect("enqueue"),
+            EnqueueOutcome::Persisted
+        );
+        assert_eq!(queue_stats(pool).await.expect("stats").0, 1);
+
+        set_enabled(pool, false, 0, 1).await.expect("disable");
+        assert_eq!(queue_stats(pool).await.expect("stats").0, 0);
+    }
+
+    #[tokio::test]
+    async fn user_gets_oversized_payloads_rejected_and_expired_events_purged() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+
+        ensure_state(pool, 1, true).await.expect("create state");
+
+        let mut oversized = insert("e2", 0, "app.started");
+        oversized.payload_json = "x".repeat(MAX_PAYLOAD_BYTES as usize + 1);
+        assert_eq!(
+            enqueue(pool, oversized).await.expect("enqueue"),
+            EnqueueOutcome::Rejected
+        );
+
+        enqueue(pool, insert("e3", 0, "app.started"))
+            .await
+            .expect("enqueue");
+        purge_expired(pool, now_millis() + TTL_MS + 1)
+            .await
+            .expect("purge");
+        assert_eq!(queue_stats(pool).await.expect("stats").0, 0);
+    }
+
+    #[tokio::test]
+    async fn user_gets_events_from_a_stale_or_disabled_state_rejected() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+
+        ensure_state(pool, 1, true).await.expect("create state");
+        assert_eq!(
+            enqueue(pool, insert("e4", 5, "app.started"))
+                .await
+                .expect("enqueue"),
+            EnqueueOutcome::StaleEpoch
+        );
+
+        set_enabled(pool, false, 0, 1).await.expect("disable");
+        assert_eq!(
+            enqueue(pool, insert("e5", 1, "app.started"))
+                .await
+                .expect("enqueue"),
+            EnqueueOutcome::Disabled
+        );
+    }
+}

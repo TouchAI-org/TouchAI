@@ -357,3 +357,70 @@ fn next_counter() -> u64 {
     static COUNTER: AtomicU64 = AtomicU64::new(1);
     COUNTER.fetch_add(1, Ordering::Relaxed)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn user_gets_an_exported_backup_without_analytics_identity_or_payloads() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let runtime = DatabaseRuntime::initialize_for_tests(root.path())
+            .await
+            .expect("database runtime");
+        let pool = runtime.pool();
+
+        sqlx::query(
+            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, consent_epoch) \
+             VALUES (1, 'enabled', 1, '3f2504e0-4f89-41d3-9a0c-0305e82c3301', 4)",
+        )
+        .execute(pool)
+        .await
+        .expect("seed state");
+        sqlx::query(
+            "INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at) \
+             VALUES ('e1', 4, 1, 'app.started', '{\"a\":1}', 7, 1, 9, 1)",
+        )
+        .execute(pool)
+        .await
+        .expect("seed outbox");
+        sqlx::query("INSERT INTO settings (key, value) VALUES ('keep', '1')")
+            .execute(pool)
+            .await
+            .expect("seed settings");
+
+        let target = root.path().join("exported.db");
+        runtime
+            .export_backup(target.to_string_lossy().as_ref())
+            .await
+            .expect("export");
+
+        let exported = create_sqlite_pool(&target).await.expect("open export");
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM analytics_state")
+                .fetch_one(&exported)
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM analytics_outbox")
+                .fetch_one(&exported)
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'keep'")
+                .fetch_one(&exported)
+                .await
+                .unwrap(),
+            "1"
+        );
+        assert!(sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&exported)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+}

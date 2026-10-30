@@ -16,6 +16,7 @@
     import { type OutputScrollBehavior, useSettingsStore } from '@/stores/settings';
 
     import DiagnosticsSection from './DiagnosticsSection.vue';
+    import AnalyticsSection from './AnalyticsSection.vue';
     import UpdateAvailableBadge from './UpdateAvailableBadge.vue';
     import UpdateSettingsSection from './UpdateSettingsSection.vue';
 
@@ -311,6 +312,8 @@
             </section>
 
             <DiagnosticsSection />
+
+            <AnalyticsSection />
 
             <UpdateSettingsSection ref="updateSettingsSection" />
         </div>

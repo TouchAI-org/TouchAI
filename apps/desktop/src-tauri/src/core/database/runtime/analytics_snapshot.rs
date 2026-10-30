@@ -57,3 +57,72 @@ pub(crate) async fn sanitize_analytics_snapshot(path: &Path) -> Result<(), Strin
     close.map_err(|error| format!("Failed to close analytics snapshot: {error}"))?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::database::DatabaseRuntime;
+
+    use super::super::contract::create_sqlite_pool;
+
+    #[tokio::test]
+    async fn user_gets_a_sanitized_snapshot_without_analytics_identity_or_payloads() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let runtime = DatabaseRuntime::initialize_for_tests(root.path())
+            .await
+            .expect("database runtime");
+        let pool = runtime.pool();
+
+        sqlx::query(
+            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, consent_epoch) \
+             VALUES (1, 'enabled', 1, '3f2504e0-4f89-41d3-9a0c-0305e82c3301', 4)",
+        )
+        .execute(pool)
+        .await
+        .expect("seed state");
+        sqlx::query(
+            "INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at) \
+             VALUES ('e1', 4, 1, 'app.started', '{\"a\":1}', 7, 1, 9, 1)",
+        )
+        .execute(pool)
+        .await
+        .expect("seed outbox");
+        sqlx::query("INSERT INTO settings (key, value) VALUES ('keep', '1')")
+            .execute(pool)
+            .await
+            .expect("seed settings");
+
+        let snapshot = root.path().join("snap.db");
+        sqlx::query("VACUUM INTO ?")
+            .bind(snapshot.to_string_lossy().as_ref())
+            .execute(pool)
+            .await
+            .expect("snapshot");
+        sanitize_analytics_snapshot(&snapshot)
+            .await
+            .expect("sanitize");
+
+        let sanitized = create_sqlite_pool(&snapshot).await.expect("open snapshot");
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM analytics_state")
+                .fetch_one(&sanitized)
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM analytics_outbox")
+                .fetch_one(&sanitized)
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'keep'")
+                .fetch_one(&sanitized)
+                .await
+                .unwrap(),
+            "1"
+        );
+    }
+}
