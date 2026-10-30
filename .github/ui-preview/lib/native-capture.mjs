@@ -10,9 +10,8 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 
-import { captureMode } from './platform.mjs';
+import { captureMode, ffmpegBinary } from './platform.mjs';
 import { resolveCaptureProfile } from './profile.mjs';
-import { ffmpegBinary } from './tools.mjs';
 
 const FIRST_FRAME_TIMEOUT_MS = 20000;
 const STOP_TIMEOUT_MS = 10000;

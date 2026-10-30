@@ -43,7 +43,7 @@ import {
 } from './lib/evidence.mjs';
 import { ELEMENT_CENTER_SCRIPT, ELEMENT_ROW_RECT_SCRIPT } from './lib/overlay.mjs';
 import { captureMode, detectPlatform, isUsableDisplay, platformLabel } from './lib/platform.mjs';
-import { resolveCaptureProfile, stageLabel } from './lib/profile.mjs';
+import { resolveCaptureProfile, searchWindowFrame, stageLabel } from './lib/profile.mjs';
 import {
     boot,
     bridge,
@@ -56,9 +56,7 @@ import {
     switchToSurface,
     waitForBridge,
 } from './lib/runtime.mjs';
-import { testIdFromSelector } from './lib/scenarios.mjs';
-import { accurateSearchCaption } from './lib/shot-caption.mjs';
-import { searchWindowFrame } from './lib/window-frame.mjs';
+import { accurateSearchCaption, testIdFromSelector } from './lib/scenarios.mjs';
 
 const MAX_KEY_SHOTS = 10;
 const PREVIEW_FRAME_TOLERANCE = 4;

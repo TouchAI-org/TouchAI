@@ -52,3 +52,17 @@ export function captureMode(platform) {
 export function isUsableDisplay(width, height, minWidth = 1280, minHeight = 900) {
     return Number(width) >= minWidth && Number(height) >= minHeight;
 }
+
+/**
+ * The Homebrew `ffmpeg` formula no longer links libass, so the hosted macOS
+ * runner cannot burn captions with the binary on `PATH`. The workflow installs
+ * a build that has the filter and points these variables at it. Every other
+ * platform, and any local run, keeps the default binary.
+ */
+export function ffmpegBinary(env = process.env) {
+    return env.UI_PREVIEW_FFMPEG || 'ffmpeg';
+}
+
+export function ffprobeBinary(env = process.env) {
+    return env.UI_PREVIEW_FFPROBE || 'ffprobe';
+}

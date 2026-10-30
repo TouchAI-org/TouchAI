@@ -14,7 +14,7 @@ import {
 } from '../../../.github/ui-preview/lib/platform.mjs';
 import { resolveCaptureProfile } from '../../../.github/ui-preview/lib/profile.mjs';
 import { bridge } from '../../../.github/ui-preview/lib/runtime.mjs';
-import { ffmpegBinary, ffprobeBinary } from '../../../.github/ui-preview/lib/tools.mjs';
+import { ffmpegBinary, ffprobeBinary } from '../../../.github/ui-preview/lib/platform.mjs';
 
 describe('user records the preview on a native desktop', () => {
     it('user gets the ffmpeg build the workflow selected', () => {

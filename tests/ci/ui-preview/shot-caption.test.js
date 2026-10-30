@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
     accurateSearchCaption,
     COMPACT_SEARCH_CAPTION,
-} from '../../../.github/ui-preview/lib/shot-caption.mjs';
+} from '../../../.github/ui-preview/lib/scenarios.mjs';
 
 describe('user reads an accurate compact search caption', () => {
     it('user does not see a results claim when no results panel appeared', () => {

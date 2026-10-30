@@ -27,6 +27,10 @@ on:
                 description: A plan JSON to use instead of the model
                 required: false
                 type: string
+            scripts_ref:
+                description: Use scripts from this ref for maintainer validation
+                required: false
+                type: string
 
 permissions: {}
 
@@ -74,7 +78,7 @@ jobs:
             - name: Check out trusted scripts
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ github.event.repository.default_branch }}
+                  ref: ${{ inputs.scripts_ref || github.event.repository.default_branch }}
                   persist-credentials: false
                   sparse-checkout: |
                       .github/ui-preview
@@ -98,6 +102,7 @@ jobs:
                   UI_PREVIEW_BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]
                   INPUT_PR: ${{ inputs.pr }}
                   INPUT_FORCE: ${{ inputs.force }}
+                  INPUT_SCRIPTS_REF: ${{ inputs.scripts_ref }}
               run: node .github/ui-preview/detect.mjs
 
     explore:
@@ -140,7 +145,7 @@ jobs:
             - name: Check out trusted scripts
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ github.event.repository.default_branch }}
+                  ref: ${{ inputs.scripts_ref || github.event.repository.default_branch }}
                   path: trusted
                   persist-credentials: false
                   sparse-checkout: |
@@ -287,7 +292,7 @@ jobs:
             - name: Check out trusted scripts
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ github.event.repository.default_branch }}
+                  ref: ${{ inputs.scripts_ref || github.event.repository.default_branch }}
                   persist-credentials: false
                   sparse-checkout: |
                       .github/ui-preview
@@ -353,7 +358,7 @@ jobs:
             - name: Check out trusted scripts
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ github.event.repository.default_branch }}
+                  ref: ${{ inputs.scripts_ref || github.event.repository.default_branch }}
                   persist-credentials: false
                   sparse-checkout: |
                       .github/ui-preview
@@ -394,7 +399,20 @@ jobs:
 
             - name: Install macOS dependencies
               if: matrix.platform == 'macos'
-              run: brew install ffmpeg
+              run: |
+                  brew install ffmpeg
+                  # The current Homebrew ffmpeg bottle no longer links libass,
+                  # so the caption pass silently fell back on macOS. ffmpeg@7
+                  # still ships the ass filter; point the recorder at it when
+                  # the filter is really there.
+                  brew install ffmpeg@7
+                  ffmpeg7="$(brew --prefix ffmpeg@7)/bin/ffmpeg"
+                  if "$ffmpeg7" -hide_banner -filters 2>/dev/null | grep -q ' ass '; then
+                    echo "UI_PREVIEW_FFMPEG=$ffmpeg7" >> "$GITHUB_ENV"
+                    echo "UI_PREVIEW_FFPROBE=$(brew --prefix ffmpeg@7)/bin/ffprobe" >> "$GITHUB_ENV"
+                  else
+                    echo "::warning::ffmpeg@7 has no ass filter; captions will fall back"
+                  fi
 
             - name: Install Windows dependencies
               if: matrix.platform == 'windows'
@@ -538,7 +556,7 @@ jobs:
             - name: Check out trusted scripts
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ github.event.repository.default_branch }}
+                  ref: ${{ inputs.scripts_ref || github.event.repository.default_branch }}
                   persist-credentials: false
                   sparse-checkout: |
                       .github/ui-preview

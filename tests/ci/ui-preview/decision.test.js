@@ -6,6 +6,7 @@ import {
     DECISION,
     FORCE_LABEL,
     isPreviewCommand,
+    previewTrigger,
 } from '../../../.github/ui-preview/lib/decision.mjs';
 
 const base = {
@@ -240,6 +241,26 @@ describe('user triggers a manual run', () => {
         });
 
         expect(result.decision).toBe(DECISION.none);
+    });
+
+    it('user gets pipeline-demo wording when validating branch scripts', () => {
+        expect(
+            previewTrigger({
+                eventName: 'workflow_dispatch',
+                maintainer: true,
+                validationScripts: true,
+            })
+        ).toBe('native validation');
+    });
+
+    it('user gets ordinary manual-run wording without branch scripts', () => {
+        expect(
+            previewTrigger({
+                eventName: 'workflow_dispatch',
+                maintainer: true,
+                validationScripts: false,
+            })
+        ).toBe('manual run');
     });
 });
 

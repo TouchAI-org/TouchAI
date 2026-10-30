@@ -5,7 +5,7 @@ import {
     SEARCH_WINDOW_RESULTS_HEIGHT,
     SEARCH_WINDOW_WIDTH,
     searchWindowFrame,
-} from '../../../.github/ui-preview/lib/window-frame.mjs';
+} from '../../../.github/ui-preview/lib/profile.mjs';
 
 const stage = { width: 1920, height: 1080 };
 

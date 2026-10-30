@@ -72,10 +72,7 @@ describe('user sees the real window edge against a light preview desktop', () =>
             expect(fs.readFileSync(path.join(repoRoot, file), 'utf8')).toContain(DESKTOP_COLOUR);
         }
 
-        for (const file of [
-            '.github/workflows/ui-preview.yml',
-            '.github/workflows/ui-preview-native-validation.yml',
-        ]) {
+        for (const file of ['.github/workflows/ui-preview.yml']) {
             expect(fs.readFileSync(path.join(repoRoot, file), 'utf8')).toContain(
                 `UI_PREVIEW_DESKTOP_COLOUR: '${DESKTOP_COLOUR}'`
             );

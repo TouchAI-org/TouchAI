@@ -27,14 +27,14 @@ pnpm test:ui-preview
 the recorder and the publisher enforce.
 
 `lib/profile.mjs` keeps logical stage pixels, physical capture pixels, and the scale factor separate.
-All three hosted workflows target a 1920x1080 stage at 1x. A helper falls back to another available
+All three hosted platforms target a 1920x1080 stage at 1x. A helper falls back to another available
 mode only when the runner cannot expose 1080p, and the publisher rejects a video whose dimensions do
 not match the recorded physical stage, so a resized or upscaled clip cannot be published as
 higher-resolution evidence.
 
-The label-triggered `.github/workflows/ui-preview-native-validation.yml` re-runs native Linux,
-macOS, and Windows capture and posts the comment as the App, using the same `BOT_APP_ID` and
-`BOT_APP_PRIVATE_KEY` secrets as production. Use it to check a capture change before merge.
+To validate a recorder change before merge, dispatch `.github/workflows/ui-preview.yml` manually
+with `scripts_ref` set to the branch under review. Production pull-request events always use the
+default branch scripts; branch scripts run only through this maintainer-only dispatch path.
 
 Credential problems surface in the preview comment itself: a missing model falls back to the
 default scene, and a missing upload credential links the artifact, both recorded under

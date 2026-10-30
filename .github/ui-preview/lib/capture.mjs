@@ -12,7 +12,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { ffmpegBinary, ffprobeBinary } from './tools.mjs';
+import { ffmpegBinary, ffprobeBinary } from './platform.mjs';
 
 // Keep this in sync with the workflow env and the platform display helpers.
 export const DESKTOP_COLOUR = '#d9d4c8';

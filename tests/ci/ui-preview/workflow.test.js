@@ -8,10 +8,6 @@ const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(testDirectory, '../../..');
 const workflowPath = path.join(repositoryRoot, '.github/workflows/ui-preview.yml');
 const workflow = fs.readFileSync(workflowPath, 'utf8');
-const nativeWorkflow = fs.readFileSync(
-    path.join(repositoryRoot, '.github/workflows/ui-preview-native-validation.yml'),
-    'utf8'
-);
 const runtime = fs.readFileSync(
     path.join(repositoryRoot, '.github/ui-preview/lib/runtime.mjs'),
     'utf8'
@@ -51,15 +47,6 @@ function installedPackages(job) {
     return new Set(packages);
 }
 
-function nativeJobBlock(name) {
-    const start = nativeWorkflow.indexOf(`\n    ${name}:`);
-    const next = nativeWorkflow.slice(start + 1).search(/\n {4}[a-z][a-z-]*:/);
-
-    return next === -1
-        ? nativeWorkflow.slice(start)
-        : nativeWorkflow.slice(start, start + 1 + next);
-}
-
 function stepBlock(job, name) {
     const start = job.indexOf(`- name: ${name}`);
     const next = job.slice(start + 1).search(/\n {12}- /);
@@ -88,7 +75,6 @@ describe('user opens a pull request that runs the preview', () => {
         // second dispatch mode that can drift from the real pipeline.
         expect(workflow).not.toContain('doctor');
         expect(workflow).not.toContain('inputs.mode');
-        expect(nativeWorkflow).not.toContain('doctor');
     });
 
     it('user gets a decision for a fork pull request without an environment gate', () => {
@@ -290,50 +276,34 @@ describe('user opens a pull request that runs the preview', () => {
     });
 });
 
-describe('user checks a capture change on the native validation harness', () => {
-    it('user gets the comment from the App instead of a maintainer account', () => {
-        expect(nativeWorkflow).toContain('GH_TOKEN: ${{ steps.app.outputs.token }}');
-        expect(nativeWorkflow).toContain(
-            'UI_PREVIEW_BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]'
-        );
-        expect(nativeWorkflow).toContain('secrets.BOT_APP_ID');
-        expect(nativeWorkflow).toContain('secrets.BOT_APP_PRIVATE_KEY');
-        expect(nativeWorkflow).toContain('permission-issues: write');
-        expect(nativeWorkflow).toContain('pull-requests: write');
-        expect(nativeWorkflow).toContain('pattern: ui-preview-native-validation-*');
+describe('user validates recorder changes through the preview workflow', () => {
+    const trustedRef = 'ref: ${{ inputs.scripts_ref || github.event.repository.default_branch }}';
+
+    it('user gets one workflow with an explicit branch-script validation input', () => {
+        expect(workflow).toContain('scripts_ref:');
+        expect(workflow).toContain('Use scripts from this ref for maintainer validation');
+        expect(
+            fs.existsSync(
+                path.join(repositoryRoot, '.github/workflows/ui-preview-native-validation.yml')
+            )
+        ).toBe(false);
     });
 
-    it('user gets the Actions bot comment only for a same-repository validation label', () => {
-        expect(nativeWorkflow).toContain(
-            "github.event.label.name == 'ui-preview-native-validation'"
-        );
-        expect(nativeWorkflow).toContain(
-            'github.event.pull_request.head.repo.full_name == github.repository'
-        );
+    it('user gets the selected validation scripts in every trusted checkout', () => {
+        for (const name of ['detect', 'explore', 'plan', 'record', 'publish']) {
+            expect(jobBlock(name)).toContain(trustedRef);
+        }
     });
 
-    it('user gets the same 1920x1080 stage on the native validation run', () => {
-        expect(nativeWorkflow).toContain("UI_PREVIEW_DISPLAY_WIDTH: '1920'");
-        expect(nativeWorkflow).toContain("UI_PREVIEW_DISPLAY_HEIGHT: '1080'");
-        expect(nativeWorkflow).toContain("UI_PREVIEW_SCALE_FACTOR: '1'");
-        expect(nativeWorkflow).toContain('-screen 0 1920x1080x24');
-    });
+    it('user gets native-validation comment wording only from a branch-script run', () => {
+        const detect = jobBlock('detect');
 
-    it('user gets one model plan shared by all native recorders', () => {
-        const plan = nativeJobBlock('plan');
-        const record = nativeJobBlock('record');
-
-        expect(plan).toContain('secrets.UI_PREVIEW_MODEL_API_KEY');
-        expect(plan).toContain('vars.UI_PREVIEW_MODEL_BASE_URL');
-        expect(plan).toContain('vars.UI_PREVIEW_MODEL');
-        expect(plan).toContain('name: ui-preview-native-plan');
-        expect(record).toContain('name: ui-preview-native-plan');
-        expect(plan).not.toContain('environment: ui-preview');
-        expect(record).not.toContain('secrets.');
+        expect(detect).toContain('INPUT_SCRIPTS_REF: ${{ inputs.scripts_ref }}');
+        expect(detect).toContain('node .github/ui-preview/detect.mjs');
     });
 
     it('user gets a compact empty frame and one centered results frame', () => {
-        expect(nativeWorkflow).toContain("TOUCHAI_UI_PREVIEW: '1'");
+        expect(workflow).toContain("TOUCHAI_UI_PREVIEW: '1'");
         expect(runtime).toContain('hideCurrentWindow');
         expect(recordScript).toContain('setPreviewWindowFrame');
         expect(recordScript).toContain('searchWindowFrame');
@@ -341,21 +311,5 @@ describe('user checks a capture change on the native validation harness', () => 
         expect(recordScript).toContain('Search window expanded once for results');
         expect(runtime).toContain('TAURI_WEBDRIVER_PORT');
         expect(recordScript).toContain('centeredWindowPosition');
-    });
-
-    it('user gets the Windows console hidden before the recording starts', () => {
-        const hide = nativeWorkflow.indexOf('- name: Hide the runner console (Windows)');
-        const record = nativeWorkflow.indexOf('- name: Record the native preview');
-
-        expect(hide).toBeGreaterThan(-1);
-        expect(record).toBeGreaterThan(hide);
-        expect(nativeWorkflow.slice(record)).not.toContain('Hide the runner console (Windows)');
-
-        const production = jobBlock('record');
-        const productionHide = production.indexOf('- name: Hide the runner console (Windows)');
-        const productionRecord = production.indexOf('- name: Record (Windows)');
-
-        expect(productionHide).toBeGreaterThan(-1);
-        expect(productionRecord).toBeGreaterThan(productionHide);
     });
 });
