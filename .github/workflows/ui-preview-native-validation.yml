@@ -284,7 +284,20 @@ jobs:
 
             - name: Install macOS recording dependencies
               if: matrix.platform == 'macos'
-              run: brew install ffmpeg
+              run: |
+                  brew install ffmpeg
+                  # The current Homebrew ffmpeg bottle no longer links libass,
+                  # so the caption pass silently fell back on macOS. ffmpeg@7
+                  # still ships the ass filter; point the recorder at it when
+                  # the filter is really there.
+                  brew install ffmpeg@7
+                  ffmpeg7="$(brew --prefix ffmpeg@7)/bin/ffmpeg"
+                  if "$ffmpeg7" -hide_banner -filters 2>/dev/null | grep -q ' ass '; then
+                    echo "UI_PREVIEW_FFMPEG=$ffmpeg7" >> "$GITHUB_ENV"
+                    echo "UI_PREVIEW_FFPROBE=$(brew --prefix ffmpeg@7)/bin/ffprobe" >> "$GITHUB_ENV"
+                  else
+                    echo "::warning::ffmpeg@7 has no ass filter; captions will fall back"
+                  fi
 
             - name: Install Windows recording dependencies
               if: matrix.platform == 'windows'

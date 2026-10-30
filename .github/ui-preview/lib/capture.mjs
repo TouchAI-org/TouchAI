@@ -12,6 +12,8 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { ffmpegBinary, ffprobeBinary } from './tools.mjs';
+
 // Keep this in sync with the workflow env and the platform display helpers.
 export const DESKTOP_COLOUR = '#d9d4c8';
 
@@ -275,7 +277,7 @@ export function cropToElement({
     // ffmpeg is required on every platform for the recording, so it is the
     // one crop tool that is always present. ImageMagick is only needed for
     // the X11 window capture itself.
-    const result = run('ffmpeg', [
+    const result = run(ffmpegBinary(), [
         '-hide_banner',
         '-loglevel',
         'error',
@@ -356,7 +358,7 @@ export function captureScreenshot({ display, file, geometry, id }) {
  * signature but not evidence, so publishing must not treat it as a recording.
  */
 export function probeVideo(file) {
-    const result = run('ffprobe', [
+    const result = run(ffprobeBinary(), [
         '-v',
         'error',
         '-select_streams',
@@ -400,7 +402,7 @@ export function countDistinctStates(file) {
     const width = 320;
     const height = 180;
     const result = spawnSync(
-        'ffmpeg',
+        ffmpegBinary(),
         [
             '-hide_banner',
             '-loglevel',
@@ -520,7 +522,7 @@ function filterPath(file) {
 }
 
 function encodeVideo({ input, output, filter, runFfmpeg = run }) {
-    return runFfmpeg('ffmpeg', [
+    return runFfmpeg(ffmpegBinary(), [
         '-hide_banner',
         '-loglevel',
         'error',

@@ -14,8 +14,20 @@ import {
 } from '../../../.github/ui-preview/lib/platform.mjs';
 import { resolveCaptureProfile } from '../../../.github/ui-preview/lib/profile.mjs';
 import { bridge } from '../../../.github/ui-preview/lib/runtime.mjs';
+import { ffmpegBinary, ffprobeBinary } from '../../../.github/ui-preview/lib/tools.mjs';
 
 describe('user records the preview on a native desktop', () => {
+    it('user gets the ffmpeg build the workflow selected', () => {
+        expect(ffmpegBinary({})).toBe('ffmpeg');
+        expect(ffprobeBinary({})).toBe('ffprobe');
+        expect(ffmpegBinary({ UI_PREVIEW_FFMPEG: '/opt/ffmpeg7/bin/ffmpeg' })).toBe(
+            '/opt/ffmpeg7/bin/ffmpeg'
+        );
+        expect(ffprobeBinary({ UI_PREVIEW_FFPROBE: '/opt/ffmpeg7/bin/ffprobe' })).toBe(
+            '/opt/ffmpeg7/bin/ffprobe'
+        );
+    });
+
     it('user gets the platform name from the runner operating system', () => {
         expect(detectPlatform('darwin')).toBe('macos');
         expect(detectPlatform('win32')).toBe('windows');

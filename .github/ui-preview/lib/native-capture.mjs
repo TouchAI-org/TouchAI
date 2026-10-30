@@ -12,6 +12,7 @@ import fs from 'node:fs';
 
 import { captureMode } from './platform.mjs';
 import { resolveCaptureProfile } from './profile.mjs';
+import { ffmpegBinary } from './tools.mjs';
 
 const FIRST_FRAME_TIMEOUT_MS = 20000;
 const STOP_TIMEOUT_MS = 10000;
@@ -184,7 +185,7 @@ async function waitForFirstFrame(child, stderrRef) {
  */
 export async function startNativeRecording({ platform, display, width, height, file }) {
     const args = buildRecordingArgs({ platform, display, width, height, file });
-    const child = spawn('ffmpeg', args, {
+    const child = spawn(ffmpegBinary(), args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: platform === 'linux' ? { ...process.env, DISPLAY: display } : process.env,
         windowsHide: true,
