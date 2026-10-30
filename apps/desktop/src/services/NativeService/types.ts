@@ -2,6 +2,7 @@ import type { AppUpdateChannel } from '@/config/appUpdate';
 import type { SearchWindowDefaultSize, SearchWindowHeightMode } from '@/config/searchWindow';
 import type { SessionStatusReminderKind } from '@/utils/session';
 
+export type { AppUpdateChannel } from '@/config/appUpdate';
 export type {
     AnalyticsConsentStatus,
     AnalyticsOperationHandle,
@@ -10,8 +11,6 @@ export type {
     AnalyticsSubmitStatus,
     AnalyticsTrackRequest,
 } from '@services/AnalyticsService/types';
-
-export type { AppUpdateChannel } from '@/config/appUpdate';
 export type { SearchWindowDefaultSize, SearchWindowHeightMode };
 
 export interface DiagnosticModeStatus {

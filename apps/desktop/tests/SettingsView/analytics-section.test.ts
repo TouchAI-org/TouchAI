@@ -1,5 +1,5 @@
-import { flushPromises, mount } from '@vue/test-utils';
 import { native } from '@services/NativeService';
+import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@services/NativeService', () => ({

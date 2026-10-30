@@ -13,11 +13,16 @@ import type {
 } from './types';
 
 export {
+    ANALYTICS_EVENT_SCHEMAS,
+    isAnalyticsEventName,
+    validateAnalyticsAttributes,
+} from './events';
+export {
     ANALYTICS_SEND_PATH,
     analyticsSendUrl,
+    type AnalyticsWireInput,
     buildAnalyticsWireEvent,
     isSupportedAnalyticsProtocolVersion,
-    type AnalyticsWireInput,
 } from './transport';
 export {
     ANALYTICS_EVENT_NAMES,
@@ -25,8 +30,8 @@ export {
     ANALYTICS_SCHEMA_VERSION,
     ANALYTICS_WIRE_HOSTNAME,
     ANALYTICS_WIRE_URL,
-    type AnalyticsAttributeValue,
     type AnalyticsAttributes,
+    type AnalyticsAttributeValue,
     type AnalyticsConsentStatus,
     type AnalyticsEventName,
     type AnalyticsOperationHandle,
@@ -38,11 +43,6 @@ export {
     type AnalyticsWireEvent,
     type AnalyticsWirePayload,
 } from './types';
-export {
-    ANALYTICS_EVENT_SCHEMAS,
-    isAnalyticsEventName,
-    validateAnalyticsAttributes,
-} from './events';
 
 export interface AnalyticsTrackOptions {
     occurredAtMs?: number;

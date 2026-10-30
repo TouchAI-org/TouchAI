@@ -5,10 +5,7 @@ import {
     ANALYTICS_EVENT_SCHEMAS,
     validateAnalyticsAttributes,
 } from '@services/AnalyticsService/events';
-import {
-    ANALYTICS_EVENT_NAMES,
-    type AnalyticsAttributes,
-} from '@services/AnalyticsService/types';
+import { ANALYTICS_EVENT_NAMES, type AnalyticsAttributes } from '@services/AnalyticsService/types';
 import { describe, expect, it } from 'vitest';
 
 interface FixtureEvent {

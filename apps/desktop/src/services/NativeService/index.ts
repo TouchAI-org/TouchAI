@@ -1,5 +1,5 @@
-import { autostart } from './autostart';
 import { analytics } from './analytics';
+import { autostart } from './autostart';
 import { browser } from './browser';
 import { builtInTools } from './builtInTools';
 import { clipboard } from './clipboard';

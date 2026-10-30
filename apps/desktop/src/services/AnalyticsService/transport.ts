@@ -1,7 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { ANALYTICS_PROTOCOL_VERSION, ANALYTICS_WIRE_HOSTNAME, ANALYTICS_WIRE_URL } from './types';
 import type { AnalyticsEventName, AnalyticsWireData, AnalyticsWireEvent } from './types';
+import { ANALYTICS_PROTOCOL_VERSION, ANALYTICS_WIRE_HOSTNAME, ANALYTICS_WIRE_URL } from './types';
 
 export const ANALYTICS_SEND_PATH = '/send';
 
