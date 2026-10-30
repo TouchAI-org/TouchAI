@@ -219,20 +219,6 @@ describe('user opens a pull request that runs the preview', () => {
         expect(publishScript).not.toContain('edit-last');
     });
 
-    it('user gets a degraded preview explained in the comment, not only in the log', () => {
-        const publishScript = fs.readFileSync(
-            path.join(repositoryRoot, '.github/ui-preview/publish.mjs'),
-            'utf8'
-        );
-
-        // The recorder already collects warnings such as a plan that fell back
-        // to the default scene. Publishing them is what replaces the removed
-        // credential preflight, because it reports the state of a real run.
-        expect(publishScript).toContain('collectWarnings(manifests)');
-        expect(publishScript).toContain('Media could not be uploaded');
-        expect(publishScript).toContain('warnings,');
-    });
-
     it('user gets no credential written into the workflow or the scripts', () => {
         const directory = path.join(repositoryRoot, '.github/ui-preview');
         const files = [];

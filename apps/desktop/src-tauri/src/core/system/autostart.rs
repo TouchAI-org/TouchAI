@@ -48,7 +48,9 @@ fn map_autostart_status<E: Display>(status: Result<bool, E>) -> Result<bool, Str
 /// Windows reports a missing autostart entry as a file-not-found error rather
 /// than a negative result. That is not a failure to read the state.
 fn is_missing_autostart_entry(message: &str) -> bool {
-    message.contains("os error 2") || message.contains("系统找不到指定的文件")
+    // Match the whole code so a lookup failure such as `(os error 21)` is not
+    // reported as a missing entry.
+    message.contains("(os error 2)") || message.contains("系统找不到指定的文件")
 }
 
 #[cfg(test)]
@@ -80,6 +82,13 @@ mod tests {
         assert_eq!(
             map_autostart_status(Err::<bool, _>("Access is denied. (os error 5)")),
             Err("Failed to check autostart status: Access is denied. (os error 5)".to_string())
+        );
+        assert_eq!(
+            map_autostart_status(Err::<bool, _>("The directory is not empty. (os error 21)")),
+            Err(
+                "Failed to check autostart status: The directory is not empty. (os error 21)"
+                    .to_string()
+            )
         );
     }
 }

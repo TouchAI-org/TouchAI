@@ -199,7 +199,7 @@ export async function startNativeRecording({ platform, display, width, height, f
     } catch (error) {
         // A timed-out ffmpeg keeps the desktop grab open and keeps Node alive.
         // Kill it before reporting the failure so the screenshots can finish.
-        if (child.exitCode === null) {
+        if (child.exitCode === null && child.signalCode === null) {
             child.kill('SIGKILL');
         }
         fs.rmSync(file, { force: true });
@@ -215,12 +215,17 @@ export async function startNativeRecording({ platform, display, width, height, f
         mode: captureMode(platform),
         startedAt,
         async stop() {
-            if (child.exitCode !== null) {
+            if (child.exitCode !== null || child.signalCode !== null) {
                 return { ok: fs.existsSync(file), stderr: stderrRef.value };
             }
 
             // ffmpeg finalizes the container when it reads `q` from stdin. This
             // works on Windows, where Node cannot deliver SIGINT.
+            child.stdin.on('error', () => {
+                // The write below can fail asynchronously when ffmpeg has
+                // already closed the pipe; the exit wait is the source of truth.
+            });
+
             try {
                 child.stdin.write('q\n');
             } catch {

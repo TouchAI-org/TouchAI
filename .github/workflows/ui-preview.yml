@@ -280,8 +280,8 @@ jobs:
         needs:
             - detect
             - explore
-        # A failed macOS or Windows build must not throw away the Linux
-        # preview. The Linux facts are the planning input.
+        # A failed platform must not throw away the others. Planning uses the
+        # first available facts file, preferring Linux.
         if: always() && needs.detect.outputs.decision == 'run' && needs.explore.result != 'cancelled'
         runs-on: ubuntu-24.04
         timeout-minutes: 15
@@ -301,8 +301,22 @@ jobs:
             - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
               continue-on-error: true
               with:
-                  name: ui-preview-build-linux
-                  path: ui-preview-out
+                  pattern: ui-preview-build-*
+                  path: ui-preview-builds
+
+            - name: Select the facts from an available platform
+              run: |
+                  for platform in linux macos windows; do
+                    candidate="ui-preview-builds/ui-preview-build-$platform/facts.json"
+                    if [ -f "$candidate" ]; then
+                      mkdir -p ui-preview-out
+                      cp "$candidate" ui-preview-out/facts.json
+                      echo "planning from the $platform facts"
+                      exit 0
+                    fi
+                  done
+                  echo "::error::no platform produced facts.json"
+                  exit 1
 
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:

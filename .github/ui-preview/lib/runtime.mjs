@@ -114,8 +114,13 @@ export async function boot({ application, platform = detectPlatform() }) {
             return exited.value;
         },
         async close() {
-            await session.quit();
-            await stopProcess(child);
+            try {
+                await session.quit();
+            } finally {
+                // A session that cannot quit must not leave the app holding
+                // the fixed WebDriver port for the next boot attempt.
+                await stopProcess(child);
+            }
         },
     };
 }

@@ -1235,7 +1235,8 @@ async function main() {
 
                 for (const step of scene.steps) {
                     currentStep = `${step.do}${step.value ? ` ${step.value}` : ''}${step.target ? ` ${step.target}` : ''}`;
-                    let caption = describeStep(step);
+                    const plannedCaption = describeStep(step);
+                    let caption = plannedCaption;
 
                     if (caption && scene.surface === 'search') {
                         const content = await searchContentState(session);
@@ -1389,11 +1390,14 @@ async function main() {
                         if (scene.surface === 'search') {
                             const content = await searchContentState(session);
                             const corrected = accurateSearchCaption(
-                                step.caption ?? '',
+                                plannedCaption,
                                 content.expanded
                             );
 
-                            if (corrected && corrected !== (step.caption ?? '')) {
+                            // Compare against the caption currently on screen:
+                            // the pre-step pass may have replaced the planned
+                            // caption with the compact one.
+                            if (corrected && corrected !== (currentCaption?.text ?? '')) {
                                 mark(corrected);
                             }
                         }

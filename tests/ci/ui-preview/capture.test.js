@@ -10,6 +10,7 @@ import {
     DESKTOP_COLOUR,
     finalizeRecording,
     isPaintedWindowFrame,
+    paintDesktop,
 } from '../../../.github/ui-preview/lib/capture.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -90,12 +91,55 @@ describe('user sees the real window edge against a light preview desktop', () =>
         // shadow here would show a Linux-only edge that users never see.
         expect(displayWrapper).not.toContain('--shadow');
         expect(displayWrapper).not.toContain('--corner-radius');
-
-        expect(
-            fs.readFileSync(path.join(repoRoot, '.github/ui-preview/lib/capture.mjs'), 'utf8')
-        ).toMatch(/if \(hasDesktopPixmap\(display\)\) \{\s*return;/);
     });
 });
+
+describe.skipIf(process.platform !== 'linux')(
+    'user keeps the desktop pixmap the display wrapper published',
+    () => {
+        // The X11 helpers are Linux-only, and the fake commands rely on PATH
+        // lookup, so this behaviour is exercised on the platform that runs it.
+        function withFakeTools(xpropOutput, run) {
+            const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'touchai-ui-preview-path-'));
+            const marker = path.join(directory, 'xsetroot-called');
+            const script = (body) => `#!/bin/sh\n${body}\n`;
+
+            fs.writeFileSync(path.join(directory, 'xprop'), script(`echo '${xpropOutput}'`), {
+                mode: 0o755,
+            });
+            fs.writeFileSync(path.join(directory, 'xsetroot'), script(`touch '${marker}'`), {
+                mode: 0o755,
+            });
+
+            const originalPath = process.env.PATH;
+            process.env.PATH = `${directory}${path.delimiter}${originalPath ?? ''}`;
+
+            try {
+                run();
+                return fs.existsSync(marker);
+            } finally {
+                if (originalPath === undefined) {
+                    delete process.env.PATH;
+                } else {
+                    process.env.PATH = originalPath;
+                }
+                fs.rmSync(directory, { recursive: true, force: true });
+            }
+        }
+
+        it('user does not repaint the root window when a pixmap already exists', () => {
+            const painted = withFakeTools('_XROOTPMAP_ID: 0x400001', () => paintDesktop(':99'));
+
+            expect(painted).toBe(false);
+        });
+
+        it('user gets a solid backdrop when no pixmap exists', () => {
+            const painted = withFakeTools('_XROOTPMAP_ID: not found.', () => paintDesktop(':99'));
+
+            expect(painted).toBe(true);
+        });
+    }
+);
 
 describe('user keeps compact search screenshots', () => {
     it('user gets a low-complexity window frame but not a blank one', () => {
