@@ -43,6 +43,9 @@ describe('user reads recorder warnings in the preview comment', () => {
                 encoding: 'utf8',
                 env: {
                     ...process.env,
+                    // An inherited token would make the publisher call GitHub
+                    // before writing comment.md, even in dry-run mode.
+                    GH_TOKEN: '',
                     GITHUB_REPOSITORY: 'TouchAI-org/TouchAI',
                     UI_PREVIEW_PR: '1',
                     UI_PREVIEW_OUT: directory,
