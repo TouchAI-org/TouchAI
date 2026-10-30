@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { buildPrompt } from '../../../.github/ui-preview/lib/model.mjs';
 import {
     defaultPlan,
+    LIMITS,
     testIdFromSelector,
     validatePlan,
 } from '../../../.github/ui-preview/lib/scenarios.mjs';
@@ -62,6 +63,22 @@ describe('user reads a plan from the model', () => {
         expect(prompt).not.toContain('Every scene needs at least two interactions');
     });
 
+    it('user gets the numeric step limits the validator enforces', () => {
+        const prompt = buildPrompt({
+            title: 'Change the shortcuts section',
+            body: '',
+            files: [],
+            diff: '',
+            diffFiles: [],
+            diffDropped: [],
+            outline: facts,
+        });
+
+        expect(prompt).toContain(`between -${LIMITS.scrollPixels} and ${LIMITS.scrollPixels}`);
+        expect(prompt).toContain(`between 0 and ${LIMITS.waitMs}`);
+        expect(prompt).toContain(`under ${LIMITS.captionLength} characters`);
+    });
+
     it('user gets a valid plan when every action and target is known', () => {
         const result = validatePlan(
             planWithSteps([
@@ -104,6 +121,16 @@ describe('user reads a plan from the model', () => {
 
         expect(result.ok).toBe(false);
         expect(result.errors.join(' ')).toContain('not allowed');
+    });
+
+    it('user gets the allowed range back when a scroll is rejected', () => {
+        const result = validatePlan(
+            planWithSteps([{ do: 'scroll', value: LIMITS.scrollPixels + 400 }]),
+            facts
+        );
+
+        expect(result.ok).toBe(false);
+        expect(result.errors.join(' ')).toContain(String(LIMITS.scrollPixels));
     });
 
     it('user gets a rejection when the plan calls a bridge method that is not exposed', () => {

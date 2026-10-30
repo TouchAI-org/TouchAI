@@ -199,7 +199,9 @@ export function validatePlan(plan, facts = {}) {
                 const pixels = Number(step.value);
 
                 if (!Number.isFinite(pixels) || Math.abs(pixels) > LIMITS.scrollPixels) {
-                    errors.push(`${stepLabel} scrolls out of range`);
+                    errors.push(
+                        `${stepLabel} scrolls ${step.value}, outside the allowed -${LIMITS.scrollPixels} to ${LIMITS.scrollPixels}`
+                    );
                     return;
                 }
             }
@@ -208,7 +210,9 @@ export function validatePlan(plan, facts = {}) {
                 const ms = Number(step.value);
 
                 if (!Number.isFinite(ms) || ms < 0 || ms > LIMITS.waitMs) {
-                    errors.push(`${stepLabel} waits out of range`);
+                    errors.push(
+                        `${stepLabel} waits ${step.value}ms, outside the allowed 0 to ${LIMITS.waitMs}`
+                    );
                     return;
                 }
             }
