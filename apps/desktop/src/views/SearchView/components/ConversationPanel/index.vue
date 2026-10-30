@@ -33,22 +33,24 @@
             @keydown="handleScrollIntentByKeyboard"
         >
             <!-- 消息列表：虚拟滚动由 virtua 负责测量与锦点，打开时直接定位到底部 -->
-            <Virtualizer
-                ref="messageVirtualizer"
-                :data="messages"
-                :scroll-ref="conversationContainer || undefined"
-                :item-size="320"
-                :start-margin="16"
-                :class="isListPositioned ? '' : 'invisible'"
-                @scroll="handleScroll"
-                @resize="handleVirtualResize"
-            >
-                <template #default="{ item }">
-                    <div :data-message-id="item.id" :data-message-role="item.role">
-                        <MessageItem :message="item" @regenerate="handleRegenerateMessage" />
-                    </div>
-                </template>
-            </Virtualizer>
+            <div class="pt-4">
+                <Virtualizer
+                    ref="messageVirtualizer"
+                    :data="messages"
+                    :scroll-ref="conversationContainer || undefined"
+                    :item-size="320"
+                    :start-margin="16"
+                    :class="isListPositioned ? '' : 'invisible'"
+                    @scroll="handleScroll"
+                    @resize="handleVirtualResize"
+                >
+                    <template #default="{ item }">
+                        <div :data-message-id="item.id" :data-message-role="item.role">
+                            <MessageItem :message="item" @regenerate="handleRegenerateMessage" />
+                        </div>
+                    </template>
+                </Virtualizer>
+            </div>
 
             <!-- 对话时间轴 -->
             <ConversationTimeline
@@ -322,7 +324,16 @@
 
         lastAutoScrollAt.value = Date.now();
         messageVirtualizer.value?.scrollToIndex(lastIndex, { align: 'end' });
-        lastScrollTop.value = conversationContainer.value?.scrollTop ?? 0;
+        // `align: end` 只保证最后一条贴底；容器的下内边距与取整会留下几像素，
+        // 这里显式补到最大滚动位置，保持与“滚到 scrollHeight”一致的观感。
+        const container = conversationContainer.value;
+        if (container) {
+            const maxScrollTop = container.scrollHeight - container.clientHeight;
+            if (maxScrollTop > 0 && container.scrollTop < maxScrollTop) {
+                container.scrollTop = maxScrollTop;
+            }
+        }
+        lastScrollTop.value = container?.scrollTop ?? 0;
         syncScrollMetrics();
         emitLatestContentVisibility();
     }
