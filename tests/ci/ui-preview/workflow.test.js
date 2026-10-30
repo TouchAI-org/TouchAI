@@ -83,11 +83,12 @@ describe('user opens a pull request that runs the preview', () => {
         expect(workflow).toContain("'approval' || 'run'");
     });
 
-    it('user can check credentials from the same workflow without a pull request', () => {
-        expect(workflow).toContain('mode:');
-        expect(workflow).toContain("inputs.mode == 'doctor'");
-        expect(workflow).toContain('doctor-model');
-        expect(workflow).toContain('doctor-publish');
+    it('user gets no separate credential check that can be run and forgotten', () => {
+        // Credential state is reported by the run that uses it, so there is no
+        // second dispatch mode that can drift from the real pipeline.
+        expect(workflow).not.toContain('doctor');
+        expect(workflow).not.toContain('inputs.mode');
+        expect(nativeWorkflow).not.toContain('doctor');
     });
 
     it('user gets a decision for a fork pull request without an environment gate', () => {
@@ -229,12 +230,6 @@ describe('user opens a pull request that runs the preview', () => {
         expect(publish).toContain('UI_PREVIEW_BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]');
     });
 
-    it('user gets the same App identity in the credential doctor', () => {
-        const doctor = jobBlock('doctor-publish');
-
-        expect(doctor).toContain('UI_PREVIEW_BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]');
-    });
-
     it('user gets the comment edited in place rather than appended', () => {
         const publishScript = fs.readFileSync(
             path.join(repositoryRoot, '.github/ui-preview/publish.mjs'),
@@ -244,6 +239,20 @@ describe('user opens a pull request that runs the preview', () => {
         expect(publishScript).toContain('findOwnPreviewComment');
         expect(publishScript).toContain('updateComment');
         expect(publishScript).not.toContain('edit-last');
+    });
+
+    it('user gets a degraded preview explained in the comment, not only in the log', () => {
+        const publishScript = fs.readFileSync(
+            path.join(repositoryRoot, '.github/ui-preview/publish.mjs'),
+            'utf8'
+        );
+
+        // The recorder already collects warnings such as a plan that fell back
+        // to the default scene. Publishing them is what replaces the removed
+        // credential preflight, because it reports the state of a real run.
+        expect(publishScript).toContain('collectWarnings(manifests)');
+        expect(publishScript).toContain('Media could not be uploaded');
+        expect(publishScript).toContain('warnings,');
     });
 
     it('user gets no credential written into the workflow or the scripts', () => {

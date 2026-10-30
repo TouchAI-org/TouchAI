@@ -130,6 +130,20 @@ describe('user reads the preview comment', () => {
         expect(body).toContain('Shortcuts: click');
         expect(body).toContain('element was not visible');
     });
+
+    it('user sees a collapsed note when the preview fell back to a weaker plan', () => {
+        const body = buildPreviewComment({
+            ...baseComment,
+            warnings: ['no model is configured; the default scene was used'],
+        });
+
+        expect(body).toContain('<details><summary>Preview notes (1)</summary>');
+        expect(body).toContain('- no model is configured; the default scene was used');
+    });
+
+    it('user sees no notes block when nothing degraded', () => {
+        expect(buildPreviewComment(baseComment)).not.toContain('Preview notes');
+    });
 });
 
 describe('user reads the waiting and skipped comments', () => {

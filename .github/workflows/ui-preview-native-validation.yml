@@ -442,16 +442,6 @@ jobs:
                   permission-issues: write
                   permission-pull-requests: write
 
-            - name: Check the attachment credential
-              continue-on-error: true
-              env:
-                  GH_TOKEN: ${{ steps.app.outputs.token }}
-                  UI_PREVIEW_BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]
-                  ATTACHMENT_TOKEN: ${{ secrets.ATTACHMENT_TOKEN }}
-                  GITHUB_REPOSITORY: ${{ github.repository }}
-                  UI_PREVIEW_REPOSITORY_ID: ${{ github.event.repository.id }}
-              run: node .github/ui-preview/doctor.mjs --mode=publish
-
             - name: Publish the comment as the App
               env:
                   GH_TOKEN: ${{ steps.app.outputs.token }}

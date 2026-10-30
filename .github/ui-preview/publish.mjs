@@ -149,6 +149,31 @@ function shotCount(manifest) {
     return (manifest.scenes ?? []).reduce((total, scene) => total + (scene.shots?.length ?? 0), 0);
 }
 
+/**
+ * A warning that every platform reported is a property of the run, such as the
+ * planner falling back to the default scene, so it is shown once. A warning
+ * from one platform keeps its label, because that is the part that matters.
+ */
+function collectWarnings(entries) {
+    const present = entries.filter((entry) => !entry.missing);
+    const byText = new Map();
+
+    for (const entry of present) {
+        for (const warning of entry.manifest.warnings ?? []) {
+            const text = String(warning);
+            const platforms = byText.get(text) ?? new Set();
+            platforms.add(entry.platform);
+            byText.set(text, platforms);
+        }
+    }
+
+    return [...byText].map(([warning, platforms]) =>
+        present.length > 1 && platforms.size === present.length
+            ? warning
+            : `${[...platforms].map(platformLabel).join(', ')}: ${warning}`
+    );
+}
+
 async function main() {
     const [owner, repo] = String(env('GITHUB_REPOSITORY')).split('/');
     const token = env('GH_TOKEN');
@@ -202,10 +227,26 @@ async function main() {
     const first = present[0].manifest;
     const platforms = [];
     const unseen = [first.unseen];
+    const warnings = collectWarnings(manifests);
     const missing = manifests
         .filter((entry) => entry.missing)
         .map((entry) => platformLabel(entry.platform));
     let truncated = false;
+
+    // Publishing media needs a user credential and the repository id. When
+    // either is missing the comment still renders, but it says so, because a
+    // link-only comment looks like a bug in the recording.
+    if (!dryRun && (!uploadToken || repositoryId === 0)) {
+        const hasMedia = present.some(
+            (entry) => entry.manifest.video || shotCount(entry.manifest) > 0
+        );
+
+        if (hasMedia) {
+            warnings.push(
+                'Media could not be uploaded, so this comment links the workflow artifact instead. Check `ATTACHMENT_TOKEN` and the repository id.'
+            );
+        }
+    }
 
     if (missing.length > 0) {
         unseen.push(`No evidence was produced for ${missing.join(', ')}.`);
@@ -328,6 +369,7 @@ async function main() {
         mismatch: first.mismatch,
         unseen: unseen.filter(Boolean).join(' '),
         platforms,
+        warnings,
         artifactUrl,
         note:
             (first.trigger || trigger) === 'native validation'

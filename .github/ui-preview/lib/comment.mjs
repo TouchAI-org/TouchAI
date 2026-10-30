@@ -183,6 +183,7 @@ function renderPlatform(platform, fallbackAssets) {
  * @param {string} [input.videoUrl]
  * @param {string} [input.artifactUrl]
  * @param {string} [input.failure]
+ * @param {string[]} [input.warnings]
  * @param {Array<{ scene?: string, step?: string, error?: string }>} [input.skippedSteps]
  * @param {string} [input.note]
  */
@@ -229,6 +230,20 @@ export function buildPreviewComment(input) {
                 lines.push('', rendered);
             }
         }
+    }
+
+    // Warnings explain why a preview may be weaker than usual, for example a
+    // model that returned no usable plan and left the default scene in place.
+    // They stay collapsed so they never push the media out of view.
+    if (input.warnings?.length) {
+        lines.push(
+            '',
+            `<details><summary>Preview notes (${input.warnings.length})</summary>`,
+            '',
+            input.warnings.map((warning) => `- ${warning}`).join('\n'),
+            '',
+            '</details>'
+        );
     }
 
     if (input.unseen) {

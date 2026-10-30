@@ -14,14 +14,6 @@ on:
             - created
     workflow_dispatch:
         inputs:
-            mode:
-                description: Run a preview or check the configured credentials
-                required: true
-                type: choice
-                options:
-                    - preview
-                    - doctor
-                default: preview
             pr:
                 description: Pull request number
                 required: false
@@ -57,7 +49,6 @@ jobs:
     detect:
         name: Decide
         if: |
-            (github.event_name != 'workflow_dispatch' || inputs.mode != 'doctor') &&
             (github.event_name != 'pull_request_target' ||
               !contains(fromJSON('["labeled","unlabeled"]'), github.event.action) ||
               contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name)) &&
@@ -589,75 +580,3 @@ jobs:
                   UI_PREVIEW_REPOSITORY_ID: ${{ github.event.repository.id }}
                   UI_PREVIEW_ARTIFACT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
               run: node .github/ui-preview/publish.mjs
-
-    doctor-model:
-        name: Doctor model credential
-        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'doctor'
-        runs-on: ubuntu-24.04
-        timeout-minutes: 10
-        environment: ui-preview
-        permissions:
-            contents: read
-        steps:
-            - name: Check out trusted scripts
-              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with:
-                  ref: ${{ github.event.repository.default_branch }}
-                  persist-credentials: false
-                  sparse-checkout: |
-                      .github/ui-preview
-                  sparse-checkout-cone-mode: false
-
-            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-              with:
-                  node-version: 22
-                  package-manager-cache: false
-
-            - name: Check the model
-              env:
-                  UI_PREVIEW_MODEL_API_KEY: ${{ secrets.UI_PREVIEW_MODEL_API_KEY }}
-                  UI_PREVIEW_MODEL_BASE_URL: ${{ vars.UI_PREVIEW_MODEL_BASE_URL }}
-                  UI_PREVIEW_MODEL: ${{ vars.UI_PREVIEW_MODEL }}
-              run: node .github/ui-preview/doctor.mjs --mode=model
-
-    doctor-publish:
-        name: Doctor publish credentials
-        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'doctor'
-        runs-on: ubuntu-24.04
-        timeout-minutes: 10
-        environment: ui-preview-publish
-        permissions:
-            contents: read
-        steps:
-            - name: Check out trusted scripts
-              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with:
-                  ref: ${{ github.event.repository.default_branch }}
-                  persist-credentials: false
-                  sparse-checkout: |
-                      .github/ui-preview
-                  sparse-checkout-cone-mode: false
-
-            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-              with:
-                  node-version: 22
-                  package-manager-cache: false
-
-            - name: Mint the comment token
-              id: app
-              uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-              with:
-                  app-id: ${{ secrets.BOT_APP_ID }}
-                  private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-                  owner: ${{ github.repository_owner }}
-                  repositories: ${{ github.event.repository.name }}
-                  permission-issues: write
-                  permission-pull-requests: write
-
-            - name: Check the App and upload credentials
-              env:
-                  GH_TOKEN: ${{ steps.app.outputs.token }}
-                  UI_PREVIEW_BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]
-                  ATTACHMENT_TOKEN: ${{ secrets.ATTACHMENT_TOKEN }}
-                  UI_PREVIEW_REPOSITORY_ID: ${{ github.event.repository.id }}
-              run: node .github/ui-preview/doctor.mjs --mode=publish

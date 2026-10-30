@@ -13,7 +13,6 @@ not install the workspace to run them.
 | `seed.mjs` | `record` | Fixture usage data for the throwaway app root |
 | `record.mjs` | `record` | Execute the plan, capture native video and key screenshots |
 | `publish.mjs` | `publish` | Validate every platform's evidence, scan for credentials, upload, update the comment |
-| `doctor.mjs` | manual | Preflight the credentials |
 | `with-display.sh` | `explore`, `record` | Window manager and compositor for Xvfb |
 | `macos-display.swift` | `explore`, `record` | Select a 1920x1080 stage, falling back only when the runner cannot expose one |
 | `configure-display.ps1` | `explore`, `record` | Select a 1920x1080 stage, falling back only when the runner cannot expose one |
@@ -37,5 +36,6 @@ The label-triggered `.github/workflows/ui-preview-native-validation.yml` re-runs
 macOS, and Windows capture and posts the comment as the App, using the same `BOT_APP_ID` and
 `BOT_APP_PRIVATE_KEY` secrets as production. Use it to check a capture change before merge.
 
-To check credentials, dispatch `.github/workflows/ui-preview.yml` with `mode: doctor`; no pull
-request is needed.
+Credential problems surface in the preview comment itself: a missing model falls back to the
+default scene, and a missing upload credential links the artifact, both recorded under
+`Preview notes`. A broken App credential fails `detect` before any build starts.
