@@ -70,6 +70,8 @@ describe('user opens a pull request that runs the preview', () => {
         expect(detect).not.toContain('environment:');
         expect(detect).toContain('secrets.BOT_APP_ID');
         expect(detect).toContain('secrets.BOT_APP_PRIVATE_KEY');
+        expect(detect).toContain('node .github/ui-preview/detect.mjs');
+        expect(detect).toContain('id: decide');
     });
 
     it('user gets the pull request code built only in a job without secrets', () => {
