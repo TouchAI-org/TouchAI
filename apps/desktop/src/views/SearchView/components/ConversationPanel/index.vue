@@ -38,6 +38,7 @@
                 :data="messages"
                 :scroll-ref="conversationContainer || undefined"
                 :item-size="320"
+                :start-margin="16"
                 :class="isListPositioned ? '' : 'invisible'"
                 @scroll="handleScroll"
                 @resize="handleVirtualResize"
