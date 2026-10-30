@@ -2,6 +2,7 @@
 
 //! 数据库运行时状态与事务托管。
 
+mod analytics_snapshot;
 mod executor;
 mod import;
 
@@ -96,6 +97,14 @@ impl DatabaseRuntime {
     ) -> Result<DatabaseQueryResponse, String> {
         reject_top_level_transaction_sql(&request.sql)?;
         execute_request(&self.inner.pool, request).await
+    }
+
+    /// The single shared SQLite pool over `touchai.db`.
+    ///
+    /// Crate-internal typed subsystems (analytics) run their own statements on
+    /// this pool instead of opening a second connection or database.
+    pub(crate) fn pool(&self) -> &SqlitePool {
+        &self.inner.pool
     }
 
     pub async fn batch(
@@ -216,11 +225,25 @@ impl DatabaseRuntime {
     }
 
     pub async fn export_backup(&self, target_path: &str) -> Result<(), String> {
-        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        // A snapshot taken by VACUUM INTO is transactionally consistent with the
+        // live database and cannot race a checkpoint-then-copy. Analytics identity
+        // and queued payloads are scrubbed from the offline copy, never from the
+        // live tables, so the exported schema stays valid and restorable.
+        let parent = self
+            .inner
+            .database_path
+            .parent()
+            .ok_or_else(|| "数据库路径没有父目录".to_string())?;
+        let snapshot = tempfile::tempdir_in(parent)
+            .map_err(|error| format!("Failed to create export workspace: {error}"))?;
+        let snapshot_path = snapshot.path().join(DATABASE_FILE_NAME);
+        sqlx::query("VACUUM INTO ?")
+            .bind(snapshot_path.to_string_lossy().as_ref())
             .execute(&self.inner.pool)
             .await
-            .map_err(|error| format!("Failed to checkpoint sqlite WAL: {error}"))?;
-        std::fs::copy(&self.inner.database_path, target_path)
+            .map_err(|error| format!("Failed to snapshot database for export: {error}"))?;
+        analytics_snapshot::sanitize_analytics_snapshot(&snapshot_path).await?;
+        std::fs::copy(&snapshot_path, target_path)
             .map_err(|error| format!("Failed to export database backup: {error}"))?;
         Ok(())
     }

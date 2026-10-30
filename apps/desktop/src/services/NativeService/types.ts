@@ -2,6 +2,15 @@ import type { AppUpdateChannel } from '@/config/appUpdate';
 import type { SearchWindowDefaultSize, SearchWindowHeightMode } from '@/config/searchWindow';
 import type { SessionStatusReminderKind } from '@/utils/session';
 
+export type {
+    AnalyticsConsentStatus,
+    AnalyticsOperationHandle,
+    AnalyticsState,
+    AnalyticsSubmitResult,
+    AnalyticsSubmitStatus,
+    AnalyticsTrackRequest,
+} from '@services/AnalyticsService/types';
+
 export type { AppUpdateChannel } from '@/config/appUpdate';
 export type { SearchWindowDefaultSize, SearchWindowHeightMode };
 

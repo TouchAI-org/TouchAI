@@ -654,6 +654,82 @@ export const quickSearchClickStats = sqliteTable(
     ]
 );
 
+/**
+ * Analytics consent and installation identity.
+ *
+ * One row only. The Rust analytics runtime owns all reads and writes; the
+ * WebView never queries analytics directly.
+ */
+export const analyticsState = sqliteTable(
+    'analytics_state',
+    {
+        id: integer('id').primaryKey(),
+        policy_version: integer('policy_version').notNull().default(1),
+        status: text('status', {
+            enum: ['uninitialized', 'enabled', 'disabled'],
+        })
+            .notNull()
+            .default('uninitialized'),
+        /**
+         * 0 means the status was derived from the default policy and may be
+         * re-derived when that policy changes. 1 means the user made an explicit
+         * choice, which later provisioning must never override.
+         */
+        consent_explicit: integer('consent_explicit').notNull().default(0),
+        installation_id: text('installation_id'),
+        consent_epoch: integer('consent_epoch').notNull().default(0),
+        observation_started_day: text('observation_started_day'),
+        first_success_day: text('first_success_day'),
+        last_observed_app_version: text('last_observed_app_version'),
+        pending_update_json: text('pending_update_json'),
+        updated_at: text('updated_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+    },
+    (table) => [
+        check('analytics_state_single_row_check', sql`${table.id} = 1`),
+        check(
+            'analytics_state_status_check',
+            sql`${table.status} IN ('uninitialized', 'enabled', 'disabled')`
+        ),
+        check('analytics_state_consent_explicit_check', sql`${table.consent_explicit} IN (0, 1)`),
+        check('analytics_state_consent_epoch_check', sql`${table.consent_epoch} >= 0`),
+    ]
+);
+
+/**
+ * Bounded local analytics outbox.
+ *
+ * The payload is the immutable validated envelope, including event id and
+ * original timestamp. Confirmed delivery deletes the row; there is no sent
+ * history table.
+ */
+export const analyticsOutbox = sqliteTable(
+    'analytics_outbox',
+    {
+        event_id: text('event_id').primaryKey(),
+        consent_epoch: integer('consent_epoch').notNull(),
+        schema_version: integer('schema_version').notNull(),
+        event_name: text('event_name').notNull(),
+        payload_json: text('payload_json').notNull(),
+        payload_bytes: integer('payload_bytes').notNull(),
+        enqueued_at: integer('enqueued_at').notNull(),
+        expires_at: integer('expires_at').notNull(),
+        next_attempt_at: integer('next_attempt_at').notNull(),
+        attempt_count: integer('attempt_count').notNull().default(0),
+        priority: integer('priority').notNull().default(100),
+    },
+    (table) => [
+        check(
+            'analytics_outbox_payload_bytes_check',
+            sql`${table.payload_bytes} > 0 AND ${table.payload_bytes} <= 2048`
+        ),
+        check('analytics_outbox_attempt_count_check', sql`${table.attempt_count} >= 0`),
+        index('analytics_outbox_next_attempt_idx').on(table.next_attempt_at, table.priority),
+        index('analytics_outbox_expires_at_idx').on(table.expires_at),
+    ]
+);
+
 // ==================== 类型别名 ====================
 
 export type Session = typeof sessions.$inferSelect;
@@ -729,6 +805,12 @@ export type BuiltInToolUpdate = Partial<NewBuiltInTool>;
 export type QuickSearchClickStat = typeof quickSearchClickStats.$inferSelect;
 export type NewQuickSearchClickStat = typeof quickSearchClickStats.$inferInsert;
 export type QuickSearchClickStatUpdate = Partial<NewQuickSearchClickStat>;
+
+export type AnalyticsStateRow = typeof analyticsState.$inferSelect;
+export type NewAnalyticsStateRow = typeof analyticsState.$inferInsert;
+
+export type AnalyticsOutboxRow = typeof analyticsOutbox.$inferSelect;
+export type NewAnalyticsOutboxRow = typeof analyticsOutbox.$inferInsert;
 
 export type MessageRole = Message['role'];
 export type ProviderDriver = Provider['driver'];

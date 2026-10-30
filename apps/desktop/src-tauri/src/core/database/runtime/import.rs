@@ -174,6 +174,9 @@ async fn prepare_import_database(
     let close_result = upgraded.close().await;
     upgrade_result?;
     close_result.map_err(|error| format!("Failed to close import snapshot: {error}"))?;
+    // The imported snapshot never carries another install's analytics identity,
+    // consent or queued events into this database. Local analytics state is kept.
+    super::analytics_snapshot::sanitize_analytics_snapshot(&snapshot_path).await?;
     Ok(snapshot)
 }
 

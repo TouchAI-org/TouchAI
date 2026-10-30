@@ -159,6 +159,21 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
                 show_initialization_failed_dialog(app);
                 error
             })?;
+    // Analytics shares the existing SQLite pool over touchai.db. A configuration
+    // or storage failure leaves collection disabled rather than blocking startup.
+    match tauri::async_runtime::block_on(crate::core::analytics::AnalyticsRuntime::initialize(
+        database_runtime.clone(),
+        app.package_info().version.to_string(),
+    )) {
+        Ok(analytics_runtime) => {
+            analytics_runtime.spawn_sender();
+            app.manage(analytics_runtime);
+            info!("Analytics runtime initialized.");
+        }
+        Err(error) => {
+            warn!("Analytics runtime unavailable, collection stays disabled: {error}");
+        }
+    }
     app.manage(database_runtime);
     info!("Database runtime initialized.");
 

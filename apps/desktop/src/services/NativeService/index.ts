@@ -1,4 +1,5 @@
 import { autostart } from './autostart';
+import { analytics } from './analytics';
 import { browser } from './browser';
 import { builtInTools } from './builtInTools';
 import { clipboard } from './clipboard';
@@ -62,6 +63,7 @@ export type {
 } from './types';
 
 export {
+    analytics,
     autostart,
     browser,
     builtInTools,
@@ -79,6 +81,7 @@ export {
 };
 
 export const native = {
+    analytics,
     window,
     shortcut,
     autostart,

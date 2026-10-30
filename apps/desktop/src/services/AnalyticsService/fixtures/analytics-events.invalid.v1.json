@@ -1,0 +1,58 @@
+{
+    "protocolVersion": 1,
+    "schemaVersion": 1,
+    "events": [
+        {
+            "name": "analytics.not_registered",
+            "attributes": {}
+        },
+        {
+            "name": "agent.request_submitted",
+            "attributes": {
+                "request_id": "1a2b3c4d-5e6f-4a70-8b91-c2d3e4f5a701",
+                "request_kind": "chat",
+                "surface": "main",
+                "attachment_count_bucket": "0",
+                "prompt": "secret"
+            }
+        },
+        {
+            "name": "agent.request_completed",
+            "attributes": {
+                "request_id": "1a2b3c4d-5e6f-4a70-8b91-c2d3e4f5a701",
+                "result": "success",
+                "duration_ms": -1,
+                "retry_count": 0,
+                "usage_coverage": "observed",
+                "persistence_result": "saved"
+            }
+        },
+        {
+            "name": "product.surface_opened",
+            "attributes": {
+                "surface": "not_a_surface"
+            }
+        },
+        {
+            "name": "app.started",
+            "attributes": {
+                "run_id": "92a3b4c5-d6e7-4bf8-8c09-eafb0c1d2e09"
+            }
+        },
+        {
+            "name": "analytics.health_reported",
+            "attributes": {
+                "accepted_count": 0,
+                "queue_depth": 1000001,
+                "consent_state": "enabled"
+            }
+        },
+        {
+            "name": "search.result_selected",
+            "attributes": {
+                "interaction_id": "6f708192-a3b4-4ec5-9f06-b7c8d9eafb06",
+                "result_category": "file"
+            }
+        }
+    ]
+}
