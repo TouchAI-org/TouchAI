@@ -283,32 +283,53 @@ async function main() {
             truncated = true;
         }
 
+        const uploadErrors = [];
+
         if (!dryRun && validation.ok && uploadToken && repositoryId !== 0) {
             for (const { shot } of selected) {
-                const absolute = path.join(evidenceDir, shot.file);
-                const data = fs.readFileSync(absolute);
-                const url = await uploadWithRetry(client, {
-                    token: uploadToken,
-                    name: `${entry.platform}-${shot.file}`,
-                    contentType: MIME_TYPES[path.extname(shot.file)] ?? 'application/octet-stream',
-                    data,
-                    repositoryId,
-                });
-                assets[shot.file] = url;
-                console.log(`uploaded ${entry.platform}/${shot.file}`);
+                try {
+                    const absolute = path.join(evidenceDir, shot.file);
+                    const data = fs.readFileSync(absolute);
+                    const url = await uploadWithRetry(client, {
+                        token: uploadToken,
+                        name: `${entry.platform}-${shot.file}`,
+                        contentType:
+                            MIME_TYPES[path.extname(shot.file)] ?? 'application/octet-stream',
+                        data,
+                        repositoryId,
+                    });
+                    assets[shot.file] = url;
+                    console.log(`uploaded ${entry.platform}/${shot.file}`);
+                } catch (error) {
+                    uploadErrors.push(`${shot.file}: ${error.message}`);
+                    console.log(
+                        `${entry.platform}: upload failed for ${shot.file}: ${error.message}`
+                    );
+                }
             }
 
             if (validation.assets.video) {
-                const filePath = path.join(evidenceDir, validation.assets.video);
-                const data = fs.readFileSync(filePath);
-                videoUrl = await uploadWithRetry(client, {
-                    token: uploadToken,
-                    name: `${entry.platform}-${validation.assets.video}`,
-                    contentType: MIME_TYPES['.mp4'],
-                    data,
-                    repositoryId,
-                });
-                console.log(`uploaded ${entry.platform}/${validation.assets.video}`);
+                try {
+                    const filePath = path.join(evidenceDir, validation.assets.video);
+                    const data = fs.readFileSync(filePath);
+                    videoUrl = await uploadWithRetry(client, {
+                        token: uploadToken,
+                        name: `${entry.platform}-${validation.assets.video}`,
+                        contentType: MIME_TYPES['.mp4'],
+                        data,
+                        repositoryId,
+                    });
+                    console.log(`uploaded ${entry.platform}/${validation.assets.video}`);
+                } catch (error) {
+                    uploadErrors.push(`${validation.assets.video}: ${error.message}`);
+                    console.log(
+                        `${entry.platform}: upload failed for ${validation.assets.video}: ${error.message}`
+                    );
+                }
+            }
+
+            if (uploadErrors.length > 0) {
+                warnings.push(`${label}: media upload failed for ${uploadErrors.join('; ')}`);
             }
         } else if (dryRun) {
             for (const { shot } of selected) {

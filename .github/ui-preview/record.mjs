@@ -1349,7 +1349,23 @@ async function main() {
 
                     try {
                         await runStep(session, step);
+                    } catch (error) {
+                        const repaired = await recoverStep(session, step);
 
+                        if (repaired) {
+                            console.log(`step repaired (${repaired}): ${currentStep}`);
+                        } else {
+                            manifest.skippedSteps.push({
+                                scene: scene.title,
+                                step: currentStep,
+                                error: error.message,
+                            });
+                            console.log(`step skipped: ${currentStep}: ${error.message}`);
+                            continue;
+                        }
+                    }
+
+                    try {
                         if (
                             scene.surface === 'search' &&
                             (await expandSearchFrameForContent({
@@ -1401,18 +1417,14 @@ async function main() {
                             await waitForSectionContent(session, step.target);
                         }
                     } catch (error) {
-                        const repaired = await recoverStep(session, step);
-
-                        if (repaired) {
-                            console.log(`step repaired (${repaired}): ${currentStep}`);
-                        } else {
-                            manifest.skippedSteps.push({
-                                scene: scene.title,
-                                step: currentStep,
-                                error: error.message,
-                            });
-                            console.log(`step skipped: ${currentStep}: ${error.message}`);
-                        }
+                        manifest.checks.push({
+                            name: 'Window and content stayed stable after step',
+                            status: 'fail',
+                            detail: error.message,
+                        });
+                        console.log(
+                            `post-step bookkeeping failed: ${currentStep}: ${error.message}`
+                        );
                     }
                 }
 

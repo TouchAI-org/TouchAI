@@ -14,21 +14,56 @@ import { createSession, isSearchUrl, waitForPort } from './webdriver.mjs';
 
 export const MAIN_WINDOW_TIMEOUT_MS = 30000;
 export const EMBEDDED_DRIVER_PORT = 4445;
+const PROCESS_EXIT_TIMEOUT_MS = 10000;
 
-function stopProcess(child) {
-    if (!child || child.exitCode !== null) {
+function hasExited(child) {
+    return child.exitCode !== null || child.signalCode !== null;
+}
+
+function waitForExit(child, timeoutMs) {
+    if (hasExited(child)) {
+        return Promise.resolve(true);
+    }
+
+    return new Promise((resolve) => {
+        let settled = false;
+        let timer;
+        const finish = (didExit) => {
+            if (settled) {
+                return;
+            }
+
+            settled = true;
+            clearTimeout(timer);
+            child.removeListener('exit', onExit);
+            resolve(didExit);
+        };
+        const onExit = () => finish(true);
+
+        timer = setTimeout(() => finish(false), timeoutMs);
+        child.once('exit', onExit);
+    });
+}
+
+async function stopProcess(child, timeoutMs = PROCESS_EXIT_TIMEOUT_MS) {
+    if (!child || hasExited(child)) {
         return;
     }
+
+    const exited = waitForExit(child, timeoutMs);
 
     if (process.platform === 'win32') {
         spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
             stdio: 'ignore',
             windowsHide: true,
         });
-        return;
+    } else {
+        child.kill('SIGTERM');
     }
 
-    child.kill('SIGTERM');
+    if (!(await exited)) {
+        console.warn(`ui-preview: app process ${child.pid} did not exit within ${timeoutMs}ms`);
+    }
 }
 
 /**
@@ -51,7 +86,7 @@ export async function boot({ application, platform = detectPlatform() }) {
     try {
         await waitForPort(port);
     } catch (error) {
-        stopProcess(child);
+        await stopProcess(child);
         throw new Error(
             `the ${platform} app did not expose the embedded WebDriver server: ${error.message}`,
             { cause: error }
@@ -67,7 +102,7 @@ export async function boot({ application, platform = detectPlatform() }) {
         console.error(
             `ui-preview: WebDriver session failed on port ${port} (app exited: ${JSON.stringify(exited.value)})`
         );
-        stopProcess(child);
+        await stopProcess(child);
         throw error;
     }
 
@@ -80,7 +115,7 @@ export async function boot({ application, platform = detectPlatform() }) {
         },
         async close() {
             await session.quit();
-            stopProcess(child);
+            await stopProcess(child);
         },
     };
 }

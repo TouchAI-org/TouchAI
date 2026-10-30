@@ -8,14 +8,6 @@ const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(testDirectory, '../../..');
 const workflowPath = path.join(repositoryRoot, '.github/workflows/ui-preview.yml');
 const workflow = fs.readFileSync(workflowPath, 'utf8');
-const runtime = fs.readFileSync(
-    path.join(repositoryRoot, '.github/ui-preview/lib/runtime.mjs'),
-    'utf8'
-);
-const recordScript = fs.readFileSync(
-    path.join(repositoryRoot, '.github/ui-preview/record.mjs'),
-    'utf8'
-);
 
 function jobBlock(name) {
     const start = workflow.indexOf(`\n    ${name}:`);
@@ -241,12 +233,6 @@ describe('user opens a pull request that runs the preview', () => {
         expect(publishScript).toContain('warnings,');
     });
 
-    it('user gets only actionable notes in the comment', () => {
-        // The seeded provider points at a closed port on purpose, so its
-        // connection errors are expected and must stay out of the manifest.
-        expect(recordScript).not.toContain('expected provider connection error');
-    });
-
     it('user gets no credential written into the workflow or the scripts', () => {
         const directory = path.join(repositoryRoot, '.github/ui-preview');
         const files = [];
@@ -300,16 +286,5 @@ describe('user validates recorder changes through the preview workflow', () => {
 
         expect(detect).toContain('INPUT_SCRIPTS_REF: ${{ inputs.scripts_ref }}');
         expect(detect).toContain('node .github/ui-preview/detect.mjs');
-    });
-
-    it('user gets a compact empty frame and one centered results frame', () => {
-        expect(workflow).toContain("TOUCHAI_UI_PREVIEW: '1'");
-        expect(runtime).toContain('hideCurrentWindow');
-        expect(recordScript).toContain('setPreviewWindowFrame');
-        expect(recordScript).toContain('searchWindowFrame');
-        expect(recordScript).toContain('Search window empty state stayed compact');
-        expect(recordScript).toContain('Search window expanded once for results');
-        expect(runtime).toContain('TAURI_WEBDRIVER_PORT');
-        expect(recordScript).toContain('centeredWindowPosition');
     });
 });

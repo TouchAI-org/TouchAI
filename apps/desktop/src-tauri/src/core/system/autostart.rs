@@ -4,6 +4,8 @@
 //!
 //! 负责管理应用的开机自启动功能
 
+use std::fmt::Display;
+
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_autostart::ManagerExt;
 
@@ -30,7 +32,11 @@ pub fn disable_autostart<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 
 pub fn is_autostart_enabled<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
     let autostart_manager = app.autolaunch();
-    match autostart_manager.is_enabled() {
+    map_autostart_status(autostart_manager.is_enabled())
+}
+
+fn map_autostart_status<E: Display>(status: Result<bool, E>) -> Result<bool, String> {
+    match status {
         Ok(enabled) => Ok(enabled),
         // A development build has no installed entry to read, so the lookup
         // fails with "not found" instead of reporting a disabled state.
@@ -47,22 +53,33 @@ fn is_missing_autostart_entry(message: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_missing_autostart_entry;
+    use super::map_autostart_status;
 
     #[test]
-    fn user_gets_a_missing_autostart_entry_recognised_in_both_locales() {
-        assert!(is_missing_autostart_entry(
-            "The system cannot find the file specified. (os error 2)"
-        ));
-        assert!(is_missing_autostart_entry(
-            "系统找不到指定的文件。 (os error 2)"
-        ));
+    fn user_gets_known_autostart_statuses_preserved() {
+        assert_eq!(map_autostart_status(Ok::<_, &str>(true)), Ok(true));
+        assert_eq!(map_autostart_status(Ok::<_, &str>(false)), Ok(false));
+    }
+
+    #[test]
+    fn user_gets_a_missing_autostart_entry_as_disabled() {
+        assert_eq!(
+            map_autostart_status(Err::<bool, _>(
+                "The system cannot find the file specified. (os error 2)"
+            )),
+            Ok(false)
+        );
+        assert_eq!(
+            map_autostart_status(Err::<bool, _>("系统找不到指定的文件。 (os error 2)")),
+            Ok(false)
+        );
     }
 
     #[test]
     fn user_still_sees_other_autostart_failures() {
-        assert!(!is_missing_autostart_entry(
-            "Access is denied. (os error 5)"
-        ));
+        assert_eq!(
+            map_autostart_status(Err::<bool, _>("Access is denied. (os error 5)")),
+            Err("Failed to check autostart status: Access is denied. (os error 5)".to_string())
+        );
     }
 }
