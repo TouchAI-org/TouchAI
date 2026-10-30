@@ -21,9 +21,9 @@ use velopack::{
     VelopackAssetFeed,
 };
 
-use crate::core::product_config::{product_config, ProductUpdatePolicy};
 #[cfg(test)]
 use crate::core::product_config::ProductConfig;
+use crate::core::product_config::{product_config, ProductUpdatePolicy};
 
 #[cfg(test)]
 const PRODUCT_CONFIG_JSON: &str =

@@ -563,12 +563,42 @@ mod tests {
     }
 
     fn outbox_insert(event_id: &str) -> OutboxInsert {
+        // A real, decodable persisted envelope: the sender parses `payload_json`
+        // back into an envelope, so a placeholder body would look like a poison
+        // row and be dropped before any transport call.
+        let now = store::now_millis();
+        let envelope = AnalyticsEventEnvelope {
+            schema_version: 1,
+            event_id: event_id.to_string(),
+            occurred_at_ms: now,
+            client_sent_at_ms: now,
+            installation_id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301".to_string(),
+            analytics_session_id: None,
+            event_name: "app.started".to_string(),
+            app_version: "1.0.0-test".to_string(),
+            release_channel: "stable".to_string(),
+            os_family: "linux".to_string(),
+            architecture: "x86_64".to_string(),
+            attributes: JsonMap::new(),
+        };
         OutboxInsert {
             event_id: event_id.to_string(),
             consent_epoch: 0,
             schema_version: 1,
             event_name: "app.started".to_string(),
-            payload_json: r#"{"event_id":"x"}"#.to_string(),
+            payload_json: serde_json::to_string(&envelope).expect("encode envelope"),
+            priority: 100,
+            marks_first_success: false,
+        }
+    }
+
+    fn poison_insert(event_id: &str) -> OutboxInsert {
+        OutboxInsert {
+            event_id: event_id.to_string(),
+            consent_epoch: 0,
+            schema_version: 1,
+            event_name: "app.started".to_string(),
+            payload_json: r#"{"not":"an envelope"}"#.to_string(),
             priority: 100,
             marks_first_success: false,
         }
@@ -691,6 +721,32 @@ mod tests {
                 .0,
             1,
             "a bot rejection must not discard the event"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_poison_row_dropped_without_a_transport_call() {
+        let (_root, database) = test_database().await;
+        let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
+        let runtime =
+            AnalyticsRuntime::initialize_with_sender_for_tests(database, Some(probe.clone()), true)
+                .await
+                .expect("runtime");
+        store::enqueue(runtime.inner.database.pool(), poison_insert("poison"))
+            .await
+            .expect("enqueue");
+
+        runtime.flush_once().await.expect("flush");
+
+        // A payload that cannot be decoded is deleted as a permanent rejection and
+        // never reaches the transport.
+        assert_eq!(probe.sends.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            store::queue_stats(runtime.inner.database.pool())
+                .await
+                .expect("stats")
+                .0,
+            0
         );
     }
 

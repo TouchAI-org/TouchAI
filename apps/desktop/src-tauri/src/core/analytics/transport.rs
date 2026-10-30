@@ -29,10 +29,6 @@ pub(crate) struct AnalyticsEventEnvelope {
     pub(crate) schema_version: u32,
     pub(crate) event_id: String,
     pub(crate) occurred_at_ms: i64,
-    /// Transport metadata captured once at enqueue. It is frozen so a retry is
-    /// byte-identical to the first attempt; the receiver's report dedup must key
-    /// on the immutable `event_id`/`occurred_at_ms`, never this clock.
-    pub(crate) client_sent_at_ms: i64,
     pub(crate) installation_id: String,
     pub(crate) analytics_session_id: Option<String>,
     pub(crate) event_name: String,
@@ -69,6 +65,7 @@ pub(crate) trait EventSender: Send + Sync {
 pub(crate) fn build_wire_body(
     envelope: &AnalyticsEventEnvelope,
     website_id: &str,
+    client_sent_at_ms: i64,
 ) -> Result<JsonValue, String> {
     let mut data = envelope.attributes.clone();
     data.insert(
@@ -107,7 +104,7 @@ pub(crate) fn build_wire_body(
     );
     data.insert(
         "client_sent_at_ms".to_string(),
-        JsonValue::Number(envelope.client_sent_at_ms.into()),
+        JsonValue::Number(client_sent_at_ms.into()),
     );
 
     let payload = JsonValue::Object(JsonMap::from_iter([
@@ -282,7 +279,11 @@ impl AnalyticsTransport {
     }
 
     pub(crate) async fn send(&self, envelope: &AnalyticsEventEnvelope) -> SendOutcome {
-        let body = match build_wire_body(envelope, &self.website_id) {
+        // `client_sent_at_ms` is an ephemeral transport field: it records when this
+        // attempt left the client. The server's report fingerprint excludes it, so
+        // the stored event_id/occurred_at/core stay immutable across retries.
+        let now = super::store::now_millis();
+        let body = match build_wire_body(envelope, &self.website_id, now) {
             Ok(body) => body,
             Err(error) => {
                 return SendOutcome::PermanentRejection {
@@ -344,7 +345,6 @@ mod tests {
             schema_version: 1,
             event_id: "1a2b3c4d-5e6f-4a70-8b91-c2d3e4f5a701".to_string(),
             occurred_at_ms: 1_760_000_000_000,
-            client_sent_at_ms: 1_760_000_000_500,
             installation_id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301".to_string(),
             analytics_session_id: Some("0f1c2a3b-4d5e-4f60-8a91-b2c3d4e5f601".to_string()),
             event_name: "app.started".to_string(),
@@ -367,8 +367,12 @@ mod tests {
 
     #[test]
     fn user_gets_the_umami_required_website_hostname_and_url_in_one_wire_event() {
-        let wire = build_wire_body(&envelope(), "11111111-1111-4111-8111-111111111111")
-            .expect("wire body");
+        let wire = build_wire_body(
+            &envelope(),
+            "11111111-1111-4111-8111-111111111111",
+            1_760_000_000_500,
+        )
+        .expect("wire body");
 
         assert_eq!(wire["type"], "event");
         assert_eq!(

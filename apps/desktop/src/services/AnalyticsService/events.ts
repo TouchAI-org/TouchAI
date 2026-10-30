@@ -11,7 +11,13 @@ const uuidSchema = z
     .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 
 function isRealUtcDay(value: string): boolean {
-    const [year, month, day] = value.split('-').map(Number);
+    const parts = value.split('-');
+    if (parts.length !== 3) {
+        return false;
+    }
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const day = Number(parts[2]);
     const date = new Date(Date.UTC(year, month - 1, day));
     return (
         date.getUTCFullYear() === year &&
@@ -37,6 +43,8 @@ const totalTokensSchema = z.number().int().min(0).max(10_000_000_000);
 const costMicrosSchema = z.number().int().min(0).max(10_000_000_000_000);
 const healthCountSchema = z.number().int().min(0).max(1_000_000);
 const queueDepthSchema = z.number().int().min(0).max(1_000_000);
+const llmCallCountSchema = z.number().int().min(0).max(10_000);
+const cacheTokenSchema = z.number().int().min(0).max(10_000_000_000);
 
 const resultSchema = z.enum(['success', 'failure', 'cancelled', 'unknown']);
 
@@ -111,6 +119,37 @@ export const ANALYTICS_EVENT_SCHEMAS = {
         cancel_stage: z
             .enum(['submitted', 'streaming', 'tool', 'approval', 'persistence', 'other'])
             .optional(),
+        error_category: z
+            .enum([
+                'none',
+                'auth',
+                'rate_limit',
+                'network',
+                'timeout',
+                'invalid_request',
+                'provider',
+                'other',
+            ])
+            .optional(),
+        pricing_coverage: z.enum(['observed', 'partial', 'unavailable']).optional(),
+        llm_call_count: llmCallCountSchema.optional(),
+        unpriced_call_count: llmCallCountSchema.optional(),
+        cache_read_tokens: cacheTokenSchema.optional(),
+        cache_write_tokens: cacheTokenSchema.optional(),
+    }).superRefine((value, ctx) => {
+        // unpriced calls are a subset of all llm calls; a value above the total is
+        // incoherent and is rejected by the shared validator.
+        if (
+            typeof value.llm_call_count === 'number' &&
+            typeof value.unpriced_call_count === 'number' &&
+            value.unpriced_call_count > value.llm_call_count
+        ) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['unpriced_call_count'],
+                message: 'unpriced_call_count exceeds llm_call_count',
+            });
+        }
     }),
     'agent.tool_completed': eventSchema({
         request_id: uuidSchema,

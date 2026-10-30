@@ -235,6 +235,27 @@ fn event_spec(name: AnalyticsEventName) -> &'static [AttrSpec] {
                         "other",
                     ]),
                 ),
+                optional(
+                    "error_category",
+                    AttrKind::Enum(&[
+                        "none",
+                        "auth",
+                        "rate_limit",
+                        "network",
+                        "timeout",
+                        "invalid_request",
+                        "provider",
+                        "other",
+                    ]),
+                ),
+                optional(
+                    "pricing_coverage",
+                    AttrKind::Enum(&["observed", "partial", "unavailable"]),
+                ),
+                optional("llm_call_count", int_kind(0, 10_000)),
+                optional("unpriced_call_count", int_kind(0, 10_000)),
+                optional("cache_read_tokens", int_kind(0, 10_000_000_000)),
+                optional("cache_write_tokens", int_kind(0, 10_000_000_000)),
             ];
             SPECS
         }
@@ -407,6 +428,21 @@ pub(crate) fn validate_event(
     for spec in specs {
         if spec.required && !attributes.contains_key(spec.key) {
             return Err(format!("missing_attribute:{}", spec.key));
+        }
+    }
+
+    // Cross-field relation shared with the TypeScript schema: unpriced calls are
+    // a subset of all llm calls, so it can never exceed the total when both are
+    // present. Absent values stay absent (never coerced to zero).
+    if event == AnalyticsEventName::AgentRequestCompleted {
+        let llm_calls = attributes.get("llm_call_count").and_then(JsonValue::as_i64);
+        let unpriced = attributes
+            .get("unpriced_call_count")
+            .and_then(JsonValue::as_i64);
+        if let (Some(llm_calls), Some(unpriced)) = (llm_calls, unpriced) {
+            if unpriced > llm_calls {
+                return Err("unpriced_call_count_exceeds_llm_call_count".to_string());
+            }
         }
     }
 

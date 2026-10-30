@@ -80,7 +80,13 @@
                 "total_tokens": 1620,
                 "cost_usd_micros": 8500,
                 "usage_coverage": "observed",
-                "persistence_result": "saved"
+                "persistence_result": "saved",
+                "error_category": "none",
+                "pricing_coverage": "observed",
+                "llm_call_count": 2,
+                "unpriced_call_count": 0,
+                "cache_read_tokens": 300,
+                "cache_write_tokens": 120
             }
         },
         {

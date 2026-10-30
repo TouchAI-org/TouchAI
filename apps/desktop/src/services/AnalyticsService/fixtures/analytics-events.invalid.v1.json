@@ -53,6 +53,19 @@
                 "interaction_id": "6f708192-a3b4-4ec5-9f06-b7c8d9eafb06",
                 "result_category": "file"
             }
+        },
+        {
+            "name": "agent.request_completed",
+            "attributes": {
+                "request_id": "1a2b3c4d-5e6f-4a70-8b91-c2d3e4f5a701",
+                "result": "success",
+                "duration_ms": 4200,
+                "retry_count": 0,
+                "usage_coverage": "observed",
+                "persistence_result": "saved",
+                "llm_call_count": 1,
+                "unpriced_call_count": 3
+            }
         }
     ]
 }
