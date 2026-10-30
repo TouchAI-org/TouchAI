@@ -835,18 +835,47 @@ function findLogErrors(appRoot) {
 }
 
 /**
+ * Boots the app and waits for its bridge, retrying once.
+ *
+ * A hosted macOS runner occasionally starts the app without ever registering
+ * the bridge, and the next launch on the same machine works. One retry keeps
+ * the evidence real instead of reporting a recording that never started.
+ */
+async function bootWithBridge(application, platform, timeoutMs = 45000) {
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+        const runtime = await boot({ application, platform });
+
+        try {
+            await waitForBridge(runtime.session, timeoutMs);
+            return runtime;
+        } catch (error) {
+            lastError = error;
+            console.log(`bridge wait attempt ${attempt} failed: ${error.message}`);
+
+            try {
+                await runtime.close();
+            } catch {
+                // The app already gone is the expected shape of this failure.
+            }
+
+            await sleep(1500);
+        }
+    }
+
+    throw lastError;
+}
+
+/**
  * Boots the app once so it creates and migrates its database, quits, then
  * writes fixture rows into it. A fresh install records an empty Usage page,
  * which hides exactly the changes that page needs a reviewer to see.
  */
 async function seedAppData(application, platform) {
-    const warm = await boot({ application, platform });
+    const warm = await bootWithBridge(application, platform);
 
-    try {
-        await waitForBridge(warm.session, 45000);
-    } finally {
-        await warm.close();
-    }
+    await warm.close();
 
     // The driver port is released asynchronously; the real boot starts after.
     await sleep(800);
@@ -1014,10 +1043,9 @@ async function main() {
     }
 
     try {
-        runtime = await boot({ application, platform });
+        runtime = await bootWithBridge(application, platform);
         const { session } = runtime;
 
-        await waitForBridge(session);
         const mainHandle = await mainWindowHandle(session);
         await ensureOverlay(session);
         await session.waitForElement("[data-testid='search-view']");
