@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SearchView 请求层。
  * 收口请求提交、排队与会话续发逻辑，让输入层与页面层保持解耦。
  */
@@ -21,6 +21,7 @@ import {
     type LoadedSessionInfo,
     type SessionMessage,
 } from '@/types/session';
+import { createPerfTrace } from '@/utils/perfTrace';
 
 import type { PendingRequest, SearchModelOverride } from '../types';
 
@@ -33,6 +34,8 @@ interface UseSearchRequestFlowOptions {
 }
 
 const SESSION_LIST_LIMIT = 40;
+/** 历史搜索输入防抖窗口。 */
+const SESSION_SEARCH_DEBOUNCE_MS = 120;
 
 /**
  * regenerate 需要能从“正常回复”或“尾随错误项”回溯到对应用户消息，
@@ -81,6 +84,8 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     let sessionListResolvedKey: string | null = null;
     let stopSessionStatusListener: (() => void) | null = null;
     let sessionStatusListenerDisposed = false;
+    // 历史搜索输入的防抖句柄；关闭弹窗时取消待执行查询。
+    let sessionSearchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     function buildSessionListRequestKey(): string {
         return JSON.stringify({
@@ -262,6 +267,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         sessionListInFlightKey = requestKey;
 
         sessionListLoadPromise = (async () => {
+            const listTrace = createPerfTrace('history.list');
             try {
                 const sessions = await listSessions({
                     query: sessionListQuery.value,
@@ -281,6 +287,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                     sessionListResolvedKey = null;
                 }
             } finally {
+                listTrace.end({ sessions: sessionList.value.length });
                 if (requestId === sessionListRequestId) {
                     isSessionListLoading.value = false;
                 }
@@ -314,11 +321,23 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
      *
      * @param open 是否打开历史会话弹层。
      */
+    /**
+     * 取消待执行的历史搜索查询。
+     */
+    function clearSessionSearchDebounce() {
+        if (sessionSearchDebounceTimer !== null) {
+            clearTimeout(sessionSearchDebounceTimer);
+            sessionSearchDebounceTimer = null;
+        }
+    }
+
     async function setSessionHistoryPopupOpen(open: boolean) {
         sessionHistoryPopupOpen.value = open;
         if (open) {
             return;
         }
+
+        clearSessionSearchDebounce();
 
         const canReuseDefaultList = sessionListResolvedKey === buildDefaultSessionListRequestKey();
 
@@ -337,11 +356,30 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         sessionListResolvedKey = null;
     }
 
-    async function updateSessionSearchQuery(query: string) {
+    /**
+     * 防抖地更新历史搜索词。连续输入只在停顿后查询一次，
+     * 避免每个字符都发起一次全文搜索；关闭弹窗时丢弃待执行查询。
+     *
+     * 返回的 Promise 在本次查询落地（或被下一次输入取消）后 resolve，
+     * 便于调用方在需要确定结果时 await。
+     */
+    function updateSessionSearchQuery(query: string): Promise<void> {
         sessionListQuery.value = query;
-        if (sessionHistoryPopupOpen.value) {
-            await refreshSessionList();
+        if (!sessionHistoryPopupOpen.value) {
+            return Promise.resolve();
         }
+
+        clearSessionSearchDebounce();
+        return new Promise<void>((resolve) => {
+            sessionSearchDebounceTimer = setTimeout(() => {
+                sessionSearchDebounceTimer = null;
+                void refreshSessionList()
+                    .catch((error) => {
+                        log.error('[SearchView] Failed to refresh session history:', error);
+                    })
+                    .finally(resolve);
+            }, SESSION_SEARCH_DEBOUNCE_MS);
+        });
     }
 
     async function handleSubmit(query: string, inputSnapshotOverride?: InputHistorySnapshot) {

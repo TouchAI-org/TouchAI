@@ -1,10 +1,10 @@
 import {
     MODEL_METADATA_CHECK_INTERVAL_MS,
     refreshModelMetadataIfStale,
-    seedModelMetadataFromSnapshot,
     shouldCheckModelMetadata,
     updateModelMetadata,
 } from '@services/AgentService/infrastructure/modelMetadata';
+import { seedModelMetadataFromSnapshot } from '@services/AgentService/infrastructure/modelMetadata/seed';
 import type { InvokeArgs } from '@tauri-apps/api/core';
 import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,7 +15,7 @@ const { metadataFetchMock } = vi.hoisted(() => ({
     metadataFetchMock: vi.fn(),
 }));
 
-vi.mock('@services/AgentService/infrastructure/providers', () => ({
+vi.mock('@services/AgentService/infrastructure/providers/ai-sdk/tauriFetch', () => ({
     createTauriFetch: () => metadataFetchMock,
 }));
 

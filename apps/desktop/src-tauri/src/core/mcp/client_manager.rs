@@ -101,12 +101,20 @@ impl McpClientManager {
     }
 
     /// 列出服务器的工具。
-    pub async fn list_tools(&self, server_id: i64) -> Result<Vec<McpToolDefinition>, String> {
+    /// 在短读锁内取出客户端句柄，锁在等待 RPC 前释放。
+    ///
+    /// 连接/断开需要写锁；如果读锁跨 RPC 持有，写操作会被在途请求阻塞，
+    /// 后续读操作也会在写锁后排队。
+    async fn client_snapshot(&self, server_id: i64) -> Result<Arc<McpClient>, String> {
         let clients = self.clients.read().await;
-        let client = clients
+        clients
             .get(&server_id)
-            .ok_or_else(|| format!("Server {} not found", server_id))?;
+            .cloned()
+            .ok_or_else(|| format!("Server {server_id} not found"))
+    }
 
+    pub async fn list_tools(&self, server_id: i64) -> Result<Vec<McpToolDefinition>, String> {
+        let client = self.client_snapshot(server_id).await?;
         client.list_tools().await
     }
 
@@ -120,20 +128,13 @@ impl McpClientManager {
         arguments: serde_json::Value,
         timeout_ms: Option<u64>,
     ) -> Result<McpToolCallResponse, String> {
-        let clients = self.clients.read().await;
-        let client = clients
-            .get(&server_id)
-            .ok_or_else(|| format!("Server {} not found", server_id))?;
-
+        let client = self.client_snapshot(server_id).await?;
         client.call_tool(tool_name, arguments, timeout_ms).await
     }
 
     /// 获取服务器状态。
     pub async fn get_server_status(&self, server_id: i64) -> Result<ServerStatusInfo, String> {
-        let clients = self.clients.read().await;
-        let client = clients
-            .get(&server_id)
-            .ok_or_else(|| format!("Server {} not found", server_id))?;
+        let client = self.client_snapshot(server_id).await?;
 
         let status = client.get_status().await;
         let error = client.get_error().await;
@@ -160,10 +161,17 @@ impl McpClientManager {
 
     /// 批量获取所有服务器状态。
     pub async fn get_all_server_statuses(&self) -> Vec<ServerStatusInfo> {
-        let clients = self.clients.read().await;
-        let mut statuses = Vec::new();
+        // 一次读锁内取快照，随后在锁外逐个查询，避免慢服务阻塞连接/断开。
+        let clients: Vec<(i64, Arc<McpClient>)> = {
+            let clients = self.clients.read().await;
+            clients
+                .iter()
+                .map(|(&id, client)| (id, client.clone()))
+                .collect()
+        };
+        let mut statuses = Vec::with_capacity(clients.len());
 
-        for (&server_id, client) in clients.iter() {
+        for (server_id, client) in clients {
             let status = client.get_status().await;
             let error = client.get_error().await;
             let version = if status == ServerStatus::Connected {
@@ -360,5 +368,62 @@ mod tests {
         );
         // A server that never connected must not linger in the registry.
         assert!(manager.get_all_servers().await.is_empty());
+    }
+    async fn insert_client(manager: &McpClientManager, server_id: i64) {
+        manager.clients.write().await.insert(
+            server_id,
+            Arc::new(McpClient::new(server_id, "demo".into())),
+        );
+    }
+
+    // 连接/断开需要写锁；读锁不能跨 RPC 持有，否则在途请求会阻塞写锁。
+    #[tokio::test]
+    async fn server_status_queries_release_the_map_lock_before_waiting() {
+        let manager = Arc::new(McpClientManager::new());
+        insert_client(&manager, 7).await;
+
+        // 持有客户端状态锁，模拟一个在途 RPC，使状态查询停在 await 上。
+        let client = manager.client_snapshot(7).await.expect("client");
+        let status_guard = client.lock_status_for_test().await;
+
+        let pending = tokio::spawn({
+            let manager = Arc::clone(&manager);
+            async move { manager.get_all_server_statuses().await }
+        });
+
+        for _ in 0..16 {
+            tokio::task::yield_now().await;
+        }
+
+        assert!(manager.clients.try_write().is_ok());
+
+        drop(status_guard);
+        let statuses = pending.await.expect("join");
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].server_id, 7);
+    }
+
+    #[tokio::test]
+    async fn single_server_status_releases_the_map_lock_before_waiting() {
+        let manager = Arc::new(McpClientManager::new());
+        insert_client(&manager, 7).await;
+
+        let client = manager.client_snapshot(7).await.expect("client");
+        let status_guard = client.lock_status_for_test().await;
+
+        let pending = tokio::spawn({
+            let manager = Arc::clone(&manager);
+            async move { manager.get_server_status(7).await }
+        });
+
+        for _ in 0..16 {
+            tokio::task::yield_now().await;
+        }
+
+        assert!(manager.clients.try_write().is_ok());
+
+        drop(status_guard);
+        let status = pending.await.expect("join").expect("status");
+        assert_eq!(status.server_id, 7);
     }
 }

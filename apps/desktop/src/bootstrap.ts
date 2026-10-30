@@ -1,4 +1,4 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3.
+// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 import { isLlmMetadataAliasEmpty, isLlmMetadataEmpty } from '@database/queries';
 import { appUpdateService } from '@services/AppUpdateService';
 import { initializeAppUpdateNotifications } from '@services/AppUpdateService/notifications';
@@ -13,6 +13,7 @@ import { createApp } from 'vue';
 import App from './App.vue';
 import { installI18n } from './i18n';
 import router from './router';
+import { registerStartupCapability } from './services/StartupService/capabilities';
 import { useSettingsStore } from './stores/settings';
 import { initializeFontLoader } from './utils/font';
 
@@ -158,7 +159,7 @@ async function initializeModelMetadata(): Promise<void> {
         }
 
         const { syncAllModelsMetadata } =
-            await import('./services/AgentService/infrastructure/modelMetadata');
+            await import('@/services/AgentService/infrastructure/modelMetadata/syncEntry');
         await syncAllModelsMetadata();
     } catch (error) {
         log.warn('[Bootstrap] Failed to initialize model metadata:', error);
@@ -172,7 +173,7 @@ async function initializeModelMetadata(): Promise<void> {
  */
 function scheduleModelMetadataRefresh(): void {
     const runRefresh = () => {
-        void import('./services/AgentService/infrastructure/modelMetadata')
+        void import('@/services/AgentService/infrastructure/modelMetadata/syncEntry')
             .then(({ refreshModelMetadataIfStale }) => refreshModelMetadataIfStale())
             .catch((error) => {
                 log.warn('[Bootstrap] Failed to refresh model metadata:', error);
@@ -189,7 +190,7 @@ function scheduleModelMetadataRefresh(): void {
 async function seedBundledModelMetadata(): Promise<void> {
     try {
         const { seedModelMetadataFromSnapshot } =
-            await import('./services/AgentService/infrastructure/modelMetadata');
+            await import('@/services/AgentService/infrastructure/modelMetadata/seed');
         await seedModelMetadataFromSnapshot();
     } catch (error) {
         log.warn('[Bootstrap] Failed to seed bundled model metadata:', error);
@@ -266,10 +267,6 @@ export async function initializeApp() {
 
     initializeFontLoader();
     const settingsWindow = isSettingsWindow();
-    if (!settingsWindow) {
-        await Promise.all([syncBuiltInTools(), prewarmBuiltInBash()]);
-        await initializeModelMetadata();
-    }
 
     let settingsInitializeError: unknown;
     try {
@@ -278,6 +275,7 @@ export async function initializeApp() {
         settingsInitializeError = error;
     }
 
+    // 先挂载输入外壳：语言/窗口策略就绪即可交互，不等后台能力准备。
     app.mount('#app');
 
     if (settingsInitializeError) {
@@ -288,6 +286,12 @@ export async function initializeApp() {
     }
 
     if (!settingsWindow) {
+        // 后台能力：工具补种、Bash 预热、元数据同步。
+        // 启动阶段不 await；首帧后的请求由能力就绪门按需等待。
+        registerStartupCapability('built-in-tools', syncBuiltInTools());
+        registerStartupCapability('built-in-bash', prewarmBuiltInBash());
+        registerStartupCapability('model-metadata', initializeModelMetadata());
+
         if (getCurrentWindowLabel() === 'main') {
             scheduleAppUpdateChecks();
         }

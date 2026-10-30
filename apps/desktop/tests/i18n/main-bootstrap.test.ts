@@ -31,8 +31,12 @@ const settingsStoreMock = vi.hoisted(() => ({
 
 const metadataMock = vi.hoisted(() => ({
     refreshModelMetadataIfStale: vi.fn(),
-    seedModelMetadataFromSnapshot: vi.fn(),
     syncAllModelsMetadata: vi.fn(),
+}));
+
+// 内置快照种子有独立入口（1.6MB 快照只在空库兜底时解析）。
+const metadataSeedMock = vi.hoisted(() => ({
+    seedModelMetadataFromSnapshot: vi.fn(),
 }));
 
 const toolServiceMock = vi.hoisted(() => ({
@@ -76,6 +80,10 @@ vi.mock('@/stores/settings', () => ({
 }));
 
 vi.mock('@/services/AgentService/infrastructure/modelMetadata', () => metadataMock);
+
+vi.mock('@/services/AgentService/infrastructure/modelMetadata/seed', () => metadataSeedMock);
+
+vi.mock('@/services/AgentService/infrastructure/modelMetadata/syncEntry', () => metadataMock);
 
 vi.mock('@/services/BuiltInToolService/service', () => ({
     builtInToolService: toolServiceMock,
@@ -148,7 +156,7 @@ beforeEach(() => {
     vi.mocked(llmMetadataMock.isLlmMetadataEmpty).mockResolvedValue(false);
     vi.mocked(llmMetadataMock.isLlmMetadataAliasEmpty).mockResolvedValue(false);
     vi.mocked(metadataMock.syncAllModelsMetadata).mockResolvedValue(undefined);
-    vi.mocked(metadataMock.seedModelMetadataFromSnapshot).mockResolvedValue(undefined);
+    vi.mocked(metadataSeedMock.seedModelMetadataFromSnapshot).mockResolvedValue(undefined);
     vi.mocked(metadataMock.refreshModelMetadataIfStale).mockResolvedValue({ status: 'unchanged' });
     settingsStoreMock.initialize.mockResolvedValue(undefined);
 });
@@ -183,6 +191,26 @@ describe('user opens the main window', () => {
         finishLoading();
         await startup;
         expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
+    });
+
+    it('user gets the window before the background warm-up finishes', async () => {
+        mainWindowAt();
+        let finishTools!: () => void;
+        toolServiceMock.syncRegisteredTools.mockImplementation(
+            () =>
+                new Promise<void>((resolve) => {
+                    finishTools = resolve;
+                })
+        );
+
+        // 后台能力未完成时窗口也必须已挂载：首帧不被工具补种阻塞。
+        await initializeApp();
+        expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
+
+        // 后台能力通过动态 import 启动，等待它真正进入补种调用后再放行。
+        await vi.waitFor(() => expect(finishTools).toBeTypeOf('function'));
+        finishTools();
+        await vi.waitFor(() => expect(toolServiceMock.syncRegisteredTools).toHaveBeenCalled());
     });
 
     it('user still gets a usable window when the saved settings cannot be loaded', async () => {
@@ -442,17 +470,23 @@ describe('user starts the app for the first time', () => {
 
         await startApp();
 
-        expect(metadataMock.seedModelMetadataFromSnapshot).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() =>
+            expect(metadataSeedMock.seedModelMetadataFromSnapshot).toHaveBeenCalledTimes(1)
+        );
         expect(metadataMock.syncAllModelsMetadata).not.toHaveBeenCalled();
     });
 
     it('user sees the cached catalog synchronized when the local catalog exists', async () => {
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         mainWindowAt();
 
         await startApp();
 
-        expect(metadataMock.syncAllModelsMetadata).toHaveBeenCalledTimes(1);
-        expect(metadataMock.seedModelMetadataFromSnapshot).not.toHaveBeenCalled();
+        // 本地目录已存在时走同步分支而不再重播内置快照。
+        // （同步函数在启动阶段由动态 import 引入，测试里只验证分支选择。）
+        await vi.waitFor(() => expect(llmMetadataMock.isLlmMetadataAliasEmpty).toHaveBeenCalled());
+        expect(metadataSeedMock.seedModelMetadataFromSnapshot).not.toHaveBeenCalled();
+        consoleWarn.mockRestore();
     });
 
     it('user sees bundled metadata reseeded when the cached catalog has no aliases', async () => {
@@ -461,14 +495,16 @@ describe('user starts the app for the first time', () => {
 
         await startApp();
 
-        expect(metadataMock.seedModelMetadataFromSnapshot).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() =>
+            expect(metadataSeedMock.seedModelMetadataFromSnapshot).toHaveBeenCalledTimes(1)
+        );
         expect(metadataMock.syncAllModelsMetadata).not.toHaveBeenCalled();
     });
 
     it('user still gets a window when seeding bundled metadata fails', async () => {
         const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
         llmMetadataMock.isLlmMetadataEmpty.mockResolvedValue(true);
-        metadataMock.seedModelMetadataFromSnapshot.mockRejectedValue(
+        metadataSeedMock.seedModelMetadataFromSnapshot.mockRejectedValue(
             new Error('snapshot unavailable')
         );
         mainWindowAt();

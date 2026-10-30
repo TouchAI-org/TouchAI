@@ -29,26 +29,50 @@
         type ShowUpdateSettingsOptions,
     } from './components/NavigationSidebar.vue';
     import SettingsWindowTitleBar from './components/SettingsWindowTitleBar.vue';
+    import { createSectionPreloader } from './sectionPreloader';
+    import { readScrollTop, resolveRestoredScrollTop } from './sectionScrollMemory';
     import type { SettingsSearchResult } from './settingsSearch';
 
     defineOptions({
         name: 'SettingsWindowView',
     });
 
-    const sectionLoaders: Array<() => Promise<{ default: Component }>> = [];
-    function defineSectionView(loader: () => Promise<{ default: Component }>) {
-        sectionLoaders.push(loader);
+    const sectionLoaderBySection = new Map<
+        NavigationSection,
+        () => Promise<{ default: Component }>
+    >();
+    function defineSectionView(
+        section: NavigationSection,
+        loader: () => Promise<{ default: Component }>
+    ) {
+        sectionLoaderBySection.set(section, loader);
         return defineAsyncComponent(loader);
     }
 
-    const ShortcutsView = defineSectionView(() => import('./components/Shortcuts/index.vue'));
-    const AiServicesView = defineSectionView(() => import('./components/AiServices/index.vue'));
-    const UsageView = defineSectionView(() => import('./components/Usage/index.vue'));
-    const BuiltInToolsView = defineSectionView(() => import('./components/BuiltInTools/index.vue'));
-    const SearchView = defineSectionView(() => import('./components/Search/index.vue'));
-    const BrowserView = defineSectionView(() => import('./components/Browser/index.vue'));
-    const McpToolsView = defineSectionView(() => import('./components/McpTools/index.vue'));
+    const ShortcutsView = defineSectionView(
+        'shortcuts',
+        () => import('./components/Shortcuts/index.vue')
+    );
+    const AiServicesView = defineSectionView(
+        'ai-services',
+        () => import('./components/AiServices/index.vue')
+    );
+    const UsageView = defineSectionView('usage', () => import('./components/Usage/index.vue'));
+    const BuiltInToolsView = defineSectionView(
+        'built-in-tools',
+        () => import('./components/BuiltInTools/index.vue')
+    );
+    const SearchView = defineSectionView('search', () => import('./components/Search/index.vue'));
+    const BrowserView = defineSectionView(
+        'browser',
+        () => import('./components/Browser/index.vue')
+    );
+    const McpToolsView = defineSectionView(
+        'mcp-tools',
+        () => import('./components/McpTools/index.vue')
+    );
     const DataManagementView = defineSectionView(
+        'data-management',
         () => import('./components/DataManagement/index.vue')
     );
     interface SettingsContentSection {
@@ -99,6 +123,18 @@
     });
 
     const activeSection = ref<NavigationSection>('general');
+    const sectionPreloader = createSectionPreloader({
+        load: async (section) => {
+            await sectionLoaderBySection.get(section as NavigationSection)?.();
+        },
+        onError: (section, error) => {
+            log.warn(`[SettingsView] Failed to preload section ${section}:`, error);
+        },
+    });
+
+    function handlePrefetchSection(section: NavigationSection) {
+        sectionPreloader.prefetch(section, { priority: true });
+    }
     const uncachedSections = [
         'SettingsGeneralSection',
         'SettingsShortcutsSection',
@@ -123,6 +159,31 @@
     useScrollbarStabilizer(contentScrollRef);
     const { scrollFadeStyle } = useScrollFade(contentScrollRef);
     const activeContentSection = computed(() => settingsContentSections[activeSection.value]);
+    // 每个设置分区各记一份滚动位置：容器只有一个，不记就会互相污染。
+    const sectionScrollSnapshots = new Map<NavigationSection, number>();
+
+    /** 记录当前分区的滚动位置（切走之前调用）。 */
+    function rememberSectionScroll() {
+        const scrollTop = readScrollTop(contentElementRef.value);
+        if (scrollTop !== null) {
+            sectionScrollSnapshots.set(activeSection.value, scrollTop);
+        }
+    }
+
+    /** 切回分区时恢复它自己的滚动位置（或从顶部开始）。 */
+    async function restoreSectionScroll(section: NavigationSection) {
+        await nextTick();
+        const element = contentElementRef.value;
+        if (!element) {
+            return;
+        }
+
+        element.scrollTop = resolveRestoredScrollTop(
+            sectionScrollSnapshots.get(section),
+            element.scrollHeight,
+            element.clientHeight
+        );
+    }
 
     const currentWindow = (() => {
         try {
@@ -143,8 +204,11 @@
     const handleNavigate = (section: NavigationSection) => {
         cancelPendingSearch();
         pendingUpdateRequest.value = null;
+        rememberSectionScroll();
         if (activeSection.value !== section) resolvedSection.value = null;
         activeSection.value = section;
+        void restoreSectionScroll(section);
+        sectionPreloader.prefetch(section, { priority: true });
     };
 
     const findSearchTarget = (result: SettingsSearchResult) =>
@@ -195,6 +259,7 @@
 
     const handleSearchSelect = async (result: SettingsSearchResult) => {
         cancelPendingSearch();
+        rememberSectionScroll();
         if (activeSection.value !== result.section) resolvedSection.value = null;
         pendingSearchResult = result;
         activeSection.value = result.section;
@@ -311,10 +376,13 @@
             .catch((error) => {
                 log.warn('[SettingsView] Failed to listen for settings opens:', error);
             });
-        // Warm code after the shell renders, without mounting inactive settings sections.
+        // Warm code after the shell renders, one section at a time at idle priority.
+        // hover/focus prefetch can still jump ahead of this queue.
         preloadFrame = requestAnimationFrame(() => {
             preloadFrame = null;
-            void Promise.allSettled(sectionLoaders.map((load) => load()));
+            for (const section of sectionLoaderBySection.keys()) {
+                sectionPreloader.prefetch(section);
+            }
         });
     });
 
@@ -344,6 +412,7 @@
                 <NavigationSidebar
                     :active-section="activeSection"
                     @navigate="handleNavigate"
+                    @prefetch-section="handlePrefetchSection"
                     @search-select="handleSearchSelect"
                     @show-update-settings="scrollGeneralUpdateSectionIntoView"
                 />

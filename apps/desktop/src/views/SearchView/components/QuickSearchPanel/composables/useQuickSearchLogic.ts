@@ -6,6 +6,7 @@ import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { computed, nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
 import { t } from '@/i18n';
+import { createPerfTrace } from '@/utils/perfTrace';
 
 import {
     buildMatchTokens,
@@ -214,6 +215,10 @@ function useQuickSearchFlow(
         }
 
         const reqId = ++requestId.value;
+        const searchTrace = createPerfTrace('quickSearch.query');
+        // 点击统计与 native 查询并行加载：搜索通常更慢，等结果回来时统计多半已命中缓存。
+        // 点击统计预取与原生搜索并行；统计实现不支持预取时退化为串行排序。
+        const clickStatsReady = Promise.resolve(clickStats.prefetch?.(trimmedQuery));
 
         try {
             const searchResult = await deps.quickSearch.searchShortcuts(trimmedQuery, PAGE_SIZE, 0);
@@ -223,6 +228,7 @@ function useQuickSearchFlow(
 
             let rankedShortcuts = searchResult.shortcuts;
             if (searchResult.shortcuts.length > 0) {
+                await clickStatsReady;
                 rankedShortcuts = await clickStats.rankResults(trimmedQuery, rankedShortcuts);
                 if (reqId !== requestId.value) return;
             }
@@ -260,6 +266,8 @@ function useQuickSearchFlow(
             if (reqId === requestId.value) {
                 close();
             }
+        } finally {
+            searchTrace.end();
         }
     }
 
@@ -619,6 +627,8 @@ export function useQuickSearchLogic(
     } = useQuickSearchState(options);
 
     const isLoadingMore = ref(false);
+    // 每次 loadMore 递增；只有最后一次请求可以提交结果或清除 loading。
+    let loadMoreGeneration = 0;
 
     const quickSearch = useQuickSearchFlow(
         {
@@ -654,14 +664,28 @@ export function useQuickSearchLogic(
      * 由滚动事件触发，使用 nextOffset 避免前端计算偏移错位。
      */
     async function loadMore() {
+        // 正在加载时不重复发请求（滚动事件可能连续触发）。
         if (isLoadingMore.value) return;
         if (results.value.length >= totalResults.value) return;
 
+        const generation = ++loadMoreGeneration;
+        const requestAtStart = requestId.value;
         isLoadingMore.value = true;
         const query = searchQuery.value.trim();
         const offset = nextOffset.value;
         try {
             const searchResult = await deps.quickSearch.searchShortcuts(query, PAGE_SIZE, offset);
+
+            // 旧查询、已关闭面板、搜索词变化或已有更新翻页时，迟到结果不得混入当前列表。
+            if (
+                generation !== loadMoreGeneration ||
+                !open.value ||
+                requestId.value !== requestAtStart ||
+                searchQuery.value.trim() !== query
+            ) {
+                return;
+            }
+
             if (searchResult.files.length === 0) return;
             const savedScrollTop = scrollRef.value?.scrollTop ?? 0;
             results.value.push(...searchResult.files);
@@ -680,7 +704,9 @@ export function useQuickSearchLogic(
         } catch (error) {
             log.error('[QuickSearchPanel] Failed to load more:', error);
         } finally {
-            isLoadingMore.value = false;
+            if (generation === loadMoreGeneration) {
+                isLoadingMore.value = false;
+            }
         }
     }
 

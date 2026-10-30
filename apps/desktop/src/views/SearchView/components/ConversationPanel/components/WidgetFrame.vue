@@ -1,4 +1,4 @@
-﻿<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
+<!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
     <div
@@ -28,6 +28,7 @@
 
     const hostRef = ref<HTMLElement | null>(null);
     let renderer: WidgetRenderer | null = null;
+
     /**
      * 直接把每次 widget 更新交给 renderer，避免 UI 层二次节流后打乱流式节奏。
      */

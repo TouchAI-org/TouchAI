@@ -659,6 +659,7 @@
         approvalAttentionToken.value += 1;
     }
 
+    // 粘贴中的临时占位标签（真实附件写入磁盘前先给用户反馈）。
     async function handlePagePaste(event: ClipboardEvent) {
         if (pendingToolApproval.value) {
             event.preventDefault();
@@ -671,7 +672,9 @@
         event.stopPropagation();
 
         const payload = await clipboardService.readExplicitPastePayload(event.clipboardData);
-        if (!payload) return;
+        if (!payload) {
+            return;
+        }
 
         const hasOnlyText =
             !clipboardPayloadHasAttachmentFragments(payload) &&

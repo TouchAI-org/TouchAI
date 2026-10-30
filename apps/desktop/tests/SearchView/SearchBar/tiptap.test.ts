@@ -1,4 +1,4 @@
-import type { Editor } from '@tiptap/core';
+﻿import type { Editor } from '@tiptap/core';
 import { Schema } from '@tiptap/pm/model';
 import { EditorState, TextSelection, type Transaction } from '@tiptap/pm/state';
 import { describe, expect, it } from 'vitest';
@@ -7,6 +7,7 @@ import { insertAttachmentTag } from '@/views/SearchView/components/SearchBar/tag
 import {
     getEditorText,
     insertPlainTextAtSelection,
+    resolveEditorCursorFlags,
 } from '@/views/SearchView/components/SearchBar/utils/tiptap';
 
 const schema = new Schema({
@@ -40,6 +41,14 @@ const schema = new Schema({
             },
             toDOM: () => ['span', { 'data-attachment-tag': '' }],
         },
+        modelTag: {
+            group: 'inline',
+            inline: true,
+            atom: true,
+            selectable: true,
+            attrs: {},
+            toDOM: () => ['span', { 'data-model-tag': '' }],
+        },
     },
 });
 
@@ -48,6 +57,19 @@ function createEditorFromDoc(doc: ReturnType<typeof schema.node>): Editor {
         state: {
             doc,
         },
+    } as Editor;
+}
+
+function createSelectionEditorFromDoc(
+    doc: ReturnType<typeof schema.node>,
+    position: number
+): Editor {
+    return {
+        state: EditorState.create({
+            schema,
+            doc,
+            selection: TextSelection.create(doc, position),
+        }),
     } as Editor;
 }
 
@@ -135,6 +157,38 @@ function createChainEditorFromDoc(
 }
 
 describe('when the user types or pastes into the search bar', () => {
+    it('resolves cursor flags from one shared document lookup', () => {
+        const doc = schema.nodes.doc!.create(null, [
+            schema.nodes.paragraph!.create(null, [schema.text('hello')]),
+        ]);
+
+        expect(resolveEditorCursorFlags(createSelectionEditorFromDoc(doc, 1))).toEqual({
+            cursorAtStart: true,
+            cursorAtTextStart: true,
+            cursorAtEnd: false,
+        });
+        expect(resolveEditorCursorFlags(createSelectionEditorFromDoc(doc, 6))).toEqual({
+            cursorAtStart: false,
+            cursorAtTextStart: false,
+            cursorAtEnd: true,
+        });
+    });
+
+    it('treats the position after a leading model tag as the text start', () => {
+        const doc = schema.nodes.doc!.create(null, [
+            schema.nodes.paragraph!.create(null, [
+                schema.nodes.modelTag!.create(null),
+                schema.text('hey'),
+            ]),
+        ]);
+
+        expect(resolveEditorCursorFlags(createSelectionEditorFromDoc(doc, 2))).toEqual({
+            cursorAtStart: false,
+            cursorAtTextStart: true,
+            cursorAtEnd: false,
+        });
+    });
+
     it('user gets a newline for every hard break in the draft text', () => {
         const doc = schema.nodes.doc!.create(null, [
             schema.nodes.paragraph!.create(null, [

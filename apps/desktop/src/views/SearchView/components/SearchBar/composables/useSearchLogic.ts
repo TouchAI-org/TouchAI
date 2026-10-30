@@ -30,10 +30,9 @@ import {
     getEditorText,
     handleEditorClick,
     isBlankEditorAreaTarget,
-    isCursorAtDocEnd,
     isCursorAtDocStart,
-    isCursorAtTextStart,
     isSearchTagDomTarget,
+    resolveEditorCursorFlags,
     resolveMouseEventTarget,
     setEditorJSON,
     setEditorText,
@@ -211,9 +210,7 @@ export function useSearchInput(
             },
             onSelectionUpdate: () => {
                 // 光标位置变化时滚动到可见区域（例如使用上下键移动光标）
-                cursorAtStart.value = isCursorAtStart();
-                cursorAtTextStart.value = isCursorAtTextStartPosition();
-                cursorAtEnd.value = isCursorAtEnd();
+                syncCursorFlags(editor.value);
                 scrollCursorIntoView();
             },
         });
@@ -261,10 +258,30 @@ export function useSearchInput(
      * @returns void
      */
     function syncEditorDerivedState(ed: Editor) {
-        isMultiLineState.value = computeIsMultiLine(ed);
-        cursorAtStart.value = isCursorAtStart();
-        cursorAtTextStart.value = isCursorAtTextStartPosition();
-        cursorAtEnd.value = isCursorAtEnd();
+        syncMultiLineState(ed);
+        syncCursorFlags(ed);
+    }
+
+    /** 一次性刷新光标位置派生状态（共享同一次文档查询）。 */
+    function syncCursorFlags(ed: Editor | null) {
+        if (!ed) {
+            return;
+        }
+
+        const flags = resolveEditorCursorFlags(ed);
+        cursorAtStart.value = flags.cursorAtStart;
+        cursorAtTextStart.value = flags.cursorAtTextStart;
+        cursorAtEnd.value = flags.cursorAtEnd;
+    }
+
+    /**
+     * 同步多行状态。
+     *
+     * 自动换行需要读 `scrollHeight`/`lineHeight`（强制布局），
+     * 但输入框的可视状态必须与本次输入同步，因此这里保持同步测量。
+     */
+    function syncMultiLineState(ed: Editor) {
+        isMultiLineState.value = hasMultipleParagraphs(ed) || measureAutoWrappedLine(ed);
     }
 
     /**
@@ -581,9 +598,9 @@ export function useSearchInput(
 
     // 6. 输入焦点工具
     /**
-     * 判断光标是否位于编辑器起始位置。
+     * 判断光标是否位于模型标签后的正文起点。
      *
-     * @returns 光标位于起始位置时为 true。
+     * @returns 光标位于正文起点时为 true。
      */
     function isCursorAtStart(): boolean {
         const ed = editor.value;
@@ -592,52 +609,25 @@ export function useSearchInput(
     }
 
     /**
-     * 判断光标是否位于模型标签后的正文起点。
-     *
-     * @returns 光标位于正文起点时为 true。
-     */
-    function isCursorAtTextStartPosition(): boolean {
-        const ed = editor.value;
-        if (!ed) return false;
-        return isCursorAtTextStart(ed);
-    }
-
-    /**
-     * 判断光标是否位于编辑器结束位置。
-     *
-     * @returns 光标位于结束位置时为 true。
-     */
-    function isCursorAtEnd(): boolean {
-        const ed = editor.value;
-        if (!ed) return false;
-        return isCursorAtDocEnd(ed);
-    }
-
-    /**
      * 计算编辑器内容是否超过一行。
      * 通过检查文档中的段落节点数量来判断：
      * - 多个段落节点（包括空行）= 多行
      * - 单个段落但内容自动换行 = 多行
      */
-    function computeIsMultiLine(ed: Editor): boolean {
-        if (!ed) return false;
-
-        // 检查文档中是否有多个段落节点（包括空行）
-        const { doc } = ed.state;
+    function hasMultipleParagraphs(ed: Editor): boolean {
         let paragraphCount = 0;
-        doc.descendants((node) => {
+        ed.state.doc.descendants((node) => {
             if (node.type.name === 'paragraph') {
-                paragraphCount++;
+                paragraphCount += 1;
             }
             return paragraphCount <= 1; // 找到第二个段落就停止遍历
         });
 
-        // 如果有多个段落，说明有换行（包括空行）
-        if (paragraphCount > 1) {
-            return true;
-        }
+        return paragraphCount > 1;
+    }
 
-        // 如果只有一个段落，检查是否因为内容过长而自动换行
+    /** 单个段落时，通过布局测量判断是否自动换行（强制布局，需按帧合并）。 */
+    function measureAutoWrappedLine(ed: Editor): boolean {
         if (!cachedLineHeight) {
             cachedLineHeight = parseFloat(getComputedStyle(ed.view.dom).lineHeight) || 0;
         }

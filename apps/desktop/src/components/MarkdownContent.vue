@@ -24,6 +24,7 @@
             :code-block-dark-theme="codeBlockDarkTheme"
             :code-block-monaco-options="codeBlockMonacoOptions"
             :viewport-priority="false"
+            :render-code-blocks-as-pre="renderCodeBlocksAsPre"
             :max-live-nodes="maxLiveNodes"
             :batch-rendering="true"
             :initial-render-batch-size="24"
@@ -32,32 +33,30 @@
             :render-batch-budget-ms="6"
             :typewriter="isTypewriterEnabled"
             :code-block-props="codeBlockProps"
+            :virtual-scroll="virtualScrollOptions"
         />
     </div>
 </template>
 
 <script lang="ts">
-    import { log } from '@services/ObservabilityService';
-    import { full as markdownItEmoji } from 'markdown-it-emoji';
     import {
-        enableKatex,
-        enableMermaid,
-        getMarkdown,
+        MARKDOWN_SCROLL_ROOT_KEY,
+        type MarkdownScrollRootResolver,
+    } from '@components/markdownScrollRoot';
+    import { log } from '@services/ObservabilityService';
+    import {
         languageMap,
         type MarkdownIt,
         setCustomComponents,
         setDefaultI18nMap,
     } from 'markstream-vue';
 
+    import {
+        applyMarkdownBasePlugins,
+        finishedMarkdownParser,
+        streamingMarkdownParser,
+    } from '@/utils/markdown/parserSetup';
     import WebSearchCitationLink from '@/views/SearchView/components/WebSearch/WebSearchCitationLink.vue';
-
-    const markdownParser = getMarkdown('touchai-markdown', {
-        enableContainers: false,
-        markdownItOptions: {
-            breaks: true,
-        },
-    });
-    const markdownItEmojiPlugin = markdownItEmoji as unknown as Parameters<MarkdownIt['use']>[0];
 
     let isConfigured = false;
 
@@ -117,12 +116,10 @@
         languageMap.mermaid = isEnglish ? 'Diagram' : '流程图';
     }
 
-    function getTouchAiMarkdownParser(): MarkdownIt {
+    function getTouchAiMarkdownParser(final = false): MarkdownIt {
         if (!isConfigured) {
-            markdownParser.use(markdownItEmojiPlugin);
-
-            enableKatex(() => import('katex'));
-            enableMermaid(() => import('mermaid'));
+            // 与具体组件无关的基础插件（emoji / katex / mermaid）在模块级注册一次。
+            applyMarkdownBasePlugins();
             // 只接管外部链接节点：命中搜索来源的会渲染成行内引用 chip，
             // 其余链接由 WebSearchCitationLink 自己透传成普通 <a>。
             // 测试环境会把 markstream-vue 整体 mock 掉，所以要容忍缺失。
@@ -130,7 +127,7 @@
             isConfigured = true;
         }
 
-        return markdownParser;
+        return final ? finishedMarkdownParser : streamingMarkdownParser;
     }
 </script>
 
@@ -141,22 +138,29 @@
         type ParsedNode,
         parseMarkdownToStructure,
     } from 'markstream-vue';
-    import { computed, ref, watch } from 'vue';
+    import { computed, inject, onUnmounted, ref, watch } from 'vue';
 
     import { getLocale, locale, t } from '@/i18n';
     import { clipboardService } from '@/services/ClipboardService';
     import codeSurfaceStyles from '@/styles/markdown-code-surface.css?inline';
-    import { hasMathDelimiterOutsideCode } from '@/utils/markdownMathDetection';
+    import { containsLongCodeBlock } from '@/utils/markdownCodeBlock';
+    import { hasUnclosedMathDelimiterOutsideCode } from '@/utils/markdownMathDetection';
+
+    /** 流式阶段代码块超过该长度时先用纯文本 pre 渲染。 */
+    const LONG_CODE_BLOCK_STREAMING_THRESHOLD = 6000;
 
     interface Props {
         content: string;
         variant?: 'default' | 'reasoning';
         final?: boolean;
+        /** 非终态流式更新合并窗口（ms）；0 表示每次内容变化立即重新解析。 */
+        parseCoalesceMs?: number;
     }
 
     const props = withDefaults(defineProps<Props>(), {
         variant: 'default',
         final: true,
+        parseCoalesceMs: 50,
     });
 
     const containerClass = computed(() => {
@@ -166,7 +170,6 @@
         return 'touchai-markdown touchai-markdown--default select-text';
     });
 
-    const parser = getTouchAiMarkdownParser();
     configureMarkstreamLabels(getLocale());
     watch(locale, (nextLocale) => {
         configureMarkstreamLabels(nextLocale);
@@ -257,20 +260,77 @@
     }));
     const markdownRenderKey = computed(() => `${markdownParseInput.value.locale}:${props.variant}`);
 
-    const nodes = computed<ParsedNode[]>(() => {
+    // 外层滚动 owner 由会话面板 provide；只有存在时才启用 markstream 的虚拟适配，
+    // 避免渲染器把溢出的 pre 误判为自己的滚动根；独立使用（设置页等）保持原样。
+    const scrollRootResolver = inject<MarkdownScrollRootResolver | null>(
+        MARKDOWN_SCROLL_ROOT_KEY,
+        null
+    );
+    const virtualScrollOptions = computed(() =>
+        scrollRootResolver
+            ? {
+                  enabled: true,
+                  sessionKey: `touchai:${props.variant}:${props.final ? 'final' : 'stream'}`,
+                  scrollRoot: scrollRootResolver,
+                  settleMode: 'auto' as const,
+              }
+            : undefined
+    );
+
+    function parseCurrentInput(): ParsedNode[] {
         const input = markdownParseInput.value;
         if (!input.content) {
             return [];
         }
 
-        return parseMarkdownToStructure(input.content, parser, {
+        return parseMarkdownToStructure(input.content, getTouchAiMarkdownParser(input.final), {
             final: input.final,
-            // The incremental parser can reuse an unfinished math boundary and swallow
-            // the next heading. Reparse math-bearing buffers, retaining loading nodes
-            // (final stays false) and the fast path for ordinary prose/code streams.
-            streamParse: hasMathDelimiterOutsideCode(input.content) ? false : 'auto',
+            // 未闭合的数学边界会让增量 parser 吞掉后续标题，只有这种情况回退全量解析；
+            // 公式已闭合时继续使用增量缓存，避免每个 chunk 全量重解析长文。
+            streamParse: hasUnclosedMathDelimiterOutsideCode(input.content) ? false : 'auto',
         });
-    });
+    }
+
+    const nodes = ref<ParsedNode[]>([]);
+    let parseCoalesceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function cancelParseCoalesce() {
+        if (parseCoalesceTimer !== null) {
+            clearTimeout(parseCoalesceTimer);
+            parseCoalesceTimer = null;
+        }
+    }
+
+    function parseImmediately() {
+        cancelParseCoalesce();
+        nodes.value = parseCurrentInput();
+    }
+
+    // 流式追加时合并解析窗口：一个窗口内只重新解析一次，而不是每个 chunk 都全量解析。
+    // 终态、首次渲染、空内容与显式关闭合并时立即解析，保证最终态与测试确定性。
+    watch(
+        markdownParseInput,
+        (input) => {
+            const coalesceMs = props.parseCoalesceMs;
+            if (coalesceMs <= 0 || input.final || nodes.value.length === 0) {
+                parseImmediately();
+                return;
+            }
+
+            // 窗口内已有待执行解析：保留最新输入，等计时器到点一次性解析。
+            if (parseCoalesceTimer !== null) {
+                return;
+            }
+
+            parseCoalesceTimer = setTimeout(() => {
+                parseCoalesceTimer = null;
+                nodes.value = parseCurrentInput();
+            }, coalesceMs);
+        },
+        { immediate: true, flush: 'post' }
+    );
+
+    onUnmounted(cancelParseCoalesce);
 
     const maxLiveNodes = computed(() => {
         if (props.variant === 'reasoning') {
@@ -278,6 +338,14 @@
         }
         return 0;
     });
+
+    // 流式阶段对超长代码块使用纯文本 pre：避免为仍在增长的代码块
+    // 初始化高亮/编辑器 renderer；消息结束后恢复正常渲染。
+    const renderCodeBlocksAsPre = computed(
+        () =>
+            !props.final &&
+            containsLongCodeBlock(props.content, LONG_CODE_BLOCK_STREAMING_THRESHOLD)
+    );
 
     const isTypewriterEnabled = computed(() => props.variant !== 'reasoning');
 

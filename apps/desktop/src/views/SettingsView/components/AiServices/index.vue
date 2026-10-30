@@ -28,15 +28,22 @@
     import type { Model, NewModel, NewProvider, Provider } from '@database/schema.ts';
     import { AppEvent, eventService } from '@services/EventService';
     import { log } from '@services/ObservabilityService';
-    import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+    import {
+        computed,
+        defineAsyncComponent,
+        nextTick,
+        onMounted,
+        onUnmounted,
+        ref,
+        watch,
+    } from 'vue';
 
     import { locale, t } from '@/i18n';
-    import { aiService } from '@/services/AgentService';
     import {
         persistRefreshedModels,
         refreshModelMetadataIfStale,
     } from '@/services/AgentService/infrastructure/modelMetadata';
-    import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
+    import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers/driverCatalog';
 
     defineOptions({
         name: 'SettingsAiServicesSection',
@@ -45,8 +52,12 @@
     import BadgedLogo from './components/BadgedLogo.vue';
     import ModelList from './components/ModelList.vue';
     import ProviderConfig from './components/ProviderConfig.vue';
-    import ProviderFormDialog from './components/ProviderFormDialog.vue';
     import ProviderList from './components/ProviderList.vue';
+
+    // 对话框会实例化 provider（拉起厂商 adapter），按需加载以保持设置页首屏轻量。
+    const ProviderFormDialog = defineAsyncComponent(
+        () => import('./components/ProviderFormDialog.vue')
+    );
 
     const alert = useAlert();
 
@@ -619,6 +630,7 @@
                 return;
             }
 
+            const { aiService } = await import('@/services/AgentService');
             const providerInstance = aiService.createProviderInstance(
                 provider.driver,
                 provider.api_endpoint,

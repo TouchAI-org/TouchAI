@@ -91,7 +91,7 @@
     import MarkdownContent from '@components/MarkdownContent.vue';
     import { notify } from '@services/NotificationService';
     import { log } from '@services/ObservabilityService';
-    import { computed, onUnmounted, provide, ref, watch } from 'vue';
+    import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 
     import { type MessageKey, t } from '@/i18n';
     import type { WebSearchSource } from '@/services/BuiltInToolService/tools/webSearch/sources';
@@ -182,9 +182,15 @@
     let tipTimer: ReturnType<typeof setInterval> | null = null;
     let tipDelayTimer: ReturnType<typeof setTimeout> | null = null;
 
+    function isDocumentHidden(): boolean {
+        return typeof document !== 'undefined' && document.visibilityState === 'hidden';
+    }
+
     function startTipRotation() {
         const len = TIPS.length;
         if (len <= 1) return;
+        // 窗口隐藏时不轮播：用户看不到 tip，定时器只会白占主线程。
+        if (isDocumentHidden()) return;
         // 20 秒延迟后才显示 tip
         tipDelayTimer = setTimeout(() => {
             tipVisible.value = true;
@@ -208,6 +214,19 @@
         lastTipIndex.value = currentTipIndex.value;
     }
 
+    function handleVisibilityChange() {
+        if (!props.message.isStreaming) {
+            return;
+        }
+
+        if (isDocumentHidden()) {
+            stopTipRotation();
+            return;
+        }
+
+        startTipRotation();
+    }
+
     // 跟随 streaming 状态启停轮播（组件生命周期可能跨多次请求）
     watch(
         () => props.message.isStreaming,
@@ -221,7 +240,12 @@
         { immediate: true }
     );
 
+    onMounted(() => {
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+    });
+
     onUnmounted(() => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
         stopTipRotation();
     });
 
@@ -315,7 +339,17 @@
             }
 
             if (part.type === 'widget') {
-                const widget = widgetMap.get(part.widgetId);
+                // 流式草稿阶段 widgetId 可能还停在 callId 上；用 callId 回退，
+                // 避免 id 切换瞬间把部件过滤掉造成整块闪现。
+                // 回退只在候选确实有内容时成立：用空 html 的候选去渲染会把已画好的部件清空。
+                const widget =
+                    widgetMap.get(part.widgetId) ??
+                    (props.message.widgets ?? []).find(
+                        (candidate) =>
+                            candidate.callId === part.widgetId &&
+                            typeof candidate.html === 'string' &&
+                            candidate.html.length > 0
+                    );
                 if (widget) {
                     parts.push({
                         id: part.id,
@@ -338,6 +372,7 @@
 
         return parts;
     });
+
     const streamingIndicatorClass = computed(() => {
         const marginTop = 'mt-5';
 

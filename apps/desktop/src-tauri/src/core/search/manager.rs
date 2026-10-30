@@ -480,7 +480,7 @@ impl QuickSearchManager {
             state.index_warmed = true;
             state.last_error = None;
             state.last_refresh_ms = Some(refresh_ms);
-            state.records = records;
+            state.replace_records(records);
             state.next_refresh_after = Some(Instant::now() + INDEX_REFRESH_TTL);
         }
 
@@ -624,22 +624,11 @@ impl QuickSearchManager {
             let mut state = write_lock(&self.state);
             let mut cache = write_lock(&self.target_cache);
 
-            // 同步更新内存索引和缓存映射，保证查询即时可见。
-            for update in &updates {
-                if let Some(record) = state.records.iter_mut().find(|record| {
-                    record.path_norm == update.path_norm
-                        && record.modified_secs == update.modified_secs
-                        && record.file_size == update.file_size
-                }) {
-                    record.target_name = update.target_name.clone();
-                    record.target_path = update.target_path.clone();
-                    record.target_norm = update
-                        .target_name
-                        .as_deref()
-                        .map(normalize_for_match)
-                        .unwrap_or_default();
-                }
+            // 同步更新内存索引和缓存映射，保证查询即时可见；
+            // 路径查找走 `path_norm` 索引，避免在全局写锁内线性扫描记录。
+            state.apply_target_updates(&updates);
 
+            for update in &updates {
                 cache.insert(
                     update.path_norm.clone(),
                     TargetCacheEntry {

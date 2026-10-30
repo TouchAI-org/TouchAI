@@ -5,6 +5,8 @@ import { log } from '@services/ObservabilityService';
 import { tt } from '@/i18n';
 import { eventService } from '@/services/EventService';
 import { AppEvent, type SessionStatusReminderPayload } from '@/services/EventService/types';
+import { waitForAgentStartupCapabilities } from '@/services/StartupService/capabilities';
+import { createPerfTrace } from '@/utils/perfTrace';
 import {
     buildWaitingApprovalBody,
     buildWaitingUserQuestionBody,
@@ -23,11 +25,12 @@ import { SessionTaskProjection } from './projection';
 import type {
     SessionTaskSnapshot,
     SessionTaskStatus,
+    SessionTaskViewSnapshot,
     StartedSessionTask,
     StartSessionTaskOptions,
     TaskSnapshotListener,
 } from './types';
-import { cloneTaskValue } from './types';
+import { cloneTaskViewSnapshot } from './viewSnapshot';
 
 interface MutableSessionTask {
     taskId: string;
@@ -42,11 +45,65 @@ interface MutableSessionTask {
     lastPublishedStatus: SessionTaskStatus | null;
     lastPublishedSessionId: number | null;
     lastPublishedReminderKey: string | null;
+    /** 上次发布给订阅者的展示快照，用于复用未变消息的对象引用。 */
+    publishedView: SessionTaskViewSnapshot | null;
 }
 
 const TERMINAL_TASK_RETENTION_MS = 5 * 60 * 1000;
-function cloneTaskSnapshot(snapshot: SessionTaskSnapshot): SessionTaskSnapshot {
-    return cloneTaskValue(snapshot);
+
+export { cloneTaskViewSnapshot } from './viewSnapshot';
+
+/**
+ * 控制类状态（完成、失败、等待审批/用户输入）必须即时发布；
+ * 普通流式增量可以合并到一个微任务里发布一次。
+ */
+export function shouldPublishTaskSnapshotImmediately(snapshot: SessionTaskSnapshot): boolean {
+    return (
+        snapshot.status !== 'running' ||
+        snapshot.pendingToolApproval !== null ||
+        snapshot.pendingUserQuestion !== null ||
+        snapshot.pendingApprovals.length > 0
+    );
+}
+
+/**
+ * 任务快照发布调度器。
+ *
+ * 投影在同一个宏任务里可能连续多次变更（文本、reasoning、tool 状态等），
+ * 逐个发布会逐次深拷备整份历史。这里把普通流式发布合并为每个微任务一次，
+ * 控制事件仍同步发布以保证审批/完成的即时性与顺序。
+ */
+export function createTaskPublishScheduler(notify: (taskId: string) => void): {
+    schedule: (taskId: string, snapshot: SessionTaskSnapshot) => void;
+} {
+    const pendingTaskIds = new Set<string>();
+    let flushScheduled = false;
+
+    return {
+        schedule(taskId: string, snapshot: SessionTaskSnapshot): void {
+            if (shouldPublishTaskSnapshotImmediately(snapshot)) {
+                // 控制事件优先：取消挂起的合并发布，避免同一变更被发布两次。
+                pendingTaskIds.delete(taskId);
+                notify(taskId);
+                return;
+            }
+
+            pendingTaskIds.add(taskId);
+            if (flushScheduled) {
+                return;
+            }
+
+            flushScheduled = true;
+            queueMicrotask(() => {
+                flushScheduled = false;
+                const dirtyTaskIds = Array.from(pendingTaskIds);
+                pendingTaskIds.clear();
+                for (const dirtyTaskId of dirtyTaskIds) {
+                    notify(dirtyTaskId);
+                }
+            });
+        },
+    };
 }
 
 /**
@@ -174,6 +231,9 @@ export class SessionTaskCenter {
     private readonly tasks = new Map<string, MutableSessionTask>();
     private readonly sessionActiveTaskIndex = new Map<number, string>();
     private readonly executor = new AiRequestExecutor();
+    private readonly publishScheduler = createTaskPublishScheduler((taskId) =>
+        this.notifySubscribers(taskId)
+    );
 
     /**
      * 注册并启动一个新的会话任务。
@@ -181,6 +241,10 @@ export class SessionTaskCenter {
      */
     async startTask(options: StartSessionTaskOptions): Promise<StartedSessionTask> {
         this.ensureSessionSlotAvailable(options.sessionId ?? null);
+
+        // 只等待请求实际依赖的后台能力（工具、Bash、元数据）；
+        // 启动阶段不 await 这些任务，用户提前发请求也不会等整个启动流程。
+        await waitForAgentStartupCapabilities();
 
         const taskId = crypto.randomUUID();
         const abortController = new AbortController();
@@ -205,7 +269,7 @@ export class SessionTaskCenter {
             modelSwitchCount: 0,
         };
         const projection = new SessionTaskProjection(snapshot, () => {
-            this.notifySubscribers(taskId);
+            this.publishScheduler.schedule(taskId, snapshot);
         });
         const task: MutableSessionTask = {
             taskId,
@@ -220,6 +284,7 @@ export class SessionTaskCenter {
             lastPublishedStatus: null,
             lastPublishedSessionId: null,
             lastPublishedReminderKey: null,
+            publishedView: null,
         };
 
         this.tasks.set(taskId, task);
@@ -324,6 +389,8 @@ export class SessionTaskCenter {
 
         task.abortController.abort();
         task.projection.clearPendingApprovals(tt('请求已取消'));
+        // 用户主动控制（取消）属于控制事件：立即广播，不等合并窗口。
+        this.notifySubscribers(taskId);
         return true;
     }
 
@@ -364,7 +431,9 @@ export class SessionTaskCenter {
      * 将页面层绑定到指定会话的活跃任务，返回任务 ID 和当前快照的只读副本。
      * 若该会话没有活跃任务则返回 null。
      */
-    attachSessionView(sessionId: number): { taskId: string; snapshot: SessionTaskSnapshot } | null {
+    attachSessionView(
+        sessionId: number
+    ): { taskId: string; snapshot: SessionTaskViewSnapshot } | null {
         const taskId = this.sessionActiveTaskIndex.get(sessionId);
         if (!taskId) {
             return null;
@@ -376,9 +445,11 @@ export class SessionTaskCenter {
             return null;
         }
 
+        const view = cloneTaskViewSnapshot(task.snapshot, task.publishedView);
+        task.publishedView = view;
         return {
             taskId,
-            snapshot: cloneTaskSnapshot(task.snapshot),
+            snapshot: view,
         };
     }
 
@@ -390,7 +461,9 @@ export class SessionTaskCenter {
         }
 
         task.subscribers.add(listener);
-        listener(cloneTaskSnapshot(task.snapshot));
+        const view = cloneTaskViewSnapshot(task.snapshot, task.publishedView);
+        task.publishedView = view;
+        listener(view);
 
         return () => {
             task.subscribers.delete(listener);
@@ -408,9 +481,15 @@ export class SessionTaskCenter {
     }
 
     /** 获取指定任务当前快照的只读副本，任务不存在则返回 null。 */
-    getTaskSnapshot(taskId: string): SessionTaskSnapshot | null {
+    getTaskSnapshot(taskId: string): SessionTaskViewSnapshot | null {
         const task = this.tasks.get(taskId);
-        return task ? cloneTaskSnapshot(task.snapshot) : null;
+        if (!task) {
+            return null;
+        }
+
+        const view = cloneTaskViewSnapshot(task.snapshot, task.publishedView);
+        task.publishedView = view;
+        return view;
     }
 
     /** 查询指定会话当前绑定的任务状态，无活跃任务则返回 null。 */
@@ -436,10 +515,14 @@ export class SessionTaskCenter {
     }
 
     /** 列出所有非终态的活跃任务快照。 */
-    listActiveTasks(): SessionTaskSnapshot[] {
+    listActiveTasks(): SessionTaskViewSnapshot[] {
         return Array.from(this.tasks.values())
             .filter((task) => !isTerminalStatus(task.snapshot.status))
-            .map((task) => cloneTaskSnapshot(task.snapshot));
+            .map((task) => {
+                const view = cloneTaskViewSnapshot(task.snapshot, task.publishedView);
+                task.publishedView = view;
+                return view;
+            });
     }
 
     /** 执行任务运行时，处理完成/取消/失败的终态转换。 */
@@ -596,15 +679,24 @@ export class SessionTaskCenter {
             return;
         }
 
+        const trace = createPerfTrace('task.publish');
+
         this.publishTaskStatusIfNeeded(task);
+
+        // 一次发布只构建一份只读快照，所有订阅者共享；
+        // 未变化的消息沿用上次发布的对象引用，Vue 不会重渲染它们。
+        const view = cloneTaskViewSnapshot(task.snapshot, task.publishedView);
+        task.publishedView = view;
 
         for (const listener of task.subscribers) {
             try {
-                listener(cloneTaskSnapshot(task.snapshot));
+                listener(view);
             } catch (error) {
                 log.error('[SessionTaskCenter] Subscriber error:', error);
             }
         }
+
+        trace.end({ messages: task.snapshot.sessionHistory.length });
     }
 
     /**

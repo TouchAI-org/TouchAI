@@ -107,7 +107,10 @@ async function verifyInjectedFontFace(fontUrl: string): Promise<void> {
             }
         }
 
-        if (typeof fetch === 'function') {
+        // 字体已由浏览器 Fonts API 确认可用时跳过文件探测：
+        // 重复请求会把整个字体文件再拉一遍，只在失败或无 Fonts API 时才需要诊断。
+        const shouldProbeFontFile = !diagnostics.fontLoaded || !diagnostics.fontsApiAvailable;
+        if (shouldProbeFontFile && typeof fetch === 'function') {
             const response = await fetch(fontUrl);
             diagnostics.fetchOk = response.ok;
             diagnostics.fetchStatus = response.status;

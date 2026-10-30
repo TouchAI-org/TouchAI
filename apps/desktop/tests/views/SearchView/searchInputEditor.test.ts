@@ -1,4 +1,4 @@
-import { mountComposable } from '@tests/utils/composables';
+﻿import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
@@ -173,6 +173,11 @@ vi.mock('@/views/SearchView/components/SearchBar/utils/tiptap', () => ({
     isCursorAtDocStart: isCursorAtDocStartMock,
     isCursorAtTextStart: isCursorAtTextStartMock,
     isSearchTagDomTarget: isSearchTagDomTargetMock,
+    resolveEditorCursorFlags: vi.fn(() => ({
+        cursorAtStart: isCursorAtDocStartMock(),
+        cursorAtTextStart: isCursorAtTextStartMock(),
+        cursorAtEnd: isCursorAtDocEndMock(),
+    })),
     resolveMouseEventTarget: resolveMouseEventTargetMock,
     setEditorJSON: vi.fn(),
     setEditorText: vi.fn((editor: MockEditorInstance, text: string) => {

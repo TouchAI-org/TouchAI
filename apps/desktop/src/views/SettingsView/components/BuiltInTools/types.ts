@@ -69,6 +69,20 @@ export interface FindBuiltInToolLogsOptions {
     offset?: number;
 }
 
+/** 列表展示用的日志摘要，不含完整 input/output。 */
+export interface BuiltInToolLogSummary {
+    id: number;
+    tool_call_id: string | null;
+    tool_name: string;
+    session_id: number | null;
+    message_id: number;
+    created_at: string;
+    status: BuiltInToolLogStatus;
+    duration_ms: number | null;
+    input_preview: string | null;
+    output_length: number;
+}
+
 export interface BuiltInToolQueries {
     findAllBuiltInTools: () => Promise<BuiltInToolEntity[]>;
     updateBuiltInTool: (
@@ -83,6 +97,13 @@ export interface BuiltInToolQueries {
         toolId: string,
         options?: FindBuiltInToolLogsOptions
     ) => Promise<BuiltInToolLogEntity[]>;
+    /** 列表轻量投影。 */
+    findBuiltInToolLogSummariesByToolId: (
+        toolId: string,
+        options?: FindBuiltInToolLogsOptions
+    ) => Promise<BuiltInToolLogSummary[]>;
+    /** 展开时按主键读取完整正文。 */
+    findBuiltInToolLogById: (id: number) => Promise<BuiltInToolLogEntity | undefined>;
 }
 
 const BUILT_IN_TOOL_EMPTY_CONFIG_IDS = new Set([

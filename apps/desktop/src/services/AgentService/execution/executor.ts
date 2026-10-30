@@ -52,11 +52,8 @@ import {
     getUnsupportedAttachmentTypes,
 } from '../infrastructure/attachments';
 import { mcpManager } from '../infrastructure/mcp';
-import {
-    type AiProvider,
-    createProviderFromRegistry,
-    parseProviderConfigJson,
-} from '../infrastructure/providers';
+import { type AiProvider, parseProviderConfigJson } from '../infrastructure/providers';
+import { createProviderFromRegistry } from '../infrastructure/providers/drivers';
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import type { TurnEvent } from './runtime';
@@ -861,12 +858,15 @@ export class AiRequestExecutor {
         };
 
         let progressWrites = Promise.resolve();
-        let lastSavedSnapshot = '';
+        // 用递增 revision 代替每次边界 stringify 全量 parts：
+        // 片段只能追加或就地扩展/封口，revision 变化即代表持久化快照变化。
+        let stepRevision = 0;
+        let lastSavedRevision = -1;
         const saveOutputParts = () => {
+            if (stepRevision === lastSavedRevision) return;
+            lastSavedRevision = stepRevision;
             const parts = normalizeOutputParts(this.getCurrentStepOutputParts(runtime));
-            const snapshot = JSON.stringify(parts);
-            if (parts.length === 0 || snapshot === lastSavedSnapshot) return;
-            lastSavedSnapshot = snapshot;
+            if (parts.length === 0) return;
             progressWrites = progressWrites
                 .then(async () => {
                     await options.persister.persistOutputProgress(parts);
@@ -898,7 +898,10 @@ export class AiRequestExecutor {
                     lastPart.providerOptions,
                     providerOptions
                 );
-                if (merged) lastPart.providerOptions = merged;
+                if (merged) {
+                    lastPart.providerOptions = merged;
+                    stepRevision += 1;
+                }
                 return lastPart;
             }
 
@@ -910,6 +913,7 @@ export class AiRequestExecutor {
             };
             runtime.currentStepOutputParts.push(part);
             runtime.outputParts.push(part);
+            stepRevision += 1;
             return part;
         };
         const finishReasoningSegment = () => {
@@ -918,6 +922,7 @@ export class AiRequestExecutor {
             const closed = lastPart?.type === 'reasoning' && lastPart.endedAt === undefined;
             if (closed) {
                 lastPart.endedAt = Date.now();
+                stepRevision += 1;
                 saveOutputParts();
             }
             runtime.currentStepReasoningStartedAt = null;
@@ -925,12 +930,14 @@ export class AiRequestExecutor {
         const appendText = (content: string) => {
             if (activeTextPart) {
                 activeTextPart.content += content;
+                stepRevision += 1;
                 return;
             }
             const part: PersistedOutputPart = { type: 'text', content };
             activeTextPart = part;
             runtime.currentStepOutputParts.push(part);
             runtime.outputParts.push(part);
+            stepRevision += 1;
         };
         try {
             for await (const chunk of stream) {
@@ -947,6 +954,7 @@ export class AiRequestExecutor {
                     startReasoningSegment(chunk.reasoningProviderOptions);
                     const reasoningPart = ensureReasoningPart(chunk.reasoningProviderOptions);
                     reasoningPart.content += chunk.reasoning;
+                    stepRevision += 1;
                     runtime.reasoning += chunk.reasoning;
                     runtime.hasVisibleOutputSinceCheckpoint = true;
                     markContent(chunk.reasoning.length, false);

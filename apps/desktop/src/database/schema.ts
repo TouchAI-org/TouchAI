@@ -76,27 +76,34 @@ export const sessions = sqliteTable(
         index('sessions_archived_at_idx').on(table.archived_at),
         index('sessions_pinned_at_idx').on(table.pinned_at),
         index('sessions_last_message_at_idx').on(table.last_message_at),
+        index('sessions_activity_idx').on(
+            sql`coalesce(${table.last_message_at}, ${table.updated_at}) DESC, ${table.id} DESC`
+        ),
     ]
 );
 
 /**
  * 消息表
  */
-export const messages = sqliteTable('messages', {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    session_id: integer('session_id')
-        .notNull()
-        .references(() => sessions.id, { onDelete: 'cascade' }),
-    role: text('role', {
-        enum: ['user', 'assistant', 'system', 'tool_call'],
-    }).notNull(),
-    created_at: text('created_at')
-        .notNull()
-        .default(sql`(datetime('now'))`),
-    updated_at: text('updated_at')
-        .notNull()
-        .default(sql`(datetime('now'))`),
-});
+export const messages = sqliteTable(
+    'messages',
+    {
+        id: integer('id').primaryKey({ autoIncrement: true }),
+        session_id: integer('session_id')
+            .notNull()
+            .references(() => sessions.id, { onDelete: 'cascade' }),
+        role: text('role', {
+            enum: ['user', 'assistant', 'system', 'tool_call'],
+        }).notNull(),
+        created_at: text('created_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+        updated_at: text('updated_at')
+            .notNull()
+            .default(sql`(datetime('now'))`),
+    },
+    (table) => [index('messages_session_id_id_idx').on(table.session_id, table.id)]
+);
 
 /**
  * 消息输出片段表。
@@ -126,6 +133,15 @@ export const messageParts = sqliteTable(
             sql`CASE WHEN "type" = 'tool_call' THEN json_extract("data", '$.toolKind') END`,
             { mode: 'virtual' }
         ),
+        // 工具日志列表按工具/server 过滤；生成列让过滤与排序都能命中索引。
+        tool_id: text('tool_id').generatedAlwaysAs(
+            sql`CASE WHEN "type" = 'tool_call' THEN json_extract("data", '$."tool_id"') END`,
+            { mode: 'virtual' }
+        ),
+        server_id: integer('server_id').generatedAlwaysAs(
+            sql`CASE WHEN "type" = 'tool_call' THEN json_extract("data", '$."server_id"') END`,
+            { mode: 'virtual' }
+        ),
         attachment_id: integer('attachment_id')
             .references(() => attachments.id, { onDelete: 'cascade' })
             .generatedAlwaysAs(
@@ -144,6 +160,18 @@ export const messageParts = sqliteTable(
     },
     (table) => [
         index('message_parts_tool_call_idx').on(table.tool_kind, table.tool_call_id),
+        index('message_parts_tool_id_idx').on(
+            table.tool_kind,
+            table.tool_id,
+            table.created_at,
+            table.id
+        ),
+        index('message_parts_server_id_idx').on(
+            table.tool_kind,
+            table.server_id,
+            table.created_at,
+            table.id
+        ),
         index('message_parts_attachment_idx').on(table.attachment_id),
         index('message_parts_llm_call_idx').on(table.type, table.started_at),
         check(
@@ -416,6 +444,7 @@ export const sessionTurns = sqliteTable(
         index('session_turns_created_at_idx').on(table.created_at),
         index('session_turns_model_created_idx').on(table.model_id, table.created_at),
         index('session_turns_status_created_idx').on(table.status, table.created_at),
+        index('session_turns_session_created_idx').on(table.session_id, table.created_at, table.id),
     ]
 );
 

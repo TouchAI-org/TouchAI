@@ -982,7 +982,7 @@ export async function buildSessionHistoryFromData(
 }
 
 /**
- * 按会话主键直接加载页面历史。
+ * 按会话主键直接加载历史消息。
  */
 export async function loadSessionHistory(sessionId: number): Promise<SessionMessage[]> {
     const { messages, turns, attempts } = await getSessionData(sessionId);
@@ -991,4 +991,25 @@ export async function loadSessionHistory(sessionId: number): Promise<SessionMess
         turns,
         attempts,
     });
+}
+
+/**
+ * 按会话主键直接加载完整历史（含会话行与最近模型）。
+ *
+ * 展示层不再分页：一次读完，滚动条高度与时间轴定位才是真实值。
+ * 长会话的渲染开销由布界挂载（窗口化）控制。
+ */
+export async function loadCompleteSessionHistory(sessionId: number): Promise<{
+    history: SessionMessage[];
+    session: SessionData['session'];
+    model: SessionData['model'];
+}> {
+    const { messages, turns, attempts, session, model } = await getSessionData(sessionId);
+    const history = await buildSessionHistoryFromData({
+        messages,
+        turns,
+        attempts,
+    });
+
+    return { history, session, model };
 }

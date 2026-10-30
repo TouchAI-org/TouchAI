@@ -5,6 +5,11 @@
 use base64::{engine::general_purpose, Engine as _};
 use clipboard_rs::{common::RustImage, RustImageData};
 use reqwest::{blocking::Client as HttpClient, header::CONTENT_TYPE, Url};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Mutex,
+};
+use std::time::Instant;
 use std::{
     collections::hash_map::DefaultHasher,
     fs::{create_dir_all, File},
@@ -17,6 +22,9 @@ use std::{
 use crate::core::system::paths::{app_directory_path, AppDirectory};
 
 const MAX_HTML_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
+/// 单次消费外链图片的并发上限与总预算。
+const MAX_HTML_IMAGE_RESOLUTION_WORKERS: usize = 3;
+const HTML_IMAGE_RESOLUTION_TOTAL_BUDGET: Duration = Duration::from_secs(10);
 
 pub(super) struct ClipboardImageCache {
     image_dir: PathBuf,
@@ -114,6 +122,44 @@ impl ClipboardImageCache {
         }
 
         self.download_html_image(url.as_str()).map(Some)
+    }
+
+    /// 在总预算内、有限并发地解析 HTML 图片引用。
+    ///
+    /// 返回 `(输入下标, 解析结果)`；超过预算尚未开始的引用直接缺席，
+    /// 调用方按缺席跳过即可，不会阻塞文本粘贴。
+    pub(super) fn resolve_html_images_with_budget(
+        &self,
+        sources: &[String],
+    ) -> Vec<(usize, Result<Option<(String, u64)>, String>)> {
+        if sources.is_empty() {
+            return Vec::new();
+        }
+
+        let deadline = Instant::now() + HTML_IMAGE_RESOLUTION_TOTAL_BUDGET;
+        let next_index = AtomicUsize::new(0);
+        let collected = Mutex::new(Vec::with_capacity(sources.len()));
+        let worker_count = MAX_HTML_IMAGE_RESOLUTION_WORKERS.min(sources.len());
+
+        std::thread::scope(|scope| {
+            for _ in 0..worker_count {
+                scope.spawn(|| loop {
+                    let index = next_index.fetch_add(1, Ordering::Relaxed);
+                    if index >= sources.len() || Instant::now() >= deadline {
+                        break;
+                    }
+
+                    let result = self.resolve_html_image_source(&sources[index]);
+                    if let Ok(mut guard) = collected.lock() {
+                        guard.push((index, result));
+                    }
+                });
+            }
+        });
+
+        let mut results = collected.into_inner().unwrap_or_default();
+        results.sort_by_key(|(index, _)| *index);
+        results
     }
 
     /// 下载 HTML 外链图片并写入缓存。

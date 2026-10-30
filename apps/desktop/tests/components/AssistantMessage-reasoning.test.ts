@@ -71,7 +71,6 @@ describe('user reads the reasoning behind an answer', () => {
             ],
         });
         expect(wrapper.findAll('.markdown').map((node) => node.text())).toEqual([
-            'First thought',
             'First answer',
             'Second thought',
         ]);
@@ -89,6 +88,11 @@ describe('user reads the reasoning behind an answer', () => {
         expect(sections[1]!.find('.reasoning-duration').text()).toBe('(1s)');
         await sections[0]!.find('button').trigger('click');
         expect(sections[0]!.find('button').attributes('aria-expanded')).toBe('true');
+        expect(wrapper.findAll('.markdown').map((node) => node.text())).toEqual([
+            'First thought',
+            'First answer',
+            'Second thought',
+        ]);
         expect(sections[0]!.find('svg').exists()).toBe(false);
         expect(sections[1]!.find('button').attributes('aria-expanded')).toBe('true');
         expect(sections[1]!.find('.reasoning-label-content').text()).toBe('思考中');
@@ -97,7 +101,90 @@ describe('user reads the reasoning behind an answer', () => {
         expect(wrapper.find('.reasoning-shimmer').exists()).toBe(false);
         expect(sections[1]!.find('button').attributes('aria-expanded')).toBe('false');
         expect(sections[1]!.find('svg').exists()).toBe(false);
-        expect(sections[1]!.find('.markdown').attributes('data-final')).toBe('true');
+        expect(sections[1]!.find('.markdown').exists()).toBe(false);
+    });
+
+    it('does not schedule loading-tip rotation while the document is hidden', async () => {
+        const timeoutSpy = vi.spyOn(window, 'setTimeout');
+        Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            value: 'hidden',
+        });
+
+        const wrapper = render({
+            isStreaming: true,
+            parts: [{ id: 't1', type: 'text', content: 'streaming' }],
+        });
+
+        const longDelays = () =>
+            timeoutSpy.mock.calls.filter(([, delay]) => Number(delay ?? 0) >= 20000);
+        expect(longDelays()).toHaveLength(0);
+
+        Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            value: 'visible',
+        });
+        document.dispatchEvent(new Event('visibilitychange'));
+        await nextTick();
+
+        expect(longDelays()).toHaveLength(1);
+
+        wrapper.unmount();
+        timeoutSpy.mockRestore();
+        delete (document as { visibilityState?: string }).visibilityState;
+    });
+
+    it('pauses the elapsed timer while the document is hidden and resumes when visible', async () => {
+        const intervalSpy = vi.spyOn(window, 'setInterval');
+        Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            value: 'hidden',
+        });
+
+        const wrapper = render({
+            isStreaming: true,
+            parts: [
+                {
+                    id: 'r1',
+                    type: 'reasoning',
+                    content: 'thinking',
+                    isStreaming: true,
+                    startedAt: Date.now(),
+                },
+            ],
+        });
+
+        expect(intervalSpy).not.toHaveBeenCalled();
+
+        Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            value: 'visible',
+        });
+        document.dispatchEvent(new Event('visibilitychange'));
+        await nextTick();
+
+        expect(intervalSpy).toHaveBeenCalledTimes(1);
+
+        wrapper.unmount();
+        intervalSpy.mockRestore();
+        delete (document as { visibilityState?: string }).visibilityState;
+    });
+
+    it('unmounts collapsed reasoning markdown until it is expanded', async () => {
+        const wrapper = render({
+            parts: [
+                { id: 'r1', type: 'reasoning', content: 'Collapsed thought', isStreaming: false },
+            ],
+        });
+        const section = wrapper.find('.reasoning-section');
+
+        expect(section.find('.markdown').exists()).toBe(false);
+
+        await section.find('button').trigger('click');
+        expect(section.find('.markdown').text()).toBe('Collapsed thought');
+
+        await section.find('button').trigger('click');
+        expect(section.find('.markdown').exists()).toBe(false);
     });
 
     it('user previews the beginning of collapsed reasoning and shows the full text on expansion', async () => {
@@ -121,9 +208,7 @@ describe('user reads the reasoning behind an answer', () => {
         expect(button.find('.reasoning-preview-separator').exists()).toBe(false);
         expect(button.text()).not.toContain('·');
         expect(button.find('.reasoning-duration').exists()).toBe(false);
-        expect(section.find('.markdown').text()).toBe(
-            'First thought\n\nMore detail on a second line'
-        );
+        expect(section.find('.markdown').exists()).toBe(false);
 
         await button.trigger('click');
         expect(button.attributes('aria-expanded')).toBe('true');
@@ -133,6 +218,7 @@ describe('user reads the reasoning behind an answer', () => {
         );
 
         await button.trigger('click');
+        expect(section.find('.markdown').exists()).toBe(false);
         expect(button.find('.reasoning-preview').text()).toBe(
             'First thought More detail on a second line'
         );

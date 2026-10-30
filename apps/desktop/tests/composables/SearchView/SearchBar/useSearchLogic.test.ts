@@ -1,4 +1,4 @@
-import { mountComposable } from '@tests/utils/composables';
+﻿import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
@@ -25,6 +25,7 @@ const {
     isBlankEditorAreaTargetMock,
     isCursorAtDocEndMock,
     isCursorAtDocStartMock,
+    resolveEditorCursorFlagsMock,
     isCursorAtTextStartMock,
     isSearchTagDomTargetMock,
     MockEditor,
@@ -101,6 +102,7 @@ const {
         isBlankEditorAreaTargetMock: vi.fn(() => false),
         isCursorAtDocEndMock: vi.fn(() => false),
         isCursorAtDocStartMock: vi.fn(() => false),
+        resolveEditorCursorFlagsMock: vi.fn(),
         isCursorAtTextStartMock: vi.fn(() => false),
         isSearchTagDomTargetMock: vi.fn(() => false),
         modelSelectionState: {
@@ -168,6 +170,7 @@ vi.mock('@/views/SearchView/components/SearchBar/utils/tiptap', () => ({
     isBlankEditorAreaTarget: isBlankEditorAreaTargetMock,
     isCursorAtDocEnd: isCursorAtDocEndMock,
     isCursorAtDocStart: isCursorAtDocStartMock,
+    resolveEditorCursorFlags: resolveEditorCursorFlagsMock,
     isCursorAtTextStart: isCursorAtTextStartMock,
     isSearchTagDomTarget: isSearchTagDomTargetMock,
     resolveMouseEventTarget: resolveMouseEventTargetMock,
@@ -312,6 +315,11 @@ describe('when the search input first appears', () => {
         isCursorAtDocStartMock.mockReturnValue(false);
         isCursorAtTextStartMock.mockReturnValue(false);
         isCursorAtDocEndMock.mockReturnValue(false);
+        resolveEditorCursorFlagsMock.mockImplementation(() => ({
+            cursorAtStart: isCursorAtDocStartMock(),
+            cursorAtTextStart: isCursorAtTextStartMock(),
+            cursorAtEnd: isCursorAtDocEndMock(),
+        }));
         vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
             callback(0);
             return 1;
@@ -322,6 +330,47 @@ describe('when the search input first appears', () => {
         setLocale('zh-CN');
         vi.unstubAllGlobals();
         document.body.innerHTML = '';
+    });
+
+    it('reports multi-line state from a single measurement per update', async () => {
+        const mounted = await mountComposable(() =>
+            useSearchInput({
+                searchBarContainerRef: ref(null),
+                editorHostRef: ref(document.createElement('div')),
+                queryText: ref(''),
+                attachments: ref([]),
+                modelOverride: ref({ modelId: null, providerId: null }),
+                emitQueryText: vi.fn(),
+                emitModelChange: vi.fn(),
+                emitModelOverrideChange: vi.fn(),
+                emitRemoveAttachmentRequest: vi.fn(),
+                emitDragStart: vi.fn(),
+                emitDragEnd: vi.fn(),
+            })
+        );
+
+        mounted.result.initEditor();
+        await flushAsyncWork();
+
+        const editor = editorInstances[0]!;
+        let scrollReads = 0;
+        Object.defineProperty(editor.view.dom, 'scrollHeight', {
+            configurable: true,
+            get: () => {
+                scrollReads += 1;
+                return 40;
+            },
+        });
+
+        (editor.options.onUpdate as (payload: { editor: InstanceType<typeof MockEditor> }) => void)(
+            { editor }
+        );
+
+        // 同步输入路径最多读一次布局，并把多行状态即时反映给页面。
+        expect(scrollReads).toBeLessThanOrEqual(1);
+        expect(mounted.result.isMultiLine.value).toBe(true);
+
+        mounted.unmount();
     });
 
     it('user sees the saved draft, model chip and attachments restored into the editor', async () => {

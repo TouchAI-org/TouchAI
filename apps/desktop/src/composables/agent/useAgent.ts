@@ -10,8 +10,7 @@ import { t } from '@/i18n';
 import { sessionTaskCenter } from '@/services/AgentService';
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import { type Index } from '@/services/AgentService/infrastructure/attachments';
-import { buildSessionHistoryFromData } from '@/services/AgentService/session';
-import { getSessionData } from '@/services/AgentService/session';
+import { loadCompleteSessionHistory } from '@/services/AgentService/session';
 import type { InputHistorySnapshot, LoadedSessionInfo } from '@/types/session';
 
 import { useAgentState } from './useAgentState';
@@ -129,22 +128,21 @@ export function useAgent(options: UseAiRequestOptions = {}) {
 
     /**
      * 从持久化数据恢复指定会话。
+     *
+     * 一次读完整个会话：展示层不分页，滚动条高度与时间轴定位才是真实值；
+     * 长会话的渲染开销由布界挂载（窗口化）控制，不会随消息数线性增长 DOM。
      */
     async function loadPersistedSession(sessionId: number): Promise<LoadedSessionInfo> {
-        const { session, messages, turns, attempts, model } = await getSessionData(sessionId);
-        sessionHistory.value = await buildSessionHistoryFromData({
-            messages,
-            turns,
-            attempts,
-        });
-        currentSessionId.value = session.id;
+        const loaded = await loadCompleteSessionHistory(sessionId);
+        sessionHistory.value = loaded.history;
+        currentSessionId.value = loaded.session.id;
         resetTransientState();
 
         return {
-            sessionId: session.id,
-            title: session.title,
-            modelId: model?.model_id ?? session.model ?? null,
-            providerId: model?.provider_id ?? session.provider_id ?? null,
+            sessionId: loaded.session.id,
+            title: loaded.session.title,
+            modelId: loaded.model?.model_id ?? loaded.session.model ?? null,
+            providerId: loaded.model?.provider_id ?? loaded.session.provider_id ?? null,
         };
     }
 
