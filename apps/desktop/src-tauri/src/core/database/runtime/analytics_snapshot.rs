@@ -15,6 +15,8 @@ use sqlx::{
 
 const ANALYTICS_TABLES: [&str; 2] = ["analytics_outbox", "analytics_state"];
 
+use crate::core::analytics::DEPLOYMENT_KEY_SETTING;
+
 /// Removes analytics identity, consent and queued payloads from a database
 /// snapshot. `journal_mode=DELETE` checkpoints any WAL into the main file, and
 /// `VACUUM` rewrites the file so no scrubbed payload survives in free pages.
@@ -44,6 +46,13 @@ pub(crate) async fn sanitize_analytics_snapshot(path: &Path) -> Result<(), Strin
                 .await
                 .map_err(|error| format!("Failed to scrub snapshot table {table}: {error}"))?;
         }
+        // The deployment binding is local state too: drop it so an exported
+        // snapshot never carries another install's analytics target.
+        sqlx::query("DELETE FROM settings WHERE key = ?")
+            .bind(DEPLOYMENT_KEY_SETTING)
+            .execute(&mut connection)
+            .await
+            .map_err(|error| format!("Failed to scrub analytics deployment key: {error}"))?;
         sqlx::query("VACUUM")
             .execute(&mut connection)
             .await
@@ -91,6 +100,11 @@ mod tests {
             .execute(pool)
             .await
             .expect("seed settings");
+        sqlx::query("INSERT INTO settings (key, value) VALUES (?, 'https://x/send|abc')")
+            .bind(DEPLOYMENT_KEY_SETTING)
+            .execute(pool)
+            .await
+            .expect("seed deployment key");
 
         let snapshot = root.path().join("snap.db");
         sqlx::query("VACUUM INTO ?")
@@ -123,6 +137,16 @@ mod tests {
                 .await
                 .unwrap(),
             "1"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM settings WHERE key = 'analytics.deploymentKey'"
+            )
+            .fetch_one(&sanitized)
+            .await
+            .unwrap(),
+            0,
+            "the exported snapshot must not carry the analytics deployment binding"
         );
     }
 }

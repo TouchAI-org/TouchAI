@@ -518,6 +518,21 @@ fn validate_value(kind: &AttrKind, value: &JsonValue) -> Result<(), String> {
 }
 
 fn is_utc_day(value: &str) -> bool {
+    // Canonical `YYYY-MM-DD`: exactly four year digits, a hyphen, two month
+    // digits, a hyphen, two day digits. This is the same rule the TypeScript
+    // registry enforces with `^\d{4}-\d{2}-\d{2}$`, so neither validator
+    // accepts a padded or short form the other rejects.
+    let bytes = value.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+    if !bytes
+        .iter()
+        .enumerate()
+        .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
+    {
+        return false;
+    }
     let mut parts = value.split('-');
     let (Some(year), Some(month), Some(day), None) =
         (parts.next(), parts.next(), parts.next(), parts.next())

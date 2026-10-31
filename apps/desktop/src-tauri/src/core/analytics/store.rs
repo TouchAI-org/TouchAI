@@ -45,6 +45,9 @@ pub(crate) struct AnalyticsStateRow {
     pub(crate) consent_explicit: i64,
     pub(crate) installation_id: Option<String>,
     pub(crate) consent_epoch: i64,
+    pub(crate) observation_started_day: Option<String>,
+    pub(crate) first_success_day: Option<String>,
+    pub(crate) pending_update_json: Option<String>,
 }
 
 // `sqlx` is built without the `macros` feature, so the `FromRow` derive is not
@@ -57,6 +60,9 @@ impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for AnalyticsStateRow {
             consent_explicit: row.try_get("consent_explicit")?,
             installation_id: row.try_get("installation_id")?,
             consent_epoch: row.try_get("consent_epoch")?,
+            observation_started_day: row.try_get("observation_started_day")?,
+            first_success_day: row.try_get("first_success_day")?,
+            pending_update_json: row.try_get("pending_update_json")?,
         })
     }
 }
@@ -64,6 +70,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for AnalyticsStateRow {
 #[derive(Debug, Clone)]
 pub(crate) struct AnalyticsOutboxRow {
     pub(crate) event_id: String,
+    pub(crate) event_name: String,
     pub(crate) payload_json: String,
     pub(crate) attempt_count: i64,
 }
@@ -72,6 +79,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::sqlite::SqliteRow> for AnalyticsOutboxRow {
     fn from_row(row: &'r sqlx::sqlite::SqliteRow) -> Result<Self, sqlx::Error> {
         Ok(Self {
             event_id: row.try_get("event_id")?,
+            event_name: row.try_get("event_name")?,
             payload_json: row.try_get("payload_json")?,
             attempt_count: row.try_get("attempt_count")?,
         })
@@ -97,8 +105,20 @@ pub(crate) enum EnqueueOutcome {
     Rejected,
 }
 
-const STATE_SELECT: &str = "SELECT status, consent_explicit, installation_id, consent_epoch \
-     FROM analytics_state WHERE id = 1";
+/// A bounded pending-update confirmation to apply in the same transaction as the
+/// enqueued rows, so an install handoff and its metadata never half-commit.
+pub(crate) enum PendingUpdate {
+    /// Leave any stored pending-update metadata untouched.
+    Unchanged,
+    /// Store bounded pending metadata for the next native start to confirm.
+    Set(String),
+    /// Drop pending metadata (a restart was confirmed, or it went stale).
+    Clear,
+}
+
+const STATE_SELECT: &str =
+    "SELECT status, consent_explicit, installation_id, consent_epoch, observation_started_day, \
+     first_success_day, pending_update_json FROM analytics_state WHERE id = 1";
 
 pub(crate) async fn load_state(pool: &SqlitePool) -> Result<Option<AnalyticsStateRow>, String> {
     sqlx::query_as::<_, AnalyticsStateRow>(STATE_SELECT)
@@ -117,7 +137,7 @@ pub(crate) async fn ensure_state(
 ) -> Result<AnalyticsStateRow, String> {
     let now = now_millis();
     let mut transaction = pool
-        .begin()
+        .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|error| format!("Failed to begin analytics state transaction: {error}"))?;
 
@@ -194,7 +214,7 @@ pub(crate) async fn set_enabled(
     policy_version: i64,
 ) -> Result<Option<AnalyticsStateRow>, String> {
     let mut transaction = pool
-        .begin()
+        .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|error| format!("Failed to begin analytics consent transaction: {error}"))?;
 
@@ -268,7 +288,7 @@ pub(crate) async fn clear_pending(
     expected_epoch: i64,
 ) -> Result<Option<AnalyticsStateRow>, String> {
     let mut transaction = pool
-        .begin()
+        .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|error| format!("Failed to begin analytics clear transaction: {error}"))?;
     let current = sqlx::query_as::<_, AnalyticsStateRow>(STATE_SELECT)
@@ -308,28 +328,59 @@ pub(crate) async fn clear_pending(
     Ok(Some(updated))
 }
 
-/// Persist one validated event.
-///
-/// ## Durability
-///
-/// Enqueue commits in a single SQLite transaction on the existing `touchai.db`
-/// pool, which runs the shared WAL + `synchronous=NORMAL` policy. A committed row
-/// therefore survives a process/OS crash and is retried after restart. It is not a
-/// power-loss or storage-failure durability guarantee, and this module never changes
-/// the shared journal/fsync policy.
+/// Persist one validated event. Delegates to [`enqueue_batch`] so a native
+/// session start and its triggering interaction can commit in one transaction.
 pub(crate) async fn enqueue(
     pool: &SqlitePool,
     insert: OutboxInsert,
 ) -> Result<EnqueueOutcome, String> {
-    let payload_bytes = insert.payload_json.len() as i64;
-    if payload_bytes <= 0 || payload_bytes > MAX_PAYLOAD_BYTES {
-        return Ok(EnqueueOutcome::Rejected);
+    enqueue_batch(pool, vec![insert], PendingUpdate::Unchanged).await
+}
+
+/// Persist a group of validated events that share one consent epoch in a single
+/// SQLite transaction.
+///
+/// ## Atomicity
+///
+/// The batch commits in one transaction: either every row lands or none does, so
+/// a native `analytics.session_started` and the interaction that opened the
+/// session can never half-commit and a session cannot be advertised without its
+/// session-start row.
+///
+/// ## Durability
+///
+/// The batch commits on the existing `touchai.db` pool, which runs the shared WAL +
+/// `synchronous=NORMAL` policy. A committed row therefore survives a
+/// process/OS crash and is retried after restart. It is not a power-loss or
+/// storage-failure durability guarantee, and this module never changes the
+/// shared journal/fsync policy.
+pub(crate) async fn enqueue_batch(
+    pool: &SqlitePool,
+    inserts: Vec<OutboxInsert>,
+    pending: PendingUpdate,
+) -> Result<EnqueueOutcome, String> {
+    if inserts.is_empty() {
+        return Ok(EnqueueOutcome::Persisted);
     }
+    let consent_epoch = inserts[0].consent_epoch;
+    if inserts
+        .iter()
+        .any(|insert| insert.consent_epoch != consent_epoch)
+    {
+        return Err("mixed_consent_epoch".to_string());
+    }
+    for insert in &inserts {
+        let payload_bytes = insert.payload_json.len() as i64;
+        if payload_bytes <= 0 || payload_bytes > MAX_PAYLOAD_BYTES {
+            return Ok(EnqueueOutcome::Rejected);
+        }
+    }
+
     let now = now_millis();
     let expires_at = now + TTL_MS;
 
     let mut transaction = pool
-        .begin()
+        .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|error| format!("Failed to begin analytics enqueue transaction: {error}"))?;
     let state = sqlx::query_as::<_, AnalyticsStateRow>(STATE_SELECT)
@@ -345,7 +396,7 @@ pub(crate) async fn enqueue(
             .map_err(|error| format!("Failed to commit analytics enqueue: {error}"))?;
         return Ok(EnqueueOutcome::Disabled);
     }
-    if state.consent_epoch != insert.consent_epoch {
+    if state.consent_epoch != consent_epoch {
         transaction
             .commit()
             .await
@@ -371,55 +422,64 @@ pub(crate) async fn enqueue(
             .await
             .map_err(|error| format!("Failed to size analytics outbox: {error}"))?;
 
-    while depth >= MAX_EVENTS || bytes + payload_bytes > MAX_BYTES {
-        let victim = sqlx::query_as::<_, (String, i64)>(
-            "SELECT event_id, payload_bytes FROM analytics_outbox \
-             WHERE priority > ? ORDER BY priority DESC, enqueued_at ASC LIMIT 1",
+    let mut marks_first_success = false;
+    for insert in &inserts {
+        let payload_bytes = insert.payload_json.len() as i64;
+        while depth >= MAX_EVENTS || bytes + payload_bytes > MAX_BYTES {
+            let victim = sqlx::query_as::<_, (String, i64)>(
+                "SELECT event_id, payload_bytes FROM analytics_outbox \
+                 WHERE priority > ? ORDER BY priority DESC, enqueued_at ASC LIMIT 1",
+            )
+            .bind(insert.priority)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(|error| format!("Failed to select analytics eviction: {error}"))?;
+            let Some((victim_id, victim_bytes)) = victim else {
+                break;
+            };
+            sqlx::query("DELETE FROM analytics_outbox WHERE event_id = ?")
+                .bind(&victim_id)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| format!("Failed to evict analytics event: {error}"))?;
+            depth -= 1;
+            bytes -= victim_bytes;
+        }
+
+        if depth >= MAX_EVENTS || bytes + payload_bytes > MAX_BYTES {
+            // The batch cannot fit as a whole, so nothing of it may land: roll
+            // back rather than commit the rows inserted before this one.
+            transaction
+                .rollback()
+                .await
+                .map_err(|error| format!("Failed to roll back analytics enqueue: {error}"))?;
+            return Ok(EnqueueOutcome::Unavailable);
+        }
+
+        sqlx::query(
+            "INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, \
+             payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at, attempt_count, priority) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
         )
+        .bind(&insert.event_id)
+        .bind(insert.consent_epoch)
+        .bind(insert.schema_version)
+        .bind(&insert.event_name)
+        .bind(&insert.payload_json)
+        .bind(payload_bytes)
+        .bind(now)
+        .bind(expires_at)
+        .bind(now)
         .bind(insert.priority)
-        .fetch_optional(&mut *transaction)
+        .execute(&mut *transaction)
         .await
-        .map_err(|error| format!("Failed to select analytics eviction: {error}"))?;
-        let Some((victim_id, victim_bytes)) = victim else {
-            break;
-        };
-        sqlx::query("DELETE FROM analytics_outbox WHERE event_id = ?")
-            .bind(&victim_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(|error| format!("Failed to evict analytics event: {error}"))?;
-        depth -= 1;
-        bytes -= victim_bytes;
+        .map_err(|error| format!("Failed to enqueue analytics event: {error}"))?;
+        depth += 1;
+        bytes += payload_bytes;
+        marks_first_success |= insert.marks_first_success;
     }
 
-    if depth >= MAX_EVENTS || bytes + payload_bytes > MAX_BYTES {
-        transaction
-            .commit()
-            .await
-            .map_err(|error| format!("Failed to commit analytics enqueue: {error}"))?;
-        return Ok(EnqueueOutcome::Unavailable);
-    }
-
-    sqlx::query(
-        "INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, \
-         payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at, attempt_count, priority) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
-    )
-    .bind(&insert.event_id)
-    .bind(insert.consent_epoch)
-    .bind(insert.schema_version)
-    .bind(&insert.event_name)
-    .bind(&insert.payload_json)
-    .bind(payload_bytes)
-    .bind(now)
-    .bind(expires_at)
-    .bind(now)
-    .bind(insert.priority)
-    .execute(&mut *transaction)
-    .await
-    .map_err(|error| format!("Failed to enqueue analytics event: {error}"))?;
-
-    if insert.marks_first_success {
+    if marks_first_success {
         sqlx::query(
             "UPDATE analytics_state SET first_success_day = COALESCE(first_success_day, ?), \
              updated_at = datetime('now') WHERE id = 1",
@@ -428,6 +488,29 @@ pub(crate) async fn enqueue(
         .execute(&mut *transaction)
         .await
         .map_err(|error| format!("Failed to record first success day: {error}"))?;
+    }
+
+    match pending {
+        PendingUpdate::Unchanged => {}
+        PendingUpdate::Set(json) => {
+            sqlx::query(
+                "UPDATE analytics_state SET pending_update_json = ?, updated_at = datetime('now') \
+                 WHERE id = 1",
+            )
+            .bind(json)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| format!("Failed to store pending update: {error}"))?;
+        }
+        PendingUpdate::Clear => {
+            sqlx::query(
+                "UPDATE analytics_state SET pending_update_json = NULL, \
+                 updated_at = datetime('now') WHERE id = 1",
+            )
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| format!("Failed to clear pending update: {error}"))?;
+        }
     }
 
     transaction
@@ -442,7 +525,7 @@ pub(crate) async fn due_batch(
     now: i64,
 ) -> Result<Vec<AnalyticsOutboxRow>, String> {
     sqlx::query_as::<_, AnalyticsOutboxRow>(
-        "SELECT event_id, payload_json, attempt_count \
+        "SELECT event_id, event_name, payload_json, attempt_count \
          FROM analytics_outbox WHERE next_attempt_at <= ? AND expires_at > ? \
          ORDER BY priority ASC, next_attempt_at ASC, enqueued_at ASC LIMIT ?",
     )
@@ -501,6 +584,85 @@ pub(crate) async fn queue_stats(pool: &SqlitePool) -> Result<(i64, i64), String>
             .await
             .map_err(|error| format!("Failed to size analytics outbox: {error}"))?;
     Ok((depth, bytes))
+}
+
+/// Drops pending-update metadata without enqueuing anything. Used when the
+/// stored handoff is stale (an unfinished update, a restored backup or a changed
+/// consent epoch) so a restored backup can never become a false confirmation.
+pub(crate) async fn clear_pending_update(pool: &SqlitePool) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE analytics_state SET pending_update_json = NULL, updated_at = datetime('now') \
+         WHERE id = 1",
+    )
+    .execute(pool)
+    .await
+    .map(|_| ())
+    .map_err(|error| format!("Failed to clear pending update: {error}"))
+}
+
+/// Records the running app version so the next native start can tell an actual
+/// restart after an update apart from a restored backup.
+pub(crate) async fn observe_app_version(pool: &SqlitePool, version: &str) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE analytics_state SET last_observed_app_version = ?, \
+         updated_at = datetime('now') WHERE id = 1",
+    )
+    .bind(version)
+    .execute(pool)
+    .await
+    .map(|_| ())
+    .map_err(|error| format!("Failed to record observed version: {error}"))
+}
+
+/// Settings key that records which deployment (endpoint + project id) enqueued
+/// the current rows. It is not a secret and carries no event data; export
+/// scrubbing drops it so a backup never carries another install's binding.
+pub(crate) const DEPLOYMENT_KEY_SETTING: &str = "analytics.deploymentKey";
+
+/// Binds the outbox to one deployment. When the resolved deployment key differs
+/// from the stored one, every queued row was produced for a different endpoint
+/// or project id and is dropped, so a community/self build queue can never be
+/// flushed through the official deployment after a build switch. Returns whether
+/// rows were cleared. Storing the key is part of the same transaction so the
+/// binding and the clear cannot half-commit.
+pub(crate) async fn reconcile_deployment_key(
+    pool: &SqlitePool,
+    current: &str,
+) -> Result<bool, String> {
+    let mut transaction = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|error| format!("Failed to begin analytics deployment transaction: {error}"))?;
+    let stored: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+        .bind(DEPLOYMENT_KEY_SETTING)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|error| format!("Failed to read analytics deployment key: {error}"))?;
+
+    let mut cleared = false;
+    if stored.as_deref().is_some_and(|stored| stored != current) {
+        sqlx::query("DELETE FROM analytics_outbox")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| format!("Failed to clear analytics outbox: {error}"))?;
+        cleared = true;
+    }
+
+    sqlx::query(
+        "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now')) \
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
+    )
+    .bind(DEPLOYMENT_KEY_SETTING)
+    .bind(current)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|error| format!("Failed to store analytics deployment key: {error}"))?;
+
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("Failed to commit analytics deployment transaction: {error}"))?;
+    Ok(cleared)
 }
 
 #[cfg(test)]
@@ -641,5 +803,80 @@ mod tests {
                 .expect("enqueue"),
             EnqueueOutcome::Disabled
         );
+    }
+
+    #[tokio::test]
+    async fn user_gets_pending_update_stored_and_cleared_atomically() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+        ensure_state(pool, 1, true).await.expect("create state");
+
+        let stored = serde_json::json!({ "toVersion": "2.0.0" }).to_string();
+        assert_eq!(
+            enqueue_batch(
+                pool,
+                vec![insert("e1", 0, "app.update_transition")],
+                PendingUpdate::Set(stored.clone())
+            )
+            .await
+            .expect("enqueue"),
+            EnqueueOutcome::Persisted
+        );
+        let row = load_state(pool).await.expect("load").expect("row");
+        assert_eq!(row.pending_update_json.as_deref(), Some(stored.as_str()));
+
+        clear_pending_update(pool).await.expect("clear");
+        let row = load_state(pool).await.expect("load").expect("row");
+        assert!(row.pending_update_json.is_none());
+    }
+
+    #[tokio::test]
+    async fn user_gets_the_observed_app_version_recorded() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+        ensure_state(pool, 1, true).await.expect("create state");
+
+        observe_app_version(pool, "1.2.3").await.expect("observe");
+        let value: Option<String> = sqlx::query_scalar(
+            "SELECT last_observed_app_version FROM analytics_state WHERE id = 1",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("read version");
+        assert_eq!(value.as_deref(), Some("1.2.3"));
+    }
+
+    #[tokio::test]
+    async fn user_gets_another_deployments_queued_events_dropped_when_the_target_changes() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+        ensure_state(pool, 1, true).await.expect("create state");
+
+        // The first run binds the outbox to deployment A and keeps its rows.
+        assert!(
+            !reconcile_deployment_key(pool, "https://a/send|a")
+                .await
+                .expect("bind a"),
+            "a first run has nothing foreign to clear"
+        );
+        enqueue(pool, insert("e1", 0, "app.started"))
+            .await
+            .expect("enqueue");
+        assert!(
+            !reconcile_deployment_key(pool, "https://a/send|a")
+                .await
+                .expect("same deployment"),
+            "the same deployment keeps its rows"
+        );
+        assert_eq!(queue_stats(pool).await.expect("stats").0, 1);
+
+        // Switching to a different target means the queued rows are foreign.
+        assert!(
+            reconcile_deployment_key(pool, "https://b/send|b")
+                .await
+                .expect("bind b"),
+            "a changed deployment clears the foreign rows"
+        );
+        assert_eq!(queue_stats(pool).await.expect("stats").0, 0);
     }
 }
