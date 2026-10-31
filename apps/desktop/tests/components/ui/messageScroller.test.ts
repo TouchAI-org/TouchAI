@@ -50,12 +50,14 @@ function flushAnimationFrames(): void {
 }
 
 async function settleLayout(): Promise<void> {
-    await nextTick();
-    flushAnimationFrames();
-    await nextTick();
-    flushAnimationFrames();
-    await nextTick();
-    await flushPromises();
+    // Programmatic scroll timers can enqueue a measurement frame after the current frame batch.
+    for (let pass = 0; pass < 6; pass += 1) {
+        await nextTick();
+        flushAnimationFrames();
+        await nextTick();
+        await flushPromises();
+        if (animationFrames.length === 0) break;
+    }
 }
 
 function triggerResize(): void {
