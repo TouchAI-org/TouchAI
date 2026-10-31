@@ -3,6 +3,10 @@
 //! 剪贴板 HTML 元信息解析。
 
 use clipboard_rs::{Clipboard, ClipboardContext};
+use cssparser::{
+    parse_important, AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser, ParserInput,
+    ParserState, QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser,
+};
 use html5gum::{HtmlString, Spanned, StartTag, Token, Tokenizer};
 use reqwest::Url;
 use std::{
@@ -482,22 +486,100 @@ fn is_hidden_html_element(attrs: &HtmlAttributes) -> bool {
         return true;
     }
 
-    html_attr_string(attrs, b"style")
-        .map(|style| normalize_hidden_style(&style))
-        .is_some_and(|style| {
-            style.contains("display:none")
-                || style.contains("visibility:hidden")
-                || style.contains("opacity:0")
-        })
+    html_attr_string(attrs, b"style").is_some_and(|style| has_hidden_inline_style(&style))
 }
 
-/// 归一化内联样式以便判断隐藏状态。
-fn normalize_hidden_style(style: &str) -> String {
-    style
-        .chars()
-        .filter(|ch| !ch.is_whitespace())
-        .collect::<String>()
-        .to_ascii_lowercase()
+#[derive(Clone, Copy)]
+enum VisibilityProperty {
+    Display,
+    Visibility,
+    Opacity,
+}
+
+struct VisibilityDeclaration {
+    property: VisibilityProperty,
+    hidden: bool,
+    important: bool,
+}
+
+struct VisibilityStyleParser;
+
+impl<'i> DeclarationParser<'i> for VisibilityStyleParser {
+    type Declaration = VisibilityDeclaration;
+    type Error = ();
+
+    fn parse_value(
+        &mut self,
+        name: CowRcStr<'i>,
+        input: &mut Parser<'i, '_>,
+        _start: &ParserState,
+    ) -> Result<Self::Declaration, ParseError<'i, Self::Error>> {
+        let (property, hidden) = if name.eq_ignore_ascii_case("display") {
+            let hidden = input.expect_ident()?.eq_ignore_ascii_case("none");
+            while input.try_parse(|input| input.expect_ident_cloned()).is_ok() {}
+            (VisibilityProperty::Display, hidden)
+        } else if name.eq_ignore_ascii_case("visibility") {
+            let value = input.expect_ident()?;
+            (
+                VisibilityProperty::Visibility,
+                value.eq_ignore_ascii_case("hidden") || value.eq_ignore_ascii_case("collapse"),
+            )
+        } else if name.eq_ignore_ascii_case("opacity") {
+            let opacity = input
+                .try_parse(|input| input.expect_number())
+                .or_else(|_| input.expect_percentage())?;
+            (VisibilityProperty::Opacity, opacity <= 0.0)
+        } else {
+            return Err(input.new_custom_error(()));
+        };
+        let important = input.try_parse(parse_important).is_ok();
+        Ok(VisibilityDeclaration {
+            property,
+            hidden,
+            important,
+        })
+    }
+}
+
+impl<'i> AtRuleParser<'i> for VisibilityStyleParser {
+    type Prelude = ();
+    type AtRule = VisibilityDeclaration;
+    type Error = ();
+}
+
+impl<'i> QualifiedRuleParser<'i> for VisibilityStyleParser {
+    type Prelude = ();
+    type QualifiedRule = VisibilityDeclaration;
+    type Error = ();
+}
+
+impl<'i> RuleBodyItemParser<'i, VisibilityDeclaration, ()> for VisibilityStyleParser {
+    fn parse_declarations(&self) -> bool {
+        true
+    }
+
+    fn parse_qualified(&self) -> bool {
+        false
+    }
+}
+
+/// Use parsed declarations so an overridden value or a custom property cannot hide an image.
+fn has_hidden_inline_style(style: &str) -> bool {
+    let mut input = ParserInput::new(style);
+    let mut parser = Parser::new(&mut input);
+    let mut style_parser = VisibilityStyleParser;
+    let mut values: [Option<(bool, bool)>; 3] = [None, None, None];
+    for declaration in RuleBodyParser::new(&mut parser, &mut style_parser).flatten() {
+        let index = match declaration.property {
+            VisibilityProperty::Display => 0,
+            VisibilityProperty::Visibility => 1,
+            VisibilityProperty::Opacity => 2,
+        };
+        if values[index].is_none_or(|(_, important)| !important || declaration.important) {
+            values[index] = Some((declaration.hidden, declaration.important));
+        }
+    }
+    values.iter().flatten().any(|(hidden, _)| *hidden)
 }
 
 /// 判断属性列表中是否存在指定属性。
@@ -621,5 +703,61 @@ mod tests {
             Some("<p>Visible</p><img style=\"display:none\" src=\"hidden.png\">"),
             false
         ));
+    }
+
+    #[test]
+    fn user_gets_partially_transparent_html_images_kept_in_source_order() {
+        let html = "<p>Before<img style=\"opacity: 0.5\" src=\"https://example.com/first.png\">Between<img src=\"https://example.com/second.png\">After</p>";
+        let images = extract_html_clipboard_images(html, None);
+
+        assert_eq!(
+            images
+                .iter()
+                .map(|image| image.source.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "https://example.com/first.png",
+                "https://example.com/second.png"
+            ]
+        );
+    }
+
+    #[test]
+    fn user_gets_visible_html_images_kept_after_style_override() {
+        let html = "<img style=\"opacity: 0; opacity: 1\" src=\"https://example.com/visible.png\">";
+        let images = extract_html_clipboard_images(html, None);
+
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].source, "https://example.com/visible.png");
+    }
+
+    #[test]
+    fn user_gets_custom_opacity_property_ignored_when_extracting_images() {
+        let html = "<img style=\"--opacity: 0\" src=\"https://example.com/visible.png\">";
+        assert_eq!(extract_html_clipboard_images(html, None).len(), 1);
+    }
+
+    #[test]
+    fn user_gets_negative_opacity_image_excluded_as_hidden() {
+        let html = "<img style=\"opacity: -0.5\" src=\"https://example.com/hidden.png\">";
+        assert!(extract_html_clipboard_images(html, None).is_empty());
+    }
+
+    #[test]
+    fn user_gets_zero_percent_opacity_image_excluded_as_hidden() {
+        let html = "<img style=\"opacity: 0%\" src=\"https://example.com/hidden.png\">";
+        assert!(extract_html_clipboard_images(html, None).is_empty());
+    }
+
+    #[test]
+    fn user_gets_visible_image_after_multitoken_display_override() {
+        let html = "<img style=\"display: none; display: inline flex\" src=\"https://example.com/visible.png\">";
+        assert_eq!(extract_html_clipboard_images(html, None).len(), 1);
+    }
+
+    #[test]
+    fn user_gets_important_hidden_image_excluded_after_later_override() {
+        let html = "<img style=\"display: none !important; display: inline\" src=\"https://example.com/hidden.png\">";
+        assert!(extract_html_clipboard_images(html, None).is_empty());
     }
 }

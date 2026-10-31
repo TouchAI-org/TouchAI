@@ -79,6 +79,7 @@ futures = "0.3"
 tokio-tungstenite = "0.29"
 clipboard-rs = "0.3.4"
 html5gum = { version = "0.8.3", default-features = false }
+cssparser = "0.37.0"
 sha2 = "0.11"
 velopack = { version = "=1.3.39-g8d2844f", features = ["public-utils"] }
 tempfile = "3"
