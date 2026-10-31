@@ -31,6 +31,7 @@ export type {
     AppUpdateCheckResult,
     AppUpdateDownload,
     AppUpdateInfo,
+    AppUpdateInstallAnalytics,
     AppUpdateRequirement,
     BrowserActRequest,
     BrowserActResponse,

@@ -45,9 +45,9 @@ function createAnalytics(): {
     }> = [];
     const finished: UpdateOperation[] = [];
     const begin = vi.fn(
-        async (): Promise<UpdateOperation> => ({
+        async (updateOperationId?: string): Promise<UpdateOperation> => ({
             operation: { operationId: 'op-1', enabled: true, consentEpoch: 4 },
-            updateOperationId: crypto.randomUUID(),
+            updateOperationId: updateOperationId ?? crypto.randomUUID(),
             closed: false,
             pending: Promise.resolve(),
         })
@@ -72,6 +72,7 @@ function createAnalytics(): {
 
 function createController(options: {
     checkResult?: AppUpdateCheckResult;
+    checkError?: Error;
     downloadError?: Error;
     installError?: Error;
     analytics?: AppUpdateAnalytics;
@@ -81,17 +82,19 @@ function createController(options: {
     persistCheckedAt?: () => Promise<void>;
 }) {
     const channel: AppUpdateChannel = 'stable';
-    const checkForUpdates = vi.fn(
-        async () =>
-            options.checkResult ?? {
-                status: 'available' as const,
-                channel,
-                currentVersion: '0.1.0',
-                latest: null,
-                update: availableUpdate,
-                requirement: neutralRequirement,
-            }
-    );
+    const checkForUpdates = options.checkError
+        ? vi.fn().mockRejectedValue(options.checkError)
+        : vi.fn(
+              async () =>
+                  options.checkResult ?? {
+                      status: 'available' as const,
+                      channel,
+                      currentVersion: '0.1.0',
+                      latest: null,
+                      update: availableUpdate,
+                      requirement: neutralRequirement,
+                  }
+          );
     const downloadUpdate =
         options.downloadUpdate ??
         (options.downloadError
@@ -150,7 +153,6 @@ describe('user checks for an app update', () => {
             'check_finished',
             'download_started',
             'download_finished',
-            'install_handoff',
         ]);
         expect(new Set(transitions.map((event) => event.operationId))).toEqual(
             new Set(['operation-1'])
@@ -177,6 +179,7 @@ describe('user checks for an app update', () => {
         expect(finished?.outcome).toMatchObject({
             result: 'success',
             source: 'user',
+            fromVersion: '0.1.0',
             toVersion: '0.2.0',
         });
         expect(analytics.finish).not.toHaveBeenCalled();
@@ -201,6 +204,28 @@ describe('user checks for an app update', () => {
 
         const finished = analytics.transitions.find((entry) => entry.phase === 'check_finished');
         expect(finished?.outcome.source).toBe('background');
+    });
+
+    it('user gets a terminal failure phase even when an automatic check stays silent', async () => {
+        const analytics = createAnalytics();
+        const { controller } = createController({
+            analytics: analytics.analytics,
+            checkError: new Error('offline'),
+        });
+
+        await controller.initialize();
+        await expect(controller.checkNow('automatic')).resolves.toBe(false);
+        await vi.waitFor(() => expect(analytics.finish).toHaveBeenCalledTimes(1));
+
+        expect(analytics.transitions.map((entry) => entry.phase)).toEqual([
+            'check_started',
+            'check_finished',
+        ]);
+        expect(analytics.transitions[1]?.outcome).toMatchObject({
+            result: 'failure',
+            source: 'background',
+        });
+        expect(controller.getState().status).toBe('idle');
     });
 
     it('user gets an unavailable result when the platform is unsupported', async () => {
@@ -311,9 +336,11 @@ describe('user downloads and installs an update', () => {
         });
     });
 
-    it('user gets a handoff phase after install is invoked, never a confirmed restart', async () => {
+    it('user gets the original update operation captured for the native install handoff', async () => {
         const analytics = createAnalytics();
-        const { controller } = createController({ analytics: analytics.analytics });
+        const { controller, installUpdate } = createController({
+            analytics: analytics.analytics,
+        });
 
         await controller.checkNow('manual');
         const downloaded = await controller.download();
@@ -321,15 +348,21 @@ describe('user downloads and installs an update', () => {
         await controller.install();
 
         const phases = analytics.transitions.map((entry) => entry.phase);
-        expect(phases).toContain('install_handoff');
+        expect(phases).not.toContain('install_handoff');
         expect(phases).not.toContain('restart_confirmed');
-        const handoff = analytics.transitions.find((entry) => entry.phase === 'install_handoff');
-        expect(handoff?.outcome).toMatchObject({
-            result: 'success',
-            source: 'user',
-            fromVersion: '0.1.0',
-            toVersion: '0.2.0',
-        });
+        const operationId = analytics.transitions[0]?.operation.updateOperationId;
+        expect(operationId).toBeTruthy();
+        expect(installUpdate).toHaveBeenCalledWith(
+            'stable',
+            availableUpdate.version,
+            availableUpdate.fileName,
+            {
+                updateOperationId: operationId,
+                source: 'user',
+                fromVersion: '0.1.0',
+                toVersion: '0.2.0',
+            }
+        );
         await vi.waitFor(() => {
             expect(analytics.finish).toHaveBeenCalledTimes(1);
         });

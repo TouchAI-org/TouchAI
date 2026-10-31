@@ -536,6 +536,17 @@ impl AnalyticsRuntime {
         }
     }
 
+    /// Captures an operation without letting analytics writer contention delay a
+    /// user action. Cancellation while waiting for the writer leaves no handle.
+    pub async fn begin_operation_with_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Option<AnalyticsOperationHandle> {
+        tokio::time::timeout(timeout, self.begin_operation())
+            .await
+            .ok()
+    }
+
     pub async fn complete_operation(&self, operation_id: &str) {
         self.inner.operations.lock().await.remove(operation_id);
     }
@@ -2546,6 +2557,24 @@ mod tests {
             runtime.session_id_for_tests().await.is_some(),
             "a real interaction starts a session"
         );
+    }
+
+    #[tokio::test]
+    async fn user_does_not_wait_for_analytics_while_another_event_is_being_saved() {
+        let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
+        let (_root, runtime) = test_runtime(probe).await;
+        let writer = runtime.inner.write_lock.lock().await;
+
+        let operation = runtime
+            .begin_operation_with_timeout(Duration::from_millis(20))
+            .await;
+
+        assert!(operation.is_none());
+        drop(writer);
+        assert!(runtime
+            .begin_operation_with_timeout(Duration::from_millis(20))
+            .await
+            .is_some());
     }
 
     #[tokio::test]

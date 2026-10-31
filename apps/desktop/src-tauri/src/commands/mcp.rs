@@ -2,7 +2,7 @@
 
 //! MCP 进程管理命令。
 
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::core::analytics::{AnalyticsOperationHandle, AnalyticsRuntime, AnalyticsTrackRequest};
 use crate::core::mcp::{
@@ -13,6 +13,7 @@ use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue};
 use tauri::{Manager, State};
 
 const MAX_ANALYTICS_DURATION_MS: u64 = 86_400_000;
+const ANALYTICS_CAPTURE_TIMEOUT: Duration = Duration::from_millis(50);
 
 fn now_millis() -> i64 {
     SystemTime::now()
@@ -158,7 +159,11 @@ pub async fn mcp_connect_server<R: tauri::Runtime>(
         .try_state::<AnalyticsRuntime>()
         .map(|runtime| runtime.inner().clone());
     let operation = match &analytics {
-        Some(runtime) => Some(runtime.begin_operation().await),
+        Some(runtime) => {
+            runtime
+                .begin_operation_with_timeout(ANALYTICS_CAPTURE_TIMEOUT)
+                .await
+        }
         None => None,
     };
     let result = with_traceparent(

@@ -35,10 +35,12 @@ export interface UpdateOperation {
 }
 
 /** Opens a bounded update operation when a real update decision starts. */
-export async function beginUpdateOperation(): Promise<UpdateOperation> {
+export async function beginUpdateOperation(
+    updateOperationId: string = crypto.randomUUID()
+): Promise<UpdateOperation> {
     return {
         operation: await analytics.beginOperation(),
-        updateOperationId: crypto.randomUUID(),
+        updateOperationId,
         closed: false,
         pending: Promise.resolve(),
     };

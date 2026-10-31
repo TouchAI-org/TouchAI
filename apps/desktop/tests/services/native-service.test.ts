@@ -893,12 +893,24 @@ describe('user uses clipboard, shortcuts, autostart, and updates', () => {
 
         await expect(
             callAndExpectInvoke(
-                () => updater.installUpdate('beta', update.version, update.fileName),
+                () =>
+                    updater.installUpdate('beta', update.version, update.fileName, {
+                        updateOperationId: '11111111-1111-4111-8111-111111111111',
+                        source: 'user',
+                        fromVersion: '0.1.0',
+                        toVersion: update.version,
+                    }),
                 'updater_install_update',
                 {
                     channel: 'beta',
                     version: update.version,
                     fileName: update.fileName,
+                    analytics: {
+                        updateOperationId: '11111111-1111-4111-8111-111111111111',
+                        source: 'user',
+                        fromVersion: '0.1.0',
+                        toVersion: update.version,
+                    },
                 }
             )
         ).resolves.toBe(true);

@@ -172,6 +172,13 @@ export interface AppUpdateInfo {
     sizeBytes: number | null;
 }
 
+export interface AppUpdateInstallAnalytics {
+    updateOperationId: string;
+    source: 'background' | 'user' | 'other';
+    fromVersion: string | null;
+    toVersion: string;
+}
+
 export interface AppUpdateNotificationAction {
     action: 'open' | 'update' | 'ignore';
     channel: AppUpdateChannel;

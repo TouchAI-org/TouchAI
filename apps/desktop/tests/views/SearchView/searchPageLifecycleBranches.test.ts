@@ -353,6 +353,33 @@ describe('when a stale surface event arrives', () => {
 
         mounted.unmount();
     });
+
+    it('user gets quick search closed when the surface hides', async () => {
+        const controller = createController();
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext: createSearchInteractionContext(),
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+                shouldClearSessionAfterTimeout: () => false,
+            })
+        );
+        await flushLifecycle();
+
+        await eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN)?.({
+            sequence: 1,
+            reason: 'app-blur-hide',
+        });
+        await flushLifecycle();
+
+        expect(controller.closeQuickSearch).toHaveBeenCalledTimes(1);
+
+        mounted.unmount();
+    });
 });
 
 describe('when the timeout clear policy allows clearing', () => {

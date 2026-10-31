@@ -734,6 +734,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                     return;
                 }
                 latestSurfaceSequence = Math.max(latestSurfaceSequence, sequence);
+                controller.closeQuickSearch();
                 interactionContext.clearActivePopupSession();
                 interactionContext.markWindowHidden({
                     hideReason: payload.reason,

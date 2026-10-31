@@ -3,6 +3,7 @@ import type {
     AppUpdateChannel,
     AppUpdateCheckResult,
     AppUpdateInfo,
+    AppUpdateInstallAnalytics,
     AppUpdateNotificationPayload,
 } from './types';
 
@@ -19,8 +20,18 @@ export const updater = {
         return invoke<AppUpdateInfo>('updater_download_update', { channel, version, fileName });
     },
 
-    installUpdate(channel: AppUpdateChannel, version: string, fileName: string): Promise<boolean> {
-        return invoke<boolean>('updater_install_update', { channel, version, fileName });
+    installUpdate(
+        channel: AppUpdateChannel,
+        version: string,
+        fileName: string,
+        analytics: AppUpdateInstallAnalytics
+    ): Promise<boolean> {
+        return invoke<boolean>('updater_install_update', {
+            channel,
+            version,
+            fileName,
+            analytics,
+        });
     },
 
     showUpdateNotification(payload: AppUpdateNotificationPayload): Promise<void> {

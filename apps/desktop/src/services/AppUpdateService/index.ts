@@ -17,7 +17,12 @@ import { useSettingsStore } from '@/stores/settings';
 
 import { createInitialAppUpdateState, reduceAppUpdateState } from './state';
 import { AUTO_CHECK_INTERVAL_MS, isWithinAppUpdateHours } from './timing';
-import type { AppUpdateCheckResult, AppUpdateInfo, AppUpdateState } from './types';
+import type {
+    AppUpdateCheckResult,
+    AppUpdateInfo,
+    AppUpdateInstallAnalytics,
+    AppUpdateState,
+} from './types';
 
 export type AppUpdateCheckSource = 'manual' | 'automatic' | 'settings-open';
 
@@ -31,7 +36,8 @@ interface AppUpdateNativeAdapter {
     installUpdate: (
         channel: AppUpdateChannel,
         version: string,
-        fileName: string
+        fileName: string,
+        analytics: AppUpdateInstallAnalytics
     ) => Promise<boolean>;
 }
 
@@ -65,7 +71,7 @@ type StateListener = (state: AppUpdateState) => void;
  * telemetry stays off the check/download critical path.
  */
 export interface AppUpdateAnalytics {
-    beginUpdateOperation: () => Promise<UpdateOperation>;
+    beginUpdateOperation: (updateOperationId?: string) => Promise<UpdateOperation>;
     trackUpdateTransition: (
         operation: UpdateOperation,
         phase: UpdatePhase,
@@ -123,6 +129,7 @@ export class AppUpdateController {
     private lastCheckAttemptAt: string | null = null;
     private reportCheckErrors = false;
     private updateOperationPromise: Promise<UpdateOperation | null> | null = null;
+    private updateOperationId: string | null = null;
     private updateSource: UpdateSource = 'user';
     private unlistenProgress: UnlistenFn | null = null;
     private unlistenCheckEvents: UnlistenFn | null = null;
@@ -224,6 +231,7 @@ export class AppUpdateController {
         // terminal phase (for example a check that offered an update the user
         // did not download).
         this.releaseUpdateOperation();
+        this.updateOperationId = crypto.randomUUID();
         this.reportCheckErrors = reportErrors;
         this.lastCheckAttemptAt = this.now();
         this.updateSource = mapUpdateSource(source);
@@ -266,7 +274,7 @@ export class AppUpdateController {
             this.queueUpdateTransition('check_finished', {
                 result: result.status === 'unsupported' ? 'unavailable' : 'success',
                 source,
-                fromVersion,
+                fromVersion: result.currentVersion ?? fromVersion,
                 toVersion: result.status === 'available' ? result.update.version : undefined,
             });
             if (result.status !== 'available') {
@@ -282,6 +290,11 @@ export class AppUpdateController {
 
             if (!this.reportCheckErrors) {
                 this.replaceState(previousState);
+                this.queueUpdateTransition('check_finished', {
+                    result: 'failure',
+                    source,
+                    fromVersion,
+                });
                 this.releaseUpdateOperation();
                 return false;
             }
@@ -400,15 +413,14 @@ export class AppUpdateController {
     private async performInstall(update: AppUpdateInfo): Promise<boolean> {
         const channel = this.state.channel;
         const fromVersion = this.state.currentVersion;
+        const updateOperationId = this.updateOperationId ?? crypto.randomUUID();
         this.commit({ type: 'install-started' });
 
         try {
-            await this.native.installUpdate(channel, update.version, update.fileName);
-            // Native stores bounded pending-update state from this transition and
-            // confirms the restart itself on a later start; TS never emits
-            // `restart_confirmed`.
-            this.queueUpdateTransition('install_handoff', {
-                result: 'success',
+            // Native records the handoff before exiting so pending-update
+            // metadata cannot be lost while the WebView is torn down.
+            await this.native.installUpdate(channel, update.version, update.fileName, {
+                updateOperationId,
                 source: this.updateSource,
                 fromVersion,
                 toVersion: update.version,
@@ -417,12 +429,6 @@ export class AppUpdateController {
             return true;
         } catch (error) {
             this.commit({ type: 'failed', error: toErrorMessage(error) });
-            this.queueUpdateTransition('install_handoff', {
-                result: 'failure',
-                source: this.updateSource,
-                fromVersion,
-                toVersion: update.version,
-            });
             this.releaseUpdateOperation();
             return false;
         }
@@ -443,9 +449,13 @@ export class AppUpdateController {
             toVersion?: string | null;
         }
     ): void {
-        this.updateOperationPromise ??= this.analytics
-            .beginUpdateOperation()
-            .catch(() => null as UpdateOperation | null);
+        if (!this.updateOperationPromise) {
+            const updateOperationId = this.updateOperationId ?? crypto.randomUUID();
+            this.updateOperationId = updateOperationId;
+            this.updateOperationPromise = this.analytics
+                .beginUpdateOperation(updateOperationId)
+                .catch(() => null as UpdateOperation | null);
+        }
         const operationPromise = this.updateOperationPromise;
         void operationPromise
             .then((operation) =>
@@ -467,6 +477,7 @@ export class AppUpdateController {
             return;
         }
         this.updateOperationPromise = null;
+        this.updateOperationId = null;
         void operationPromise
             .then((operation) =>
                 operation ? this.analytics.finishUpdateOperation(operation) : null
