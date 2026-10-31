@@ -1,5 +1,49 @@
 # 更新日志
 
+## [1.3.0](https://github.com/TouchAI-org/TouchAI/compare/v1.2.2...v1.3.0) (2026-10-31)
+
+
+### Features
+
+* **agent-service:** translate unified reasoning level in providers ([#561](https://github.com/TouchAI-org/TouchAI/issues/561)) ([99d5406](https://github.com/TouchAI-org/TouchAI/commit/99d54063a32d6b94b07920bbfb9154e071b02c0a))
+* **agent:** stream tool call results through unified message parts ([#571](https://github.com/TouchAI-org/TouchAI/issues/571)) ([a4bcbdc](https://github.com/TouchAI-org/TouchAI/commit/a4bcbdc6107c53bd59840fab6526b2887bd8a2c3))
+* **desktop:** add previewable message rail ([#716](https://github.com/TouchAI-org/TouchAI/issues/716)) ([05c3b1a](https://github.com/TouchAI-org/TouchAI/commit/05c3b1a0be0ceb4686135f85c2db4d85c372f016))
+* **desktop:** complete keybinding customization rollout ([#443](https://github.com/TouchAI-org/TouchAI/issues/443)) ([0f6f936](https://github.com/TouchAI-org/TouchAI/commit/0f6f936f5ac86c2eed2c2a7b65cd1040c5332f25))
+* **desktop:** preserve interleaved reasoning and output progress ([#556](https://github.com/TouchAI-org/TouchAI/issues/556)) ([16f6e8c](https://github.com/TouchAI-org/TouchAI/commit/16f6e8c135a1f8139ad1b23fb159fba47a18e8e2))
+* **desktop:** refine session status reminder summaries ([#446](https://github.com/TouchAI-org/TouchAI/issues/446)) ([18fa3df](https://github.com/TouchAI-org/TouchAI/commit/18fa3df65c3b886dc8b55ed1504ba414178dfd82))
+* **desktop:** support adaptive tool timeouts ([#409](https://github.com/TouchAI-org/TouchAI/issues/409)) ([76c3e3e](https://github.com/TouchAI-org/TouchAI/commit/76c3e3ed6f2dee97e5ca82b5a2910b584c7caa57))
+* **desktop:** unify restrained interaction motion ([#564](https://github.com/TouchAI-org/TouchAI/issues/564)) ([03d1119](https://github.com/TouchAI-org/TouchAI/commit/03d111920398d474e3845a85453c41c6112e0bb2))
+* **logging:** add a batched structured log core ([#665](https://github.com/TouchAI-org/TouchAI/issues/665)) ([acbdb4a](https://github.com/TouchAI-org/TouchAI/commit/acbdb4a2be3caad84a4aa911852247d6bf1261b3))
+* **logging:** add crash records and diagnostic bundles ([#669](https://github.com/TouchAI-org/TouchAI/issues/669)) ([e62f444](https://github.com/TouchAI-org/TouchAI/commit/e62f444576362d36506c86b04b0087855298054f))
+* **logging:** correlate frontend, ipc and rust traces ([#668](https://github.com/TouchAI-org/TouchAI/issues/668)) ([302ca6f](https://github.com/TouchAI-org/TouchAI/commit/302ca6ff57e52d0d1b002ee60cb69c4de6b3ecc1))
+* **providers:** add Magpie gateway ([#558](https://github.com/TouchAI-org/TouchAI/issues/558)) ([51e2ea2](https://github.com/TouchAI-org/TouchAI/commit/51e2ea2728b524b02bb5d823044e39e9a1847892))
+* **search:** add DeepSeek search provider with source cards and inline citations ([#582](https://github.com/TouchAI-org/TouchAI/issues/582)) ([87c5a91](https://github.com/TouchAI-org/TouchAI/commit/87c5a914fa9f922431f702543f3a5a73923ceb8e))
+* **search:** unlock keyless quota for Tavily, Exa and Firecrawl ([#589](https://github.com/TouchAI-org/TouchAI/issues/589)) ([d9891bb](https://github.com/TouchAI-org/TouchAI/commit/d9891bb6714d47642f60bbf3b6a688426a312ee1))
+* **settings:** refine settings experience and update reminders ([#579](https://github.com/TouchAI-org/TouchAI/issues/579)) ([1b81800](https://github.com/TouchAI-org/TouchAI/commit/1b8180052a2bdd57c82a920a4a71725b9dfaf471))
+* **usage:** add local usage, cost, and timing ledger ([#578](https://github.com/TouchAI-org/TouchAI/issues/578)) ([79e2422](https://github.com/TouchAI-org/TouchAI/commit/79e2422c31a2bd6da9ce720f4fcb95c86194f55a))
+
+
+### Bug Fixes
+
+* **agent-service:** match namespaced model ids and prefer upstream metadata ([#576](https://github.com/TouchAI-org/TouchAI/issues/576)) ([57dcce1](https://github.com/TouchAI-org/TouchAI/commit/57dcce15b9391a0f27b8095d5336c5639eb7791c))
+* **assets:** try another CDN when font bytes are invalid ([#687](https://github.com/TouchAI-org/TouchAI/issues/687)) ([76ca085](https://github.com/TouchAI-org/TouchAI/commit/76ca08528cdb5e34d8657bd08adc9488a439e8a0))
+* **ci:** match coverage paths against the repository root ([#660](https://github.com/TouchAI-org/TouchAI/issues/660)) ([55e71e9](https://github.com/TouchAI-org/TouchAI/commit/55e71e9576cbadb1459e8a1b0f99195027539ac8))
+* **ci:** preserve quoted arguments when spawning release commands ([#647](https://github.com/TouchAI-org/TouchAI/issues/647)) ([db839b6](https://github.com/TouchAI-org/TouchAI/commit/db839b6148e924af3a48be11c83f394f67744193))
+* **clipboard:** decode extensionless images by file content ([#683](https://github.com/TouchAI-org/TouchAI/issues/683)) ([8f3b6da](https://github.com/TouchAI-org/TouchAI/commit/8f3b6dadda5cb4e1a0170b3d551031bf516f4044))
+* **clipboard:** decode file URLs into native paths ([#674](https://github.com/TouchAI-org/TouchAI/issues/674)) ([ef1292c](https://github.com/TouchAI-org/TouchAI/commit/ef1292c9b2c7336ee365b462a974bcd1d6c94db5))
+* **clipboard:** include native image layout in cache identity ([#662](https://github.com/TouchAI-org/TouchAI/issues/662)) ([b778523](https://github.com/TouchAI-org/TouchAI/commit/b778523494b178ae7b1489ffbcc7161844786ceb))
+* **coverage:** measure only the files the report can contain ([#677](https://github.com/TouchAI-org/TouchAI/issues/677)) ([2442fc6](https://github.com/TouchAI-org/TouchAI/commit/2442fc69ec5ab6edaef4e7cd8fd7fd2a4ad8850e))
+* **deps:** remediate dompurify and zod advisories ([#652](https://github.com/TouchAI-org/TouchAI/issues/652)) ([41b841f](https://github.com/TouchAI-org/TouchAI/commit/41b841f10efaeaab5544b2782ba85a82d6f66167))
+* **desktop:** restore rounded window corners on Linux ([#629](https://github.com/TouchAI-org/TouchAI/issues/629)) ([21e261a](https://github.com/TouchAI-org/TouchAI/commit/21e261a1343087d7dc75414dbb46a12a98630da6))
+* **desktop:** ship 2-minute Bash default and ignore below-min timeout suggestions ([#574](https://github.com/TouchAI-org/TouchAI/issues/574)) ([41d45ef](https://github.com/TouchAI-org/TouchAI/commit/41d45efd1a17c7aea24c839052a0f21acd59c356))
+* **logging:** keep provider bodies and mcp secrets out of logs ([#664](https://github.com/TouchAI-org/TouchAI/issues/664)) ([ad77c34](https://github.com/TouchAI-org/TouchAI/commit/ad77c340ee70b85feef84d83c7f1e592f94a4773))
+* **logging:** redact built-in tool audit payloads ([#670](https://github.com/TouchAI-org/TouchAI/issues/670)) ([ec114b4](https://github.com/TouchAI-org/TouchAI/commit/ec114b43ff0b3faa7f319a4095f17efebc775355))
+* **release:** bundle Linux RPM with an RPM-safe version ([#573](https://github.com/TouchAI-org/TouchAI/issues/573)) ([94442bf](https://github.com/TouchAI-org/TouchAI/commit/94442bf87d9b30a59b84310baaf981739f07b623))
+* **search:** invalidate caches for subsecond file changes ([#685](https://github.com/TouchAI-org/TouchAI/issues/685)) ([c50eeb4](https://github.com/TouchAI-org/TouchAI/commit/c50eeb4868c9358d300795943ac68a737b622d23))
+* **search:** stop source favicon flickering during streaming output ([#585](https://github.com/TouchAI-org/TouchAI/issues/585)) ([9a64456](https://github.com/TouchAI-org/TouchAI/commit/9a644560887df4cad07dd536c90493bbe7baa976))
+* **settings:** preserve drag and click interactions in settings window ([#562](https://github.com/TouchAI-org/TouchAI/issues/562)) ([d0c9ecd](https://github.com/TouchAI-org/TouchAI/commit/d0c9ecd272cfb53c78d9f658eed05cb06bd1a5c3))
+* **ui:** paint the shipped serif and centre dialogs ([#640](https://github.com/TouchAI-org/TouchAI/issues/640)) ([9fd936a](https://github.com/TouchAI-org/TouchAI/commit/9fd936a65cc7149527a6483565c9c66e978887cd))
+
 ## [1.2.2](https://github.com/TouchAI-org/TouchAI/compare/v1.2.1...v1.2.2) (2026-10-07)
 
 
