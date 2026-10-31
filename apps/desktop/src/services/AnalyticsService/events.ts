@@ -18,7 +18,12 @@ function isRealUtcDay(value: string): boolean {
     const year = Number(parts[0]);
     const month = Number(parts[1]);
     const day = Number(parts[2]);
-    const date = new Date(Date.UTC(year, month - 1, day));
+    // `Date.UTC` maps years 0-99 onto 1900-1999, so build the date on a safe
+    // base year and set the real four-digit year afterwards. This keeps the
+    // accepted range identical to the Rust `time` validator, year 0000-0099
+    // included, instead of silently rejecting them.
+    const date = new Date(Date.UTC(2000, month - 1, day));
+    date.setUTCFullYear(year);
     return (
         date.getUTCFullYear() === year &&
         date.getUTCMonth() === month - 1 &&

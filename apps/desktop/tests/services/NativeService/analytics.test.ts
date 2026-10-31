@@ -66,7 +66,7 @@ describe('NativeService analytics bridge', () => {
         const request = {
             eventName: 'app.started' as const,
             occurredAtMs: 1_760_000_000_000,
-            consentEpoch: 0,
+            operationId: 'op-1',
             attributes: {
                 run_id: '92a3b4c5-d6e7-4bf8-8c09-eafb0c1d2e09',
                 startup_source: 'foreground',
@@ -85,6 +85,50 @@ describe('NativeService analytics bridge', () => {
         await analytics.flush();
 
         expect(mockInvoke).toHaveBeenCalledWith('analytics_flush');
+    });
+
+    it('user gets the native lifecycle context from the namespaced command', async () => {
+        mockInvoke.mockResolvedValue({
+            runId: 'run-1',
+            startupId: 'run-1',
+            startupKind: 'cold',
+            startupSource: 'foreground',
+            elapsedMs: 12,
+        });
+
+        const context = await analytics.getLifecycleContext();
+
+        expect(mockInvoke).toHaveBeenCalledWith('analytics_get_lifecycle_context');
+        expect(context).toMatchObject({
+            runId: 'run-1',
+            startupId: 'run-1',
+            startupKind: 'cold',
+            startupSource: 'foreground',
+            elapsedMs: 12,
+        });
+    });
+
+    it('user gets an operation handle from the native runtime', async () => {
+        mockInvoke.mockResolvedValue({
+            operationId: 'op-1',
+            enabled: true,
+            consentEpoch: 2,
+        });
+
+        const handle = await analytics.beginOperation();
+
+        expect(mockInvoke).toHaveBeenCalledWith('analytics_begin_operation');
+        expect(handle.operationId).toBe('op-1');
+    });
+
+    it('user releases an operation handle with its id', async () => {
+        mockInvoke.mockResolvedValue(undefined);
+
+        await analytics.completeOperation('op-1');
+
+        expect(mockInvoke).toHaveBeenCalledWith('analytics_complete_operation', {
+            operationId: 'op-1',
+        });
     });
 
     it('user gets the native error propagated instead of a silent success', async () => {

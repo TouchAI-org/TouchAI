@@ -13,6 +13,8 @@ use tauri::{
 };
 
 const TRAY_MENU_ROUTE: &str = "#/tray-menu";
+/// Label of the tray menu window; shared with the analytics entry classification.
+pub(crate) const TRAY_MENU_WINDOW_LABEL: &str = "tray-menu";
 const TRAY_ID: &str = "touchai-main";
 const TRAY_TOOLTIP: &str = "TouchAI";
 #[cfg(target_os = "linux")]
@@ -171,7 +173,7 @@ pub fn clear_tray_status_indicator<R: Runtime>(app: AppHandle<R>) -> Result<(), 
 }
 
 pub fn close_tray_menu<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("tray-menu") {
+    if let Some(window) = app.get_webview_window(TRAY_MENU_WINDOW_LABEL) {
         window.hide().map_err(|error| error.to_string())?;
     }
     Ok(())
@@ -179,13 +181,13 @@ pub fn close_tray_menu<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 
 /// 预加载托盘菜单窗口（隐藏状态），加速首次右键响应
 pub fn preload_tray_menu<R: Runtime>(app: &AppHandle<R>) -> Result<(), Box<dyn std::error::Error>> {
-    if app.get_webview_window("tray-menu").is_some() {
+    if app.get_webview_window(TRAY_MENU_WINDOW_LABEL).is_some() {
         return Ok(());
     }
 
     let mut builder = WebviewWindowBuilder::new(
         app,
-        "tray-menu",
+        TRAY_MENU_WINDOW_LABEL,
         WebviewUrl::App(TRAY_MENU_ROUTE.parse().unwrap()),
     )
     .inner_size(140.0, 134.0)
@@ -259,7 +261,10 @@ fn apply_tray_status<R: Runtime>(
 }
 
 fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
-    if let Err(e) = crate::core::window::show_search_window(app.clone()) {
+    if let Err(e) = crate::core::window::show_search_window(
+        app.clone(),
+        crate::core::window::search::surface::SearchSurfaceShowSource::Tray,
+    ) {
         warn!("Failed to show main window from tray icon: {}", e);
     }
 }
@@ -271,11 +276,11 @@ fn show_tray_menu<R: Runtime>(
     let menu_width = 140.0;
     let menu_height = 134.0;
 
-    let window = match app.get_webview_window("tray-menu") {
+    let window = match app.get_webview_window(TRAY_MENU_WINDOW_LABEL) {
         Some(window) => window,
         None => {
             preload_tray_menu(app)?;
-            app.get_webview_window("tray-menu")
+            app.get_webview_window(TRAY_MENU_WINDOW_LABEL)
                 .ok_or("Failed to create tray-menu window")?
         }
     };

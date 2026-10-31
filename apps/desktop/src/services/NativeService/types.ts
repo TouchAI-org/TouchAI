@@ -5,6 +5,7 @@ import type { SessionStatusReminderKind } from '@/utils/session';
 export type { AppUpdateChannel } from '@/config/appUpdate';
 export type {
     AnalyticsConsentStatus,
+    AnalyticsLifecycleContext,
     AnalyticsOperationHandle,
     AnalyticsState,
     AnalyticsSubmitResult,

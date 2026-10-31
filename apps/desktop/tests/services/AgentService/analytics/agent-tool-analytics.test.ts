@@ -131,13 +131,12 @@ function toolCompletedEvents(): TrackedEvent[] {
 }
 
 function enableAnalytics() {
-    mockTauriCommand('analytics_get_state', () => ({
-        status: 'enabled',
+    mockTauriCommand('analytics_begin_operation', () => ({
+        operationId: 'op-tool-1',
+        enabled: true,
         consentEpoch: 3,
-        queueDepth: 0,
-        pendingBytes: 0,
-        transportReady: true,
     }));
+    mockTauriCommand('analytics_complete_operation', () => undefined);
     mockTauriCommand('analytics_track', () => ({ status: 'persisted', eventId: 'event-1' }));
 }
 

@@ -46,7 +46,6 @@ export {
 
 export interface AnalyticsTrackOptions {
     occurredAtMs?: number;
-    consentEpoch?: number;
     operation?: AnalyticsOperationHandle;
 }
 
@@ -75,21 +74,28 @@ class AnalyticsService {
     }
 
     /**
-     * Captures the current consent epoch and a task-local operation id before a
-     * potentially long operation starts. A handle captured while disabled stays
-     * disabled, and a later completion cannot borrow a newer epoch.
+     * Asks the native runtime for an operation handle before a potentially long
+     * operation starts. The native side owns the session and the consent epoch
+     * bound to the handle, so a completion cannot borrow a newer epoch and the
+     * WebView never supplies a session id.
      */
     async beginOperation(): Promise<AnalyticsOperationHandle> {
-        const operationId = createAnalyticsOperationId();
         try {
-            const state = await native.analytics.getState();
-            return {
-                operationId,
-                enabled: state.status === 'enabled',
-                consentEpoch: state.consentEpoch,
-            };
+            return await native.analytics.beginOperation();
         } catch {
-            return { operationId, enabled: false, consentEpoch: 0 };
+            return { operationId: '', enabled: false, consentEpoch: 0 };
+        }
+    }
+
+    /** Releases a native operation handle once the operation is finished. */
+    async completeOperation(operation: AnalyticsOperationHandle): Promise<void> {
+        if (!operation.operationId) {
+            return;
+        }
+        try {
+            await native.analytics.completeOperation(operation.operationId);
+        } catch {
+            // A dropped handle only costs a bounded registry slot; nothing to report.
         }
     }
 
@@ -109,20 +115,11 @@ class AnalyticsService {
             return { status: 'disabled' };
         }
 
-        let consentEpoch = options.operation?.consentEpoch ?? options.consentEpoch;
         try {
-            if (consentEpoch === undefined) {
-                const state = await native.analytics.getState();
-                if (state.status !== 'enabled') {
-                    return { status: 'disabled' };
-                }
-                consentEpoch = state.consentEpoch;
-            }
-
             const request: AnalyticsTrackRequest = {
                 eventName,
                 occurredAtMs: options.occurredAtMs ?? Date.now(),
-                consentEpoch,
+                operationId: options.operation?.operationId,
                 attributes: validated,
             };
             return await native.analytics.track(request);
@@ -130,10 +127,6 @@ class AnalyticsService {
             return { status: 'error' };
         }
     }
-}
-
-export function createAnalyticsOperationId(): string {
-    return crypto.randomUUID();
 }
 
 export const analytics = new AnalyticsService();

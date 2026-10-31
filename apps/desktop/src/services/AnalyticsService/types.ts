@@ -53,11 +53,15 @@ export type AnalyticsEventName = (typeof ANALYTICS_EVENT_NAMES)[number];
 export type AnalyticsAttributeValue = string | number | boolean;
 export type AnalyticsAttributes = Record<string, AnalyticsAttributeValue>;
 
-/** IPC payload the WebView submits; identity and platform are filled by Rust. */
+/**
+ * IPC payload the WebView submits. Identity, platform, session and consent epoch
+ * are filled by Rust; `operationId` is an opaque native handle, never a
+ * caller-supplied session id.
+ */
 export interface AnalyticsTrackRequest {
     eventName: AnalyticsEventName;
     occurredAtMs: number;
-    consentEpoch: number;
+    operationId?: string;
     attributes: AnalyticsAttributes;
 }
 
@@ -67,6 +71,7 @@ export type AnalyticsSubmitStatus =
     | 'unavailable'
     | 'rejected'
     | 'stale_epoch'
+    | 'deduplicated'
     | 'error';
 
 export interface AnalyticsSubmitResult {
@@ -86,10 +91,25 @@ export interface AnalyticsState {
 }
 
 /**
- * A task-local handle captured when a request starts. Completion events carry
- * the epoch that was current at start, so an operation that begins while
- * disabled, or spans a disable/re-enable boundary, cannot be tagged with a newer
- * consent epoch.
+ * Native-owned process lifecycle facts. `runId` identifies this process run and
+ * `startupId` identifies the current foreground activation (the cold start or a
+ * later reactivation); `elapsedMs` is measured natively from that activation's
+ * own monotonic instant, so the WebView never has to reconcile a foreign clock.
+ */
+export interface AnalyticsLifecycleContext {
+    runId: string;
+    startupId: string;
+    startupKind: 'cold' | 'reactivation';
+    startupSource: 'foreground' | 'background' | 'autostart' | 'other';
+    elapsedMs: number;
+}
+
+/**
+ * An opaque, native-issued handle captured when a request starts. The native
+ * runtime binds the current session and consent epoch to the id, so a completion
+ * that arrives after another window opened a later session is never re-tagged
+ * and an operation that begins while disabled, or spans a disable/re-enable
+ * boundary, cannot borrow a newer consent epoch.
  */
 export interface AnalyticsOperationHandle {
     operationId: string;

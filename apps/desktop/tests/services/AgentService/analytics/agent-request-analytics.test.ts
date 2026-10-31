@@ -15,6 +15,7 @@ import {
     type ExecuteRequestOptions,
     type TurnEvent,
 } from '@/services/AgentService/execution/runtime';
+import { AgentRequestAnalytics } from '@/services/AgentService/infrastructure/analytics';
 import type { PromptSnapshot } from '@/services/AgentService/prompt/types';
 
 import { getTauriInvokeCalls, mockTauriCommand } from '../../../utils/tauri';
@@ -113,7 +114,7 @@ const LANGUAGE_CONTEXT = { locale: 'zh-CN', label: 'Simplified Chinese' } as con
 interface TrackedEvent {
     eventName: string;
     attributes: Record<string, unknown>;
-    consentEpoch: number;
+    operationId: string;
 }
 
 function trackCalls(): TrackedEvent[] {
@@ -122,7 +123,7 @@ function trackCalls(): TrackedEvent[] {
             request: {
                 eventName: string;
                 attributes: Record<string, unknown>;
-                consentEpoch: number;
+                operationId: string;
             };
         };
         return payload.request;
@@ -301,15 +302,41 @@ function run(
     return { runtime, events };
 }
 
-function enableAnalytics(consentEpoch = 3) {
-    mockTauriCommand('analytics_get_state', () => ({
-        status: 'enabled',
-        consentEpoch,
-        queueDepth: 0,
-        pendingBytes: 0,
-        transportReady: true,
-    }));
+let operationSequence = 0;
+
+interface InjectedOperation {
+    operationId: string;
+    enabled: boolean;
+    consentEpoch: number;
+}
+
+/** Mock the native-issued handle the runtime captures at request start. */
+function injectOperation(overrides: Partial<InjectedOperation> = {}): InjectedOperation {
+    operationSequence += 1;
+    const handle: InjectedOperation = {
+        operationId: `op-${operationSequence}`,
+        enabled: true,
+        consentEpoch: 3,
+        ...overrides,
+    };
+    mockTauriCommand('analytics_begin_operation', () => handle);
+    mockTauriCommand('analytics_complete_operation', () => undefined);
     mockTauriCommand('analytics_track', () => ({ status: 'persisted', eventId: 'event-1' }));
+    return handle;
+}
+
+function enableAnalytics(consentEpoch = 3): InjectedOperation {
+    return injectOperation({ enabled: true, consentEpoch });
+}
+
+function disableAnalytics(): InjectedOperation {
+    return injectOperation({ enabled: false, consentEpoch: 0 });
+}
+
+function completedOperationCalls(): string[] {
+    return getTauriInvokeCalls('analytics_complete_operation').map(
+        (call) => (call.payload as { operationId: string }).operationId
+    );
 }
 
 describe('user runs a logical request with analytics on', () => {
@@ -634,50 +661,39 @@ describe('user keeps analytics off or unreachable', () => {
     });
 
     it('user gets no analytics events when statistics are off at request start', async () => {
-        mockTauriCommand('analytics_get_state', () => ({
-            status: 'disabled',
-            consentEpoch: 0,
-            queueDepth: 0,
-            pendingBytes: 0,
-            transportReady: false,
-        }));
-        mockTauriCommand('analytics_track', () => ({ status: 'persisted', eventId: 'event-1' }));
+        const handle = disableAnalytics();
         const { runtime } = run(createExecutor());
 
         await runtime.run();
 
         expect(getTauriInvokeCalls('analytics_track')).toHaveLength(0);
+        await vi.waitFor(() => {
+            expect(completedOperationCalls()).toEqual([handle.operationId]);
+        });
     });
 
-    it('user keeps the consent captured at start and never re-reads it at completion', async () => {
-        enableAnalytics(3);
+    it('user keeps the operation captured at start and never borrows a newer one', async () => {
+        const started = enableAnalytics(3);
         const { runtime } = run(createExecutor());
         await vi.waitFor(() => {
-            expect(getTauriInvokeCalls('analytics_get_state')).toHaveLength(1);
+            expect(getTauriInvokeCalls('analytics_begin_operation')).toHaveLength(1);
         });
-        // A disable/re-enable elsewhere moves the live epoch; the in-flight
-        // request must keep the epoch it started with.
+        // A later request opens its own native operation; the in-flight request
+        // must keep the handle it started with.
         enableAnalytics(9);
 
         await runtime.run();
 
-        const epochs = new Set(trackCalls().map((tracked) => tracked.consentEpoch));
-        expect(epochs).toEqual(new Set([3]));
-        expect(getTauriInvokeCalls('analytics_get_state')).toHaveLength(1);
+        const operationIds = new Set(trackCalls().map((tracked) => tracked.operationId));
+        expect(operationIds).toEqual(new Set([started.operationId]));
+        expect(getTauriInvokeCalls('analytics_begin_operation')).toHaveLength(1);
     });
 
     it('user keeps a request suppressed when it began disabled and is re-enabled mid-request', async () => {
-        mockTauriCommand('analytics_get_state', () => ({
-            status: 'disabled',
-            consentEpoch: 0,
-            queueDepth: 0,
-            pendingBytes: 0,
-            transportReady: false,
-        }));
-        mockTauriCommand('analytics_track', () => ({ status: 'persisted', eventId: 'event-1' }));
+        disableAnalytics();
         const { runtime } = run(createExecutor());
         await vi.waitFor(() => {
-            expect(getTauriInvokeCalls('analytics_get_state')).toHaveLength(1);
+            expect(getTauriInvokeCalls('analytics_begin_operation')).toHaveLength(1);
         });
         // The user turns statistics on in another window mid-request.
         enableAnalytics(5);
@@ -688,9 +704,10 @@ describe('user keeps analytics off or unreachable', () => {
     });
 
     it('user still gets the answer when the analytics channel is down', async () => {
-        mockTauriCommand('analytics_get_state', () => {
+        mockTauriCommand('analytics_begin_operation', () => {
             throw new Error('channel down');
         });
+        mockTauriCommand('analytics_track', () => ({ status: 'persisted', eventId: 'event-1' }));
         const executor = createExecutor();
         const { runtime } = run(executor);
 
@@ -698,6 +715,145 @@ describe('user keeps analytics off or unreachable', () => {
 
         expect(result.response).toBe('Answer');
         expect(getTauriInvokeCalls('analytics_track')).toHaveLength(0);
+        expect(getTauriInvokeCalls('analytics_complete_operation')).toHaveLength(0);
+    });
+});
+
+describe('user finishes the native analytics operation', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        getModelAttachmentCapabilitiesMock.mockReturnValue({
+            supportsImages: true,
+            supportsFiles: true,
+        });
+        getUnsupportedAttachmentTypesMock.mockReturnValue([]);
+        findUnsupportedSessionAttachmentTypesMock.mockResolvedValue([]);
+        composePromptSnapshotMock.mockResolvedValue(createSnapshot());
+        buildPromptTransportMessagesMock.mockResolvedValue([{ role: 'user', content: 'hello' }]);
+        getCurrentModelLanguageContextMock.mockReturnValue({ ...LANGUAGE_CONTEXT });
+        findModelPricingMock.mockResolvedValue({ outputPerMillion: '15' });
+        updateModelLastUsedMock.mockResolvedValue(undefined);
+        ensurePersistedAttachmentIndexMock.mockResolvedValue(undefined);
+        shouldRetryRequestFailureMock.mockReturnValue(false);
+        projectorMock.recordTurnStart.mockResolvedValue(undefined);
+        projectorMock.markCompleted.mockResolvedValue(undefined);
+        projectorMock.markCancelled.mockResolvedValue(undefined);
+        projectorMock.markFailed.mockResolvedValue(undefined);
+        projectorMock.beginNextAttempt.mockResolvedValue(undefined);
+    });
+
+    it('user gets one native operation for every event, released once and last, on success', async () => {
+        const handle = enableAnalytics();
+        const { runtime } = run(createExecutor());
+
+        await runtime.run();
+
+        const operationIds = new Set(trackCalls().map((tracked) => tracked.operationId));
+        expect(operationIds).toEqual(new Set([handle.operationId]));
+        expect(getTauriInvokeCalls('analytics_begin_operation')).toHaveLength(1);
+        await vi.waitFor(() => {
+            expect(completedOperationCalls()).toEqual([handle.operationId]);
+        });
+
+        // The handle is released only after the events bound to it settled, so no
+        // event loses its captured session or consent epoch.
+        const calls = getTauriInvokeCalls();
+        const releaseIndex = calls.findIndex((call) => call.cmd === 'analytics_complete_operation');
+        const lastTrackIndex = calls.reduce(
+            (last, call, index) => (call.cmd === 'analytics_track' ? index : last),
+            -1
+        );
+        expect(releaseIndex).toBeGreaterThan(lastTrackIndex);
+    });
+
+    it('user gets the operation released once when the request fails', async () => {
+        const handle = enableAnalytics();
+        const executor = createExecutor();
+        executor.runAttempt.mockResolvedValue(failedResult());
+        const { runtime } = run(executor);
+
+        await expect(runtime.run()).rejects.toBeInstanceOf(AiError);
+
+        await vi.waitFor(() => {
+            expect(completedOperationCalls()).toEqual([handle.operationId]);
+        });
+        expect(tracksOf('agent.request_completed')).toHaveLength(1);
+    });
+
+    it('user gets the operation released once when the request is cancelled', async () => {
+        const handle = enableAnalytics();
+        const executor = createExecutor();
+        executor.runAttempt.mockResolvedValue(
+            failedResult({ error: new AiError(AiErrorCode.REQUEST_CANCELLED) })
+        );
+        const { runtime } = run(executor);
+
+        await expect(runtime.run()).rejects.toBeInstanceOf(AiError);
+
+        await vi.waitFor(() => {
+            expect(completedOperationCalls()).toEqual([handle.operationId]);
+        });
+        expect(tracksOf('agent.request_completed')).toHaveLength(1);
+    });
+
+    it('user gets the operation released once when the request cannot build its context', async () => {
+        const handle = enableAnalytics();
+        const executor = createExecutor();
+        executor.getModel.mockRejectedValue(new AiError(AiErrorCode.INVALID_CONFIG));
+        const { runtime } = run(executor);
+
+        await expect(runtime.run()).rejects.toBeInstanceOf(AiError);
+
+        await vi.waitFor(() => {
+            expect(completedOperationCalls()).toEqual([handle.operationId]);
+        });
+        expect(tracksOf('agent.request_completed')[0]!.attributes.result).toBe('failure');
+    });
+
+    it('user gets one terminal and one release when completion is recorded twice', async () => {
+        const handle = enableAnalytics();
+        const request = new AgentRequestAnalytics();
+        const completion = {
+            result: 'success' as const,
+            retryCount: 0,
+            modelSwitchCount: 0,
+            persistenceResult: 'saved' as const,
+            calls: [],
+            usageReportedCalls: 0,
+        };
+
+        await request.complete(completion);
+        await request.complete(completion);
+
+        await vi.waitFor(() => {
+            expect(completedOperationCalls()).toEqual([handle.operationId]);
+        });
+        expect(tracksOf('agent.request_completed')).toHaveLength(1);
+    });
+
+    it('user still gets the answer when the release never settles', async () => {
+        enableAnalytics();
+        mockTauriCommand('analytics_complete_operation', () => new Promise(() => undefined));
+        const { runtime } = run(createExecutor());
+
+        const result = await runtime.run();
+
+        expect(result.response).toBe('Answer');
+    });
+
+    it('user still gets the answer when the release channel throws', async () => {
+        const handle = enableAnalytics();
+        mockTauriCommand('analytics_complete_operation', () => {
+            throw new Error('release down');
+        });
+        const { runtime } = run(createExecutor());
+
+        const result = await runtime.run();
+
+        expect(result.response).toBe('Answer');
+        await vi.waitFor(() => {
+            expect(completedOperationCalls()).toEqual([handle.operationId]);
+        });
     });
 });
 

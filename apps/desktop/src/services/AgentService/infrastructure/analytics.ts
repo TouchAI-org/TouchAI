@@ -46,6 +46,7 @@ export type AgentAttachmentErrorCategory = 'too_large' | 'unsupported' | 'io' | 
  */
 export interface AgentAnalyticsSink {
     beginOperation(): Promise<AnalyticsOperationHandle>;
+    completeOperation(operation: AnalyticsOperationHandle): Promise<void>;
     track<T extends AnalyticsEventName>(
         eventName: T,
         attributes: Record<string, AnalyticsAttributeValue>,
@@ -344,11 +345,11 @@ export interface AgentRequestCompletion {
  * Per-logical-request product analytics.
  *
  * One instance spans every internal attempt, retry and tool iteration of a
- * single user request. It captures the consent operation once at construction
- * and reuses that handle for every later event, so a request that begins while
- * disabled, or crosses a disable/re-enable boundary, can never be tagged with a
- * newer consent epoch. Every emit is best-effort: a missing or failing analytics
- * channel changes no request result.
+ * single user request. It asks native for the opaque operation handle once at
+ * construction and reuses that handle for every later event, so a request that
+ * begins while disabled, or crosses a disable/re-enable boundary, can never be
+ * tagged with a newer consent epoch. Every emit is best-effort: a missing or
+ * failing analytics channel changes no request result.
  */
 export class AgentRequestAnalytics {
     readonly requestId: string = crypto.randomUUID();
@@ -358,7 +359,10 @@ export class AgentRequestAnalytics {
     private readonly surface: AgentRequestSurface;
     private readonly startedMono: number;
     private readonly ready: Promise<void>;
+    private readonly pendingSends = new Set<Promise<void>>();
     private handle: AnalyticsOperationHandle | null = null;
+    private operationReleased = false;
+    private terminalRecorded = false;
     private firstOutputRecorded = false;
     private toolCompletedCount = 0;
     private approvalResolvedCount = 0;
@@ -467,8 +471,18 @@ export class AgentRequestAnalytics {
         });
     }
 
-    /** Emit the single terminal event; resolves once the IPC attempt settles. */
+    /**
+     * Emit the single terminal event and release the operation handle.
+     *
+     * Resolves once the terminal IPC attempt settles. A duplicate finalize is a
+     * no-op: the terminal event is emitted and the handle released exactly once.
+     */
     async complete(input: AgentRequestCompletion): Promise<void> {
+        if (this.terminalRecorded) {
+            return;
+        }
+        this.terminalRecorded = true;
+
         await this.ready;
 
         const attributes: Record<string, AnalyticsAttributeValue> = {
@@ -500,34 +514,69 @@ export class AgentRequestAnalytics {
             attributes.total_tokens = clampInt(tokens, MAX_TOKENS);
         }
 
-        const pricing = await resolvePricing(input.calls, input.usageReportedCalls);
-        attributes.pricing_coverage = pricing.pricingCoverage;
-        attributes.llm_call_count = clampInt(pricing.llmCallCount, MAX_COUNT);
-        attributes.unpriced_call_count = clampInt(pricing.unpricedCallCount, MAX_COUNT);
-        if (pricing.usdCostMicros !== null) {
-            attributes.cost_usd_micros = clampInt(pricing.usdCostMicros, MAX_COST_MICROS);
-        }
-        // Cache counts are only defensible when upstream actually reported a
-        // non-zero value; a normalized missing value is not an observed zero.
-        if (pricing.cacheReadTokens > 0) {
-            attributes.cache_read_tokens = clampInt(pricing.cacheReadTokens, MAX_TOKENS);
-        }
-        if (pricing.cacheWriteTokens > 0) {
-            attributes.cache_write_tokens = clampInt(pricing.cacheWriteTokens, MAX_TOKENS);
-        }
+        try {
+            const pricing = await resolvePricing(input.calls, input.usageReportedCalls);
+            attributes.pricing_coverage = pricing.pricingCoverage;
+            attributes.llm_call_count = clampInt(pricing.llmCallCount, MAX_COUNT);
+            attributes.unpriced_call_count = clampInt(pricing.unpricedCallCount, MAX_COUNT);
+            if (pricing.usdCostMicros !== null) {
+                attributes.cost_usd_micros = clampInt(pricing.usdCostMicros, MAX_COST_MICROS);
+            }
+            // Cache counts are only defensible when upstream actually reported a
+            // non-zero value; a normalized missing value is not an observed zero.
+            if (pricing.cacheReadTokens > 0) {
+                attributes.cache_read_tokens = clampInt(pricing.cacheReadTokens, MAX_TOKENS);
+            }
+            if (pricing.cacheWriteTokens > 0) {
+                attributes.cache_write_tokens = clampInt(pricing.cacheWriteTokens, MAX_TOKENS);
+            }
 
-        await this.send('agent.request_completed', attributes);
+            await this.send('agent.request_completed', attributes);
+        } finally {
+            // Every terminal path releases the handle it began with, and only
+            // once; a duplicate finalize is a no-op. The release is fire-and-forget
+            // so a slow or hung native release never delays the request result.
+            void this.releaseOperation();
+        }
     }
 
     private emit(
         eventName: AnalyticsEventName,
         attributes: Record<string, AnalyticsAttributeValue>
     ): void {
-        void this.ready
+        const send = this.ready
             .then(() => this.send(eventName, attributes))
             .catch(() => {
                 // Best-effort: analytics never propagates into the request.
             });
+        this.pendingSends.add(send);
+        void send.finally(() => this.pendingSends.delete(send));
+    }
+
+    /**
+     * Release the captured native handle exactly once, after the events bound to
+     * it settled, so no event is retagged with a newer session or epoch.
+     *
+     * The release is best-effort: a failing or slow channel is swallowed and
+     * never delays or changes the request outcome.
+     */
+    private async releaseOperation(): Promise<void> {
+        if (this.operationReleased) {
+            return;
+        }
+        this.operationReleased = true;
+
+        const handle = this.handle;
+        if (!handle) {
+            return;
+        }
+
+        await Promise.allSettled([...this.pendingSends]);
+        try {
+            await this.sink.completeOperation(handle);
+        } catch {
+            // Best-effort: an unreleased handle only costs a bounded native slot.
+        }
     }
 
     private async send(
