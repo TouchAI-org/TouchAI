@@ -162,8 +162,7 @@
                 currentTurn = {
                     id: message.id,
                     label:
-                        normaliseMessageText(message.content) ||
-                        t('conversation.scroller.message'),
+                        normaliseMessageText(message.content) || t('conversation.scroller.message'),
                     role: message.role,
                 };
                 turns.push(currentTurn);

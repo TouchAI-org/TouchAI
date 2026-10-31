@@ -151,8 +151,7 @@
     const previewStyle = computed(() => {
         if (displayedItemIndex.value < 0) return {};
         const centerOffset =
-            (displayedItemIndex.value - (displayItems.value.length - 1) / 2) *
-            railItemSize.value;
+            (displayedItemIndex.value - (displayItems.value.length - 1) / 2) * railItemSize.value;
         return {
             top: `calc(50% + ${centerOffset}px)`,
             right: 'calc(100% + 0.5rem)',
