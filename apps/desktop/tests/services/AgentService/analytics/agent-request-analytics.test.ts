@@ -134,6 +134,14 @@ function tracksOf(eventName: string): TrackedEvent[] {
     return trackCalls().filter((tracked) => tracked.eventName === eventName);
 }
 
+/** Terminal telemetry is backgrounded; wait for the single terminal event. */
+async function waitForTerminal(): Promise<TrackedEvent> {
+    await vi.waitFor(() => {
+        expect(tracksOf('agent.request_completed')).toHaveLength(1);
+    });
+    return tracksOf('agent.request_completed')[0]!;
+}
+
 function createModel(overrides: Partial<ModelWithProvider> = {}): ModelWithProvider {
     return {
         id: 1,
@@ -370,6 +378,10 @@ describe('user runs a logical request with analytics on', () => {
 
         await runtime.run();
 
+        await vi.waitFor(() => {
+            expect(tracksOf('agent.request_submitted')).toHaveLength(1);
+        });
+        await waitForTerminal();
         const submitted = tracksOf('agent.request_submitted');
         const completed = tracksOf('agent.request_completed');
         expect(submitted).toHaveLength(1);
@@ -393,6 +405,10 @@ describe('user runs a logical request with analytics on', () => {
 
         await Promise.all([first.runtime.run(), second.runtime.run()]);
 
+        await vi.waitFor(() => {
+            expect(tracksOf('agent.request_submitted')).toHaveLength(2);
+            expect(tracksOf('agent.request_completed')).toHaveLength(2);
+        });
         const ids = tracksOf('agent.request_submitted').map(
             (tracked) => tracked.attributes.request_id
         );
@@ -421,8 +437,11 @@ describe('user runs a logical request with analytics on', () => {
 
         await runtime.run();
 
+        await vi.waitFor(() => {
+            expect(tracksOf('agent.first_output_received')).toHaveLength(1);
+        });
+        await waitForTerminal();
         const firstOutput = tracksOf('agent.first_output_received');
-        expect(firstOutput).toHaveLength(1);
         expect(firstOutput[0]!.attributes.first_output_latency_ms).toBeGreaterThanOrEqual(0);
     });
 
@@ -444,7 +463,7 @@ describe('user runs a logical request with analytics on', () => {
 
         await runtime.run();
 
-        const completed = tracksOf('agent.request_completed')[0]!;
+        const completed = await waitForTerminal();
         expect(completed.attributes.usage_coverage).toBe('observed');
         // 1000 input + 500 output; reasoning stays inside output and is not added twice.
         expect(completed.attributes.total_tokens).toBe(1500);
@@ -479,7 +498,7 @@ describe('user runs a logical request with analytics on', () => {
 
         await runtime.run();
 
-        expect(tracksOf('agent.request_completed')[0]!.attributes.cost_usd_micros).toBe(2000);
+        expect((await waitForTerminal()).attributes.cost_usd_micros).toBe(2000);
     });
 
     it('user gets usage marked unavailable when the provider never reported usage', async () => {
@@ -491,7 +510,7 @@ describe('user runs a logical request with analytics on', () => {
 
         await runtime.run();
 
-        const completed = tracksOf('agent.request_completed')[0]!;
+        const completed = await waitForTerminal();
         expect(completed.attributes.usage_coverage).toBe('unavailable');
         expect(completed.attributes.total_tokens).toBeUndefined();
         expect(completed.attributes.cost_usd_micros).toBeUndefined();
@@ -549,13 +568,14 @@ describe('user retries inside one logical request', () => {
 
         await runtime.run();
 
-        expect(tracksOf('agent.request_submitted')).toHaveLength(1);
-        const completed = tracksOf('agent.request_completed');
-        expect(completed).toHaveLength(1);
-        expect(completed[0]!.attributes.retry_count).toBe(1);
+        await vi.waitFor(() => {
+            expect(tracksOf('agent.request_submitted')).toHaveLength(1);
+        });
+        const completed = await waitForTerminal();
+        expect(completed.attributes.retry_count).toBe(1);
         // (1+1) from the retried attempt plus (2+2) from the winner, counted once.
-        expect(completed[0]!.attributes.total_tokens).toBe(6);
-        expect(completed[0]!.attributes.usage_coverage).toBe('observed');
+        expect(completed.attributes.total_tokens).toBe(6);
+        expect(completed.attributes.usage_coverage).toBe('observed');
     });
 });
 
@@ -592,7 +612,7 @@ describe('user reaches a terminal result', () => {
 
         await expect(runtime.run()).rejects.toBeInstanceOf(AiError);
 
-        const completed = tracksOf('agent.request_completed')[0]!;
+        const completed = await waitForTerminal();
         expect(completed.attributes.result).toBe('failure');
         expect(completed.attributes.persistence_result).toBe('saved');
         expect(completed.attributes.cancel_stage).toBeUndefined();
@@ -607,7 +627,7 @@ describe('user reaches a terminal result', () => {
 
         await expect(runtime.run()).rejects.toBeInstanceOf(AiError);
 
-        expect(tracksOf('agent.request_completed')[0]!.attributes.result).toBe('failure');
+        expect((await waitForTerminal()).attributes.result).toBe('failure');
     });
 
     it('user gets a cancelled result with the streaming stage when cancelled mid-answer', async () => {
@@ -622,7 +642,7 @@ describe('user reaches a terminal result', () => {
 
         await expect(runtime.run()).rejects.toBeInstanceOf(AiError);
 
-        const completed = tracksOf('agent.request_completed')[0]!;
+        const completed = await waitForTerminal();
         expect(completed.attributes.result).toBe('cancelled');
         expect(completed.attributes.cancel_stage).toBe('streaming');
     });
@@ -635,7 +655,7 @@ describe('user reaches a terminal result', () => {
         const result = await runtime.run();
 
         expect(result.response).toBe('Answer');
-        const completed = tracksOf('agent.request_completed')[0]!;
+        const completed = await waitForTerminal();
         expect(completed.attributes.result).toBe('success');
         expect(completed.attributes.persistence_result).toBe('failed');
     });
@@ -684,6 +704,7 @@ describe('user keeps analytics off or unreachable', () => {
 
         await runtime.run();
 
+        await waitForTerminal();
         const operationIds = new Set(trackCalls().map((tracked) => tracked.operationId));
         expect(operationIds).toEqual(new Set([started.operationId]));
         expect(getTauriInvokeCalls('analytics_begin_operation')).toHaveLength(1);
@@ -700,6 +721,9 @@ describe('user keeps analytics off or unreachable', () => {
 
         await runtime.run();
 
+        await vi.waitFor(() => {
+            expect(completedOperationCalls()).toHaveLength(1);
+        });
         expect(getTauriInvokeCalls('analytics_track')).toHaveLength(0);
     });
 
@@ -748,12 +772,12 @@ describe('user finishes the native analytics operation', () => {
 
         await runtime.run();
 
-        const operationIds = new Set(trackCalls().map((tracked) => tracked.operationId));
-        expect(operationIds).toEqual(new Set([handle.operationId]));
-        expect(getTauriInvokeCalls('analytics_begin_operation')).toHaveLength(1);
         await vi.waitFor(() => {
             expect(completedOperationCalls()).toEqual([handle.operationId]);
         });
+        const operationIds = new Set(trackCalls().map((tracked) => tracked.operationId));
+        expect(operationIds).toEqual(new Set([handle.operationId]));
+        expect(getTauriInvokeCalls('analytics_begin_operation')).toHaveLength(1);
 
         // The handle is released only after the events bound to it settled, so no
         // event loses its captured session or consent epoch.
@@ -807,7 +831,7 @@ describe('user finishes the native analytics operation', () => {
         await vi.waitFor(() => {
             expect(completedOperationCalls()).toEqual([handle.operationId]);
         });
-        expect(tracksOf('agent.request_completed')[0]!.attributes.result).toBe('failure');
+        expect((await waitForTerminal()).attributes.result).toBe('failure');
     });
 
     it('user gets one terminal and one release when completion is recorded twice', async () => {
@@ -822,13 +846,46 @@ describe('user finishes the native analytics operation', () => {
             usageReportedCalls: 0,
         };
 
-        await request.complete(completion);
-        await request.complete(completion);
+        request.complete(completion);
+        request.complete(completion);
 
+        await waitForTerminal();
         await vi.waitFor(() => {
             expect(completedOperationCalls()).toEqual([handle.operationId]);
         });
         expect(tracksOf('agent.request_completed')).toHaveLength(1);
+    });
+
+    it('user gets no late approval or attachment notes after the terminal event', async () => {
+        enableAnalytics();
+        const request = new AgentRequestAnalytics();
+
+        request.complete({
+            result: 'cancelled',
+            retryCount: 0,
+            modelSwitchCount: 0,
+            persistenceResult: 'saved',
+            calls: [],
+            usageReportedCalls: 0,
+        });
+        request.noteApprovalResolved({ resolution: 'approved', waitMs: 1 });
+        request.noteAttachmentPreparation({
+            attachments: [
+                {
+                    id: 'a1',
+                    type: 'image',
+                    path: '/tmp/a.png',
+                    originPath: '/tmp/a.png',
+                    name: 'a.png',
+                },
+            ] as never,
+            result: 'success',
+            durationMs: 1,
+        });
+
+        await waitForTerminal();
+        expect(tracksOf('agent.approval_resolved')).toHaveLength(0);
+        expect(tracksOf('attachment.preparation_completed')).toHaveLength(0);
     });
 
     it('user still gets the answer when the release never settles', async () => {
@@ -853,6 +910,47 @@ describe('user finishes the native analytics operation', () => {
         expect(result.response).toBe('Answer');
         await vi.waitFor(() => {
             expect(completedOperationCalls()).toEqual([handle.operationId]);
+        });
+    });
+
+    it('user still gets the answer when the operation start never settles', async () => {
+        mockTauriCommand('analytics_begin_operation', () => new Promise(() => undefined));
+        const { runtime } = run(createExecutor());
+
+        const result = await runtime.run();
+
+        expect(result.response).toBe('Answer');
+        // The terminal attempt is captured, but its send waits on the start it
+        // can never obtain; the request result must not.
+        expect(getTauriInvokeCalls('analytics_track')).toHaveLength(0);
+    });
+
+    it('user still gets the answer when the pricing lookup never settles', async () => {
+        enableAnalytics();
+        findModelPricingMock.mockReturnValue(new Promise(() => undefined));
+        const executor = createExecutor();
+        executor.runAttempt.mockResolvedValue(
+            completedResult({ calls: [createCall()] as never, usageReportedCalls: 1 })
+        );
+        const { runtime } = run(executor);
+
+        const result = await runtime.run();
+
+        expect(result.response).toBe('Answer');
+        // The terminal event needs pricing evidence; the request does not.
+        expect(tracksOf('agent.request_completed')).toHaveLength(0);
+    });
+
+    it('user still gets the answer when the terminal track never settles', async () => {
+        enableAnalytics();
+        mockTauriCommand('analytics_track', () => new Promise(() => undefined));
+        const { runtime } = run(createExecutor());
+
+        const result = await runtime.run();
+
+        expect(result.response).toBe('Answer');
+        await vi.waitFor(() => {
+            expect(tracksOf('agent.request_completed')).toHaveLength(1);
         });
     });
 });
@@ -888,6 +986,7 @@ describe('user sends no private content to analytics', () => {
 
         await runtime.run();
 
+        await waitForTerminal();
         const serialized = JSON.stringify(trackCalls());
         expect(serialized).not.toContain('SENTINEL_PROMPT');
         expect(serialized).not.toContain('SENTINEL_MODEL');
@@ -932,8 +1031,11 @@ describe('user decides a tool approval', () => {
 
         await runtime.run();
 
+        await vi.waitFor(() => {
+            expect(tracksOf('agent.approval_resolved')).toHaveLength(1);
+        });
+        await waitForTerminal();
         const resolved = tracksOf('agent.approval_resolved');
-        expect(resolved).toHaveLength(1);
         expect(resolved[0]!.attributes).toMatchObject({ resolution: 'approved' });
         expect(resolved[0]!.attributes.wait_ms).toBeGreaterThanOrEqual(0);
     });
@@ -945,6 +1047,10 @@ describe('user decides a tool approval', () => {
 
         await runtime.run();
 
+        await vi.waitFor(() => {
+            expect(tracksOf('agent.approval_resolved')).toHaveLength(1);
+        });
+        await waitForTerminal();
         expect(tracksOf('agent.approval_resolved')[0]!.attributes.resolution).toBe('rejected');
     });
 
@@ -960,6 +1066,10 @@ describe('user decides a tool approval', () => {
 
         await runtime.run();
 
+        await vi.waitFor(() => {
+            expect(tracksOf('agent.approval_resolved')).toHaveLength(1);
+        });
+        await waitForTerminal();
         expect(tracksOf('agent.approval_resolved')[0]!.attributes.resolution).toBe('cancelled');
     });
 });
@@ -1006,8 +1116,11 @@ describe('user prepares attachments for a request', () => {
 
         await runtime.run();
 
+        await vi.waitFor(() => {
+            expect(tracksOf('attachment.preparation_completed')).toHaveLength(1);
+        });
+        await waitForTerminal();
         const prepared = tracksOf('attachment.preparation_completed');
-        expect(prepared).toHaveLength(1);
         expect(prepared[0]!.attributes).toMatchObject({
             attachment_type: 'other',
             count_bucket: '2-5',
@@ -1021,6 +1134,10 @@ describe('user prepares attachments for a request', () => {
 
         await runtime.run();
 
+        await vi.waitFor(() => {
+            expect(tracksOf('attachment.preparation_completed')).toHaveLength(1);
+        });
+        await waitForTerminal();
         expect(tracksOf('attachment.preparation_completed')[0]!.attributes).toMatchObject({
             result: 'failure',
             error_category: 'other',
@@ -1084,7 +1201,7 @@ describe('user gets bounded diagnostics on completion', () => {
 
         await runtime.run();
 
-        expect(tracksOf('agent.request_completed')[0]!.attributes.error_category).toBe('none');
+        expect((await waitForTerminal()).attributes.error_category).toBe('none');
     });
 
     it('user gets a mapped error_category when the request fails with a network error', async () => {
@@ -1096,7 +1213,7 @@ describe('user gets bounded diagnostics on completion', () => {
 
         await expect(runtime.run()).rejects.toBeInstanceOf(AiError);
 
-        expect(tracksOf('agent.request_completed')[0]!.attributes.error_category).toBe('network');
+        expect((await waitForTerminal()).attributes.error_category).toBe('network');
     });
 
     it('user gets other for an unclassified failure and never the raw error text', async () => {
@@ -1110,7 +1227,7 @@ describe('user gets bounded diagnostics on completion', () => {
 
         await expect(runtime.run()).rejects.toBeInstanceOf(AiError);
 
-        const completed = tracksOf('agent.request_completed')[0]!;
+        const completed = await waitForTerminal();
         expect(completed.attributes.error_category).toBe('other');
         expect(JSON.stringify(trackCalls())).not.toContain('SENTINEL_ERROR_TEXT');
     });
@@ -1124,7 +1241,7 @@ describe('user gets bounded diagnostics on completion', () => {
 
         await expect(runtime.run()).rejects.toBeInstanceOf(AiError);
 
-        expect(tracksOf('agent.request_completed')[0]!.attributes.error_category).toBeUndefined();
+        expect((await waitForTerminal()).attributes.error_category).toBeUndefined();
     });
 
     it('user gets observed pricing coverage and the known usd cost when every call is priced', async () => {
@@ -1140,7 +1257,7 @@ describe('user gets bounded diagnostics on completion', () => {
 
         await runtime.run();
 
-        expect(tracksOf('agent.request_completed')[0]!.attributes).toMatchObject({
+        expect((await waitForTerminal()).attributes).toMatchObject({
             pricing_coverage: 'observed',
             llm_call_count: 1,
             unpriced_call_count: 0,
@@ -1162,7 +1279,7 @@ describe('user gets bounded diagnostics on completion', () => {
 
         await runtime.run();
 
-        expect(tracksOf('agent.request_completed')[0]!.attributes).toMatchObject({
+        expect((await waitForTerminal()).attributes).toMatchObject({
             pricing_coverage: 'partial',
             llm_call_count: 2,
             unpriced_call_count: 1,
@@ -1181,7 +1298,7 @@ describe('user gets bounded diagnostics on completion', () => {
 
         await runtime.run();
 
-        const completed = tracksOf('agent.request_completed')[0]!;
+        const completed = await waitForTerminal();
         expect(completed.attributes).toMatchObject({
             pricing_coverage: 'unavailable',
             llm_call_count: 1,
@@ -1202,7 +1319,7 @@ describe('user gets bounded diagnostics on completion', () => {
 
         await runtime.run();
 
-        const completed = tracksOf('agent.request_completed')[0]!;
+        const completed = await waitForTerminal();
         expect(completed.attributes.cache_read_tokens).toBe(400);
         expect(completed.attributes.cache_write_tokens).toBe(200);
     });
@@ -1212,7 +1329,7 @@ describe('user gets bounded diagnostics on completion', () => {
 
         await runtime.run();
 
-        const completed = tracksOf('agent.request_completed')[0]!;
+        const completed = await waitForTerminal();
         expect(completed.attributes.cache_read_tokens).toBeUndefined();
         expect(completed.attributes.cache_write_tokens).toBeUndefined();
     });
@@ -1234,7 +1351,7 @@ describe('user gets bounded diagnostics on completion', () => {
 
         await runtime.run();
 
-        const completed = tracksOf('agent.request_completed')[0]!;
+        const completed = await waitForTerminal();
         expect(completed.attributes.retry_count).toBe(1);
         expect(completed.attributes.llm_call_count).toBe(2);
         expect(completed.attributes.unpriced_call_count).toBe(1);

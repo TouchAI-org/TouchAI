@@ -226,7 +226,8 @@ interface PricingOutcome {
  * a USD estimate counts only when the provider reported usage *and* a USD price
  * row exists, so a call without usage evidence never yields a fabricated zero.
  * `observed` therefore needs every recorded call priced in USD; a mix of priced
- * and unpriced calls is `partial`; nothing defensible is `unavailable`.
+ * and unpriced calls is `partial`, and that partial sum is a lower bound rather
+ * than a complete request cost; nothing defensible is `unavailable`.
  */
 async function resolvePricing(
     calls: readonly AiCallRecord[],
@@ -383,20 +384,6 @@ export class AgentRequestAnalytics {
             });
     }
 
-    get cancelStage(): AgentCancelStage {
-        return this.stage;
-    }
-
-    /** Current tool-termination count for `agent.request_completed`. */
-    get toolCount(): number {
-        return this.toolCompletedCount;
-    }
-
-    /** Current approval-decision count for `agent.request_completed`. */
-    get approvalCount(): number {
-        return this.approvalResolvedCount;
-    }
-
     submit(attributes: {
         attachmentCount: number;
         capability?: 'none' | 'tools' | 'mcp' | 'browser' | 'other';
@@ -472,19 +459,38 @@ export class AgentRequestAnalytics {
     }
 
     /**
-     * Emit the single terminal event and release the operation handle.
+     * Record the single terminal event and release the operation handle, once.
      *
-     * Resolves once the terminal IPC attempt settles. A duplicate finalize is a
-     * no-op: the terminal event is emitted and the handle released exactly once.
+     * Terminal attributes are captured synchronously from the state at this
+     * instant. Pricing, the terminal send, and the release then run best-effort
+     * in the background, so a slow or hung channel can never delay the request
+     * result. The tradeoff is durability: if the app quits before that work
+     * settles, the terminal event (and its release) may be dropped.
      */
-    async complete(input: AgentRequestCompletion): Promise<void> {
+    complete(input: AgentRequestCompletion): void {
         if (this.terminalRecorded) {
             return;
         }
         this.terminalRecorded = true;
 
-        await this.ready;
+        try {
+            const attributes = this.buildTerminalAttributes(input);
+            const terminalSend = this.sendTerminal(input, attributes);
+            this.pendingSends.add(terminalSend);
+            void terminalSend
+                .catch(() => undefined)
+                .finally(() => this.pendingSends.delete(terminalSend));
+        } finally {
+            // Release after every event bound to the captured handle, including
+            // the terminal one; a construction failure above still reaches this
+            // guard, so the handle is never leaked.
+            void this.releaseOperation();
+        }
+    }
 
+    private buildTerminalAttributes(
+        input: AgentRequestCompletion
+    ): Record<string, AnalyticsAttributeValue> {
         const attributes: Record<string, AnalyticsAttributeValue> = {
             request_id: this.requestId,
             result: input.result,
@@ -514,6 +520,21 @@ export class AgentRequestAnalytics {
             attributes.total_tokens = clampInt(tokens, MAX_TOKENS);
         }
 
+        return attributes;
+    }
+
+    /**
+     * Resolve pricing and send the captured terminal attributes.
+     *
+     * Runs off the request promise and must never be awaited by a caller: a
+     * failing or hung lookup drops telemetry instead of delaying the result.
+     */
+    private async sendTerminal(
+        input: AgentRequestCompletion,
+        attributes: Record<string, AnalyticsAttributeValue>
+    ): Promise<void> {
+        await this.ready;
+
         try {
             const pricing = await resolvePricing(input.calls, input.usageReportedCalls);
             attributes.pricing_coverage = pricing.pricingCoverage;
@@ -532,11 +553,8 @@ export class AgentRequestAnalytics {
             }
 
             await this.send('agent.request_completed', attributes);
-        } finally {
-            // Every terminal path releases the handle it began with, and only
-            // once; a duplicate finalize is a no-op. The release is fire-and-forget
-            // so a slow or hung native release never delays the request result.
-            void this.releaseOperation();
+        } catch {
+            // Best-effort: analytics never propagates into the request.
         }
     }
 
@@ -544,6 +562,13 @@ export class AgentRequestAnalytics {
         eventName: AnalyticsEventName,
         attributes: Record<string, AnalyticsAttributeValue>
     ): void {
+        // A late parallel tool completion must not be sent after the terminal
+        // event, nor attach to a newer consent epoch than the request began
+        // with. Once the terminal instant is captured, notes are dropped.
+        if (this.terminalRecorded) {
+            return;
+        }
+
         const send = this.ready
             .then(() => this.send(eventName, attributes))
             .catch(() => {
@@ -565,6 +590,10 @@ export class AgentRequestAnalytics {
             return;
         }
         this.operationReleased = true;
+
+        // The handle is assigned when `beginOperation` settles; waiting on the
+        // same promise keeps a construction failure from skipping the release.
+        await this.ready;
 
         const handle = this.handle;
         if (!handle) {

@@ -847,6 +847,7 @@ export class AiRequestExecutor {
         let finishReason: string | undefined;
         let toolCalls: AiToolCall[] | undefined;
         let finalUsage: AiUsage | undefined;
+        let usageReported = false;
         // Each model/tool-loop round is an independent persisted message part.
         // Keep the aggregate on `runtime.outputParts`, but never leak the
         // previous round into this round's final-step result.
@@ -987,6 +988,7 @@ export class AiRequestExecutor {
                     finishReason = chunk.finishReason;
                     toolCalls = chunk.toolCalls;
                     finalUsage = chunk.usage;
+                    usageReported = chunk.usageReported === true;
                     break;
                 }
             }
@@ -1023,10 +1025,10 @@ export class AiRequestExecutor {
 
         runtime.calls.push(call);
         runtime.totalUsage = addAiUsage(runtime.totalUsage, usage);
-        // A provider that returned no usage leaves `finalUsage` undefined; a
-        // normalized all-zero usage still counts as reported, so zero defaults
-        // never masquerade as "the provider reported zero".
-        if (finalUsage !== undefined) {
+        // `usage` is normalized to zeros even when the provider reported nothing,
+        // so the explicit stream signal is the only evidence of a real report;
+        // token sums must never be used to infer it.
+        if (usageReported) {
             runtime.usageReportedCalls += 1;
         }
         runtime.toolArgumentErrors += stepToolArgumentErrors;

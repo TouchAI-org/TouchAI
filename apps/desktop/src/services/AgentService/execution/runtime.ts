@@ -531,7 +531,7 @@ export class AiConversationRuntime {
             });
         }
 
-        await this.finalizeRequestAnalytics('success');
+        this.finalizeRequestAnalytics('success');
 
         return {
             model: result.model,
@@ -542,20 +542,22 @@ export class AiConversationRuntime {
     }
 
     /**
-     * Emit the single terminal analytics event, once, for the logical request.
+     * Record the single terminal analytics event, once, for the logical request.
      *
-     * The captured consent handle is reused, so the current consent is never
-     * re-read; a request that began disabled stays suppressed even if it is
-     * re-enabled before completion.
+     * The capture is synchronous and telemetry runs in the background, so no
+     * analytics channel, pricing lookup, or operation start can delay the
+     * user-visible result. The captured consent handle is reused, so the current
+     * consent is never re-read; a request that began disabled stays suppressed
+     * even if it is re-enabled before completion.
      */
-    private async finalizeRequestAnalytics(result: AgentRequestResult): Promise<void> {
+    private finalizeRequestAnalytics(result: AgentRequestResult): void {
         if (this.analyticsFinalized) {
             return;
         }
         this.analyticsFinalized = true;
 
         try {
-            await this.analytics.complete({
+            this.analytics.complete({
                 result,
                 retryCount: this.requestRetryCount,
                 modelSwitchCount: this.requestModelSwitchCount,
@@ -598,7 +600,7 @@ export class AiConversationRuntime {
         } catch (error) {
             const aiError = AiError.fromError(error);
             this.analyticsErrorCode = aiError.code;
-            await this.finalizeRequestAnalytics(
+            this.finalizeRequestAnalytics(
                 aiError.is(AiErrorCode.REQUEST_CANCELLED) ? 'cancelled' : 'failure'
             );
             throw error;
@@ -639,6 +641,7 @@ export class AiConversationRuntime {
                             onTurnEvent: this.options.onTurnEvent,
                             requestToolApproval,
                             requestUserQuestions: this.options.requestUserQuestions,
+                            analytics: this.analytics,
                         }),
                     turnSpan,
                     attemptSpanStatus
@@ -692,7 +695,7 @@ export class AiConversationRuntime {
                             turnId: context.persister.getTurn()?.id ?? null,
                         });
                     }
-                    await this.finalizeRequestAnalytics('cancelled');
+                    this.finalizeRequestAnalytics('cancelled');
                     throw attemptResult.error;
                 }
 
@@ -787,7 +790,7 @@ export class AiConversationRuntime {
                     });
                 }
                 this.analyticsErrorCode = attemptResult.error.code;
-                await this.finalizeRequestAnalytics('failure');
+                this.finalizeRequestAnalytics('failure');
                 throw attemptResult.error;
             }
 
@@ -848,7 +851,7 @@ export class AiConversationRuntime {
             }
 
             this.analyticsErrorCode = aiError.code;
-            await this.finalizeRequestAnalytics(
+            this.finalizeRequestAnalytics(
                 aiError.is(AiErrorCode.REQUEST_CANCELLED) ? 'cancelled' : 'failure'
             );
             throw aiError;
