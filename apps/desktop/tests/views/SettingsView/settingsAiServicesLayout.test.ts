@@ -1,3 +1,4 @@
+import { installProductAnalytics } from '@tests/utils/productAnalytics';
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, vi } from 'vitest';
 
@@ -293,6 +294,8 @@ describe('user manages providers and models', () => {
     });
 
     it('user patches provider config locally and refreshes models without a success toast', async () => {
+        vi.useFakeTimers();
+        installProductAnalytics();
         const provider = {
             id: 2,
             name: 'Custom Gateway',
@@ -315,7 +318,7 @@ describe('user manages providers and models', () => {
         queries.findAllProvidersSorted.mockResolvedValue([provider]);
         queries.findProviderById.mockResolvedValue({
             ...provider,
-            name: 'Renamed Gateway',
+            api_endpoint: 'https://edited.example.com',
         });
         agentServiceMock.createProviderInstance.mockReturnValue({
             listModels,
@@ -326,18 +329,6 @@ describe('user manages providers and models', () => {
             global: {
                 stubs: {
                     ProviderList: true,
-                    ProviderConfig: {
-                        props: ['provider'],
-                        emits: ['update'],
-                        template: `
-                            <button
-                                data-testid="provider-config-update"
-                                @click="$emit('update', { name: 'Renamed Gateway' })"
-                            >
-                                {{ provider.name }}
-                            </button>
-                        `,
-                    },
                     ModelList: true,
                     ProviderFormDialog: true,
                     BadgedLogo: {
@@ -348,21 +339,30 @@ describe('user manages providers and models', () => {
             },
         });
 
-        await flushPromises();
+        try {
+            await flushPromises();
 
-        expect(wrapper.text()).toContain('Custom Gateway');
+            const endpoint = wrapper.get('[data-settings-search-target="provider-endpoint"] input');
+            await endpoint.setValue('https://edited.example.com');
+            expect(queries.updateProvider).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(800);
+            await flushPromises();
 
-        await wrapper.get('[data-testid="provider-config-update"]').trigger('click');
-        await flushPromises();
-
-        expect(queries.updateProvider).toHaveBeenCalledWith({
-            id: 2,
-            providerPatch: { name: 'Renamed Gateway' },
-        });
-        expect(queries.findAllProvidersSorted).toHaveBeenCalledTimes(1);
-        expect(listModels).toHaveBeenCalled();
-        expect(alertMock.success).not.toHaveBeenCalled();
-        expect(wrapper.text()).toContain('Renamed Gateway');
+            expect(queries.updateProvider).toHaveBeenCalledWith({
+                id: 2,
+                providerPatch: {
+                    api_endpoint: 'https://edited.example.com',
+                    api_key: 'sk-demo',
+                },
+            });
+            expect(queries.findAllProvidersSorted).toHaveBeenCalledTimes(1);
+            expect(listModels).toHaveBeenCalled();
+            expect(alertMock.success).not.toHaveBeenCalled();
+            expect(endpoint.element).toHaveProperty('value', 'https://edited.example.com');
+        } finally {
+            wrapper.unmount();
+            vi.useRealTimers();
+        }
     });
 
     it('user refreshes models after creating a provider without a success toast', async () => {

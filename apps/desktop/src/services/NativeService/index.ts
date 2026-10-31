@@ -15,6 +15,7 @@ import { updater } from './updater';
 import { window } from './window';
 
 export type {
+    McpConnectionOrigin,
     McpServerConfig,
     McpServerStatus,
     McpServerStatusInfo,

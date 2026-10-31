@@ -49,7 +49,17 @@ const daySchema = z
  * is indistinguishable from a release version and passes.
  */
 // JavaScript `$` alone also matches before a final newline; require the real end.
-const versionSchema = z.string().regex(/^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$(?![\s\S])/);
+const ANALYTICS_VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$(?![\s\S])/;
+const versionSchema = z.string().regex(ANALYTICS_VERSION_PATTERN);
+
+/** Normalizes a release version with the same shape the event registry enforces. */
+export function normalizeAnalyticsVersion(value: string | null | undefined): string | undefined {
+    if (typeof value !== 'string') {
+        return undefined;
+    }
+    const trimmed = value.trim();
+    return ANALYTICS_VERSION_PATTERN.test(trimmed) ? trimmed : undefined;
+}
 
 const latencyMsSchema = z.number().int().min(0).max(86_400_000);
 const waitMsSchema = z.number().int().min(0).max(86_400_000);

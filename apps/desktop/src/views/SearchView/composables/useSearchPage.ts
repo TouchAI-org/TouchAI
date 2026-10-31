@@ -3,6 +3,10 @@
  * 集中管理页面 controller、生命周期编排、popup 打开时序与 DOM 事件挂载。
  */
 import { useAlert } from '@composables/useAlert';
+import {
+    mapSearchSurfaceSource,
+    trackSurfaceOpened,
+} from '@services/AnalyticsService/productInteractions';
 import { AppEvent, eventService } from '@services/EventService';
 import type {
     SearchSurfaceCommandEvent,
@@ -716,6 +720,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
 
                 latestSurfaceSequence = Math.max(latestSurfaceSequence, sequence);
                 interactionContext.markWindowVisible();
+                void trackSurfaceOpened(mapSearchSurfaceSource(payload.source));
                 handleReminderSurfaceVisible();
                 await handleSearchWindowActivated(payload.source ?? 'shortcut');
             }

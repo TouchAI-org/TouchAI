@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { clipboardService } from '@/services/ClipboardService';
@@ -67,7 +67,7 @@ function appendCode(
 
 async function click(element: HTMLElement) {
     element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await Promise.resolve();
+    await flushPromises();
 }
 
 beforeEach(() => {

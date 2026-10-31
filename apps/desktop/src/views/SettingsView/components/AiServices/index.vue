@@ -37,6 +37,13 @@
         refreshModelMetadataIfStale,
     } from '@/services/AgentService/infrastructure/modelMetadata';
     import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
+    import type { ProviderConfigurationAttempt } from '@/services/AnalyticsService/productInteractions';
+    import {
+        beginProviderConfigurationAttempt,
+        mapProviderCategory,
+        runProviderConfiguration,
+        runProviderConfigurationAttempt,
+    } from '@/services/AnalyticsService/productInteractions';
 
     defineOptions({
         name: 'SettingsAiServicesSection',
@@ -91,6 +98,8 @@
     const showEditDialog = ref(false);
     const isEditDialogMounted = ref(false);
     const editingProvider = ref<Provider | null>(null);
+    const pendingEditConfiguration = ref<ProviderConfigurationAttempt | null>(null);
+    const pendingAddConfiguration = ref<ProviderConfigurationAttempt | null>(null);
     const refreshing = ref(false);
     const refreshingProviderId = ref<number | null>(null);
     const instanceId = crypto.randomUUID();
@@ -279,6 +288,7 @@
 
     // 服务商操作
     const selectProvider = async (providerId: number) => {
+        if (selectedProviderId.value === providerId) return;
         if (refreshing.value) {
             refreshing.value = false;
             refreshingProviderId.value = null;
@@ -372,33 +382,72 @@
         openProviderMenu(event, providerId);
     };
 
-    const handleUpdateProvider = async (data: Partial<Provider>) => {
-        if (!selectedProviderId.value) return;
-
+    const handleUpdateProvider = async (
+        data: Partial<Provider>,
+        providerId: number,
+        attempt: ProviderConfigurationAttempt
+    ) => {
         try {
-            const normalizedProviderPatch = normalizeProviderPatch(data);
-            await updateProvider({
-                id: selectedProviderId.value,
-                providerPatch: normalizedProviderPatch,
-            });
-            patchProvider(selectedProviderId.value, normalizedProviderPatch);
-            await refreshSelectedProviderModelsAfterConfigChange();
+            const normalizedProviderPatch = await runProviderConfigurationAttempt(
+                attempt,
+                async () => {
+                    const normalizedProviderPatch = normalizeProviderPatch(data);
+                    await updateProvider({
+                        id: providerId,
+                        providerPatch: normalizedProviderPatch,
+                    });
+                    return normalizedProviderPatch;
+                }
+            );
+            patchProvider(providerId, normalizedProviderPatch);
+            if (selectedProviderId.value === providerId) {
+                await refreshSelectedProviderModelsAfterConfigChange();
+            }
         } catch (err) {
             alert.error(err instanceof Error ? err.message : t('settings.ai.saveFailed'));
         }
     };
 
     const handleAddCustomProvider = () => {
+        const previous = pendingAddConfiguration.value;
+        if (previous) {
+            pendingAddConfiguration.value = null;
+            void previous.abandon().catch(() => {});
+        }
+        // Begin at the real add-dialog start so an abandoned create stays an
+        // unfinished configuration rather than a fabricated save.
+        pendingAddConfiguration.value = beginProviderConfigurationAttempt({
+            providerCategory: 'other',
+            entry: 'settings',
+        });
         isAddDialogMounted.value = true;
         showAddDialog.value = true;
     };
 
     const handleAddDialogClosed = () => {
-        if (!showAddDialog.value) isAddDialogMounted.value = false;
+        if (showAddDialog.value) return;
+        isAddDialogMounted.value = false;
+        const attempt = pendingAddConfiguration.value;
+        pendingAddConfiguration.value = null;
+        void attempt?.abandon().catch(() => {});
     };
 
     const openEditProviderDialog = (provider = selectedProvider.value) => {
         if (!provider) return;
+        // A previous edit that never closed cleanly must release its handle
+        // before a new attempt replaces it.
+        const previousAttempt = pendingEditConfiguration.value;
+        if (previousAttempt) {
+            pendingEditConfiguration.value = null;
+            void previousAttempt.abandon().catch(() => {});
+        }
+        // Capture the attempt at the real edit start, so an edit that is
+        // abandoned without saving stays an unfinished configuration event
+        // rather than a fabricated save.
+        pendingEditConfiguration.value = beginProviderConfigurationAttempt({
+            providerCategory: mapProviderCategory(provider.driver),
+            entry: 'settings',
+        });
         editingProvider.value = provider;
         isEditDialogMounted.value = true;
         showEditDialog.value = true;
@@ -410,18 +459,35 @@
         if (showEditDialog.value) return;
         isEditDialogMounted.value = false;
         editingProvider.value = null;
+        // The edit session ended without a save: keep the started event honest
+        // and release only the native operation handle.
+        const attempt = pendingEditConfiguration.value;
+        pendingEditConfiguration.value = null;
+        void attempt?.abandon().catch(() => {});
     };
 
     const handleCreateProvider = async (data: NewProvider) => {
+        const attempt = pendingAddConfiguration.value;
+        pendingAddConfiguration.value = null;
         try {
-            const createdProvider = await createProvider({
-                ...data,
-                name: requireNonEmptyProviderField(data.name, t('settings.ai.providerName')),
-                api_endpoint: requireNonEmptyProviderField(
-                    data.api_endpoint,
-                    t('settings.ai.apiEndpoint')
-                ),
-            });
+            const create = () =>
+                createProvider({
+                    ...data,
+                    name: requireNonEmptyProviderField(data.name, t('settings.ai.providerName')),
+                    api_endpoint: requireNonEmptyProviderField(
+                        data.api_endpoint,
+                        t('settings.ai.apiEndpoint')
+                    ),
+                });
+            const createdProvider = await (attempt
+                ? runProviderConfigurationAttempt(attempt, create)
+                : runProviderConfiguration(
+                      {
+                          providerCategory: mapProviderCategory(data.driver),
+                          entry: 'settings',
+                      },
+                      create
+                  ));
             providers.value = [...providers.value, createdProvider];
             selectedProviderId.value = createdProvider.id;
             showAddDialog.value = false;
@@ -435,12 +501,27 @@
         const providerId = editingProvider.value?.id;
         if (providerId === undefined) return;
 
+        const attempt = pendingEditConfiguration.value;
+        pendingEditConfiguration.value = null;
+
         try {
             const normalizedProviderPatch = normalizeProviderPatch(data);
-            await updateProvider({
-                id: providerId,
-                providerPatch: normalizedProviderPatch,
-            });
+            const run = () =>
+                updateProvider({
+                    id: providerId,
+                    providerPatch: normalizedProviderPatch,
+                });
+            await (attempt
+                ? runProviderConfigurationAttempt(attempt, run)
+                : runProviderConfiguration(
+                      {
+                          providerCategory: mapProviderCategory(
+                              data.driver ?? editingProvider.value?.driver ?? ''
+                          ),
+                          entry: 'settings',
+                      },
+                      run
+                  ));
             patchProvider(providerId, normalizedProviderPatch);
             showEditDialog.value = false;
             await refreshSelectedProviderModelsAfterConfigChange();
@@ -726,6 +807,12 @@
     });
 
     onUnmounted(() => {
+        const editAttempt = pendingEditConfiguration.value;
+        const addAttempt = pendingAddConfiguration.value;
+        pendingEditConfiguration.value = null;
+        pendingAddConfiguration.value = null;
+        void editAttempt?.abandon().catch(() => {});
+        void addAttempt?.abandon().catch(() => {});
         unlistenAiModelsUpdated?.();
         unlistenAiModelsUpdated = null;
     });
@@ -813,6 +900,7 @@
 
                     <ProviderConfig
                         v-if="selectedProvider"
+                        :key="selectedProvider.id"
                         :provider="selectedProvider"
                         data-settings-search-target="provider-config"
                         @update="handleUpdateProvider"
