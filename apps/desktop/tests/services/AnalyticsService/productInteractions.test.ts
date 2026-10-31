@@ -1,10 +1,12 @@
 import {
+    abandonProviderConfiguration,
     beginProviderConfiguration,
     beginProviderConfigurationAttempt,
     beginResultAction,
     beginSearchInteraction,
     completeProviderConfiguration,
     completeResultAction,
+    finishSearchInteraction,
     mapSearchSurfaceSource,
     resultCountBucket,
     runProviderConfiguration,
@@ -13,6 +15,7 @@ import {
     selectSearchResult,
     settleSearchInteraction,
     trackFeatureExposed,
+    trackSearchFeatureExposed,
     trackSurfaceOpened,
 } from '@services/AnalyticsService/productInteractions';
 import type { AnalyticsState } from '@services/AnalyticsService/types';
@@ -27,6 +30,8 @@ vi.mock('@services/NativeService', () => ({
             clearPending: vi.fn(),
             track: vi.fn(),
             flush: vi.fn(),
+            beginOperation: vi.fn(),
+            completeOperation: vi.fn(),
         },
     },
 }));
@@ -49,6 +54,12 @@ describe('user opens a product surface', () => {
         vi.clearAllMocks();
         nativeAnalytics.getState.mockResolvedValue(state());
         nativeAnalytics.track.mockResolvedValue({ status: 'persisted', eventId: 'e-1' });
+        nativeAnalytics.beginOperation.mockResolvedValue({
+            operationId: 'op-1',
+            enabled: true,
+            consentEpoch: 7,
+        });
+        nativeAnalytics.completeOperation.mockResolvedValue(undefined);
     });
 
     it('user gets the entry surfaced when a real window entry opens', async () => {
@@ -62,12 +73,17 @@ describe('user opens a product surface', () => {
         );
     });
 
-    it('user gets no submission when statistics are off', async () => {
-        nativeAnalytics.getState.mockResolvedValue(state({ status: 'disabled' }));
+    it('user gets the surface forwarded and lets the native runtime enforce consent', async () => {
+        nativeAnalytics.track.mockResolvedValue({ status: 'disabled' });
 
         await trackSurfaceOpened('tray');
 
-        expect(nativeAnalytics.track).not.toHaveBeenCalled();
+        expect(nativeAnalytics.track).toHaveBeenCalledWith(
+            expect.objectContaining({
+                eventName: 'product.surface_opened',
+                attributes: { surface: 'tray' },
+            })
+        );
     });
 
     it('user gets the exposure submitted and lets the native runtime bound it per session', async () => {
@@ -99,6 +115,12 @@ describe('user configures a provider', () => {
         vi.clearAllMocks();
         nativeAnalytics.getState.mockResolvedValue(state({ consentEpoch: 7 }));
         nativeAnalytics.track.mockResolvedValue({ status: 'persisted', eventId: 'e-2' });
+        nativeAnalytics.beginOperation.mockResolvedValue({
+            operationId: 'op-1',
+            enabled: true,
+            consentEpoch: 7,
+        });
+        nativeAnalytics.completeOperation.mockResolvedValue(undefined);
     });
 
     it('user gets a started event with a random configuration id when editing begins', async () => {
@@ -120,20 +142,18 @@ describe('user configures a provider', () => {
         );
     });
 
-    it('user gets the completed event matched to the started operation with the captured epoch', async () => {
+    it('user gets the completed event matched to the started operation', async () => {
         const attempt = await beginProviderConfiguration({
             providerCategory: 'anthropic',
             entry: 'settings',
         });
-
-        nativeAnalytics.getState.mockResolvedValue(state({ consentEpoch: 11 }));
 
         await completeProviderConfiguration(attempt, { stage: 'saved', result: 'success' });
 
         expect(nativeAnalytics.track).toHaveBeenLastCalledWith(
             expect.objectContaining({
                 eventName: 'provider.configuration_completed',
-                consentEpoch: 7,
+                operationId: 'op-1',
                 attributes: expect.objectContaining({
                     configuration_id: attempt.configurationId,
                     stage: 'saved',
@@ -142,6 +162,7 @@ describe('user configures a provider', () => {
                 }),
             })
         );
+        expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
     });
 
     it('user gets a fixed error category when a validation fails', async () => {
@@ -192,6 +213,7 @@ describe('user configures a provider', () => {
                     attributes: expect.objectContaining({ stage: 'saved', result: 'success' }),
                 })
             );
+            expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -212,10 +234,11 @@ describe('user configures a provider', () => {
                     attributes: expect.objectContaining({ stage: 'saved', result: 'failure' }),
                 })
             );
+            expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
         });
     });
 
-    it('user gets an unfinished configuration when an edit attempt is abandoned', async () => {
+    it('user gets an unfinished configuration and one released handle when an edit attempt is abandoned', async () => {
         const attempt = beginProviderConfigurationAttempt({
             providerCategory: 'openai',
             entry: 'settings',
@@ -223,6 +246,7 @@ describe('user configures a provider', () => {
 
         // The user opens the edit form and closes it without saving.
         await attempt.handle;
+        await attempt.abandon();
 
         const completed = nativeAnalytics.track.mock.calls.filter(
             ([request]) => request.eventName === 'provider.configuration_completed'
@@ -231,6 +255,43 @@ describe('user configures a provider', () => {
         expect(nativeAnalytics.track).toHaveBeenCalledWith(
             expect.objectContaining({ eventName: 'provider.configuration_started' })
         );
+        expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
+    });
+
+    it('user gets the abandoned handle released exactly once when close runs twice', async () => {
+        const attempt = await beginProviderConfiguration({
+            providerCategory: 'openai',
+            entry: 'settings',
+        });
+
+        await abandonProviderConfiguration(attempt);
+        await abandonProviderConfiguration(attempt);
+
+        expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
+    });
+
+    it('user gets the save handle released once when a successful completion repeats', async () => {
+        const attempt = await beginProviderConfiguration({
+            providerCategory: 'openai',
+            entry: 'settings',
+        });
+
+        await completeProviderConfiguration(attempt, { stage: 'saved', result: 'success' });
+        await completeProviderConfiguration(attempt, { stage: 'saved', result: 'success' });
+
+        expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
+    });
+
+    it('user gets the save handle released even when telemetry fails', async () => {
+        nativeAnalytics.track.mockRejectedValue(new Error('ipc down'));
+        const attempt = await beginProviderConfiguration({
+            providerCategory: 'openai',
+            entry: 'settings',
+        });
+
+        await completeProviderConfiguration(attempt, { stage: 'saved', result: 'failure' });
+
+        expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
     });
 
     it('user gets the saved outcome reported for the attempt opened at the edit start', async () => {
@@ -271,6 +332,7 @@ describe('user configures a provider', () => {
                     attributes: expect.objectContaining({ stage: 'saved', result: 'failure' }),
                 })
             );
+            expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -297,6 +359,12 @@ describe('user searches in a settled interaction', () => {
         vi.clearAllMocks();
         nativeAnalytics.getState.mockResolvedValue(state());
         nativeAnalytics.track.mockResolvedValue({ status: 'persisted', eventId: 'e-3' });
+        nativeAnalytics.beginOperation.mockResolvedValue({
+            operationId: 'op-1',
+            enabled: true,
+            consentEpoch: 7,
+        });
+        nativeAnalytics.completeOperation.mockResolvedValue(undefined);
     });
 
     it('user gets exactly one settled search even when settle runs again after a selection', async () => {
@@ -345,6 +413,64 @@ describe('user searches in a settled interaction', () => {
             })
         );
     });
+
+    it('user gets the final selection recorded before the search handle is released', async () => {
+        const interaction = await beginSearchInteraction('quick');
+        const order: string[] = [];
+        nativeAnalytics.track.mockImplementation(async (request) => {
+            order.push(`track:${request.eventName}`);
+            return { status: 'persisted' };
+        });
+        nativeAnalytics.completeOperation.mockImplementation(async () => {
+            order.push('complete');
+        });
+
+        await settleSearchInteraction(interaction, { hasResults: true, resultCount: 1 });
+        await selectSearchResult(interaction, { category: 'file', opened: true });
+        await finishSearchInteraction(interaction);
+
+        expect(order).toEqual([
+            'track:search.completed',
+            'track:search.result_selected',
+            'complete',
+        ]);
+        expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
+        expect(nativeAnalytics.completeOperation).toHaveBeenCalledWith('op-1');
+    });
+
+    it('user gets the search handle released once on a close without a selection', async () => {
+        const interaction = await beginSearchInteraction('quick');
+
+        await settleSearchInteraction(interaction, { hasResults: false, resultCount: 0 });
+        await finishSearchInteraction(interaction);
+        await finishSearchInteraction(interaction);
+
+        expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
+        expect(
+            nativeAnalytics.track.mock.calls.some(
+                ([request]) => request.eventName === 'search.result_selected'
+            )
+        ).toBe(false);
+    });
+
+    it('user gets a feature exposure queued before the search handle is released', async () => {
+        const interaction = await beginSearchInteraction('quick');
+        const order: string[] = [];
+        nativeAnalytics.track.mockImplementation(async (request) => {
+            order.push(request.eventName);
+            return { status: 'persisted' };
+        });
+        nativeAnalytics.completeOperation.mockImplementation(async () => {
+            order.push('release');
+        });
+
+        const exposure = trackSearchFeatureExposed(interaction, 'quick_search');
+        await settleSearchInteraction(interaction, { hasResults: true, resultCount: 2 });
+        await finishSearchInteraction(interaction);
+        await exposure;
+
+        expect(order).toEqual(['product.feature_exposed', 'search.completed', 'release']);
+    });
 });
 
 describe('user completes an existing result action', () => {
@@ -352,6 +478,12 @@ describe('user completes an existing result action', () => {
         vi.clearAllMocks();
         nativeAnalytics.getState.mockResolvedValue(state());
         nativeAnalytics.track.mockResolvedValue({ status: 'persisted', eventId: 'e-4' });
+        nativeAnalytics.beginOperation.mockResolvedValue({
+            operationId: 'op-1',
+            enabled: true,
+            consentEpoch: 7,
+        });
+        nativeAnalytics.completeOperation.mockResolvedValue(undefined);
     });
 
     it('user gets a copy action recorded after the copy resolves', async () => {
@@ -381,6 +513,16 @@ describe('user completes an existing result action', () => {
                 attributes: expect.objectContaining({ action: 'open_external', result: 'failure' }),
             })
         );
+        expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
+    });
+
+    it('user gets the action handle released exactly once when completion repeats', async () => {
+        const action = await beginResultAction('copy_answer');
+
+        await completeResultAction(action, 'success');
+        await completeResultAction(action, 'success');
+
+        expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
     });
 
     it('user gets the copy outcome recorded without changing the copy result', async () => {

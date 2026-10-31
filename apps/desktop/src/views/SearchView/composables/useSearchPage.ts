@@ -10,6 +10,7 @@ import {
 import { AppEvent, eventService } from '@services/EventService';
 import type {
     SearchSurfaceCommandEvent,
+    SearchSurfaceShowSource,
     SessionStatusReminderActionEvent,
 } from '@services/EventService/types';
 import { native } from '@services/NativeService';
@@ -532,7 +533,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         await reconcilePopupSurfaces?.();
     }
 
-    async function restoreSearchWindowAfterActivation(surfaceSource: 'shortcut' | 'notification') {
+    async function restoreSearchWindowAfterActivation(surfaceSource: SearchSurfaceShowSource) {
         await nextTick();
         await reconcilePopupSurfacesAfterActivation();
         await controller.focusSearchInput();
@@ -551,7 +552,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         }
     }
 
-    async function handleSearchWindowActivated(surfaceSource: 'shortcut' | 'notification') {
+    async function handleSearchWindowActivated(surfaceSource: SearchSurfaceShowSource) {
         interactionContext.recordActivation(surfaceSource === 'shortcut' ? 'shortcut' : 'manual');
         if (hasActivePopupWindowFocus()) {
             restoredActivationEpoch = interactionContext.state.activationEpoch;

@@ -1,6 +1,8 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import type {
+    AnalyticsLifecycleContext,
+    AnalyticsOperationHandle,
     AnalyticsState,
     AnalyticsSubmitResult,
     AnalyticsTrackRequest,
@@ -32,5 +34,17 @@ export const analytics = {
 
     flush(): Promise<void> {
         return invoke<void>('analytics_flush');
+    },
+
+    getLifecycleContext(): Promise<AnalyticsLifecycleContext> {
+        return invoke<AnalyticsLifecycleContext>('analytics_get_lifecycle_context');
+    },
+
+    beginOperation(): Promise<AnalyticsOperationHandle> {
+        return invoke<AnalyticsOperationHandle>('analytics_begin_operation');
+    },
+
+    completeOperation(operationId: string): Promise<void> {
+        return invoke<void>('analytics_complete_operation', { operationId });
     },
 } as const;

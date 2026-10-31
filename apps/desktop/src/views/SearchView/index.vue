@@ -268,6 +268,8 @@
         isSessionListLoading,
         clearSession,
         setSessionHistoryPopupOpen,
+        markHistorySelectionPending,
+        abandonHistorySelection,
         updateSessionSearchQuery,
         refreshSessionList,
         ensureSessionListLoaded,
@@ -995,8 +997,18 @@
     }
 
     async function handleOpenSession(sessionId: number) {
+        // The history popup closes before the session opens, so keep that
+        // interaction's handle alive until the selection event is recorded.
+        markHistorySelectionPending();
         controller.closeQuickSearch();
-        await hideAllPopups();
+        try {
+            await hideAllPopups();
+        } catch (error) {
+            // The selection never reached the real open path; settle and release
+            // the history interaction instead of leaking its handle.
+            abandonHistorySelection();
+            throw error;
+        }
         resetSessionInputHistoryTracking();
 
         try {

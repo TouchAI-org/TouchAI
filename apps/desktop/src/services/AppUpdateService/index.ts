@@ -1,5 +1,6 @@
 import {
     beginUpdateOperation,
+    finishUpdateOperation,
     trackUpdateTransition,
     type UpdateOperation,
     type UpdatePhase,
@@ -75,11 +76,13 @@ export interface AppUpdateAnalytics {
             toVersion?: string | null;
         }
     ) => Promise<void>;
+    finishUpdateOperation: (operation: UpdateOperation) => Promise<void>;
 }
 
 const defaultAppUpdateAnalytics: AppUpdateAnalytics = {
     beginUpdateOperation,
     trackUpdateTransition,
+    finishUpdateOperation,
 };
 
 function toErrorMessage(error: unknown): string {
@@ -165,6 +168,7 @@ export class AppUpdateController {
     }
 
     async dispose(): Promise<void> {
+        this.releaseUpdateOperation();
         if (this.unlistenProgress) {
             this.unlistenProgress();
             this.unlistenProgress = null;
@@ -212,6 +216,10 @@ export class AppUpdateController {
             return false;
         }
 
+        // A new decision replaces any previous chain that never reached a
+        // terminal phase (for example a check that offered an update the user
+        // did not download).
+        this.releaseUpdateOperation();
         this.reportCheckErrors = reportErrors;
         this.lastCheckAttemptAt = this.now();
         this.updateSource = mapUpdateSource(source);
@@ -238,6 +246,9 @@ export class AppUpdateController {
         try {
             const result = await this.native.checkForUpdates(channel);
             if (this.state.channel !== channel || this.settings.getChannel() !== channel) {
+                // The check cannot proceed for this decision; release without
+                // reporting a result that belongs to a superseded channel.
+                this.releaseUpdateOperation();
                 this.syncSettings();
                 return false;
             }
@@ -255,17 +266,19 @@ export class AppUpdateController {
                 toVersion: result.status === 'available' ? result.update.version : undefined,
             });
             if (result.status !== 'available') {
-                this.updateOperationPromise = null;
+                this.releaseUpdateOperation();
             }
             return true;
         } catch (error) {
             if (this.state.channel !== channel || this.settings.getChannel() !== channel) {
+                this.releaseUpdateOperation();
                 this.syncSettings();
                 return false;
             }
 
             if (!this.reportCheckErrors) {
                 this.replaceState(previousState);
+                this.releaseUpdateOperation();
                 return false;
             }
 
@@ -275,7 +288,7 @@ export class AppUpdateController {
                 source,
                 fromVersion,
             });
-            this.updateOperationPromise = null;
+            this.releaseUpdateOperation();
             return false;
         }
     }
@@ -284,13 +297,17 @@ export class AppUpdateController {
         await this.initialize();
         this.syncSettings();
         const update = this.state.status === 'available' ? this.state.availableUpdate : null;
-        if (!update) return false;
+        if (!update) {
+            this.releaseUpdateOperation();
+            return false;
+        }
 
         const channel = this.state.channel;
+        const fromVersion = this.state.currentVersion;
         this.queueUpdateTransition('download_started', {
             result: 'success',
             source: this.updateSource,
-            fromVersion: this.state.currentVersion,
+            fromVersion,
             toVersion: update.version,
         });
         this.commit({ type: 'download-started' });
@@ -308,6 +325,7 @@ export class AppUpdateController {
             this.queueUpdateTransition('download_finished', {
                 result: 'success',
                 source: this.updateSource,
+                fromVersion,
                 toVersion: downloaded.version,
             });
             return true;
@@ -316,8 +334,10 @@ export class AppUpdateController {
             this.queueUpdateTransition('download_finished', {
                 result: 'failure',
                 source: this.updateSource,
+                fromVersion,
                 toVersion: update.version,
             });
+            this.releaseUpdateOperation();
             return false;
         }
     }
@@ -326,27 +346,37 @@ export class AppUpdateController {
         await this.initialize();
         this.syncSettings();
         const update = this.state.status === 'downloaded' ? this.state.downloadedUpdate : null;
-        if (!update) return false;
+        if (!update) {
+            this.releaseUpdateOperation();
+            return false;
+        }
 
         const channel = this.state.channel;
+        const fromVersion = this.state.currentVersion;
         this.commit({ type: 'install-started' });
 
         try {
             await this.native.installUpdate(channel, update.version, update.fileName);
+            // Native stores bounded pending-update state from this transition and
+            // confirms the restart itself on a later start; TS never emits
+            // `restart_confirmed`.
             this.queueUpdateTransition('install_handoff', {
                 result: 'success',
                 source: this.updateSource,
+                fromVersion,
                 toVersion: update.version,
             });
-            this.updateOperationPromise = null;
+            this.releaseUpdateOperation();
             return true;
         } catch (error) {
             this.commit({ type: 'failed', error: toErrorMessage(error) });
             this.queueUpdateTransition('install_handoff', {
                 result: 'failure',
                 source: this.updateSource,
+                fromVersion,
                 toVersion: update.version,
             });
+            this.releaseUpdateOperation();
             return false;
         }
     }
@@ -373,6 +403,26 @@ export class AppUpdateController {
         void operationPromise
             .then((operation) =>
                 operation ? this.analytics.trackUpdateTransition(operation, phase, outcome) : null
+            )
+            .catch(() => {
+                // Telemetry must never affect an update decision.
+            });
+    }
+
+    /**
+     * Releases the current update handle after the terminal phase has been
+     * queued. The transition keeps the same operation id until here, then the
+     * next decision starts a fresh handle.
+     */
+    private releaseUpdateOperation(): void {
+        const operationPromise = this.updateOperationPromise;
+        if (!operationPromise) {
+            return;
+        }
+        this.updateOperationPromise = null;
+        void operationPromise
+            .then((operation) =>
+                operation ? this.analytics.finishUpdateOperation(operation) : null
             )
             .catch(() => {
                 // Telemetry must never affect an update decision.

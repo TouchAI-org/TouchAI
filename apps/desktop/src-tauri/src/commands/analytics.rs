@@ -8,7 +8,8 @@
 use tauri::State;
 
 use crate::core::analytics::{
-    AnalyticsRuntime, AnalyticsState, AnalyticsSubmitResult, AnalyticsTrackRequest,
+    AnalyticsLifecycleContext, AnalyticsOperationHandle, AnalyticsRuntime, AnalyticsState,
+    AnalyticsSubmitResult, AnalyticsTrackRequest,
 };
 
 /// 读取当前统计状态与队列概览。
@@ -51,4 +52,30 @@ pub async fn analytics_track(
 #[tauri::command]
 pub async fn analytics_flush(runtime: State<'_, AnalyticsRuntime>) -> Result<(), String> {
     runtime.flush().await
+}
+
+/// 读取原生持有的进程运行标识与启动上下文。
+#[tauri::command]
+pub async fn analytics_get_lifecycle_context(
+    runtime: State<'_, AnalyticsRuntime>,
+) -> Result<AnalyticsLifecycleContext, String> {
+    Ok(runtime.lifecycle_context().await)
+}
+
+/// 签发一个原生操作句柄；会话与 consent epoch 由原生绑定。
+#[tauri::command]
+pub async fn analytics_begin_operation(
+    runtime: State<'_, AnalyticsRuntime>,
+) -> Result<AnalyticsOperationHandle, String> {
+    Ok(runtime.begin_operation().await)
+}
+
+/// 显式释放一个操作句柄。
+#[tauri::command]
+pub async fn analytics_complete_operation(
+    runtime: State<'_, AnalyticsRuntime>,
+    operation_id: String,
+) -> Result<(), String> {
+    runtime.complete_operation(&operation_id).await;
+    Ok(())
 }

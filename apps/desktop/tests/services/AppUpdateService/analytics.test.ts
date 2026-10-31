@@ -31,32 +31,43 @@ const neutralRequirement = {
 function createAnalytics(): {
     analytics: AppUpdateAnalytics;
     begin: ReturnType<typeof vi.fn>;
+    finish: ReturnType<typeof vi.fn>;
     transitions: Array<{
         operation: UpdateOperation;
         phase: UpdatePhase;
         outcome: Record<string, unknown>;
     }>;
+    finished: UpdateOperation[];
 } {
     const transitions: Array<{
         operation: UpdateOperation;
         phase: UpdatePhase;
         outcome: Record<string, unknown>;
     }> = [];
+    const finished: UpdateOperation[] = [];
     const begin = vi.fn(
         async (): Promise<UpdateOperation> => ({
             operation: { operationId: 'op-1', enabled: true, consentEpoch: 4 },
             updateOperationId: crypto.randomUUID(),
+            closed: false,
+            pending: Promise.resolve(),
         })
     );
+    const finish = vi.fn(async (operation: UpdateOperation) => {
+        finished.push(operation);
+    });
     return {
         analytics: {
             beginUpdateOperation: begin,
             trackUpdateTransition: vi.fn(async (operation, phase, outcome) => {
                 transitions.push({ operation, phase, outcome });
             }),
+            finishUpdateOperation: finish,
         },
         begin,
+        finish,
         transitions,
+        finished,
     };
 }
 
@@ -121,6 +132,7 @@ describe('user checks for an app update', () => {
             source: 'user',
             toVersion: '0.2.0',
         });
+        expect(analytics.finish).not.toHaveBeenCalled();
     });
 
     it('user gets an automatic check recorded with a background source', async () => {
@@ -153,6 +165,9 @@ describe('user checks for an app update', () => {
 
         const finished = analytics.transitions.find((entry) => entry.phase === 'check_finished');
         expect(finished?.outcome).toMatchObject({ result: 'unavailable' });
+        await vi.waitFor(() => {
+            expect(analytics.finish).toHaveBeenCalledTimes(1);
+        });
     });
 
     it('user gets a fresh operation after a check ends with no available update', async () => {
@@ -170,6 +185,9 @@ describe('user checks for an app update', () => {
 
         await controller.checkNow('manual');
         await controller.checkNow('manual');
+        await vi.waitFor(() => {
+            expect(analytics.finish).toHaveBeenCalled();
+        });
 
         expect(analytics.begin).toHaveBeenCalledTimes(2);
     });
@@ -188,6 +206,7 @@ describe('user downloads and installs an update', () => {
         expect(phases).toContain('download_finished');
         const finished = analytics.transitions.find((entry) => entry.phase === 'download_finished');
         expect(finished?.outcome).toMatchObject({ result: 'success', toVersion: '0.2.0' });
+        expect(analytics.finish).not.toHaveBeenCalled();
     });
 
     it('user gets a failure phase when the download fails', async () => {
@@ -202,6 +221,9 @@ describe('user downloads and installs an update', () => {
 
         const finished = analytics.transitions.find((entry) => entry.phase === 'download_finished');
         expect(finished?.outcome).toMatchObject({ result: 'failure' });
+        await vi.waitFor(() => {
+            expect(analytics.finish).toHaveBeenCalledTimes(1);
+        });
     });
 
     it('user gets a handoff phase after install is invoked, never a confirmed restart', async () => {
@@ -216,15 +238,44 @@ describe('user downloads and installs an update', () => {
         const phases = analytics.transitions.map((entry) => entry.phase);
         expect(phases).toContain('install_handoff');
         expect(phases).not.toContain('restart_confirmed');
+        const handoff = analytics.transitions.find((entry) => entry.phase === 'install_handoff');
+        expect(handoff?.outcome).toMatchObject({
+            result: 'success',
+            source: 'user',
+            fromVersion: '0.1.0',
+            toVersion: '0.2.0',
+        });
+        await vi.waitFor(() => {
+            expect(analytics.finish).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    it('user gets the install handle released once when the installer fails', async () => {
+        const analytics = createAnalytics();
+        const { controller } = createController({
+            analytics: analytics.analytics,
+            installError: new Error('installer refused'),
+        });
+
+        await controller.checkNow('manual');
+        await controller.download();
+        await expect(controller.install()).resolves.toBe(false);
+        await vi.waitFor(() => {
+            expect(analytics.finish).toHaveBeenCalledTimes(1);
+        });
     });
 
     it('user still sees an update failure when telemetry rejects', async () => {
+        const finish = vi.fn().mockResolvedValue(undefined);
         const analytics: AppUpdateAnalytics = {
             beginUpdateOperation: vi.fn(async () => ({
                 operation: { operationId: 'op', enabled: true, consentEpoch: 1 },
                 updateOperationId: 'u',
+                closed: false,
+                pending: Promise.resolve(),
             })),
             trackUpdateTransition: vi.fn().mockRejectedValue(new Error('ipc down')),
+            finishUpdateOperation: finish,
         };
         const { controller, installUpdate } = createController({
             analytics,
@@ -236,5 +287,8 @@ describe('user downloads and installs an update', () => {
 
         await expect(controller.install()).resolves.toBe(false);
         expect(installUpdate).toHaveBeenCalled();
+        await vi.waitFor(() => {
+            expect(finish).toHaveBeenCalledTimes(1);
+        });
     });
 });

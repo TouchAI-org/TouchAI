@@ -6,10 +6,11 @@ import { useAgent } from '@composables/agent';
 import type { SessionEntity } from '@database/types';
 import {
     beginSearchInteraction,
+    finishSearchInteraction,
     type SearchInteraction,
     selectSearchResult,
     settleSearchInteraction,
-    trackFeatureExposed,
+    trackSearchFeatureExposed,
     trackSurfaceOpened,
 } from '@services/AnalyticsService/productInteractions';
 import { notify } from '@services/NotificationService';
@@ -91,22 +92,43 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     let sessionStatusListenerDisposed = false;
 
     // One history-search interaction settles once per popup session, using the
-    // stable result count rather than any intermediate query.
+    // stable result count rather than any intermediate query. Selecting a
+    // conversation closes the popup before the session opens, so close keeps the
+    // handle alive until the selection path has emitted its own event.
     let historyInteraction: Promise<SearchInteraction> | null = null;
     let historySelectionReported = false;
+    let historySelectionPending = false;
     let historyResultCount = 0;
 
     function beginHistoryInteraction() {
+        const previous = historyInteraction;
+        if (previous) {
+            void previous
+                .then((interaction) => finishSearchInteraction(interaction))
+                .catch(() => {});
+        }
         historyInteraction = beginSearchInteraction('history');
         historySelectionReported = false;
+        historySelectionPending = false;
         // A fresh interaction starts with no results until the list resolves, so
         // an immediate close cannot leak the previous interaction's count.
         historyResultCount = 0;
         void trackSurfaceOpened('history');
         const ready = historyInteraction;
         void ready
-            .then((interaction) => trackFeatureExposed('history', interaction.operation))
+            .then((interaction) => trackSearchFeatureExposed(interaction, 'history'))
             .catch(() => {});
+    }
+
+    /**
+     * Marks that the close currently in progress is the first half of a real
+     * result selection, so the interaction stays open until the selection event
+     * has been recorded.
+     */
+    function markHistorySelectionPending() {
+        if (historyInteraction) {
+            historySelectionPending = true;
+        }
     }
 
     function settleHistoryInteraction() {
@@ -116,13 +138,24 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         }
         const resultCount = historyResultCount;
         void ready
-            .then((interaction) =>
-                settleSearchInteraction(interaction, {
+            .then(async (interaction) => {
+                await settleSearchInteraction(interaction, {
                     hasResults: resultCount > 0,
                     resultCount,
-                })
-            )
+                });
+                if (!historySelectionPending) {
+                    if (historyInteraction === ready) {
+                        historyInteraction = null;
+                    }
+                    await finishSearchInteraction(interaction);
+                }
+            })
             .catch(() => {});
+    }
+
+    function abandonHistorySelection() {
+        historySelectionPending = false;
+        settleHistoryInteraction();
     }
 
     function reportHistorySelection(opened: boolean) {
@@ -139,6 +172,11 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                     resultCount,
                 });
                 await selectSearchResult(interaction, { category: 'conversation', opened });
+                if (historyInteraction === ready) {
+                    historyInteraction = null;
+                }
+                historySelectionPending = false;
+                await finishSearchInteraction(interaction);
             })
             .catch(() => {});
     }
@@ -298,6 +336,11 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         sessionStatusListenerDisposed = true;
         stopSessionStatusListener?.();
         stopSessionStatusListener = null;
+        const ready = historyInteraction;
+        historyInteraction = null;
+        if (ready) {
+            void ready.then((interaction) => finishSearchInteraction(interaction)).catch(() => {});
+        }
     });
 
     function clearSessionState() {
@@ -495,6 +538,9 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
 
     async function openSession(sessionId: number): Promise<LoadedSessionInfo> {
         if (sessionId === currentSessionId.value) {
+            // The clicked conversation is already open; it is still a real
+            // selection, and the popup may have closed before this point.
+            reportHistorySelection(true);
             return {
                 sessionId,
                 title: '',
@@ -573,6 +619,8 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         isSessionListLoading,
         clearSession: clearSessionState,
         setSessionHistoryPopupOpen,
+        markHistorySelectionPending,
+        abandonHistorySelection,
         updateSessionSearchQuery,
         refreshSessionList,
         ensureSessionListLoaded,

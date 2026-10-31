@@ -8,7 +8,8 @@ const { interactionSpies, contextMenuSpies } = vi.hoisted(() => ({
         beginSearchInteraction: vi.fn(),
         settleSearchInteraction: vi.fn().mockResolvedValue(undefined),
         selectSearchResult: vi.fn().mockResolvedValue(undefined),
-        trackFeatureExposed: vi.fn().mockResolvedValue(undefined),
+        finishSearchInteraction: vi.fn().mockResolvedValue(undefined),
+        trackSearchFeatureExposed: vi.fn().mockResolvedValue(undefined),
         runResultAction: vi.fn().mockResolvedValue(undefined),
     },
     contextMenuSpies: {
@@ -20,7 +21,8 @@ vi.mock('@services/AnalyticsService/productInteractions', () => ({
     beginSearchInteraction: interactionSpies.beginSearchInteraction,
     settleSearchInteraction: interactionSpies.settleSearchInteraction,
     selectSearchResult: interactionSpies.selectSearchResult,
-    trackFeatureExposed: interactionSpies.trackFeatureExposed,
+    finishSearchInteraction: interactionSpies.finishSearchInteraction,
+    trackSearchFeatureExposed: interactionSpies.trackSearchFeatureExposed,
     runResultAction: interactionSpies.runResultAction,
 }));
 
@@ -154,7 +156,8 @@ describe('user searches in quick search', () => {
         interactionSpies.beginSearchInteraction.mockImplementation(async () => createInteraction());
         interactionSpies.settleSearchInteraction.mockResolvedValue(undefined);
         interactionSpies.selectSearchResult.mockResolvedValue(undefined);
-        interactionSpies.trackFeatureExposed.mockResolvedValue(undefined);
+        interactionSpies.finishSearchInteraction.mockResolvedValue(undefined);
+        interactionSpies.trackSearchFeatureExposed.mockResolvedValue(undefined);
         interactionSpies.runResultAction.mockResolvedValue(undefined);
     });
 
@@ -188,6 +191,10 @@ describe('user searches in quick search', () => {
             expect.objectContaining({ interactionId: 'interaction-1' }),
             { category: 'file', opened: true }
         );
+        expect(interactionSpies.finishSearchInteraction).toHaveBeenCalledTimes(1);
+        expect(interactionSpies.finishSearchInteraction).toHaveBeenCalledWith(
+            expect.objectContaining({ interactionId: 'interaction-1' })
+        );
 
         unmount();
     });
@@ -201,10 +208,12 @@ describe('user searches in quick search', () => {
         await vi.advanceTimersByTimeAsync(80);
         await flushAsyncWork();
 
-        expect(interactionSpies.trackFeatureExposed).toHaveBeenCalledTimes(1);
-        expect(interactionSpies.trackFeatureExposed).toHaveBeenCalledWith(
-            'quick_search',
-            expect.objectContaining({ operationId: 'op-1' })
+        expect(interactionSpies.trackSearchFeatureExposed).toHaveBeenCalledTimes(1);
+        expect(interactionSpies.trackSearchFeatureExposed).toHaveBeenCalledWith(
+            expect.objectContaining({
+                operation: expect.objectContaining({ operationId: 'op-1' }),
+            }),
+            'quick_search'
         );
 
         unmount();
@@ -244,6 +253,7 @@ describe('user searches in quick search', () => {
 
         expect(interactionSpies.selectSearchResult).not.toHaveBeenCalled();
         expect(interactionSpies.settleSearchInteraction).toHaveBeenCalledTimes(1);
+        expect(interactionSpies.finishSearchInteraction).toHaveBeenCalledTimes(1);
 
         unmount();
     });

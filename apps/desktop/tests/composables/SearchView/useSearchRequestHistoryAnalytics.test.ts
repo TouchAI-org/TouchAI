@@ -30,6 +30,8 @@ const { agentState, analyticsSpies, eventHandlers, listSessionsMock, useAgentMoc
                 beginSearchInteraction: vi.fn(),
                 settleSearchInteraction: vi.fn().mockResolvedValue(undefined),
                 selectSearchResult: vi.fn().mockResolvedValue(undefined),
+                finishSearchInteraction: vi.fn().mockResolvedValue(undefined),
+                trackSearchFeatureExposed: vi.fn().mockResolvedValue(undefined),
                 trackSurfaceOpened: vi.fn().mockResolvedValue(undefined),
             },
             eventHandlers: handlers,
@@ -74,6 +76,8 @@ vi.mock('@services/AnalyticsService/productInteractions', () => ({
     beginSearchInteraction: analyticsSpies.beginSearchInteraction,
     settleSearchInteraction: analyticsSpies.settleSearchInteraction,
     selectSearchResult: analyticsSpies.selectSearchResult,
+    finishSearchInteraction: analyticsSpies.finishSearchInteraction,
+    trackSearchFeatureExposed: analyticsSpies.trackSearchFeatureExposed,
     trackSurfaceOpened: analyticsSpies.trackSurfaceOpened,
 }));
 
@@ -140,6 +144,8 @@ describe('user searches conversation history', () => {
         analyticsSpies.beginSearchInteraction.mockImplementation(async () => createInteraction());
         analyticsSpies.settleSearchInteraction.mockResolvedValue(undefined);
         analyticsSpies.selectSearchResult.mockResolvedValue(undefined);
+        analyticsSpies.finishSearchInteraction.mockResolvedValue(undefined);
+        analyticsSpies.trackSearchFeatureExposed.mockResolvedValue(undefined);
     });
 
     afterEach(() => {
@@ -162,6 +168,7 @@ describe('user searches conversation history', () => {
             expect.objectContaining({ interactionId: 'history-interaction-1' }),
             { hasResults: true, resultCount: 1 }
         );
+        expect(analyticsSpies.finishSearchInteraction).toHaveBeenCalledTimes(1);
 
         unmount();
     });
@@ -180,6 +187,31 @@ describe('user searches conversation history', () => {
             { category: 'conversation', opened: true }
         );
         expect(analyticsSpies.settleSearchInteraction).toHaveBeenCalledTimes(1);
+        expect(analyticsSpies.finishSearchInteraction).toHaveBeenCalledTimes(1);
+
+        unmount();
+    });
+
+    it('user gets the same history handle kept across close until the selection is recorded', async () => {
+        const { result, unmount } = await mountFlow();
+
+        await result.setSessionHistoryPopupOpen(true);
+        await result.ensureSessionListLoaded();
+        await flushAsyncWork();
+        result.markHistorySelectionPending();
+        await result.setSessionHistoryPopupOpen(false);
+        await flushAsyncWork();
+
+        expect(analyticsSpies.finishSearchInteraction).not.toHaveBeenCalled();
+
+        await result.openSession(7);
+        await flushAsyncWork();
+
+        expect(analyticsSpies.selectSearchResult).toHaveBeenCalledWith(
+            expect.objectContaining({ interactionId: 'history-interaction-1' }),
+            { category: 'conversation', opened: true }
+        );
+        expect(analyticsSpies.finishSearchInteraction).toHaveBeenCalledTimes(1);
 
         unmount();
     });
@@ -198,6 +230,7 @@ describe('user searches conversation history', () => {
             expect.objectContaining({ interactionId: 'history-interaction-1' }),
             { category: 'conversation', opened: false }
         );
+        expect(analyticsSpies.finishSearchInteraction).toHaveBeenCalledTimes(1);
 
         unmount();
     });

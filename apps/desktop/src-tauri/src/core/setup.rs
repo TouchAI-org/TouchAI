@@ -164,9 +164,12 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     match tauri::async_runtime::block_on(crate::core::analytics::AnalyticsRuntime::initialize(
         database_runtime.clone(),
         app.package_info().version.to_string(),
+        crate::core::analytics::startup_source_from_process(),
+        crate::core::analytics::process_started_at(),
     )) {
         Ok(analytics_runtime) => {
             analytics_runtime.spawn_sender();
+            analytics_runtime.spawn_health_reporter();
             app.manage(analytics_runtime);
             info!("Analytics runtime initialized.");
         }

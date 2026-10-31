@@ -1,11 +1,12 @@
 import { type ContextMenuItem, useContextMenu } from '@composables/useContextMenu';
 import {
     beginSearchInteraction,
+    finishSearchInteraction,
     runResultAction,
     type SearchInteraction,
     selectSearchResult,
     settleSearchInteraction,
-    trackFeatureExposed,
+    trackSearchFeatureExposed,
 } from '@services/AnalyticsService/productInteractions';
 import { clipboardService } from '@services/ClipboardService';
 import { native, type QuickShortcutItem } from '@services/NativeService';
@@ -165,7 +166,7 @@ function useQuickSearchFlow(
         const ready = interactionReady;
         if (!ready) return;
         void ready
-            .then((interaction) => trackFeatureExposed('quick_search', interaction.operation))
+            .then((interaction) => trackSearchFeatureExposed(interaction, 'quick_search'))
             .catch(() => {});
     }
 
@@ -174,12 +175,13 @@ function useQuickSearchFlow(
         interactionReady = null;
         if (!ready) return;
         void ready
-            .then((interaction) =>
-                settleSearchInteraction(interaction, {
+            .then(async (interaction) => {
+                await settleSearchInteraction(interaction, {
                     hasResults: resultCount > 0,
                     resultCount,
-                })
-            )
+                });
+                await finishSearchInteraction(interaction);
+            })
             .catch(() => {});
     }
 
@@ -194,6 +196,7 @@ function useQuickSearchFlow(
                     resultCount,
                 });
                 await selectSearchResult(interaction, { category: 'file', opened });
+                await finishSearchInteraction(interaction);
             })
             .catch(() => {});
     }
@@ -571,6 +574,15 @@ function useQuickSearchFlow(
         cleanup: () => {
             clearDebounceTimer();
             pruneIconMaps(true);
+            // Unmount is an abandon path: release any handle that never reached
+            // a real close or selection, without fabricating a completed search.
+            const ready = interactionReady;
+            interactionReady = null;
+            if (ready) {
+                void ready
+                    .then((interaction) => finishSearchInteraction(interaction))
+                    .catch(() => {});
+            }
         },
     };
 }

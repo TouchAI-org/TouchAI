@@ -50,4 +50,19 @@ describe('AnalyticsService event registry', () => {
             [...ANALYTICS_EVENT_NAMES].sort()
         );
     });
+
+    it('user gets four-digit years 0000-0099 accepted and impossible days rejected', () => {
+        const validateDay = (first_observed_day: string) =>
+            validateAnalyticsAttributes('analytics.session_started', {
+                configured: true,
+                first_observed_day,
+            });
+
+        // The Rust `time` validator accepts the full four-digit range; the
+        // TypeScript registry must agree rather than dropping years 0-99.
+        expect(() => validateDay('0000-01-01')).not.toThrow();
+        expect(() => validateDay('0099-12-31')).not.toThrow();
+        expect(() => validateDay('2026-02-29')).toThrow();
+        expect(() => validateDay('2026-13-01')).toThrow();
+    });
 });

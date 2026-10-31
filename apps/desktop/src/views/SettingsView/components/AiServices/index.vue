@@ -407,6 +407,13 @@
 
     const openEditProviderDialog = (provider = selectedProvider.value) => {
         if (!provider) return;
+        // A previous edit that never closed cleanly must release its handle
+        // before a new attempt replaces it.
+        const previousAttempt = pendingEditConfiguration.value;
+        if (previousAttempt) {
+            pendingEditConfiguration.value = null;
+            void previousAttempt.abandon().catch(() => {});
+        }
         // Capture the attempt at the real edit start, so an edit that is
         // abandoned without saving stays an unfinished configuration event
         // rather than a fabricated save.
@@ -425,8 +432,11 @@
         if (showEditDialog.value) return;
         isEditDialogMounted.value = false;
         editingProvider.value = null;
-        // The edit session ended; an unsaved attempt is intentionally left unfinished.
+        // The edit session ended without a save: keep the started event honest
+        // and release only the native operation handle.
+        const attempt = pendingEditConfiguration.value;
         pendingEditConfiguration.value = null;
+        void attempt?.abandon().catch(() => {});
     };
 
     const handleCreateProvider = async (data: NewProvider) => {
@@ -765,6 +775,9 @@
     });
 
     onUnmounted(() => {
+        const attempt = pendingEditConfiguration.value;
+        pendingEditConfiguration.value = null;
+        void attempt?.abandon().catch(() => {});
         unlistenAiModelsUpdated?.();
         unlistenAiModelsUpdated = null;
     });
