@@ -37,6 +37,19 @@ fn resolve(filename: &str, sha256: &str, bytes: &[u8]) -> Option<PathBuf> {
         Ok(dir) => dir,
         Err(_) => return None,
     };
+    resolve_in_directory(bin_dir, filename, sha256, bytes)
+}
+
+fn resolve_in_directory(
+    bin_dir: PathBuf,
+    filename: &str,
+    sha256: &str,
+    bytes: &[u8],
+) -> Option<PathBuf> {
+    if sha256_hex(bytes) != sha256 {
+        return None;
+    }
+
     if std::fs::create_dir_all(&bin_dir).is_err() {
         return None;
     }
@@ -123,5 +136,39 @@ mod tests {
     #[test]
     fn resolve_returns_none_for_empty_filename() {
         assert!(resolve("", "abc", b"data").is_none());
+    }
+
+    #[test]
+    fn user_gets_a_mismatched_embedded_binary_rejected_without_a_file() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let bin_dir = temp.path().join("bin");
+        let expected_hash = sha256_hex(b"expected binary");
+
+        assert!(
+            resolve_in_directory(bin_dir.clone(), "rtk.exe", &expected_hash, b"wrong binary")
+                .is_none()
+        );
+        assert!(!bin_dir.join("rtk.exe").exists());
+    }
+
+    #[test]
+    fn user_gets_a_matching_embedded_binary_provisioned_and_reused() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let bin_dir = temp.path().join("bin");
+        let bytes = b"expected binary";
+        let expected_hash = sha256_hex(bytes);
+
+        assert_eq!(
+            resolve_in_directory(bin_dir.clone(), "rtk.exe", &expected_hash, bytes),
+            Some(bin_dir.clone())
+        );
+        assert_eq!(
+            std::fs::read(bin_dir.join("rtk.exe")).expect("binary file"),
+            bytes
+        );
+        assert_eq!(
+            resolve_in_directory(bin_dir.clone(), "rtk.exe", &expected_hash, bytes),
+            Some(bin_dir)
+        );
     }
 }
