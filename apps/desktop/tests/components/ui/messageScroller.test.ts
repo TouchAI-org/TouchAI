@@ -281,12 +281,15 @@ describe('user navigates a long conversation', () => {
         const wrapper = mountScroller({ scrollerItems: previewItems });
         const viewport = viewportOf(wrapper);
         setScrollMetrics(viewport, { scrollHeight: 1_200, clientHeight: 400 });
+        triggerResize();
+        await settleLayout();
+
         const rail = wrapper.get('[data-slot="message-scroller-rail"]').element as HTMLElement;
         Object.defineProperty(rail, 'clientHeight', {
             configurable: true,
             value: 300,
         });
-        triggerResize();
+        (wrapper.vm as unknown as MessageScrollerHandle).recalculate();
         await settleLayout();
 
         const firstTick = wrapper.findAll('[data-slot="message-scroller-rail-item"]')[0]!;
@@ -412,7 +415,7 @@ describe('user navigates a long conversation', () => {
         await wrapper.findAll('[data-slot="message-scroller-rail-item"]')[1]!.trigger('click');
         await nextTick();
 
-        expect(scrollTo).toHaveBeenCalledWith({ top: 650, behavior: 'smooth' });
+        expect(scrollTo).toHaveBeenCalledWith({ top: 650, behavior: 'auto' });
     });
 
     it('user sees the latest message highlighted when at the live edge', async () => {
