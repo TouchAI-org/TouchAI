@@ -1,5 +1,5 @@
 import { analytics } from '@services/AnalyticsService';
-import type { AnalyticsState } from '@services/AnalyticsService/types';
+import type { AnalyticsOperationHandle, AnalyticsState } from '@services/AnalyticsService/types';
 import { native } from '@services/NativeService';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,6 +11,8 @@ vi.mock('@services/NativeService', () => ({
             clearPending: vi.fn(),
             track: vi.fn(),
             flush: vi.fn(),
+            beginOperation: vi.fn(),
+            completeOperation: vi.fn(),
         },
     },
 }));
@@ -28,6 +30,15 @@ function state(partial: Partial<AnalyticsState> = {}): AnalyticsState {
     };
 }
 
+function operation(partial: Partial<AnalyticsOperationHandle> = {}): AnalyticsOperationHandle {
+    return {
+        operationId: 'op-7',
+        enabled: true,
+        consentEpoch: 7,
+        ...partial,
+    };
+}
+
 const validAttributes = {
     run_id: '92a3b4c5-d6e7-4bf8-8c09-eafb0c1d2e09',
     startup_source: 'foreground',
@@ -39,27 +50,26 @@ describe('AnalyticsService', () => {
     });
 
     it('user gets a persisted result when the native channel accepts the event', async () => {
-        nativeAnalytics.getState.mockResolvedValue(state({ consentEpoch: 5 }));
         nativeAnalytics.track.mockResolvedValue({ status: 'persisted', eventId: 'e-1' });
 
         const result = await analytics.track('app.started', validAttributes);
 
         expect(result.status).toBe('persisted');
-        expect(nativeAnalytics.track).toHaveBeenCalledWith({
-            eventName: 'app.started',
-            occurredAtMs: expect.any(Number),
-            consentEpoch: 5,
-            attributes: validAttributes,
-        });
+        expect(nativeAnalytics.track).toHaveBeenCalledWith(
+            expect.objectContaining({
+                eventName: 'app.started',
+                occurredAtMs: expect.any(Number),
+                attributes: validAttributes,
+            })
+        );
     });
 
-    it('user gets a disabled result without a native call when statistics are off', async () => {
-        nativeAnalytics.getState.mockResolvedValue(state({ status: 'disabled' }));
+    it('user gets a disabled result from the native runtime when statistics are off', async () => {
+        nativeAnalytics.track.mockResolvedValue({ status: 'disabled' });
 
         const result = await analytics.track('app.started', validAttributes);
 
         expect(result.status).toBe('disabled');
-        expect(nativeAnalytics.track).not.toHaveBeenCalled();
     });
 
     it('user gets the event rejected before the native channel when an attribute is out of registry', async () => {
@@ -73,44 +83,44 @@ describe('AnalyticsService', () => {
         expect(nativeAnalytics.track).not.toHaveBeenCalled();
     });
 
-    it('user gets the epoch captured at start so a completion cannot borrow a newer consent', async () => {
-        nativeAnalytics.getState.mockResolvedValue(state({ consentEpoch: 7 }));
-        const operation = await analytics.beginOperation();
-        expect(operation).toMatchObject({ enabled: true, consentEpoch: 7 });
-
-        // A disable/re-enable elsewhere moves the live epoch; the in-flight
-        // operation must still carry the epoch it started with.
-        nativeAnalytics.getState.mockResolvedValue(state({ consentEpoch: 9 }));
+    it('user gets the native operation carried on a later completion', async () => {
+        nativeAnalytics.beginOperation.mockResolvedValue(operation({ operationId: 'op-9' }));
         nativeAnalytics.track.mockResolvedValue({ status: 'persisted', eventId: 'e-2' });
 
-        await analytics.track('app.started', validAttributes, { operation });
+        const handle = await analytics.beginOperation();
+        await analytics.track('app.started', validAttributes, { operation: handle });
 
         expect(nativeAnalytics.track).toHaveBeenCalledWith(
-            expect.objectContaining({ consentEpoch: 7 })
+            expect.objectContaining({ operationId: 'op-9' })
         );
     });
 
-    it('user gets a disabled handle when the operation starts while off', async () => {
-        nativeAnalytics.getState.mockResolvedValue(state({ status: 'disabled' }));
+    it('user gets a disabled result without a native call when the operation started while off', async () => {
+        const result = await analytics.track('app.started', validAttributes, {
+            operation: operation({ enabled: false }),
+        });
 
-        const operation = await analytics.beginOperation();
-
-        expect(operation.enabled).toBe(false);
-        const result = await analytics.track('app.started', validAttributes, { operation });
         expect(result.status).toBe('disabled');
         expect(nativeAnalytics.track).not.toHaveBeenCalled();
     });
 
-    it('user gets a fail-closed handle when the native state cannot be read', async () => {
-        nativeAnalytics.getState.mockRejectedValue(new Error('channel down'));
+    it('user gets a fail-closed handle when the native runtime cannot issue one', async () => {
+        nativeAnalytics.beginOperation.mockRejectedValue(new Error('channel down'));
 
-        const operation = await analytics.beginOperation();
+        const handle = await analytics.beginOperation();
 
-        expect(operation).toMatchObject({ enabled: false, consentEpoch: 0 });
+        expect(handle).toMatchObject({ operationId: '', enabled: false, consentEpoch: 0 });
+    });
+
+    it('user gets a completed handle released through the native runtime', async () => {
+        nativeAnalytics.completeOperation.mockResolvedValue(undefined);
+
+        await analytics.completeOperation(operation({ operationId: 'op-9' }));
+
+        expect(nativeAnalytics.completeOperation).toHaveBeenCalledWith('op-9');
     });
 
     it('user gets an error result when the native channel throws, never a rejection', async () => {
-        nativeAnalytics.getState.mockResolvedValue(state());
         nativeAnalytics.track.mockRejectedValue(new Error('ipc failed'));
 
         const result = await analytics.track('app.started', validAttributes);
