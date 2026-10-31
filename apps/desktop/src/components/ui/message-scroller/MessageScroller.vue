@@ -30,6 +30,7 @@
     const PROGRAMMATIC_SCROLL_SETTLE_MS = 320;
     const RAIL_ITEM_SIZE = 14;
     const RAIL_VERTICAL_PADDING = 8;
+    const PREVIEW_HALF_HEIGHT = '3.5rem';
     const RAIL_WAVE_SCALES = [1.5, 1.28, 1.12, 1.02] as const;
     const RAIL_WAVE_STEP_DELAY = 0.012;
 
@@ -152,8 +153,10 @@
         if (displayedItemIndex.value < 0) return {};
         const centerOffset =
             (displayedItemIndex.value - (displayItems.value.length - 1) / 2) * railItemSize.value;
+        const half = PREVIEW_HALF_HEIGHT;
+        const top = `clamp(${half}, calc(50% + ${centerOffset}px), calc(100% - ${half}))`;
         return {
-            top: `calc(50% + ${centerOffset}px)`,
+            top,
             right: 'calc(100% + 0.5rem)',
             transform: 'translateY(-50%)',
         };
@@ -546,12 +549,8 @@
         }
     }
 
-    function handleRailItemSelect(item: MessageScrollerItem, index: number): void {
+    function handleRailItemSelect(item: MessageScrollerItem): void {
         emit('itemSelect', item);
-        if (index === displayItems.value.length - 1) {
-            scrollToEnd(defaultFollowBehavior());
-            return;
-        }
         scrollToItem(item.id, { align: 'center' });
     }
 
@@ -655,7 +654,7 @@
                 data-slot="message-scroller-rail"
             >
                 <button
-                    v-for="(item, index) in displayItems"
+                    v-for="item in displayItems"
                     :key="item.id"
                     type="button"
                     class="relative flex w-full items-center justify-end outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -671,7 +670,7 @@
                     @pointerdown="handlePointerDown($event, item.id)"
                     @focus="handleFocus($event, item.id)"
                     @blur="handleBlur"
-                    @click="handleRailItemSelect(item, index)"
+                    @click="handleRailItemSelect(item)"
                 >
                     <motion.span
                         aria-hidden="true"
@@ -690,6 +689,7 @@
                     class="pointer-events-none absolute z-20 w-64"
                     :style="previewStyle"
                     aria-hidden="true"
+                    data-slot="message-scroller-preview-positioner"
                 >
                     <AnimatePresence mode="wait" :initial="false">
                         <motion.div

@@ -290,6 +290,18 @@ describe('user navigates a long conversation', () => {
         expect(
             wrapper.get('[data-slot="message-scroller-preview-description"]').classes()
         ).toContain('line-clamp-3');
+
+        const positioner = wrapper.get('[data-slot="message-scroller-preview-positioner"]');
+        expect((positioner.element as HTMLElement).style.top).toContain('clamp(');
+
+        pointerEvent('pointerleave', 'mouse', firstTick.element as HTMLElement);
+        const ticks = wrapper.findAll('[data-slot="message-scroller-rail-item"]');
+        const lastTick = ticks[ticks.length - 1]!;
+        pointerEvent('pointerenter', 'mouse', lastTick.element as HTMLElement);
+        await nextTick();
+        await flushPromises();
+
+        expect((positioner.element as HTMLElement).style.top).toContain('calc(100% - 3.5rem)');
     });
 
     it('user sees neighbouring ticks rise in a wave when pointing at a tick', async () => {
@@ -447,11 +459,16 @@ describe('user navigates a long conversation', () => {
         expect(scrollTo).toHaveBeenLastCalledWith({ top: 640, behavior: 'auto' });
     });
 
-    it('user reaches the end by selecting the latest navigation tick', async () => {
+    it('user jumps to the final message by selecting the latest navigation tick', async () => {
         const wrapper = mountScroller();
         const viewport = viewportOf(wrapper);
         setScrollMetrics(viewport, { scrollHeight: 1_600, clientHeight: 400 });
         const scrollTo = stubScrollTo(viewport);
+        stubRect(viewport, { top: 0, height: 400 });
+        stubRect(wrapper.get('[data-message-scroller-item="m2"]').element as HTMLElement, {
+            top: 1_300,
+            height: 100,
+        });
         triggerResize();
         await settleLayout();
 
@@ -459,7 +476,7 @@ describe('user navigates a long conversation', () => {
         await ticks[ticks.length - 1]!.trigger('click');
         await nextTick();
 
-        expect(scrollTo).toHaveBeenLastCalledWith({ top: 1_200, behavior: 'auto' });
+        expect(scrollTo).toHaveBeenLastCalledWith({ top: 1_150, behavior: 'auto' });
     });
 
     it('user can dismiss a preview with touch, keyboard, or focus changes', async () => {
