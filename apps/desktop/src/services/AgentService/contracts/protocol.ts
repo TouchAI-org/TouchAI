@@ -177,6 +177,12 @@ export interface AiStreamChunk {
     toolEvent?: ToolEvent;
     /** 仅 done=true 的 chunk 携带：本次调用的用量。 */
     usage?: AiUsage;
+    /**
+     * 仅 done=true 的 chunk 携带：供应商是否真的返回了 usage（显式零也算）。
+     * `usage` 会把缺失字段归一到 0，因此只能依赖这个显式信号区分
+     * 「报告了零」与「什么都没报告」。
+     */
+    usageReported?: boolean;
 }
 
 // ============================================================================
@@ -238,6 +244,8 @@ export interface AiCallRecord {
     providerId: number | null;
     providerName: string;
     usage: AiUsage;
+    /** In-memory source evidence; not part of the persisted call payload. */
+    usageReported?: boolean;
     timing: AiTiming;
     /** 结束原因：stop / tool_calls / length / error / aborted */
     finishReason?: string;
