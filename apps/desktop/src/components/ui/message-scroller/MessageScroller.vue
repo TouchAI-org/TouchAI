@@ -29,6 +29,7 @@
     const END_TOLERANCE = 5;
     const PROGRAMMATIC_SCROLL_SETTLE_MS = 320;
     const RAIL_ITEM_SIZE = 14;
+    const RAIL_VERTICAL_PADDING = 8;
     const RAIL_WAVE_SCALES = [1.5, 1.28, 1.12, 1.02] as const;
     const RAIL_WAVE_STEP_DELAY = 0.012;
 
@@ -68,6 +69,7 @@
     const viewport = ref<HTMLElement | null>(null);
     const content = ref<HTMLElement | null>(null);
     const rail = ref<HTMLElement | null>(null);
+    const railHeight = ref(0);
     const overflowing = ref(false);
     const atEnd = ref(true);
     const following = ref(props.followOutput);
@@ -135,14 +137,22 @@
         () => props.navigation === 'rail' && overflowing.value && displayItems.value.length > 1
     );
 
+    const railItemSize = computed(() => {
+        const count = displayItems.value.length;
+        const availableHeight = Math.max(0, railHeight.value - RAIL_VERTICAL_PADDING);
+        if (count === 0 || availableHeight === 0) return RAIL_ITEM_SIZE;
+        return Math.min(RAIL_ITEM_SIZE, availableHeight / count);
+    });
+
     const railStyle = computed(() => ({
-        gridTemplateRows: `repeat(${displayItems.value.length}, ${RAIL_ITEM_SIZE}px)`,
+        gridTemplateRows: `repeat(${displayItems.value.length}, ${railItemSize.value}px)`,
     }));
 
     const previewStyle = computed(() => {
         if (displayedItemIndex.value < 0) return {};
         const centerOffset =
-            (displayedItemIndex.value - (displayItems.value.length - 1) / 2) * RAIL_ITEM_SIZE;
+            (displayedItemIndex.value - (displayItems.value.length - 1) / 2) *
+            railItemSize.value;
         return {
             top: `calc(50% + ${centerOffset}px)`,
             right: 'calc(100% + 0.5rem)',
@@ -187,6 +197,7 @@
     let followFrame: number | null = null;
     let measureUpdatesFollowing = false;
     let lastEmittedState = '';
+    let touchStartScrollTop = 0;
 
     type FrameCallback = (timestamp: number) => void;
 
@@ -343,6 +354,7 @@
     function measure(updateFollowing = false): void {
         const state = readState(updateFollowing);
         updateActiveItem();
+        railHeight.value = rail.value?.clientHeight ?? 0;
         emitState(state);
     }
 
@@ -427,6 +439,7 @@
         const element = viewport.value;
         if (!element || deltaY === 0) return;
         interruptProgrammaticScroll();
+        if (deltaY < 0) setFollowing(false);
         element.scrollTop += deltaY;
         scheduleMeasure(true);
     }
@@ -455,11 +468,35 @@
         scheduleMeasure(!programmaticScroll);
     }
 
+    function handleWheel(event: WheelEvent): void {
+        interruptProgrammaticScroll();
+        if (event.deltaY < 0) setFollowing(false);
+    }
+
+    function handleTouchStart(): void {
+        interruptProgrammaticScroll();
+        touchStartScrollTop = viewport.value?.scrollTop ?? 0;
+    }
+
+    function handleTouchMove(): void {
+        const element = viewport.value;
+        if (element && element.scrollTop < touchStartScrollTop) {
+            setFollowing(false);
+        }
+    }
+
     function handleViewportKeyboard(event: KeyboardEvent): void {
-        if (
-            ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)
-        ) {
+        const scrollKeys = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '];
+        if (scrollKeys.includes(event.key)) {
             interruptProgrammaticScroll();
+        }
+        if (
+            event.key === 'ArrowUp' ||
+            event.key === 'PageUp' ||
+            event.key === 'Home' ||
+            (event.key === ' ' && event.shiftKey)
+        ) {
+            setFollowing(false);
         }
     }
 
@@ -469,6 +506,7 @@
         if (followFrame !== null) cancelFrame(followFrame);
         followFrame = requestFrame(() => {
             followFrame = null;
+            if (!props.followOutput || !following.value) return;
             scrollToEnd(defaultFollowBehavior());
         });
     }
@@ -566,7 +604,15 @@
     );
 
     watch(railVisible, (visible) => {
-        if (visible) scheduleMeasure(false);
+        if (visible) {
+            scheduleMeasure(false);
+            return;
+        }
+        railHeight.value = 0;
+    });
+
+    watch(rail, (element) => {
+        railHeight.value = element?.clientHeight ?? 0;
     });
 
     onMounted(async () => {
@@ -617,7 +663,7 @@
                     :class="
                         visibleItemIds.has(item.id) ? 'text-primary-500' : 'text-scrollbar-thumb'
                     "
-                    :style="{ height: `${RAIL_ITEM_SIZE}px` }"
+                    :style="{ height: `${railItemSize}px` }"
                     :aria-label="item.ariaLabel ?? item.label"
                     :aria-current="item.id === activeItemId ? 'location' : undefined"
                     data-slot="message-scroller-rail-item"
@@ -683,8 +729,9 @@
                     :class="viewportClasses"
                     :style="[{ overflowAnchor: 'none' }, viewportStyle]"
                     @scroll.passive="handleScroll"
-                    @wheel.passive="interruptProgrammaticScroll"
-                    @touchstart.passive="interruptProgrammaticScroll"
+                    @wheel.passive="handleWheel"
+                    @touchstart.passive="handleTouchStart"
+                    @touchmove.passive="handleTouchMove"
                     @keydown="handleViewportKeyboard"
                 >
                     <div

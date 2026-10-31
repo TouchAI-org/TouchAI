@@ -140,6 +140,21 @@ describe('user opens a conversation with the new message scroller', () => {
         ]);
     });
 
+    it('user gets a bounded preview from a long streamed reply', async () => {
+        const wrapper = mountPanel([
+            message('m1', 'user', 'Summarise this streamed response'),
+            message('a1', 'assistant', 'word '.repeat(10_000)),
+            message('a2', 'assistant', 'Second answer'),
+        ]);
+        await flushPromises();
+
+        const scroller = wrapper.getComponent({ name: 'MessageScrollerStub' });
+        const description = scroller.props('items')[0]?.description as string;
+
+        expect(description.length).toBeLessThanOrEqual(320);
+        expect(description).not.toContain('Second answer');
+    });
+
     it('user starts at the latest output when follow mode is enabled', async () => {
         mountPanel();
         await flushPromises();

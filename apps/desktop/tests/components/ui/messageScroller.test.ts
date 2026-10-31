@@ -237,6 +237,36 @@ describe('user navigates a long conversation', () => {
         expect(wrapper.find('nav').exists()).toBe(false);
     });
 
+    it('user sees every tick fit within a compressed rail', async () => {
+        const manyItems = Array.from({ length: 40 }, (_, index) => ({
+            id: `many-${index + 1}`,
+            label: `Message ${index + 1}`,
+        }));
+        const wrapper = mountScroller({ scrollerItems: manyItems });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, { scrollHeight: 4_000, clientHeight: 400 });
+        triggerResize();
+        await settleLayout();
+
+        const rail = wrapper.get('[data-slot="message-scroller-rail"]').element as HTMLElement;
+        Object.defineProperty(rail, 'clientHeight', {
+            configurable: true,
+            value: 100,
+        });
+        (wrapper.vm as unknown as MessageScrollerHandle).recalculate();
+        await nextTick();
+
+        const heights = wrapper
+            .findAll('[data-slot="message-scroller-rail-item"]')
+            .map((tick) => Number.parseFloat((tick.element as HTMLElement).style.height));
+
+        expect(heights).toHaveLength(manyItems.length);
+        expect(heights.every((height) => height < 14)).toBe(true);
+        expect(Math.ceil(heights.reduce((total, height) => total + height, 0))).toBeLessThanOrEqual(
+            92
+        );
+    });
+
     it('user sees a message preview when pointing at its tick', async () => {
         const wrapper = mountScroller();
         const viewport = viewportOf(wrapper);
@@ -520,6 +550,28 @@ describe('user follows streamed output', () => {
 
         expect(viewport.scrollTop).toBe(100);
         expect(scrollTo).not.toHaveBeenCalled();
+    });
+
+    it('user stays in place when an upward scroll is followed by a resize', async () => {
+        const wrapper = mountScroller({ followOutput: true });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, {
+            scrollTop: 600,
+            scrollHeight: 1_000,
+            clientHeight: 400,
+        });
+        const scrollTo = stubScrollTo(viewport);
+        await settleLayout();
+        scrollTo.mockClear();
+
+        viewport.scrollTop = 590;
+        viewport.dispatchEvent(new WheelEvent('wheel', { deltaY: -10, bubbles: true }));
+        setScrollHeight(viewport, 1_200);
+        triggerResize();
+        await settleLayout();
+
+        expect(scrollTo).not.toHaveBeenCalled();
+        expect(viewport.scrollTop).toBe(590);
     });
 
     it('user resumes following after returning to the live edge', async () => {

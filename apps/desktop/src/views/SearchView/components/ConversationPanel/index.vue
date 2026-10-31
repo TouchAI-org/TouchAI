@@ -128,6 +128,7 @@
     const { outputScrollBehavior } = storeToRefs(settingsStore);
     const showScrollToBottom = ref(false);
     const USER_MESSAGE_SCROLL_GAP = 12;
+    const RAIL_PREVIEW_SOURCE_LENGTH = 320;
 
     const conversationContainerStyle = computed(() =>
         props.fillAvailableHeight
@@ -142,7 +143,7 @@
     );
 
     function normaliseMessageText(content: string): string {
-        return content.replace(/\s+/g, ' ').trim();
+        return content.slice(0, RAIL_PREVIEW_SOURCE_LENGTH).replace(/\s+/g, ' ').trim();
     }
 
     function roleLabel(role: SessionMessage['role']): string {
@@ -152,33 +153,38 @@
     }
 
     const messageRailItems = computed<MessageScrollerItem[]>(() => {
-        const turns = props.messages.flatMap((message, index) =>
-            message.role === 'user' ? [{ message, index }] : []
-        );
+        const turns: MessageScrollerItem[] = [];
+        let currentTurn: MessageScrollerItem | undefined;
+        let currentTurnHasAssistant = false;
 
-        return turns.map(({ message, index }, turnIndex) => {
-            const nextUserIndex = props.messages.findIndex(
-                (candidate, candidateIndex) => candidateIndex > index && candidate.role === 'user'
-            );
-            const assistantResponse = props.messages
-                .slice(index + 1, nextUserIndex >= 0 ? nextUserIndex : undefined)
-                .find((candidate) => candidate.role === 'assistant');
-            const description = assistantResponse
-                ? normaliseMessageText(assistantResponse.content)
-                : '';
+        for (const message of props.messages) {
+            if (message.role === 'user') {
+                currentTurn = {
+                    id: message.id,
+                    label:
+                        normaliseMessageText(message.content) ||
+                        t('conversation.scroller.message'),
+                    role: message.role,
+                };
+                turns.push(currentTurn);
+                currentTurnHasAssistant = false;
+                continue;
+            }
 
-            return {
-                id: message.id,
-                label: normaliseMessageText(message.content) || t('conversation.scroller.message'),
-                description: description || undefined,
-                role: message.role,
-                ariaLabel: t('conversation.scroller.jumpToMessage', {
-                    role: roleLabel(message.role),
-                    index: turnIndex + 1,
-                    total: turns.length,
-                }),
-            };
-        });
+            if (message.role === 'assistant' && currentTurn && !currentTurnHasAssistant) {
+                currentTurn.description = normaliseMessageText(message.content) || undefined;
+                currentTurnHasAssistant = true;
+            }
+        }
+
+        return turns.map((item, turnIndex) => ({
+            ...item,
+            ariaLabel: t('conversation.scroller.jumpToMessage', {
+                role: roleLabel('user'),
+                index: turnIndex + 1,
+                total: turns.length,
+            }),
+        }));
     });
 
     function focus() {
