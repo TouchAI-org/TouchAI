@@ -146,7 +146,7 @@ deduplication; no WebView-authored session-start row is persisted.
 | Queue TTL | 72 hours | `store::TTL_MS` |
 | Send batch | 50 rows | `store::SEND_BATCH_LIMIT` |
 | In-flight ingress | 128 rows / 256 KiB | `INGRESS_MAX_ENTRIES`, `INGRESS_MAX_BYTES` |
-| Pending-update metadata | 512 bytes | `PENDING_UPDATE_MAX_BYTES` |
+| Pending-update metadata | 640 bytes | `PENDING_UPDATE_MAX_BYTES` |
 | Session idle | 30 minutes | `SESSION_IDLE` |
 | Operation handles | 256, 2 hours | `OPERATION_MAX`, `OPERATION_TTL` |
 | Exposure dedup set | 4,096 keys | `EXPOSURE_MAX` |
