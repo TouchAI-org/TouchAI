@@ -2,7 +2,7 @@
  * Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import { AiRequestExecutor } from '@/services/AgentService/execution';
@@ -16,13 +16,10 @@ const providerMock = vi.hoisted(() => ({
     classifyError: vi.fn(),
 }));
 
-const { createMcpToolLogMock, updateMcpToolLogByCallIdMock, resolveToolCallMock, executeToolMock } =
-    vi.hoisted(() => ({
-        createMcpToolLogMock: vi.fn(),
-        updateMcpToolLogByCallIdMock: vi.fn(),
-        resolveToolCallMock: vi.fn(),
-        executeToolMock: vi.fn(),
-    }));
+const { createMcpToolLogMock, updateMcpToolLogByCallIdMock } = vi.hoisted(() => ({
+    createMcpToolLogMock: vi.fn(),
+    updateMcpToolLogByCallIdMock: vi.fn(),
+}));
 
 const { builtInExecuteToolMock, resolveToolDefinitionsMock, createProviderForModelMock } =
     vi.hoisted(() => ({
@@ -31,16 +28,17 @@ const { builtInExecuteToolMock, resolveToolDefinitionsMock, createProviderForMod
         createProviderForModelMock: vi.fn(),
     }));
 
-vi.mock('@database/queries', () => ({
+vi.mock('@database/queries', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@database/queries')>()),
     createMcpToolLog: createMcpToolLogMock,
     updateMcpToolLogByCallId: updateMcpToolLogByCallIdMock,
-}));
-
-vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
-    mcpManager: {
-        resolveToolCall: resolveToolCallMock,
-        executeTool: executeToolMock,
-    },
+    findMcpServerById: async () => ({
+        id: 1,
+        name: 'controlled-server',
+        enabled: 1,
+        tool_timeout: 30_000,
+    }),
+    findMcpToolByServerIdAndName: async () => ({ name: 'search', enabled: 1 }),
 }));
 
 vi.mock('@/services/BuiltInToolService', () => ({
@@ -149,7 +147,10 @@ describe('user runs a tool call', () => {
         resolveToolDefinitionsMock.mockResolvedValue([]);
         createMcpToolLogMock.mockResolvedValue({ id: 23 });
         updateMcpToolLogByCallIdMock.mockResolvedValue(undefined);
+        vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
     });
+
+    afterEach(() => vi.restoreAllMocks());
 
     function streamOneToolCall(name: string) {
         return async function* () {
@@ -163,18 +164,37 @@ describe('user runs a tool call', () => {
         };
     }
 
-    async function runTool(name: string) {
+    async function runTool(name: string, signal?: AbortSignal) {
         providerMock.stream
             .mockImplementationOnce(streamOneToolCall(name))
             .mockImplementationOnce(async function* () {
                 yield { content: 'Done', done: true };
             });
 
-        return new AiRequestExecutor().runAttempt({
+        const analytics = createAgentRequestAnalytics();
+        const outcome = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
             persister: persisterStub() as never,
-            analytics: createAgentRequestAnalytics(),
+            analytics,
+            signal,
         });
+        analytics.complete({
+            result:
+                outcome.type === 'completed'
+                    ? 'success'
+                    : outcome.error.is(AiErrorCode.REQUEST_CANCELLED)
+                      ? 'cancelled'
+                      : 'failure',
+            retryCount: 0,
+            modelSwitchCount: outcome.modelSwitchCount,
+            persistenceResult: 'not_applicable',
+            calls: outcome.calls,
+            usageReportedCalls: outcome.usageReportedCalls,
+        });
+        await vi.waitFor(() =>
+            expect(getTauriInvokeCalls('analytics_complete_operation')).toHaveLength(1)
+        );
+        return outcome;
     }
 
     it('user gets a command category when a built-in command tool finishes', async () => {
@@ -203,12 +223,11 @@ describe('user runs a tool call', () => {
 
     it('user gets an mcp category when an mcp tool finishes', async () => {
         builtInExecuteToolMock.mockResolvedValue(null);
-        resolveToolCallMock.mockResolvedValue({
-            serverId: 1,
-            originalName: 'search',
-            toolTimeout: 30000,
-        });
-        executeToolMock.mockResolvedValue({ result: 'done', isError: false });
+        mockTauriCommand('mcp_call_tool', () => ({
+            success: true,
+            content: [{ type: 'text', text: 'done' }],
+            is_error: false,
+        }));
 
         const outcome = await runTool('mcp__1__search');
         expect(outcome.type).toBe('completed');
@@ -249,5 +268,53 @@ describe('user runs a tool call', () => {
             expect(toolCompletedEvents()).toHaveLength(1);
         });
         expect(toolCompletedEvents()[0]!.attributes.result).toBe('cancelled');
+    });
+
+    it('user gets a failed MCP tool result without cancellation when the server reports its own cancelled work', async () => {
+        builtInExecuteToolMock.mockResolvedValue(null);
+        mockTauriCommand('mcp_call_tool', () => {
+            throw new Error('controlled server cancelled its own job');
+        });
+
+        const outcome = await runTool('mcp__1__search');
+
+        expect(outcome.type).toBe('completed');
+        expect(toolCompletedEvents()).toHaveLength(1);
+        expect(toolCompletedEvents()[0]!.attributes).toMatchObject({
+            tool_category: 'mcp',
+            result: 'failure',
+        });
+    });
+
+    it('user gets cancelled MCP telemetry and a cancellation outcome when aborting a real MCP wait', async () => {
+        builtInExecuteToolMock.mockResolvedValue(null);
+        const controller = new AbortController();
+        let nativeStarted!: () => void;
+        const started = new Promise<void>((resolve) => {
+            nativeStarted = resolve;
+        });
+        let finishNative!: (value: unknown) => void;
+        mockTauriCommand('mcp_call_tool', () => {
+            nativeStarted();
+            return new Promise((resolve) => {
+                finishNative = resolve;
+            });
+        });
+
+        const pending = runTool('mcp__1__search', controller.signal);
+        await started;
+        controller.abort();
+        const outcome = await pending;
+        finishNative({ success: true, content: [], is_error: false });
+
+        expect(outcome.type).toBe('failed');
+        if (outcome.type !== 'failed') throw new Error('expected cancellation');
+        expect(outcome.error.code).toBe(AiErrorCode.REQUEST_CANCELLED);
+        await vi.waitFor(() => expect(toolCompletedEvents()).toHaveLength(1));
+        expect(toolCompletedEvents()[0]!.attributes).toMatchObject({
+            tool_category: 'mcp',
+            result: 'cancelled',
+        });
+        expect(JSON.stringify(toolCompletedEvents())).not.toContain('mcp__1__search');
     });
 });

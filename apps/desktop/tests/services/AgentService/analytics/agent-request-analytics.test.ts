@@ -2,7 +2,7 @@
  * Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type {
@@ -220,6 +220,7 @@ function createCall(overrides: Record<string, unknown> = {}) {
         timing: { durationMs: 5 },
         toolCallsInStep: 0,
         toolArgumentErrors: 0,
+        usageReported: true,
         ...overrides,
     };
 }
@@ -504,7 +505,10 @@ describe('user runs a logical request with analytics on', () => {
     it('user gets usage marked unavailable when the provider never reported usage', async () => {
         const executor = createExecutor();
         executor.runAttempt.mockResolvedValue(
-            completedResult({ calls: [createCall()] as never, usageReportedCalls: 0 })
+            completedResult({
+                calls: [createCall({ usageReported: false })] as never,
+                usageReportedCalls: 0,
+            })
         );
         const { runtime } = run(executor);
 
@@ -617,6 +621,46 @@ describe('user reaches a terminal result', () => {
         expect(completed.attributes.persistence_result).toBe('saved');
         expect(completed.attributes.cancel_stage).toBeUndefined();
     });
+
+    it.each(['success', 'failure', 'cancelled'] as const)(
+        'user keeps the %s outcome and releases telemetry when a terminal notification throws',
+        async (result) => {
+            const handle = enableAnalytics();
+            const executor = createExecutor();
+            const failure = new AiError(
+                result === 'cancelled' ? AiErrorCode.REQUEST_CANCELLED : AiErrorCode.INVALID_CONFIG
+            );
+            if (result !== 'success') {
+                executor.runAttempt.mockResolvedValue(failedResult({ error: failure }));
+            }
+            const terminalEvents: string[] = [];
+            const { runtime } = run(executor, {
+                taskId: 'controlled-task',
+                onTurnEvent: (event) => {
+                    if (['task_completed', 'task_failed', 'task_cancelled'].includes(event.type)) {
+                        terminalEvents.push(event.type);
+                        throw new Error('controlled-host-notification-error');
+                    }
+                },
+            });
+
+            if (result === 'success') {
+                await expect(runtime.run()).resolves.toMatchObject({ response: 'Answer' });
+            } else {
+                await expect(runtime.run()).rejects.toBe(failure);
+            }
+
+            expect(terminalEvents).toEqual([
+                result === 'success'
+                    ? 'task_completed'
+                    : result === 'failure'
+                      ? 'task_failed'
+                      : 'task_cancelled',
+            ]);
+            expect((await waitForTerminal()).attributes.result).toBe(result);
+            await vi.waitFor(() => expect(completedOperationCalls()).toEqual([handle.operationId]));
+        }
+    );
 
     it('user gets a failure result when the model returns an empty answer', async () => {
         const executor = createExecutor();
@@ -888,14 +932,23 @@ describe('user finishes the native analytics operation', () => {
         expect(tracksOf('attachment.preparation_completed')).toHaveLength(0);
     });
 
-    it('user still gets the answer when the release never settles', async () => {
-        enableAnalytics();
-        mockTauriCommand('analytics_complete_operation', () => new Promise(() => undefined));
+    it('user still gets the answer before a stalled release settles', async () => {
+        const handle = enableAnalytics();
+        let finishRelease!: () => void;
+        mockTauriCommand(
+            'analytics_complete_operation',
+            () =>
+                new Promise<void>((resolve) => {
+                    finishRelease = resolve;
+                })
+        );
         const { runtime } = run(createExecutor());
 
         const result = await runtime.run();
 
         expect(result.response).toBe('Answer');
+        await vi.waitFor(() => expect(completedOperationCalls()).toEqual([handle.operationId]));
+        finishRelease();
     });
 
     it('user still gets the answer when the release channel throws', async () => {
@@ -913,21 +966,34 @@ describe('user finishes the native analytics operation', () => {
         });
     });
 
-    it('user still gets the answer when the operation start never settles', async () => {
-        mockTauriCommand('analytics_begin_operation', () => new Promise(() => undefined));
+    it('user still gets the answer before a stalled operation start settles', async () => {
+        const handle = enableAnalytics();
+        let finishStart!: (handle: InjectedOperation) => void;
+        mockTauriCommand(
+            'analytics_begin_operation',
+            () =>
+                new Promise<InjectedOperation>((resolve) => {
+                    finishStart = resolve;
+                })
+        );
         const { runtime } = run(createExecutor());
 
         const result = await runtime.run();
 
         expect(result.response).toBe('Answer');
-        // The terminal attempt is captured, but its send waits on the start it
-        // can never obtain; the request result must not.
         expect(getTauriInvokeCalls('analytics_track')).toHaveLength(0);
+        finishStart(handle);
+        await vi.waitFor(() => expect(completedOperationCalls()).toEqual([handle.operationId]));
     });
 
-    it('user still gets the answer when the pricing lookup never settles', async () => {
-        enableAnalytics();
-        findModelPricingMock.mockReturnValue(new Promise(() => undefined));
+    it('user still gets the answer before a stalled pricing lookup settles', async () => {
+        const handle = enableAnalytics();
+        let finishPricing!: (value: null) => void;
+        findModelPricingMock.mockReturnValue(
+            new Promise<null>((resolve) => {
+                finishPricing = resolve;
+            })
+        );
         const executor = createExecutor();
         executor.runAttempt.mockResolvedValue(
             completedResult({ calls: [createCall()] as never, usageReportedCalls: 1 })
@@ -939,11 +1005,20 @@ describe('user finishes the native analytics operation', () => {
         expect(result.response).toBe('Answer');
         // The terminal event needs pricing evidence; the request does not.
         expect(tracksOf('agent.request_completed')).toHaveLength(0);
+        finishPricing(null);
+        await vi.waitFor(() => expect(completedOperationCalls()).toEqual([handle.operationId]));
     });
 
-    it('user still gets the answer when the terminal track never settles', async () => {
-        enableAnalytics();
-        mockTauriCommand('analytics_track', () => new Promise(() => undefined));
+    it('user still gets the answer before stalled event submissions settle', async () => {
+        const handle = enableAnalytics();
+        const finishTracks: Array<(value: unknown) => void> = [];
+        mockTauriCommand(
+            'analytics_track',
+            () =>
+                new Promise((resolve) => {
+                    finishTracks.push(resolve);
+                })
+        );
         const { runtime } = run(createExecutor());
 
         const result = await runtime.run();
@@ -952,7 +1027,45 @@ describe('user finishes the native analytics operation', () => {
         await vi.waitFor(() => {
             expect(tracksOf('agent.request_completed')).toHaveLength(1);
         });
+        for (const finish of finishTracks) finish({ status: 'persisted' });
+        await vi.waitFor(() => expect(completedOperationCalls()).toEqual([handle.operationId]));
     });
+
+    it.each(['failure', 'cancelled'] as const)(
+        'user keeps the %s business result while operation start and event delivery stall',
+        async (result) => {
+            const handle = enableAnalytics();
+            let finishStart!: (value: InjectedOperation) => void;
+            const finishTracks: Array<(value: unknown) => void> = [];
+            mockTauriCommand(
+                'analytics_begin_operation',
+                () =>
+                    new Promise<InjectedOperation>((resolve) => {
+                        finishStart = resolve;
+                    })
+            );
+            mockTauriCommand(
+                'analytics_track',
+                () =>
+                    new Promise((resolve) => {
+                        finishTracks.push(resolve);
+                    })
+            );
+            const error = new AiError(
+                result === 'cancelled' ? AiErrorCode.REQUEST_CANCELLED : AiErrorCode.INVALID_CONFIG
+            );
+            const executor = createExecutor();
+            executor.runAttempt.mockResolvedValue(failedResult({ error }));
+
+            await expect(run(executor).runtime.run()).rejects.toBe(error);
+            expect(trackCalls()).toEqual([]);
+            finishStart(handle);
+            await waitForTerminal();
+            expect(tracksOf('agent.request_completed')[0]!.attributes.result).toBe(result);
+            for (const finish of finishTracks) finish({ status: 'persisted' });
+            await vi.waitFor(() => expect(completedOperationCalls()).toEqual([handle.operationId]));
+        }
+    );
 });
 
 describe('user sends no private content to analytics', () => {
@@ -990,6 +1103,223 @@ describe('user sends no private content to analytics', () => {
         const serialized = JSON.stringify(trackCalls());
         expect(serialized).not.toContain('SENTINEL_PROMPT');
         expect(serialized).not.toContain('SENTINEL_MODEL');
+    });
+
+    it('user keeps call diagnostics and provider usage metadata out of terminal analytics', async () => {
+        const executor = createExecutor();
+        executor.runAttempt.mockResolvedValue(
+            completedResult({
+                calls: [
+                    createCall({
+                        modelName: 'SENTINEL_CALL_MODEL',
+                        providerName: 'SENTINEL_PROVIDER',
+                        errorMessage: 'SENTINEL_CALL_ERROR',
+                        usage: {
+                            inputTokens: 1,
+                            outputTokens: 0,
+                            cacheReadTokens: 0,
+                            cacheWriteTokens: 0,
+                            reasoningTokens: 0,
+                            servedModel: 'SENTINEL_SERVED_MODEL',
+                            raw: { diagnostic: 'SENTINEL_RAW_USAGE' },
+                        },
+                    }),
+                ],
+            })
+        );
+
+        await run(executor).runtime.run();
+        await waitForTerminal();
+
+        expect(JSON.stringify(trackCalls())).not.toContain('SENTINEL_');
+    });
+});
+
+describe('given telemetry transport or pricing can stop responding', () => {
+    beforeEach(() => {
+        enableAnalytics();
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => vi.useRealTimers());
+
+    const completion = {
+        result: 'success' as const,
+        retryCount: 0,
+        modelSwitchCount: 0,
+        persistenceResult: 'saved' as const,
+        calls: [],
+        usageReportedCalls: 0,
+    };
+
+    async function drain() {
+        await vi.advanceTimersByTimeAsync(0);
+    }
+
+    it('user gets no late events and one release when an abandoned operation start eventually settles', async () => {
+        let finishStart!: (handle: InjectedOperation) => void;
+        const handle = { operationId: 'late-operation', enabled: true, consentEpoch: 3 };
+        mockTauriCommand(
+            'analytics_begin_operation',
+            () =>
+                new Promise((resolve) => {
+                    finishStart = resolve;
+                })
+        );
+        const request = new AgentRequestAnalytics();
+        request.submit({ attachmentCount: 0 });
+        request.complete(completion);
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(trackCalls()).toEqual([]);
+        finishStart(handle);
+        await drain();
+
+        expect(trackCalls()).toEqual([]);
+        expect(completedOperationCalls()).toEqual([handle.operationId]);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('user gets unavailable pricing and one release when pricing hangs and later settles', async () => {
+        const handle = enableAnalytics();
+        let finishPricing!: (value: null) => void;
+        findModelPricingMock.mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    finishPricing = resolve;
+                })
+        );
+        const request = new AgentRequestAnalytics();
+        request.complete({ ...completion, calls: [createCall()], usageReportedCalls: 1 });
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(tracksOf('agent.request_completed')).toHaveLength(1);
+        expect(tracksOf('agent.request_completed')[0]!.attributes).toMatchObject({
+            pricing_coverage: 'unavailable',
+            llm_call_count: 1,
+            unpriced_call_count: 1,
+        });
+        expect(tracksOf('agent.request_completed')[0]!.attributes.cost_usd_micros).toBeUndefined();
+        expect(completedOperationCalls()).toEqual([handle.operationId]);
+
+        finishPricing(null);
+        await drain();
+        expect(tracksOf('agent.request_completed')).toHaveLength(1);
+        expect(completedOperationCalls()).toEqual([handle.operationId]);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('user gets bounded event work and one release when all event submissions hang and later settle', async () => {
+        const handle = enableAnalytics();
+        const finishTracks: Array<(value: unknown) => void> = [];
+        mockTauriCommand(
+            'analytics_track',
+            () =>
+                new Promise((resolve) => {
+                    finishTracks.push(resolve);
+                })
+        );
+        const request = new AgentRequestAnalytics();
+        for (let index = 0; index < 1_000; index += 1) {
+            request.noteToolCompleted({ category: 'command', result: 'success', durationMs: 1 });
+        }
+        request.complete(completion);
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(trackCalls().length).toBeGreaterThan(0);
+        expect(trackCalls().length).toBeLessThanOrEqual(33);
+        expect(completedOperationCalls()).toEqual([handle.operationId]);
+
+        for (const finish of finishTracks) finish({ status: 'persisted' });
+        await drain();
+        expect(completedOperationCalls()).toEqual([handle.operationId]);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('user keeps a fixed bound on outstanding event callbacks across requests until the transport recovers', async () => {
+        const finishTracks: Array<(value: unknown) => void> = [];
+        mockTauriCommand(
+            'analytics_track',
+            () =>
+                new Promise((resolve) => {
+                    finishTracks.push(resolve);
+                })
+        );
+        for (let index = 0; index < 100; index += 1) {
+            const request = new AgentRequestAnalytics();
+            for (let tool = 0; tool < 100; tool += 1) {
+                request.noteToolCompleted({
+                    category: 'command',
+                    result: 'success',
+                    durationMs: 1,
+                });
+            }
+            request.complete(completion);
+            await vi.advanceTimersByTimeAsync(10_000);
+        }
+        expect(trackCalls().length).toBeGreaterThan(0);
+        expect(trackCalls().length).toBeLessThanOrEqual(64);
+        expect(completedOperationCalls()).toHaveLength(100);
+        for (const finish of finishTracks) finish({ status: 'persisted' });
+        await drain();
+        const beforeRecovery = trackCalls().length;
+        mockTauriCommand('analytics_track', () => ({ status: 'persisted' }));
+        new AgentRequestAnalytics().complete(completion);
+        await drain();
+        expect(trackCalls().length).toBe(beforeRecovery + 1);
+        expect(completedOperationCalls()).toHaveLength(101);
+    });
+
+    it('user gets bounded pricing lookups across requests while hung lookups are abandoned', async () => {
+        const finishLookups: Array<(value: null) => void> = [];
+        findModelPricingMock.mockImplementation(
+            () =>
+                new Promise<null>((resolve) => {
+                    finishLookups.push(resolve);
+                })
+        );
+        for (let index = 0; index < 32; index += 1) {
+            new AgentRequestAnalytics().complete({ ...completion, calls: [createCall()] });
+            await vi.advanceTimersByTimeAsync(10_000);
+        }
+        expect(finishLookups.length).toBeGreaterThan(0);
+        expect(finishLookups.length).toBeLessThanOrEqual(8);
+        expect(tracksOf('agent.request_completed')).toHaveLength(32);
+        expect(completedOperationCalls()).toHaveLength(32);
+        for (const finish of finishLookups) finish(null);
+        await drain();
+        expect(completedOperationCalls()).toHaveLength(32);
+    });
+
+    it('user gets a fixed limit on outstanding starts and recovers after abandoned starts settle', async () => {
+        const starts: Array<(handle: InjectedOperation) => void> = [];
+        mockTauriCommand(
+            'analytics_begin_operation',
+            () =>
+                new Promise((resolve) => {
+                    starts.push(resolve);
+                })
+        );
+        for (let index = 0; index < 1_000; index += 1) {
+            new AgentRequestAnalytics().complete(completion);
+        }
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(starts.length).toBeGreaterThan(0);
+        expect(starts.length).toBeLessThanOrEqual(16);
+        expect(trackCalls()).toEqual([]);
+
+        starts.forEach((finish, index) =>
+            finish({ operationId: `abandoned-${index}`, enabled: true, consentEpoch: 3 })
+        );
+        await drain();
+        expect(completedOperationCalls()).toHaveLength(starts.length);
+        const handle = enableAnalytics();
+        new AgentRequestAnalytics().complete(completion);
+        await drain();
+        expect(tracksOf('agent.request_completed')).toHaveLength(1);
+        expect(completedOperationCalls().filter((id) => id === handle.operationId)).toEqual([
+            handle.operationId,
+        ]);
     });
 });
 
@@ -1306,6 +1636,97 @@ describe('user gets bounded diagnostics on completion', () => {
         });
         expect(completed.attributes.cost_usd_micros).toBeUndefined();
     });
+
+    it.each([false, true])(
+        'user gets no cost when usage and pricing belong to different calls, reversed=%s',
+        async (reversed) => {
+            findModelPricingMock.mockImplementation(async (name: string) =>
+                name === 'priced-model' ? usdPricing('priced-model') : null
+            );
+            const withoutUsage = createCall({ modelName: 'priced-model', usageReported: false });
+            const withoutPrice = createCall({ modelName: 'unknown-model', usage: usage(1000) });
+            const executor = createExecutor();
+            executor.runAttempt.mockResolvedValue(
+                completedResult({
+                    calls: (reversed
+                        ? [withoutPrice, withoutUsage]
+                        : [withoutUsage, withoutPrice]) as never,
+                    usageReportedCalls: 1,
+                })
+            );
+
+            await run(executor).runtime.run();
+
+            const completed = await waitForTerminal();
+            expect(completed.attributes).toMatchObject({
+                usage_coverage: 'partial',
+                pricing_coverage: 'unavailable',
+                llm_call_count: 2,
+                unpriced_call_count: 2,
+                total_tokens: 1000,
+            });
+            expect(completed.attributes.cost_usd_micros).toBeUndefined();
+        }
+    );
+
+    it('user gets only the defensible cost when other calls lack usage or USD pricing', async () => {
+        findModelPricingMock.mockImplementation(async (name: string) =>
+            name === 'priced-model'
+                ? usdPricing('priced-model')
+                : { ...usdPricing(name), currency: 'EUR' }
+        );
+        const executor = createExecutor();
+        executor.runAttempt.mockResolvedValue(
+            completedResult({
+                calls: [
+                    createCall({ modelName: 'priced-model', usage: usage(1000) }),
+                    createCall({ modelName: 'priced-model', usageReported: false }),
+                    createCall({ modelName: 'eur-model', usage: usage(2000) }),
+                ] as never,
+                usageReportedCalls: 2,
+            })
+        );
+
+        await run(executor).runtime.run();
+
+        expect((await waitForTerminal()).attributes).toMatchObject({
+            pricing_coverage: 'partial',
+            llm_call_count: 3,
+            unpriced_call_count: 2,
+            cost_usd_micros: 1000,
+        });
+    });
+
+    it.each([10_000, 10_001])(
+        'user gets consistent bounded pricing counts when a request contains %i provider calls',
+        async (count) => {
+            findModelPricingMock.mockResolvedValue(usdPricing('priced-model'));
+            const calls = Array.from({ length: count }, () =>
+                createCall({
+                    modelName: 'priced-model',
+                    usage: usage(1),
+                })
+            );
+            const executor = createExecutor();
+            executor.runAttempt.mockResolvedValue(
+                completedResult({ calls, usageReportedCalls: count })
+            );
+
+            await run(executor).runtime.run();
+
+            const completed = await waitForTerminal();
+            expect(completed.attributes).toMatchObject({
+                usage_coverage: 'observed',
+                llm_call_count: 10_000,
+                total_tokens: count,
+                unpriced_call_count: count === 10_000 ? 0 : 10_000,
+                pricing_coverage: count === 10_000 ? 'observed' : 'unavailable',
+            });
+            expect(completed.attributes.cost_usd_micros).toBe(
+                count === 10_000 ? 10_000 : undefined
+            );
+        }
+    );
 
     it('user gets cache token counts only when the provider reported them', async () => {
         const executor = createExecutor();

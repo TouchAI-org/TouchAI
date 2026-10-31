@@ -59,6 +59,97 @@ const MAX_TOKENS = 10_000_000_000;
 const MAX_COST_MICROS = 10_000_000_000_000;
 const MAX_COUNT = 10_000;
 const MAX_MODEL_SWITCHES = 1_000;
+const TELEMETRY_DEADLINE_MS = 2_000;
+const MAX_PENDING_EVENTS = 32;
+const operationBudget = { active: 0, limit: 16 };
+const sendBudget = { active: 0, limit: 64 };
+const pricingBudget = { active: 0, limit: 8 };
+
+/** Detach request continuations on timeout; keep only bounded transport cleanup. */
+function withinDeadline<T>(
+    promise: Promise<T>,
+    onSettled: () => void = () => undefined,
+    onLateValue: (value: T) => void = () => undefined
+): Promise<T | undefined> {
+    const state: { resolve?: (value: T | undefined) => void } = {};
+    const result = new Promise<T | undefined>((resolve) => {
+        state.resolve = resolve;
+    });
+    const timer = setTimeout(() => {
+        const resolve = state.resolve;
+        state.resolve = undefined;
+        resolve?.(undefined);
+    }, TELEMETRY_DEADLINE_MS);
+    void promise.then(
+        (value) => {
+            clearTimeout(timer);
+            onSettled();
+            const resolve = state.resolve;
+            state.resolve = undefined;
+            if (resolve) resolve(value);
+            else onLateValue(value);
+        },
+        () => {
+            clearTimeout(timer);
+            onSettled();
+            const resolve = state.resolve;
+            state.resolve = undefined;
+            resolve?.(undefined);
+        }
+    );
+    return result;
+}
+
+function backgroundWork<T>(
+    budget: { active: number; limit: number },
+    start: () => Promise<T>
+): Promise<T | undefined> {
+    if (budget.active >= budget.limit) return Promise.resolve(undefined);
+    budget.active += 1;
+    try {
+        // A timed-out IPC still occupies its slot until the real promise settles.
+        return withinDeadline(start(), () => {
+            budget.active -= 1;
+        });
+    } catch {
+        budget.active -= 1;
+        return Promise.resolve(undefined);
+    }
+}
+
+function bindOperation(sink: AgentAnalyticsSink) {
+    if (operationBudget.active >= operationBudget.limit) {
+        return { ready: Promise.resolve(undefined), release: () => undefined };
+    }
+    operationBudget.active += 1;
+    let released = false;
+    const release = (handle: AnalyticsOperationHandle) => {
+        if (released) return;
+        released = true;
+        try {
+            void withinDeadline(sink.completeOperation(handle), () => {
+                operationBudget.active -= 1;
+            });
+        } catch {
+            operationBudget.active -= 1;
+        }
+    };
+    try {
+        const started = sink.beginOperation().catch(() => {
+            operationBudget.active -= 1;
+            return undefined;
+        });
+        return {
+            ready: withinDeadline(started, undefined, (handle) => {
+                if (handle) release(handle);
+            }),
+            release,
+        };
+    } catch {
+        operationBudget.active -= 1;
+        return { ready: Promise.resolve(undefined), release: () => undefined };
+    }
+}
 
 /** Programming-source extensions classified as `code` (not `document`). */
 const CODE_EXTENSIONS = new Set([
@@ -193,12 +284,13 @@ function usageCoverage(totalCalls: number, reportedCalls: number): AgentUsageCov
 }
 
 /** Sum the normalized token fields of the reported calls; `null` when unknown. */
-function summedTokens(calls: readonly AiCallRecord[], reportedCalls: number): number | null {
-    if (calls.length === 0 || reportedCalls <= 0) {
+function summedTokens(calls: readonly AiCallRecord[]): number | null {
+    const reported = calls.filter((call) => call.usageReported === true);
+    if (reported.length === 0) {
         return null;
     }
 
-    return calls.reduce(
+    return reported.reduce(
         (total, call) =>
             total +
             call.usage.inputTokens +
@@ -229,19 +321,14 @@ interface PricingOutcome {
  * and unpriced calls is `partial`, and that partial sum is a lower bound rather
  * than a complete request cost; nothing defensible is `unavailable`.
  */
-async function resolvePricing(
-    calls: readonly AiCallRecord[],
-    reportedCalls: number
-): Promise<PricingOutcome> {
+async function resolvePricing(calls: readonly AiCallRecord[]): Promise<PricingOutcome> {
     const llmCallCount = calls.length;
-    const cacheReadTokens =
-        reportedCalls > 0
-            ? calls.reduce((total, call) => total + call.usage.cacheReadTokens, 0)
-            : 0;
-    const cacheWriteTokens =
-        reportedCalls > 0
-            ? calls.reduce((total, call) => total + call.usage.cacheWriteTokens, 0)
-            : 0;
+    const reported = calls.filter((call) => call.usageReported === true);
+    const cacheReadTokens = reported.reduce((total, call) => total + call.usage.cacheReadTokens, 0);
+    const cacheWriteTokens = reported.reduce(
+        (total, call) => total + call.usage.cacheWriteTokens,
+        0
+    );
     const unknown = (): PricingOutcome => ({
         llmCallCount,
         // Without usage evidence every recorded call lacks a USD estimate.
@@ -254,23 +341,25 @@ async function resolvePricing(
 
     // Without a single provider-reported call there is no token evidence, so no
     // defensible cost exists even if a price row is present.
-    if (llmCallCount === 0 || reportedCalls <= 0) {
+    if (reported.length === 0) {
         return unknown();
     }
 
     try {
-        const resolved = await resolveCalls([...calls]);
-        if (resolved.length === 0) {
+        const resolved = await backgroundWork(pricingBudget, () => resolveCalls([...calls]));
+        if (!resolved || resolved.length === 0) {
             return unknown();
         }
 
         const pricedUsd = resolved.filter(
-            (item) => item.cost.priced && item.cost.currency === 'USD'
+            (item) =>
+                item.record.usageReported === true &&
+                item.cost.priced &&
+                item.cost.currency === 'USD'
         );
         // Calls that a pricing row did not price in USD, plus calls the provider
         // never reported usage for: both lack a defensible USD estimate.
-        const missingUsage = Math.max(0, llmCallCount - reportedCalls);
-        const unpricedCallCount = Math.max(resolved.length - pricedUsd.length, missingUsage);
+        const unpricedCallCount = llmCallCount - pricedUsd.length;
         const usdCostMicros = pricedUsd.length > 0 ? sumCost(pricedUsd).totalCostMicros : null;
         const pricingCoverage: AgentPricingCoverage =
             unpricedCallCount === 0 ? 'observed' : pricedUsd.length > 0 ? 'partial' : 'unavailable';
@@ -360,6 +449,7 @@ export class AgentRequestAnalytics {
     private readonly surface: AgentRequestSurface;
     private readonly startedMono: number;
     private readonly ready: Promise<void>;
+    private readonly binding: ReturnType<typeof bindOperation>;
     private readonly pendingSends = new Set<Promise<void>>();
     private handle: AnalyticsOperationHandle | null = null;
     private operationReleased = false;
@@ -368,20 +458,18 @@ export class AgentRequestAnalytics {
     private toolCompletedCount = 0;
     private approvalResolvedCount = 0;
     private stage: AgentCancelStage = 'submitted';
+    private cancelStage: AgentCancelStage | null = null;
+    private readonly phases: Array<{ stage: AgentCancelStage }> = [];
 
     constructor(options: AgentRequestAnalyticsOptions = {}) {
         this.sink = options.sink ?? analyticsService;
         this.requestKind = options.requestKind ?? 'chat';
         this.surface = options.surface ?? 'main';
         this.startedMono = monotonicNowMs();
-        this.ready = this.sink
-            .beginOperation()
-            .then((handle) => {
-                this.handle = handle;
-            })
-            .catch(() => {
-                this.handle = null;
-            });
+        this.binding = bindOperation(this.sink);
+        this.ready = this.binding.ready.then((handle) => {
+            this.handle = handle ?? null;
+        });
     }
 
     submit(attributes: {
@@ -398,11 +486,11 @@ export class AgentRequestAnalytics {
     }
 
     noteFirstOutput(): void {
+        this.stage = 'streaming';
         if (this.firstOutputRecorded) {
             return;
         }
         this.firstOutputRecorded = true;
-        this.stage = 'streaming';
         this.emit('agent.first_output_received', {
             request_id: this.requestId,
             first_output_latency_ms: clampInt(monotonicNowMs() - this.startedMono, MAX_DURATION_MS),
@@ -415,7 +503,6 @@ export class AgentRequestAnalytics {
         durationMs: number;
     }): void {
         this.toolCompletedCount += 1;
-        this.stage = 'tool';
         this.emit('agent.tool_completed', {
             request_id: this.requestId,
             tool_id: crypto.randomUUID(),
@@ -427,7 +514,6 @@ export class AgentRequestAnalytics {
 
     noteApprovalResolved(input: { resolution: AgentApprovalResolution; waitMs: number }): void {
         this.approvalResolvedCount += 1;
-        this.stage = 'approval';
         this.emit('agent.approval_resolved', {
             request_id: this.requestId,
             approval_id: crypto.randomUUID(),
@@ -458,6 +544,21 @@ export class AgentRequestAnalytics {
         });
     }
 
+    enterPhase(stage: AgentCancelStage): () => void {
+        if (this.terminalRecorded || this.cancelStage) return () => undefined;
+        const phase = { stage };
+        this.phases.push(phase);
+        return () => {
+            const index = this.phases.indexOf(phase);
+            if (index >= 0) this.phases.splice(index, 1);
+            if (this.phases.length === 0) this.stage = 'other';
+        };
+    }
+
+    noteAbort(): void {
+        this.cancelStage ??= this.phases[this.phases.length - 1]?.stage ?? this.stage;
+    }
+
     /**
      * Record the single terminal event and release the operation handle, once.
      *
@@ -475,7 +576,27 @@ export class AgentRequestAnalytics {
 
         try {
             const attributes = this.buildTerminalAttributes(input);
-            const terminalSend = this.sendTerminal(input, attributes);
+            // Pricing never retains raw usage, provider output, or error messages.
+            const calls =
+                input.calls.length > MAX_COUNT
+                    ? []
+                    : input.calls.map((call) => ({
+                          iteration: call.iteration,
+                          modelId: call.modelId,
+                          modelName: call.modelName,
+                          providerId: null,
+                          providerName: '',
+                          timing: { durationMs: 0 },
+                          toolCallsInStep: 0,
+                          toolArgumentErrors: 0,
+                          usageReported: call.usageReported,
+                          usage: { ...call.usage, raw: undefined, servedModel: undefined },
+                      }));
+            const terminalSend = this.sendTerminal(
+                { ...input, calls },
+                attributes,
+                input.calls.length
+            );
             this.pendingSends.add(terminalSend);
             void terminalSend
                 .catch(() => undefined)
@@ -496,7 +617,10 @@ export class AgentRequestAnalytics {
             result: input.result,
             duration_ms: clampInt(monotonicNowMs() - this.startedMono, MAX_DURATION_MS),
             retry_count: clampInt(input.retryCount, MAX_COUNT),
-            usage_coverage: usageCoverage(input.calls.length, input.usageReportedCalls),
+            usage_coverage: usageCoverage(
+                input.calls.length,
+                input.calls.filter((call) => call.usageReported === true).length
+            ),
             persistence_result: input.persistenceResult,
             tool_count: clampInt(this.toolCompletedCount, MAX_COUNT),
             approval_count: clampInt(this.approvalResolvedCount, MAX_COUNT),
@@ -512,10 +636,11 @@ export class AgentRequestAnalytics {
             attributes.error_category = errorCategoryForCode(input.errorCode);
         }
         if (input.result === 'cancelled') {
-            attributes.cancel_stage = this.stage;
+            attributes.cancel_stage =
+                this.cancelStage ?? this.phases[this.phases.length - 1]?.stage ?? this.stage;
         }
 
-        const tokens = summedTokens(input.calls, input.usageReportedCalls);
+        const tokens = summedTokens(input.calls);
         if (tokens !== null) {
             attributes.total_tokens = clampInt(tokens, MAX_TOKENS);
         }
@@ -531,15 +656,20 @@ export class AgentRequestAnalytics {
      */
     private async sendTerminal(
         input: AgentRequestCompletion,
-        attributes: Record<string, AnalyticsAttributeValue>
+        attributes: Record<string, AnalyticsAttributeValue>,
+        totalCalls: number
     ): Promise<void> {
         await this.ready;
+        if (!this.handle?.enabled) return;
 
         try {
-            const pricing = await resolvePricing(input.calls, input.usageReportedCalls);
+            const pricing = await resolvePricing(input.calls);
             attributes.pricing_coverage = pricing.pricingCoverage;
-            attributes.llm_call_count = clampInt(pricing.llmCallCount, MAX_COUNT);
-            attributes.unpriced_call_count = clampInt(pricing.unpricedCallCount, MAX_COUNT);
+            attributes.llm_call_count = clampInt(totalCalls, MAX_COUNT);
+            attributes.unpriced_call_count = clampInt(
+                totalCalls - pricing.llmCallCount + pricing.unpricedCallCount,
+                MAX_COUNT
+            );
             if (pricing.usdCostMicros !== null) {
                 attributes.cost_usd_micros = clampInt(pricing.usdCostMicros, MAX_COST_MICROS);
             }
@@ -565,7 +695,7 @@ export class AgentRequestAnalytics {
         // A late parallel tool completion must not be sent after the terminal
         // event, nor attach to a newer consent epoch than the request began
         // with. Once the terminal instant is captured, notes are dropped.
-        if (this.terminalRecorded) {
+        if (this.terminalRecorded || this.pendingSends.size >= MAX_PENDING_EVENTS) {
             return;
         }
 
@@ -601,11 +731,9 @@ export class AgentRequestAnalytics {
         }
 
         await Promise.allSettled([...this.pendingSends]);
-        try {
-            await this.sink.completeOperation(handle);
-        } catch {
-            // Best-effort: an unreleased handle only costs a bounded native slot.
-        }
+        this.pendingSends.clear();
+        this.handle = null;
+        this.binding.release(handle);
     }
 
     private async send(
@@ -618,10 +746,12 @@ export class AgentRequestAnalytics {
         }
 
         try {
-            await this.sink.track(eventName, attributes, {
-                operation: handle,
-                occurredAtMs: Date.now(),
-            });
+            await backgroundWork(sendBudget, () =>
+                this.sink.track(eventName, attributes, {
+                    operation: handle,
+                    occurredAtMs: Date.now(),
+                })
+            );
         } catch {
             // Best-effort: the request result does not depend on the channel.
         }

@@ -2,13 +2,15 @@
  * Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
+import type { ToolApprovalDecisionRequest } from '@/services/AgentService/contracts/tooling';
 import { AiRequestExecutor } from '@/services/AgentService/execution';
 import type {
     AttemptExecutionResult,
     ModelWithProvider,
+    RequestExecutionCallbacks,
 } from '@/services/AgentService/execution/executor';
 import {
     AiConversationRuntime,
@@ -328,7 +330,192 @@ describe('user gets real agent telemetry from the runtime and executor seam', ()
         ensurePersistedAttachmentIndexMock.mockResolvedValue(undefined);
         shouldRetryRequestFailureMock.mockReturnValue(false);
         providerMock.stream.mockReset();
+        providerMock.classifyError.mockReset();
         builtInExecuteToolMock.mockReset();
+        vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it.each([
+        ['a network failure', AiErrorCode.NETWORK_ERROR],
+        ['user cancellation', AiErrorCode.REQUEST_CANCELLED],
+    ] as const)(
+        'user gets the started call and available timing when a provider stream ends with %s',
+        async (_label, code) => {
+            let now = 1_800_000_000_000;
+            vi.mocked(Date.now).mockImplementation(() => now);
+            providerMock.stream.mockImplementationOnce(async function* () {
+                now += 25;
+                yield { content: 'partial', done: false };
+                now += 75;
+                throw new AiError(code);
+            });
+
+            const outcome = await runExecutorAttempt();
+
+            expect(outcome.type).toBe('failed');
+            if (outcome.type !== 'failed') throw new Error('expected failure');
+            expect(outcome.error.code).toBe(code);
+            expect(outcome.calls).toHaveLength(1);
+            expect(outcome.calls[0]).toMatchObject({
+                finishReason: code === AiErrorCode.REQUEST_CANCELLED ? 'aborted' : 'error',
+                usageReported: false,
+                timing: { ttftMs: 25, firstTextMs: 25, durationMs: 100 },
+            });
+            expect(outcome.usageReportedCalls).toBe(0);
+            expect(outcome.firstTtftMs).toBe(25);
+            expect(outcome.partialOutputParts).toEqual([{ type: 'text', content: 'partial' }]);
+        }
+    );
+
+    it('user gets partial usage coverage when a real failed stream is retried successfully', async () => {
+        shouldRetryRequestFailureMock.mockReturnValueOnce(true).mockReturnValue(false);
+        providerMock.stream
+            .mockImplementationOnce(async function* () {
+                yield { content: 'partial', done: false };
+                throw new AiError(AiErrorCode.NETWORK_ERROR);
+            })
+            .mockImplementationOnce(async function* () {
+                yield { content: 'Done', done: false };
+                yield {
+                    content: '',
+                    done: true,
+                    usageReported: true,
+                    usage: {
+                        inputTokens: 10,
+                        outputTokens: 5,
+                        cacheReadTokens: 0,
+                        cacheWriteTokens: 0,
+                        reasoningTokens: 0,
+                    },
+                };
+            });
+
+        await createRuntime().run();
+
+        expect((await waitForTerminal()).attributes).toMatchObject({
+            result: 'success',
+            retry_count: 1,
+            llm_call_count: 2,
+            usage_coverage: 'partial',
+            pricing_coverage: 'partial',
+            unpriced_call_count: 1,
+            total_tokens: 15,
+            cost_usd_micros: 15,
+        });
+    });
+
+    it('user counts one switch when a checkpoint after switching is retried successfully', async () => {
+        shouldRetryRequestFailureMock.mockReturnValueOnce(true).mockReturnValue(false);
+        const target = { ...createModel(), id: 2, model_id: 'upgraded-model' };
+        builtInExecuteToolMock.mockResolvedValue({
+            ...builtInResult('switch-1'),
+            toolCall: { id: 'switch-1', name: 'builtin__upgrade_model', arguments: '{}' },
+            controlSignal: {
+                type: 'upgrade_model',
+                targetModel: target,
+                restartCurrentRequest: false,
+            },
+        });
+        providerMock.stream
+            .mockImplementationOnce(
+                streamToolCalls({ id: 'switch-1', name: 'builtin__upgrade_model' })
+            )
+            .mockImplementationOnce(async function* () {
+                yield { content: 'partial', done: false };
+                throw new AiError(AiErrorCode.NETWORK_ERROR);
+            })
+            .mockImplementationOnce(streamAnswer());
+        const checkpoints: Array<{ modelSwitchCount: number; iteration: number }> = [];
+
+        const result = await createRuntime({
+            taskId: 'checkpoint-task',
+            onTurnEvent: (event) => {
+                if (event.type === 'checkpoint_committed') checkpoints.push(event.checkpoint);
+            },
+        }).run();
+
+        expect(result.model.model_id).toBe('upgraded-model');
+        expect(checkpoints).toMatchObject([{ modelSwitchCount: 1, iteration: 1 }]);
+        expect((await waitForTerminal()).attributes).toMatchObject({
+            result: 'success',
+            model_switch_count: 1,
+            retry_count: 1,
+            llm_call_count: 3,
+        });
+    });
+
+    it('user gets streaming as the cancellation stage when cancelling a stream after a later tool round', async () => {
+        const controller = new AbortController();
+        providerMock.stream
+            .mockImplementationOnce(async function* () {
+                yield { content: 'first text', done: false };
+                yield* streamToolCalls({ id: 'call-1', name: 'builtin__bash' })();
+            })
+            .mockImplementationOnce(async function* () {
+                yield { content: '', done: false };
+                controller.abort();
+                throw new AiError(AiErrorCode.REQUEST_CANCELLED);
+            });
+        builtInExecuteToolMock.mockResolvedValue(builtInResult('call-1'));
+
+        await expect(createRuntime({ signal: controller.signal }).run()).rejects.toMatchObject({
+            code: AiErrorCode.REQUEST_CANCELLED,
+        });
+
+        expect((await waitForTerminal()).attributes).toMatchObject({
+            result: 'cancelled',
+            cancel_stage: 'streaming',
+            tool_count: 1,
+        });
+        expect(tracksOf('agent.first_output_received')).toHaveLength(1);
+    });
+
+    it('user keeps approval as the cancellation stage after the cancelled tool unwinds', async () => {
+        const controller = new AbortController();
+        providerMock.stream.mockImplementationOnce(
+            streamToolCalls({ id: 'call-1', name: 'builtin__bash' })
+        );
+        const approval: ToolApprovalDecisionRequest = {
+            callId: 'call-1',
+            title: 'Run command',
+            description: '',
+            command: 'controlled-command',
+            riskLabel: '',
+            reason: '',
+            commandLabel: '',
+            approveLabel: 'Approve',
+            rejectLabel: 'Reject',
+            enterHint: '',
+            escHint: '',
+        };
+        builtInExecuteToolMock.mockImplementationOnce(
+            async ({ requestToolApproval }: RequestExecutionCallbacks) => {
+                await requestToolApproval?.(approval);
+                throw new AiError(AiErrorCode.REQUEST_CANCELLED);
+            }
+        );
+
+        await expect(
+            createRuntime({
+                signal: controller.signal,
+                requestToolApproval: async () => {
+                    controller.abort();
+                    await Promise.resolve();
+                    return false;
+                },
+            }).run()
+        ).rejects.toMatchObject({ code: AiErrorCode.REQUEST_CANCELLED });
+
+        expect((await waitForTerminal()).attributes).toMatchObject({
+            result: 'cancelled',
+            cancel_stage: 'approval',
+            tool_count: 1,
+            approval_count: 1,
+        });
+        expect(tracksOf('agent.approval_resolved')[0]!.attributes.resolution).toBe('cancelled');
+        expect(tracksOf('agent.tool_completed')[0]!.attributes.result).toBe('cancelled');
     });
 
     it('user gets one tool completion and tool_count one when a built-in tool finishes', async () => {

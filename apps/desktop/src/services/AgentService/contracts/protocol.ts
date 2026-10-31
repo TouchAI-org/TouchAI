@@ -244,6 +244,8 @@ export interface AiCallRecord {
     providerId: number | null;
     providerName: string;
     usage: AiUsage;
+    /** In-memory source evidence; not part of the persisted call payload. */
+    usageReported?: boolean;
     timing: AiTiming;
     /** 结束原因：stop / tool_calls / length / error / aborted */
     finishReason?: string;

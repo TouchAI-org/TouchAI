@@ -219,6 +219,7 @@ export class AiConversationRuntime {
     private requestModelSwitchCount = 0;
     private providerTtftMs: number | null = null;
     private analyticsErrorCode: string | null = null;
+    private terminalResult: AgentRequestResult | null = null;
 
     constructor(
         private readonly executor: AiRequestExecutor,
@@ -235,6 +236,14 @@ export class AiConversationRuntime {
             await this.options.environment?.reportPersistenceIssue?.(issue);
         } catch (error) {
             log.error('[AiConversationRuntime] Failed to deliver persistence issue:', error);
+        }
+    }
+
+    private notifyTurnEvent(event: TurnEvent): void {
+        try {
+            this.options.onTurnEvent?.(event);
+        } catch {
+            log.error('[AiConversationRuntime] Host turn notification failed:', event.type);
         }
     }
 
@@ -293,11 +302,14 @@ export class AiConversationRuntime {
 
         return async (payload) => {
             const startedMono = performance.now();
+            const leaveApproval = this.analytics.enterPhase('approval');
             let approved = false;
             try {
                 approved = await inner(payload);
                 return approved;
             } finally {
+                if (this.options.signal?.aborted) this.analytics.noteAbort();
+                leaveApproval();
                 this.analytics.noteApprovalResolved({
                     resolution: approved
                         ? 'approved'
@@ -360,7 +372,7 @@ export class AiConversationRuntime {
         });
 
         if (this.options.taskId) {
-            this.options.onTurnEvent?.({
+            this.notifyTurnEvent({
                 type: 'prompt_snapshot_ready',
                 taskId: this.options.taskId,
                 snapshot: promptSnapshot,
@@ -386,7 +398,7 @@ export class AiConversationRuntime {
                     return;
                 }
 
-                this.options.onTurnEvent?.({
+                this.notifyTurnEvent({
                     type: 'task_started',
                     taskId: this.options.taskId,
                     sessionId: persister.getSessionId(),
@@ -480,6 +492,7 @@ export class AiConversationRuntime {
         context: RuntimeContext,
         result: Extract<AttemptExecutionResult, { type: 'completed' }>
     ): Promise<ExecuteRequestResult> {
+        const leavePersistence = this.analytics.enterPhase('persistence');
         try {
             await context.persister.markCompleted({
                 durationMs: Date.now() - this.startedAt,
@@ -505,6 +518,8 @@ export class AiConversationRuntime {
                 ...buildPersistenceIssue('agent.persistenceIssue.turnCompleted'),
                 error: persistError,
             });
+        } finally {
+            leavePersistence();
         }
 
         // Close out with the measured output tokens so the panel switches from estimate to real.
@@ -515,13 +530,14 @@ export class AiConversationRuntime {
         this.liveTracker = null;
 
         this.requestFinalized = true;
+        this.terminalResult = 'success';
 
         await updateModelLastUsed({ id: result.model.id }).catch((error) => {
             log.error('[AiConversationRuntime] Failed to update model last used:', error);
         });
 
         if (this.options.taskId) {
-            this.options.onTurnEvent?.({
+            this.notifyTurnEvent({
                 type: 'task_completed',
                 taskId: this.options.taskId,
                 turnId: context.persister.getTurn()?.id ?? null,
@@ -530,8 +546,6 @@ export class AiConversationRuntime {
                 reasoning: result.reasoning,
             });
         }
-
-        this.finalizeRequestAnalytics('success');
 
         return {
             model: result.model,
@@ -586,7 +600,31 @@ export class AiConversationRuntime {
             attributes[ATTR.turnId] = this.options.taskId;
         }
 
-        return withSpan('touchai.turn', attributes, (turnSpan) => this.runInSpan(turnSpan));
+        const onAbort = () => this.analytics.noteAbort();
+        this.options.signal?.addEventListener('abort', onAbort, { once: true });
+        if (this.options.signal?.aborted) onAbort();
+        try {
+            return await withSpan('touchai.turn', attributes, (turnSpan) =>
+                this.runInSpan(turnSpan)
+            );
+        } catch (error) {
+            if (this.terminalResult === null) {
+                const aiError = AiError.fromError(error);
+                this.terminalResult = aiError.is(AiErrorCode.REQUEST_CANCELLED)
+                    ? 'cancelled'
+                    : 'failure';
+                this.analyticsErrorCode = aiError.code;
+            }
+            throw error;
+        } finally {
+            this.options.signal?.removeEventListener('abort', onAbort);
+            try {
+                this.liveTracker?.stop();
+            } finally {
+                this.liveTracker = null;
+                this.finalizeRequestAnalytics(this.terminalResult ?? 'unknown');
+            }
+        }
     }
 
     private async runInSpan(
@@ -600,9 +638,6 @@ export class AiConversationRuntime {
         } catch (error) {
             const aiError = AiError.fromError(error);
             this.analyticsErrorCode = aiError.code;
-            this.finalizeRequestAnalytics(
-                aiError.is(AiErrorCode.REQUEST_CANCELLED) ? 'cancelled' : 'failure'
-            );
             throw error;
         }
 
@@ -621,6 +656,7 @@ export class AiConversationRuntime {
             this.liveTracker?.start();
 
             for (let retryAttempt = 0; retryAttempt <= MAX_REQUEST_RETRIES; retryAttempt += 1) {
+                const startingModelSwitchCount = resumeCheckpoint.modelSwitchCount;
                 const attemptResult = await withSpan(
                     'touchai.attempt',
                     { [ATTR.attempt]: retryAttempt + 1 },
@@ -638,7 +674,7 @@ export class AiConversationRuntime {
                                 this.liveTracker?.consume(chunk);
                                 this.options.onChunk?.(chunk);
                             },
-                            onTurnEvent: this.options.onTurnEvent,
+                            onTurnEvent: (event) => this.notifyTurnEvent(event),
                             requestToolApproval,
                             requestUserQuestions: this.options.requestUserQuestions,
                             analytics: this.analytics,
@@ -649,7 +685,10 @@ export class AiConversationRuntime {
 
                 this.accumulatedCalls.push(...attemptResult.calls);
                 this.usageReportedCalls += attemptResult.usageReportedCalls;
-                this.requestModelSwitchCount += attemptResult.modelSwitchCount;
+                this.requestModelSwitchCount += Math.max(
+                    0,
+                    attemptResult.modelSwitchCount - startingModelSwitchCount
+                );
                 if (this.providerTtftMs === null && attemptResult.firstTtftMs !== null) {
                     this.providerTtftMs = attemptResult.firstTtftMs;
                 }
@@ -657,10 +696,12 @@ export class AiConversationRuntime {
                 await context.requestStartRecordPromise;
 
                 if (attemptResult.type === 'completed') {
-                    return this.handleCompleted(context, attemptResult);
+                    return await this.handleCompleted(context, attemptResult);
                 }
 
                 if (attemptResult.error.is(AiErrorCode.REQUEST_CANCELLED)) {
+                    this.terminalResult = 'cancelled';
+                    this.analyticsErrorCode = attemptResult.error.code;
                     try {
                         await context.persister.markCancelled(attemptResult.partialOutputParts, {
                             calls: attemptResult.calls,
@@ -689,13 +730,12 @@ export class AiConversationRuntime {
                     this.liveTracker = null;
                     this.requestFinalized = true;
                     if (this.options.taskId) {
-                        this.options.onTurnEvent?.({
+                        this.notifyTurnEvent({
                             type: 'task_cancelled',
                             taskId: this.options.taskId,
                             turnId: context.persister.getTurn()?.id ?? null,
                         });
                     }
-                    this.finalizeRequestAnalytics('cancelled');
                     throw attemptResult.error;
                 }
 
@@ -729,7 +769,7 @@ export class AiConversationRuntime {
                         });
                     }
                     if (this.options.taskId) {
-                        this.options.onTurnEvent?.({
+                        this.notifyTurnEvent({
                             type: 'retry_scheduled',
                             taskId: this.options.taskId,
                             attempt: nextAttempt,
@@ -752,6 +792,8 @@ export class AiConversationRuntime {
                     continue;
                 }
 
+                this.terminalResult = 'failure';
+                this.analyticsErrorCode = attemptResult.error.code;
                 try {
                     await context.persister.markFailed(
                         attemptResult.error.message,
@@ -782,7 +824,7 @@ export class AiConversationRuntime {
                 this.liveTracker = null;
                 this.requestFinalized = true;
                 if (this.options.taskId) {
-                    this.options.onTurnEvent?.({
+                    this.notifyTurnEvent({
                         type: 'task_failed',
                         taskId: this.options.taskId,
                         turnId: context.persister.getTurn()?.id ?? null,
@@ -790,13 +832,16 @@ export class AiConversationRuntime {
                     });
                 }
                 this.analyticsErrorCode = attemptResult.error.code;
-                this.finalizeRequestAnalytics('failure');
                 throw attemptResult.error;
             }
 
             throw new AiError(AiErrorCode.UNKNOWN, undefined, '请求重试耗尽后未返回结果');
         } catch (error) {
             const aiError = AiError.fromError(error);
+            this.terminalResult ??= aiError.is(AiErrorCode.REQUEST_CANCELLED)
+                ? 'cancelled'
+                : 'failure';
+            this.analyticsErrorCode ??= aiError.code;
             await context.requestStartRecordPromise;
 
             if (!this.requestFinalized) {
@@ -817,7 +862,7 @@ export class AiConversationRuntime {
                         });
                     }
                     if (this.options.taskId) {
-                        this.options.onTurnEvent?.({
+                        this.notifyTurnEvent({
                             type: 'task_cancelled',
                             taskId: this.options.taskId,
                             turnId: context.persister.getTurn()?.id ?? null,
@@ -840,7 +885,7 @@ export class AiConversationRuntime {
                         });
                     }
                     if (this.options.taskId) {
-                        this.options.onTurnEvent?.({
+                        this.notifyTurnEvent({
                             type: 'task_failed',
                             taskId: this.options.taskId,
                             turnId: context.persister.getTurn()?.id ?? null,
@@ -851,9 +896,6 @@ export class AiConversationRuntime {
             }
 
             this.analyticsErrorCode = aiError.code;
-            this.finalizeRequestAnalytics(
-                aiError.is(AiErrorCode.REQUEST_CANCELLED) ? 'cancelled' : 'failure'
-            );
             throw aiError;
         }
     }
