@@ -466,18 +466,27 @@ export async function completeResultAction(
 }
 
 /**
- * Runs an existing copy/open action and reports its real outcome. The action
- * itself is never delayed or altered: telemetry starts alongside it and records
- * success or failure afterwards. Rejections propagate unchanged.
+ * Runs an existing copy/open action and reports its real outcome. The returned
+ * promise is the action's own promise, unchanged: telemetry must not add an
+ * extra microtask before a caller's notification. Telemetry is attached as a
+ * rejection-handled side effect, so a failed analytics call can never replace
+ * the real success or failure.
  */
-export async function runResultAction<T>(action: ResultAction, run: () => Promise<T>): Promise<T> {
+export function runResultAction<T>(action: ResultAction, run: () => Promise<T>): Promise<T> {
     const operation = beginResultAction(action);
+    const complete = (outcome: ResultActionOutcome) => {
+        void operation.then((attempt) => completeResultAction(attempt, outcome)).catch(() => {});
+    };
     try {
-        const result = await run();
-        void operation.then((attempt) => completeResultAction(attempt, 'success')).catch(() => {});
-        return result;
+        const actionPromise = run();
+        // Observe rejection immediately, even while the native handle is pending.
+        void actionPromise.then(
+            () => complete('success'),
+            () => complete('failure')
+        );
+        return actionPromise;
     } catch (error) {
-        void operation.then((attempt) => completeResultAction(attempt, 'failure')).catch(() => {});
+        complete('failure');
         throw error;
     }
 }

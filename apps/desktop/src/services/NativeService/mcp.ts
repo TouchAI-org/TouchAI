@@ -12,6 +12,8 @@ import { invoke } from './invoke';
 
 export type McpTransportType = 'stdio' | 'sse' | 'http';
 
+export type McpConnectionOrigin = 'user' | 'background';
+
 export interface McpServerConfig {
     id: number;
     name: string;
@@ -61,8 +63,11 @@ export interface McpServerStatusInfo {
 /**
  * 连接到 MCP 服务器
  */
-export async function connectServer(config: McpServerConfig): Promise<void> {
-    return invoke('mcp_connect_server', { config });
+export async function connectServer(
+    config: McpServerConfig,
+    origin: McpConnectionOrigin = 'user'
+): Promise<void> {
+    return invoke('mcp_connect_server', { config, connectionOrigin: origin });
 }
 
 /**

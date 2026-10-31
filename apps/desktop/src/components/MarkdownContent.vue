@@ -51,6 +51,8 @@
 
     import WebSearchCitationLink from '@/views/SearchView/components/WebSearch/WebSearchCitationLink.vue';
 
+    import MarkdownCodeBlock from './MarkdownCodeBlock.vue';
+
     const markdownParser = getMarkdown('touchai-markdown', {
         enableContainers: false,
         markdownItOptions: {
@@ -123,10 +125,10 @@
 
             enableKatex(() => import('katex'));
             enableMermaid(() => import('mermaid'));
-            // 只接管外部链接节点：命中搜索来源的会渲染成行内引用 chip，
-            // 其余链接由 WebSearchCitationLink 自己透传成普通 <a>。
-            // 测试环境会把 markstream-vue 整体 mock 掉，所以要容忍缺失。
-            setCustomComponents?.('touchai', { link: WebSearchCitationLink });
+            setCustomComponents?.('touchai', {
+                link: WebSearchCitationLink,
+                code_block: MarkdownCodeBlock,
+            });
             isConfigured = true;
         }
 

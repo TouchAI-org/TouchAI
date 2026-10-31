@@ -1,87 +1,15 @@
 import type { SessionEntity } from '@database/types';
 import { mountComposable } from '@tests/utils/composables';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
+import { mockTauriCommand } from '@tests/utils/tauri';
+import { flushPromises } from '@vue/test-utils';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ref } from 'vue';
 
 import { createInputHistorySnapshot } from '@/types/session';
 import { useSearchRequestFlow } from '@/views/SearchView/composables/useSearchRequest';
 
-const { agentState, analyticsSpies, eventHandlers, listSessionsMock, useAgentMock } = vi.hoisted(
-    () => {
-        const handlers = new Map<string, (payload?: unknown) => unknown>();
-        const agent = {
-            isLoading: { value: false },
-            error: { value: null },
-            currentSessionId: { value: null as number | null },
-            sessionHistory: { value: [] },
-            pendingToolApproval: { value: null },
-            pendingUserQuestion: { value: null },
-            sendRequest: vi.fn().mockResolvedValue(undefined),
-            cancel: vi.fn(),
-            clearSession: vi.fn(),
-            openSession: vi.fn(),
-            approvePendingToolApproval: vi.fn(() => true),
-            rejectPendingToolApproval: vi.fn(() => true),
-            settleUserQuestion: vi.fn(),
-        };
-        return {
-            agentState: agent,
-            analyticsSpies: {
-                beginSearchInteraction: vi.fn(),
-                settleSearchInteraction: vi.fn().mockResolvedValue(undefined),
-                selectSearchResult: vi.fn().mockResolvedValue(undefined),
-                finishSearchInteraction: vi.fn().mockResolvedValue(undefined),
-                trackSearchFeatureExposed: vi.fn().mockResolvedValue(undefined),
-                trackSurfaceOpened: vi.fn().mockResolvedValue(undefined),
-            },
-            eventHandlers: handlers,
-            listSessionsMock: vi.fn().mockResolvedValue([]),
-            useAgentMock: vi.fn(() => agent),
-        };
-    }
-);
-
-vi.mock('@composables/agent', () => ({ useAgent: useAgentMock }));
-
-vi.mock('@services/NotificationService', () => ({ notify: vi.fn() }));
-
-vi.mock('@services/AgentService/session', async () => {
-    const actual = await vi.importActual<typeof import('@services/AgentService/session')>(
-        '@services/AgentService/session'
-    );
-    return {
-        ...actual,
-        dismissSessionTerminalStatus: vi.fn().mockResolvedValue(undefined),
-        listSessions: listSessionsMock,
-    };
-});
-
-vi.mock('@services/EventService', async () => {
-    const actual =
-        await vi.importActual<typeof import('@services/EventService')>('@services/EventService');
-    return {
-        ...actual,
-        eventService: {
-            on: vi.fn(async (event: string, handler: (payload?: unknown) => unknown) => {
-                eventHandlers.set(event, handler);
-                return () => {
-                    eventHandlers.delete(event);
-                };
-            }),
-        },
-    };
-});
-
-vi.mock('@services/AnalyticsService/productInteractions', () => ({
-    beginSearchInteraction: analyticsSpies.beginSearchInteraction,
-    settleSearchInteraction: analyticsSpies.settleSearchInteraction,
-    selectSearchResult: analyticsSpies.selectSearchResult,
-    finishSearchInteraction: analyticsSpies.finishSearchInteraction,
-    trackSearchFeatureExposed: analyticsSpies.trackSearchFeatureExposed,
-    trackSurfaceOpened: analyticsSpies.trackSurfaceOpened,
-}));
-
-function createSessionEntity(id: number): SessionEntity {
+function session(id: number): SessionEntity {
     return {
         id,
         session_id: `session-${id}`,
@@ -100,21 +28,15 @@ function createSessionEntity(id: number): SessionEntity {
     };
 }
 
-function createInteraction() {
-    return {
-        operation: { operationId: 'op', enabled: true, consentEpoch: 1 },
-        interactionId: 'history-interaction-1',
-        scope: 'history' as const,
-        startedAtMs: 0,
-        settled: false,
-    };
+function response(rows: object[] = []) {
+    return { rows, rowsAffected: 0, lastInsertId: null };
 }
 
 async function mountFlow() {
     return mountComposable(() =>
         useSearchRequestFlow({
             modelOverride: ref({ modelId: null, providerId: null }),
-            clearDraft: vi.fn(),
+            clearDraft: () => undefined,
             getSupportedAttachments: () => [],
             getUnsupportedAttachmentMessage: () => null,
             getCurrentInputSnapshot: (query) =>
@@ -123,115 +45,167 @@ async function mountFlow() {
     );
 }
 
-async function flushAsyncWork() {
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+async function openHistory(flow: Awaited<ReturnType<typeof mountFlow>>['result']) {
+    await flow.setSessionHistoryPopupOpen(true);
+    flow.beginHistoryInteraction();
+    flow.reportHistoryInteractionOpened();
+    await flow.ensureSessionListLoaded();
+    await flushPromises();
 }
 
-describe('user searches conversation history', () => {
+describe('user selects conversation history', () => {
+    let telemetry: ReturnType<typeof installProductAnalytics>;
+    let rows: SessionEntity[];
+    const pending = new Map<number, ReturnType<typeof deferred<ReturnType<typeof response>>>>();
+    const unmounts: Array<() => void> = [];
+
     beforeEach(() => {
-        vi.clearAllMocks();
-        eventHandlers.clear();
-        agentState.currentSessionId.value = null;
-        agentState.openSession.mockResolvedValue({
-            sessionId: 7,
-            title: 'Loaded',
-            modelId: 'gpt-5',
-            providerId: 9,
+        telemetry = installProductAnalytics();
+        rows = [session(7)];
+        pending.clear();
+        mockTauriCommand('database_query', (payload) => {
+            const { request } = payload as {
+                request: { sql: string; method: string; params: unknown[] };
+            };
+            if (request.sql.includes('from "sessions"')) {
+                if (request.method === 'get') {
+                    const id = Number(request.params.at(-1));
+                    return pending.get(id)?.promise ?? response([session(id)]);
+                }
+                return response(rows);
+            }
+            return response();
         });
-        listSessionsMock.mockResolvedValue([createSessionEntity(7)]);
-        analyticsSpies.beginSearchInteraction.mockImplementation(async () => createInteraction());
-        analyticsSpies.settleSearchInteraction.mockResolvedValue(undefined);
-        analyticsSpies.selectSearchResult.mockResolvedValue(undefined);
-        analyticsSpies.finishSearchInteraction.mockResolvedValue(undefined);
-        analyticsSpies.trackSearchFeatureExposed.mockResolvedValue(undefined);
     });
 
     afterEach(() => {
-        document.body.innerHTML = '';
+        unmounts.forEach((unmount) => unmount());
+        unmounts.length = 0;
     });
 
-    it('user gets one settled history search when the popup closes', async () => {
-        const { result, unmount } = await mountFlow();
+    async function flow() {
+        const mounted = await mountFlow();
+        unmounts.push(mounted.unmount);
+        return mounted;
+    }
 
-        await result.setSessionHistoryPopupOpen(true);
+    const completed = () =>
+        telemetry.events.filter((event) => event.eventName === 'search.completed');
+    const selected = () =>
+        telemetry.events.filter((event) => event.eventName === 'search.result_selected');
+
+    it('user gets the cached visible result count when closing prefetched history', async () => {
+        const { result } = await flow();
         await result.ensureSessionListLoaded();
-        await flushAsyncWork();
+        await openHistory(result);
         await result.setSessionHistoryPopupOpen(false);
-        await flushAsyncWork();
+        await flushPromises();
 
-        expect(analyticsSpies.beginSearchInteraction).toHaveBeenCalledWith('history');
-        expect(analyticsSpies.trackSurfaceOpened).toHaveBeenCalledWith('history');
-        expect(analyticsSpies.settleSearchInteraction).toHaveBeenCalledTimes(1);
-        expect(analyticsSpies.settleSearchInteraction).toHaveBeenCalledWith(
-            expect.objectContaining({ interactionId: 'history-interaction-1' }),
-            { hasResults: true, resultCount: 1 }
-        );
-        expect(analyticsSpies.finishSearchInteraction).toHaveBeenCalledTimes(1);
-
-        unmount();
+        expect(completed()).toHaveLength(1);
+        expect(completed()[0]?.attributes).toMatchObject({
+            has_results: true,
+            result_count_bucket: '1',
+        });
+        expect(selected()).toEqual([]);
+        expect(telemetry.active.size).toBe(0);
     });
 
-    it('user gets the opened conversation recorded on the same interaction', async () => {
-        const { result, unmount } = await mountFlow();
-
-        await result.setSessionHistoryPopupOpen(true);
-        await result.ensureSessionListLoaded();
-        await flushAsyncWork();
-        await result.openSession(7);
-        await flushAsyncWork();
-
-        expect(analyticsSpies.selectSearchResult).toHaveBeenCalledWith(
-            expect.objectContaining({ interactionId: 'history-interaction-1' }),
-            { category: 'conversation', opened: true }
-        );
-        expect(analyticsSpies.settleSearchInteraction).toHaveBeenCalledTimes(1);
-        expect(analyticsSpies.finishSearchInteraction).toHaveBeenCalledTimes(1);
-
-        unmount();
-    });
-
-    it('user gets the same history handle kept across close until the selection is recorded', async () => {
-        const { result, unmount } = await mountFlow();
-
-        await result.setSessionHistoryPopupOpen(true);
-        await result.ensureSessionListLoaded();
-        await flushAsyncWork();
-        result.markHistorySelectionPending();
+    it('user keeps two pending history selections tied to their own results when the first finishes first', async () => {
+        const first = deferred<ReturnType<typeof response>>();
+        const second = deferred<ReturnType<typeof response>>();
+        pending.set(7, first);
+        pending.set(8, second);
+        const { result } = await flow();
+        await openHistory(result);
+        const selectionA = result.markHistorySelectionPending();
         await result.setSessionHistoryPopupOpen(false);
-        await flushAsyncWork();
+        const openingA = result.openSession(7, 'history', selectionA);
 
-        expect(analyticsSpies.finishSearchInteraction).not.toHaveBeenCalled();
+        rows = [session(8), session(9), session(10)];
+        await openHistory(result);
+        await result.refreshSessionList();
+        const selectionB = result.markHistorySelectionPending();
+        await result.setSessionHistoryPopupOpen(false);
+        const openingB = result.openSession(8, 'history', selectionB);
+        await flushPromises();
+        expect(telemetry.released).toEqual([]);
 
-        await result.openSession(7);
-        await flushAsyncWork();
+        first.resolve(response([session(7)]));
+        await expect(openingA).resolves.toMatchObject({ sessionId: 7 });
+        await flushPromises();
+        expect(selected().map((event) => event.operationId)).toEqual(['operation-1']);
+        expect(telemetry.released).toEqual(['operation-1']);
+        expect(telemetry.active.has('operation-2')).toBe(true);
 
-        expect(analyticsSpies.selectSearchResult).toHaveBeenCalledWith(
-            expect.objectContaining({ interactionId: 'history-interaction-1' }),
-            { category: 'conversation', opened: true }
+        second.resolve(response([session(8)]));
+        await expect(openingB).resolves.toMatchObject({ sessionId: 8 });
+        await flushPromises();
+        expect(completed().map((event) => event.attributes.result_count_bucket)).toEqual([
+            '1',
+            '2-5',
+        ]);
+        expect(selected().map((event) => [event.operationId, event.attributes.opened])).toEqual([
+            ['operation-1', true],
+            ['operation-2', true],
+        ]);
+        expect(selected().map((event) => event.attributes.interaction_id)).toEqual(
+            completed().map((event) => event.attributes.interaction_id)
         );
-        expect(analyticsSpies.finishSearchInteraction).toHaveBeenCalledTimes(1);
-
-        unmount();
+        expect(telemetry.released).toEqual(['operation-1', 'operation-2']);
     });
 
-    it('user gets a not-opened result when opening the conversation fails', async () => {
-        agentState.openSession.mockRejectedValue(new Error('missing'));
+    it('user keeps a failed older selection separate from a newer abandoned selection', async () => {
+        const first = deferred<ReturnType<typeof response>>();
+        pending.set(7, first);
+        const { result } = await flow();
+        await openHistory(result);
+        const selectionA = result.markHistorySelectionPending();
+        await result.setSessionHistoryPopupOpen(false);
+        const openingA = result.openSession(7, 'history', selectionA);
+        const failure = expect(openingA).rejects.toThrow();
+        await openHistory(result);
+        const selectionB = result.markHistorySelectionPending();
+        await result.setSessionHistoryPopupOpen(false);
+        result.abandonHistorySelection(selectionB);
+        first.reject(new Error('history unavailable'));
+        await failure;
+        await flushPromises();
+
+        expect(selected()).toEqual([
+            expect.objectContaining({
+                operationId: 'operation-1',
+                attributes: expect.objectContaining({ opened: false }),
+            }),
+        ]);
+        expect(new Set(telemetry.released)).toEqual(new Set(['operation-1', 'operation-2']));
+        expect(telemetry.active.size).toBe(0);
+    });
+
+    it('user gets no history selection when another surface opens a conversation', async () => {
+        const { result } = await flow();
+        await openHistory(result);
+        await result.openSession(7);
+        await flushPromises();
+        expect(selected()).toEqual([]);
+        expect(telemetry.released).toEqual([]);
+        await result.setSessionHistoryPopupOpen(false);
+        await flushPromises();
+        expect(telemetry.active.size).toBe(0);
+    });
+
+    it('user releases every pending selection on leaving the search page', async () => {
         const { result, unmount } = await mountFlow();
-
-        await result.setSessionHistoryPopupOpen(true);
-        await result.ensureSessionListLoaded();
-        await flushAsyncWork();
-        await expect(result.openSession(7)).rejects.toThrow('missing');
-        await flushAsyncWork();
-
-        expect(analyticsSpies.selectSearchResult).toHaveBeenCalledWith(
-            expect.objectContaining({ interactionId: 'history-interaction-1' }),
-            { category: 'conversation', opened: false }
-        );
-        expect(analyticsSpies.finishSearchInteraction).toHaveBeenCalledTimes(1);
-
+        await openHistory(result);
+        const selectionA = result.markHistorySelectionPending();
+        await result.setSessionHistoryPopupOpen(false);
+        await openHistory(result);
+        const selectionB = result.markHistorySelectionPending();
         unmount();
+        await flushPromises();
+        result.abandonHistorySelection(selectionA);
+        result.abandonHistorySelection(selectionB);
+        await flushPromises();
+        expect(telemetry.released.sort()).toEqual(['operation-1', 'operation-2']);
+        expect(selected()).toEqual([]);
     });
 });

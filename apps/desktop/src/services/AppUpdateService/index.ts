@@ -93,7 +93,9 @@ function mapUpdateSource(source: AppUpdateCheckSource): UpdateSource {
     if (source === 'automatic') {
         return 'background';
     }
-    return source === 'manual' || source === 'settings-open' ? 'user' : 'other';
+    // Opening settings can trigger an automatic check. It is not a user asking
+    // for an update, so only an explicit manual check is reported as `user`.
+    return source === 'manual' ? 'user' : 'other';
 }
 
 function parseTime(value: string | null): number | null {
@@ -116,6 +118,8 @@ export class AppUpdateController {
     private initialized = false;
     private initializePromise: Promise<void> | null = null;
     private checkPromise: Promise<boolean> | null = null;
+    private downloadPromise: Promise<boolean> | null = null;
+    private installPromise: Promise<boolean> | null = null;
     private lastCheckAttemptAt: string | null = null;
     private reportCheckErrors = false;
     private updateOperationPromise: Promise<UpdateOperation | null> | null = null;
@@ -296,12 +300,33 @@ export class AppUpdateController {
     async download(): Promise<boolean> {
         await this.initialize();
         this.syncSettings();
+
+        // A second request must not abort or release the single shared update
+        // operation while the first download/check/install is still running.
+        if (
+            this.checkPromise ||
+            this.downloadPromise ||
+            this.installPromise ||
+            ['checking', 'downloading', 'downloaded', 'installing'].includes(this.state.status)
+        ) {
+            return false;
+        }
+
         const update = this.state.status === 'available' ? this.state.availableUpdate : null;
         if (!update) {
             this.releaseUpdateOperation();
             return false;
         }
 
+        this.downloadPromise = this.performDownload(update);
+        try {
+            return await this.downloadPromise;
+        } finally {
+            this.downloadPromise = null;
+        }
+    }
+
+    private async performDownload(update: AppUpdateInfo): Promise<boolean> {
         const channel = this.state.channel;
         const fromVersion = this.state.currentVersion;
         this.queueUpdateTransition('download_started', {
@@ -345,12 +370,34 @@ export class AppUpdateController {
     async install(): Promise<boolean> {
         await this.initialize();
         this.syncSettings();
+
+        // Same shared-operation rule as download: an in-flight sibling or a
+        // status guard must not finish the operation before its real terminal
+        // phase.
+        if (
+            this.checkPromise ||
+            this.installPromise ||
+            this.downloadPromise ||
+            ['checking', 'installing'].includes(this.state.status)
+        ) {
+            return false;
+        }
+
         const update = this.state.status === 'downloaded' ? this.state.downloadedUpdate : null;
         if (!update) {
             this.releaseUpdateOperation();
             return false;
         }
 
+        this.installPromise = this.performInstall(update);
+        try {
+            return await this.installPromise;
+        } finally {
+            this.installPromise = null;
+        }
+    }
+
+    private async performInstall(update: AppUpdateInfo): Promise<boolean> {
         const channel = this.state.channel;
         const fromVersion = this.state.currentVersion;
         this.commit({ type: 'install-started' });

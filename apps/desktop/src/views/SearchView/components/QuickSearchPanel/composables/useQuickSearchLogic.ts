@@ -151,9 +151,17 @@ function useQuickSearchFlow(
     // One quick-search interaction settles once, on selection, close or blur,
     // using the final stable results rather than any intermediate query.
     let interactionReady: Promise<SearchInteraction> | null = null;
+    let panelSessionActive = false;
     let exposureReported = false;
 
     function beginSearchInteractionSession() {
+        // One native interaction spans the whole open panel. Triggering another
+        // query while the panel is open must reuse it instead of abandoning the
+        // previous handle on every keystroke.
+        if (panelSessionActive) {
+            return;
+        }
+        panelSessionActive = true;
         interactionReady = beginSearchInteraction('quick');
         exposureReported = false;
     }
@@ -171,6 +179,7 @@ function useQuickSearchFlow(
     }
 
     function settleSearchInteractionSession(resultCount = results.value.length) {
+        panelSessionActive = false;
         const ready = interactionReady;
         interactionReady = null;
         if (!ready) return;
@@ -185,10 +194,18 @@ function useQuickSearchFlow(
             .catch(() => {});
     }
 
-    function finishSearchSelection(opened: boolean, resultCount: number) {
+    function captureSearchSelection() {
         const ready = interactionReady;
         interactionReady = null;
-        if (!ready) return;
+        return ready ? { ready, resultCount: results.value.length } : null;
+    }
+
+    function finishSearchSelection(
+        selection: ReturnType<typeof captureSearchSelection>,
+        opened: boolean
+    ) {
+        if (!selection) return;
+        const { ready, resultCount } = selection;
         void ready
             .then(async (interaction) => {
                 await settleSearchInteraction(interaction, {
@@ -294,6 +311,9 @@ function useQuickSearchFlow(
             if (mergedResults.length === 0) {
                 mergedResults = resolveE2eQuickSearchFallbackResults(trimmedQuery);
                 if (mergedResults.length === 0) {
+                    // The previous query's results are no longer what the user
+                    // sees; settle with the real empty result before closing.
+                    settleSearchInteractionSession(0);
                     close();
                     return;
                 }
@@ -321,6 +341,7 @@ function useQuickSearchFlow(
         } catch (error) {
             log.error('[QuickSearchPanel] Failed to search shortcuts:', error);
             if (reqId === requestId.value) {
+                settleSearchInteractionSession(0);
                 close();
             }
         }
@@ -520,7 +541,7 @@ function useQuickSearchFlow(
 
         clickStats.recordClick(searchQuery.value, item.path);
 
-        const resultCount = results.value.length;
+        const selection = captureSearchSelection();
         let opened = false;
         try {
             await deps.openPath(item.path);
@@ -528,7 +549,7 @@ function useQuickSearchFlow(
         } catch (error) {
             log.error('[QuickSearchPanel] Failed to open path:', error);
         }
-        finishSearchSelection(opened, resultCount);
+        finishSearchSelection(selection, opened);
     }
 
     /**
@@ -544,7 +565,7 @@ function useQuickSearchFlow(
         highlightedIndex.value = index;
         clickStats.recordClick(searchQuery.value, item.path);
 
-        const resultCount = results.value.length;
+        const selection = captureSearchSelection();
         let opened = false;
         try {
             await deps.openPath(item.path);
@@ -552,7 +573,7 @@ function useQuickSearchFlow(
         } catch (error) {
             log.error('[QuickSearchPanel] Failed to open path:', error);
         }
-        finishSearchSelection(opened, resultCount);
+        finishSearchSelection(selection, opened);
     }
 
     return {
@@ -578,6 +599,7 @@ function useQuickSearchFlow(
             // a real close or selection, without fabricating a completed search.
             const ready = interactionReady;
             interactionReady = null;
+            panelSessionActive = false;
             if (ready) {
                 void ready
                     .then((interaction) => finishSearchInteraction(interaction))

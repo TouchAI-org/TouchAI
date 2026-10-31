@@ -1,79 +1,22 @@
-import { mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
+import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
+import MarkdownRender, { type ParsedNode } from 'markstream-vue';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
-import { clipboardService } from '@/services/ClipboardService';
+import { setLocale } from '@/i18n';
 
-const {
-    getMarkdownMock,
-    languageMapMock,
-    markdownRenderUnmountedMock,
-    notifyMock,
-    parseMarkdownToStructureMock,
-    setDefaultI18nMapMock,
-} = vi.hoisted(() => {
-    type MarkdownNodeFixture = {
-        type: string;
-        label?: string;
-    };
-
-    return {
-        getMarkdownMock: vi.fn(() => ({
-            use: vi.fn(),
-        })),
-        languageMapMock: {} as Record<string, string>,
-        markdownRenderUnmountedMock: vi.fn(),
-        notifyMock: vi.fn(),
-        parseMarkdownToStructureMock: vi.fn<() => MarkdownNodeFixture[]>(() => []),
-        setDefaultI18nMapMock: vi.fn(),
-    };
+const { notifyMock } = vi.hoisted(() => ({ notifyMock: vi.fn() }));
+vi.mock('@tauri-apps/plugin-notification', () => ({
+    sendNotification: notifyMock,
+    isPermissionGranted: vi.fn(),
+    requestPermission: vi.fn(),
+}));
+enableAutoUnmount(afterEach);
+afterEach(() => {
+    vi.unstubAllGlobals();
 });
-
-vi.mock('markdown-it-emoji', () => ({
-    full: {},
-}));
-
-vi.mock('markstream-vue', () => ({
-    default: {
-        name: 'MarkdownRender',
-        props: [
-            'nodes',
-            'codeBlockMonacoOptions',
-            'themes',
-            'viewportPriority',
-            'batchRendering',
-            'maxLiveNodes',
-        ],
-        unmounted() {
-            markdownRenderUnmountedMock();
-        },
-        template:
-            '<div data-testid="markdown-render" :data-code-block-auto-scroll-initial="String(codeBlockMonacoOptions?.autoScrollInitial)">{{ nodes?.[0]?.label ?? "" }}</div>',
-    },
-    enableKatex: vi.fn(),
-    enableMermaid: vi.fn(),
-    getMarkdown: getMarkdownMock,
-    languageMap: languageMapMock,
-    // WebSearchCitationLink 用 LinkNode 渲染未命中搜索来源的普通链接
-    LinkNode: {
-        name: 'LinkNode',
-        props: ['node', 'indexKey', 'customId'],
-        template: '<a data-testid="markstream-link" v-text="node?.text" />',
-    },
-    parseMarkdownToStructure: parseMarkdownToStructureMock,
-    setCustomComponents: vi.fn(),
-    setDefaultI18nMap: setDefaultI18nMapMock,
-}));
-
-vi.mock('@services/NotificationService', () => ({
-    notify: notifyMock,
-}));
-
-vi.mock('@/services/ClipboardService', () => ({
-    clipboardService: {
-        writeText: vi.fn(),
-    },
-}));
 
 class ClipboardDataStub {
     private readonly data = new Map<string, string>();
@@ -95,14 +38,19 @@ function requiredTextNode(nodes: NodeListOf<Element>, index: number): Text {
 }
 
 describe('user reads a markdown answer', () => {
-    beforeEach(async () => {
+    beforeEach(() => {
         vi.clearAllMocks();
-        for (const key of Object.keys(languageMapMock)) {
-            delete languageMapMock[key];
-        }
-        vi.resetModules();
-        const { setLocale } = await import('@/i18n');
+        installProductAnalytics();
         setLocale('zh-CN');
+        mockTauriCommand('write_clipboard_text', undefined);
+        vi.stubGlobal(
+            'ResizeObserver',
+            class {
+                observe() {}
+                unobserve() {}
+                disconnect() {}
+            }
+        );
     });
 
     it('user preserves the original code typography and the File/Diff theme order', async () => {
@@ -110,7 +58,7 @@ describe('user reads a markdown answer', () => {
         const wrapper = mount(MarkdownContent, {
             props: { content: '```javascript\nconst value = 1;\n```', final: true },
         });
-        const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
+        const renderer = wrapper.findComponent(MarkdownRender);
 
         expect(renderer.props('themes')).toEqual(['one-dark-pro', 'one-light']);
         expect(renderer.props('codeBlockMonacoOptions')).toMatchObject({
@@ -132,7 +80,7 @@ describe('user reads a markdown answer', () => {
             const wrapper = mount(MarkdownContent, {
                 props: { content, final: false, variant },
             });
-            const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
+            const renderer = wrapper.findComponent(MarkdownRender);
 
             expect(renderer.props('codeBlockMonacoOptions')).toMatchObject({
                 wordWrap: 'off',
@@ -155,7 +103,7 @@ describe('user reads a markdown answer', () => {
         const wrapper = mount(MarkdownContent, {
             props: { content: '```javascript\nconst value = 1;\n```', final: true },
         });
-        const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
+        const renderer = wrapper.findComponent(MarkdownRender);
         const styles = renderer.props('codeBlockMonacoOptions').unsafeCSS;
 
         expect(styles).toContain('[data-code]::-webkit-scrollbar-thumb');
@@ -170,175 +118,90 @@ describe('user reads a markdown answer', () => {
         const wrapper = mount(MarkdownContent, {
             props: { content: '```javascript\n' + 'x'.repeat(900) + '\n```', final: true },
         });
-        const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
+        const renderer = wrapper.findComponent(MarkdownRender);
 
         expect(renderer.props('viewportPriority')).toBe(false);
         expect(renderer.props('batchRendering')).toBe(true);
         expect(renderer.props('maxLiveNodes')).toBe(0);
         await wrapper.setProps({ variant: 'reasoning' });
-        expect(wrapper.findComponent({ name: 'MarkdownRender' }).props('maxLiveNodes')).toBe(320);
+        expect(wrapper.findComponent(MarkdownRender).props('maxLiveNodes')).toBe(320);
     });
 
-    it('user configures markstream labels for English locale', async () => {
-        const { setLocale } = await import('@/i18n');
+    it('user sees code copy controls in English after selecting the English locale', async () => {
         setLocale('en-US');
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
-
-        mount(MarkdownContent, {
-            props: {
-                content: '```ts\nconsole.log(1)\n```',
-            },
-        });
-
-        expect(setDefaultI18nMapMock).toHaveBeenCalledWith(
-            expect.objectContaining({
-                'common.copy': 'Copy',
-                'common.copySuccess': 'Copied',
-                'image.loading': 'Loading image...',
-            })
-        );
-        expect(languageMapMock.plaintext).toBe('Plain text');
-        expect(languageMapMock.mermaid).toBe('Diagram');
+        const wrapper = mount(MarkdownContent, { props: { content: '```text\nhello\n```' } });
+        await vi.dynamicImportSettled();
+        await flushPromises();
+        expect(wrapper.find('button[aria-label="Copy"]').exists()).toBe(true);
+        expect(wrapper.find('button[aria-label="复制"]').exists()).toBe(false);
     });
 
-    it('user escapes shell variables so KaTeX does not treat them as inline math', async () => {
+    it('user reads shell variables literally while formulas and inline code retain their meaning', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
-
-        mount(MarkdownContent, {
+        const wrapper = mount(MarkdownContent, {
             props: {
                 content:
                     'paths: $env:USERPROFILE\\Desktop, $HOME/project, ${USERPROFILE}\\Desktop, ${env:APPDATA}; math: $x$ and $x+y$; code: `echo $HOME`',
             },
         });
-
-        expect(parseMarkdownToStructureMock).toHaveBeenCalledWith(
-            'paths: \\$env:USERPROFILE\\Desktop, \\$HOME/project, \\${USERPROFILE}\\Desktop, \\${env:APPDATA}; math: $x$ and $x+y$; code: `echo $HOME`',
-            expect.anything(),
-            expect.anything()
-        );
+        await flushPromises();
+        expect(wrapper.text()).toContain('$env:USERPROFILE\\Desktop');
+        expect(wrapper.text()).toContain('$HOME/project');
+        expect(wrapper.text()).toContain('${USERPROFILE}\\Desktop');
+        expect(wrapper.text()).toContain('${env:APPDATA}');
+        expect(wrapper.get('code').text()).toBe('echo $HOME');
+        const nodes = wrapper.findComponent(MarkdownRender).props('nodes') as ParsedNode[];
+        expect(JSON.stringify(nodes)).toContain('math_inline');
     });
 
-    it('user enables hard line breaks in the markdown parser for bubble text', async () => {
+    it('user sees a hard line break between adjacent lines in an answer', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
-
-        mount(MarkdownContent, {
-            props: {
-                content: 'first line\nsecond line',
-            },
-        });
-
-        expect(getMarkdownMock).toHaveBeenCalledWith(
-            'touchai-markdown',
-            expect.objectContaining({
-                enableContainers: false,
-                markdownItOptions: expect.objectContaining({
-                    breaks: true,
-                }),
-            })
-        );
+        const wrapper = mount(MarkdownContent, { props: { content: 'first line\nsecond line' } });
+        await flushPromises();
+        // Markstream preserves the parsed newline in a pre-wrap text node.
+        expect(wrapper.get('p').element.textContent).toBe('first line\nsecond line');
+        expect(wrapper.text()).toContain('first line');
+        expect(wrapper.text()).toContain('second line');
     });
 
-    it('user updates markstream labels when locale changes after mount', async () => {
-        const { setLocale } = await import('@/i18n');
+    it('user sees existing code copy controls change language after changing locale', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
-
-        mount(MarkdownContent, {
-            props: {
-                content: '`inline`',
-            },
-        });
-
-        expect(setDefaultI18nMapMock).toHaveBeenLastCalledWith(
-            expect.objectContaining({
-                'common.copy': '复制',
-            })
-        );
-
-        setLocale('en-US');
-        await Promise.resolve();
-
-        expect(setDefaultI18nMapMock).toHaveBeenLastCalledWith(
-            expect.objectContaining({
-                'common.copy': 'Copy',
-            })
-        );
-    });
-
-    it('user re-parses rendered markdown after the locale changes so existing controls refresh', async () => {
-        parseMarkdownToStructureMock.mockImplementation(() => [
-            {
-                type: 'code_block',
-                label: languageMapMock.plaintext,
-            },
-        ]);
-        const { setLocale } = await import('@/i18n');
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
-
-        const wrapper = mount(MarkdownContent, {
-            props: {
-                content: '```\nhello\n```',
-            },
-        });
-
-        expect(wrapper.get('[data-testid="markdown-render"]').text()).toBe('纯文本');
-        expect(parseMarkdownToStructureMock).toHaveBeenCalledTimes(1);
-
+        const wrapper = mount(MarkdownContent, { props: { content: '```text\nhello\n```' } });
+        await vi.dynamicImportSettled();
+        await flushPromises();
+        expect(wrapper.find('button[aria-label="复制"]').exists()).toBe(true);
         setLocale('en-US');
         await nextTick();
-
-        expect(parseMarkdownToStructureMock).toHaveBeenCalledTimes(2);
-        expect(wrapper.get('[data-testid="markdown-render"]').text()).toBe('Plain text');
+        await flushPromises();
+        expect(wrapper.find('button[aria-label="Copy"]').exists()).toBe(true);
     });
 
-    it('user keeps the markdown renderer mounted when streaming content becomes final', async () => {
-        parseMarkdownToStructureMock.mockImplementation(() => [
-            {
-                type: 'text',
-                label: 'done',
-            },
-        ]);
+    it('user keeps the rendered answer mounted when streaming content becomes final', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
-
-        const wrapper = mount(MarkdownContent, {
-            props: {
-                content: 'done',
-                final: false,
-            },
-        });
-
+        const wrapper = mount(MarkdownContent, { props: { content: 'done', final: false } });
+        const rendered = wrapper.findComponent(MarkdownRender).element;
         await wrapper.setProps({ final: true });
-
-        expect(parseMarkdownToStructureMock).toHaveBeenCalledTimes(2);
-        expect(markdownRenderUnmountedMock).not.toHaveBeenCalled();
+        expect(wrapper.findComponent(MarkdownRender).element).toBe(rendered);
+        expect(wrapper.text()).toContain('done');
     });
 
-    it('user disables Monaco initial auto-scroll for completed markdown restored from history', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
-
-        const wrapper = mount(MarkdownContent, {
-            props: {
-                content: '```ts\nconsole.log(1)\n```',
-                final: true,
-            },
-        });
-
-        const renderer = wrapper.get('[data-testid="markdown-render"]');
-        expect(renderer.attributes('data-code-block-auto-scroll-initial')).toBe('false');
-    });
-
-    it('user keeps Monaco initial auto-scroll enabled while markdown is still streaming', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
-
-        const wrapper = mount(MarkdownContent, {
-            props: {
-                content: '```ts\nconsole.log(1)',
-                final: false,
-            },
-        });
-
-        const renderer = wrapper.get('[data-testid="markdown-render"]');
-        expect(renderer.attributes('data-code-block-auto-scroll-initial')).toBe('true');
-    });
+    it.each([
+        ['streaming', false],
+        ['restored from history', true],
+    ] as const)(
+        'user sees code with matching initial scrolling when the answer is %s',
+        async (_state, final) => {
+            const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+            const wrapper = mount(MarkdownContent, {
+                props: { content: '```ts\nconsole.log(1)\n```', final },
+            });
+            expect(
+                wrapper.findComponent(MarkdownRender).props('codeBlockMonacoOptions')
+                    .autoScrollInitial
+            ).toBe(!final);
+        }
+    );
 
     it('user marks rendered markdown as not eligible for global DOM localization', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
@@ -354,31 +217,45 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user uses keyed localized notifications for inline code copy', async () => {
-        const { setLocale } = await import('@/i18n');
         setLocale('en-US');
-        parseMarkdownToStructureMock.mockReturnValue([]);
-        vi.mocked(clipboardService.writeText).mockResolvedValue(undefined);
+        const telemetry = installProductAnalytics();
+        const write = deferred<void>();
+        mockTauriCommand('write_clipboard_text', () => write.promise);
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
-
         const wrapper = mount(MarkdownContent, {
-            props: {
-                content: '`pnpm test`',
-            },
+            props: { content: '`pnpm test`' },
             attachTo: document.body,
         });
-        const code = document.createElement('code');
-        code.textContent = 'pnpm test';
-        wrapper.element.appendChild(code);
-
-        await code.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-
-        expect(clipboardService.writeText).toHaveBeenCalledWith('pnpm test');
-        expect(notifyMock).toHaveBeenCalledWith({
-            title: 'TouchAI',
-            body: 'Copied',
+        await flushPromises();
+        await wrapper.get('code').trigger('click');
+        await flushPromises();
+        expect(getTauriInvokeCalls('write_clipboard_text')[0]?.payload).toEqual({
+            text: 'pnpm test',
         });
+        expect(notifyMock).not.toHaveBeenCalled();
+        expect(telemetry.events).toEqual([]);
+        write.resolve();
+        await flushPromises();
+        expect(notifyMock).toHaveBeenCalledWith({ title: 'TouchAI', body: 'Copied' });
+        expect(telemetry.events[0]?.attributes).toMatchObject({
+            action: 'copy_code',
+            result: 'success',
+        });
+        expect(telemetry.released).toEqual(['operation-1']);
+    });
 
-        wrapper.unmount();
+    it('user sees a localized failure when a rendered inline code write is refused', async () => {
+        setLocale('en-US');
+        const write = deferred<void>();
+        mockTauriCommand('write_clipboard_text', () => write.promise);
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+        const wrapper = mount(MarkdownContent, { props: { content: '`pnpm test`' } });
+        await flushPromises();
+        await wrapper.get('code').trigger('click');
+        write.reject(new Error('clipboard denied'));
+        await flushPromises();
+        expect(notifyMock).toHaveBeenCalledWith({ title: 'TouchAI', body: 'Copy failed' });
+        expect(notifyMock).not.toHaveBeenCalledWith({ title: 'TouchAI', body: 'Copied' });
     });
 
     it('user copies selected tables as Word-compatible grid table clipboard HTML', async () => {

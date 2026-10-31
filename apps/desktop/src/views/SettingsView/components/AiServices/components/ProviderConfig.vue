@@ -4,18 +4,29 @@
     import PasswordInput from '@components/PasswordInput.vue';
     import { Input } from '@components/ui/input';
     import type { Provider } from '@database/schema';
-    import { computed, ref, watch } from 'vue';
+    import { computed, onUnmounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
     import { aiService } from '@/services/AgentService';
     import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
+    import {
+        beginProviderConfigurationAttempt,
+        mapProviderCategory,
+        type ProviderConfigurationAttempt,
+    } from '@/services/AnalyticsService/productInteractions';
 
     interface Props {
         provider: Provider;
     }
 
     interface Emits {
-        (e: 'update', data: Partial<Provider>): void;
+        (e: 'edit-start'): void;
+        (
+            e: 'update',
+            data: Partial<Provider>,
+            providerId: number,
+            attempt: ProviderConfigurationAttempt
+        ): void;
     }
 
     const props = defineProps<Props>();
@@ -47,38 +58,67 @@
     );
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingEdit: { providerId: number; attempt: ProviderConfigurationAttempt } | null = null;
+
+    function cancelPendingEdit() {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = null;
+        const edit = pendingEdit;
+        pendingEdit = null;
+        void edit?.attempt.abandon().catch(() => {});
+    }
+
+    onUnmounted(cancelPendingEdit);
 
     watch(
         () => props.provider,
         (newProvider, oldProvider) => {
+            const providerChanged = newProvider.id !== oldProvider?.id;
+            if (providerChanged) cancelPendingEdit();
             if (
-                !oldProvider ||
-                newProvider.id !== oldProvider.id ||
-                newProvider.api_endpoint !== oldProvider.api_endpoint ||
-                newProvider.api_key !== oldProvider.api_key
+                providerChanged ||
+                (!pendingEdit &&
+                    (newProvider.api_endpoint !== oldProvider?.api_endpoint ||
+                        newProvider.api_key !== oldProvider?.api_key))
             ) {
                 form.value = {
                     api_endpoint: newProvider.api_endpoint,
                     api_key: newProvider.api_key || '',
                 };
             }
-        }
+        },
+        { flush: 'sync' }
     );
 
     const handleInput = () => {
+        if (!pendingEdit) {
+            pendingEdit = {
+                providerId: props.provider.id,
+                attempt: beginProviderConfigurationAttempt({
+                    providerCategory: mapProviderCategory(props.provider.driver),
+                    entry: 'settings',
+                }),
+            };
+            emit('edit-start');
+        }
         if (debounceTimer) {
             clearTimeout(debounceTimer);
         }
 
+        const edit = pendingEdit;
+        const patch = {
+            api_endpoint: trimmedApiEndpoint.value,
+            api_key: form.value.api_key || null,
+        };
         debounceTimer = setTimeout(() => {
-            if (!trimmedApiEndpoint.value) {
+            debounceTimer = null;
+            pendingEdit = null;
+            if (!patch.api_endpoint) {
+                void edit.attempt.abandon().catch(() => {});
                 return;
             }
 
-            emit('update', {
-                api_endpoint: trimmedApiEndpoint.value,
-                api_key: form.value.api_key || null,
-            });
+            emit('update', patch, edit.providerId, edit.attempt);
         }, 800);
     };
 </script>

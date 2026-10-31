@@ -1,288 +1,231 @@
 import type { QuickSearchResult, QuickShortcutItem } from '@services/NativeService';
 import { mountComposable } from '@tests/utils/composables';
+import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
+import { mockTauriCommand } from '@tests/utils/tauri';
+import { flushPromises } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
-const { interactionSpies, contextMenuSpies } = vi.hoisted(() => ({
-    interactionSpies: {
-        beginSearchInteraction: vi.fn(),
-        settleSearchInteraction: vi.fn().mockResolvedValue(undefined),
-        selectSearchResult: vi.fn().mockResolvedValue(undefined),
-        finishSearchInteraction: vi.fn().mockResolvedValue(undefined),
-        trackSearchFeatureExposed: vi.fn().mockResolvedValue(undefined),
-        runResultAction: vi.fn().mockResolvedValue(undefined),
-    },
-    contextMenuSpies: {
-        handler: null as null | ((key: string, item: QuickShortcutItem) => Promise<void>),
-    },
-}));
-
-vi.mock('@services/AnalyticsService/productInteractions', () => ({
-    beginSearchInteraction: interactionSpies.beginSearchInteraction,
-    settleSearchInteraction: interactionSpies.settleSearchInteraction,
-    selectSearchResult: interactionSpies.selectSearchResult,
-    finishSearchInteraction: interactionSpies.finishSearchInteraction,
-    trackSearchFeatureExposed: interactionSpies.trackSearchFeatureExposed,
-    runResultAction: interactionSpies.runResultAction,
-}));
-
-vi.mock('@/views/SearchView/components/QuickSearchPanel/composables/useAssetLoader', () => ({
-    useAssetLoader: vi.fn(() => ({
-        iconMap: { value: {} },
-        imagePreviewMap: { value: {} },
-        isImageItem: vi.fn(() => false),
-        getItemHoverTitle: vi.fn((item: QuickShortcutItem) => item.path),
-        handleScroll: vi.fn(),
-        scheduleIconLoad: vi.fn(),
-        scheduleImageLoad: vi.fn(),
-        flushPendingLoads: vi.fn(),
-        resetLoadingState: vi.fn(),
-        pruneIconMaps: vi.fn(),
-    })),
-}));
-
-vi.mock('@/views/SearchView/components/QuickSearchPanel/composables/useLayout', () => ({
-    COLLAPSED_VISIBLE_ROWS: 5,
-    useLayout: vi.fn(() => ({
-        scrollStyle: { value: {} },
-        gridStyle: { value: {} },
-        gridColumns: { value: 3 },
-        gridGap: { value: 8 },
-        selectionMaxHeight: { value: 320 },
-        viewMode: { value: 'grid' },
-        moveSelection: vi.fn(),
-        setVisibleRows: vi.fn(),
-        syncLayout: vi.fn().mockResolvedValue(undefined),
-        updateLayout: vi.fn(),
-        scrollHighlightedIntoView: vi.fn(),
-        resetLayoutState: vi.fn(),
-        toggleViewMode: vi.fn(),
-    })),
-}));
-
-vi.mock(
-    '@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchClickStats',
-    () => ({
-        useQuickSearchClickStats: vi.fn(() => ({
-            rankResults: vi.fn(async (_query: string, items: QuickShortcutItem[]) => items),
-            recordClick: vi.fn(),
-        })),
-    })
-);
-
-vi.mock('@composables/useContextMenu', () => ({
-    useContextMenu: vi.fn(
-        (_items: unknown, handler: (key: string, item: QuickShortcutItem) => Promise<void>) => {
-            contextMenuSpies.handler = handler;
-            return { open: vi.fn(), close: vi.fn() };
-        }
-    ),
-}));
-
-vi.mock('@services/ClipboardService', () => ({ clipboardService: { writeText: vi.fn() } }));
-
 import { useQuickSearchLogic } from '@/views/SearchView/components/QuickSearchPanel/composables/useQuickSearchLogic';
 
-function createShortcut(name: string, path = `D:/${name}.lnk`): QuickShortcutItem {
-    return { name, path, source: 'desktop_user' };
-}
+const { openPath, revealItemInDir } = vi.hoisted(() => ({
+    openPath: vi.fn(),
+    revealItemInDir: vi.fn(),
+}));
+vi.mock('@tauri-apps/plugin-opener', () => ({ openPath, revealItemInDir }));
 
-function createSearchResult(shortcuts: QuickShortcutItem[]): QuickSearchResult {
+function searchResult(count = 1): QuickSearchResult {
     return {
-        shortcuts,
+        shortcuts: Array.from(
+            { length: count },
+            (_, index): QuickShortcutItem => ({
+                name: `Result ${index}`,
+                path: `D:/private-${index}.lnk`,
+                source: 'desktop_user',
+            })
+        ),
         files: [],
         total_files: 0,
-        total_results: shortcuts.length,
+        total_results: count,
         next_offset: 0,
     };
 }
 
-function createInteraction() {
-    return {
-        operation: { operationId: 'op-1', enabled: true, consentEpoch: 2 },
-        interactionId: 'interaction-1',
-        scope: 'quick' as const,
-        startedAtMs: 0,
-        settled: false,
-    };
-}
-
-async function mountQuickSearch(openPath: ReturnType<typeof vi.fn>) {
+async function mountSearch() {
     const open = ref(false);
-    const searchQuery = ref('');
+    const searchQuery = ref('touchai');
     const mounted = await mountComposable(() =>
-        useQuickSearchLogic(
-            {
-                open,
-                searchQuery,
-                enabled: ref(true),
-                emitOpenUpdate: (value) => {
-                    open.value = value;
-                },
+        useQuickSearchLogic({
+            open,
+            searchQuery,
+            enabled: ref(true),
+            emitOpenUpdate: (value) => {
+                open.value = value;
             },
-            {
-                quickSearch: {
-                    getStatus: vi.fn().mockResolvedValue({
-                        provider: 'everything',
-                        db_loaded: true,
-                        index_warmed: true,
-                        last_refresh_ms: null,
-                        last_error: null,
-                    }),
-                    prepareIndex: vi.fn().mockResolvedValue(undefined),
-                    searchShortcuts: vi
-                        .fn()
-                        .mockResolvedValue(createSearchResult([createShortcut('TouchAI')])),
-                } as never,
-                window: { hideSearchWindow: vi.fn().mockResolvedValue(undefined) },
-                openPath: openPath as never,
-            }
-        )
+        })
     );
-    return { ...mounted, searchQuery };
+    return { ...mounted, isOpen: open, searchQuery };
 }
 
-async function flushAsyncWork() {
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+async function showResults(search: Awaited<ReturnType<typeof mountSearch>>, query = 'touchai') {
+    search.searchQuery.value = query;
+    search.result.triggerSearch(query);
+    await vi.advanceTimersByTimeAsync(80);
+    await flushPromises();
+    expect(search.result.results.value.length).toBeGreaterThan(0);
 }
 
 describe('user searches in quick search', () => {
+    let telemetry: ReturnType<typeof installProductAnalytics>;
+    const unmounts: Array<() => void> = [];
+
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useFakeTimers();
-        contextMenuSpies.handler = null;
-        interactionSpies.beginSearchInteraction.mockImplementation(async () => createInteraction());
-        interactionSpies.settleSearchInteraction.mockResolvedValue(undefined);
-        interactionSpies.selectSearchResult.mockResolvedValue(undefined);
-        interactionSpies.finishSearchInteraction.mockResolvedValue(undefined);
-        interactionSpies.trackSearchFeatureExposed.mockResolvedValue(undefined);
-        interactionSpies.runResultAction.mockResolvedValue(undefined);
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            queueMicrotask(() => callback(performance.now()));
+            return 0;
+        });
+        vi.stubGlobal('cancelAnimationFrame', () => undefined);
+        telemetry = installProductAnalytics();
+        openPath.mockResolvedValue(undefined);
+        revealItemInDir.mockResolvedValue(undefined);
+        mockTauriCommand('quick_search_search_shortcuts', searchResult());
+        mockTauriCommand('quick_search_get_status', {
+            provider: 'everything',
+            db_loaded: true,
+            index_warmed: true,
+            last_refresh_ms: null,
+            last_error: null,
+        });
+        mockTauriCommand('database_query', { rows: [], rowsAffected: 0, lastInsertId: null });
+        mockTauriCommand('quick_search_get_shortcut_icons', {});
+        mockTauriCommand('quick_search_get_image_thumbnails', {});
     });
 
     afterEach(() => {
+        unmounts.forEach((unmount) => unmount());
+        unmounts.length = 0;
         vi.useRealTimers();
-        document.body.innerHTML = '';
+        vi.unstubAllGlobals();
     });
 
-    it('user gets one settled search when a result is selected and then the panel closes', async () => {
-        const openPath = vi.fn().mockResolvedValue(undefined);
-        const { result, searchQuery, unmount } = await mountQuickSearch(openPath);
+    async function search() {
+        const mounted = await mountSearch();
+        unmounts.push(mounted.unmount);
+        return mounted;
+    }
+    const completed = () =>
+        telemetry.events.filter((event) => event.eventName === 'search.completed');
+    const selected = () =>
+        telemetry.events.filter((event) => event.eventName === 'search.result_selected');
 
-        searchQuery.value = 'touchai';
-        result.triggerSearch('touchai');
-        await vi.advanceTimersByTimeAsync(80);
-        await flushAsyncWork();
+    it('user gets one settled search when selecting a result and then closing the panel', async () => {
+        const mounted = await search();
+        await showResults(mounted);
+        await mounted.result.handleItemClick(0);
+        mounted.result.close();
+        await flushPromises();
 
-        await result.handleItemClick(0);
-        await flushAsyncWork();
-
-        result.close();
-        await flushAsyncWork();
-
-        expect(interactionSpies.beginSearchInteraction).toHaveBeenCalledWith('quick');
-        expect(interactionSpies.settleSearchInteraction).toHaveBeenCalledTimes(1);
-        expect(interactionSpies.settleSearchInteraction).toHaveBeenCalledWith(
-            expect.objectContaining({ interactionId: 'interaction-1' }),
-            { hasResults: true, resultCount: 1 }
-        );
-        expect(interactionSpies.selectSearchResult).toHaveBeenCalledWith(
-            expect.objectContaining({ interactionId: 'interaction-1' }),
-            { category: 'file', opened: true }
-        );
-        expect(interactionSpies.finishSearchInteraction).toHaveBeenCalledTimes(1);
-        expect(interactionSpies.finishSearchInteraction).toHaveBeenCalledWith(
-            expect.objectContaining({ interactionId: 'interaction-1' })
-        );
-
-        unmount();
+        expect(completed()).toHaveLength(1);
+        expect(selected()).toHaveLength(1);
+        expect(selected()[0]?.attributes).toMatchObject({
+            interaction_id: completed()[0]?.attributes.interaction_id,
+            result_category: 'file',
+            opened: true,
+        });
+        expect(telemetry.released).toEqual(['operation-1']);
     });
 
-    it('user gets the quick search entry exposed once when usable results appear', async () => {
-        const openPath = vi.fn().mockResolvedValue(undefined);
-        const { result, searchQuery, unmount } = await mountQuickSearch(openPath);
+    it('user keeps a pending pointer selection on its original panel after closing and reopening', async () => {
+        const opening = deferred<void>();
+        openPath.mockReturnValueOnce(opening.promise);
+        const mounted = await search();
+        await showResults(mounted);
+        const selecting = mounted.result.handleItemClick(0);
+        mounted.result.close();
+        await showResults(mounted, 'reopened');
+        expect(telemetry.released).toEqual([]);
 
-        searchQuery.value = 'touchai';
-        result.triggerSearch('touchai');
-        await vi.advanceTimersByTimeAsync(80);
-        await flushAsyncWork();
-
-        expect(interactionSpies.trackSearchFeatureExposed).toHaveBeenCalledTimes(1);
-        expect(interactionSpies.trackSearchFeatureExposed).toHaveBeenCalledWith(
-            expect.objectContaining({
-                operation: expect.objectContaining({ operationId: 'op-1' }),
-            }),
-            'quick_search'
-        );
-
-        unmount();
+        opening.resolve();
+        await selecting;
+        await flushPromises();
+        expect(selected().map((event) => event.operationId)).toEqual(['operation-1']);
+        expect(telemetry.active.has('operation-2')).toBe(true);
+        mounted.result.close();
+        await flushPromises();
+        expect(completed().map((event) => event.operationId)).toEqual([
+            'operation-1',
+            'operation-2',
+        ]);
+        expect(telemetry.released).toEqual(['operation-1', 'operation-2']);
     });
 
-    it('user gets a result marked not opened when the open action fails', async () => {
-        const openPath = vi.fn().mockRejectedValue(new Error('no handler'));
-        const { result, searchQuery, unmount } = await mountQuickSearch(openPath);
+    it('user keeps a pending keyboard selection when closing the panel and the opener fails', async () => {
+        const opening = deferred<void>();
+        openPath.mockReturnValueOnce(opening.promise);
+        const mounted = await search();
+        await showResults(mounted);
+        mounted.result.highlightedIndex.value = 0;
+        const selecting = mounted.result.openHighlightedItem();
+        mounted.result.close();
+        opening.reject(new Error('no handler'));
+        await selecting;
+        await flushPromises();
 
-        searchQuery.value = 'touchai';
-        result.triggerSearch('touchai');
-        await vi.advanceTimersByTimeAsync(80);
-        await flushAsyncWork();
-
-        await result.handleItemClick(0);
-        await flushAsyncWork();
-
-        expect(interactionSpies.selectSearchResult).toHaveBeenCalledWith(
-            expect.objectContaining({ interactionId: 'interaction-1' }),
-            { category: 'file', opened: false }
-        );
-
-        unmount();
+        expect(selected()[0]?.attributes.opened).toBe(false);
+        expect(telemetry.released).toEqual(['operation-1']);
     });
 
-    it('user gets a settled search on close without a selection', async () => {
-        const openPath = vi.fn().mockResolvedValue(undefined);
-        const { result, searchQuery, unmount } = await mountQuickSearch(openPath);
+    it.each(['succeeds in a pinned window', 'fails'])(
+        'user keeps one interaction when a result open %s and the still open panel receives another query',
+        async (outcome) => {
+            if (outcome === 'fails') openPath.mockRejectedValueOnce(new Error('no handler'));
+            const mounted = await search();
+            await showResults(mounted);
+            await mounted.result.handleItemClick(0);
+            await flushPromises();
+            expect(mounted.isOpen.value).toBe(true);
+            await showResults(mounted, 'updated');
+            mounted.result.close();
+            await flushPromises();
 
-        searchQuery.value = 'touchai';
-        result.triggerSearch('touchai');
-        await vi.advanceTimersByTimeAsync(80);
-        await flushAsyncWork();
+            expect(completed()).toHaveLength(1);
+            expect(selected()).toHaveLength(1);
+            expect(
+                telemetry.events.filter((event) => event.eventName === 'product.feature_exposed')
+            ).toHaveLength(1);
+            expect(telemetry.released).toEqual(['operation-1']);
+            expect(telemetry.active.size).toBe(0);
+        }
+    );
 
-        result.close();
-        await flushAsyncWork();
+    it('user gets one settled interaction when updating the query in an already open panel', async () => {
+        const mounted = await search();
+        await showResults(mounted);
+        mockTauriCommand('quick_search_search_shortcuts', searchResult(3));
+        await showResults(mounted, 'updated query');
+        mounted.result.close();
+        await flushPromises();
 
-        expect(interactionSpies.selectSearchResult).not.toHaveBeenCalled();
-        expect(interactionSpies.settleSearchInteraction).toHaveBeenCalledTimes(1);
-        expect(interactionSpies.finishSearchInteraction).toHaveBeenCalledTimes(1);
-
-        unmount();
+        expect(completed()).toHaveLength(1);
+        expect(completed()[0]?.attributes.result_count_bucket).toBe('2-5');
+        expect(telemetry.released).toEqual(['operation-1']);
     });
 
-    it('user gets an external-open result action when a result is revealed in the folder', async () => {
-        const openPath = vi.fn().mockResolvedValue(undefined);
-        const { unmount } = await mountQuickSearch(openPath);
+    it.each(['empty', 'failed'])(
+        'user gets an empty settled search when the next query is %s after visible results',
+        async (outcome) => {
+            const mounted = await search();
+            await showResults(mounted);
+            mockTauriCommand('quick_search_search_shortcuts', () => {
+                if (outcome === 'failed') throw new Error('index offline');
+                return searchResult(0);
+            });
+            mounted.searchQuery.value = 'none';
+            mounted.result.triggerSearch('none');
+            await vi.advanceTimersByTimeAsync(80);
+            await flushPromises();
 
-        await contextMenuSpies.handler?.('open-folder', createShortcut('TouchAI'));
+            expect(mounted.isOpen.value).toBe(false);
+            expect(completed()).toHaveLength(1);
+            expect(completed()[0]?.attributes.has_results).toBe(false);
+            expect(telemetry.released).toEqual(['operation-1']);
+        }
+    );
 
-        expect(interactionSpies.runResultAction).toHaveBeenCalledWith(
-            'open_external',
-            expect.any(Function)
-        );
-
-        unmount();
-    });
-
-    it('user gets the path copy reported with the honest other category', async () => {
-        const openPath = vi.fn().mockResolvedValue(undefined);
-        const { unmount } = await mountQuickSearch(openPath);
-
-        await contextMenuSpies.handler?.('copy-path', createShortcut('TouchAI'));
-
-        expect(interactionSpies.runResultAction).toHaveBeenCalledWith(
-            'other',
-            expect.any(Function)
-        );
-
-        unmount();
+    it('user gets the pending selection outcome and cleanup even after leaving the page', async () => {
+        const opening = deferred<void>();
+        openPath.mockReturnValueOnce(opening.promise);
+        const mounted = await mountSearch();
+        await showResults(mounted);
+        const selecting = mounted.result.handleItemClick(0);
+        mounted.unmount();
+        opening.resolve();
+        await selecting;
+        await flushPromises();
+        expect(selected()[0]?.attributes.opened).toBe(true);
+        expect(telemetry.active.size).toBe(0);
+        expect(telemetry.released).toEqual(['operation-1']);
     });
 });

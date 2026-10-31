@@ -66,8 +66,19 @@ fn bounded_duration_ms(started: Instant) -> u64 {
         .min(MAX_ANALYTICS_DURATION_MS as u128) as u64
 }
 
+/// Maps the WebView-declared origin onto the public connection kind. Startup
+/// auto-connect is a passive background reconciliation, not a user action, so it
+/// must never start or refresh a user analytics session.
+fn normalize_mcp_connection_kind(origin: Option<&str>) -> &'static str {
+    match origin {
+        Some("background") | Some("background_reconnect") => "background_reconnect",
+        _ => "user",
+    }
+}
+
 fn mcp_connection_attributes(
     connection_id: &str,
+    connection_kind: &str,
     result: &str,
     duration_ms: u64,
     error_category: Option<&str>,
@@ -79,7 +90,7 @@ fn mcp_connection_attributes(
     );
     attributes.insert(
         "connection_kind".to_string(),
-        JsonValue::String("user".to_string()),
+        JsonValue::String(connection_kind.to_string()),
     );
     attributes.insert("result".to_string(), JsonValue::String(result.to_string()));
     attributes.insert(
@@ -103,6 +114,7 @@ fn report_mcp_connection_completed(
     operation: AnalyticsOperationHandle,
     result: Result<(), String>,
     started: Instant,
+    connection_kind: &str,
 ) {
     let (result_label, error_category) = match &result {
         Ok(()) => ("success", None),
@@ -110,6 +122,7 @@ fn report_mcp_connection_completed(
     };
     let attributes = mcp_connection_attributes(
         &uuid::Uuid::new_v4().to_string(),
+        connection_kind,
         result_label,
         bounded_duration_ms(started),
         error_category,
@@ -134,9 +147,11 @@ pub async fn mcp_connect_server<R: tauri::Runtime>(
     client_manager: State<'_, McpClientManager>,
     app: tauri::AppHandle<R>,
     config: McpServerConfig,
+    connection_origin: Option<String>,
     traceparent: Option<String>,
 ) -> Result<(), String> {
     let started = Instant::now();
+    let connection_kind = normalize_mcp_connection_kind(connection_origin.as_deref());
     // Analytics is optional infrastructure: a missing runtime must never stop a
     // user from connecting an MCP server.
     let analytics = app
@@ -153,7 +168,13 @@ pub async fn mcp_connect_server<R: tauri::Runtime>(
     )
     .await;
     if let (Some(runtime), Some(operation)) = (analytics, operation) {
-        report_mcp_connection_completed(runtime, operation, result.clone(), started);
+        report_mcp_connection_completed(
+            runtime,
+            operation,
+            result.clone(),
+            started,
+            connection_kind,
+        );
     }
     result
 }
@@ -227,7 +248,9 @@ pub async fn mcp_disconnect_all(client_manager: State<'_, McpClientManager>) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::{mcp_connection_attributes, mcp_connection_error_category};
+    use super::{
+        mcp_connection_attributes, mcp_connection_error_category, normalize_mcp_connection_kind,
+    };
 
     #[test]
     fn user_gets_a_bounded_category_for_mcp_connection_failures() {
@@ -250,11 +273,43 @@ mod tests {
     }
 
     #[test]
+    fn user_gets_startup_auto_connect_classified_as_background_not_user() {
+        assert_eq!(
+            normalize_mcp_connection_kind(Some("background")),
+            "background_reconnect"
+        );
+        assert_eq!(
+            normalize_mcp_connection_kind(Some("background_reconnect")),
+            "background_reconnect"
+        );
+        assert_eq!(normalize_mcp_connection_kind(Some("user")), "user");
+        assert_eq!(normalize_mcp_connection_kind(None), "user");
+        assert_eq!(normalize_mcp_connection_kind(Some("unexpected")), "user");
+    }
+
+    #[test]
+    fn user_gets_ambiguous_mcp_errors_classified_by_documented_precedence() {
+        assert_eq!(
+            mcp_connection_error_category("authentication timeout while connecting"),
+            "auth"
+        );
+        assert_eq!(
+            mcp_connection_error_category("protocol handshake timed out"),
+            "network"
+        );
+        assert_eq!(
+            mcp_connection_error_category("invalid credentials in protocol header"),
+            "auth"
+        );
+    }
+
+    #[test]
     fn user_gets_bounded_mcp_attributes_without_raw_error_or_server_data() {
         let secret = "token=sk-secret server=https://private.example command=secret-bin";
         let category = mcp_connection_error_category(secret);
         let attributes = mcp_connection_attributes(
             "11111111-1111-4111-8111-111111111111",
+            "user",
             "failure",
             42,
             Some(category),

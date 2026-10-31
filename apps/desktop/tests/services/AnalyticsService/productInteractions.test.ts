@@ -525,6 +525,39 @@ describe('user completes an existing result action', () => {
         expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
     });
 
+    it('user gets the original copy promise unchanged before the notification can fire', async () => {
+        nativeAnalytics.track.mockRejectedValue(new Error('telemetry down'));
+        const rawAction = (async () => 'copied')();
+        const notifications: string[] = [];
+
+        const actionPromise = runResultAction('copy_answer', () => rawAction);
+        expect(actionPromise).toBe(rawAction);
+
+        const notifyAfterCopy = (async () => {
+            await actionPromise;
+            notifications.push('copied');
+        })();
+        await notifyAfterCopy;
+
+        expect(notifications).toEqual(['copied']);
+        await vi.waitFor(() => {
+            expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    it('user gets the original action rejection unchanged when telemetry also fails', async () => {
+        nativeAnalytics.track.mockRejectedValue(new Error('telemetry down'));
+        const rawAction = Promise.reject(new Error('clipboard busy'));
+
+        const actionPromise = runResultAction('copy_code', () => rawAction);
+        expect(actionPromise).toBe(rawAction);
+        await expect(actionPromise).rejects.toThrow('clipboard busy');
+
+        await vi.waitFor(() => {
+            expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
+        });
+    });
+
     it('user gets the copy outcome recorded without changing the copy result', async () => {
         const copied = await runResultAction('copy_answer', async () => 'copied');
 

@@ -268,8 +268,10 @@
         isSessionListLoading,
         clearSession,
         setSessionHistoryPopupOpen,
+        beginHistoryInteraction,
         markHistorySelectionPending,
         abandonHistorySelection,
+        reportHistoryInteractionOpened,
         updateSessionSearchQuery,
         refreshSessionList,
         ensureSessionListLoaded,
@@ -525,10 +527,12 @@
             historyAnchorElement.value ?? conversationPanel.value?.getHistoryAnchor() ?? null,
         getPopupData: getSessionHistoryPopupData,
         isSessionHistoryActive: () => sessionHistoryPopupOpen.value,
-        onSessionOpen: handleOpenSession,
+        onSessionOpen: (sessionId) => handleOpenSession(sessionId, 'history'),
         onSessionSearchQueryChange: handleSessionSearchQueryChange,
         onClose: () => setSessionHistoryPopupOpen(false),
         onPopupSessionStart: (identity) => {
+            beginHistoryInteraction();
+            reportHistoryInteractionOpened();
             popupSurfaceCoordinator.activatePopup({
                 ...identity,
                 popupType: 'session-history-surface',
@@ -880,6 +884,10 @@
         await setSessionHistoryPopupOpen(true);
         try {
             await sessionHistoryPopup.open();
+            if (!sessionHistoryPopup.isOpen.value) {
+                await setSessionHistoryPopupOpen(false);
+                return;
+            }
 
             void ensureSessionListLoaded().catch((error) => {
                 log.error(
@@ -996,23 +1004,26 @@
         }
     }
 
-    async function handleOpenSession(sessionId: number) {
+    async function handleOpenSession(sessionId: number, origin: 'history' | 'other' = 'other') {
         // The history popup closes before the session opens, so keep that
-        // interaction's handle alive until the selection event is recorded.
-        markHistorySelectionPending();
+        // specific interaction's handle alive until its selection event is
+        // recorded. Notification/navigation opens are not history selections.
+        const selection = origin === 'history' ? markHistorySelectionPending() : null;
         controller.closeQuickSearch();
         try {
             await hideAllPopups();
         } catch (error) {
-            // The selection never reached the real open path; settle and release
-            // the history interaction instead of leaking its handle.
-            abandonHistorySelection();
+            if (origin === 'history') {
+                // The selection never reached the real open path; settle and
+                // release the history interaction instead of leaking its handle.
+                abandonHistorySelection(selection);
+            }
             throw error;
         }
         resetSessionInputHistoryTracking();
 
         try {
-            await openSession(sessionId);
+            await openSession(sessionId, origin, selection);
             await syncSearchWindowState().catch((error) => {
                 log.error(
                     '[SearchView] Failed to sync search window state after session open:',

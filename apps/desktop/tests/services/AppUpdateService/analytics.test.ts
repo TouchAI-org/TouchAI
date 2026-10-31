@@ -5,13 +5,12 @@ import type {
     AppUpdateCheckResult,
     AppUpdateInfo,
 } from '@services/AppUpdateService/types';
+import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@services/ObservabilityService', () => ({
     log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
-
-vi.mock('@services/NativeService', () => ({ native: {} }));
 
 const availableUpdate: AppUpdateInfo = {
     version: '0.2.0',
@@ -75,7 +74,9 @@ function createController(options: {
     checkResult?: AppUpdateCheckResult;
     downloadError?: Error;
     installError?: Error;
-    analytics: AppUpdateAnalytics;
+    analytics?: AppUpdateAnalytics;
+    downloadUpdate?: ReturnType<typeof vi.fn>;
+    persistCheckedAt?: () => Promise<void>;
 }) {
     const channel: AppUpdateChannel = 'stable';
     const checkForUpdates = vi.fn(
@@ -89,9 +90,11 @@ function createController(options: {
                 requirement: neutralRequirement,
             }
     );
-    const downloadUpdate = options.downloadError
-        ? vi.fn().mockRejectedValue(options.downloadError)
-        : vi.fn().mockResolvedValue(availableUpdate);
+    const downloadUpdate =
+        options.downloadUpdate ??
+        (options.downloadError
+            ? vi.fn().mockRejectedValue(options.downloadError)
+            : vi.fn().mockResolvedValue(availableUpdate));
     const installUpdate = options.installError
         ? vi.fn().mockRejectedValue(options.installError)
         : vi.fn().mockResolvedValue(true);
@@ -105,7 +108,8 @@ function createController(options: {
             getLastCheckedAt: () => null,
             updateAppUpdateChannel: vi.fn().mockResolvedValue(undefined),
             updateAppUpdateAutoCheck: vi.fn().mockResolvedValue(undefined),
-            updateAppUpdateLastCheckedAt: vi.fn().mockResolvedValue(undefined),
+            updateAppUpdateLastCheckedAt:
+                options.persistCheckedAt ?? vi.fn().mockResolvedValue(undefined),
         },
         analytics: options.analytics,
         now: () => '2026-05-22T10:00:00.000Z',
@@ -115,6 +119,47 @@ function createController(options: {
 }
 
 describe('user checks for an app update', () => {
+    it('user keeps one update operation when download and install are requested while check persistence is pending', async () => {
+        const telemetry = installProductAnalytics();
+        const persistence = deferred<void>();
+        const { controller, downloadUpdate, installUpdate } = createController({
+            persistCheckedAt: () => persistence.promise,
+        });
+        const checking = controller.checkNow('manual');
+        await vi.waitFor(() => expect(controller.getState().status).toBe('available'));
+
+        await expect(controller.download()).resolves.toBe(false);
+        await expect(controller.install()).resolves.toBe(false);
+        expect(downloadUpdate).not.toHaveBeenCalled();
+        expect(installUpdate).not.toHaveBeenCalled();
+        expect(telemetry.released).toEqual([]);
+
+        persistence.resolve();
+        await expect(checking).resolves.toBe(true);
+        await expect(controller.download()).resolves.toBe(true);
+        await expect(controller.install()).resolves.toBe(true);
+        await vi.waitFor(() => expect(telemetry.active.size).toBe(0));
+
+        const transitions = telemetry.events.filter(
+            (event) => event.eventName === 'app.update_transition'
+        );
+        expect(transitions.map((event) => event.attributes.phase)).toEqual([
+            'check_started',
+            'check_finished',
+            'download_started',
+            'download_finished',
+            'install_handoff',
+        ]);
+        expect(new Set(transitions.map((event) => event.operationId))).toEqual(
+            new Set(['operation-1'])
+        );
+        expect(new Set(transitions.map((event) => event.attributes.update_operation_id)).size).toBe(
+            1
+        );
+        expect(telemetry.released).toEqual(['operation-1']);
+        await controller.dispose();
+    });
+
     it('user gets the started and finished check phases tied to one update operation', async () => {
         const analytics = createAnalytics();
         const { controller } = createController({ analytics: analytics.analytics });
@@ -133,6 +178,16 @@ describe('user checks for an app update', () => {
             toVersion: '0.2.0',
         });
         expect(analytics.finish).not.toHaveBeenCalled();
+    });
+
+    it('user gets a settings-open automatic check recorded away from user', async () => {
+        const analytics = createAnalytics();
+        const { controller } = createController({ analytics: analytics.analytics });
+
+        await controller.checkNow('settings-open');
+
+        const finished = analytics.transitions.find((entry) => entry.phase === 'check_finished');
+        expect(finished?.outcome.source).toBe('other');
     });
 
     it('user gets an automatic check recorded with a background source', async () => {
@@ -206,6 +261,34 @@ describe('user downloads and installs an update', () => {
         expect(phases).toContain('download_finished');
         const finished = analytics.transitions.find((entry) => entry.phase === 'download_finished');
         expect(finished?.outcome).toMatchObject({ result: 'success', toVersion: '0.2.0' });
+        expect(analytics.finish).not.toHaveBeenCalled();
+    });
+
+    it('user gets no early release when a second download starts in flight', async () => {
+        const analytics = createAnalytics();
+        let resolveDownload: (value: AppUpdateInfo) => void = () => undefined;
+        const downloadUpdate = vi.fn(
+            () =>
+                new Promise<AppUpdateInfo>((resolve) => {
+                    resolveDownload = resolve;
+                })
+        );
+        const { controller } = createController({
+            analytics: analytics.analytics,
+            downloadUpdate,
+        });
+
+        await controller.checkNow('manual');
+        const first = controller.download();
+        await vi.waitFor(() => {
+            expect(downloadUpdate).toHaveBeenCalledTimes(1);
+        });
+
+        await expect(controller.download()).resolves.toBe(false);
+        expect(analytics.finish).not.toHaveBeenCalled();
+
+        resolveDownload(availableUpdate);
+        await expect(first).resolves.toBe(true);
         expect(analytics.finish).not.toHaveBeenCalled();
     });
 

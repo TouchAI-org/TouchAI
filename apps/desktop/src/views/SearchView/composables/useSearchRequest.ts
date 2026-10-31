@@ -43,6 +43,11 @@ interface UseSearchRequestFlowOptions {
 
 const SESSION_LIST_LIMIT = 40;
 
+export interface HistorySelection {
+    readonly interaction: Promise<SearchInteraction>;
+    readonly resultCount: number;
+}
+
 /**
  * regenerate 需要能从“正常回复”或“尾随错误项”回溯到对应用户消息，
  * 因此不能再假设上一条一定是 user。
@@ -94,41 +99,42 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     // One history-search interaction settles once per popup session, using the
     // stable result count rather than any intermediate query. Selecting a
     // conversation closes the popup before the session opens, so close keeps the
-    // handle alive until the selection path has emitted its own event.
+    // marked interaction alive until the selection path has emitted its event.
     let historyInteraction: Promise<SearchInteraction> | null = null;
-    let historySelectionReported = false;
-    let historySelectionPending = false;
+    const historySelections = new Set<HistorySelection>();
     let historyResultCount = 0;
 
     function beginHistoryInteraction() {
         const previous = historyInteraction;
+        // A pending selection may still be resolving while the popup reopened;
+        // it owns its own interaction and must not be finished by this reopen.
         if (previous) {
             void previous
                 .then((interaction) => finishSearchInteraction(interaction))
                 .catch(() => {});
         }
         historyInteraction = beginSearchInteraction('history');
-        historySelectionReported = false;
-        historySelectionPending = false;
-        // A fresh interaction starts with no results until the list resolves, so
-        // an immediate close cannot leak the previous interaction's count.
-        historyResultCount = 0;
-        void trackSurfaceOpened('history');
-        const ready = historyInteraction;
-        void ready
-            .then((interaction) => trackSearchFeatureExposed(interaction, 'history'))
-            .catch(() => {});
+        // Prefetched/cached rows are already visible to the user, so the initial
+        // count must reflect the real displayed list rather than zero.
+        historyResultCount = sessionList.value.length;
     }
 
     /**
-     * Marks that the close currently in progress is the first half of a real
-     * result selection, so the interaction stays open until the selection event
-     * has been recorded.
+     * Marks the interaction that the current history-popup open is selecting
+     * from. Storing the promise itself prevents a reopened popup from attaching
+     * the selection to a newer interaction.
      */
-    function markHistorySelectionPending() {
-        if (historyInteraction) {
-            historySelectionPending = true;
+    function markHistorySelectionPending(): HistorySelection | null {
+        if (!historyInteraction) {
+            return null;
         }
+        const selection = {
+            interaction: historyInteraction,
+            resultCount: historyResultCount,
+        };
+        historyInteraction = null;
+        historySelections.add(selection);
+        return selection;
     }
 
     function settleHistoryInteraction() {
@@ -136,6 +142,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         if (!ready) {
             return;
         }
+        historyInteraction = null;
         const resultCount = historyResultCount;
         void ready
             .then(async (interaction) => {
@@ -143,41 +150,46 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                     hasResults: resultCount > 0,
                     resultCount,
                 });
-                if (!historySelectionPending) {
-                    if (historyInteraction === ready) {
-                        historyInteraction = null;
-                    }
-                    await finishSearchInteraction(interaction);
-                }
+                await finishSearchInteraction(interaction);
             })
             .catch(() => {});
     }
 
-    function abandonHistorySelection() {
-        historySelectionPending = false;
-        settleHistoryInteraction();
+    function abandonHistorySelection(selection: HistorySelection | null) {
+        reportHistorySelection(selection);
     }
 
-    function reportHistorySelection(opened: boolean) {
-        const ready = historyInteraction;
-        if (!ready || historySelectionReported) {
+    function reportHistorySelection(selection: HistorySelection | null, opened?: boolean) {
+        if (!selection || !historySelections.delete(selection)) {
             return;
         }
-        historySelectionReported = true;
-        const resultCount = historyResultCount;
+        const { interaction: ready, resultCount } = selection;
         void ready
             .then(async (interaction) => {
                 await settleSearchInteraction(interaction, {
                     hasResults: resultCount > 0,
                     resultCount,
                 });
-                await selectSearchResult(interaction, { category: 'conversation', opened });
-                if (historyInteraction === ready) {
-                    historyInteraction = null;
+                if (opened !== undefined) {
+                    await selectSearchResult(interaction, { category: 'conversation', opened });
                 }
-                historySelectionPending = false;
                 await finishSearchInteraction(interaction);
             })
+            .catch(() => {});
+    }
+
+    /**
+     * Emits the history surface/feature exposure only after the native popup has
+     * really opened. A failed open settles/releases without either event.
+     */
+    function reportHistoryInteractionOpened() {
+        const ready = historyInteraction;
+        if (!ready) {
+            return;
+        }
+        void trackSurfaceOpened('history');
+        void ready
+            .then((interaction) => trackSearchFeatureExposed(interaction, 'history'))
             .catch(() => {});
     }
 
@@ -338,6 +350,12 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         stopSessionStatusListener = null;
         const ready = historyInteraction;
         historyInteraction = null;
+        for (const selection of historySelections) {
+            void selection.interaction
+                .then((interaction) => finishSearchInteraction(interaction))
+                .catch(() => {});
+        }
+        historySelections.clear();
         if (ready) {
             void ready.then((interaction) => finishSearchInteraction(interaction)).catch(() => {});
         }
@@ -383,6 +401,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                 log.error('[SearchView] Failed to load session history:', loadError);
                 if (requestId === sessionListRequestId) {
                     sessionList.value = [];
+                    historyResultCount = 0;
                     sessionListResolvedKey = null;
                 }
             } finally {
@@ -422,7 +441,6 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     async function setSessionHistoryPopupOpen(open: boolean) {
         sessionHistoryPopupOpen.value = open;
         if (open) {
-            beginHistoryInteraction();
             return;
         }
 
@@ -536,11 +554,17 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         }
     }
 
-    async function openSession(sessionId: number): Promise<LoadedSessionInfo> {
+    async function openSession(
+        sessionId: number,
+        origin: 'history' | 'other' = 'other',
+        selection: HistorySelection | null = null
+    ): Promise<LoadedSessionInfo> {
         if (sessionId === currentSessionId.value) {
-            // The clicked conversation is already open; it is still a real
-            // selection, and the popup may have closed before this point.
-            reportHistorySelection(true);
+            // The clicked conversation is already open; only a history-popup
+            // selection is attributed to the pending interaction.
+            if (origin === 'history') {
+                reportHistorySelection(selection, true);
+            }
             return {
                 sessionId,
                 title: '',
@@ -553,7 +577,9 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         try {
             loadedSession = await openStoredSession(sessionId);
         } catch (error) {
-            reportHistorySelection(false);
+            if (origin === 'history') {
+                reportHistorySelection(selection, false);
+            }
             throw error;
         }
         // 切换会话成功后必须丢弃当前页面暂存的排队请求，
@@ -572,7 +598,9 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             log.error('[SearchView] Failed to dismiss session terminal status:', error);
         }
 
-        reportHistorySelection(true);
+        if (origin === 'history') {
+            reportHistorySelection(selection, true);
+        }
         return loadedSession;
     }
 
@@ -619,8 +647,10 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         isSessionListLoading,
         clearSession: clearSessionState,
         setSessionHistoryPopupOpen,
+        beginHistoryInteraction,
         markHistorySelectionPending,
         abandonHistorySelection,
+        reportHistoryInteractionOpened,
         updateSessionSearchQuery,
         refreshSessionList,
         ensureSessionListLoaded,
