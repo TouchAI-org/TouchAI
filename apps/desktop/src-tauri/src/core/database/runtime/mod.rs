@@ -2,6 +2,7 @@
 
 //! 数据库运行时状态与事务托管。
 
+mod analytics_snapshot;
 mod executor;
 mod import;
 
@@ -96,6 +97,14 @@ impl DatabaseRuntime {
     ) -> Result<DatabaseQueryResponse, String> {
         reject_top_level_transaction_sql(&request.sql)?;
         execute_request(&self.inner.pool, request).await
+    }
+
+    /// The single shared SQLite pool over `touchai.db`.
+    ///
+    /// Crate-internal typed subsystems (analytics) run their own statements on
+    /// this pool instead of opening a second connection or database.
+    pub(crate) fn pool(&self) -> &SqlitePool {
+        &self.inner.pool
     }
 
     pub async fn batch(
@@ -216,11 +225,27 @@ impl DatabaseRuntime {
     }
 
     pub async fn export_backup(&self, target_path: &str) -> Result<(), String> {
-        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        // A snapshot taken by VACUUM INTO is transactionally consistent with the
+        // live database and cannot race a checkpoint-then-copy. Analytics identity,
+        // consent epoch and queued payloads are scrubbed from the offline copy,
+        // never from the live tables, so the exported schema stays valid and
+        // restorable while the explicit consent choice travels with the user.
+        let parent = self
+            .inner
+            .database_path
+            .parent()
+            .ok_or_else(|| "数据库路径没有父目录".to_string())?;
+        let snapshot = tempfile::tempdir_in(parent)
+            .map_err(|error| format!("Failed to create export workspace: {error}"))?;
+        let snapshot_path = snapshot.path().join(DATABASE_FILE_NAME);
+        sqlx::query("VACUUM INTO ?")
+            .bind(snapshot_path.to_string_lossy().as_ref())
             .execute(&self.inner.pool)
             .await
-            .map_err(|error| format!("Failed to checkpoint sqlite WAL: {error}"))?;
-        std::fs::copy(&self.inner.database_path, target_path)
+            .map_err(|error| format!("Failed to snapshot database for export: {error}"))?;
+        // The returned consent choice matters to an import, never to an export.
+        let _ = analytics_snapshot::sanitize_analytics_snapshot(&snapshot_path).await?;
+        std::fs::copy(&snapshot_path, target_path)
             .map_err(|error| format!("Failed to export database backup: {error}"))?;
         Ok(())
     }
@@ -333,4 +358,79 @@ fn next_counter() -> u64 {
 
     static COUNTER: AtomicU64 = AtomicU64::new(1);
     COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn user_gets_an_exported_backup_without_analytics_identity_or_payloads() {
+        let root = tempfile::tempdir().expect("temp dir");
+        let runtime = DatabaseRuntime::initialize_for_tests(root.path())
+            .await
+            .expect("database runtime");
+        let pool = runtime.pool();
+
+        sqlx::query(
+            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, consent_epoch) \
+             VALUES (1, 'disabled', 1, '3f2504e0-4f89-41d3-9a0c-0305e82c3301', 4)",
+        )
+        .execute(pool)
+        .await
+        .expect("seed state");
+        sqlx::query(
+            "INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at) \
+             VALUES ('e1', 4, 1, 'app.started', '{\"a\":1}', 7, 1, 9, 1)",
+        )
+        .execute(pool)
+        .await
+        .expect("seed outbox");
+        sqlx::query("INSERT INTO settings (key, value) VALUES ('keep', '1')")
+            .execute(pool)
+            .await
+            .expect("seed settings");
+
+        let target = root.path().join("exported.db");
+        runtime
+            .export_backup(target.to_string_lossy().as_ref())
+            .await
+            .expect("export");
+
+        let exported = create_sqlite_pool(&target).await.expect("open export");
+        let (status, explicit, installation, epoch): (String, i64, Option<String>, i64) =
+            sqlx::query_as(
+                "SELECT status, consent_explicit, installation_id, consent_epoch \
+                 FROM analytics_state WHERE id = 1",
+            )
+            .fetch_one(&exported)
+            .await
+            .expect("exported state");
+        assert_eq!(
+            (status.as_str(), explicit),
+            ("disabled", 1),
+            "an exported backup keeps the user's explicit opt-out"
+        );
+        assert!(installation.is_none(), "no analytics identity is exported");
+        assert_eq!(epoch, 0, "no consent epoch is exported");
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM analytics_outbox")
+                .fetch_one(&exported)
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'keep'")
+                .fetch_one(&exported)
+                .await
+                .unwrap(),
+            "1"
+        );
+        assert!(sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&exported)
+            .await
+            .unwrap()
+            .is_empty());
+    }
 }

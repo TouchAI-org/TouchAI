@@ -13,6 +13,12 @@
         "mainExe": "TouchAI.exe"
     },
     "services": {
+        "analytics": {
+            "baseUrl": "https://analytics.touch-ai.org/touchai-app/v1",
+            "protocolVersion": 1,
+            "websiteId": "",
+            "defaultEnabled": true
+        },
         "updates": {
             "baseUrl": "https://updates.touch-ai.org/touchai-app/v1",
             "deployment": {
