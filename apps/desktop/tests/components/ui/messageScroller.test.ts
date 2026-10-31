@@ -269,10 +269,23 @@ describe('user navigates a long conversation', () => {
         );
     });
 
-    it('user sees a message preview when pointing at its tick', async () => {
-        const wrapper = mountScroller();
+    it('user sees complete previews at either end of the rail', async () => {
+        const previewItems: MessageScrollerItem[] = [
+            items[0]!,
+            ...Array.from({ length: 38 }, (_, index) => ({
+                id: `preview-${index + 1}`,
+                label: `Preview message ${index + 1}`,
+            })),
+            items[2]!,
+        ];
+        const wrapper = mountScroller({ scrollerItems: previewItems });
         const viewport = viewportOf(wrapper);
         setScrollMetrics(viewport, { scrollHeight: 1_200, clientHeight: 400 });
+        const rail = wrapper.get('[data-slot="message-scroller-rail"]').element as HTMLElement;
+        Object.defineProperty(rail, 'clientHeight', {
+            configurable: true,
+            value: 300,
+        });
         triggerResize();
         await settleLayout();
 
@@ -292,7 +305,7 @@ describe('user navigates a long conversation', () => {
         ).toContain('line-clamp-3');
 
         const positioner = wrapper.get('[data-slot="message-scroller-preview-positioner"]');
-        expect((positioner.element as HTMLElement).style.top).toContain('clamp(');
+        expect(Number.parseFloat((positioner.element as HTMLElement).style.top)).toBe(56);
 
         pointerEvent('pointerleave', 'mouse', firstTick.element as HTMLElement);
         const ticks = wrapper.findAll('[data-slot="message-scroller-rail-item"]');
@@ -301,7 +314,7 @@ describe('user navigates a long conversation', () => {
         await nextTick();
         await flushPromises();
 
-        expect((positioner.element as HTMLElement).style.top).toContain('calc(100% - 3.5rem)');
+        expect(Number.parseFloat((positioner.element as HTMLElement).style.top)).toBe(244);
     });
 
     it('user sees neighbouring ticks rise in a wave when pointing at a tick', async () => {
