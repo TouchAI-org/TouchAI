@@ -1,4 +1,4 @@
-import { mount, type VueWrapper } from '@vue/test-utils';
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
@@ -157,6 +157,7 @@ describe('user acts on a finished answer', () => {
         const wrapper = render({ isStreaming: false, content: 'The full answer' });
 
         await actionButton(wrapper, 'copy')!.trigger('click');
+        await flushPromises();
 
         expect(clipboardWriteTextMock).toHaveBeenCalledWith('The full answer');
         expect(notifyMock.mock.calls[0]?.[0]).toMatchObject({
@@ -171,6 +172,7 @@ describe('user acts on a finished answer', () => {
         const wrapper = render({ isStreaming: false });
 
         await actionButton(wrapper, 'copy')!.trigger('click');
+        await flushPromises();
 
         const body = notifyMock.mock.calls[0]?.[0]?.body as string;
         expect(body).toBe('复制失败');
