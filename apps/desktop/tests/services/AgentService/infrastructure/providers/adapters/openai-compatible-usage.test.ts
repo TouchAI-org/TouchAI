@@ -49,6 +49,10 @@ async function answer(usage: unknown): Promise<AiStreamChunk[]> {
     return chunks;
 }
 
+function lastChunk(chunks: AiStreamChunk[]): AiStreamChunk | undefined {
+    return chunks[chunks.length - 1];
+}
+
 describe('given a compatible provider sends usage through the installed SDK', () => {
     beforeEach(() => {
         httpFetch.mockReset();
@@ -77,7 +81,7 @@ describe('given a compatible provider sends usage through the installed SDK', ()
 
         expect(chunks.map((chunk) => chunk.content).join('')).toBe('Answer');
         expect(chunks.filter((chunk) => chunk.done)).toHaveLength(1);
-        expect(chunks.at(-1)).toMatchObject({ done: true, usageReported: false });
+        expect(lastChunk(chunks)).toMatchObject({ done: true, usageReported: false });
     });
 
     it.each([
@@ -91,7 +95,7 @@ describe('given a compatible provider sends usage through the installed SDK', ()
         async (_label, usage, inputTokens, outputTokens) => {
             const chunks = await answer(usage);
 
-            expect(chunks.at(-1)).toMatchObject({
+            expect(lastChunk(chunks)).toMatchObject({
                 done: true,
                 usageReported: true,
                 usage: { inputTokens, outputTokens },
@@ -103,7 +107,7 @@ describe('given a compatible provider sends usage through the installed SDK', ()
         const reported = await answer({ prompt_tokens: 0 });
         const missing = await answer({});
 
-        expect(reported.at(-1)?.usageReported).toBe(true);
-        expect(missing.at(-1)?.usageReported).toBe(false);
+        expect(lastChunk(reported)?.usageReported).toBe(true);
+        expect(lastChunk(missing)?.usageReported).toBe(false);
     });
 });
