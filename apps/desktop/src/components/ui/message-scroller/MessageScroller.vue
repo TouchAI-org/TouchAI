@@ -654,7 +654,7 @@
                 data-slot="message-scroller-rail"
             >
                 <button
-                    v-for="item in displayItems"
+                    v-for="(item, index) in displayItems"
                     :key="item.id"
                     type="button"
                     class="relative flex w-full items-center justify-end outline-none focus-visible:ring-2 focus-visible:ring-ring"
