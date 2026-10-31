@@ -619,6 +619,7 @@ describe('user uses MCP tools', () => {
     it('user connects an MCP server with its declared transport', async () => {
         await callAndExpectInvoke(() => mcp.connectServer(serverConfig), 'mcp_connect_server', {
             config: serverConfig,
+            connectionOrigin: 'user',
         });
     });
 

@@ -63,13 +63,13 @@ describe('user selects conversation history', () => {
         telemetry = installProductAnalytics();
         rows = [session(7)];
         pending.clear();
-        mockTauriCommand('database_query', (payload) => {
+        mockTauriCommand('database_query', (payload: unknown) => {
             const { request } = payload as {
                 request: { sql: string; method: string; params: unknown[] };
             };
             if (request.sql.includes('from "sessions"')) {
                 if (request.method === 'get') {
-                    const id = Number(request.params.at(-1));
+                    const id = Number(request.params[request.params.length - 1]);
                     return pending.get(id)?.promise ?? response([session(id)]);
                 }
                 return response(rows);

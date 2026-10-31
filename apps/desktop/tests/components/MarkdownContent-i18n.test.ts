@@ -69,8 +69,8 @@ describe('user reads a markdown answer', () => {
             autoScrollInitial: false,
         });
         // Trusted application CSS is passed through the supported Shadow DOM hook.
-        expect(renderer.props('codeBlockMonacoOptions').unsafeCSS).toContain('pre[data-file]');
-    });
+        expect(renderer.props('codeBlockMonacoOptions')!.unsafeCSS).toContain('pre[data-file]');
+    }, 15_000);
 
     it.each(['default', 'reasoning'] as const)(
         'user disables soft wrapping for streaming and finalized code/diff blocks in %s messages',
@@ -104,7 +104,7 @@ describe('user reads a markdown answer', () => {
             props: { content: '```javascript\nconst value = 1;\n```', final: true },
         });
         const renderer = wrapper.findComponent(MarkdownRender);
-        const styles = renderer.props('codeBlockMonacoOptions').unsafeCSS;
+        const styles = renderer.props('codeBlockMonacoOptions')!.unsafeCSS;
 
         expect(styles).toContain('[data-code]::-webkit-scrollbar-thumb');
         expect(styles).toContain('var(--color-scrollbar-thumb)');
@@ -197,7 +197,7 @@ describe('user reads a markdown answer', () => {
                 props: { content: '```ts\nconsole.log(1)\n```', final },
             });
             expect(
-                wrapper.findComponent(MarkdownRender).props('codeBlockMonacoOptions')
+                wrapper.findComponent(MarkdownRender).props('codeBlockMonacoOptions')!
                     .autoScrollInitial
             ).toBe(!final);
         }

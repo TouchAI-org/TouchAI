@@ -229,9 +229,14 @@ describe('user updates the app', () => {
 describe('user provides a version string', () => {
     it('user gets an over-long version dropped instead of sent', () => {
         expect(boundedVersion('1.3.0')).toBe('1.3.0');
+        expect(boundedVersion('v1.3.0')).toBe('v1.3.0');
         expect(boundedVersion('  1.3.0  ')).toBe('1.3.0');
         expect(boundedVersion('')).toBeUndefined();
         expect(boundedVersion(null)).toBeUndefined();
+        expect(boundedVersion('x'.repeat(65))).toBeUndefined();
         expect(boundedVersion('x'.repeat(201))).toBeUndefined();
+        expect(boundedVersion('https://example.com/update')).toBeUndefined();
+        expect(boundedVersion('releases/v1.3.0')).toBeUndefined();
+        expect(boundedVersion('1.3.0\n0')).toBeUndefined();
     });
 });

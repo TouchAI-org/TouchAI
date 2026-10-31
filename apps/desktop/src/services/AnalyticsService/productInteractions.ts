@@ -466,25 +466,30 @@ export async function completeResultAction(
 }
 
 /**
- * Runs an existing copy/open action and reports its real outcome. The returned
- * promise is the action's own promise, unchanged: telemetry must not add an
- * extra microtask before a caller's notification. Telemetry is attached as a
- * rejection-handled side effect, so a failed analytics call can never replace
- * the real success or failure.
+ * Runs an existing copy/open action and reports its real outcome. The native
+ * handle is captured before the action starts so an operation that begins while
+ * consent is disabled can never borrow a later enabled epoch. Completion is a
+ * rejection-handled side effect, so telemetry cannot delay or replace the real
+ * success or failure.
  */
-export function runResultAction<T>(action: ResultAction, run: () => Promise<T>): Promise<T> {
-    const operation = beginResultAction(action);
-    const complete = (outcome: ResultActionOutcome) => {
-        void operation.then((attempt) => completeResultAction(attempt, outcome)).catch(() => {});
-    };
+export async function runResultAction<T>(action: ResultAction, run: () => Promise<T>): Promise<T> {
+    let attempt: ResultActionOperation | null = null;
     try {
-        const actionPromise = run();
-        // Observe rejection immediately, even while the native handle is pending.
-        void actionPromise.then(
-            () => complete('success'),
-            () => complete('failure')
-        );
-        return actionPromise;
+        attempt = await beginResultAction(action);
+    } catch {
+        // A telemetry failure must not prevent the real action from starting.
+    }
+
+    const complete = (outcome: ResultActionOutcome) => {
+        if (attempt) {
+            void completeResultAction(attempt, outcome).catch(() => {});
+        }
+    };
+
+    try {
+        const result = await run();
+        complete('success');
+        return result;
     } catch (error) {
         complete('failure');
         throw error;

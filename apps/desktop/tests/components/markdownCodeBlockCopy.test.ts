@@ -22,11 +22,20 @@ describe('user copies a rendered code block', () => {
         vi.clearAllMocks();
         telemetry = installProductAnalytics();
         setLocale('en-US');
+        vi.stubGlobal(
+            'ResizeObserver',
+            class {
+                observe() {}
+                unobserve() {}
+                disconnect() {}
+            }
+        );
     });
 
     afterEach(() => {
         wrappers.forEach((wrapper) => wrapper.unmount());
         wrappers.length = 0;
+        vi.unstubAllGlobals();
         if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard);
         else Reflect.deleteProperty(navigator, 'clipboard');
     });

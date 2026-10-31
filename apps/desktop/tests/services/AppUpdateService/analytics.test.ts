@@ -6,7 +6,7 @@ import type {
     AppUpdateInfo,
 } from '@services/AppUpdateService/types';
 import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, type Mock, vi } from 'vitest';
 
 vi.mock('@services/ObservabilityService', () => ({
     log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
@@ -75,7 +75,9 @@ function createController(options: {
     downloadError?: Error;
     installError?: Error;
     analytics?: AppUpdateAnalytics;
-    downloadUpdate?: ReturnType<typeof vi.fn>;
+    downloadUpdate?: Mock<
+        (channel: AppUpdateChannel, version: string, fileName: string) => Promise<AppUpdateInfo>
+    >;
     persistCheckedAt?: () => Promise<void>;
 }) {
     const channel: AppUpdateChannel = 'stable';

@@ -57,7 +57,7 @@ beforeEach(() => {
             disconnect() {}
         }
     );
-    mockTauriCommand('database_query', (payload) => {
+    mockTauriCommand('database_query', (payload: unknown) => {
         const { request } = payload as { request: { sql: string; params: unknown[] } };
         const rows = request.sql.startsWith('insert into "settings"')
             ? [{ key: request.params[0], value: request.params[1] }]
@@ -71,7 +71,7 @@ beforeEach(() => {
         currentHeight: 60,
         heightMode: 'auto',
     });
-    mockTauriCommand('set_search_window_defaults', (payload) => {
+    mockTauriCommand('set_search_window_defaults', (payload: unknown) => {
         return (payload as { defaults: { width: number; height: number } }).defaults;
     });
 });
@@ -88,7 +88,7 @@ describe('user opens history from the search page', () => {
     it('user gets no history exposure when another popup supersedes a pending native open', async () => {
         const telemetry = installProductAnalytics();
         const historyWindow = deferred<void>();
-        mockTauriCommand('show_popup_window', (payload) => {
+        mockTauriCommand('show_popup_window', (payload: unknown) => {
             const { params } = payload as { params: { popupType: string } };
             return params.popupType === 'session-history-popup' ? historyWindow.promise : undefined;
         });

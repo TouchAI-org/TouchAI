@@ -20,6 +20,7 @@ import {
 } from '@services/AnalyticsService/productInteractions';
 import type { AnalyticsState } from '@services/AnalyticsService/types';
 import { native } from '@services/NativeService';
+import { deferred } from '@tests/utils/productAnalytics';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@services/NativeService', () => ({
@@ -525,21 +526,36 @@ describe('user completes an existing result action', () => {
         expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
     });
 
-    it('user gets the original copy promise unchanged before the notification can fire', async () => {
-        nativeAnalytics.track.mockRejectedValue(new Error('telemetry down'));
-        const rawAction = (async () => 'copied')();
-        const notifications: string[] = [];
+    it('user starts the copy only after its consent handle is captured', async () => {
+        let resolveBegin!: (handle: {
+            operationId: string;
+            enabled: boolean;
+            consentEpoch: number;
+        }) => void;
+        nativeAnalytics.beginOperation.mockReturnValue(
+            new Promise((resolve) => {
+                resolveBegin = resolve;
+            })
+        );
+        const run = vi.fn(async () => 'copied');
 
-        const actionPromise = runResultAction('copy_answer', () => rawAction);
-        expect(actionPromise).toBe(rawAction);
+        const actionPromise = runResultAction('copy_answer', run);
+        await Promise.resolve();
+        expect(run).not.toHaveBeenCalled();
 
-        const notifyAfterCopy = (async () => {
-            await actionPromise;
-            notifications.push('copied');
-        })();
-        await notifyAfterCopy;
+        resolveBegin({ operationId: 'op-1', enabled: true, consentEpoch: 7 });
+        await expect(actionPromise).resolves.toBe('copied');
+        expect(run).toHaveBeenCalledTimes(1);
+    });
 
-        expect(notifications).toEqual(['copied']);
+    it('user gets the copy result before background telemetry settles', async () => {
+        const track = deferred<{ status: 'persisted'; eventId: string }>();
+        nativeAnalytics.track.mockReturnValue(track.promise);
+
+        await expect(runResultAction('copy_answer', async () => 'copied')).resolves.toBe('copied');
+        expect(nativeAnalytics.completeOperation).not.toHaveBeenCalled();
+
+        track.resolve({ status: 'persisted', eventId: 'e-1' });
         await vi.waitFor(() => {
             expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
         });
@@ -547,11 +563,10 @@ describe('user completes an existing result action', () => {
 
     it('user gets the original action rejection unchanged when telemetry also fails', async () => {
         nativeAnalytics.track.mockRejectedValue(new Error('telemetry down'));
-        const rawAction = Promise.reject(new Error('clipboard busy'));
 
-        const actionPromise = runResultAction('copy_code', () => rawAction);
-        expect(actionPromise).toBe(rawAction);
-        await expect(actionPromise).rejects.toThrow('clipboard busy');
+        await expect(
+            runResultAction('copy_code', () => Promise.reject(new Error('clipboard busy')))
+        ).rejects.toThrow('clipboard busy');
 
         await vi.waitFor(() => {
             expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);

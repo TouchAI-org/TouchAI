@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { normalizeAnalyticsVersion } from './events';
 import { analytics } from './index';
 import type { AnalyticsOperationHandle } from './types';
 
@@ -45,11 +46,7 @@ export async function beginUpdateOperation(): Promise<UpdateOperation> {
 
 /** Sanitizes a version into the bounded version string the schema accepts. */
 export function boundedVersion(value: string | null | undefined): string | undefined {
-    if (typeof value !== 'string') {
-        return undefined;
-    }
-    const trimmed = value.trim();
-    return trimmed.length > 0 && trimmed.length <= 200 ? trimmed : undefined;
+    return normalizeAnalyticsVersion(value);
 }
 
 /** Records exactly one fixed update phase transition on the serial chain. */

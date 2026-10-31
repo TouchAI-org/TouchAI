@@ -19,7 +19,7 @@ export function installProductAnalytics() {
         active.set(operation.operationId, operation);
         return operation;
     });
-    mockTauriCommand('analytics_track', (payload) => {
+    mockTauriCommand('analytics_track', (payload: unknown) => {
         const { request } = payload as { request: AnalyticsTrackRequest };
         const operation = request.operationId ? active.get(request.operationId) : undefined;
         if (
@@ -32,7 +32,7 @@ export function installProductAnalytics() {
         events.push(request);
         return { status: 'persisted', eventId: `event-${events.length}` };
     });
-    mockTauriCommand('analytics_complete_operation', (payload) => {
+    mockTauriCommand('analytics_complete_operation', (payload: unknown) => {
         const { operationId } = payload as { operationId: string };
         released.push(operationId);
         active.delete(operationId);

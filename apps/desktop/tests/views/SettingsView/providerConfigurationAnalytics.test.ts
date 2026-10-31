@@ -55,7 +55,7 @@ describe('user saves provider configuration', () => {
         pendingSave = null;
         saveError = null;
         writes.length = 0;
-        mockTauriCommand('database_query', async (payload) => {
+        mockTauriCommand('database_query', async (payload: unknown) => {
             const { request } = payload as {
                 request: { sql: string; params: unknown[]; method: string };
             };
@@ -113,7 +113,7 @@ describe('user saves provider configuration', () => {
 
         expect(writes).toHaveLength(1);
         expect(writes[0]?.params).toContain('https://edited.example/v1');
-        expect(writes[0]?.params.at(-1)).toBe(1);
+        expect(writes[0]?.params[writes[0].params.length - 1]).toBe(1);
         expect(starts()).toHaveLength(1);
         expect(completions()).toEqual([
             expect.objectContaining({
@@ -146,7 +146,7 @@ describe('user saves provider configuration', () => {
         await flushPromises();
         expect(writes).toHaveLength(1);
         expect(writes[0]?.params).toContain('https://second.example/v1');
-        expect(writes[0]?.params.at(-1)).toBe(2);
+        expect(writes[0]?.params[writes[0].params.length - 1]).toBe(2);
         expect(starts()).toHaveLength(2);
         expect(completions()[0]?.operationId).toBe('operation-2');
     });
@@ -163,7 +163,7 @@ describe('user saves provider configuration', () => {
         pendingSave.resolve();
         await flushPromises();
 
-        expect(writes[0]?.params.at(-1)).toBe(1);
+        expect(writes[0]?.params[writes[0].params.length - 1]).toBe(1);
         expect(
             wrapper.get('[data-settings-search-target="provider-endpoint"] input').element
         ).toHaveProperty('value', 'https://provider-2.example/v1');
