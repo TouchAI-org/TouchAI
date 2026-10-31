@@ -66,6 +66,50 @@
                 "llm_call_count": 1,
                 "unpriced_call_count": 3
             }
+        },
+        {
+            "name": "app.update_transition",
+            "attributes": {
+                "update_operation_id": "8192a3b4-c5d6-4ae7-9b08-d9eafb0c1d08",
+                "phase": "download_finished",
+                "from_version": "/home/user/TouchAI/1.2.2",
+                "to_version": "1.2.3",
+                "result": "success",
+                "source": "user"
+            }
+        },
+        {
+            "name": "app.update_transition",
+            "attributes": {
+                "update_operation_id": "8192a3b4-c5d6-4ae7-9b08-d9eafb0c1d08",
+                "phase": "download_finished",
+                "from_version": "1.2.2",
+                "to_version": "https://updates.touch-ai.org/touchai-app/v1/1.2.3",
+                "result": "success",
+                "source": "user"
+            }
+        },
+        {
+            "name": "app.update_transition",
+            "attributes": {
+                "update_operation_id": "8192a3b4-c5d6-4ae7-9b08-d9eafb0c1d08",
+                "phase": "download_finished",
+                "from_version": "1.2.2",
+                "to_version": "Error: failed to install update at src/install.rs",
+                "result": "success",
+                "source": "user"
+            }
+        },
+        {
+            "name": "app.update_transition",
+            "attributes": {
+                "update_operation_id": "8192a3b4-c5d6-4ae7-9b08-d9eafb0c1d08",
+                "phase": "download_finished",
+                "from_version": "openai/gpt-4o",
+                "to_version": "1.2.3",
+                "result": "success",
+                "source": "user"
+            }
         }
     ]
 }
