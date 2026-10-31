@@ -12,8 +12,14 @@ const PENDING_CANCELLATION_TTL: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 struct BuiltInProcessRegistryState {
-    senders: HashMap<String, oneshot::Sender<()>>,
+    current_registrations: HashMap<String, ProcessRegistration>,
+    next_registration: u64,
     pending_cancellations: HashMap<String, Instant>,
+}
+
+struct ProcessRegistration {
+    id: u64,
+    sender: Option<oneshot::Sender<()>>,
 }
 
 /// 维护"执行 ID -> 取消信号发送端"的映射。
@@ -36,29 +42,40 @@ impl BuiltInProcessExecutionRegistry {
     }
 
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-    pub fn register(&self, execution_id: String) -> oneshot::Receiver<()> {
+    pub fn register(&self, execution_id: String) -> (oneshot::Receiver<()>, u64) {
         let (sender, receiver) = oneshot::channel();
         let mut state = self
             .state
             .lock()
             .expect("BuiltInProcessExecutionRegistry poisoned");
         prune_expired_pending_cancellations(&mut state);
-
+        let registration = state.next_registration;
+        state.next_registration = state.next_registration.wrapping_add(1);
         // 取消命令可能比实际执行注册更早到达。
         // 如果 execution_id 已被提前标记为待取消，则在注册瞬间立刻把取消信号打给本次执行，
         // 从而覆盖 IPC/线程调度乱序造成的"先取消、后注册"竞态。
-        if state.pending_cancellations.remove(&execution_id).is_some() {
+        let current_sender = if state.pending_cancellations.remove(&execution_id).is_some() {
             let _ = sender.send(());
-            return receiver;
-        }
+            None
+        } else {
+            Some(sender)
+        };
 
         // execution_id 理论上应唯一；若前端重复使用旧 ID，
         // 直接让旧执行收到取消信号，避免注册表里留下悬空项。
-        if let Some(previous_sender) = state.senders.insert(execution_id, sender) {
-            let _ = previous_sender.send(());
+        if let Some(previous) = state.current_registrations.insert(
+            execution_id,
+            ProcessRegistration {
+                id: registration,
+                sender: current_sender,
+            },
+        ) {
+            if let Some(previous_sender) = previous.sender {
+                let _ = previous_sender.send(());
+            }
         }
 
-        receiver
+        (receiver, registration)
     }
 
     /// 向指定 execution_id 发送取消信号。
@@ -73,7 +90,11 @@ impl BuiltInProcessExecutionRegistry {
             .expect("BuiltInProcessExecutionRegistry poisoned");
         prune_expired_pending_cancellations(&mut state);
 
-        if let Some(sender) = state.senders.remove(execution_id) {
+        if let Some(sender) = state
+            .current_registrations
+            .get_mut(execution_id)
+            .and_then(|registration| registration.sender.take())
+        {
             let _ = sender.send(());
             return true;
         }
@@ -92,11 +113,15 @@ impl BuiltInProcessExecutionRegistry {
                 .expect("BuiltInProcessExecutionRegistry poisoned");
             prune_expired_pending_cancellations(&mut state);
             state.pending_cancellations.clear();
-            std::mem::take(&mut state.senders)
+            state
+                .current_registrations
+                .values_mut()
+                .filter_map(|registration| registration.sender.take())
+                .collect::<Vec<_>>()
         };
 
         let count = senders.len();
-        for (_, sender) in senders {
+        for sender in senders {
             let _ = sender.send(());
         }
 
@@ -104,14 +129,20 @@ impl BuiltInProcessExecutionRegistry {
     }
 
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-    pub fn complete(&self, execution_id: &str) {
+    pub fn complete(&self, execution_id: &str, registration: u64) {
         let mut state = self
             .state
             .lock()
             .expect("BuiltInProcessExecutionRegistry poisoned");
         prune_expired_pending_cancellations(&mut state);
-        state.senders.remove(execution_id);
-        state.pending_cancellations.remove(execution_id);
+        if state
+            .current_registrations
+            .get(execution_id)
+            .is_some_and(|current| current.id == registration)
+        {
+            state.current_registrations.remove(execution_id);
+            state.pending_cancellations.remove(execution_id);
+        }
     }
 }
 
@@ -129,10 +160,10 @@ mod tests {
     use super::BuiltInProcessExecutionRegistry;
 
     #[test]
-    fn cancel_all_signals_every_registered_execution() {
+    fn user_cancelling_all_signals_every_registered_execution() {
         let registry = BuiltInProcessExecutionRegistry::new();
-        let mut first = registry.register("first".to_string());
-        let mut second = registry.register("second".to_string());
+        let (mut first, _) = registry.register("first".to_string());
+        let (mut second, _) = registry.register("second".to_string());
 
         assert_eq!(registry.cancel_all(), 2);
         assert!(first.try_recv().is_ok());
@@ -145,7 +176,7 @@ mod tests {
 
         // The cancel IPC may overtake the execution registration; the signal must not be lost.
         assert!(!registry.cancel("late-start"));
-        let mut receiver = registry.register("late-start".to_string());
+        let (mut receiver, _) = registry.register("late-start".to_string());
 
         assert!(receiver.try_recv().is_ok());
     }
@@ -153,7 +184,7 @@ mod tests {
     #[test]
     fn user_cancelling_a_running_execution_reports_it_as_found() {
         let registry = BuiltInProcessExecutionRegistry::new();
-        let mut receiver = registry.register("running".to_string());
+        let (mut receiver, _) = registry.register("running".to_string());
 
         assert!(registry.cancel("running"));
         assert!(receiver.try_recv().is_ok());
@@ -164,9 +195,9 @@ mod tests {
     #[test]
     fn user_reusing_an_execution_id_cancels_the_older_execution() {
         let registry = BuiltInProcessExecutionRegistry::new();
-        let mut first = registry.register("same-id".to_string());
+        let (mut first, _) = registry.register("same-id".to_string());
 
-        let mut second = registry.register("same-id".to_string());
+        let (mut second, _) = registry.register("same-id".to_string());
 
         // The stale execution is signalled so it cannot keep running unnoticed.
         assert!(first.try_recv().is_ok());
@@ -174,11 +205,41 @@ mod tests {
     }
 
     #[test]
+    fn user_can_cancel_newer_execution_after_older_same_id_completes() {
+        let registry = BuiltInProcessExecutionRegistry::new();
+        let (mut older, older_registration) = registry.register("same-id".to_string());
+        let (mut newer, newer_registration) = registry.register("same-id".to_string());
+
+        assert!(older.try_recv().is_ok());
+        registry.complete("same-id", older_registration);
+
+        assert!(registry.cancel("same-id"));
+        assert!(newer.try_recv().is_ok());
+        registry.complete("same-id", newer_registration);
+    }
+
+    #[test]
+    fn user_keeps_pending_cancellation_when_stale_execution_completes() {
+        let registry = BuiltInProcessExecutionRegistry::new();
+        let (mut older, older_registration) = registry.register("same-id".to_string());
+        let (mut newer, _) = registry.register("same-id".to_string());
+
+        assert!(older.try_recv().is_ok());
+        assert!(registry.cancel("same-id"));
+        assert!(newer.try_recv().is_ok());
+        assert!(!registry.cancel("same-id"));
+
+        registry.complete("same-id", older_registration);
+        let (mut next, _) = registry.register("same-id".to_string());
+        assert!(next.try_recv().is_ok());
+    }
+
+    #[test]
     fn user_gets_a_completed_execution_removed_from_the_registry() {
         let registry = BuiltInProcessExecutionRegistry::new();
-        let _receiver = registry.register("done".to_string());
+        let (_receiver, registration) = registry.register("done".to_string());
 
-        registry.complete("done");
+        registry.complete("done", registration);
 
         // Nothing is left to cancel, so the cancel is recorded as pending instead.
         assert!(!registry.cancel("done"));
@@ -189,7 +250,7 @@ mod tests {
     fn user_completing_an_unknown_execution_is_harmless() {
         let registry = BuiltInProcessExecutionRegistry::new();
 
-        registry.complete("never-registered");
+        registry.complete("never-registered", 0);
 
         assert_eq!(registry.cancel_all(), 0);
     }
@@ -202,19 +263,20 @@ mod tests {
         assert_eq!(registry.cancel_all(), 0);
 
         // The pending marker was cleared, so registering now starts a clean execution.
-        let mut receiver = registry.register("pending-only".to_string());
+        let (mut receiver, _) = registry.register("pending-only".to_string());
         assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
     }
     #[test]
     fn user_completing_an_execution_also_drops_a_cancel_that_was_waiting_for_it() {
         let registry = BuiltInProcessExecutionRegistry::new();
 
-        // The cancel arrived before the execution registered, then the execution finished.
+        let (_old_receiver, registration) = registry.register("raced".to_string());
+        assert!(registry.cancel("raced"));
         assert!(!registry.cancel("raced"));
-        registry.complete("raced");
+        registry.complete("raced", registration);
 
         // The stale marker must not cancel the next execution that reuses the id.
-        let mut receiver = registry.register("raced".to_string());
+        let (mut receiver, _) = registry.register("raced".to_string());
         assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
     }
 }

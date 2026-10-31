@@ -130,7 +130,7 @@ async fn execute_bash_windows(
     let timeout_ms = resolve_timeout_ms(request.timeout_ms, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
     let command_script = build_powershell_command_script(&effective_command);
     let execution_id = request.execution_id.clone();
-    let mut cancel_receiver = registry.register(execution_id.clone());
+    let (mut cancel_receiver, registration) = registry.register(execution_id.clone());
 
     // 只启动一次受控的 PowerShell 子进程，并显式关闭配置文件加载与交互能力，
     // 避免用户本地命令环境配置把工具执行语义变成"因机器而异"。
@@ -154,14 +154,14 @@ async fn execute_bash_windows(
 
     let started_at = Instant::now();
     let mut child = command.spawn().map_err(|error| {
-        registry.complete(&execution_id);
+        registry.complete(&execution_id, registration);
         format!("Failed to spawn PowerShell process: {}", error)
     })?;
 
     let stdout = match child.stdout.take() {
         Some(stdout) => stdout,
         None => {
-            registry.complete(&execution_id);
+            registry.complete(&execution_id, registration);
             let _ = child.kill().await;
             return Err("Failed to capture process stdout".to_string());
         }
@@ -169,7 +169,7 @@ async fn execute_bash_windows(
     let stderr = match child.stderr.take() {
         Some(stderr) => stderr,
         None => {
-            registry.complete(&execution_id);
+            registry.complete(&execution_id, registration);
             let _ = child.kill().await;
             return Err("Failed to capture process stderr".to_string());
         }
@@ -245,7 +245,7 @@ async fn execute_bash_windows(
             ))
         }
     };
-    registry.complete(&execution_id);
+    registry.complete(&execution_id, registration);
     let completion = completion?;
 
     // 无论进程是正常结束还是被超时终止，都等待读流任务收尾，
