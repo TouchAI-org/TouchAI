@@ -39,7 +39,11 @@ pub(crate) fn process_started_at() -> Instant {
 /// Trusted native startup classification derived from real process facts (the
 /// autostart plugin launches with `--minimized`), never from the WebView.
 pub(crate) fn startup_source_from_process() -> String {
-    if std::env::args().any(|argument| argument == "--minimized") {
+    startup_source_from_args(std::env::args())
+}
+
+fn startup_source_from_args(args: impl IntoIterator<Item = String>) -> String {
+    if args.into_iter().any(|argument| argument == "--minimized") {
         "autostart".to_string()
     } else {
         "foreground".to_string()
@@ -167,5 +171,22 @@ impl AnalyticsSubmitResult {
             event_id: None,
             reason: Some(reason.into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::startup_source_from_args;
+
+    #[test]
+    fn user_gets_an_autostart_classification_from_the_real_launch_argument() {
+        assert_eq!(
+            startup_source_from_args(["--minimized".to_string()]),
+            "autostart"
+        );
+        assert_eq!(
+            startup_source_from_args(["--profile".to_string(), "default".to_string()]),
+            "foreground"
+        );
     }
 }
