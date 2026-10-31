@@ -72,7 +72,7 @@ enum AttrKind {
     Enum(&'static [&'static str]),
     Uuid,
     Day,
-    Text,
+    Version,
     Int { minimum: i64, maximum: i64 },
     Bool,
 }
@@ -375,8 +375,8 @@ fn event_spec(name: AnalyticsEventName) -> &'static [AttrSpec] {
                         "restart_confirmed",
                     ]),
                 ),
-                optional("from_version", AttrKind::Text),
-                optional("to_version", AttrKind::Text),
+                optional("from_version", AttrKind::Version),
+                optional("to_version", AttrKind::Version),
                 required(
                     "result",
                     AttrKind::Enum(&["success", "failure", "unavailable"]),
@@ -449,10 +449,11 @@ pub(crate) fn validate_event(
     Ok(())
 }
 
-/// Lower numbers survive a full queue longer: request lifecycles are kept ahead
-/// of passive health, startup and exposure signals.
+/// Lower numbers survive capacity pressure longer and send first. Session starts
+/// outrank request lifecycles, which outrank passive startup/health/exposure.
 pub(crate) fn event_priority(name: &str) -> i64 {
     match name {
+        "analytics.session_started" => 0,
         "agent.request_submitted"
         | "agent.request_completed"
         | "agent.first_output_received"
@@ -494,12 +495,12 @@ fn validate_value(kind: &AttrKind, value: &JsonValue) -> Result<(), String> {
                 Err("expected_day".to_string())
             }
         }
-        AttrKind::Text => {
+        AttrKind::Version => {
             let value = value.as_str().ok_or("expected_string")?;
-            if !value.is_empty() && value.chars().count() <= 200 {
+            if is_version_shaped(value) {
                 Ok(())
             } else {
-                Err("expected_text".to_string())
+                Err("expected_version".to_string())
             }
         }
         AttrKind::Int { minimum, maximum } => {
@@ -515,6 +516,37 @@ fn validate_value(kind: &AttrKind, value: &JsonValue) -> Result<(), String> {
             .map(|_| ())
             .ok_or_else(|| "expected_boolean".to_string()),
     }
+}
+
+/// Version shape shared with the TypeScript registry and the private receiver:
+/// one leading ASCII letter or digit followed by at most 63 characters from
+/// `[0-9A-Za-z.+-]`.
+///
+/// The shape is deliberately narrow because `from_version`/`to_version` are the
+/// only attribute path that carries a value originating outside this codebase.
+/// It rejects a filesystem path, a URL, an error string, whitespace and any
+/// non-ASCII text. It cannot tell a bare alphanumeric-dash identifier such as
+/// `gpt-4o` from a release version; a vendor-qualified model id (`vendor/model`)
+/// or a tagged one (`model:latest`) is rejected.
+pub(crate) fn is_version_shaped(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    let Some(first) = bytes.next() else {
+        return false;
+    };
+    if !first.is_ascii_alphanumeric() {
+        return false;
+    }
+    let mut length = 1;
+    for byte in bytes {
+        if !(byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'+' | b'-')) {
+            return false;
+        }
+        length += 1;
+        if length > 64 {
+            return false;
+        }
+    }
+    true
 }
 
 fn is_utc_day(value: &str) -> bool {
@@ -544,6 +576,9 @@ fn is_utc_day(value: &str) -> bool {
     else {
         return false;
     };
+    if !(1..=9999).contains(&year) {
+        return false;
+    }
     let Ok(month) = time::Month::try_from(month) else {
         return false;
     };
@@ -554,7 +589,7 @@ fn is_utc_day(value: &str) -> bool {
 ///
 /// This is the single rule shared with the TypeScript registry, so the two
 /// validators accept and reject exactly the same strings.
-fn is_canonical_uuid(value: &str) -> bool {
+pub(crate) fn is_canonical_uuid(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() != 36 {
         return false;
@@ -635,5 +670,137 @@ mod tests {
         );
 
         assert!(validate_event("analytics.session_started", &attributes).is_err());
+    }
+
+    #[test]
+    fn user_gets_only_real_days_in_years_1_through_9999_when_submitting_observation_dates() {
+        let document: JsonValue = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../src/services/AnalyticsService/fixtures/analytics-days.v1.json"
+        )))
+        .expect("shared day cases");
+
+        for case in document["cases"].as_array().expect("day cases") {
+            let day = case["day"].as_str().expect("day");
+            let accepted = case["accepted"].as_bool().expect("expected acceptance");
+            for key in ["first_observed_day", "first_success_day"] {
+                let attributes = JsonMap::from_iter([
+                    ("configured".to_string(), JsonValue::Bool(true)),
+                    (key.to_string(), JsonValue::String(day.to_string())),
+                ]);
+                assert_eq!(
+                    validate_event("analytics.session_started", &attributes).is_ok(),
+                    accepted,
+                    "{key}: {day:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn user_gets_only_bounded_release_versions_accepted_when_submitting_update_versions() {
+        // The TypeScript registry enforces the same shape with
+        // `^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$`, so neither validator accepts a
+        // path, URL, error string, tagged model id or padded value the other
+        // refuses.
+        let max_length = "1".repeat(64);
+        let too_long = "1".repeat(65);
+        let cases = [
+            ("1.2.3", true),
+            ("1.2.3-beta.1+build.5", true),
+            ("2026.10.1", true),
+            ("0", true),
+            (max_length.as_str(), true),
+            (too_long.as_str(), false),
+            ("", false),
+            ("-1.2.3", false),
+            (".1.2.3", false),
+            ("/tmp/release/1.2.3", false),
+            ("https://updates.touch-ai.org/1.2.3", false),
+            ("Error: failed to read src/main.rs", false),
+            ("openai/gpt-4o", false),
+            ("gpt-4o:latest", false),
+            ("1.2.3 ", false),
+            ("1.2.3\n", false),
+            ("1.2.3\r\n", false),
+            ("1.2.3\u{2028}", false),
+            ("1.2.3_rc1", false),
+            ("1.2.3\u{4e2d}\u{6587}", false),
+        ];
+
+        for (value, accepted) in cases {
+            for key in ["from_version", "to_version"] {
+                let attributes = JsonMap::from_iter([
+                    (
+                        "update_operation_id".to_string(),
+                        JsonValue::String("11111111-1111-4111-8111-111111111111".to_string()),
+                    ),
+                    (
+                        "phase".to_string(),
+                        JsonValue::String("check_started".to_string()),
+                    ),
+                    (
+                        "result".to_string(),
+                        JsonValue::String("success".to_string()),
+                    ),
+                    (
+                        "source".to_string(),
+                        JsonValue::String("background".to_string()),
+                    ),
+                    (key.to_string(), JsonValue::String(value.to_string())),
+                ]);
+                assert_eq!(
+                    validate_event("app.update_transition", &attributes).is_ok(),
+                    accepted,
+                    "{key}: {value:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn user_gets_paths_urls_and_error_text_rejected_when_submitting_update_versions() {
+        let update = |from_version: &str, to_version: &str| {
+            JsonMap::from_iter([
+                (
+                    "update_operation_id".to_string(),
+                    JsonValue::String("11111111-1111-4111-8111-111111111111".to_string()),
+                ),
+                (
+                    "phase".to_string(),
+                    JsonValue::String("check_started".to_string()),
+                ),
+                (
+                    "from_version".to_string(),
+                    JsonValue::String(from_version.to_string()),
+                ),
+                (
+                    "to_version".to_string(),
+                    JsonValue::String(to_version.to_string()),
+                ),
+                (
+                    "result".to_string(),
+                    JsonValue::String("success".to_string()),
+                ),
+                (
+                    "source".to_string(),
+                    JsonValue::String("background".to_string()),
+                ),
+            ])
+        };
+
+        assert!(validate_event("app.update_transition", &update("1.2.1", "1.2.2")).is_ok());
+        for (from_version, to_version) in [
+            ("/tmp/build/1.2.2", "1.2.2"),
+            ("1.2.1", "https://updates.touch-ai.org/1.2.2"),
+            ("1.2.1", "Error: install failed"),
+            ("1.2.1", "openai/gpt-4o"),
+            ("1.2.1", ""),
+        ] {
+            assert!(
+                validate_event("app.update_transition", &update(from_version, to_version)).is_err(),
+                "{from_version:?} -> {to_version:?} must be rejected"
+            );
+        }
     }
 }

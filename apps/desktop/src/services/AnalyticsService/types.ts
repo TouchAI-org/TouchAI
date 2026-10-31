@@ -1,30 +1,11 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 /**
- * Version of the public client/server analytics wire contract.
- *
- * The contract is mirrored by the private receiver (TouchAI-org/touchai-analytics,
- * `src/touchai_analytics/protocol.py`) and by the Rust validator in
- * `src-tauri/src/core/analytics/events.rs`. Changing a name, enum or bound is a
- * public contract change and all three copies plus the shared fixtures must move
- * together.
- */
-export const ANALYTICS_PROTOCOL_VERSION = 1;
-export const ANALYTICS_SCHEMA_VERSION = 1;
-
-/**
- * Fixed transport constants required by vanilla Umami `/api/send`. The reverse
- * proxy maps `{baseUrl}/send` straight to Umami, so no intermediary can add
- * these fields. They are non-geographic placeholders: Umami derives no country,
- * region or city because the proxy also strips every client IP and geo header.
- */
-export const ANALYTICS_WIRE_HOSTNAME = 'touchai-desktop.invalid';
-export const ANALYTICS_WIRE_URL = '/';
-
-/**
- * The fixed product-event registry. Adding an event is a public contract change:
- * the TypeScript schema, the Rust validator and the private receiver must all
- * accept it through the shared fixtures.
+ * The fixed product-event registry. The wire body itself is built by the native
+ * runtime (`src-tauri/src/core/analytics/transport.rs`); this side owns only the
+ * event names, their whitelist attributes and the IPC payload shapes. Adding an
+ * event is a public contract change: the TypeScript schema, the Rust validator
+ * and the private receiver must all accept it through the shared fixtures.
  */
 export const ANALYTICS_EVENT_NAMES = [
     'analytics.session_started',
@@ -115,35 +96,4 @@ export interface AnalyticsOperationHandle {
     operationId: string;
     enabled: boolean;
     consentEpoch: number;
-}
-
-/**
- * The `data` object sent inside a wire event: the caller's whitelisted
- * attributes plus the runtime-filled envelope fields the receiver requires.
- */
-export interface AnalyticsWireData {
-    [key: string]: AnalyticsAttributeValue | undefined;
-    event_id: string;
-    occurred_at_ms: number;
-    schema_version: number;
-    analytics_session_id?: string;
-    app_version: string;
-    release_channel: string;
-    os_family: string;
-    architecture: string;
-}
-
-export interface AnalyticsWirePayload {
-    website: string;
-    id: string;
-    name: AnalyticsEventName;
-    timestamp: number;
-    hostname: string;
-    url: string;
-    data: AnalyticsWireData;
-}
-
-export interface AnalyticsWireEvent {
-    type: 'event';
-    payload: AnalyticsWirePayload;
 }

@@ -158,6 +158,8 @@
             "attributes": {
                 "update_operation_id": "8192a3b4-c5d6-4ae7-9b08-d9eafb0c1d08",
                 "phase": "check_started",
+                "from_version": "1.2.1",
+                "to_version": "1.2.2-beta.1+build.7",
                 "result": "success",
                 "source": "background"
             }

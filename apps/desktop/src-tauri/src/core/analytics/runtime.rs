@@ -137,7 +137,8 @@ impl OperationRegistry {
         id
     }
 
-    fn get(&self, id: &str) -> Option<(Option<String>, i64)> {
+    fn get(&mut self, id: &str) -> Option<(Option<String>, i64)> {
+        self.prune();
         self.records
             .get(id)
             .map(|record| (record.session_id.clone(), record.consent_epoch))
@@ -151,6 +152,13 @@ impl OperationRegistry {
 
     fn remove(&mut self, id: &str) {
         self.records.remove(id);
+    }
+
+    /// Revokes every handle bound to an abandoned session, so a late completion
+    /// is rejected as stale instead of reintroducing the session's id.
+    fn remove_session(&mut self, session_id: &str) {
+        self.records
+            .retain(|_, record| record.session_id.as_deref() != Some(session_id));
     }
 
     fn clear(&mut self) {
@@ -417,6 +425,7 @@ impl AnalyticsRuntime {
         let Some(config) = &self.inner.config else {
             return self.inner.build_state().await;
         };
+        let _writer = self.inner.write_lock.lock().await;
         let updated = store::set_enabled(
             self.inner.database.pool(),
             enabled,
@@ -425,14 +434,9 @@ impl AnalyticsRuntime {
         )
         .await?;
         if let Some(row) = updated {
-            self.inner.apply_state(&row);
+            self.inner.refresh_state(&row).await;
             if enabled {
                 self.inner.notify.notify_one();
-            } else {
-                // Withdrawing consent also drops the in-memory session, the
-                // operation handles and the exposure set so nothing captured
-                // under the old epoch can leak into the new one.
-                self.inner.clear_session().await;
             }
         }
         self.inner.build_state().await
@@ -442,9 +446,12 @@ impl AnalyticsRuntime {
         if self.inner.config.is_none() {
             return self.inner.build_state().await;
         }
+        let _writer = self.inner.write_lock.lock().await;
         match store::clear_pending(self.inner.database.pool(), expected_epoch).await? {
             Some(row) => {
                 self.inner.apply_state(&row);
+                // A cleared start must not be referenced by later operations.
+                self.inner.clear_session().await;
                 self.inner.build_state().await
             }
             // The caller's consent view is stale. Report it instead of returning an
@@ -492,7 +499,7 @@ impl AnalyticsRuntime {
     /// the user. It never starts or refreshes an analytics session, and an
     /// activation that was not a foreground start emits nothing.
     pub async fn complete_foreground_activation(&self) {
-        let result = self.complete_startup_activation().await;
+        let result = self.complete_startup_activation(None).await;
         if result.status == AnalyticsSubmitStatus::Error {
             log::debug!(
                 target: "analytics",
@@ -506,6 +513,7 @@ impl AnalyticsRuntime {
     /// any) and the current consent epoch; the caller only passes the handle back
     /// on later events, so the WebView never supplies a session id.
     pub async fn begin_operation(&self) -> AnalyticsOperationHandle {
+        let _writer = self.inner.write_lock.lock().await;
         let session_id = self
             .inner
             .session
@@ -533,6 +541,14 @@ impl AnalyticsRuntime {
     }
 
     pub async fn track(&self, request: AnalyticsTrackRequest) -> AnalyticsSubmitResult {
+        if let Some(id) = request.operation_id.as_deref() {
+            if self.inner.operations.lock().await.get(id).is_none() {
+                return AnalyticsSubmitResult::with_reason(
+                    AnalyticsSubmitStatus::Rejected,
+                    "stale_operation",
+                );
+            }
+        }
         // Native-owned lifecycle events cannot be authored by the WebView. The
         // health report is also native-only so caller-submitted values can never
         // inflate the counters they describe.
@@ -548,7 +564,9 @@ impl AnalyticsRuntime {
         // A WebView may signal that startup is complete, but native replaces
         // every authoritative field with the current activation context.
         if request.event_name == "app.startup_completed" {
-            return self.complete_startup_activation().await;
+            return self
+                .complete_startup_activation(request.operation_id.as_deref())
+                .await;
         }
         if self.inner.config.is_none() {
             return AnalyticsSubmitResult::with_reason(
@@ -579,10 +597,23 @@ impl AnalyticsRuntime {
                 "invalid_timestamp",
             );
         }
-        if !self.inner.enabled.load(Ordering::SeqCst) {
-            return AnalyticsSubmitResult::new(AnalyticsSubmitStatus::Disabled);
-        }
-
+        // Reserve the largest possible two-row session batch before waiting on
+        // the writer. Context resolution and commit share that lock, so another
+        // window can never capture a provisional session whose start may fail.
+        let _admission = match self
+            .inner
+            .ingress
+            .try_admit(2, 2 * store::MAX_PAYLOAD_BYTES)
+        {
+            Some(admission) => admission,
+            None => {
+                return AnalyticsSubmitResult::with_reason(
+                    AnalyticsSubmitStatus::Unavailable,
+                    "ingress_full",
+                )
+            }
+        };
+        let _writer = self.inner.write_lock.lock().await;
         let state = match store::load_state(self.inner.database.pool()).await {
             Ok(Some(state)) => state,
             Ok(None) => {
@@ -595,10 +626,16 @@ impl AnalyticsRuntime {
                 return AnalyticsSubmitResult::with_reason(AnalyticsSubmitStatus::Error, error)
             }
         };
+        self.inner.refresh_state(&state).await;
+        if state.status != "enabled" {
+            return AnalyticsSubmitResult::new(AnalyticsSubmitStatus::Disabled);
+        }
+        if let Err(error) = self.inner.purge_expired_sessions(store::now_millis()).await {
+            return AnalyticsSubmitResult::with_reason(AnalyticsSubmitStatus::Error, error);
+        }
 
-        // The native runtime owns the process session. A frontend-submitted session
-        // start is not trusted and is reported as a duplicate of the native
-        // lifecycle event rather than stored.
+        // The native runtime owns the process session. This ownership response
+        // does not imply a matching start was persisted or accepted remotely.
         if request.event_name == "analytics.session_started" {
             return AnalyticsSubmitResult::with_reason(
                 AnalyticsSubmitStatus::Deduplicated,
@@ -607,10 +644,19 @@ impl AnalyticsRuntime {
         }
 
         // Resolve the consent epoch and any session already bound to the handle.
+        // An unknown handle has expired, been evicted, or been revoked by an
+        // opt-out: the event belongs to an operation the runtime no longer
+        // describes, so it fails closed instead of borrowing the current session
+        // or a newer consent epoch.
         let (operation, captured_session, epoch) = match request.operation_id.as_deref() {
             Some(id) => match self.inner.operations.lock().await.get(id) {
                 Some((session_id, epoch)) => (Some(id.to_string()), session_id, epoch),
-                None => (None, None, self.inner.consent_epoch.load(Ordering::SeqCst)),
+                None => {
+                    return AnalyticsSubmitResult::with_reason(
+                        AnalyticsSubmitStatus::Rejected,
+                        "stale_operation",
+                    )
+                }
             },
             None => (None, None, self.inner.consent_epoch.load(Ordering::SeqCst)),
         };
@@ -684,21 +730,27 @@ impl AnalyticsRuntime {
         let primary_event_id = inserts.last().map(|insert| insert.event_id.clone());
         let result = self
             .inner
-            .commit_inserts(inserts, pending, primary_event_id)
+            .enqueue_inserts(inserts, pending, primary_event_id)
             .await;
 
         if result.status == AnalyticsSubmitStatus::Persisted {
             // The session is real now: reset the per-session exposures and bind
             // the operation handle to the immutable session that just committed.
             if started_session {
-                self.inner.exposures.lock().await.clear();
-                if let (Some(operation), Some(session_id)) = (&operation, &session_id) {
-                    self.inner
-                        .operations
-                        .lock()
-                        .await
-                        .set_session(operation, session_id.clone());
+                if let Some(session_id) = &session_id {
+                    *self.inner.session.lock().await = Some(NativeSession {
+                        id: session_id.clone(),
+                        last_activity: Instant::now(),
+                    });
                 }
+                self.inner.exposures.lock().await.clear();
+            }
+            if let (Some(operation), Some(session_id)) = (&operation, &session_id) {
+                self.inner
+                    .operations
+                    .lock()
+                    .await
+                    .set_session(operation, session_id.clone());
             }
             // The exposure key is recorded only after the row actually persisted.
             if let Some(key) = exposure_key {
@@ -709,12 +761,6 @@ impl AnalyticsRuntime {
                 }
                 exposures.insert(key);
             }
-        } else if started_session {
-            // The batch did not commit, so drop the provisional session: no later
-            // event may reference a session with no stored `session_started` row.
-            if let Some(session_id) = &session_id {
-                self.inner.release_session_if(session_id).await;
-            }
         }
         result
     }
@@ -722,7 +768,10 @@ impl AnalyticsRuntime {
     /// Emits one native-owned startup completion for the current activation.
     /// The activation is consumed before the write so concurrent focus/track
     /// callers cannot persist two rows for the same activation.
-    async fn complete_startup_activation(&self) -> AnalyticsSubmitResult {
+    async fn complete_startup_activation(
+        &self,
+        operation_id: Option<&str>,
+    ) -> AnalyticsSubmitResult {
         let completion = {
             let mut activation = self
                 .inner
@@ -789,7 +838,7 @@ impl AnalyticsRuntime {
             ),
         ]);
         self.inner
-            .persist_native_event(&state, "app.startup_completed", attributes)
+            .persist_native_event(&state, "app.startup_completed", attributes, operation_id)
             .await
     }
 
@@ -805,15 +854,25 @@ impl AnalyticsRuntime {
         let Some(transport) = &config.transport else {
             return Ok(());
         };
-        if !self.inner.enabled.load(Ordering::SeqCst) {
-            return Ok(());
-        }
-
         let pool = self.inner.database.pool();
         let now = store::now_millis();
-        let _ = store::purge_expired(pool, now).await;
+        {
+            let _writer = self.inner.write_lock.lock().await;
+            let state = store::load_state(pool)
+                .await?
+                .ok_or_else(|| "analytics_state_missing".to_string())?;
+            self.inner.refresh_state(&state).await;
+            if state.status != "enabled" {
+                return Ok(());
+            }
+            self.inner.purge_expired_sessions(now).await?;
+        }
         let started = Instant::now();
         let batch = store::due_batch(pool, now).await?;
+        // Session starts that are queued but not delivered yet. A due dependent
+        // must never overtake its start while the start is backing off, so it is
+        // held to the start's own retry instant and re-checked on the next pass.
+        let mut pending_starts = store::undelivered_session_starts(pool).await?;
 
         for row in batch {
             if started.elapsed() >= FLUSH_BUDGET {
@@ -827,6 +886,22 @@ impl AnalyticsRuntime {
             if !self.inner.enabled.load(Ordering::SeqCst) {
                 break;
             }
+            if !store::event_is_sendable(pool, &row.event_id).await? {
+                continue;
+            }
+            let session_id = store::session_id_from_payload(&row.payload_json);
+            if row.event_name != "analytics.session_started" {
+                if let Some(retry_at) = session_id
+                    .as_deref()
+                    .and_then(|session_id| pending_starts.get(session_id).copied())
+                {
+                    // Fail closed: the receiver must see the session start first.
+                    // `hold_event_until` only moves the row later, so its own
+                    // backoff is preserved.
+                    store::hold_event_until(pool, &row.event_id, retry_at).await?;
+                    continue;
+                }
+            }
             match self.send_row(transport, &row).await {
                 SendOutcome::Accepted => {
                     store::delete_event(pool, &row.event_id).await?;
@@ -835,11 +910,25 @@ impl AnalyticsRuntime {
                     if row.event_name != "analytics.health_reported" {
                         self.inner.counters.accepted.fetch_add(1, Ordering::Relaxed);
                     }
+                    if row.event_name == "analytics.session_started" {
+                        if let Some(session_id) = session_id.as_deref() {
+                            // The start is delivered, so its dependents may follow.
+                            pending_starts.remove(session_id);
+                        }
+                    }
                 }
                 SendOutcome::PermanentRejection { reason } => {
-                    store::delete_event(pool, &row.event_id).await?;
                     self.inner.counters.rejected.fetch_add(1, Ordering::Relaxed);
                     log::debug!(target: "analytics", "permanent rejection: {reason}");
+                    if row.event_name == "analytics.session_started" {
+                        // The receiver will never accept this session, so nothing
+                        // that references it can be attributed. Drop the session
+                        // and continue with independent rows. Deleted dependents
+                        // already in this batch fail the live eligibility check.
+                        self.inner.abandon_session(session_id.as_deref()).await?;
+                        continue;
+                    }
+                    store::delete_event(pool, &row.event_id).await?;
                 }
                 SendOutcome::ConfigurationFailure { reason } => {
                     let next = store::now_millis() + CONFIG_RETRY_MS;
@@ -909,6 +998,7 @@ impl AnalyticsRuntimeInner {
         inserts: Vec<OutboxInsert>,
         pending: PendingUpdate,
         primary_event_id: Option<String>,
+        operation_id: Option<&str>,
     ) -> AnalyticsSubmitResult {
         let total_bytes: i64 = inserts
             .iter()
@@ -924,6 +1014,28 @@ impl AnalyticsRuntimeInner {
             }
         };
         let _writer = self.write_lock.lock().await;
+        if let Some(operation_id) = operation_id {
+            let Some((_, epoch)) = self.operations.lock().await.get(operation_id) else {
+                return AnalyticsSubmitResult::with_reason(
+                    AnalyticsSubmitStatus::Rejected,
+                    "stale_operation",
+                );
+            };
+            if inserts.iter().any(|insert| insert.consent_epoch != epoch) {
+                return AnalyticsSubmitResult::new(AnalyticsSubmitStatus::StaleEpoch);
+            }
+        }
+        self.enqueue_inserts(inserts, pending, primary_event_id)
+            .await
+    }
+
+    /// Caller holds writer ownership and ingress admission through this commit.
+    async fn enqueue_inserts(
+        &self,
+        inserts: Vec<OutboxInsert>,
+        pending: PendingUpdate,
+        primary_event_id: Option<String>,
+    ) -> AnalyticsSubmitResult {
         match store::enqueue_batch(self.database.pool(), inserts, pending).await {
             Ok(EnqueueOutcome::Persisted) => {
                 self.notify.notify_one();
@@ -957,6 +1069,7 @@ impl AnalyticsRuntimeInner {
         state: &AnalyticsStateRow,
         event_name: &str,
         attributes: JsonMap<String, JsonValue>,
+        operation_id: Option<&str>,
     ) -> AnalyticsSubmitResult {
         if let Err(error) = events::validate_event(event_name, &attributes) {
             return AnalyticsSubmitResult::with_reason(
@@ -978,8 +1091,13 @@ impl AnalyticsRuntimeInner {
                 }
             };
         let event_id = Some(insert.event_id.clone());
-        self.commit_inserts(vec![insert], PendingUpdate::Unchanged, event_id)
-            .await
+        self.commit_inserts(
+            vec![insert],
+            PendingUpdate::Unchanged,
+            event_id,
+            operation_id,
+        )
+        .await
     }
 
     /// Emits `app.started` at most once for this process, and only when the
@@ -999,7 +1117,7 @@ impl AnalyticsRuntimeInner {
             ),
         ]);
         let result = self
-            .persist_native_event(state, "app.started", attributes)
+            .persist_native_event(state, "app.started", attributes, None)
             .await;
         if result.status == AnalyticsSubmitStatus::Persisted {
             Ok(())
@@ -1062,7 +1180,7 @@ impl AnalyticsRuntimeInner {
             ),
         ]);
         match self
-            .persist_native_event(&state, "analytics.health_reported", attributes)
+            .persist_native_event(&state, "analytics.health_reported", attributes, None)
             .await
             .status
         {
@@ -1101,20 +1219,78 @@ impl AnalyticsRuntimeInner {
             .store(row.consent_epoch, Ordering::SeqCst);
     }
 
+    /// Imports can adopt consent through the shared database transaction. Retire
+    /// native bindings when the durable epoch moves before collecting or sending.
+    /// Caller holds the writer lock.
+    async fn refresh_state(&self, row: &AnalyticsStateRow) {
+        if row.status != "enabled" || row.consent_epoch != self.consent_epoch.load(Ordering::SeqCst)
+        {
+            self.clear_session().await;
+        }
+        self.apply_state(row);
+    }
+
     async fn clear_session(&self) {
         *self.session.lock().await = None;
         self.operations.lock().await.clear();
         self.exposures.lock().await.clear();
     }
 
-    /// Drops the in-memory session only when it is still the given id, so a
-    /// session whose `session_started` row never committed is not advertised to
-    /// later events while a concurrent, committed session is left untouched.
+    /// Releases an abandoned session's active binding while preserving a later
+    /// session that another operation already opened.
     async fn release_session_if(&self, session_id: &str) {
         let mut guard = self.session.lock().await;
         if guard.as_ref().map(|session| session.id.as_str()) == Some(session_id) {
             *guard = None;
         }
+    }
+
+    /// Fail-closed cleanup after the receiver permanently rejected a session
+    /// start. Its queued rows, handles and in-memory binding are revoked under
+    /// the same writer lock, so no concurrent ingress can reintroduce the reference.
+    async fn abandon_session(&self, session_id: Option<&str>) -> Result<(), String> {
+        let pool = self.database.pool();
+        let _writer = self.write_lock.lock().await;
+        let dropped = match session_id {
+            Some(session_id) => store::drop_session(pool, session_id).await?,
+            // If corruption lost the binding, no queued session can be proven
+            // independent. Clear pending work rather than send possible orphans.
+            None => {
+                let dropped = store::queue_stats(pool).await?.0 as u64;
+                let epoch = store::load_state(pool)
+                    .await?
+                    .ok_or_else(|| "analytics_state_missing".to_string())?
+                    .consent_epoch;
+                store::clear_pending(pool, epoch).await?;
+                self.clear_session().await;
+                dropped
+            }
+        };
+        if let Some(session_id) = session_id {
+            self.operations.lock().await.remove_session(session_id);
+            self.release_session_if(session_id).await;
+        }
+        log::warn!(
+            target: "analytics",
+            "abandoned a rejected analytics session rows={dropped}"
+        );
+        Ok(())
+    }
+
+    /// Caller holds the writer lock so expiry and native revocation cannot race
+    /// with an event capturing the session.
+    async fn purge_expired_sessions(&self, now: i64) -> Result<(), String> {
+        let (_, abandoned) = store::purge_expired(self.database.pool(), now).await?;
+        for session_id in abandoned {
+            match session_id {
+                Some(session_id) => {
+                    self.operations.lock().await.remove_session(&session_id);
+                    self.release_session_if(&session_id).await;
+                }
+                None => self.clear_session().await,
+            }
+        }
+        Ok(())
     }
 
     /// Resolves the native session for one event. A genuine user interaction
@@ -1130,11 +1306,9 @@ impl AnalyticsRuntimeInner {
                 Some(session) => now.duration_since(session.last_activity) > SESSION_IDLE,
             };
             if start {
+                // Do not publish a provisional id; cancellation or a failed
+                // commit must not leave a session with no durable start.
                 let id = uuid::Uuid::new_v4().to_string();
-                *guard = Some(NativeSession {
-                    id: id.clone(),
-                    last_activity: now,
-                });
                 return (Some(id), true);
             }
             if let Some(session) = guard.as_mut() {
@@ -1217,17 +1391,20 @@ impl AnalyticsRuntimeInner {
 
     async fn build_state(&self) -> Result<AnalyticsState, String> {
         let (queue_depth, pending_bytes) = store::queue_stats(self.database.pool()).await?;
-        let status = if self.config.is_none() {
-            AnalyticsConsentStatus::Uninitialized
+        let (status, consent_epoch) = if self.config.is_none() {
+            (AnalyticsConsentStatus::Uninitialized, 0)
         } else {
             match store::load_state(self.database.pool()).await? {
-                Some(row) => AnalyticsConsentStatus::from_db(&row.status),
-                None => AnalyticsConsentStatus::Uninitialized,
+                Some(row) => (
+                    AnalyticsConsentStatus::from_db(&row.status),
+                    row.consent_epoch,
+                ),
+                None => (AnalyticsConsentStatus::Uninitialized, 0),
             }
         };
         Ok(AnalyticsState {
             status,
-            consent_epoch: self.consent_epoch.load(Ordering::SeqCst),
+            consent_epoch,
             queue_depth,
             pending_bytes,
             transport_ready: self.transport_ready,
@@ -1237,8 +1414,8 @@ impl AnalyticsRuntimeInner {
     /// On a native start, either confirm the restart that followed a successful
     /// install handoff (enqueuing `restart_confirmed` and clearing the pending
     /// metadata in one transaction) or discard stale metadata. A restored backup,
-    /// an unfinished update and a changed consent epoch all fail the match and are
-    /// never turned into a false confirmation.
+    /// an unfinished update, a missing operation id and a changed consent epoch
+    /// all fail the match and are never turned into a false confirmation.
     async fn resolve_restart_confirmation(
         &self,
         row: &AnalyticsStateRow,
@@ -1247,19 +1424,26 @@ impl AnalyticsRuntimeInner {
         let Some(pending_json) = &row.pending_update_json else {
             return Ok(());
         };
-        let confirmed = parse_pending_update(pending_json).filter(|pending| {
-            pending.to_version == app_version
+        // Nothing is queued while this deployment cannot deliver, so the pending
+        // handoff is kept for a later provisioned start instead of being turned
+        // into a confirmation that could never be sent.
+        if !self.transport_ready {
+            return Ok(());
+        }
+        let confirmation = parse_pending_update(pending_json).and_then(|pending| {
+            let operation_id = pending.operation_id.clone()?;
+            let matches = pending.to_version == app_version
                 && pending.from_version.as_deref() != Some(app_version)
-                && pending.consent_epoch == row.consent_epoch
-                && pending.operation_id.is_some()
+                && pending.consent_epoch == row.consent_epoch;
+            matches.then_some((pending, operation_id))
         });
-        let Some(pending) = confirmed else {
-            return store::clear_pending_update(self.database.pool()).await;
+        let Some((pending, operation_id)) = confirmation else {
+            return store::clear_pending_update(self.database.pool(), pending_json).await;
         };
         let mut attributes = JsonMap::new();
         attributes.insert(
             "update_operation_id".to_string(),
-            JsonValue::String(pending.operation_id.clone().unwrap_or_default()),
+            JsonValue::String(operation_id),
         );
         attributes.insert(
             "phase".to_string(),
@@ -1281,12 +1465,7 @@ impl AnalyticsRuntimeInner {
         );
         attributes.insert(
             "source".to_string(),
-            JsonValue::String(
-                pending
-                    .source
-                    .clone()
-                    .unwrap_or_else(|| "other".to_string()),
-            ),
+            JsonValue::String(normalize_update_source(pending.source.as_deref()).to_string()),
         );
         let request = AnalyticsTrackRequest {
             event_name: "app.update_transition".to_string(),
@@ -1298,11 +1477,13 @@ impl AnalyticsRuntimeInner {
         // Persisted clears the pending metadata in the same transaction. Any
         // other outcome (disabled, full, stale epoch) leaves it in place so the
         // next start can retry instead of losing the confirmation.
-        match store::enqueue_batch(self.database.pool(), vec![insert], PendingUpdate::Clear).await?
-        {
-            EnqueueOutcome::Persisted => Ok(()),
-            _ => Ok(()),
-        }
+        store::enqueue_batch(
+            self.database.pool(),
+            vec![insert],
+            PendingUpdate::Confirm(pending_json.clone()),
+        )
+        .await?;
+        Ok(())
     }
 }
 
@@ -1392,7 +1573,36 @@ struct PendingUpdateMeta {
 }
 
 fn parse_pending_update(json: &str) -> Option<PendingUpdateMeta> {
-    serde_json::from_str(json).ok()
+    if json.len() > PENDING_UPDATE_MAX_BYTES {
+        return None;
+    }
+    let pending: PendingUpdateMeta = serde_json::from_str(json).ok()?;
+    // Stored metadata is written from validated attributes, but a restored or
+    // hand-edited row must not put a value outside the registry on the wire.
+    if !events::is_version_shaped(&pending.to_version) {
+        return None;
+    }
+    if let Some(from_version) = &pending.from_version {
+        if !events::is_version_shaped(from_version) {
+            return None;
+        }
+    }
+    if let Some(operation_id) = &pending.operation_id {
+        if !events::is_canonical_uuid(operation_id) {
+            return None;
+        }
+    }
+    Some(pending)
+}
+
+/// The registry accepts only `background`, `user` or `other` as the update
+/// source, so stored metadata is normalized instead of trusted verbatim.
+fn normalize_update_source(source: Option<&str>) -> &'static str {
+    match source {
+        Some("background") => "background",
+        Some("user") => "user",
+        _ => "other",
+    }
 }
 
 /// Builds the bounded pending metadata for an `install_handoff` transition that
@@ -2339,7 +2549,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn user_binds_a_completion_to_the_operation_session() {
+    async fn user_keeps_a_completion_on_its_original_session_when_another_window_opens_a_later_one()
+    {
         let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
         let (_root, runtime) = test_runtime(probe).await;
 
@@ -2357,7 +2568,9 @@ mod tests {
             .expect("submitting starts a session");
 
         // Another window opens a later session before the completion arrives.
-        runtime.force_session_for_tests("11111111-1111-4111-8111-111111111111");
+        runtime
+            .force_session_for_tests("11111111-1111-4111-8111-111111111111")
+            .await;
         let completed = runtime
             .track(with_operation(
                 track_request("agent.request_completed", request_completed_attributes()),
@@ -2527,39 +2740,1172 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn user_stores_bounded_pending_metadata_only_for_a_successful_install_handoff() {
-        let request = |phase: &str, result: &str| AnalyticsTrackRequest {
-            event_name: "app.update_transition".to_string(),
-            occurred_at_ms: store::now_millis(),
-            operation_id: None,
-            attributes: JsonMap::from_iter([
-                (
-                    "update_operation_id".to_string(),
-                    JsonValue::String("11111111-1111-4111-8111-111111111111".to_string()),
+    /// A sender that records the order in which events reach the wire and
+    /// applies a caller-supplied outcome to each one.
+    struct RecordingSender {
+        names: StdMutex<Vec<String>>,
+        make: Box<dyn Fn(&AnalyticsEventEnvelope) -> SendOutcome + Send + Sync>,
+    }
+
+    impl RecordingSender {
+        fn new() -> Self {
+            Self::with_outcome(|_| SendOutcome::Accepted)
+        }
+
+        fn with_outcome(
+            make: impl Fn(&AnalyticsEventEnvelope) -> SendOutcome + Send + Sync + 'static,
+        ) -> Self {
+            Self {
+                names: StdMutex::new(Vec::new()),
+                make: Box::new(make),
+            }
+        }
+
+        fn sent_names(&self) -> Vec<String> {
+            self.names
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .clone()
+        }
+    }
+
+    impl EventSender for RecordingSender {
+        fn send<'a>(
+            &'a self,
+            envelope: &'a AnalyticsEventEnvelope,
+        ) -> Pin<Box<dyn Future<Output = SendOutcome> + Send + 'a>> {
+            Box::pin(async move {
+                self.names
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner())
+                    .push(envelope.event_name.clone());
+                (self.make)(envelope)
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn user_gets_the_session_start_sent_before_the_event_that_references_it() {
+        let sender = Arc::new(RecordingSender::new());
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+
+        // A submitted request is a lifecycle event, which outranks every passive
+        // event in the queue and is queued together with the session it opens.
+        let submitted = runtime
+            .track(track_request(
+                "agent.request_submitted",
+                request_submitted_attributes(),
+            ))
+            .await;
+        assert_eq!(submitted.status, AnalyticsSubmitStatus::Persisted);
+        let session_id = runtime.session_id_for_tests().await.expect("session");
+        // Previously persisted starts may carry the old passive priority.
+        sqlx::query("UPDATE analytics_outbox SET priority = 200 WHERE event_name = 'analytics.session_started'")
+            .execute(runtime.inner.database.pool()).await.expect("legacy priority");
+
+        let queued = runtime.outbox_payloads_for_tests().await;
+        assert_eq!(queued.len(), 2, "one session start and one request event");
+        let request = queued
+            .iter()
+            .find(|envelope| envelope.event_name == "agent.request_submitted")
+            .expect("request event");
+        assert_eq!(
+            request.analytics_session_id.as_deref(),
+            Some(session_id.as_str())
+        );
+
+        runtime.flush_once().await.expect("flush");
+
+        assert_eq!(
+            sender.sent_names(),
+            vec![
+                "analytics.session_started".to_string(),
+                "agent.request_submitted".to_string()
+            ],
+            "the receiver must see the session start before the event using it"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_gets_dependent_events_held_when_a_session_start_retries_until_it_is_accepted() {
+        for failure in ["retry_after", "transient", "configuration"] {
+            let attempts = Arc::new(AtomicI64::new(0));
+            let sender = Arc::new(RecordingSender::with_outcome({
+                let attempts = Arc::clone(&attempts);
+                move |envelope: &AnalyticsEventEnvelope| {
+                    if envelope.event_name == "analytics.session_started"
+                        && attempts.fetch_add(1, Ordering::SeqCst) == 0
+                    {
+                        match failure {
+                            "retry_after" => SendOutcome::RetryAfter {
+                                delay_ms: 3_600_000,
+                            },
+                            "transient" => SendOutcome::Retry {
+                                reason: "offline".to_string(),
+                            },
+                            _ => SendOutcome::ConfigurationFailure {
+                                reason: "bot_rejected".to_string(),
+                            },
+                        }
+                    } else {
+                        SendOutcome::Accepted
+                    }
+                }
+            }));
+            let (_root, runtime) = test_runtime(sender.clone()).await;
+            let pool = runtime.inner.database.pool();
+
+            let submitted = runtime
+                .track(track_request(
+                    "agent.request_submitted",
+                    request_submitted_attributes(),
+                ))
+                .await;
+            assert_eq!(submitted.status, AnalyticsSubmitStatus::Persisted);
+
+            // The first attempt leaves the start queued for retry.
+            runtime.flush_once().await.expect("flush");
+            assert_eq!(
+                sender.sent_names(),
+                vec!["analytics.session_started".to_string()]
+            );
+            // Keep every retry deterministic, including the short transient backoff.
+            sqlx::query(
+                "UPDATE analytics_outbox SET next_attempt_at = ? \
+                 WHERE event_name = 'analytics.session_started'",
+            )
+            .bind(store::now_millis() + 3_600_000)
+            .execute(pool)
+            .await
+            .expect("keep start backing off");
+
+            // A dependent enqueued after the delay must not overtake the start.
+            let surface = runtime
+                .track(track_request(
+                    "product.surface_opened",
+                    JsonMap::from_iter([(
+                        "surface".to_string(),
+                        JsonValue::String("main".to_string()),
+                    )]),
+                ))
+                .await;
+            assert_eq!(surface.status, AnalyticsSubmitStatus::Persisted);
+            assert_eq!(store::queue_stats(pool).await.expect("stats").0, 3);
+            let start_retry_at: i64 = sqlx::query_scalar(
+                "SELECT next_attempt_at FROM analytics_outbox \
+                 WHERE event_name = 'analytics.session_started'",
+            )
+            .fetch_one(pool)
+            .await
+            .expect("start retry instant");
+            assert!(
+                start_retry_at > store::now_millis(),
+                "the start is still backing off"
+            );
+
+            // Two due dependents, one start that is not due: nothing is sent.
+            runtime
+                .flush_once()
+                .await
+                .expect("flush while the start backs off");
+            assert_eq!(
+                sender.sent_names(),
+                vec!["analytics.session_started".to_string()],
+                "no dependent may be sent while its session start is delayed"
+            );
+            assert_eq!(store::queue_stats(pool).await.expect("stats").0, 3);
+
+            // Control the clock: the retry instant arrives without sleeping.
+            sqlx::query("UPDATE analytics_outbox SET next_attempt_at = 0")
+                .execute(pool)
+                .await
+                .expect("advance the queue");
+
+            runtime
+                .flush_once()
+                .await
+                .expect("flush after the retry instant");
+            assert_eq!(
+                sender.sent_names(),
+                vec![
+                    "analytics.session_started".to_string(),
+                    "analytics.session_started".to_string(),
+                    "agent.request_submitted".to_string(),
+                    "product.surface_opened".to_string(),
+                ],
+                "the start is delivered before the events that reference its session"
+            );
+            assert_eq!(store::queue_stats(pool).await.expect("stats").0, 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn user_gets_no_orphan_event_when_the_receiver_rejects_a_session_start() {
+        let sender = Arc::new(RecordingSender::with_outcome(|envelope| {
+            if envelope.event_name == "analytics.session_started" {
+                SendOutcome::PermanentRejection {
+                    reason: "rejected_status_400".to_string(),
+                }
+            } else {
+                SendOutcome::Accepted
+            }
+        }));
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        let pool = runtime.inner.database.pool();
+
+        let handle = runtime.begin_operation().await;
+        let submitted = runtime
+            .track(with_operation(
+                track_request("agent.request_submitted", request_submitted_attributes()),
+                &handle.operation_id,
+            ))
+            .await;
+        assert_eq!(submitted.status, AnalyticsSubmitStatus::Persisted);
+        let abandoned_session = runtime.session_id_for_tests().await.expect("session");
+        runtime
+            .track(track_request(
+                "product.surface_opened",
+                JsonMap::from_iter([(
+                    "surface".to_string(),
+                    JsonValue::String("main".to_string()),
+                )]),
+            ))
+            .await;
+        assert_eq!(store::queue_stats(pool).await.expect("stats").0, 3);
+        store::enqueue(pool, outbox_insert("independent-startup"))
+            .await
+            .expect("enqueue an independent event");
+
+        runtime.flush_once().await.expect("flush");
+
+        assert_eq!(
+            sender.sent_names(),
+            vec![
+                "analytics.session_started".to_string(),
+                "app.started".to_string()
+            ],
+            "independent events continue after a rejected start; its dependents never send"
+        );
+        assert_eq!(
+            store::queue_stats(pool).await.expect("stats").0,
+            0,
+            "the rejected session's queued rows are dropped in one step"
+        );
+        assert!(
+            runtime.session_id_for_tests().await.is_none(),
+            "the abandoned session is dropped"
+        );
+
+        // The handle bound to the abandoned session is revoked, so a late
+        // completion is stale instead of reintroducing the reference.
+        let late = runtime
+            .track(with_operation(
+                track_request("agent.request_completed", request_completed_attributes()),
+                &handle.operation_id,
+            ))
+            .await;
+        assert_eq!(late.status, AnalyticsSubmitStatus::Rejected);
+        assert_eq!(late.reason.as_deref(), Some("stale_operation"));
+        assert_eq!(store::queue_stats(pool).await.expect("stats").0, 0);
+
+        // A later interaction opens a fresh session with its own start row.
+        runtime
+            .track(track_request(
+                "product.surface_opened",
+                JsonMap::from_iter([(
+                    "surface".to_string(),
+                    JsonValue::String("main".to_string()),
+                )]),
+            ))
+            .await;
+        let queued = runtime.outbox_payloads_for_tests().await;
+        let fresh_start = queued
+            .iter()
+            .find(|envelope| envelope.event_name == "analytics.session_started")
+            .expect("new session start");
+        assert_ne!(
+            fresh_start.analytics_session_id.as_deref(),
+            Some(abandoned_session.as_str()),
+            "a new interaction must not reuse the abandoned session id"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_gets_independent_events_sent_on_the_next_pass_when_a_session_start_has_a_configuration_fault(
+    ) {
+        let sender = Arc::new(RecordingSender::with_outcome(|envelope| {
+            if envelope.event_name == "analytics.session_started" {
+                SendOutcome::ConfigurationFailure {
+                    reason: "bot_rejected".to_string(),
+                }
+            } else {
+                SendOutcome::Accepted
+            }
+        }));
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        let submitted = runtime
+            .track(track_request(
+                "agent.request_submitted",
+                request_submitted_attributes(),
+            ))
+            .await;
+        assert_eq!(submitted.status, AnalyticsSubmitStatus::Persisted);
+        runtime
+            .inner
+            .emit_health_once()
+            .await
+            .expect("independent health report");
+
+        runtime.flush_once().await.expect("configuration fault");
+        assert_eq!(
+            sender.sent_names(),
+            vec!["analytics.session_started".to_string()]
+        );
+        runtime.flush_once().await.expect("next pass");
+        assert_eq!(
+            sender.sent_names(),
+            vec![
+                "analytics.session_started".to_string(),
+                "analytics.health_reported".to_string(),
+            ]
+        );
+        assert_eq!(
+            store::queue_stats(runtime.inner.database.pool())
+                .await
+                .expect("stats")
+                .0,
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn user_gets_no_old_session_events_when_an_undelivered_start_expires() {
+        for reclaim_during_ingress in [false, true] {
+            let sender = Arc::new(RecordingSender::new());
+            let (_root, runtime) = test_runtime(sender.clone()).await;
+            let pool = runtime.inner.database.pool();
+            let handle = runtime.begin_operation().await;
+            assert_eq!(
+                runtime
+                    .track(with_operation(
+                        track_request("agent.request_submitted", request_submitted_attributes()),
+                        &handle.operation_id,
+                    ))
+                    .await
+                    .status,
+                AnalyticsSubmitStatus::Persisted
+            );
+            let old_session = runtime.session_id_for_tests().await.expect("session");
+            sqlx::query(
+                "UPDATE analytics_outbox SET expires_at = 0 \
+                 WHERE event_name = 'analytics.session_started'",
+            )
+            .execute(pool)
+            .await
+            .expect("expire the undelivered start");
+
+            if reclaim_during_ingress {
+                // A later interaction must not reuse a start reclaimed on ingress.
+                assert_eq!(
+                    runtime
+                        .track(track_request(
+                            "product.surface_opened",
+                            JsonMap::from_iter([(
+                                "surface".to_string(),
+                                JsonValue::String("main".to_string()),
+                            )]),
+                        ))
+                        .await
+                        .status,
+                    AnalyticsSubmitStatus::Persisted
+                );
+            }
+            runtime.flush_once().await.expect("flush");
+            let late = runtime
+                .track(with_operation(
+                    track_request("agent.request_completed", request_completed_attributes()),
+                    &handle.operation_id,
+                ))
+                .await;
+            assert_eq!(late.status, AnalyticsSubmitStatus::Rejected);
+            assert_eq!(late.reason.as_deref(), Some("stale_operation"));
+            assert!(!sender
+                .sent_names()
+                .contains(&"agent.request_submitted".to_string()));
+            assert!(runtime
+                .outbox_payloads_for_tests()
+                .await
+                .iter()
+                .all(|event| {
+                    event.analytics_session_id.as_deref() != Some(old_session.as_str())
+                }));
+            assert_eq!(
+                sender.sent_names(),
+                if reclaim_during_ingress {
+                    vec![
+                        "analytics.session_started".to_string(),
+                        "product.surface_opened".to_string(),
+                    ]
+                } else {
+                    Vec::<String>::new()
+                }
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn user_sends_no_pre_restore_events_when_reenabling_after_a_full_opt_out_restore() {
+        use crate::core::database::types::{DatabaseImportMode, DatabaseImportRequest};
+
+        let (source_root, source) = test_database().await;
+        sqlx::query(
+            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id) \
+             VALUES (1, 'disabled', 1, 'exported-install')",
+        )
+        .execute(source.pool())
+        .await
+        .expect("seed explicit opt-out");
+        let backup_path = source_root.path().join("opt-out.db");
+        source
+            .export_backup(backup_path.to_str().expect("backup path"))
+            .await
+            .expect("export backup");
+
+        let sender = Arc::new(RecordingSender::new());
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        let handle = runtime.begin_operation().await;
+        assert_eq!(
+            runtime
+                .track(with_operation(
+                    track_request("agent.request_submitted", request_submitted_attributes()),
+                    &handle.operation_id,
+                ))
+                .await
+                .status,
+            AnalyticsSubmitStatus::Persisted
+        );
+        let old_session = runtime.session_id_for_tests().await.expect("old session");
+        sqlx::query("UPDATE analytics_state SET pending_update_json = ? WHERE id = 1")
+            .bind(pending_handoff(
+                Some("11111111-1111-4111-8111-111111111111"),
+                Some("1.0.0"),
+                "2.0.0",
+                0,
+            ))
+            .execute(runtime.inner.database.pool())
+            .await
+            .expect("pending handoff");
+
+        runtime
+            .inner
+            .database
+            .import_backup(DatabaseImportRequest {
+                source_path: backup_path.to_string_lossy().into_owned(),
+                mode: DatabaseImportMode::Full,
+            })
+            .await
+            .expect("full restore");
+        let restored = runtime.state().await.expect("restored state");
+        assert_eq!(restored.status, AnalyticsConsentStatus::Disabled);
+        assert_eq!(restored.consent_epoch, 1);
+        assert_eq!(restored.queue_depth, 0);
+        assert!(store::load_state(runtime.inner.database.pool())
+            .await
+            .expect("load")
+            .expect("row")
+            .pending_update_json
+            .is_none());
+
+        runtime
+            .set_enabled(true, restored.consent_epoch)
+            .await
+            .expect("enable again");
+        runtime.flush_once().await.expect("flush after reenable");
+        assert!(
+            sender.sent_names().is_empty(),
+            "no old event or handoff is replayed"
+        );
+        let late = runtime
+            .track(with_operation(
+                track_request("agent.request_completed", request_completed_attributes()),
+                &handle.operation_id,
+            ))
+            .await;
+        assert_eq!(late.status, AnalyticsSubmitStatus::Rejected);
+        assert_eq!(late.reason.as_deref(), Some("stale_operation"));
+
+        assert_eq!(
+            runtime
+                .track(track_request(
+                    "product.surface_opened",
+                    JsonMap::from_iter([(
+                        "surface".to_string(),
+                        JsonValue::String("main".to_string()),
+                    )]),
+                ))
+                .await
+                .status,
+            AnalyticsSubmitStatus::Persisted
+        );
+        assert_ne!(
+            runtime.session_id_for_tests().await.as_deref(),
+            Some(old_session.as_str())
+        );
+        runtime.flush_once().await.expect("flush fresh session");
+        assert_eq!(
+            sender.sent_names(),
+            vec![
+                "analytics.session_started".to_string(),
+                "product.surface_opened".to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_fresh_session_when_tracking_after_pending_events_are_cleared() {
+        let sender = Arc::new(RecordingSender::new());
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        let handle = runtime.begin_operation().await;
+        runtime
+            .track(with_operation(
+                track_request("agent.request_submitted", request_submitted_attributes()),
+                &handle.operation_id,
+            ))
+            .await;
+        let old_session = runtime.session_id_for_tests().await.expect("session");
+
+        runtime.clear_pending(0).await.expect("clear");
+        let late = runtime
+            .track(with_operation(
+                track_request("agent.request_completed", request_completed_attributes()),
+                &handle.operation_id,
+            ))
+            .await;
+        assert_eq!(late.status, AnalyticsSubmitStatus::Rejected);
+        assert_eq!(late.reason.as_deref(), Some("stale_operation"));
+        runtime
+            .track(track_request(
+                "product.surface_opened",
+                JsonMap::from_iter([(
+                    "surface".to_string(),
+                    JsonValue::String("main".to_string()),
+                )]),
+            ))
+            .await;
+        assert_ne!(
+            runtime.session_id_for_tests().await.as_deref(),
+            Some(old_session.as_str())
+        );
+        runtime.flush_once().await.expect("flush");
+        assert_eq!(
+            sender.sent_names(),
+            vec![
+                "analytics.session_started".to_string(),
+                "product.surface_opened".to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_stale_completion_rejected_without_queued_events_when_reenabling_after_opt_out(
+    ) {
+        let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
+        let (_root, runtime) = test_runtime(probe).await;
+        let pool = runtime.inner.database.pool();
+
+        let handle = runtime.begin_operation().await;
+        // Withdrawing consent revokes every handle bound to the old epoch; opting
+        // back in creates a newer epoch that the old handle must not borrow.
+        runtime.set_enabled(false, 0).await.expect("opt out");
+        runtime.set_enabled(true, 1).await.expect("opt in");
+
+        let result = runtime
+            .track(with_operation(
+                track_request("agent.request_completed", request_completed_attributes()),
+                &handle.operation_id,
+            ))
+            .await;
+
+        assert_eq!(result.status, AnalyticsSubmitStatus::Rejected);
+        assert_eq!(result.reason.as_deref(), Some("stale_operation"));
+        assert!(
+            runtime.session_id_for_tests().await.is_none(),
+            "a stale handle must not start a session"
+        );
+        assert_eq!(store::queue_stats(pool).await.expect("stats").0, 0);
+    }
+
+    #[tokio::test]
+    async fn user_gets_an_expired_operation_rejected_while_handleless_lifecycle_events_still_persist(
+    ) {
+        let sender = Arc::new(RecordingSender::new());
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        let handle = runtime.begin_operation().await;
+        runtime
+            .inner
+            .operations
+            .lock()
+            .await
+            .records
+            .get_mut(&handle.operation_id)
+            .expect("operation")
+            .created = Instant::now() - OPERATION_TTL - Duration::from_secs(1);
+
+        let expired = runtime
+            .track(with_operation(
+                track_request("agent.request_completed", request_completed_attributes()),
+                &handle.operation_id,
+            ))
+            .await;
+        assert_eq!(expired.status, AnalyticsSubmitStatus::Rejected);
+        assert_eq!(expired.reason.as_deref(), Some("stale_operation"));
+        assert!(runtime.outbox_payloads_for_tests().await.is_empty());
+        assert!(runtime.session_id_for_tests().await.is_none());
+
+        let lifecycle = runtime
+            .track(track_request("app.startup_completed", JsonMap::new()))
+            .await;
+        assert_eq!(lifecycle.status, AnalyticsSubmitStatus::Persisted);
+        runtime.flush_once().await.expect("flush lifecycle");
+        assert_eq!(
+            sender.sent_names(),
+            vec!["app.startup_completed".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn user_gets_no_startup_event_when_a_supplied_operation_is_revoked_while_waiting_to_persist(
+    ) {
+        let sender = Arc::new(RecordingSender::new());
+        let (_root, runtime) = test_runtime(sender).await;
+        let handle = runtime.begin_operation().await;
+        let writer = runtime.inner.write_lock.lock().await;
+        let tracking = tokio::spawn({
+            let runtime = runtime.clone();
+            let operation_id = handle.operation_id.clone();
+            async move {
+                runtime
+                    .track(with_operation(
+                        track_request("app.startup_completed", JsonMap::new()),
+                        &operation_id,
+                    ))
+                    .await
+            }
+        });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let waiting = runtime
+                    .inner
+                    .ingress
+                    .admission
+                    .lock()
+                    .expect("admission")
+                    .entries
+                    > 0;
+                if waiting {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the startup event reached the writer queue");
+        runtime.complete_operation(&handle.operation_id).await;
+        drop(writer);
+
+        let result = tracking.await.expect("tracking task");
+        assert_eq!(result.status, AnalyticsSubmitStatus::Rejected);
+        assert_eq!(result.reason.as_deref(), Some("stale_operation"));
+        assert!(runtime.outbox_payloads_for_tests().await.is_empty());
+    }
+
+    fn pending_handoff(
+        operation_id: Option<&str>,
+        from_version: Option<&str>,
+        to_version: &str,
+        consent_epoch: i64,
+    ) -> String {
+        let mut metadata = JsonMap::new();
+        if let Some(operation_id) = operation_id {
+            metadata.insert(
+                "operationId".to_string(),
+                JsonValue::String(operation_id.to_string()),
+            );
+        }
+        if let Some(from_version) = from_version {
+            metadata.insert(
+                "fromVersion".to_string(),
+                JsonValue::String(from_version.to_string()),
+            );
+        }
+        metadata.insert(
+            "toVersion".to_string(),
+            JsonValue::String(to_version.to_string()),
+        );
+        metadata.insert("source".to_string(), JsonValue::String("user".to_string()));
+        metadata.insert(
+            "consentEpoch".to_string(),
+            JsonValue::Number(consent_epoch.into()),
+        );
+        JsonValue::Object(metadata).to_string()
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_restart_confirmed_only_for_a_matching_install_handoff() {
+        const OPERATION_ID: &str = "11111111-1111-4111-8111-111111111111";
+
+        struct Case {
+            given: &'static str,
+            app_version: &'static str,
+            pending: String,
+            provisioned: bool,
+            disabled: bool,
+            confirmed: bool,
+            retained: bool,
+        }
+
+        let cases = [
+            Case {
+                given: "the next start is the handed-off version",
+                app_version: "2.0.0",
+                pending: pending_handoff(Some(OPERATION_ID), Some("1.0.0"), "2.0.0", 0),
+                provisioned: true,
+                disabled: false,
+                confirmed: true,
+                retained: false,
+            },
+            Case {
+                given: "the stored handoff names the running version on both sides",
+                app_version: "2.0.0",
+                pending: pending_handoff(Some(OPERATION_ID), Some("2.0.0"), "2.0.0", 0),
+                provisioned: true,
+                disabled: false,
+                confirmed: false,
+                retained: false,
+            },
+            Case {
+                given: "the install did not reach its target version",
+                app_version: "1.0.0",
+                pending: pending_handoff(Some(OPERATION_ID), Some("1.0.0"), "2.0.0", 0),
+                provisioned: true,
+                disabled: false,
+                confirmed: false,
+                retained: false,
+            },
+            Case {
+                given: "the stored handoff has no operation id",
+                app_version: "2.0.0",
+                pending: pending_handoff(None, Some("1.0.0"), "2.0.0", 0),
+                provisioned: true,
+                disabled: false,
+                confirmed: false,
+                retained: false,
+            },
+            Case {
+                given: "the handoff was stored under another consent epoch",
+                app_version: "2.0.0",
+                pending: pending_handoff(Some(OPERATION_ID), Some("1.0.0"), "2.0.0", 3),
+                provisioned: true,
+                disabled: false,
+                confirmed: false,
+                retained: false,
+            },
+            Case {
+                given: "the stored metadata is not valid JSON",
+                app_version: "2.0.0",
+                pending: "{\"toVersion\":".to_string(),
+                provisioned: true,
+                disabled: false,
+                confirmed: false,
+                retained: false,
+            },
+            Case {
+                given: "the stored version is not a release version",
+                app_version: "2.0.0",
+                pending: pending_handoff(Some(OPERATION_ID), Some("1.0.0"), "/tmp/2.0.0", 0),
+                provisioned: true,
+                disabled: false,
+                confirmed: false,
+                retained: false,
+            },
+            Case {
+                given: "the stored operation id is not a canonical UUID",
+                app_version: "2.0.0",
+                pending: pending_handoff(Some("invalid-operation"), Some("1.0.0"), "2.0.0", 0),
+                provisioned: true,
+                disabled: false,
+                confirmed: false,
+                retained: false,
+            },
+            Case {
+                given: "the stored metadata exceeds its size limit",
+                app_version: "2.0.0",
+                pending: format!(
+                    "{}{}",
+                    pending_handoff(Some(OPERATION_ID), Some("1.0.0"), "2.0.0", 0),
+                    " ".repeat(PENDING_UPDATE_MAX_BYTES),
                 ),
-                ("phase".to_string(), JsonValue::String(phase.to_string())),
-                ("result".to_string(), JsonValue::String(result.to_string())),
-                (
-                    "from_version".to_string(),
+                provisioned: true,
+                disabled: false,
+                confirmed: false,
+                retained: false,
+            },
+            Case {
+                given: "sharing is turned off when the start resolves the handoff",
+                app_version: "2.0.0",
+                pending: pending_handoff(Some(OPERATION_ID), Some("1.0.0"), "2.0.0", 0),
+                provisioned: true,
+                disabled: true,
+                confirmed: false,
+                retained: true,
+            },
+            Case {
+                given: "the deployment cannot deliver yet",
+                app_version: "2.0.0",
+                pending: pending_handoff(Some(OPERATION_ID), Some("1.0.0"), "2.0.0", 0),
+                provisioned: false,
+                disabled: false,
+                confirmed: false,
+                retained: true,
+            },
+        ];
+
+        for case in cases {
+            let sender = Arc::new(Probe::new(|| SendOutcome::Accepted));
+            let (_root, database) = test_database().await;
+            let transport: Option<Arc<dyn EventSender>> = if case.provisioned {
+                Some(sender.clone())
+            } else {
+                None
+            };
+            let runtime =
+                AnalyticsRuntime::initialize_with_sender_for_tests(database, transport, true)
+                    .await
+                    .expect("runtime");
+            runtime.clear_outbox_for_tests().await;
+            let pool = runtime.inner.database.pool();
+            if case.disabled {
+                sqlx::query(
+                    "UPDATE analytics_state SET status = 'disabled', consent_explicit = 1 \
+                     WHERE id = 1",
+                )
+                .execute(pool)
+                .await
+                .expect("disable sharing");
+            }
+            sqlx::query("UPDATE analytics_state SET pending_update_json = ? WHERE id = 1")
+                .bind(&case.pending)
+                .execute(pool)
+                .await
+                .expect("seed pending handoff");
+            let row = store::load_state(pool)
+                .await
+                .expect("load state")
+                .expect("state row");
+
+            runtime
+                .inner
+                .resolve_restart_confirmation(&row, case.app_version)
+                .await
+                .expect("resolve restart confirmation");
+
+            let events = runtime.outbox_payloads_for_tests().await;
+            assert_eq!(events.len(), usize::from(case.confirmed), "{}", case.given);
+            if case.confirmed {
+                let event = &events[0];
+                assert_eq!(event.event_name, "app.update_transition", "{}", case.given);
+                assert_eq!(
+                    event.attributes["phase"],
+                    JsonValue::String("restart_confirmed".to_string()),
+                    "{}",
+                    case.given
+                );
+                assert_eq!(
+                    event.attributes["update_operation_id"],
+                    JsonValue::String(OPERATION_ID.to_string()),
+                    "{}",
+                    case.given
+                );
+                assert_eq!(
+                    event.attributes["from_version"],
                     JsonValue::String("1.0.0".to_string()),
-                ),
-                (
-                    "to_version".to_string(),
+                    "{}",
+                    case.given
+                );
+                assert_eq!(
+                    event.attributes["to_version"],
                     JsonValue::String("2.0.0".to_string()),
-                ),
-                ("source".to_string(), JsonValue::String("user".to_string())),
-            ]),
-        };
+                    "{}",
+                    case.given
+                );
+                assert_eq!(
+                    event.attributes["source"],
+                    JsonValue::String("user".to_string()),
+                    "{}",
+                    case.given
+                );
+            }
 
-        let document =
-            install_handoff_pending(&request("install_handoff", "success"), 3).expect("pending");
-        let parsed = parse_pending_update(&document).expect("parse");
-        assert_eq!(parsed.to_version, "2.0.0");
-        assert_eq!(parsed.from_version.as_deref(), Some("1.0.0"));
-        assert_eq!(parsed.consent_epoch, 3);
+            let pending_after = store::load_state(pool)
+                .await
+                .expect("load state")
+                .expect("state row")
+                .pending_update_json;
+            assert_eq!(
+                pending_after.is_some(),
+                case.retained,
+                "{}: pending metadata retention",
+                case.given
+            );
+        }
+    }
 
-        assert!(install_handoff_pending(&request("download_finished", "success"), 3).is_none());
-        assert!(install_handoff_pending(&request("install_handoff", "failure"), 3).is_none());
+    #[tokio::test]
+    async fn user_gets_only_one_restart_confirmation_when_the_same_saved_handoff_is_resolved_twice()
+    {
+        let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
+        let (_root, runtime) = test_runtime(probe).await;
+        let pool = runtime.inner.database.pool();
+        sqlx::query("UPDATE analytics_state SET pending_update_json = ? WHERE id = 1")
+            .bind(pending_handoff(
+                Some("11111111-1111-4111-8111-111111111111"),
+                Some("1.0.0"),
+                "2.0.0",
+                0,
+            ))
+            .execute(pool)
+            .await
+            .expect("seed pending handoff");
+
+        let first = store::load_state(pool).await.expect("load").expect("row");
+        runtime
+            .inner
+            .resolve_restart_confirmation(&first, "2.0.0")
+            .await
+            .expect("first resolution");
+        // Reusing the same snapshot models overlapping startup resolution.
+        runtime
+            .inner
+            .resolve_restart_confirmation(&first, "2.0.0")
+            .await
+            .expect("second resolution");
+
+        let confirmations = runtime
+            .outbox_payloads_for_tests()
+            .await
+            .into_iter()
+            .filter(|envelope| envelope.event_name == "app.update_transition")
+            .count();
+        assert_eq!(
+            confirmations, 1,
+            "a confirmed handoff is never confirmed a second time"
+        );
+        assert!(store::load_state(pool)
+            .await
+            .expect("load")
+            .expect("row")
+            .pending_update_json
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn user_keeps_a_new_handoff_when_an_older_saved_handoff_is_resolved() {
+        for old_target_matches in [false, true] {
+            let sender = Arc::new(RecordingSender::new());
+            let (_root, runtime) = test_runtime(sender).await;
+            let pool = runtime.inner.database.pool();
+            sqlx::query("UPDATE analytics_state SET pending_update_json = ? WHERE id = 1")
+                .bind(pending_handoff(
+                    Some("11111111-1111-4111-8111-111111111111"),
+                    Some("1.0.0"),
+                    "2.0.0",
+                    0,
+                ))
+                .execute(pool)
+                .await
+                .expect("old handoff");
+            let old = store::load_state(pool).await.expect("load").expect("row");
+            let new_pending = pending_handoff(
+                Some("22222222-2222-4222-8222-222222222222"),
+                Some("1.0.0"),
+                "2.0.0",
+                0,
+            );
+            sqlx::query("UPDATE analytics_state SET pending_update_json = ? WHERE id = 1")
+                .bind(&new_pending)
+                .execute(pool)
+                .await
+                .expect("new handoff");
+
+            runtime
+                .inner
+                .resolve_restart_confirmation(
+                    &old,
+                    if old_target_matches { "2.0.0" } else { "1.0.0" },
+                )
+                .await
+                .expect("resolve saved handoff");
+
+            assert!(runtime.outbox_payloads_for_tests().await.is_empty());
+            let current = store::load_state(pool).await.expect("load").expect("row");
+            assert_eq!(
+                current.pending_update_json.as_deref(),
+                Some(new_pending.as_str())
+            );
+            runtime
+                .inner
+                .resolve_restart_confirmation(&current, "2.0.0")
+                .await
+                .expect("resolve new handoff");
+            let events = runtime.outbox_payloads_for_tests().await;
+            assert_eq!(events.len(), 1);
+            assert_eq!(
+                events[0].attributes["update_operation_id"],
+                "22222222-2222-4222-8222-222222222222"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn user_keeps_a_restart_confirmation_when_the_queue_is_full_then_confirms_once_space_is_available(
+    ) {
+        let sender = Arc::new(RecordingSender::new());
+        let (_root, runtime) = test_runtime(sender).await;
+        let pool = runtime.inner.database.pool();
+        let pending = pending_handoff(
+            Some("11111111-1111-4111-8111-111111111111"),
+            Some("1.0.0"),
+            "2.0.0",
+            0,
+        );
+        sqlx::query("UPDATE analytics_state SET pending_update_json = ? WHERE id = 1")
+            .bind(&pending)
+            .execute(pool)
+            .await
+            .expect("handoff");
+        sqlx::query(
+            "WITH RECURSIVE rows(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM rows WHERE n < ?) \
+             INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, \
+             payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at, priority) \
+             SELECT printf('full-%d', n), 0, 1, 'agent.request_submitted', '{}', 2, ?, ?, ?, 10 FROM rows",
+        )
+        .bind(store::MAX_EVENTS)
+        .bind(store::now_millis())
+        .bind(store::now_millis() + store::TTL_MS)
+        .bind(store::now_millis())
+        .execute(pool)
+        .await
+        .expect("fill queue with higher-priority events");
+        let row = store::load_state(pool).await.expect("load").expect("row");
+
+        runtime
+            .inner
+            .resolve_restart_confirmation(&row, "2.0.0")
+            .await
+            .expect("full resolution");
+        assert_eq!(
+            store::load_state(pool)
+                .await
+                .expect("load")
+                .expect("row")
+                .pending_update_json
+                .as_deref(),
+            Some(pending.as_str())
+        );
+        assert_eq!(
+            store::queue_stats(pool).await.expect("stats").0,
+            store::MAX_EVENTS
+        );
+        runtime.clear_outbox_for_tests().await;
+
+        runtime
+            .inner
+            .resolve_restart_confirmation(&row, "2.0.0")
+            .await
+            .expect("retry resolution");
+        let confirmations = runtime.outbox_payloads_for_tests().await;
+        assert_eq!(confirmations.len(), 1);
+        assert_eq!(confirmations[0].attributes["phase"], "restart_confirmed");
+        assert!(store::load_state(pool)
+            .await
+            .expect("load")
+            .expect("row")
+            .pending_update_json
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn user_gets_restart_confirmation_only_when_a_successful_install_handoff_was_recorded() {
+        for (phase, result, confirms) in [
+            ("install_handoff", "success", true),
+            ("download_finished", "success", false),
+            ("install_handoff", "failure", false),
+        ] {
+            let sender = Arc::new(RecordingSender::new());
+            let (_root, runtime) = test_runtime(sender.clone()).await;
+            let request = track_request(
+                "app.update_transition",
+                JsonMap::from_iter([
+                    (
+                        "update_operation_id".to_string(),
+                        JsonValue::String("11111111-1111-4111-8111-111111111111".to_string()),
+                    ),
+                    ("phase".to_string(), JsonValue::String(phase.to_string())),
+                    ("result".to_string(), JsonValue::String(result.to_string())),
+                    (
+                        "from_version".to_string(),
+                        JsonValue::String("1.0.0".to_string()),
+                    ),
+                    (
+                        "to_version".to_string(),
+                        JsonValue::String("2.0.0".to_string()),
+                    ),
+                    ("source".to_string(), JsonValue::String("user".to_string())),
+                ]),
+            );
+
+            assert_eq!(
+                runtime.track(request).await.status,
+                AnalyticsSubmitStatus::Persisted
+            );
+            let row = store::load_state(runtime.inner.database.pool())
+                .await
+                .expect("load")
+                .expect("row");
+            assert_eq!(row.pending_update_json.is_some(), confirms);
+            if let Some(pending) = &row.pending_update_json {
+                assert!(pending.len() <= PENDING_UPDATE_MAX_BYTES);
+            }
+            runtime
+                .inner
+                .resolve_restart_confirmation(&row, "2.0.0")
+                .await
+                .expect("resolve restart");
+
+            let events = runtime.outbox_payloads_for_tests().await;
+            let confirmations: Vec<_> = events
+                .iter()
+                .filter(|event| {
+                    event.attributes.get("phase").and_then(JsonValue::as_str)
+                        == Some("restart_confirmed")
+                })
+                .collect();
+            assert_eq!(
+                confirmations.len(),
+                usize::from(confirms),
+                "{phase}: {result}"
+            );
+            if let Some(confirmation) = confirmations.first() {
+                assert_eq!(confirmation.attributes["from_version"], "1.0.0");
+                assert_eq!(confirmation.attributes["to_version"], "2.0.0");
+                assert_eq!(
+                    confirmation.attributes["update_operation_id"],
+                    "11111111-1111-4111-8111-111111111111"
+                );
+                assert!(confirmation.analytics_session_id.is_none());
+            }
+            runtime.flush_once().await.expect("flush transitions");
+            assert_eq!(sender.sent_names().len(), 1 + usize::from(confirms));
+        }
     }
 }
