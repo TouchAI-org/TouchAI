@@ -217,11 +217,6 @@
             "count": 13
         }
     },
-    "src/views/SearchView/components/ConversationPanel/components/ConversationTimeline.vue": {
-        "tailwindcss/no-custom-classname": {
-            "count": 3
-        }
-    },
     "src/views/SearchView/components/ConversationPanel/components/ConversationToolbar.vue": {
         "tailwindcss/no-arbitrary-value": {
             "count": 1
@@ -270,14 +265,8 @@
         }
     },
     "src/views/SearchView/components/ConversationPanel/index.vue": {
-        "tailwindcss/no-arbitrary-value": {
-            "count": 1
-        },
         "tailwindcss/no-custom-classname": {
             "count": 1
-        },
-        "vue/no-restricted-class": {
-            "count": 3
         }
     },
     "src/views/SearchView/components/QuickSearchPanel/QuickSearchListItem.vue": {
