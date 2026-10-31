@@ -48,6 +48,12 @@ attribute. A version is the only value that can originate outside the codebase
 `^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$` in both copies, so a path, URL, error string,
 whitespace or vendor-qualified model id cannot pass. The rule is a shape check: a
 bare alphanumeric-dash identifier that looks like a version is accepted.
+The native install-handoff path derives its versions from the running package and
+the validated updater command rather than trusting the WebView. It omits a
+version that does not fit the 64-character wire shape. Pending restart metadata
+may retain the exact shaped value up to 200 characters so a long but valid SemVer
+can still be confirmed after restart; that local value is never emitted as an
+attribute.
 
 Unknown event names, unknown keys, out-of-range scalars and incoherent cross-field
 pairs (`unpriced_call_count > llm_call_count`) are rejected before persistence,
@@ -175,10 +181,13 @@ a whole rolls back instead of half-committing.
    HTTP request already in flight at withdrawal cannot be recalled.
 4. The hourly health reporter emits real counters and queue depth. It never counts
    its own deliveries and never runs while sharing is off.
-5. A successful `install_handoff` transition stores bounded pending metadata. The
-   next start emits `restart_confirmed` and clears that metadata in one
-   transaction only when the running target version, local consent epoch and valid
-   operation id match. The transaction also compares the expected pending blob:
+5. A successful `install_handoff` transition stores bounded pending metadata when
+   the native target version has the 1-200 character version shape. The exact
+   native version may be longer than the wire attribute limit. The next start
+   emits `restart_confirmed` with wire-safe versions omitted when needed and
+   clears that metadata in one transaction only when the running target version,
+   local consent epoch and valid operation id match. The transaction also
+   compares the expected pending blob:
    repeated or overlapping resolution of that handoff cannot confirm it twice or
    consume a newer handoff. An unfinished update, a missing operation id, a
    same-version handoff or invalid metadata is cleared as stale on a provisioned

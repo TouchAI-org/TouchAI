@@ -429,8 +429,6 @@ describe('user checks for and installs app updates', () => {
             expect.objectContaining({
                 updateOperationId: expect.any(String),
                 source: 'user',
-                fromVersion: '0.1.0',
-                toVersion: '0.2.0',
             })
         );
         expect(controller.getState().status).toBe('installing');

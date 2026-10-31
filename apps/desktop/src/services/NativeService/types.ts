@@ -175,8 +175,6 @@ export interface AppUpdateInfo {
 export interface AppUpdateInstallAnalytics {
     updateOperationId: string;
     source: 'background' | 'user' | 'other';
-    fromVersion: string | null;
-    toVersion: string;
 }
 
 export interface AppUpdateNotificationAction {

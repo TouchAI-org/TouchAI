@@ -53,7 +53,7 @@ const HEALTH_INTERVAL: Duration = Duration::from_secs(60 * 60);
 /// measured on the native monotonic clock, never on a caller timestamp.
 const SESSION_IDLE: Duration = Duration::from_secs(30 * 60);
 /// Upper bound for the bounded pending-update metadata blob.
-const PENDING_UPDATE_MAX_BYTES: usize = 512;
+const PENDING_UPDATE_MAX_BYTES: usize = 640;
 /// Bounded in-memory ingress admission. It counts rows, including work reserved
 /// but not yet committed, so a burst cannot outrun the single writer.
 const INGRESS_MAX_ENTRIES: i64 = 128;
@@ -552,6 +552,51 @@ impl AnalyticsRuntime {
     }
 
     pub async fn track(&self, request: AnalyticsTrackRequest) -> AnalyticsSubmitResult {
+        self.track_with_install_handoff(request, None).await
+    }
+
+    /// Records an install handoff using native-authoritative versions. The
+    /// event attributes remain constrained by the public wire contract; the
+    /// exact versions are carried separately into pending metadata so a valid
+    /// long SemVer can still be confirmed after the restart.
+    pub(crate) async fn track_install_handoff(
+        &self,
+        mut request: AnalyticsTrackRequest,
+        from_version: Option<String>,
+        to_version: String,
+    ) -> AnalyticsSubmitResult {
+        request.attributes.remove("from_version");
+        request.attributes.remove("to_version");
+        if let Some(from_version) = from_version
+            .as_deref()
+            .filter(|value| events::is_version_shaped(value))
+        {
+            request.attributes.insert(
+                "from_version".to_string(),
+                JsonValue::String(from_version.to_string()),
+            );
+        }
+        if events::is_version_shaped(&to_version) {
+            request.attributes.insert(
+                "to_version".to_string(),
+                JsonValue::String(to_version.clone()),
+            );
+        }
+        self.track_with_install_handoff(
+            request,
+            Some(InstallHandoffVersions {
+                from_version,
+                to_version,
+            }),
+        )
+        .await
+    }
+
+    async fn track_with_install_handoff(
+        &self,
+        request: AnalyticsTrackRequest,
+        install_versions: Option<InstallHandoffVersions>,
+    ) -> AnalyticsSubmitResult {
         if let Some(id) = request.operation_id.as_deref() {
             if self.inner.operations.lock().await.get(id).is_none() {
                 return AnalyticsSubmitResult::with_reason(
@@ -735,9 +780,18 @@ impl AnalyticsRuntime {
             }
         }
 
-        let pending = install_handoff_pending(&request, epoch)
-            .map(PendingUpdate::Set)
-            .unwrap_or(PendingUpdate::Unchanged);
+        let pending = install_handoff_pending(
+            &request,
+            epoch,
+            install_versions.as_ref().map(|versions| {
+                (
+                    versions.to_version.as_str(),
+                    versions.from_version.as_deref(),
+                )
+            }),
+        )
+        .map(PendingUpdate::Set)
+        .unwrap_or(PendingUpdate::Unchanged);
         let primary_event_id = inserts.last().map(|insert| insert.event_id.clone());
         let result = self
             .inner
@@ -1460,16 +1514,22 @@ impl AnalyticsRuntimeInner {
             "phase".to_string(),
             JsonValue::String("restart_confirmed".to_string()),
         );
-        if let Some(from_version) = &pending.from_version {
+        if let Some(from_version) = pending
+            .from_version
+            .as_deref()
+            .filter(|value| events::is_version_shaped(value))
+        {
             attributes.insert(
                 "from_version".to_string(),
-                JsonValue::String(from_version.clone()),
+                JsonValue::String(from_version.to_string()),
             );
         }
-        attributes.insert(
-            "to_version".to_string(),
-            JsonValue::String(pending.to_version.clone()),
-        );
+        if events::is_version_shaped(&pending.to_version) {
+            attributes.insert(
+                "to_version".to_string(),
+                JsonValue::String(pending.to_version.clone()),
+            );
+        }
         attributes.insert(
             "result".to_string(),
             JsonValue::String("success".to_string()),
@@ -1567,6 +1627,12 @@ fn elapsed_ms(started_at: Instant) -> i64 {
         .min(MAX_DURATION_MS)
 }
 
+#[derive(Debug, Clone)]
+struct InstallHandoffVersions {
+    from_version: Option<String>,
+    to_version: String,
+}
+
 /// Bounded pending-update metadata stored when a real install handoff succeeds,
 /// so the next native start can confirm the restart once and atomically.
 #[derive(serde::Deserialize)]
@@ -1588,13 +1654,14 @@ fn parse_pending_update(json: &str) -> Option<PendingUpdateMeta> {
         return None;
     }
     let pending: PendingUpdateMeta = serde_json::from_str(json).ok()?;
-    // Stored metadata is written from validated attributes, but a restored or
-    // hand-edited row must not put a value outside the registry on the wire.
-    if !events::is_version_shaped(&pending.to_version) {
+    // Pending metadata may retain a valid long SemVer that cannot fit in the
+    // public wire attribute. A restored or hand-edited row is still bounded and
+    // shape-checked before it can influence a confirmation.
+    if !events::is_pending_version_shaped(&pending.to_version) {
         return None;
     }
     if let Some(from_version) = &pending.from_version {
-        if !events::is_version_shaped(from_version) {
+        if !events::is_pending_version_shaped(from_version) {
             return None;
         }
     }
@@ -1618,7 +1685,11 @@ fn normalize_update_source(source: Option<&str>) -> &'static str {
 
 /// Builds the bounded pending metadata for an `install_handoff` transition that
 /// succeeded. `None` for every other transition, so nothing else writes it.
-fn install_handoff_pending(request: &AnalyticsTrackRequest, consent_epoch: i64) -> Option<String> {
+fn install_handoff_pending(
+    request: &AnalyticsTrackRequest,
+    consent_epoch: i64,
+    authoritative_versions: Option<(&str, Option<&str>)>,
+) -> Option<String> {
     if request.event_name != "app.update_transition" {
         return None;
     }
@@ -1628,10 +1699,23 @@ fn install_handoff_pending(request: &AnalyticsTrackRequest, consent_epoch: i64) 
     if request.attributes.get("result").and_then(JsonValue::as_str) != Some("success") {
         return None;
     }
-    let to_version = request
-        .attributes
-        .get("to_version")
-        .and_then(JsonValue::as_str)?;
+    let (to_version, from_version) = match authoritative_versions {
+        Some((to_version, from_version)) => (to_version, from_version),
+        None => (
+            request
+                .attributes
+                .get("to_version")
+                .and_then(JsonValue::as_str)?,
+            request
+                .attributes
+                .get("from_version")
+                .and_then(JsonValue::as_str),
+        ),
+    };
+    if !events::is_pending_version_shaped(to_version) {
+        return None;
+    }
+    let from_version = from_version.filter(|value| events::is_pending_version_shaped(value));
     let mut metadata = JsonMap::new();
     if let Some(value) = request
         .attributes
@@ -1643,11 +1727,7 @@ fn install_handoff_pending(request: &AnalyticsTrackRequest, consent_epoch: i64) 
             JsonValue::String(value.to_string()),
         );
     }
-    if let Some(value) = request
-        .attributes
-        .get("from_version")
-        .and_then(JsonValue::as_str)
-    {
+    if let Some(value) = from_version {
         metadata.insert(
             "fromVersion".to_string(),
             JsonValue::String(value.to_string()),
@@ -3477,6 +3557,146 @@ mod tests {
             JsonValue::Number(consent_epoch.into()),
         );
         JsonValue::Object(metadata).to_string()
+    }
+
+    fn install_handoff_attributes() -> JsonMap<String, JsonValue> {
+        JsonMap::from_iter([
+            (
+                "update_operation_id".to_string(),
+                JsonValue::String("11111111-1111-4111-8111-111111111111".to_string()),
+            ),
+            (
+                "phase".to_string(),
+                JsonValue::String("install_handoff".to_string()),
+            ),
+            (
+                "result".to_string(),
+                JsonValue::String("success".to_string()),
+            ),
+            ("source".to_string(), JsonValue::String("user".to_string())),
+        ])
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_restart_confirmed_when_native_versions_are_longer_than_the_wire_limit() {
+        for length in [65, 200] {
+            let from_version = format!("1.0.0+{}", "b".repeat(length - 6));
+            let to_version = format!("2.0.0+{}", "a".repeat(length - 6));
+            assert_eq!(from_version.len(), length);
+            assert_eq!(to_version.len(), length);
+
+            let sender = Arc::new(RecordingSender::new());
+            let (_root, runtime) = test_runtime(sender).await;
+            let handle = runtime.begin_operation().await;
+            let request = with_operation(
+                track_request("app.update_transition", install_handoff_attributes()),
+                &handle.operation_id,
+            );
+
+            assert_eq!(
+                runtime
+                    .track_install_handoff(request, Some(from_version.clone()), to_version.clone(),)
+                    .await
+                    .status,
+                AnalyticsSubmitStatus::Persisted
+            );
+            let install_events = runtime.outbox_payloads_for_tests().await;
+            let install_handoff = install_events
+                .iter()
+                .find(|event| {
+                    event.attributes.get("phase").and_then(JsonValue::as_str)
+                        == Some("install_handoff")
+                })
+                .expect("install handoff event");
+            assert!(!install_handoff.attributes.contains_key("from_version"));
+            assert!(!install_handoff.attributes.contains_key("to_version"));
+
+            let row = store::load_state(runtime.inner.database.pool())
+                .await
+                .expect("load state")
+                .expect("state row");
+            let pending = row.pending_update_json.clone().expect("pending handoff");
+            assert!(pending.len() <= PENDING_UPDATE_MAX_BYTES);
+            let pending: JsonValue = serde_json::from_str(&pending).expect("pending json");
+            assert_eq!(
+                pending["fromVersion"],
+                JsonValue::String(from_version.clone())
+            );
+            assert_eq!(pending["toVersion"], JsonValue::String(to_version.clone()));
+
+            runtime
+                .inner
+                .resolve_restart_confirmation(&row, &to_version)
+                .await
+                .expect("confirm restart");
+            let confirmations = runtime
+                .outbox_payloads_for_tests()
+                .await
+                .into_iter()
+                .filter(|event| {
+                    event.attributes.get("phase").and_then(JsonValue::as_str)
+                        == Some("restart_confirmed")
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(confirmations.len(), 1);
+            assert!(!confirmations[0].attributes.contains_key("from_version"));
+            assert!(!confirmations[0].attributes.contains_key("to_version"));
+            assert!(store::load_state(runtime.inner.database.pool())
+                .await
+                .expect("load state")
+                .expect("state row")
+                .pending_update_json
+                .is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn user_gets_sanitized_install_handoff_when_native_versions_are_not_wire_shaped() {
+        let too_long_pending_version = format!("2.0.0+{}", "a".repeat(195));
+        assert_eq!(too_long_pending_version.len(), 201);
+        for (from_version, to_version) in [
+            ("/tmp/current", "https://updates.touch-ai.org/2.0.0"),
+            ("1.0.0", "/tmp/release/2.0.0"),
+            ("1.0.0", "1.2.3_rc1"),
+            ("1.0.0", too_long_pending_version.as_str()),
+        ] {
+            let sender = Arc::new(RecordingSender::new());
+            let (_root, runtime) = test_runtime(sender).await;
+            let handle = runtime.begin_operation().await;
+            let request = with_operation(
+                track_request("app.update_transition", install_handoff_attributes()),
+                &handle.operation_id,
+            );
+
+            assert_eq!(
+                runtime
+                    .track_install_handoff(
+                        request,
+                        Some(from_version.to_string()),
+                        to_version.to_string(),
+                    )
+                    .await
+                    .status,
+                AnalyticsSubmitStatus::Persisted
+            );
+            let events = runtime.outbox_payloads_for_tests().await;
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].attributes["phase"], "install_handoff");
+            assert_eq!(
+                events[0].attributes.contains_key("from_version"),
+                events::is_version_shaped(from_version)
+            );
+            assert_eq!(
+                events[0].attributes.contains_key("to_version"),
+                events::is_version_shaped(to_version)
+            );
+            assert!(store::load_state(runtime.inner.database.pool())
+                .await
+                .expect("load state")
+                .expect("state row")
+                .pending_update_json
+                .is_none());
+        }
     }
 
     #[tokio::test]

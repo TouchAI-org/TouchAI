@@ -412,7 +412,6 @@ export class AppUpdateController {
 
     private async performInstall(update: AppUpdateInfo): Promise<boolean> {
         const channel = this.state.channel;
-        const fromVersion = this.state.currentVersion;
         const updateOperationId = this.updateOperationId ?? crypto.randomUUID();
         this.commit({ type: 'install-started' });
 
@@ -422,8 +421,6 @@ export class AppUpdateController {
             await this.native.installUpdate(channel, update.version, update.fileName, {
                 updateOperationId,
                 source: this.updateSource,
-                fromVersion,
-                toVersion: update.version,
             });
             this.releaseUpdateOperation();
             return true;

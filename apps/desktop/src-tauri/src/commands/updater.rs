@@ -8,7 +8,9 @@ use serde::Deserialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use tauri::{AppHandle, Manager, Runtime, State};
 
-use crate::core::analytics::{AnalyticsOperationHandle, AnalyticsRuntime, AnalyticsTrackRequest};
+use crate::core::analytics::{
+    events, AnalyticsOperationHandle, AnalyticsRuntime, AnalyticsTrackRequest,
+};
 use crate::core::updater::notification::AppUpdateNotificationPayload;
 use crate::core::updater::{
     self, AppUpdateChannel, AppUpdateCheckResult, AppUpdateInfo, AppUpdaterState,
@@ -23,8 +25,6 @@ const ANALYTICS_CAPTURE_TIMEOUT: Duration = Duration::from_millis(50);
 pub struct AppUpdateInstallAnalytics {
     update_operation_id: String,
     source: String,
-    from_version: Option<String>,
-    to_version: String,
 }
 
 fn now_millis() -> i64 {
@@ -38,6 +38,8 @@ fn install_handoff_request(
     analytics: &AppUpdateInstallAnalytics,
     operation_id: &str,
     result: &str,
+    from_version: Option<&str>,
+    to_version: &str,
 ) -> AnalyticsTrackRequest {
     let mut attributes = JsonMap::new();
     attributes.insert(
@@ -53,16 +55,18 @@ fn install_handoff_request(
         "source".to_string(),
         JsonValue::String(analytics.source.clone()),
     );
-    if let Some(from_version) = &analytics.from_version {
+    if let Some(from_version) = from_version.filter(|value| events::is_version_shaped(value)) {
         attributes.insert(
             "from_version".to_string(),
-            JsonValue::String(from_version.clone()),
+            JsonValue::String(from_version.to_string()),
         );
     }
-    attributes.insert(
-        "to_version".to_string(),
-        JsonValue::String(analytics.to_version.clone()),
-    );
+    if events::is_version_shaped(to_version) {
+        attributes.insert(
+            "to_version".to_string(),
+            JsonValue::String(to_version.to_string()),
+        );
+    }
     AnalyticsTrackRequest {
         event_name: "app.update_transition".to_string(),
         occurred_at_ms: now_millis(),
@@ -129,6 +133,7 @@ pub async fn updater_install_update<R: Runtime>(
     file_name: String,
     analytics: AppUpdateInstallAnalytics,
 ) -> Result<bool, String> {
+    let from_version = app.package_info().version.to_string();
     let install_analytics = capture_install_analytics(&app).await;
     let result = async {
         state.validate_install(channel, &version, &file_name)?;
@@ -151,8 +156,12 @@ pub async fn updater_install_update<R: Runtime>(
             &analytics,
             &operation.operation_id,
             update_result_label(&result),
+            Some(&from_version),
+            &version,
         );
-        let _ = runtime.track(request).await;
+        let _ = runtime
+            .track_install_handoff(request, Some(from_version.clone()), version.clone())
+            .await;
         runtime.complete_operation(&operation.operation_id).await;
     }
 
@@ -179,11 +188,10 @@ mod tests {
         let analytics = AppUpdateInstallAnalytics {
             update_operation_id: "11111111-1111-4111-8111-111111111111".to_string(),
             source: "user".to_string(),
-            from_version: Some("1.0.0".to_string()),
-            to_version: "2.0.0".to_string(),
         };
 
-        let request = install_handoff_request(&analytics, "operation-1", "success");
+        let request =
+            install_handoff_request(&analytics, "operation-1", "success", Some("1.0.0"), "2.0.0");
 
         assert_eq!(request.event_name, "app.update_transition");
         assert_eq!(request.operation_id.as_deref(), Some("operation-1"));
@@ -196,5 +204,30 @@ mod tests {
             request.attributes["update_operation_id"],
             "11111111-1111-4111-8111-111111111111"
         );
+    }
+
+    #[test]
+    fn user_gets_versions_outside_the_registry_shape_omitted_from_native_handoff() {
+        for length in [65, 200] {
+            let long_version = format!("1.2.3+{}", "a".repeat(length - 6));
+            assert_eq!(long_version.len(), length);
+            let analytics = AppUpdateInstallAnalytics {
+                update_operation_id: "11111111-1111-4111-8111-111111111111".to_string(),
+                source: "user".to_string(),
+            };
+
+            let request = install_handoff_request(
+                &analytics,
+                "operation-1",
+                "success",
+                Some("https://updates.touch-ai.org/1.0.0"),
+                &long_version,
+            );
+
+            assert!(!request.attributes.contains_key("from_version"));
+            assert!(!request.attributes.contains_key("to_version"));
+            assert_eq!(request.attributes["phase"], "install_handoff");
+            assert_eq!(request.attributes["result"], "success");
+        }
     }
 }
