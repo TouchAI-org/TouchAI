@@ -1,0 +1,240 @@
+import type { UpdateOperation, UpdatePhase } from '@services/AnalyticsService/lifecycle';
+import { type AppUpdateAnalytics, AppUpdateController } from '@services/AppUpdateService';
+import type {
+    AppUpdateChannel,
+    AppUpdateCheckResult,
+    AppUpdateInfo,
+} from '@services/AppUpdateService/types';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@services/ObservabilityService', () => ({
+    log: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
+}));
+
+vi.mock('@services/NativeService', () => ({ native: {} }));
+
+const availableUpdate: AppUpdateInfo = {
+    version: '0.2.0',
+    fileName: 'TouchAI-0.2.0-full.nupkg',
+    notes: null,
+    sizeBytes: 12_000_000,
+};
+
+const neutralRequirement = {
+    required: false,
+    minimumSupportedVersion: null,
+    requiredSeverity: null,
+    requiredReason: null,
+    targetSatisfiesRequirement: true,
+};
+
+function createAnalytics(): {
+    analytics: AppUpdateAnalytics;
+    begin: ReturnType<typeof vi.fn>;
+    transitions: Array<{
+        operation: UpdateOperation;
+        phase: UpdatePhase;
+        outcome: Record<string, unknown>;
+    }>;
+} {
+    const transitions: Array<{
+        operation: UpdateOperation;
+        phase: UpdatePhase;
+        outcome: Record<string, unknown>;
+    }> = [];
+    const begin = vi.fn(
+        async (): Promise<UpdateOperation> => ({
+            operation: { operationId: 'op-1', enabled: true, consentEpoch: 4 },
+            updateOperationId: crypto.randomUUID(),
+        })
+    );
+    return {
+        analytics: {
+            beginUpdateOperation: begin,
+            trackUpdateTransition: vi.fn(async (operation, phase, outcome) => {
+                transitions.push({ operation, phase, outcome });
+            }),
+        },
+        begin,
+        transitions,
+    };
+}
+
+function createController(options: {
+    checkResult?: AppUpdateCheckResult;
+    downloadError?: Error;
+    installError?: Error;
+    analytics: AppUpdateAnalytics;
+}) {
+    const channel: AppUpdateChannel = 'stable';
+    const checkForUpdates = vi.fn(
+        async () =>
+            options.checkResult ?? {
+                status: 'available' as const,
+                channel,
+                currentVersion: '0.1.0',
+                latest: null,
+                update: availableUpdate,
+                requirement: neutralRequirement,
+            }
+    );
+    const downloadUpdate = options.downloadError
+        ? vi.fn().mockRejectedValue(options.downloadError)
+        : vi.fn().mockResolvedValue(availableUpdate);
+    const installUpdate = options.installError
+        ? vi.fn().mockRejectedValue(options.installError)
+        : vi.fn().mockResolvedValue(true);
+
+    const controller = new AppUpdateController({
+        native: { checkForUpdates, downloadUpdate, installUpdate },
+        settings: {
+            initialize: vi.fn().mockResolvedValue(undefined),
+            getChannel: () => channel,
+            getAutoCheckEnabled: () => true,
+            getLastCheckedAt: () => null,
+            updateAppUpdateChannel: vi.fn().mockResolvedValue(undefined),
+            updateAppUpdateAutoCheck: vi.fn().mockResolvedValue(undefined),
+            updateAppUpdateLastCheckedAt: vi.fn().mockResolvedValue(undefined),
+        },
+        analytics: options.analytics,
+        now: () => '2026-05-22T10:00:00.000Z',
+    });
+
+    return { controller, checkForUpdates, downloadUpdate, installUpdate };
+}
+
+describe('user checks for an app update', () => {
+    it('user gets the started and finished check phases tied to one update operation', async () => {
+        const analytics = createAnalytics();
+        const { controller } = createController({ analytics: analytics.analytics });
+
+        await controller.checkNow('manual');
+
+        expect(analytics.transitions.map((entry) => entry.phase)).toEqual([
+            'check_started',
+            'check_finished',
+        ]);
+        const [started, finished] = analytics.transitions;
+        expect(started?.operation.updateOperationId).toBe(finished?.operation.updateOperationId);
+        expect(finished?.outcome).toMatchObject({
+            result: 'success',
+            source: 'user',
+            toVersion: '0.2.0',
+        });
+    });
+
+    it('user gets an automatic check recorded with a background source', async () => {
+        const analytics = createAnalytics();
+        const { controller } = createController({ analytics: analytics.analytics });
+
+        await controller.initialize();
+        await controller.checkNow('automatic');
+
+        const finished = analytics.transitions.find((entry) => entry.phase === 'check_finished');
+        expect(finished?.outcome.source).toBe('background');
+    });
+
+    it('user gets an unavailable result when the platform is unsupported', async () => {
+        const analytics = createAnalytics();
+        const { controller } = createController({
+            analytics: analytics.analytics,
+            checkResult: {
+                status: 'unsupported',
+                channel: 'stable',
+                currentVersion: '0.1.0',
+                latest: null,
+                reason: 'not_installed',
+                message: 'not installed',
+                requirement: neutralRequirement,
+            },
+        });
+
+        await controller.checkNow('manual');
+
+        const finished = analytics.transitions.find((entry) => entry.phase === 'check_finished');
+        expect(finished?.outcome).toMatchObject({ result: 'unavailable' });
+    });
+
+    it('user gets a fresh operation after a check ends with no available update', async () => {
+        const analytics = createAnalytics();
+        const { controller } = createController({
+            analytics: analytics.analytics,
+            checkResult: {
+                status: 'not_available',
+                channel: 'stable',
+                currentVersion: '0.1.0',
+                latest: null,
+                requirement: neutralRequirement,
+            },
+        });
+
+        await controller.checkNow('manual');
+        await controller.checkNow('manual');
+
+        expect(analytics.begin).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('user downloads and installs an update', () => {
+    it('user gets download phases that report the real outcome', async () => {
+        const analytics = createAnalytics();
+        const { controller } = createController({ analytics: analytics.analytics });
+
+        await controller.checkNow('manual');
+        await controller.download();
+
+        const phases = analytics.transitions.map((entry) => entry.phase);
+        expect(phases).toContain('download_started');
+        expect(phases).toContain('download_finished');
+        const finished = analytics.transitions.find((entry) => entry.phase === 'download_finished');
+        expect(finished?.outcome).toMatchObject({ result: 'success', toVersion: '0.2.0' });
+    });
+
+    it('user gets a failure phase when the download fails', async () => {
+        const analytics = createAnalytics();
+        const { controller } = createController({
+            analytics: analytics.analytics,
+            downloadError: new Error('offline'),
+        });
+
+        await controller.checkNow('manual');
+        await controller.download();
+
+        const finished = analytics.transitions.find((entry) => entry.phase === 'download_finished');
+        expect(finished?.outcome).toMatchObject({ result: 'failure' });
+    });
+
+    it('user gets a handoff phase after install is invoked, never a confirmed restart', async () => {
+        const analytics = createAnalytics();
+        const { controller } = createController({ analytics: analytics.analytics });
+
+        await controller.checkNow('manual');
+        const downloaded = await controller.download();
+        expect(downloaded).toBe(true);
+        await controller.install();
+
+        const phases = analytics.transitions.map((entry) => entry.phase);
+        expect(phases).toContain('install_handoff');
+        expect(phases).not.toContain('restart_confirmed');
+    });
+
+    it('user still sees an update failure when telemetry rejects', async () => {
+        const analytics: AppUpdateAnalytics = {
+            beginUpdateOperation: vi.fn(async () => ({
+                operation: { operationId: 'op', enabled: true, consentEpoch: 1 },
+                updateOperationId: 'u',
+            })),
+            trackUpdateTransition: vi.fn().mockRejectedValue(new Error('ipc down')),
+        };
+        const { controller, installUpdate } = createController({
+            analytics,
+            installError: new Error('installer refused'),
+        });
+
+        await controller.checkNow('manual');
+        await controller.download();
+
+        await expect(controller.install()).resolves.toBe(false);
+        expect(installUpdate).toHaveBeenCalled();
+    });
+});

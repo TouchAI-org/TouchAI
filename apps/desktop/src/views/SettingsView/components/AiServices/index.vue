@@ -37,6 +37,13 @@
         refreshModelMetadataIfStale,
     } from '@/services/AgentService/infrastructure/modelMetadata';
     import { getProviderDriverDefinition } from '@/services/AgentService/infrastructure/providers';
+    import type { ProviderConfigurationAttempt } from '@/services/AnalyticsService/productInteractions';
+    import {
+        beginProviderConfigurationAttempt,
+        mapProviderCategory,
+        runProviderConfiguration,
+        runProviderConfigurationAttempt,
+    } from '@/services/AnalyticsService/productInteractions';
 
     defineOptions({
         name: 'SettingsAiServicesSection',
@@ -91,6 +98,7 @@
     const showEditDialog = ref(false);
     const isEditDialogMounted = ref(false);
     const editingProvider = ref<Provider | null>(null);
+    const pendingEditConfiguration = ref<ProviderConfigurationAttempt | null>(null);
     const refreshing = ref(false);
     const refreshingProviderId = ref<number | null>(null);
     const instanceId = crypto.randomUUID();
@@ -399,6 +407,13 @@
 
     const openEditProviderDialog = (provider = selectedProvider.value) => {
         if (!provider) return;
+        // Capture the attempt at the real edit start, so an edit that is
+        // abandoned without saving stays an unfinished configuration event
+        // rather than a fabricated save.
+        pendingEditConfiguration.value = beginProviderConfigurationAttempt({
+            providerCategory: mapProviderCategory(provider.driver),
+            entry: 'settings',
+        });
         editingProvider.value = provider;
         isEditDialogMounted.value = true;
         showEditDialog.value = true;
@@ -410,18 +425,27 @@
         if (showEditDialog.value) return;
         isEditDialogMounted.value = false;
         editingProvider.value = null;
+        // The edit session ended; an unsaved attempt is intentionally left unfinished.
+        pendingEditConfiguration.value = null;
     };
 
     const handleCreateProvider = async (data: NewProvider) => {
         try {
-            const createdProvider = await createProvider({
-                ...data,
-                name: requireNonEmptyProviderField(data.name, t('settings.ai.providerName')),
-                api_endpoint: requireNonEmptyProviderField(
-                    data.api_endpoint,
-                    t('settings.ai.apiEndpoint')
-                ),
-            });
+            const createdProvider = await runProviderConfiguration(
+                { providerCategory: mapProviderCategory(data.driver), entry: 'settings' },
+                () =>
+                    createProvider({
+                        ...data,
+                        name: requireNonEmptyProviderField(
+                            data.name,
+                            t('settings.ai.providerName')
+                        ),
+                        api_endpoint: requireNonEmptyProviderField(
+                            data.api_endpoint,
+                            t('settings.ai.apiEndpoint')
+                        ),
+                    })
+            );
             providers.value = [...providers.value, createdProvider];
             selectedProviderId.value = createdProvider.id;
             showAddDialog.value = false;
@@ -435,12 +459,27 @@
         const providerId = editingProvider.value?.id;
         if (providerId === undefined) return;
 
+        const attempt = pendingEditConfiguration.value;
+        pendingEditConfiguration.value = null;
+
         try {
             const normalizedProviderPatch = normalizeProviderPatch(data);
-            await updateProvider({
-                id: providerId,
-                providerPatch: normalizedProviderPatch,
-            });
+            const run = () =>
+                updateProvider({
+                    id: providerId,
+                    providerPatch: normalizedProviderPatch,
+                });
+            await (attempt
+                ? runProviderConfigurationAttempt(attempt, run)
+                : runProviderConfiguration(
+                      {
+                          providerCategory: mapProviderCategory(
+                              data.driver ?? editingProvider.value?.driver ?? ''
+                          ),
+                          entry: 'settings',
+                      },
+                      run
+                  ));
             patchProvider(providerId, normalizedProviderPatch);
             showEditDialog.value = false;
             await refreshSelectedProviderModelsAfterConfigChange();

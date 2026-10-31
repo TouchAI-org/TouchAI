@@ -1,4 +1,12 @@
 import { type ContextMenuItem, useContextMenu } from '@composables/useContextMenu';
+import {
+    beginSearchInteraction,
+    runResultAction,
+    type SearchInteraction,
+    selectSearchResult,
+    settleSearchInteraction,
+    trackFeatureExposed,
+} from '@services/AnalyticsService/productInteractions';
 import { clipboardService } from '@services/ClipboardService';
 import { native, type QuickShortcutItem } from '@services/NativeService';
 import { log } from '@services/ObservabilityService';
@@ -139,6 +147,57 @@ function useQuickSearchFlow(
     let lastSearchedQuery = '';
     const clickStats = useQuickSearchClickStats();
 
+    // One quick-search interaction settles once, on selection, close or blur,
+    // using the final stable results rather than any intermediate query.
+    let interactionReady: Promise<SearchInteraction> | null = null;
+    let exposureReported = false;
+
+    function beginSearchInteractionSession() {
+        interactionReady = beginSearchInteraction('quick');
+        exposureReported = false;
+    }
+
+    function reportQuickSearchExposure() {
+        if (exposureReported) {
+            return;
+        }
+        exposureReported = true;
+        const ready = interactionReady;
+        if (!ready) return;
+        void ready
+            .then((interaction) => trackFeatureExposed('quick_search', interaction.operation))
+            .catch(() => {});
+    }
+
+    function settleSearchInteractionSession(resultCount = results.value.length) {
+        const ready = interactionReady;
+        interactionReady = null;
+        if (!ready) return;
+        void ready
+            .then((interaction) =>
+                settleSearchInteraction(interaction, {
+                    hasResults: resultCount > 0,
+                    resultCount,
+                })
+            )
+            .catch(() => {});
+    }
+
+    function finishSearchSelection(opened: boolean, resultCount: number) {
+        const ready = interactionReady;
+        interactionReady = null;
+        if (!ready) return;
+        void ready
+            .then(async (interaction) => {
+                await settleSearchInteraction(interaction, {
+                    hasResults: resultCount > 0,
+                    resultCount,
+                });
+                await selectSearchResult(interaction, { category: 'file', opened });
+            })
+            .catch(() => {});
+    }
+
     // 2. 名称高亮匹配
     // 高亮分段属于搜索语义，放在搜索流程 composable 内统一维护。
     const matchTokens = computed(() => buildMatchTokens(searchQuery.value));
@@ -238,6 +297,7 @@ function useQuickSearchFlow(
             }
 
             emitOpenUpdate(true);
+            reportQuickSearchExposure();
             results.value = mergedResults;
             lastSearchedQuery = trimmedQuery;
             totalFiles.value =
@@ -336,6 +396,7 @@ function useQuickSearchFlow(
             return;
         }
 
+        beginSearchInteractionSession();
         void refreshStatus();
         void runSearchLoop(query);
     }
@@ -346,6 +407,7 @@ function useQuickSearchFlow(
      * @returns void
      */
     function close() {
+        settleSearchInteractionSession();
         clearDebounceTimer();
         lastSearchedQuery = '';
         requestId.value += 1;
@@ -370,6 +432,7 @@ function useQuickSearchFlow(
             return;
         }
 
+        beginSearchInteractionSession();
         emitOpenUpdate(true);
         scheduleSearch(query);
     }
@@ -391,13 +454,15 @@ function useQuickSearchFlow(
     async function handleContextMenuAction(key: string, item: QuickShortcutItem) {
         if (key === 'open-folder') {
             try {
-                await revealItemInDir(item.path);
+                // Revealing a result in the OS file manager is an external-open action.
+                await runResultAction('open_external', () => revealItemInDir(item.path));
             } catch (error) {
                 log.error('[QuickSearchPanel] Failed to reveal in folder:', error);
             }
         } else if (key === 'copy-path') {
             try {
-                await clipboardService.writeText(item.path);
+                // Copying a result's path has no dedicated category; it is an honest `other`.
+                await runResultAction('other', () => clipboardService.writeText(item.path));
             } catch (error) {
                 log.error('[QuickSearchPanel] Failed to copy path:', error);
             }
@@ -452,11 +517,15 @@ function useQuickSearchFlow(
 
         clickStats.recordClick(searchQuery.value, item.path);
 
+        const resultCount = results.value.length;
+        let opened = false;
         try {
             await deps.openPath(item.path);
+            opened = true;
         } catch (error) {
             log.error('[QuickSearchPanel] Failed to open path:', error);
         }
+        finishSearchSelection(opened, resultCount);
     }
 
     /**
@@ -472,11 +541,15 @@ function useQuickSearchFlow(
         highlightedIndex.value = index;
         clickStats.recordClick(searchQuery.value, item.path);
 
+        const resultCount = results.value.length;
+        let opened = false;
         try {
             await deps.openPath(item.path);
+            opened = true;
         } catch (error) {
             log.error('[QuickSearchPanel] Failed to open path:', error);
         }
+        finishSearchSelection(opened, resultCount);
     }
 
     return {

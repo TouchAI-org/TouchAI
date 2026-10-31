@@ -4,6 +4,14 @@
  */
 import { useAgent } from '@composables/agent';
 import type { SessionEntity } from '@database/types';
+import {
+    beginSearchInteraction,
+    type SearchInteraction,
+    selectSearchResult,
+    settleSearchInteraction,
+    trackFeatureExposed,
+    trackSurfaceOpened,
+} from '@services/AnalyticsService/productInteractions';
 import { notify } from '@services/NotificationService';
 import { log } from '@services/ObservabilityService';
 import { onUnmounted, type Ref, ref } from 'vue';
@@ -81,6 +89,59 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     let sessionListResolvedKey: string | null = null;
     let stopSessionStatusListener: (() => void) | null = null;
     let sessionStatusListenerDisposed = false;
+
+    // One history-search interaction settles once per popup session, using the
+    // stable result count rather than any intermediate query.
+    let historyInteraction: Promise<SearchInteraction> | null = null;
+    let historySelectionReported = false;
+    let historyResultCount = 0;
+
+    function beginHistoryInteraction() {
+        historyInteraction = beginSearchInteraction('history');
+        historySelectionReported = false;
+        // A fresh interaction starts with no results until the list resolves, so
+        // an immediate close cannot leak the previous interaction's count.
+        historyResultCount = 0;
+        void trackSurfaceOpened('history');
+        const ready = historyInteraction;
+        void ready
+            .then((interaction) => trackFeatureExposed('history', interaction.operation))
+            .catch(() => {});
+    }
+
+    function settleHistoryInteraction() {
+        const ready = historyInteraction;
+        if (!ready) {
+            return;
+        }
+        const resultCount = historyResultCount;
+        void ready
+            .then((interaction) =>
+                settleSearchInteraction(interaction, {
+                    hasResults: resultCount > 0,
+                    resultCount,
+                })
+            )
+            .catch(() => {});
+    }
+
+    function reportHistorySelection(opened: boolean) {
+        const ready = historyInteraction;
+        if (!ready || historySelectionReported) {
+            return;
+        }
+        historySelectionReported = true;
+        const resultCount = historyResultCount;
+        void ready
+            .then(async (interaction) => {
+                await settleSearchInteraction(interaction, {
+                    hasResults: resultCount > 0,
+                    resultCount,
+                });
+                await selectSearchResult(interaction, { category: 'conversation', opened });
+            })
+            .catch(() => {});
+    }
 
     function buildSessionListRequestKey(): string {
         return JSON.stringify({
@@ -273,6 +334,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                 }
 
                 sessionList.value = sessions;
+                historyResultCount = sessions.length;
                 sessionListResolvedKey = requestKey;
             } catch (loadError) {
                 log.error('[SearchView] Failed to load session history:', loadError);
@@ -317,9 +379,11 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     async function setSessionHistoryPopupOpen(open: boolean) {
         sessionHistoryPopupOpen.value = open;
         if (open) {
+            beginHistoryInteraction();
             return;
         }
 
+        settleHistoryInteraction();
         const canReuseDefaultList = sessionListResolvedKey === buildDefaultSessionListRequestKey();
 
         // 关闭弹窗后要立刻作废当前筛选条件对应的请求，避免迟到响应覆盖默认列表。
@@ -439,7 +503,13 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             };
         }
 
-        const loadedSession = await openStoredSession(sessionId);
+        let loadedSession: LoadedSessionInfo;
+        try {
+            loadedSession = await openStoredSession(sessionId);
+        } catch (error) {
+            reportHistorySelection(false);
+            throw error;
+        }
         // 切换会话成功后必须丢弃当前页面暂存的排队请求，
         // 否则新会话会错误继承旧会话的“等待发送”锁态。
         clearPendingRequestState();
@@ -456,6 +526,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             log.error('[SearchView] Failed to dismiss session terminal status:', error);
         }
 
+        reportHistorySelection(true);
         return loadedSession;
     }
 

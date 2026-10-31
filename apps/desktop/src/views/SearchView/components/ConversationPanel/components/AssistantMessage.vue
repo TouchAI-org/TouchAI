@@ -94,6 +94,7 @@
     import { computed, onUnmounted, provide, ref, watch } from 'vue';
 
     import { type MessageKey, t } from '@/i18n';
+    import { runResultAction } from '@/services/AnalyticsService/productInteractions';
     import type { WebSearchSource } from '@/services/BuiltInToolService/tools/webSearch/sources';
     import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import { clipboardService } from '@/services/ClipboardService';
@@ -349,7 +350,9 @@
 
     async function handleCopy() {
         try {
-            await clipboardService.writeText(props.message.content);
+            await runResultAction('copy_answer', () =>
+                clipboardService.writeText(props.message.content)
+            );
             notify({ title: 'TouchAI', body: t('notification.copy.copiedToClipboard') });
         } catch (error) {
             log.error('[AssistantMessage] Failed to copy:', error);

@@ -1,3 +1,11 @@
+import {
+    beginUpdateOperation,
+    trackUpdateTransition,
+    type UpdateOperation,
+    type UpdatePhase,
+    type UpdateResult,
+    type UpdateSource,
+} from '@services/AnalyticsService/lifecycle';
 import { AppEvent, eventService } from '@services/EventService';
 import { native } from '@services/NativeService';
 import { log } from '@services/ObservabilityService';
@@ -39,6 +47,7 @@ interface AppUpdateSettingsAdapter {
 interface AppUpdateControllerDeps {
     native: AppUpdateNativeAdapter;
     settings: AppUpdateSettingsAdapter;
+    analytics?: AppUpdateAnalytics;
     checkEvents?: {
         listen: (
             listener: (result: AppUpdateCheckResult, checkedAt: string) => void
@@ -50,8 +59,38 @@ interface AppUpdateControllerDeps {
 
 type StateListener = (state: AppUpdateState) => void;
 
+/**
+ * Update lifecycle analytics. Injected so the controller stays testable and so
+ * telemetry stays off the check/download critical path.
+ */
+export interface AppUpdateAnalytics {
+    beginUpdateOperation: () => Promise<UpdateOperation>;
+    trackUpdateTransition: (
+        operation: UpdateOperation,
+        phase: UpdatePhase,
+        outcome: {
+            result: UpdateResult;
+            source: UpdateSource;
+            fromVersion?: string | null;
+            toVersion?: string | null;
+        }
+    ) => Promise<void>;
+}
+
+const defaultAppUpdateAnalytics: AppUpdateAnalytics = {
+    beginUpdateOperation,
+    trackUpdateTransition,
+};
+
 function toErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+}
+
+function mapUpdateSource(source: AppUpdateCheckSource): UpdateSource {
+    if (source === 'automatic') {
+        return 'background';
+    }
+    return source === 'manual' || source === 'settings-open' ? 'user' : 'other';
 }
 
 function parseTime(value: string | null): number | null {
@@ -68,6 +107,7 @@ export class AppUpdateController {
     private readonly listeners = new Set<StateListener>();
     private readonly native: AppUpdateNativeAdapter;
     private readonly settings: AppUpdateSettingsAdapter;
+    private readonly analytics: AppUpdateAnalytics;
     private readonly now: () => string;
     private readonly checkEvents: AppUpdateControllerDeps['checkEvents'];
     private initialized = false;
@@ -75,12 +115,15 @@ export class AppUpdateController {
     private checkPromise: Promise<boolean> | null = null;
     private lastCheckAttemptAt: string | null = null;
     private reportCheckErrors = false;
+    private updateOperationPromise: Promise<UpdateOperation | null> | null = null;
+    private updateSource: UpdateSource = 'user';
     private unlistenProgress: UnlistenFn | null = null;
     private unlistenCheckEvents: UnlistenFn | null = null;
 
     constructor(deps: AppUpdateControllerDeps) {
         this.native = deps.native;
         this.settings = deps.settings;
+        this.analytics = deps.analytics ?? defaultAppUpdateAnalytics;
         this.checkEvents = deps.checkEvents;
         this.now = deps.now ?? (() => new Date().toISOString());
     }
@@ -171,6 +214,7 @@ export class AppUpdateController {
 
         this.reportCheckErrors = reportErrors;
         this.lastCheckAttemptAt = this.now();
+        this.updateSource = mapUpdateSource(source);
         this.checkPromise = this.performCheck();
         try {
             return await this.checkPromise;
@@ -182,6 +226,13 @@ export class AppUpdateController {
     private async performCheck(): Promise<boolean> {
         const previousState = this.state;
         const channel = this.state.channel;
+        const source = this.updateSource;
+        const fromVersion = this.state.currentVersion;
+        this.queueUpdateTransition('check_started', {
+            result: 'success',
+            source,
+            fromVersion,
+        });
         this.commit({ type: 'check-started', channel });
 
         try {
@@ -197,6 +248,15 @@ export class AppUpdateController {
             void this.checkEvents?.publish(result, checkedAt).catch((error) => {
                 log.warn('[AppUpdateService] Failed to share update check:', error);
             });
+            this.queueUpdateTransition('check_finished', {
+                result: result.status === 'unsupported' ? 'unavailable' : 'success',
+                source,
+                fromVersion,
+                toVersion: result.status === 'available' ? result.update.version : undefined,
+            });
+            if (result.status !== 'available') {
+                this.updateOperationPromise = null;
+            }
             return true;
         } catch (error) {
             if (this.state.channel !== channel || this.settings.getChannel() !== channel) {
@@ -210,6 +270,12 @@ export class AppUpdateController {
             }
 
             this.commit({ type: 'failed', error: toErrorMessage(error) });
+            this.queueUpdateTransition('check_finished', {
+                result: 'failure',
+                source,
+                fromVersion,
+            });
+            this.updateOperationPromise = null;
             return false;
         }
     }
@@ -221,6 +287,12 @@ export class AppUpdateController {
         if (!update) return false;
 
         const channel = this.state.channel;
+        this.queueUpdateTransition('download_started', {
+            result: 'success',
+            source: this.updateSource,
+            fromVersion: this.state.currentVersion,
+            toVersion: update.version,
+        });
         this.commit({ type: 'download-started' });
 
         try {
@@ -233,9 +305,19 @@ export class AppUpdateController {
                 throw new Error('Downloaded update does not match the selected update');
             }
             this.commit({ type: 'download-completed', update: downloaded });
+            this.queueUpdateTransition('download_finished', {
+                result: 'success',
+                source: this.updateSource,
+                toVersion: downloaded.version,
+            });
             return true;
         } catch (error) {
             this.commit({ type: 'failed', error: toErrorMessage(error) });
+            this.queueUpdateTransition('download_finished', {
+                result: 'failure',
+                source: this.updateSource,
+                toVersion: update.version,
+            });
             return false;
         }
     }
@@ -251,11 +333,50 @@ export class AppUpdateController {
 
         try {
             await this.native.installUpdate(channel, update.version, update.fileName);
+            this.queueUpdateTransition('install_handoff', {
+                result: 'success',
+                source: this.updateSource,
+                toVersion: update.version,
+            });
+            this.updateOperationPromise = null;
             return true;
         } catch (error) {
             this.commit({ type: 'failed', error: toErrorMessage(error) });
+            this.queueUpdateTransition('install_handoff', {
+                result: 'failure',
+                source: this.updateSource,
+                toVersion: update.version,
+            });
             return false;
         }
+    }
+
+    /**
+     * Queues one fixed update-phase fact without ever blocking the update
+     * decision: the operation handle is opened lazily and resolved off the
+     * critical path, so state transitions and the user-visible flow keep their
+     * original timing even when telemetry is slow or unavailable.
+     */
+    private queueUpdateTransition(
+        phase: UpdatePhase,
+        outcome: {
+            result: UpdateResult;
+            source: UpdateSource;
+            fromVersion?: string | null;
+            toVersion?: string | null;
+        }
+    ): void {
+        this.updateOperationPromise ??= this.analytics
+            .beginUpdateOperation()
+            .catch(() => null as UpdateOperation | null);
+        const operationPromise = this.updateOperationPromise;
+        void operationPromise
+            .then((operation) =>
+                operation ? this.analytics.trackUpdateTransition(operation, phase, outcome) : null
+            )
+            .catch(() => {
+                // Telemetry must never affect an update decision.
+            });
     }
 
     private shouldRunAutomaticCheck(): boolean {

@@ -144,6 +144,7 @@
     import { computed, ref, watch } from 'vue';
 
     import { getLocale, locale, t } from '@/i18n';
+    import { runResultAction } from '@/services/AnalyticsService/productInteractions';
     import { clipboardService } from '@/services/ClipboardService';
     import codeSurfaceStyles from '@/styles/markdown-code-surface.css?inline';
     import { hasMathDelimiterOutsideCode } from '@/utils/markdownMathDetection';
@@ -1151,7 +1152,7 @@
         }
 
         try {
-            await clipboardService.writeText(text);
+            await runResultAction('copy_code', () => clipboardService.writeText(text));
             notify({
                 title: 'TouchAI',
                 body: t('common.copied'),
