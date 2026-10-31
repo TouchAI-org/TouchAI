@@ -11,6 +11,9 @@ const uuidSchema = z
     .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
 
 function isRealUtcDay(value: string): boolean {
+    if (value.length !== 10) {
+        return false;
+    }
     const parts = value.split('-');
     if (parts.length !== 3) {
         return false;
@@ -18,10 +21,11 @@ function isRealUtcDay(value: string): boolean {
     const year = Number(parts[0]);
     const month = Number(parts[1]);
     const day = Number(parts[2]);
+    if (year < 1 || year > 9999) {
+        return false;
+    }
     // `Date.UTC` maps years 0-99 onto 1900-1999, so build the date on a safe
-    // base year and set the real four-digit year afterwards. This keeps the
-    // accepted range identical to the Rust `time` validator, year 0000-0099
-    // included, instead of silently rejecting them.
+    // base year before setting the real year. Year zero is not a receiver date.
     const date = new Date(Date.UTC(2000, month - 1, day));
     date.setUTCFullYear(year);
     return (
@@ -35,7 +39,17 @@ const daySchema = z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .refine(isRealUtcDay, { message: 'invalid_day' });
-const textSchema = z.string().min(1).max(200);
+
+/**
+ * Version shape shared with the Rust registry and the private receiver:
+ * `^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$`. `from_version`/`to_version` are the only
+ * attributes carrying a value from outside this codebase, so the shape rejects
+ * a path, URL, error string, whitespace, non-ASCII text and every vendor- or
+ * tag-qualified model id. A bare alphanumeric-dash identifier such as `gpt-4o`
+ * is indistinguishable from a release version and passes.
+ */
+// JavaScript `$` alone also matches before a final newline; require the real end.
+const versionSchema = z.string().regex(/^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$(?![\s\S])/);
 
 const latencyMsSchema = z.number().int().min(0).max(86_400_000);
 const waitMsSchema = z.number().int().min(0).max(86_400_000);
@@ -211,8 +225,8 @@ export const ANALYTICS_EVENT_SCHEMAS = {
             'install_handoff',
             'restart_confirmed',
         ]),
-        from_version: textSchema.optional(),
-        to_version: textSchema.optional(),
+        from_version: versionSchema.optional(),
+        to_version: versionSchema.optional(),
         result: z.enum(['success', 'failure', 'unavailable']),
         source: z.enum(['background', 'user', 'other']),
     }),

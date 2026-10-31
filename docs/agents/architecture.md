@@ -48,3 +48,11 @@ Read the owning code first and expect cross-window or cross-process consequences
 | Attachments | `apps/desktop/src/services/AgentService/infrastructure/attachments/` | Draft state, cached copies, and database rows drifting apart; a failed read silently changing what the model sees |
 
 Window labels, popup lifecycle, event ordering, and session identity are cross-window contracts. Duplicate listeners, stale IDs, and races are correctness bugs, not polish.
+
+## Subsystems
+
+Owner pages for areas with their own invariants and contracts:
+
+| Area | Page | Read it when |
+| --- | --- | --- |
+| Product analytics | [analytics.md](analytics.md) | Touching the event registry, consent, the outbox, the sender, or export/import scrubbing |

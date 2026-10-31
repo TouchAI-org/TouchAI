@@ -6,7 +6,7 @@
 //! there is no second database, connection or schema framework. These are
 //! crate-internal typed statements, not a generic SQL IPC surface.
 
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, SqliteConnection, SqlitePool};
 use time::OffsetDateTime;
 
 pub(crate) const MAX_EVENTS: i64 = 10_000;
@@ -112,8 +112,8 @@ pub(crate) enum PendingUpdate {
     Unchanged,
     /// Store bounded pending metadata for the next native start to confirm.
     Set(String),
-    /// Drop pending metadata (a restart was confirmed, or it went stale).
-    Clear,
+    /// Confirm only this handoff, clearing it atomically with its event.
+    Confirm(String),
 }
 
 const STATE_SELECT: &str =
@@ -195,7 +195,30 @@ pub(crate) async fn ensure_state(
                 .await
                 .map_err(|error| format!("Failed to reload analytics state: {error}"))?
         }
-        Some(row) => row,
+        Some(row) => {
+            // An explicit choice is never re-derived, but a restored snapshot
+            // carries no installation identity: mint a fresh local one so the
+            // restored install is a new anonymous installation rather than the
+            // exported one.
+            if row.installation_id.is_some() {
+                row
+            } else {
+                sqlx::query(
+                    "UPDATE analytics_state SET installation_id = ?, \
+                     observation_started_day = COALESCE(observation_started_day, ?), \
+                     updated_at = datetime('now') WHERE id = 1",
+                )
+                .bind(uuid::Uuid::new_v4().to_string())
+                .bind(utc_day_from_ms(now))
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| format!("Failed to restore analytics identity: {error}"))?;
+                sqlx::query_as::<_, AnalyticsStateRow>(STATE_SELECT)
+                    .fetch_one(&mut *transaction)
+                    .await
+                    .map_err(|error| format!("Failed to reload analytics state: {error}"))?
+            }
+        }
     };
 
     transaction
@@ -280,6 +303,92 @@ pub(crate) async fn set_enabled(
         .await
         .map_err(|error| format!("Failed to commit analytics consent transaction: {error}"))?;
     Ok(Some(updated))
+}
+
+/// The consent choice carried by a scrubbed snapshot. It holds no installation
+/// identity, consent epoch or queued payload, so a restore keeps the decision
+/// without adopting the exporting install.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RestoredConsent {
+    pub(crate) status: String,
+    pub(crate) explicit: bool,
+}
+
+/// Applies the consent choice preserved by a restored snapshot. The local
+/// installation keeps its own identity and local epoch; only a machine that has
+/// not made an explicit choice adopts the restored one, which is what stops a
+/// backup taken after an explicit opt-out from being re-enabled by the
+/// deployment default on the restored install.
+///
+/// This runs on the caller's import transaction so a failed import cannot leave
+/// a half-applied consent choice behind. When the restored choice turns sharing
+/// off, every queued event and the pending-update metadata go in the same
+/// transaction: a later re-enable must not send anything queued before the
+/// opt-out. A missing state row adopts the choice with a fresh local identity
+/// instead of dropping it.
+pub(crate) async fn adopt_restored_consent(
+    connection: &mut SqliteConnection,
+    consent: &RestoredConsent,
+) -> Result<(), String> {
+    if !consent.explicit {
+        return Ok(());
+    }
+    if !matches!(consent.status.as_str(), "enabled" | "disabled") {
+        return Err("invalid_restored_consent".to_string());
+    }
+    let now = now_millis();
+    let updated = sqlx::query(
+        "UPDATE analytics_state SET consent_explicit = 1, status = ?, \
+         consent_epoch = CASE WHEN status = ? THEN consent_epoch ELSE consent_epoch + 1 END, \
+         updated_at = datetime('now') WHERE id = 1 AND consent_explicit = 0",
+    )
+    .bind(&consent.status)
+    .bind(&consent.status)
+    .execute(&mut *connection)
+    .await
+    .map_err(|error| format!("Failed to restore analytics consent: {error}"))?
+    .rows_affected();
+
+    let applied = if updated > 0 {
+        true
+    } else {
+        let existing: Option<i64> =
+            sqlx::query_scalar("SELECT 1 FROM analytics_state WHERE id = 1")
+                .fetch_optional(&mut *connection)
+                .await
+                .map_err(|error| format!("Failed to read analytics state: {error}"))?;
+        if existing.is_none() {
+            sqlx::query(
+                "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, \
+                 observation_started_day, updated_at) VALUES (1, ?, 1, ?, ?, datetime('now'))",
+            )
+            .bind(&consent.status)
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(utc_day_from_ms(now))
+            .execute(&mut *connection)
+            .await
+            .map_err(|error| format!("Failed to create restored analytics state: {error}"))?;
+            true
+        } else {
+            // An explicit choice made on this machine wins over the backup.
+            false
+        }
+    };
+
+    if applied && consent.status == "disabled" {
+        sqlx::query("DELETE FROM analytics_outbox")
+            .execute(&mut *connection)
+            .await
+            .map_err(|error| format!("Failed to clear restored analytics outbox: {error}"))?;
+        sqlx::query(
+            "UPDATE analytics_state SET pending_update_json = NULL, \
+             updated_at = datetime('now') WHERE id = 1",
+        )
+        .execute(&mut *connection)
+        .await
+        .map_err(|error| format!("Failed to clear restored analytics pending update: {error}"))?;
+    }
+    Ok(())
 }
 
 /// Clears queued work without changing consent. Returns `None` for a stale epoch.
@@ -389,6 +498,17 @@ pub(crate) async fn enqueue_batch(
         .map_err(|error| format!("Failed to read analytics state: {error}"))?
         .ok_or_else(|| "analytics_state_missing".to_string())?;
 
+    if let PendingUpdate::Confirm(expected) = &pending {
+        if state.pending_update_json.as_deref() != Some(expected.as_str()) {
+            // Another resolver already confirmed it, or a new handoff replaced it.
+            transaction
+                .commit()
+                .await
+                .map_err(|error| format!("Failed to commit analytics confirmation: {error}"))?;
+            return Ok(EnqueueOutcome::Persisted);
+        }
+    }
+
     if state.status != "enabled" {
         transaction
             .commit()
@@ -404,13 +524,17 @@ pub(crate) async fn enqueue_batch(
         return Ok(EnqueueOutcome::StaleEpoch);
     }
 
-    // Expired rows are reclaimed before the capacity decision so a stale queue
-    // never blocks a fresh event.
-    sqlx::query("DELETE FROM analytics_outbox WHERE expires_at <= ?")
-        .bind(now)
-        .execute(&mut *transaction)
-        .await
-        .map_err(|error| format!("Failed to purge expired analytics events: {error}"))?;
+    // Session starts must go through native abandonment, including handle
+    // revocation. Leave those for `purge_expired` rather than erase the proof
+    // that their dependents have never had an accepted start.
+    sqlx::query(
+        "DELETE FROM analytics_outbox WHERE expires_at <= ? \
+         AND event_name != 'analytics.session_started'",
+    )
+    .bind(now)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|error| format!("Failed to purge expired analytics events: {error}"))?;
 
     let mut depth: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM analytics_outbox")
         .fetch_one(&mut *transaction)
@@ -428,7 +552,8 @@ pub(crate) async fn enqueue_batch(
         while depth >= MAX_EVENTS || bytes + payload_bytes > MAX_BYTES {
             let victim = sqlx::query_as::<_, (String, i64)>(
                 "SELECT event_id, payload_bytes FROM analytics_outbox \
-                 WHERE priority > ? ORDER BY priority DESC, enqueued_at ASC LIMIT 1",
+                 WHERE priority > ? AND event_name != 'analytics.session_started' \
+                 ORDER BY priority DESC, enqueued_at ASC LIMIT 1",
             )
             .bind(insert.priority)
             .fetch_optional(&mut *transaction)
@@ -502,7 +627,7 @@ pub(crate) async fn enqueue_batch(
             .await
             .map_err(|error| format!("Failed to store pending update: {error}"))?;
         }
-        PendingUpdate::Clear => {
+        PendingUpdate::Confirm(_) => {
             sqlx::query(
                 "UPDATE analytics_state SET pending_update_json = NULL, \
                  updated_at = datetime('now') WHERE id = 1",
@@ -527,7 +652,8 @@ pub(crate) async fn due_batch(
     sqlx::query_as::<_, AnalyticsOutboxRow>(
         "SELECT event_id, event_name, payload_json, attempt_count \
          FROM analytics_outbox WHERE next_attempt_at <= ? AND expires_at > ? \
-         ORDER BY priority ASC, next_attempt_at ASC, enqueued_at ASC LIMIT ?",
+         ORDER BY CASE WHEN event_name = 'analytics.session_started' THEN 0 ELSE priority END ASC, \
+         next_attempt_at ASC, enqueued_at ASC LIMIT ?",
     )
     .bind(now)
     .bind(now)
@@ -544,6 +670,23 @@ pub(crate) async fn delete_event(pool: &SqlitePool, event_id: &str) -> Result<()
         .await
         .map(|_| ())
         .map_err(|error| format!("Failed to delete analytics event: {error}"))
+}
+
+/// Re-check a buffered row against live consent and the queue before sending.
+/// A full import or clear-pending can remove it after the batch was read.
+pub(crate) async fn event_is_sendable(pool: &SqlitePool, event_id: &str) -> Result<bool, String> {
+    let sendable: i64 = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM analytics_outbox AS event \
+         JOIN analytics_state AS state ON state.id = 1 \
+         WHERE event.event_id = ? AND event.consent_epoch = state.consent_epoch \
+         AND state.status = 'enabled' AND event.expires_at > ?)",
+    )
+    .bind(event_id)
+    .bind(now_millis())
+    .fetch_one(pool)
+    .await
+    .map_err(|error| format!("Failed to check analytics delivery eligibility: {error}"))?;
+    Ok(sendable != 0)
 }
 
 pub(crate) async fn reschedule(
@@ -564,13 +707,159 @@ pub(crate) async fn reschedule(
     .map_err(|error| format!("Failed to reschedule analytics event: {error}"))
 }
 
-pub(crate) async fn purge_expired(pool: &SqlitePool, now: i64) -> Result<u64, String> {
-    sqlx::query("DELETE FROM analytics_outbox WHERE expires_at <= ?")
-        .bind(now)
-        .execute(pool)
+/// Moves one row later in the queue, never earlier, so a dependent event waits
+/// for the session start it references without losing its own backoff.
+pub(crate) async fn hold_event_until(
+    pool: &SqlitePool,
+    event_id: &str,
+    next_attempt_at: i64,
+) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE analytics_outbox SET next_attempt_at = ? \
+         WHERE event_id = ? AND next_attempt_at < ?",
+    )
+    .bind(next_attempt_at)
+    .bind(event_id)
+    .bind(next_attempt_at)
+    .execute(pool)
+    .await
+    .map(|_| ())
+    .map_err(|error| format!("Failed to hold analytics event: {error}"))
+}
+
+/// The session id a queued envelope references, if any. Envelope payloads are the
+/// only place the outbox stores it, so this is the shared reader for the
+/// send-order guard and the fail-closed session drop.
+pub(crate) fn session_id_from_payload(payload_json: &str) -> Option<String> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct SessionRef {
+        #[serde(default)]
+        analytics_session_id: Option<String>,
+    }
+    serde_json::from_str::<SessionRef>(payload_json)
+        .ok()?
+        .analytics_session_id
+}
+
+/// Session starts that are still queued, with the instant each one becomes
+/// retryable. Any event that references such a session is held back to that
+/// instant, so the receiver never sees a reference before its session start.
+pub(crate) async fn undelivered_session_starts(
+    pool: &SqlitePool,
+) -> Result<std::collections::HashMap<String, i64>, String> {
+    let rows: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT next_attempt_at, payload_json FROM analytics_outbox \
+         WHERE event_name = 'analytics.session_started'",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|error| format!("Failed to read queued analytics session starts: {error}"))?;
+    let mut starts = std::collections::HashMap::new();
+    for (next_attempt_at, payload_json) in rows {
+        let session_id = session_id_from_payload(&payload_json)
+            .ok_or_else(|| "stored_session_start_corrupt".to_string())?;
+        starts.insert(session_id, next_attempt_at);
+    }
+    Ok(starts)
+}
+
+/// Drops a whole session in one transaction after the receiver permanently
+/// rejected its `analytics.session_started` row. An event can never be
+/// attributed without the session start that describes it, so every queued row
+/// that references the session is removed instead of being sent as an orphan.
+/// Returns the number of removed rows.
+pub(crate) async fn drop_session(pool: &SqlitePool, session_id: &str) -> Result<u64, String> {
+    let mut transaction = pool
+        .begin_with("BEGIN IMMEDIATE")
         .await
-        .map(|result| result.rows_affected())
-        .map_err(|error| format!("Failed to purge expired analytics events: {error}"))
+        .map_err(|error| format!("Failed to begin analytics session drop: {error}"))?;
+    let dropped = drop_session_on_connection(&mut *transaction, session_id).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("Failed to commit analytics session drop: {error}"))?;
+    Ok(dropped)
+}
+
+async fn drop_session_on_connection(
+    connection: &mut SqliteConnection,
+    session_id: &str,
+) -> Result<u64, String> {
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT event_id, payload_json FROM analytics_outbox")
+            .fetch_all(&mut *connection)
+            .await
+            .map_err(|error| format!("Failed to read analytics outbox: {error}"))?;
+    let mut dropped = 0_u64;
+    for (event_id, payload_json) in rows {
+        if session_id_from_payload(&payload_json).as_deref() != Some(session_id) {
+            continue;
+        }
+        sqlx::query("DELETE FROM analytics_outbox WHERE event_id = ?")
+            .bind(&event_id)
+            .execute(&mut *connection)
+            .await
+            .map_err(|error| format!("Failed to drop analytics session event: {error}"))?;
+        dropped += 1;
+    }
+    Ok(dropped)
+}
+
+/// Returns the removed count and abandoned session ids for native revocation.
+pub(crate) async fn purge_expired(
+    pool: &SqlitePool,
+    now: i64,
+) -> Result<(u64, Vec<Option<String>>), String> {
+    // A session start that expires drops its dependents with it: an event that
+    // references a session we can no longer report must not be sent as an
+    // orphan. The pick reads the expiry index and is usually empty.
+    let has_expired: i64 =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM analytics_outbox WHERE expires_at <= ?)")
+            .bind(now)
+            .fetch_one(pool)
+            .await
+            .map_err(|error| format!("Failed to inspect expired analytics events: {error}"))?;
+    if has_expired == 0 {
+        return Ok((0, Vec::new()));
+    }
+    let mut transaction = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|error| format!("Failed to begin analytics expiry transaction: {error}"))?;
+    let expired: Vec<String> = sqlx::query_scalar(
+        "SELECT payload_json FROM analytics_outbox WHERE expires_at <= ? \
+         AND event_name = 'analytics.session_started'",
+    )
+    .bind(now)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|error| format!("Failed to read expired analytics events: {error}"))?;
+    let expired_sessions: std::collections::HashSet<Option<String>> = expired
+        .iter()
+        .map(|payload_json| session_id_from_payload(payload_json))
+        .collect();
+    let mut removed = sqlx::query("DELETE FROM analytics_outbox WHERE expires_at <= ?")
+        .bind(now)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|error| format!("Failed to purge expired analytics events: {error}"))?
+        .rows_affected();
+    for session_id in &expired_sessions {
+        removed += match session_id {
+            Some(session_id) => drop_session_on_connection(&mut *transaction, session_id).await?,
+            None => sqlx::query("DELETE FROM analytics_outbox")
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| format!("Failed to drop corrupt analytics session: {error}"))?
+                .rows_affected(),
+        };
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|error| format!("Failed to commit analytics expiry transaction: {error}"))?;
+    Ok((removed, expired_sessions.into_iter().collect()))
 }
 
 pub(crate) async fn queue_stats(pool: &SqlitePool) -> Result<(i64, i64), String> {
@@ -589,11 +878,12 @@ pub(crate) async fn queue_stats(pool: &SqlitePool) -> Result<(i64, i64), String>
 /// Drops pending-update metadata without enqueuing anything. Used when the
 /// stored handoff is stale (an unfinished update, a restored backup or a changed
 /// consent epoch) so a restored backup can never become a false confirmation.
-pub(crate) async fn clear_pending_update(pool: &SqlitePool) -> Result<(), String> {
+pub(crate) async fn clear_pending_update(pool: &SqlitePool, expected: &str) -> Result<(), String> {
     sqlx::query(
         "UPDATE analytics_state SET pending_update_json = NULL, updated_at = datetime('now') \
-         WHERE id = 1",
+         WHERE id = 1 AND pending_update_json = ?",
     )
+    .bind(expected)
     .execute(pool)
     .await
     .map(|_| ())
@@ -688,6 +978,20 @@ mod tests {
             priority: 100,
             marks_first_success: false,
         }
+    }
+
+    /// Adoption runs on a caller-supplied connection so the import transaction
+    /// owns the atomicity; these tests supply one from the pool.
+    async fn adopt(pool: &SqlitePool, consent: &RestoredConsent) -> Result<(), String> {
+        let mut transaction = pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(|error| format!("Failed to begin consent adoption: {error}"))?;
+        adopt_restored_consent(&mut *transaction, consent).await?;
+        transaction
+            .commit()
+            .await
+            .map_err(|error| error.to_string())
     }
 
     #[tokio::test]
@@ -806,7 +1110,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn user_gets_pending_update_stored_and_cleared_atomically() {
+    async fn user_keeps_a_pending_handoff_until_the_matching_saved_metadata_is_cleared() {
         let (_root, runtime) = test_runtime().await;
         let pool = runtime.pool();
         ensure_state(pool, 1, true).await.expect("create state");
@@ -825,7 +1129,7 @@ mod tests {
         let row = load_state(pool).await.expect("load").expect("row");
         assert_eq!(row.pending_update_json.as_deref(), Some(stored.as_str()));
 
-        clear_pending_update(pool).await.expect("clear");
+        clear_pending_update(pool, &stored).await.expect("clear");
         let row = load_state(pool).await.expect("load").expect("row");
         assert!(row.pending_update_json.is_none());
     }
@@ -844,6 +1148,232 @@ mod tests {
         .await
         .expect("read version");
         assert_eq!(value.as_deref(), Some("1.2.3"));
+    }
+
+    #[tokio::test]
+    async fn user_gets_an_explicit_opt_out_restored_without_adopting_the_exported_identity() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+
+        let created = ensure_state(pool, 1, true).await.expect("create state");
+        assert_eq!(created.status, "enabled");
+        let local_installation = created.installation_id.clone().expect("local identity");
+
+        adopt(
+            pool,
+            &RestoredConsent {
+                status: "disabled".to_string(),
+                explicit: true,
+            },
+        )
+        .await
+        .expect("adopt restored consent");
+
+        let restored = load_state(pool).await.expect("load").expect("row");
+        assert_eq!(restored.status, "disabled");
+        assert_eq!(restored.consent_explicit, 1);
+        assert_eq!(
+            restored.consent_epoch, 1,
+            "a changed consent bumps the epoch"
+        );
+        assert_eq!(
+            restored.installation_id.as_deref(),
+            Some(local_installation.as_str()),
+            "the restored install keeps its own anonymous identity"
+        );
+
+        // The restored choice is explicit, so a later default-policy change must
+        // not re-enable sharing.
+        let reconciled = ensure_state(pool, 2, true).await.expect("reconcile");
+        assert_eq!(reconciled.status, "disabled");
+        assert_eq!(reconciled.consent_epoch, 1);
+    }
+
+    #[tokio::test]
+    async fn user_keeps_the_consent_choice_made_on_this_machine_over_a_restored_one() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+
+        ensure_state(pool, 1, true).await.expect("create state");
+        set_enabled(pool, false, 0, 1)
+            .await
+            .expect("disable")
+            .expect("matching epoch");
+
+        adopt(
+            pool,
+            &RestoredConsent {
+                status: "enabled".to_string(),
+                explicit: true,
+            },
+        )
+        .await
+        .expect("adopt restored consent");
+
+        let reloaded = load_state(pool).await.expect("load").expect("row");
+        assert_eq!(reloaded.status, "disabled");
+        assert_eq!(reloaded.consent_epoch, 1);
+    }
+
+    #[tokio::test]
+    async fn user_gets_the_pre_restore_queue_purged_with_a_restored_opt_out() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+
+        ensure_state(pool, 1, true).await.expect("create state");
+        enqueue(pool, insert("e1", 0, "app.started"))
+            .await
+            .expect("enqueue");
+        let pending = serde_json::json!({ "toVersion": "2.0.0" }).to_string();
+        enqueue_batch(
+            pool,
+            vec![insert("e2", 0, "app.update_transition")],
+            PendingUpdate::Set(pending),
+        )
+        .await
+        .expect("enqueue with pending metadata");
+        assert_eq!(queue_stats(pool).await.expect("stats").0, 2);
+
+        adopt(
+            pool,
+            &RestoredConsent {
+                status: "disabled".to_string(),
+                explicit: true,
+            },
+        )
+        .await
+        .expect("adopt restored consent");
+
+        let restored = load_state(pool).await.expect("load").expect("row");
+        assert_eq!(restored.status, "disabled");
+        assert_eq!(
+            queue_stats(pool).await.expect("stats").0,
+            0,
+            "a restored opt-out must not leave pre-opt-out events queued"
+        );
+        assert!(
+            restored.pending_update_json.is_none(),
+            "a restored opt-out must not leave pending update metadata"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_clears_old_pending_work_when_a_restored_opt_out_matches_the_current_default() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+        ensure_state(pool, 1, false).await.expect("default off");
+        sqlx::query("UPDATE analytics_state SET pending_update_json = '{}' WHERE id = 1")
+            .execute(pool)
+            .await
+            .expect("seed old pending metadata");
+        sqlx::query(
+            "INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, \
+             payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at) \
+             VALUES ('old', 0, 1, 'app.started', '{}', 2, 1, 9, 1)",
+        )
+        .execute(pool)
+        .await
+        .expect("seed old queued work");
+
+        adopt(
+            pool,
+            &RestoredConsent {
+                status: "disabled".to_string(),
+                explicit: true,
+            },
+        )
+        .await
+        .expect("adopt explicit opt-out");
+
+        let state = load_state(pool).await.expect("load").expect("row");
+        assert_eq!(state.status, "disabled");
+        assert_eq!(state.consent_explicit, 1);
+        assert_eq!(
+            state.consent_epoch, 0,
+            "the same status keeps its local epoch"
+        );
+        assert!(state.pending_update_json.is_none());
+        assert_eq!(queue_stats(pool).await.expect("stats").0, 0);
+    }
+
+    #[tokio::test]
+    async fn user_keeps_the_local_default_when_a_backup_contains_no_explicit_choice() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+        ensure_state(pool, 1, true).await.expect("default on");
+        enqueue(pool, insert("local", 0, "app.started"))
+            .await
+            .expect("enqueue");
+
+        adopt(
+            pool,
+            &RestoredConsent {
+                status: "disabled".to_string(),
+                explicit: false,
+            },
+        )
+        .await
+        .expect("ignore restored default");
+
+        let state = load_state(pool).await.expect("load").expect("row");
+        assert_eq!(state.status, "enabled");
+        assert_eq!(state.consent_explicit, 0);
+        assert_eq!(state.consent_epoch, 0);
+        assert_eq!(queue_stats(pool).await.expect("stats").0, 1);
+    }
+
+    #[tokio::test]
+    async fn user_keeps_the_local_queue_when_a_restored_opt_out_is_not_adopted() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+
+        ensure_state(pool, 1, true).await.expect("create state");
+        set_enabled(pool, true, 0, 1)
+            .await
+            .expect("opt in")
+            .expect("matching epoch");
+        enqueue(pool, insert("e1", 0, "app.started"))
+            .await
+            .expect("enqueue");
+
+        adopt(
+            pool,
+            &RestoredConsent {
+                status: "disabled".to_string(),
+                explicit: true,
+            },
+        )
+        .await
+        .expect("adopt restored consent");
+
+        let reloaded = load_state(pool).await.expect("load").expect("row");
+        assert_eq!(reloaded.status, "enabled", "the local explicit choice wins");
+        assert_eq!(
+            queue_stats(pool).await.expect("stats").0,
+            1,
+            "an unadopted restore must not purge this machine's queue"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_fresh_identity_when_an_explicit_choice_was_restored_without_one() {
+        let (_root, runtime) = test_runtime().await;
+        let pool = runtime.pool();
+
+        ensure_state(pool, 1, true).await.expect("create state");
+        // A scrubbed snapshot keeps the decision but no identity.
+        sqlx::query(
+            "UPDATE analytics_state SET status = 'disabled', consent_explicit = 1, \
+             installation_id = NULL, consent_epoch = 0 WHERE id = 1",
+        )
+        .execute(pool)
+        .await
+        .expect("seed scrubbed state");
+
+        let reconciled = ensure_state(pool, 1, true).await.expect("reconcile");
+        assert_eq!(reconciled.status, "disabled");
+        assert!(reconciled.installation_id.is_some());
+        assert!(reconciled.observation_started_day.is_some());
     }
 
     #[tokio::test]

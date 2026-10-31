@@ -226,9 +226,10 @@ impl DatabaseRuntime {
 
     pub async fn export_backup(&self, target_path: &str) -> Result<(), String> {
         // A snapshot taken by VACUUM INTO is transactionally consistent with the
-        // live database and cannot race a checkpoint-then-copy. Analytics identity
-        // and queued payloads are scrubbed from the offline copy, never from the
-        // live tables, so the exported schema stays valid and restorable.
+        // live database and cannot race a checkpoint-then-copy. Analytics identity,
+        // consent epoch and queued payloads are scrubbed from the offline copy,
+        // never from the live tables, so the exported schema stays valid and
+        // restorable while the explicit consent choice travels with the user.
         let parent = self
             .inner
             .database_path
@@ -242,7 +243,8 @@ impl DatabaseRuntime {
             .execute(&self.inner.pool)
             .await
             .map_err(|error| format!("Failed to snapshot database for export: {error}"))?;
-        analytics_snapshot::sanitize_analytics_snapshot(&snapshot_path).await?;
+        // The returned consent choice matters to an import, never to an export.
+        let _ = analytics_snapshot::sanitize_analytics_snapshot(&snapshot_path).await?;
         std::fs::copy(&snapshot_path, target_path)
             .map_err(|error| format!("Failed to export database backup: {error}"))?;
         Ok(())
@@ -372,7 +374,7 @@ mod tests {
 
         sqlx::query(
             "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, consent_epoch) \
-             VALUES (1, 'enabled', 1, '3f2504e0-4f89-41d3-9a0c-0305e82c3301', 4)",
+             VALUES (1, 'disabled', 1, '3f2504e0-4f89-41d3-9a0c-0305e82c3301', 4)",
         )
         .execute(pool)
         .await
@@ -396,13 +398,21 @@ mod tests {
             .expect("export");
 
         let exported = create_sqlite_pool(&target).await.expect("open export");
+        let (status, explicit, installation, epoch): (String, i64, Option<String>, i64) =
+            sqlx::query_as(
+                "SELECT status, consent_explicit, installation_id, consent_epoch \
+                 FROM analytics_state WHERE id = 1",
+            )
+            .fetch_one(&exported)
+            .await
+            .expect("exported state");
         assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM analytics_state")
-                .fetch_one(&exported)
-                .await
-                .unwrap(),
-            0
+            (status.as_str(), explicit),
+            ("disabled", 1),
+            "an exported backup keeps the user's explicit opt-out"
         );
+        assert!(installation.is_none(), "no analytics identity is exported");
+        assert_eq!(epoch, 0, "no consent epoch is exported");
         assert_eq!(
             sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM analytics_outbox")
                 .fetch_one(&exported)

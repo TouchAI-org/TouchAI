@@ -18,18 +18,7 @@ export {
     validateAnalyticsAttributes,
 } from './events';
 export {
-    ANALYTICS_SEND_PATH,
-    analyticsSendUrl,
-    type AnalyticsWireInput,
-    buildAnalyticsWireEvent,
-    isSupportedAnalyticsProtocolVersion,
-} from './transport';
-export {
     ANALYTICS_EVENT_NAMES,
-    ANALYTICS_PROTOCOL_VERSION,
-    ANALYTICS_SCHEMA_VERSION,
-    ANALYTICS_WIRE_HOSTNAME,
-    ANALYTICS_WIRE_URL,
     type AnalyticsAttributes,
     type AnalyticsAttributeValue,
     type AnalyticsConsentStatus,
@@ -39,9 +28,6 @@ export {
     type AnalyticsSubmitResult,
     type AnalyticsSubmitStatus,
     type AnalyticsTrackRequest,
-    type AnalyticsWireData,
-    type AnalyticsWireEvent,
-    type AnalyticsWirePayload,
 } from './types';
 
 export interface AnalyticsTrackOptions {

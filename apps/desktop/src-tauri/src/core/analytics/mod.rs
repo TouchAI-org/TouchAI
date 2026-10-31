@@ -15,7 +15,7 @@ mod store;
 mod transport;
 
 pub use runtime::AnalyticsRuntime;
-pub(crate) use store::DEPLOYMENT_KEY_SETTING;
+pub(crate) use store::{adopt_restored_consent, RestoredConsent, DEPLOYMENT_KEY_SETTING};
 
 use std::{sync::OnceLock, time::Instant};
 
