@@ -430,6 +430,15 @@ export interface ResultActionOperation {
     closed: boolean;
 }
 
+type ResultActionCapture =
+    | { status: 'captured'; attempt: ResultActionOperation }
+    | { status: 'unavailable' }
+    | { status: 'timed_out' };
+
+// Native IPC is local. Keep consent capture off the user-visible critical path
+// even if the command stalls or never resolves.
+const RESULT_ACTION_CAPTURE_TIMEOUT_MS = 50;
+
 /** Opens a result action when an existing copy/open action actually starts. */
 export async function beginResultAction(action: ResultAction): Promise<ResultActionOperation> {
     return {
@@ -465,20 +474,47 @@ export async function completeResultAction(
     }
 }
 
+async function captureResultAction(action: ResultAction): Promise<ResultActionOperation | null> {
+    const capture = beginResultAction(action);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<ResultActionCapture>((resolve) => {
+        timeoutId = setTimeout(
+            () => resolve({ status: 'timed_out' }),
+            RESULT_ACTION_CAPTURE_TIMEOUT_MS
+        );
+    });
+    const result = await Promise.race<ResultActionCapture>([
+        capture.then(
+            (attempt) => ({ status: 'captured', attempt }),
+            () => ({ status: 'unavailable' })
+        ),
+        timeout,
+    ]);
+    if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+    }
+
+    if (result.status === 'timed_out') {
+        // A late handle must not carry the completed action's event. Release it
+        // without reporting so it cannot occupy a native registry slot.
+        void capture.then(
+            (late) => analytics.completeOperation(late.operation),
+            () => {}
+        );
+        return null;
+    }
+    return result.status === 'captured' ? result.attempt : null;
+}
+
 /**
  * Runs an existing copy/open action and reports its real outcome. The native
  * handle is captured before the action starts so an operation that begins while
- * consent is disabled can never borrow a later enabled epoch. Completion is a
- * rejection-handled side effect, so telemetry cannot delay or replace the real
- * success or failure.
+ * consent is disabled can never borrow a later enabled epoch. Capture has a
+ * short deadline, and completion is a rejection-handled side effect, so
+ * telemetry cannot block or replace the real success or failure.
  */
 export async function runResultAction<T>(action: ResultAction, run: () => Promise<T>): Promise<T> {
-    let attempt: ResultActionOperation | null = null;
-    try {
-        attempt = await beginResultAction(action);
-    } catch {
-        // A telemetry failure must not prevent the real action from starting.
-    }
+    const attempt = await captureResultAction(action);
 
     const complete = (outcome: ResultActionOutcome) => {
         if (attempt) {

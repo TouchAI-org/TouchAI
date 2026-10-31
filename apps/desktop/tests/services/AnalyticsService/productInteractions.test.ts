@@ -21,7 +21,7 @@ import {
 import type { AnalyticsState } from '@services/AnalyticsService/types';
 import { native } from '@services/NativeService';
 import { deferred } from '@tests/utils/productAnalytics';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@services/NativeService', () => ({
     native: {
@@ -38,6 +38,10 @@ vi.mock('@services/NativeService', () => ({
 }));
 
 const nativeAnalytics = vi.mocked(native.analytics);
+
+afterEach(() => {
+    vi.useRealTimers();
+});
 
 function state(partial: Partial<AnalyticsState> = {}): AnalyticsState {
     return {
@@ -546,6 +550,34 @@ describe('user completes an existing result action', () => {
         resolveBegin({ operationId: 'op-1', enabled: true, consentEpoch: 7 });
         await expect(actionPromise).resolves.toBe('copied');
         expect(run).toHaveBeenCalledTimes(1);
+    });
+
+    it('user starts the copy after the consent deadline and discards a late handle', async () => {
+        vi.useFakeTimers();
+        let resolveBegin!: (handle: {
+            operationId: string;
+            enabled: boolean;
+            consentEpoch: number;
+        }) => void;
+        nativeAnalytics.beginOperation.mockReturnValue(
+            new Promise((resolve) => {
+                resolveBegin = resolve;
+            })
+        );
+        const run = vi.fn(async () => 'copied');
+
+        const actionPromise = runResultAction('copy_answer', run);
+        await Promise.resolve();
+        expect(run).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        await expect(actionPromise).resolves.toBe('copied');
+        expect(run).toHaveBeenCalledTimes(1);
+        expect(nativeAnalytics.track).not.toHaveBeenCalled();
+
+        resolveBegin({ operationId: 'op-late', enabled: true, consentEpoch: 7 });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(nativeAnalytics.completeOperation).toHaveBeenCalledWith('op-late');
     });
 
     it('user gets the copy result before background telemetry settles', async () => {
