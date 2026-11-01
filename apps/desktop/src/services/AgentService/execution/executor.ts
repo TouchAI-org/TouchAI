@@ -45,6 +45,7 @@ import type {
     ToolApprovalDecisionRequest,
     ToolEventModelSummary,
 } from '../contracts/tooling';
+import { type AgentRequestAnalytics, toolCategoryForName } from '../infrastructure/analytics';
 import {
     type AttachmentIndex,
     buildAttachmentParts,
@@ -104,6 +105,8 @@ export interface RequestExecutionCallbacks {
     signal?: AbortSignal;
     onChunk?: (chunk: AiStreamChunk) => void;
     onTurnEvent?: (event: TurnEvent) => void;
+    /** Per-logical-request analytics sink; absent for callers without one. */
+    analytics?: AgentRequestAnalytics;
     onAttachmentManifestResolved?: (
         request: import('../contracts/protocol').AttachmentDeliveryManifestRequest
     ) => Promise<void> | void;
@@ -152,6 +155,8 @@ interface AttemptRuntime {
     firstTextMs: number | null;
     /** 工具参数解析失败次数（量化结构化输出能力） */
     toolArgumentErrors: number;
+    /** 真正由供应商返回 usage 的调用数（含显式零），用于用量覆盖率 */
+    usageReportedCalls: number;
     /** 工具调用被用户拒绝次数 */
     /** 是否触达模型切换上限 */
     hitModelSwitchCeiling: boolean;
@@ -192,6 +197,7 @@ export type AttemptExecutionResult =
           firstTtftMs: number | null;
           firstTextMs: number | null;
           toolArgumentErrors: number;
+          usageReportedCalls: number;
           modelSwitchCount: number;
           hitModelSwitchCeiling: boolean;
       }
@@ -210,6 +216,7 @@ export type AttemptExecutionResult =
           firstTtftMs: number | null;
           firstTextMs: number | null;
           toolArgumentErrors: number;
+          usageReportedCalls: number;
           modelSwitchCount: number;
           hitModelSwitchCeiling: boolean;
       };
@@ -682,6 +689,7 @@ export class AiRequestExecutor {
         }
 
         let toolResult: { result: string; isError: boolean; attachments?: AttachmentIndex[] };
+        let cancellation: AiError | undefined;
         try {
             toolResult = await mcpManager.executeTool(options.toolCall.name, options.toolArgs, {
                 signal: options.signal,
@@ -695,16 +703,29 @@ export class AiRequestExecutor {
                 },
             });
         } catch (error) {
+            if (
+                options.signal?.aborted ||
+                (error instanceof AiError && error.is(AiErrorCode.REQUEST_CANCELLED)) ||
+                (error instanceof Error && error.name === 'AbortError')
+            ) {
+                cancellation = new AiError(AiErrorCode.REQUEST_CANCELLED, undefined, undefined, {
+                    cause: error,
+                });
+            }
             const errorMessage = error instanceof Error ? error.message : String(error);
-            log.error(
-                `[AiRequestExecutor] MCP tool execution failed: ${options.toolCall.name}`,
-                error
-            );
+            if (!cancellation) {
+                log.error(
+                    `[AiRequestExecutor] MCP tool execution failed: ${options.toolCall.name}`,
+                    error
+                );
+            }
             toolResult = {
                 result: formatToolExecutionFailedError(errorMessage),
                 isError: true,
             };
         }
+
+        if (options.signal?.aborted) cancellation ??= new AiError(AiErrorCode.REQUEST_CANCELLED);
 
         const durationMs = Date.now() - callStartTime;
         this.emitToolEvent(options.onChunk, {
@@ -724,6 +745,8 @@ export class AiRequestExecutor {
         }).catch((error) => {
             log.error('[AiRequestExecutor] Failed to update MCP tool log:', error);
         });
+
+        if (cancellation) throw cancellation;
 
         return {
             toolCall: options.toolCall,
@@ -784,6 +807,7 @@ export class AiRequestExecutor {
             firstTtftMs: null,
             firstTextMs: null,
             toolArgumentErrors: 0,
+            usageReportedCalls: 0,
             hitModelSwitchCeiling: false,
         };
     }
@@ -839,6 +863,7 @@ export class AiRequestExecutor {
         let finishReason: string | undefined;
         let toolCalls: AiToolCall[] | undefined;
         let finalUsage: AiUsage | undefined;
+        let usageReported = false;
         // Each model/tool-loop round is an independent persisted message part.
         // Keep the aggregate on `runtime.outputParts`, but never leak the
         // previous round into this round's final-step result.
@@ -932,6 +957,8 @@ export class AiRequestExecutor {
             runtime.currentStepOutputParts.push(part);
             runtime.outputParts.push(part);
         };
+        let streamError: unknown;
+        let streamFailed = false;
         try {
             for await (const chunk of stream) {
                 throwIfAborted(options.signal);
@@ -974,14 +1001,25 @@ export class AiRequestExecutor {
                 if (chunk.textState === 'end' || chunk.done) {
                     finishTextSegment();
                 }
-                options.onChunk?.(chunk);
                 if (chunk.done) {
                     finishReason = chunk.finishReason;
                     toolCalls = chunk.toolCalls;
                     finalUsage = chunk.usage;
+                    usageReported = chunk.usageReported === true;
+                }
+                options.onChunk?.(chunk);
+                if (chunk.done) {
                     break;
                 }
             }
+        } catch (error) {
+            streamFailed = true;
+            streamError = error;
+            finishReason =
+                options.signal?.aborted ||
+                AiError.fromError(error).is(AiErrorCode.REQUEST_CANCELLED)
+                    ? 'aborted'
+                    : 'error';
         } finally {
             finishReasoningSegment();
             finishTextSegment();
@@ -1002,6 +1040,7 @@ export class AiRequestExecutor {
             providerId: runtime.activeModel.provider_id,
             providerName: runtime.activeModel.provider_name,
             usage,
+            usageReported,
             timing: {
                 ttftMs: firstContentAt === null ? undefined : firstContentAt - callStartedAt,
                 firstTextMs: firstTextAt === null ? undefined : firstTextAt - callStartedAt,
@@ -1015,11 +1054,19 @@ export class AiRequestExecutor {
 
         runtime.calls.push(call);
         runtime.totalUsage = addAiUsage(runtime.totalUsage, usage);
+        // `usage` is normalized to zeros even when the provider reported nothing,
+        // so the explicit stream signal is the only evidence of a real report;
+        // token sums must never be used to infer it.
+        if (usageReported) {
+            runtime.usageReportedCalls += 1;
+        }
         runtime.toolArgumentErrors += stepToolArgumentErrors;
         if (runtime.firstTtftMs === null && call.timing.ttftMs !== undefined) {
             runtime.firstTtftMs = call.timing.ttftMs;
             runtime.firstTextMs = call.timing.firstTextMs ?? null;
         }
+
+        if (streamFailed) throw streamError;
 
         if (!isToolRelated || !hasToolCalls) {
             return { type: 'done', outputParts, call };
@@ -1154,16 +1201,36 @@ export class AiRequestExecutor {
                         [ATTR.toolCallId]: toolCall.id,
                         [ATTR.toolName]: toolCall.name,
                     },
-                    () =>
-                        this.executeToolCall(runtime, {
-                            toolCall,
-                            toolCallMessageId,
-                            persister: options.persister,
-                            signal: options.signal,
-                            onChunk: options.onChunk,
-                            requestToolApproval: options.requestToolApproval,
-                            requestUserQuestions: options.requestUserQuestions,
-                        }),
+                    async () => {
+                        const startedAt = performance.now();
+                        try {
+                            const result = await this.executeToolCall(runtime, {
+                                toolCall,
+                                toolCallMessageId,
+                                persister: options.persister,
+                                signal: options.signal,
+                                onChunk: options.onChunk,
+                                requestToolApproval: options.requestToolApproval,
+                                requestUserQuestions: options.requestUserQuestions,
+                            });
+                            options.analytics?.noteToolCompleted({
+                                category: toolCategoryForName(toolCall.name),
+                                result: result.isError ? 'failure' : 'success',
+                                durationMs: performance.now() - startedAt,
+                            });
+                            return result;
+                        } catch (error) {
+                            const aiError = AiError.fromError(error);
+                            options.analytics?.noteToolCompleted({
+                                category: toolCategoryForName(toolCall.name),
+                                result: aiError.is(AiErrorCode.REQUEST_CANCELLED)
+                                    ? 'cancelled'
+                                    : 'failure',
+                                durationMs: performance.now() - startedAt,
+                            });
+                            throw error;
+                        }
+                    },
                     options.parentSpan
                 )
             )
@@ -1261,44 +1328,60 @@ export class AiRequestExecutor {
             while (true) {
                 throwIfAborted(options.signal);
 
-                const step = await withSpan(
-                    'touchai.model',
-                    {
-                        [ATTR.requestModel]: runtime.activeModel.model_id,
-                        [ATTR.providerName]: runtime.activeModel.provider_name,
-                    },
-                    () =>
-                        this.consumeModelStep(runtime, {
-                            signal: options.signal,
-                            onChunk: options.onChunk,
-                            persister: options.persister,
-                            onAttachmentManifestResolved: async (request) => {
-                                try {
-                                    await options.persister.syncDeliveryManifestRequest(request);
-                                } catch (error) {
-                                    log.error(
-                                        '[AiRequestExecutor] Failed to persist attachment delivery manifest request:',
-                                        error
-                                    );
-                                }
-                            },
-                        }),
-                    options.parentSpan
-                );
+                const leaveStreaming = options.analytics?.enterPhase('streaming');
+                let step: AttemptStepResult;
+                try {
+                    step = await withSpan(
+                        'touchai.model',
+                        {
+                            [ATTR.requestModel]: runtime.activeModel.model_id,
+                            [ATTR.providerName]: runtime.activeModel.provider_name,
+                        },
+                        () =>
+                            this.consumeModelStep(runtime, {
+                                signal: options.signal,
+                                onChunk: options.onChunk,
+                                persister: options.persister,
+                                onAttachmentManifestResolved: async (request) => {
+                                    try {
+                                        await options.persister.syncDeliveryManifestRequest(
+                                            request
+                                        );
+                                    } catch (error) {
+                                        log.error(
+                                            '[AiRequestExecutor] Failed to persist attachment delivery manifest request:',
+                                            error
+                                        );
+                                    }
+                                },
+                            }),
+                        options.parentSpan
+                    );
+                } finally {
+                    if (options.signal?.aborted) options.analytics?.noteAbort();
+                    leaveStreaming?.();
+                }
 
                 if (step.type === 'done') {
                     break;
                 }
 
-                await this.runToolRound(runtime, {
-                    step,
-                    persister: options.persister,
-                    parentSpan: options.parentSpan,
-                    signal: options.signal,
-                    onChunk: options.onChunk,
-                    requestToolApproval: options.requestToolApproval,
-                    requestUserQuestions: options.requestUserQuestions,
-                });
+                const leaveTool = options.analytics?.enterPhase('tool');
+                try {
+                    await this.runToolRound(runtime, {
+                        step,
+                        persister: options.persister,
+                        parentSpan: options.parentSpan,
+                        signal: options.signal,
+                        onChunk: options.onChunk,
+                        analytics: options.analytics,
+                        requestToolApproval: options.requestToolApproval,
+                        requestUserQuestions: options.requestUserQuestions,
+                    });
+                } finally {
+                    if (options.signal?.aborted) options.analytics?.noteAbort();
+                    leaveTool?.();
+                }
 
                 runtime.iteration += 1;
                 resumeCheckpoint = this.commitCheckpoint(runtime);
@@ -1329,6 +1412,7 @@ export class AiRequestExecutor {
                 firstTtftMs: runtime.firstTtftMs,
                 firstTextMs: runtime.firstTextMs,
                 toolArgumentErrors: runtime.toolArgumentErrors,
+                usageReportedCalls: runtime.usageReportedCalls,
                 modelSwitchCount: runtime.modelSwitchCount,
                 hitModelSwitchCeiling: runtime.hitModelSwitchCeiling,
             };
@@ -1342,7 +1426,13 @@ export class AiRequestExecutor {
             let classifiedError: AiError;
             try {
                 classifiedError =
-                    runtime.provider.classifyError?.(unwrapped) ?? AiError.fromError(unwrapped);
+                    options.signal?.aborted ||
+                    (unwrapped instanceof AiError && unwrapped.is(AiErrorCode.REQUEST_CANCELLED))
+                        ? new AiError(AiErrorCode.REQUEST_CANCELLED, undefined, undefined, {
+                              cause: unwrapped,
+                          })
+                        : (runtime.provider.classifyError?.(unwrapped) ??
+                          AiError.fromError(unwrapped));
             } catch (classificationError) {
                 log.warn(
                     '[AiRequestExecutor] Provider error classification failed:',
@@ -1387,6 +1477,7 @@ export class AiRequestExecutor {
                 firstTtftMs: runtime.firstTtftMs,
                 firstTextMs: runtime.firstTextMs,
                 toolArgumentErrors: runtime.toolArgumentErrors,
+                usageReportedCalls: runtime.usageReportedCalls,
                 modelSwitchCount: runtime.modelSwitchCount,
                 hitModelSwitchCeiling: runtime.hitModelSwitchCeiling,
             };

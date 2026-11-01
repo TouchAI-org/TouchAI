@@ -158,6 +158,7 @@ function mapFinishReason(reason: FinishReason | undefined, hasToolCalls: boolean
  */
 export function createAiSdkStreamProcessor(options: { modelId?: string } = {}) {
     const state = createInitialState();
+    let usageReported: boolean | undefined;
 
     /**
      * 透传 providerMetadata，保留各家 SDK 已经显式暴露的工具调用元数据。
@@ -201,6 +202,11 @@ export function createAiSdkStreamProcessor(options: { modelId?: string } = {}) {
     }
 
     function consumePart<TOOLS extends ToolSet>(part: TextStreamPart<TOOLS>): AiStreamChunk[] {
+        if (part.type === 'finish-step') {
+            // Step usage still carries the provider fields; totalUsage discards raw.
+            usageReported = (usageReported ?? false) || hasReportedUsage(part.usage);
+            return [];
+        }
         if (part.type === 'text-start' || part.type === 'text-end') {
             return [
                 {
@@ -390,6 +396,7 @@ export function createAiSdkStreamProcessor(options: { modelId?: string } = {}) {
             finishReason: mapFinishReason(reason, toolCalls.length > 0),
             toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
             usage: normalizeAiUsage(usage),
+            usageReported: usageReported ?? hasReportedUsage(usage),
         };
     }
 
@@ -418,9 +425,10 @@ export function normalizeAiUsage(usage: LanguageModelUsage | undefined): AiUsage
     const cacheWriteTokens = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
     const rawInput = usage.inputTokens ?? 0;
 
-    const inputTokens =
-        usage.inputTokenDetails?.noCacheTokens ??
-        Math.max(0, rawInput - cacheReadTokens - cacheWriteTokens);
+    const inputTokens = Math.max(
+        0,
+        usage.inputTokenDetails?.noCacheTokens ?? rawInput - cacheReadTokens - cacheWriteTokens
+    );
 
     return {
         inputTokens,
@@ -432,6 +440,53 @@ export function normalizeAiUsage(usage: LanguageModelUsage | undefined): AiUsage
         // 部分供应商（例如中转聚合）不返回 raw，这里统一成 undefined，避免 null 穿过类型
         raw: (usage.raw ?? undefined) as JsonObject | undefined,
     };
+}
+
+/**
+ * 判断供应商是否真的返回了 usage。
+ *
+ * 只看 `normalizeAiUsage` 实际映射的 token 字段是否出现过数字：显式零是
+ * 合法报告，全 undefined（含 `{}`）则没有任何用量证据。`totalTokens` 单独出现
+ * 时无法归一到 `AiUsage`，因此不算可用的报告，避免伪造 observed 0。
+ */
+function hasReportedUsage(usage: LanguageModelUsage | undefined): boolean {
+    if (!usage) {
+        return false;
+    }
+
+    if (usage.raw !== undefined && usage.raw !== null) {
+        const raw = usage.raw;
+        const details = (value: unknown): Record<string, unknown> =>
+            value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+        return [
+            raw.prompt_tokens,
+            raw.completion_tokens,
+            raw.input_tokens,
+            raw.output_tokens,
+            raw.cache_read_input_tokens,
+            raw.cache_creation_input_tokens,
+            raw.prompt_cache_hit_tokens,
+            raw.promptTokenCount,
+            raw.candidatesTokenCount,
+            raw.cachedContentTokenCount,
+            raw.thoughtsTokenCount,
+            details(raw.prompt_tokens_details).cached_tokens,
+            details(raw.prompt_tokens_details).cache_creation_input_tokens,
+            details(raw.input_tokens_details).cached_tokens,
+            details(raw.completion_tokens_details).reasoning_tokens,
+            details(raw.output_tokens_details).reasoning_tokens,
+            details(raw.output_tokens_details).thinking_tokens,
+        ].some((value) => typeof value === 'number' && Number.isFinite(value));
+    }
+
+    return [
+        usage.inputTokens,
+        usage.outputTokens,
+        usage.inputTokenDetails?.noCacheTokens,
+        usage.inputTokenDetails?.cacheReadTokens,
+        usage.inputTokenDetails?.cacheWriteTokens,
+        usage.outputTokenDetails?.reasoningTokens,
+    ].some((value) => typeof value === 'number' && Number.isFinite(value));
 }
 
 /** 从供应商原始 usage 里尝试取「实际服务的模型名」。 */
