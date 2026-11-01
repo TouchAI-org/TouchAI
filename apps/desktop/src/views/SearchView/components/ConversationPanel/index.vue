@@ -88,7 +88,7 @@
     import AppIcon from '@components/AppIcon.vue';
     import { storeToRefs } from 'pinia';
     import { Virtualizer, type VirtualizerHandle } from 'virtua/vue';
-    import { computed, nextTick, onMounted, ref, watch } from 'vue';
+    import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 
     import {
         MessageScroller,
@@ -143,6 +143,7 @@
     const messageVirtualizer = ref<VirtualizerHandle | null>(null);
     const scrollViewport = ref<HTMLElement | null>(null);
     let resizeSyncFrame: number | null = null;
+    let pinFrame: number | null = null;
     const conversationToolbar = ref<{
         getHistoryAnchor: () => HTMLElement | null;
     } | null>(null);
@@ -215,6 +216,35 @@
     function revealLatestContent() {
         conversationScroller.value?.scrollToEnd('auto');
         showScrollToBottom.value = false;
+        pinToEndUntilSettled();
+    }
+
+    /**
+     * 打开或切换会话时把视图钉到底部，直到真的到底或次数用完。
+     *
+     * 虚拟列表的未知高度是估算值：首帧 `scrollToEnd` 时 `scrollHeight` 还很小，
+     * 条目挂载后高度一次跳到真实值，此时 scroller 的测量会把“离底很远”当成
+     * 用户上滚并关掉跟随，于是整个会话停在顶部。这里按帧重试几次，
+     * 一旦到底立即停止，因此不会和用户抢滚动。
+     */
+    function pinToEndUntilSettled(attempts = 10): void {
+        if (pinFrame !== null) {
+            return;
+        }
+
+        const step = () => {
+            pinFrame = null;
+            const state = conversationScroller.value?.getState();
+            if (!state || state.atEnd || attempts <= 0) {
+                return;
+            }
+
+            attempts -= 1;
+            conversationScroller.value?.scrollToEnd('auto');
+            pinFrame = requestAnimationFrame(step);
+        };
+
+        pinFrame = requestAnimationFrame(step);
     }
 
     function scrollByDelta(deltaY: number) {
@@ -391,9 +421,21 @@
 
         if (outputScrollBehavior.value === 'follow_output') {
             conversationScroller.value?.scrollToEnd('auto');
+            pinToEndUntilSettled();
             return;
         }
         refreshScrollToBottomVisibility();
+    });
+
+    onUnmounted(() => {
+        if (pinFrame !== null) {
+            cancelAnimationFrame(pinFrame);
+            pinFrame = null;
+        }
+        if (resizeSyncFrame !== null) {
+            cancelAnimationFrame(resizeSyncFrame);
+            resizeSyncFrame = null;
+        }
     });
 </script>
 
