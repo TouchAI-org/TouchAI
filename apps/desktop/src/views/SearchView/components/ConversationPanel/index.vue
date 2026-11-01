@@ -37,6 +37,7 @@
             content-class="mt-4"
             :viewport-style="conversationContainerStyle"
             :item-scroll-target="scrollToMessageById"
+            @follow-change="handleFollowChange"
             @state-change="handleScrollerStateChange"
         >
             <template #virtualized>
@@ -142,6 +143,8 @@
     const conversationScroller = ref<MessageScrollerHandle | null>(null);
     const messageVirtualizer = ref<VirtualizerHandle | null>(null);
     const scrollViewport = ref<HTMLElement | null>(null);
+    /** scroller 的跟随意图镜像：内容变高会把它的内部判定改成“已上滚”，这里保留原意图。 */
+    const isFollowing = ref(true);
     let resizeSyncFrame: number | null = null;
     let pinFrame: number | null = null;
     const conversationToolbar = ref<{
@@ -275,6 +278,10 @@
         emit('regenerateMessage', messageId);
     }
 
+    function handleFollowChange(following: boolean) {
+        isFollowing.value = following;
+    }
+
     function handleScrollerStateChange(state?: MessageScrollerState) {
         // virtua 的 scroll/resize 回调不带状态，这里统一读容器状态。
         const next = state ?? conversationScroller.value?.getState();
@@ -306,6 +313,16 @@
 
             if (state.following && !state.atEnd) {
                 conversationScroller.value?.scrollToEnd('auto');
+                return;
+            }
+
+            if (
+                outputScrollBehavior.value === 'follow_output' &&
+                isFollowing.value &&
+                !state.atEnd
+            ) {
+                conversationScroller.value?.scrollToEnd('auto');
+                pinToEndUntilSettled();
                 return;
             }
 
@@ -369,6 +386,10 @@
 
             if (newLength <= oldLength) return;
 
+            // 读取追加之前的状态：内容变高后 scroller 会把“离底变远”当成用户上滚，
+            // 所以必须用追加前的信号决定是否继续贴底。
+            const wasFollowing = conversationScroller.value?.getState().following ?? true;
+
             const appendedMessages = props.messages.slice(oldLength, newLength);
             const latestAppendedUserMessage = [...appendedMessages]
                 .reverse()
@@ -379,7 +400,12 @@
             if (outputScrollBehavior.value === 'follow_output') {
                 if (latestAppendedUserMessage) {
                     conversationScroller.value?.scrollToEnd('auto');
+                    pinToEndUntilSettled();
                     showScrollToBottom.value = false;
+                } else if (wasFollowing) {
+                    // 用户本来就在跟随：新内容把高度顶高后继续贴底。
+                    conversationScroller.value?.scrollToEnd('auto');
+                    pinToEndUntilSettled();
                 } else {
                     refreshScrollToBottomVisibility();
                 }
