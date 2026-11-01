@@ -396,9 +396,9 @@
 
             if (newLength <= oldLength) return;
 
-            // 读取追加之前的状态：内容变高后 scroller 会把“离底变远”当成用户上滚，
-            // 所以必须用追加前的信号决定是否继续贴底。
-            const wasFollowing = conversationScroller.value?.getState().following ?? true;
+            // 以“追加前是否在底部”为准：`following` 是派生状态，
+            // 会在内容变高/程序性滚动时被改写，不能用来判断用户意图。
+            const wasAtEnd = conversationScroller.value?.getState().atEnd ?? true;
 
             const appendedMessages = props.messages.slice(oldLength, newLength);
             const latestAppendedUserMessage = [...appendedMessages]
@@ -412,8 +412,8 @@
                     conversationScroller.value?.scrollToEnd('auto');
                     pinToEndUntilSettled();
                     showScrollToBottom.value = false;
-                } else if (wasFollowing) {
-                    // 用户本来就在跟随：新内容把高度顶高后继续贴底。
+                } else if (wasAtEnd) {
+                    // 用户本来就在底部：新内容把高度顶高后继续贴底。
                     conversationScroller.value?.scrollToEnd('auto');
                     pinToEndUntilSettled();
                 } else {
