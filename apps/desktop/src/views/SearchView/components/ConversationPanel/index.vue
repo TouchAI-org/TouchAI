@@ -230,18 +230,28 @@
      * 用户上滚并关掉跟随，于是整个会话停在顶部。这里按帧重试几次，
      * 一旦到底立即停止，因此不会和用户抢滚动。
      */
-    function pinToEndUntilSettled(attempts = 10): void {
+    function pinToEndUntilSettled(attempts = 12): void {
         if (pinFrame !== null) {
             return;
         }
 
+        let lastScrollHeight = -1;
+
         const step = () => {
             pinFrame = null;
             const state = conversationScroller.value?.getState();
-            if (!state || state.atEnd || attempts <= 0) {
+            if (!state) {
                 return;
             }
 
+            // 新条目可能还没挂载：此时“已到底”是假象，高度还会再跳一次。
+            // 只有到底且高度不再变化时才停。
+            const settled = state.atEnd && state.scrollHeight === lastScrollHeight;
+            if (settled || attempts <= 0) {
+                return;
+            }
+
+            lastScrollHeight = state.scrollHeight;
             attempts -= 1;
             conversationScroller.value?.scrollToEnd('auto');
             pinFrame = requestAnimationFrame(step);
