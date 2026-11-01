@@ -18,6 +18,7 @@ const settingsStoreMock = vi.hoisted(() => ({
 const scrollerMock = vi.hoisted(() => ({
     focus: vi.fn(),
     getState: vi.fn(),
+    getViewportElement: vi.fn(() => null),
     isAtEnd: vi.fn(),
     recalculate: vi.fn(),
     scrollBy: vi.fn(),

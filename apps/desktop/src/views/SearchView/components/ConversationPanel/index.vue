@@ -40,10 +40,15 @@
             @state-change="handleScrollerStateChange"
         >
             <template #virtualized>
+                <!--
+                    必须等拿到滚动视口再渲染：virtua 在首次渲染时绑定 `scrollRef`，
+                    拿不到就会退回用父元素（不可滚动），从而把整段消息都当成“可见”全量挂载。
+                -->
                 <Virtualizer
+                    v-if="scrollViewport"
                     ref="messageVirtualizer"
                     :data="messages"
-                    :scroll-ref="scrollViewport || undefined"
+                    :scroll-ref="scrollViewport"
                     :item-size="320"
                     @scroll="handleVirtualScroll"
                     @resize="handleVirtualResize"
@@ -375,6 +380,15 @@
     onMounted(async () => {
         await settingsStore.initialize();
         await nextTick();
+
+        // virtua 必须绑定到 scroller 的滚动视口（`section`），
+        // 拿不到它会退回父元素，父元素不可滚动，于是“全部可见”而全量挂载。
+        scrollViewport.value = conversationScroller.value?.getViewportElement() ?? null;
+        if (!scrollViewport.value) {
+            await nextTick();
+            scrollViewport.value = conversationScroller.value?.getViewportElement() ?? null;
+        }
+
         if (outputScrollBehavior.value === 'follow_output') {
             conversationScroller.value?.scrollToEnd('auto');
             return;
