@@ -181,6 +181,7 @@ export const config = {
             path.join(__dirname, 'test/specs/app-start.e2e.js'),
             path.join(__dirname, 'test/specs/product-font.e2e.js'),
             path.join(__dirname, 'test/specs/main-window-visual.e2e.js'),
+            path.join(__dirname, 'test/specs/conversation-scroll.e2e.js'),
             path.join(__dirname, 'test/specs/search-smoke.e2e.js'),
             path.join(__dirname, 'test/specs/settings-smoke.e2e.js'),
             path.join(__dirname, 'test/specs/prompt-compose.e2e.js'),
