@@ -48,6 +48,13 @@
         viewportClass?: string;
         contentClass?: string;
         viewportStyle?: StyleValue;
+        /**
+         * 自定义跳转实现。
+         *
+         * 默认按 DOM 查找目标元素；消息列表虚拟化后，屏幕外条目没有 DOM，
+         * 由调用方改成按索引跳转（virtua 的 `scrollToIndex`）。
+         */
+        itemScrollTarget?: (id: string, options: MessageScrollerScrollOptions) => boolean;
     }
 
     const props = withDefaults(defineProps<Props>(), {
@@ -60,6 +67,7 @@
         viewportClass: '',
         contentClass: '',
         viewportStyle: undefined,
+        itemScrollTarget: undefined,
     });
 
     const emit = defineEmits<{
@@ -420,11 +428,22 @@
     }
 
     function scrollToItem(id: string, options: MessageScrollerScrollOptions = {}): boolean {
+        const align = options.align ?? 'center';
+
+        // 虚拟化列表：目标可能未挂载，交给调用方按索引处理。
+        if (props.itemScrollTarget) {
+            const scrolled = props.itemScrollTarget(id, options);
+            if (scrolled) {
+                setFollowing(align === 'end');
+                scheduleMeasure(true);
+            }
+            return scrolled;
+        }
+
         const element = viewport.value;
         const target = findItemElement(id);
         if (!element || !target) return false;
 
-        const align = options.align ?? 'center';
         const offset = options.offset ?? 0;
         const behavior = options.behavior ?? defaultFollowBehavior();
         const viewportRect = element.getBoundingClientRect();
@@ -639,6 +658,7 @@
     defineExpose({
         focus,
         getState,
+        getViewportElement: () => viewport.value,
         isAtEnd,
         recalculate: () => measure(true),
         scrollBy,
@@ -747,7 +767,12 @@
                         :class="contentClasses"
                         data-slot="message-scroller-content"
                     >
-                        <slot />
+                        <!--
+                            虚拟化插槽：传入后由外部（virtua）负责有界挂载与按索引跳转，
+                            这里只提供滚动视口与导航轨。
+                        -->
+                        <slot v-if="$slots.virtualized" name="virtualized" />
+                        <slot v-else />
                     </div>
                 </section>
             </div>

@@ -36,17 +36,29 @@
             viewport-class="bg-background-primary px-10 pt-18 pb-5"
             content-class="mt-4"
             :viewport-style="conversationContainerStyle"
+            :item-scroll-target="scrollToMessageById"
             @state-change="handleScrollerStateChange"
         >
-            <div
-                v-for="message in messages"
-                :key="message.id"
-                :data-message-id="message.id"
-                :data-message-role="message.role"
-                :data-message-scroller-item="message.id"
-            >
-                <MessageItem :message="message" @regenerate="handleRegenerateMessage" />
-            </div>
+            <template #virtualized>
+                <Virtualizer
+                    ref="messageVirtualizer"
+                    :data="messages"
+                    :scroll-ref="scrollViewport || undefined"
+                    :item-size="320"
+                    @scroll="handleVirtualScroll"
+                    @resize="handleVirtualResize"
+                >
+                    <template #default="{ item }">
+                        <div
+                            :data-message-id="item.id"
+                            :data-message-role="item.role"
+                            :data-message-scroller-item="item.id"
+                        >
+                            <MessageItem :message="item" @regenerate="handleRegenerateMessage" />
+                        </div>
+                    </template>
+                </Virtualizer>
+            </template>
         </MessageScroller>
 
         <Transition name="t-fade">
@@ -70,12 +82,14 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import { storeToRefs } from 'pinia';
+    import { Virtualizer, type VirtualizerHandle } from 'virtua/vue';
     import { computed, nextTick, onMounted, ref, watch } from 'vue';
 
     import {
         MessageScroller,
         type MessageScrollerHandle,
         type MessageScrollerItem,
+        type MessageScrollerScrollOptions,
         type MessageScrollerState,
     } from '@/components/ui/message-scroller';
     import { t } from '@/i18n';
@@ -121,6 +135,9 @@
     }>();
 
     const conversationScroller = ref<MessageScrollerHandle | null>(null);
+    const messageVirtualizer = ref<VirtualizerHandle | null>(null);
+    const scrollViewport = ref<HTMLElement | null>(null);
+    let resizeSyncFrame: number | null = null;
     const conversationToolbar = ref<{
         getHistoryAnchor: () => HTMLElement | null;
     } | null>(null);
@@ -223,9 +240,66 @@
         emit('regenerateMessage', messageId);
     }
 
-    function handleScrollerStateChange(state: MessageScrollerState) {
-        showScrollToBottom.value = state.overflowing && !state.atEnd;
+    function handleScrollerStateChange(state?: MessageScrollerState) {
+        // virtua 的 scroll/resize 回调不带状态，这里统一读容器状态。
+        const next = state ?? conversationScroller.value?.getState();
+        showScrollToBottom.value = Boolean(next?.overflowing && !next?.atEnd);
         emitLatestContentVisibility();
+    }
+
+    /** virtua 的 scroll 回调只给偏移量，状态统一从容器读。 */
+    function handleVirtualScroll() {
+        handleScrollerStateChange();
+    }
+
+    /**
+     * 虚拟列表视口/条目尺寸变化：
+     * 跟随中则贴底；否则只刷新按钮。已到底时直接返回，避免
+     * `scrollToEnd -> 重新测量 -> resize` 的循环。
+     */
+    function handleVirtualResize() {
+        if (resizeSyncFrame !== null) {
+            return;
+        }
+
+        resizeSyncFrame = requestAnimationFrame(() => {
+            resizeSyncFrame = null;
+            const state = conversationScroller.value?.getState();
+            if (!state) {
+                return;
+            }
+
+            if (state.following && !state.atEnd) {
+                conversationScroller.value?.scrollToEnd('auto');
+                return;
+            }
+
+            handleScrollerStateChange(state);
+        });
+    }
+
+    /**
+     * 按索引跳转（消息可能未挂载，不能用 DOM 查询）。
+     *
+     * @param messageId 目标消息 id。
+     * @param options 对齐与偏移；与 `MessageScroller` 的语义保持一致。
+     * @returns 是否已定位。
+     */
+    function scrollToMessageById(
+        messageId: string,
+        options: MessageScrollerScrollOptions = {}
+    ): boolean {
+        const virtualizer = messageVirtualizer.value;
+        const index = props.messages.findIndex((message) => message.id === messageId);
+        if (!virtualizer || index < 0) {
+            return false;
+        }
+
+        virtualizer.scrollToIndex(index, {
+            align: options.align ?? 'center',
+            offset: options.offset ?? 0,
+        });
+        return true;
     }
 
     function refreshScrollToBottomVisibility() {

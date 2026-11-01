@@ -26,6 +26,8 @@ export interface MessageScrollerScrollOptions {
 
 export interface MessageScrollerHandle {
     focus: () => void;
+    /** 滚动视口元素；虚拟列表需要它作为 `scrollRef`。 */
+    getViewportElement: () => HTMLElement | null;
     getState: () => MessageScrollerState;
     isAtEnd: () => boolean;
     recalculate: () => void;
