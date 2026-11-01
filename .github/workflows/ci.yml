@@ -32,10 +32,14 @@ jobs:
               uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
               with:
                   script: |
-                      if (context.eventName !== 'pull_request' && context.eventName !== 'push') {
+                      const fullClassification = () => {
                         core.setOutput('docs_only', 'false');
                         core.setOutput('desktop_changed', 'true');
                         core.setOutput('site_changed', 'true');
+                      };
+
+                      if (context.eventName !== 'pull_request' && context.eventName !== 'push') {
+                        fullClassification();
                         return;
                       }
 
@@ -62,6 +66,11 @@ jobs:
                         /^package\.json$/,
                         /^pnpm-lock\.yaml$/,
                         /^pnpm-workspace\.yaml$/,
+                        /^\.cargo\//,
+                        /^Cargo\.toml$/,
+                        /^Cargo\.lock$/,
+                        /^rust-toolchain$/,
+                        /^rust-toolchain\.toml$/,
                         /^eslint\.config\.js$/,
                         /^\.prettierrc$/,
                         /^\.prettierignore$/,
@@ -94,9 +103,7 @@ jobs:
                         const after = context.payload.after;
 
                         if (!before || !after || /^0+$/.test(before)) {
-                          core.setOutput('docs_only', 'false');
-                          core.setOutput('desktop_changed', 'true');
-                          core.setOutput('site_changed', 'true');
+                          fullClassification();
                           return;
                         }
 
@@ -108,23 +115,65 @@ jobs:
 
                         files = comparison.data.files ?? [];
 
-                        if (files.length >= 300) {
-                          core.setOutput('docs_only', 'false');
-                          core.setOutput('desktop_changed', 'true');
-                          core.setOutput('site_changed', 'true');
+                        if (!Array.isArray(files) || files.length >= 300) {
+                          fullClassification();
                           return;
                         }
                       }
 
+                      if (!Array.isArray(files) || files.length === 0) {
+                        fullClassification();
+                        return;
+                      }
+
+                      if (context.eventName === 'pull_request') {
+                        const expectedCount = context.payload.pull_request?.changed_files;
+
+                        if (
+                          files.length >= 3000 ||
+                          (Number.isInteger(expectedCount) && expectedCount !== files.length)
+                        ) {
+                          fullClassification();
+                          return;
+                        }
+                      }
+
+                      const validFilename = (value) =>
+                        typeof value === 'string' && value.trim().length > 0;
+                      const validFiles = files.every((file) => {
+                        if (file === null || typeof file !== 'object') {
+                          return false;
+                        }
+
+                        const hasPrevious = Object.prototype.hasOwnProperty.call(
+                          file,
+                          'previous_filename'
+                        );
+
+                        return (
+                          validFilename(file.filename) &&
+                          (!hasPrevious || validFilename(file.previous_filename)) &&
+                          (file.status !== 'renamed' || validFilename(file.previous_filename))
+                        );
+                      });
+
+                      if (!validFiles) {
+                        fullClassification();
+                        return;
+                      }
+
+                      const filenames = files.flatMap((file) =>
+                        file.previous_filename
+                          ? [file.filename, file.previous_filename]
+                          : [file.filename]
+                      );
                       const docsOnly =
-                        files.length > 0 &&
-                        files.every((file) => docsOnlyPatterns.some((pattern) => pattern.test(file.filename)));
-                      const filenames = files.map((file) => file.filename);
+                        filenames.every((filename) =>
+                          docsOnlyPatterns.some((pattern) => pattern.test(filename))
+                        );
                       const desktopChanged =
-                        filenames.length === 0 ||
                         filenames.some((filename) => desktopPatterns.some((pattern) => pattern.test(filename)));
                       const siteChanged =
-                        filenames.length === 0 ||
                         filenames.some((filename) => sitePatterns.some((pattern) => pattern.test(filename)));
 
                       core.setOutput('docs_only', docsOnly ? 'true' : 'false');
@@ -593,6 +642,25 @@ jobs:
                   RUST_COVERAGE_RESULT: ${{ needs['rust-coverage'].result }}
                   BUILD_WINDOWS_RESULT: ${{ needs['build-windows'].result }}
               run: |
+                  if [ "$CHANGES_RESULT" = "success" ]; then
+                    invalid=0
+
+                    for check in "docs_only:$DOCS_ONLY" "desktop_changed:$DESKTOP_CHANGED" "site_changed:$SITE_CHANGED"; do
+                      name="${check%%:*}"
+                      value="${check#*:}"
+
+                      if [ "$value" != "true" ] && [ "$value" != "false" ]; then
+                        echo "::error::Invalid changes output $name: expected 'true' or 'false', got '${value:-<missing>}'."
+                        invalid=1
+                      fi
+                    done
+
+                    if [ "$invalid" -ne 0 ]; then
+                      echo "One or more required CI jobs did not pass."
+                      exit 1
+                    fi
+                  fi
+
                   required=()
 
                   required+=("changes:$CHANGES_RESULT")

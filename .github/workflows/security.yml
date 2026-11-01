@@ -43,11 +43,18 @@ jobs:
                       // slipped through here is caught there.
                       const rustPatterns = [
                         /^apps\/desktop\/src-tauri\/.*\.rs$/,
-                        /^apps\/desktop\/src-tauri\/Cargo\.toml$/,
-                        /^apps\/desktop\/src-tauri\/Cargo\.lock$/,
+                        /^apps\/desktop\/src-tauri\/Cargo\.(?:toml|lock)$/,
                         /^apps\/desktop\/src-tauri\/build\.rs$/,
-                        /^rust-toolchain\.toml$/,
+                        /^apps\/desktop\/src-tauri\/\.cargo\//,
+                        /^apps\/desktop\/src-tauri\/rust-toolchain(?:\.toml)?$/,
+                        /^apps\/desktop\/src-tauri\/(?:vendor|resources|capabilities|icons|wix)\//,
+                        /^apps\/desktop\/src-tauri\/windows-common-controls\.manifest$/,
                         /^apps\/desktop\/src-tauri\/tauri\.conf\.json$/,
+                        /^apps\/desktop\/product\.json$/,
+                        /^apps\/desktop\/src\/database\/(?:drizzle|artifacts)\//,
+                        /^\.cargo\//,
+                        /^Cargo\.(?:toml|lock)$/,
+                        /^rust-toolchain(?:\.toml)?$/,
                         /^\.github\/workflows\/security\.yml$/,
                       ];
 
@@ -111,7 +118,7 @@ jobs:
                         files = comparison.data.files ?? [];
 
                         // GitHub truncates compareCommits file lists at 300 entries. Fall back to full CI when unsure.
-                        if (files.length >= 300) {
+                        if (!Array.isArray(files) || files.length >= 300) {
                           setOutputs('false', 'true');
                           return;
                         }
@@ -119,16 +126,57 @@ jobs:
 
                       // An empty list means the API gave nothing to look at, not that the
                       // change was empty.
-                      if (files.length === 0) {
+                      if (!Array.isArray(files) || files.length === 0) {
                         setOutputs('false', 'true');
                         return;
                       }
 
-                      const docsOnly = files.every((file) =>
-                        docsOnlyPatterns.some((pattern) => pattern.test(file.filename))
+                      if (context.eventName === 'pull_request') {
+                        const expectedCount = context.payload.pull_request?.changed_files;
+
+                        if (
+                          files.length >= 3000 ||
+                          (Number.isInteger(expectedCount) && expectedCount !== files.length)
+                        ) {
+                          setOutputs('false', 'true');
+                          return;
+                        }
+                      }
+
+                      const validFilename = (value) =>
+                        typeof value === 'string' && value.trim().length > 0;
+                      const validFiles = files.every((file) => {
+                        if (file === null || typeof file !== 'object') {
+                          return false;
+                        }
+
+                        const hasPrevious = Object.prototype.hasOwnProperty.call(
+                          file,
+                          'previous_filename'
+                        );
+
+                        return (
+                          validFilename(file.filename) &&
+                          (!hasPrevious || validFilename(file.previous_filename)) &&
+                          (file.status !== 'renamed' || validFilename(file.previous_filename))
+                        );
+                      });
+
+                      if (!validFiles) {
+                        setOutputs('false', 'true');
+                        return;
+                      }
+
+                      const filenames = files.flatMap((file) =>
+                        file.previous_filename
+                          ? [file.filename, file.previous_filename]
+                          : [file.filename]
                       );
-                      const rustChanged = files.some((file) =>
-                        rustPatterns.some((pattern) => pattern.test(file.filename))
+                      const docsOnly = filenames.every((filename) =>
+                        docsOnlyPatterns.some((pattern) => pattern.test(filename))
+                      );
+                      const rustChanged = filenames.some((filename) =>
+                        rustPatterns.some((pattern) => pattern.test(filename))
                       );
 
                       setOutputs(docsOnly ? 'true' : 'false', rustChanged ? 'true' : 'false');

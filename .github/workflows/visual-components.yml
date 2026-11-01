@@ -49,6 +49,9 @@ jobs:
                       // Stories and their baselines only move when components, styles or
                       // the visual harness change. Running the whole Windows E2E suite for
                       // a docs edit is what made people stop reading the check list.
+                      const fullClassification = () => {
+                        core.setOutput('ui_changed', 'true');
+                      };
                       const uiPatterns = [
                         /^apps\/desktop\/src\/components\//,
                         /^apps\/desktop\/src\/styles\//,
@@ -57,6 +60,9 @@ jobs:
                         /^apps\/desktop\/\.storybook\//,
                         /^apps\/desktop\/playwright\.config\.ts$/,
                         /^apps\/desktop\/package\.json$/,
+                        /^packages\//,
+                        /^package\.json$/,
+                        /^pnpm-workspace\.yaml$/,
                         /^pnpm-lock\.yaml$/,
                         /^\.github\/workflows\/visual-components\.yml$/,
                       ];
@@ -65,7 +71,7 @@ jobs:
                       if (!pullNumber) {
                         // A manual run has no PR to classify; run everything, which is
                         // what someone dispatching it by hand wants anyway.
-                        core.setOutput('ui_changed', 'true');
+                        fullClassification();
                         return;
                       }
 
@@ -76,7 +82,50 @@ jobs:
                         per_page: 100,
                       });
 
-                      const changed = files.some((file) => uiPatterns.some((pattern) => pattern.test(file.filename)));
+                      if (!Array.isArray(files) || files.length === 0 || files.length >= 3000) {
+                        fullClassification();
+                        return;
+                      }
+
+                      const expectedCount = context.payload.pull_request?.changed_files;
+
+                      if (Number.isInteger(expectedCount) && expectedCount !== files.length) {
+                        fullClassification();
+                        return;
+                      }
+
+                      const validFilename = (value) =>
+                        typeof value === 'string' && value.trim().length > 0;
+                      const validFiles = files.every((file) => {
+                        if (file === null || typeof file !== 'object') {
+                          return false;
+                        }
+
+                        const hasPrevious = Object.prototype.hasOwnProperty.call(
+                          file,
+                          'previous_filename'
+                        );
+
+                        return (
+                          validFilename(file.filename) &&
+                          (!hasPrevious || validFilename(file.previous_filename)) &&
+                          (file.status !== 'renamed' || validFilename(file.previous_filename))
+                        );
+                      });
+
+                      if (!validFiles) {
+                        fullClassification();
+                        return;
+                      }
+
+                      const filenames = files.flatMap((file) =>
+                        file.previous_filename
+                          ? [file.filename, file.previous_filename]
+                          : [file.filename]
+                      );
+                      const changed = filenames.some((filename) =>
+                        uiPatterns.some((pattern) => pattern.test(filename))
+                      );
                       core.setOutput('ui_changed', changed ? 'true' : 'false');
 
     component-visual:
