@@ -113,6 +113,7 @@ describe('when streamed output grows while the user is reading the live edge', (
         expect(scrollTo).toHaveBeenCalled();
         expect(viewport.scrollTop).toBe(800);
         const followEvents = wrapper.emitted('followChange') ?? [];
-        expect(followEvents.at(-1)?.[0] ?? true).toBe(true);
+        const lastFollowEvent = followEvents[followEvents.length - 1];
+        expect(lastFollowEvent?.[0] ?? true).toBe(true);
     });
 });
