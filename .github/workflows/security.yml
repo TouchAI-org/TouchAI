@@ -210,7 +210,7 @@ jobs:
             # regardless of what changed in this crate.
             - name: Rust cache
               if: steps.gate.outputs.run == 'true' && matrix.language == 'rust'
-              uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+              uses: swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
               with:
                   # The same directory `CI` writes to, so a checkout that ran the Rust
                   # checks already has warm artifacts to hand.

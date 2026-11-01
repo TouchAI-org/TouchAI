@@ -417,7 +417,7 @@ jobs:
 
             - name: Rust cache
               if: needs.changes.outputs.docs_only != 'true'
-              uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+              uses: swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
               with:
                   workspaces: apps/desktop/src-tauri -> ../../../rust-target/ci-check
 
@@ -480,7 +480,7 @@ jobs:
 
             - name: Rust cache
               if: needs.changes.outputs.docs_only != 'true'
-              uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+              uses: swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
               with:
                   workspaces: apps/desktop/src-tauri -> target
 
@@ -536,7 +536,7 @@ jobs:
               uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
             - name: Rust cache
-              uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+              uses: swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
               with:
                   workspaces: apps/desktop/src-tauri -> target
 
