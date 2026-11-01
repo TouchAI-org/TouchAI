@@ -16,7 +16,7 @@
         "analytics": {
             "baseUrl": "https://analytics.touch-ai.org/touchai-app/v1",
             "protocolVersion": 2,
-            "projectId": "",
+            "projectId": "4f435d4b-aa78-46a5-9dc8-3ad24bbd4afa",
             "defaultEnabled": true
         },
         "updates": {
