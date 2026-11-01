@@ -11,13 +11,13 @@
         "astro": "astro"
     },
     "dependencies": {
-        "@astrojs/react": "^7.0.1",
-        "@astrojs/starlight": "^0.42.5",
+        "@astrojs/react": "^7.1.2",
+        "@astrojs/starlight": "^0.42.7",
         "astro": "^7.3.6",
         "glimm": "^0.3.1",
         "gsap": "^3.15.0",
-        "react": "^19.3.0",
-        "react-dom": "^19.3.0",
+        "react": "^19.3.1",
+        "react-dom": "^19.3.1",
         "sharp": "^0.35.5",
         "sonner": "^2.0.8"
     },
