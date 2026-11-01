@@ -132,7 +132,7 @@ impl QuickSearchState {
 
     /// 把解析结果应用到内存索引，返回实际命中的更新数。
     ///
-    /// 只有 `path_norm` 与 `modified_secs` / `file_size` 都匹配时才写入，
+    /// 只有 `path_norm` 与 `modified_nanos` / `file_size` 都匹配时才写入，
     /// 让迟到的解析结果不会覆盖已变化的快捷方式。
     pub(super) fn apply_target_updates(&mut self, updates: &[ResolvedTargetUpdate]) -> usize {
         let mut applied = 0;
@@ -146,7 +146,7 @@ impl QuickSearchState {
             };
 
             if record.path_norm != update.path_norm
-                || record.modified_secs != update.modified_secs
+                || record.modified_nanos != update.modified_nanos
                 || record.file_size != update.file_size
             {
                 continue;
@@ -187,7 +187,7 @@ impl Drop for AtomicFlagGuard<'_> {
 mod tests {
     use super::*;
 
-    fn record(path: &str, modified_secs: u64, file_size: u64) -> ShortcutRecord {
+    fn record(path: &str, modified_nanos: u128, file_size: u64) -> ShortcutRecord {
         ShortcutRecord {
             item: QuickShortcutItem {
                 name: "Demo".to_string(),
@@ -199,15 +199,15 @@ mod tests {
             target_name: None,
             target_path: None,
             target_norm: String::new(),
-            modified_secs,
+            modified_nanos,
             file_size,
         }
     }
 
-    fn update(path_norm: &str, modified_secs: u64, file_size: u64) -> ResolvedTargetUpdate {
+    fn update(path_norm: &str, modified_nanos: u128, file_size: u64) -> ResolvedTargetUpdate {
         ResolvedTargetUpdate {
             path_norm: path_norm.to_string(),
-            modified_secs,
+            modified_nanos,
             file_size,
             target_name: Some("Target".to_string()),
             target_path: Some("C:/Target.exe".to_string()),
