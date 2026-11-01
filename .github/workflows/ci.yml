@@ -15,8 +15,8 @@ permissions:
     pull-requests: read
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
-    cancel-in-progress: true
+    group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     changes:
@@ -517,11 +517,7 @@ jobs:
     build-windows:
         name: Build (Windows)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.desktop_changed == 'true'
-        needs:
-            - changes
-            - frontend-quality
-            - frontend-tests
-            - rust-checks
+        needs: changes
         runs-on: windows-latest
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
