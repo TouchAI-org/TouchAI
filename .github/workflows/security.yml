@@ -1,5 +1,6 @@
 name: Security
 
+# Measure database preparation separately from security-query execution.
 on:
     pull_request:
     push:

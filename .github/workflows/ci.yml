@@ -1,5 +1,6 @@
 name: CI
 
+# Required contexts must still be reported when expensive validation is unnecessary.
 on:
     push:
         branches:

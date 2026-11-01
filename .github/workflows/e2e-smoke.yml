@@ -1,5 +1,6 @@
 name: Desktop E2E Smoke
 
+# Native build preparation and test execution are separate performance budgets.
 on:
     push:
         branches:
