@@ -212,6 +212,7 @@
     let followFrame: number | null = null;
     let measureUpdatesFollowing = false;
     let lastEmittedState = '';
+    let lastScrollHeight = 0;
     let touchStartScrollTop = 0;
 
     type FrameCallback = (timestamp: number) => void;
@@ -491,7 +492,16 @@
     }
 
     function handleScroll(): void {
-        scheduleMeasure(!programmaticScroll);
+        // 有用户滚动才重算跟随；内容变高（流式输出、虚拟列表挂载）不属于用户意图。
+        // 区分方式：用户滚动时高度不变，而高度变化本身会把“离底距离”变大，
+        // 若当成上滚就会直接关掉跟随、把视图留在半路。
+        const element = viewport.value;
+        const height = element?.scrollHeight ?? 0;
+        // 首次滚动没有基准：当成用户滚动，否则“高度从 0 变正”会被误判为内容增长。
+        const hasBaseline = lastScrollHeight > 0;
+        const heightChanged = hasBaseline && height !== lastScrollHeight;
+        lastScrollHeight = height;
+        scheduleMeasure(!programmaticScroll && !heightChanged);
     }
 
     function handleWheel(event: WheelEvent): void {
