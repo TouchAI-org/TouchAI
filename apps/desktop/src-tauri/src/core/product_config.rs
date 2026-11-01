@@ -72,15 +72,15 @@ pub(crate) struct ProductUpdatePolicy {
 pub(crate) struct ProductAnalytics {
     pub(crate) base_url: String,
     pub(crate) protocol_version: u32,
-    pub(crate) website_id: String,
+    pub(crate) project_id: String,
     #[serde(default)]
     pub(crate) default_enabled: bool,
 }
 
 impl ProductAnalytics {
-    pub(crate) fn send_url(&self) -> Result<String, String> {
+    pub(crate) fn batch_url(&self) -> Result<String, String> {
         let base = self.base_url.trim_end_matches('/');
-        let url = reqwest::Url::parse(&format!("{base}/send"))
+        let url = reqwest::Url::parse(&format!("{base}/batches"))
             .map_err(|error| format!("services.analytics.baseUrl is invalid: {error}"))?;
         validate_https_url(&url, "services.analytics.baseUrl")?;
         Ok(url.to_string())
@@ -89,7 +89,7 @@ impl ProductAnalytics {
     /// A deployment is transport-ready only when its generated project id is a
     /// real UUID. The public placeholder must never become a fabricated target.
     pub(crate) fn is_transport_ready(&self) -> bool {
-        self.protocol_version == 1 && Uuid::parse_str(self.website_id.trim()).is_ok()
+        self.protocol_version == 2 && Uuid::parse_str(self.project_id.trim()).is_ok()
     }
 }
 
@@ -162,14 +162,14 @@ pub(crate) fn product_config_from_json(json: &str) -> Result<ProductConfig, Stri
                 "services.analytics.baseUrl must use the /touchai-app/v1 path.".to_string(),
             );
         }
-        if analytics.protocol_version != 1 {
-            return Err("services.analytics.protocolVersion must be 1.".to_string());
+        if analytics.protocol_version != 2 {
+            return Err("services.analytics.protocolVersion must be 2.".to_string());
         }
-        // An empty websiteId is the unprovisioned public placeholder. A malformed
+        // An empty projectId is the unprovisioned public placeholder. A malformed
         // non-empty value is a release-configuration error, not a silent fallback.
-        let website_id = analytics.website_id.trim();
-        if !website_id.is_empty() && Uuid::parse_str(website_id).is_err() {
-            return Err("services.analytics.websiteId must be a UUID when configured.".to_string());
+        let project_id = analytics.project_id.trim();
+        if !project_id.is_empty() && Uuid::parse_str(project_id).is_err() {
+            return Err("services.analytics.projectId must be a UUID when configured.".to_string());
         }
     }
 
@@ -216,8 +216,8 @@ mod tests {
             },
             "analytics": {
                 "baseUrl": "https://analytics.touch-ai.org/touchai-app/v1",
-                "protocolVersion": 1,
-                "websiteId": "8b6c4a1e-2f5d-4c9a-9b7e-1d3f5a7c9e2b",
+                "protocolVersion": 2,
+                "projectId": "8b6c4a1e-2f5d-4c9a-9b7e-1d3f5a7c9e2b",
                 "defaultEnabled": true
             }
         }
@@ -229,16 +229,16 @@ mod tests {
         let config = product_config_from_json(VALID_ANALYTICS).expect("valid config");
         let analytics = config.services.analytics.expect("analytics config");
 
-        assert_eq!(analytics.protocol_version, 1);
+        assert_eq!(analytics.protocol_version, 2);
         assert!(analytics.is_transport_ready());
         assert_eq!(
-            analytics.send_url().expect("send url"),
-            "https://analytics.touch-ai.org/touchai-app/v1/send"
+            analytics.batch_url().expect("batch url"),
+            "https://analytics.touch-ai.org/touchai-app/v1/batches"
         );
     }
 
     #[test]
-    fn user_gets_a_missing_site_id_treated_as_not_ready_without_a_fabricated_target() {
+    fn user_gets_a_missing_project_id_treated_as_not_ready_without_a_fabricated_target() {
         let config = product_config_from_json(
             &VALID_ANALYTICS.replace("8b6c4a1e-2f5d-4c9a-9b7e-1d3f5a7c9e2b", ""),
         )
@@ -249,12 +249,12 @@ mod tests {
     }
 
     #[test]
-    fn user_gets_a_malformed_site_id_rejected_before_transport() {
+    fn user_gets_a_malformed_project_id_rejected_before_transport() {
         let error = product_config_from_json(
             &VALID_ANALYTICS.replace("8b6c4a1e-2f5d-4c9a-9b7e-1d3f5a7c9e2b", "not-a-uuid"),
         )
         .expect_err("malformed site id must fail config parsing");
 
-        assert!(error.contains("websiteId"));
+        assert!(error.contains("projectId"));
     }
 }

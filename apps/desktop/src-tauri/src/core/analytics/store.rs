@@ -757,9 +757,11 @@ pub(crate) async fn undelivered_session_starts(
     .map_err(|error| format!("Failed to read queued analytics session starts: {error}"))?;
     let mut starts = std::collections::HashMap::new();
     for (next_attempt_at, payload_json) in rows {
-        let session_id = session_id_from_payload(&payload_json)
-            .ok_or_else(|| "stored_session_start_corrupt".to_string())?;
-        starts.insert(session_id, next_attempt_at);
+        // A corrupt start is handled by the sender loop, which owns fail-closed
+        // session abandonment. It must not wedge delivery for independent rows.
+        if let Some(session_id) = session_id_from_payload(&payload_json) {
+            starts.insert(session_id, next_attempt_at);
+        }
     }
     Ok(starts)
 }
@@ -1384,7 +1386,7 @@ mod tests {
 
         // The first run binds the outbox to deployment A and keeps its rows.
         assert!(
-            !reconcile_deployment_key(pool, "https://a/send|a")
+            !reconcile_deployment_key(pool, "https://a/batches|a")
                 .await
                 .expect("bind a"),
             "a first run has nothing foreign to clear"
@@ -1393,7 +1395,7 @@ mod tests {
             .await
             .expect("enqueue");
         assert!(
-            !reconcile_deployment_key(pool, "https://a/send|a")
+            !reconcile_deployment_key(pool, "https://a/batches|a")
                 .await
                 .expect("same deployment"),
             "the same deployment keeps its rows"
@@ -1402,7 +1404,7 @@ mod tests {
 
         // Switching to a different target means the queued rows are foreign.
         assert!(
-            reconcile_deployment_key(pool, "https://b/send|b")
+            reconcile_deployment_key(pool, "https://b/batches|b")
                 .await
                 .expect("bind b"),
             "a changed deployment clears the foreign rows"

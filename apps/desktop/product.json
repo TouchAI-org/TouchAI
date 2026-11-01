@@ -15,8 +15,8 @@
     "services": {
         "analytics": {
             "baseUrl": "https://analytics.touch-ai.org/touchai-app/v1",
-            "protocolVersion": 1,
-            "websiteId": "",
+            "protocolVersion": 2,
+            "projectId": "",
             "defaultEnabled": true
         },
         "updates": {

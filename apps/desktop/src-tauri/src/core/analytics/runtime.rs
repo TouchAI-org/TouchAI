@@ -933,94 +933,144 @@ impl AnalyticsRuntime {
             self.inner.purge_expired_sessions(now).await?;
         }
         let started = Instant::now();
-        let batch = store::due_batch(pool, now).await?;
-        // Session starts that are queued but not delivered yet. A due dependent
-        // must never overtake its start while the start is backing off, so it is
-        // held to the start's own retry instant and re-checked on the next pass.
-        let mut pending_starts = store::undelivered_session_starts(pool).await?;
 
-        for row in batch {
+        loop {
             if started.elapsed() >= FLUSH_BUDGET {
                 break;
             }
-            // Consent can be withdrawn while a batch is in flight; re-check the
-            // gate before each send so no new send starts after a withdrawal. An
-            // already in-flight HTTP request cannot be cancelled locally, so a
-            // remote commit during the opt-out window is possible and is not
-            // treated as a client failure.
+            // Consent can be withdrawn while a batch is being built; re-check the
+            // gate before every HTTP attempt. An in-flight request cannot be
+            // recalled locally, so a remote commit during the opt-out window is
+            // possible and is not treated as a client failure.
             if !self.inner.enabled.load(Ordering::SeqCst) {
                 break;
             }
-            if !store::event_is_sendable(pool, &row.event_id).await? {
-                continue;
+
+            let now = store::now_millis();
+            let rows = store::due_batch(pool, now).await?;
+            if rows.is_empty() {
+                break;
             }
-            let session_id = store::session_id_from_payload(&row.payload_json);
-            if row.event_name != "analytics.session_started" {
-                if let Some(retry_at) = session_id
-                    .as_deref()
-                    .and_then(|session_id| pending_starts.get(session_id).copied())
-                {
-                    // Fail closed: the receiver must see the session start first.
-                    // `hold_event_until` only moves the row later, so its own
-                    // backoff is preserved.
-                    store::hold_event_until(pool, &row.event_id, retry_at).await?;
+            // Session starts that are queued but not delivered yet. A due
+            // dependent must never overtake its start while the start is backing
+            // off, so it is held to the start's own retry instant. This also lets
+            // a start and its dependent settle in separate passes without
+            // weakening receiver ordering.
+            let mut pending_starts = store::undelivered_session_starts(pool).await?;
+            let mut batch: Vec<(AnalyticsOutboxRow, AnalyticsEventEnvelope)> = Vec::new();
+
+            for row in rows {
+                if started.elapsed() >= FLUSH_BUDGET {
+                    break;
+                }
+                if !store::event_is_sendable(pool, &row.event_id).await? {
                     continue;
                 }
-            }
-            match self.send_row(transport, &row).await {
-                SendOutcome::Accepted => {
-                    store::delete_event(pool, &row.event_id).await?;
-                    // Health reports describe the product-event counters. Counting
-                    // their own delivery would make those counters self-referential.
-                    if row.event_name != "analytics.health_reported" {
-                        self.inner.counters.accepted.fetch_add(1, Ordering::Relaxed);
-                    }
-                    if row.event_name == "analytics.session_started" {
-                        if let Some(session_id) = session_id.as_deref() {
-                            // The start is delivered, so its dependents may follow.
-                            pending_starts.remove(session_id);
-                        }
-                    }
-                }
-                SendOutcome::PermanentRejection { reason } => {
-                    self.inner.counters.rejected.fetch_add(1, Ordering::Relaxed);
-                    log::debug!(target: "analytics", "permanent rejection: {reason}");
-                    if row.event_name == "analytics.session_started" {
-                        // The receiver will never accept this session, so nothing
-                        // that references it can be attributed. Drop the session
-                        // and continue with independent rows. Deleted dependents
-                        // already in this batch fail the live eligibility check.
-                        self.inner.abandon_session(session_id.as_deref()).await?;
+                let envelope: AnalyticsEventEnvelope = match serde_json::from_str(&row.payload_json)
+                {
+                    Ok(envelope) => envelope,
+                    Err(error) => {
+                        self.drop_corrupt_row(&row, format!("stored_payload_corrupt:{error}"))
+                            .await?;
                         continue;
                     }
-                    store::delete_event(pool, &row.event_id).await?;
+                };
+                if row.event_name != "analytics.session_started" {
+                    if let Some(retry_at) = envelope
+                        .analytics_session_id
+                        .as_deref()
+                        .and_then(|session_id| pending_starts.get(session_id).copied())
+                    {
+                        // Fail closed: the receiver must see the session start
+                        // first. `hold_event_until` never moves a row earlier, so
+                        // its own backoff is preserved.
+                        store::hold_event_until(pool, &row.event_id, retry_at).await?;
+                        continue;
+                    }
+                }
+                batch.push((row, envelope));
+                if batch
+                    .last()
+                    .is_some_and(|(row, _)| row.event_name == "analytics.session_started")
+                {
+                    // Keep a session start in its own batch. If that batch fails,
+                    // independent events remain on their own schedule instead of
+                    // being delayed by the dependency-ordering rule.
+                    break;
+                }
+            }
+
+            if batch.is_empty() {
+                break;
+            }
+            // A restore or clear-pending can remove rows while the batch is being
+            // assembled. Re-check the whole selected set immediately before the
+            // one HTTP attempt; a partial stale batch is deferred to the next pass.
+            let mut all_sendable = true;
+            for (row, _) in &batch {
+                if !store::event_is_sendable(pool, &row.event_id).await? {
+                    all_sendable = false;
+                    break;
+                }
+            }
+            if !all_sendable || !self.inner.enabled.load(Ordering::SeqCst) {
+                break;
+            }
+
+            let wire_events: Vec<AnalyticsEventEnvelope> =
+                batch.iter().map(|(_, envelope)| envelope.clone()).collect();
+            match transport.send_batch(&wire_events).await {
+                SendOutcome::Accepted => {
+                    for (row, envelope) in &batch {
+                        store::delete_event(pool, &row.event_id).await?;
+                        // Health reports describe the product-event counters.
+                        // Counting their own delivery would make those counters
+                        // self-referential.
+                        if row.event_name != "analytics.health_reported" {
+                            self.inner.counters.accepted.fetch_add(1, Ordering::Relaxed);
+                        }
+                        if row.event_name == "analytics.session_started" {
+                            if let Some(session_id) = envelope.analytics_session_id.as_deref() {
+                                // The start is delivered, so its dependents may
+                                // follow on the next loop/pass.
+                                pending_starts.remove(session_id);
+                            }
+                        }
+                    }
+                    continue;
                 }
                 SendOutcome::ConfigurationFailure { reason } => {
                     let next = store::now_millis() + CONFIG_RETRY_MS;
-                    store::reschedule(pool, &row.event_id, next, row.attempt_count + 1).await?;
+                    for (row, _) in &batch {
+                        store::reschedule(pool, &row.event_id, next, row.attempt_count + 1).await?;
+                    }
                     self.inner
                         .counters
                         .send_failure
-                        .fetch_add(1, Ordering::Relaxed);
+                        .fetch_add(batch.len() as u64, Ordering::Relaxed);
                     log::warn!(target: "analytics", "analytics send paused: {reason}");
                     break;
                 }
                 SendOutcome::RetryAfter { delay_ms } => {
                     let next = store::now_millis() + delay_ms;
-                    store::reschedule(pool, &row.event_id, next, row.attempt_count + 1).await?;
+                    for (row, _) in &batch {
+                        store::reschedule(pool, &row.event_id, next, row.attempt_count + 1).await?;
+                    }
                     self.inner
                         .counters
                         .send_failure
-                        .fetch_add(1, Ordering::Relaxed);
+                        .fetch_add(batch.len() as u64, Ordering::Relaxed);
                     break;
                 }
                 SendOutcome::Retry { reason } => {
-                    let next = store::now_millis() + backoff_ms(row.attempt_count);
-                    store::reschedule(pool, &row.event_id, next, row.attempt_count + 1).await?;
+                    for (row, _) in &batch {
+                        let next = store::now_millis() + backoff_ms(row.attempt_count);
+                        store::reschedule(pool, &row.event_id, next, row.attempt_count + 1).await?;
+                    }
                     self.inner
                         .counters
                         .send_failure
-                        .fetch_add(1, Ordering::Relaxed);
+                        .fetch_add(batch.len() as u64, Ordering::Relaxed);
                     log::debug!(target: "analytics", "retry scheduled: {reason}");
                     break;
                 }
@@ -1037,20 +1087,20 @@ impl AnalyticsRuntime {
         Ok(())
     }
 
-    async fn send_row(
+    async fn drop_corrupt_row(
         &self,
-        transport: &Arc<dyn EventSender>,
         row: &AnalyticsOutboxRow,
-    ) -> SendOutcome {
-        let envelope: AnalyticsEventEnvelope = match serde_json::from_str(&row.payload_json) {
-            Ok(envelope) => envelope,
-            Err(error) => {
-                return SendOutcome::PermanentRejection {
-                    reason: format!("stored_payload_corrupt:{error}"),
-                };
-            }
-        };
-        transport.send(&envelope).await
+        reason: String,
+    ) -> Result<(), String> {
+        self.inner.counters.rejected.fetch_add(1, Ordering::Relaxed);
+        log::debug!(target: "analytics", "local permanent rejection: {reason}");
+        if row.event_name == "analytics.session_started" {
+            let session_id = store::session_id_from_payload(&row.payload_json);
+            self.inner.abandon_session(session_id.as_deref()).await?;
+        } else {
+            store::delete_event(self.inner.database.pool(), &row.event_id).await?;
+        }
+        Ok(())
     }
 }
 
@@ -1769,10 +1819,10 @@ fn resolve_config() -> Option<AnalyticsConfig> {
     // participates in an eligible build. Nothing here is a persisted user choice.
     let transport: Option<Arc<dyn EventSender>> = if analytics.is_transport_ready() {
         analytics
-            .send_url()
+            .batch_url()
             .ok()
-            .and_then(|send_url| {
-                AnalyticsTransport::new(send_url, analytics.website_id.trim().to_string()).ok()
+            .and_then(|batch_url| {
+                AnalyticsTransport::new(batch_url, analytics.project_id.trim().to_string()).ok()
             })
             .map(|transport| Arc::new(transport) as Arc<dyn EventSender>)
     } else {
@@ -1790,8 +1840,8 @@ fn resolve_config() -> Option<AnalyticsConfig> {
     // queued rows are cleared before they could flush through another target.
     let deployment_key = if analytics.is_transport_ready() {
         analytics
-            .send_url()
-            .map(|send_url| format!("{send_url}|{}", analytics.website_id.trim()))
+            .batch_url()
+            .map(|batch_url| format!("{batch_url}|{}", analytics.project_id.trim()))
             .unwrap_or_default()
     } else {
         String::new()
@@ -2098,9 +2148,9 @@ mod tests {
     }
 
     impl EventSender for Probe {
-        fn send<'a>(
+        fn send_batch<'a>(
             &'a self,
-            _envelope: &'a AnalyticsEventEnvelope,
+            _envelopes: &'a [AnalyticsEventEnvelope],
         ) -> Pin<Box<dyn Future<Output = SendOutcome> + Send + 'a>> {
             Box::pin(async move {
                 let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
@@ -2132,7 +2182,11 @@ mod tests {
         second.expect("second flush");
 
         assert_eq!(probe.max_active.load(Ordering::SeqCst), 1);
-        assert_eq!(probe.sends.load(Ordering::SeqCst), 4);
+        assert_eq!(
+            probe.sends.load(Ordering::SeqCst),
+            1,
+            "four due events share one batch"
+        );
         assert_eq!(
             store::queue_stats(runtime.inner.database.pool())
                 .await
@@ -2849,11 +2903,13 @@ mod tests {
         ));
     }
 
-    /// A sender that records the order in which events reach the wire and
-    /// applies a caller-supplied outcome to each one.
+    /// A sender that records batch boundaries and applies a caller-supplied
+    /// outcome to each batch.
     struct RecordingSender {
         names: StdMutex<Vec<String>>,
-        make: Box<dyn Fn(&AnalyticsEventEnvelope) -> SendOutcome + Send + Sync>,
+        batches: StdMutex<Vec<Vec<String>>>,
+        batch_ids: StdMutex<Vec<String>>,
+        make: Box<dyn Fn(&[AnalyticsEventEnvelope]) -> SendOutcome + Send + Sync>,
     }
 
     impl RecordingSender {
@@ -2862,10 +2918,12 @@ mod tests {
         }
 
         fn with_outcome(
-            make: impl Fn(&AnalyticsEventEnvelope) -> SendOutcome + Send + Sync + 'static,
+            make: impl Fn(&[AnalyticsEventEnvelope]) -> SendOutcome + Send + Sync + 'static,
         ) -> Self {
             Self {
                 names: StdMutex::new(Vec::new()),
+                batches: StdMutex::new(Vec::new()),
+                batch_ids: StdMutex::new(Vec::new()),
                 make: Box::new(make),
             }
         }
@@ -2876,21 +2934,145 @@ mod tests {
                 .unwrap_or_else(|poison| poison.into_inner())
                 .clone()
         }
+
+        fn sent_batches(&self) -> Vec<Vec<String>> {
+            self.batches
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .clone()
+        }
+
+        fn sent_batch_ids(&self) -> Vec<String> {
+            self.batch_ids
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .clone()
+        }
     }
 
     impl EventSender for RecordingSender {
-        fn send<'a>(
+        fn send_batch<'a>(
             &'a self,
-            envelope: &'a AnalyticsEventEnvelope,
+            envelopes: &'a [AnalyticsEventEnvelope],
         ) -> Pin<Box<dyn Future<Output = SendOutcome> + Send + 'a>> {
             Box::pin(async move {
-                self.names
+                let names: Vec<String> = envelopes
+                    .iter()
+                    .map(|envelope| envelope.event_name.clone())
+                    .collect();
+                {
+                    let mut recorded = self
+                        .names
+                        .lock()
+                        .unwrap_or_else(|poison| poison.into_inner());
+                    recorded.extend(names.iter().cloned());
+                }
+                self.batches
                     .lock()
                     .unwrap_or_else(|poison| poison.into_inner())
-                    .push(envelope.event_name.clone());
-                (self.make)(envelope)
+                    .push(names);
+                self.batch_ids
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner())
+                    .push(super::super::transport::batch_id(envelopes).expect("test batch id"));
+                (self.make)(envelopes)
             })
         }
+    }
+
+    #[tokio::test]
+    async fn user_keeps_one_stable_batch_when_transport_retries_two_due_events() {
+        let attempts = Arc::new(AtomicI64::new(0));
+        let sender = Arc::new(RecordingSender::with_outcome({
+            let attempts = Arc::clone(&attempts);
+            move |_batch| {
+                if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                    SendOutcome::Retry {
+                        reason: "offline".to_string(),
+                    }
+                } else {
+                    SendOutcome::Accepted
+                }
+            }
+        }));
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        let pool = runtime.inner.database.pool();
+        for event_id in [
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+        ] {
+            store::enqueue(pool, outbox_insert(event_id))
+                .await
+                .expect("enqueue");
+        }
+
+        runtime.flush_once().await.expect("first flush");
+
+        assert_eq!(
+            sender.sent_batches(),
+            vec![vec!["app.started".to_string(), "app.started".to_string()]],
+            "both due events share one batch"
+        );
+        assert_eq!(store::queue_stats(pool).await.expect("stats").0, 2);
+        let attempts_after_failure: Vec<i64> =
+            sqlx::query_scalar("SELECT attempt_count FROM analytics_outbox ORDER BY event_id")
+                .fetch_all(pool)
+                .await
+                .expect("attempt counts");
+        assert_eq!(
+            attempts_after_failure,
+            vec![1, 1],
+            "a batch failure reschedules every selected row"
+        );
+
+        sqlx::query("UPDATE analytics_outbox SET next_attempt_at = 0")
+            .execute(pool)
+            .await
+            .expect("make retry due");
+        runtime.flush_once().await.expect("retry flush");
+
+        let batch_ids = sender.sent_batch_ids();
+        assert_eq!(batch_ids.len(), 2);
+        assert_eq!(
+            batch_ids[0], batch_ids[1],
+            "retrying the same ordered rows preserves the receiver idempotency key"
+        );
+        assert_eq!(store::queue_stats(pool).await.expect("stats").0, 0);
+    }
+
+    #[tokio::test]
+    async fn user_splits_more_than_fifty_due_events_into_bounded_batches() {
+        let sender = Arc::new(RecordingSender::new());
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        let pool = runtime.inner.database.pool();
+        for index in 0..75 {
+            store::enqueue(pool, outbox_insert(&format!("event-{index:03}")))
+                .await
+                .expect("enqueue");
+        }
+
+        runtime.flush_once().await.expect("flush");
+
+        let batches = sender.sent_batches();
+        assert_eq!(
+            batches.iter().map(Vec::len).collect::<Vec<_>>(),
+            vec![50, 25]
+        );
+        assert_eq!(store::queue_stats(pool).await.expect("stats").0, 0);
+    }
+
+    #[tokio::test]
+    async fn user_gets_no_transport_call_when_consent_is_disabled_before_send() {
+        let sender = Arc::new(RecordingSender::new());
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        store::enqueue(runtime.inner.database.pool(), outbox_insert("pending"))
+            .await
+            .expect("enqueue");
+
+        runtime.set_enabled(false, 0).await.expect("disable");
+        runtime.flush_once().await.expect("flush");
+
+        assert!(sender.sent_batches().is_empty());
     }
 
     #[tokio::test]
@@ -2933,6 +3115,14 @@ mod tests {
             ],
             "the receiver must see the session start before the event using it"
         );
+        assert_eq!(
+            sender.sent_batches(),
+            vec![
+                vec!["analytics.session_started".to_string()],
+                vec!["agent.request_submitted".to_string()],
+            ],
+            "the session start gets its own batch so unrelated rows are not held by it"
+        );
     }
 
     #[tokio::test]
@@ -2941,10 +3131,11 @@ mod tests {
             let attempts = Arc::new(AtomicI64::new(0));
             let sender = Arc::new(RecordingSender::with_outcome({
                 let attempts = Arc::clone(&attempts);
-                move |envelope: &AnalyticsEventEnvelope| {
-                    if envelope.event_name == "analytics.session_started"
-                        && attempts.fetch_add(1, Ordering::SeqCst) == 0
-                    {
+                move |batch: &[AnalyticsEventEnvelope]| {
+                    let contains_start = batch
+                        .iter()
+                        .any(|envelope| envelope.event_name == "analytics.session_started");
+                    if contains_start && attempts.fetch_add(1, Ordering::SeqCst) == 0 {
                         match failure {
                             "retry_after" => SendOutcome::RetryAfter {
                                 delay_ms: 3_600_000,
@@ -3049,16 +3240,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn user_gets_no_orphan_event_when_the_receiver_rejects_a_session_start() {
-        let sender = Arc::new(RecordingSender::with_outcome(|envelope| {
-            if envelope.event_name == "analytics.session_started" {
-                SendOutcome::PermanentRejection {
-                    reason: "rejected_status_400".to_string(),
-                }
-            } else {
-                SendOutcome::Accepted
-            }
-        }));
+    async fn user_gets_all_pending_rows_abandoned_when_a_stored_session_start_is_corrupt() {
+        let sender = Arc::new(RecordingSender::new());
         let (_root, runtime) = test_runtime(sender.clone()).await;
         let pool = runtime.inner.database.pool();
 
@@ -3084,21 +3267,24 @@ mod tests {
         store::enqueue(pool, outbox_insert("independent-startup"))
             .await
             .expect("enqueue an independent event");
+        sqlx::query(
+            "UPDATE analytics_outbox SET payload_json = '{\"not\":\"an envelope\"}' \
+             WHERE event_name = 'analytics.session_started'",
+        )
+        .execute(pool)
+        .await
+        .expect("corrupt session start");
 
         runtime.flush_once().await.expect("flush");
 
-        assert_eq!(
-            sender.sent_names(),
-            vec![
-                "analytics.session_started".to_string(),
-                "app.started".to_string()
-            ],
-            "independent events continue after a rejected start; its dependents never send"
+        assert!(
+            sender.sent_names().is_empty(),
+            "a corrupt start is dropped before any batch reaches the sender"
         );
         assert_eq!(
             store::queue_stats(pool).await.expect("stats").0,
             0,
-            "the rejected session's queued rows are dropped in one step"
+            "all pending rows are cleared because no session binding can be proven"
         );
         assert!(
             runtime.session_id_for_tests().await.is_none(),
@@ -3142,8 +3328,11 @@ mod tests {
     #[tokio::test]
     async fn user_gets_independent_events_sent_on_the_next_pass_when_a_session_start_has_a_configuration_fault(
     ) {
-        let sender = Arc::new(RecordingSender::with_outcome(|envelope| {
-            if envelope.event_name == "analytics.session_started" {
+        let sender = Arc::new(RecordingSender::with_outcome(|batch| {
+            if batch
+                .iter()
+                .any(|envelope| envelope.event_name == "analytics.session_started")
+            {
                 SendOutcome::ConfigurationFailure {
                     reason: "bot_rejected".to_string(),
                 }
