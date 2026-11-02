@@ -54,7 +54,7 @@ Evidence:
   E2E Required. Merge queue check-response timeout is 15 minutes.
 - Frontend global floors: statements 90, branches 84, functions 88, lines 91;
   every existing path-specific floor and the 85-percent PR patch floor remain.
-- Rust line/region floors: 61/62. Nightly branch coverage is outside this issue.
+- Rust line/region floors: 63/64. Nightly branch coverage is outside this issue.
 - Keep all test inventories, native preview platforms, Windows E2E, and Windows
   Rust CodeQL with all 37 queries.
 - Retain all genuine artifact dependencies, native startup checks, visual evidence,
