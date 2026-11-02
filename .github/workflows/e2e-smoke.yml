@@ -218,8 +218,11 @@ jobs:
               shell: pwsh
               run: |
                   $driver = Get-Command tauri-driver -ErrorAction Stop
-                  tauri-driver --version
-                  Write-Output "Using runner-provided $driver"
+                  & $driver.Source --help
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "tauri-driver --help failed with exit code $LASTEXITCODE."
+                  }
+                  Write-Output "Using runner-provided $($driver.Source)"
 
             - name: Configure Edge WebDriver
               shell: pwsh

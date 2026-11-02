@@ -361,7 +361,9 @@ describe('user runs desktop E2E from one freshly built application', () => {
 
         expect(verify.shell).toBe('pwsh');
         expect(getRun(verify)).toContain('$driver = Get-Command tauri-driver -ErrorAction Stop');
-        expect(getRun(verify)).toContain('tauri-driver --version');
+        expect(getRun(verify)).toContain('& $driver.Source --help');
+        expect(getRun(verify)).toContain('if ($LASTEXITCODE -ne 0)');
+        expect(getRun(verify)).not.toContain('tauri-driver --version');
         expect(workflowSource).not.toMatch(
             /cargo\s+install|quickinstall|cargo-binstall|install-action/i
         );
