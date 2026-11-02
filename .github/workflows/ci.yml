@@ -528,6 +528,7 @@ jobs:
               uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
               with:
                   workspaces: apps/desktop/src-tauri -> ../../../rust-target/ci-check
+                  save-if: ${{ github.ref == 'refs/heads/main' }}
 
             - name: Check Rust formatting
               if: needs.changes.outputs.docs_only != 'true'
@@ -591,6 +592,7 @@ jobs:
               uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
               with:
                   workspaces: apps/desktop/src-tauri -> target
+                  save-if: ${{ github.ref == 'refs/heads/main' }}
 
             - name: Install cargo-llvm-cov
               if: needs.changes.outputs.docs_only != 'true'
@@ -655,6 +657,7 @@ jobs:
               uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
               with:
                   workspaces: apps/desktop/src-tauri -> target
+                  save-if: ${{ github.ref == 'refs/heads/main' }}
 
             - name: Get short commit SHA
               id: sha
@@ -676,97 +679,6 @@ jobs:
                   name: touchai-installer-windows-${{ steps.sha.outputs.short }}
                   path: apps/desktop/src-tauri/target/release/bundle/msi/*.msi
                   if-no-files-found: warn
-
-    frontend-equivalence-baseline:
-        name: TEMPORARY Frontend Equivalence Baseline (Measurement Only)
-        needs: changes
-        if: >-
-            github.event_name == 'pull_request' &&
-            github.event.pull_request.number == 727 &&
-            github.event.pull_request.draft == true &&
-            needs.changes.result == 'success' &&
-            needs.changes.outputs.docs_only != 'true' &&
-            needs.changes.outputs.desktop_changed == 'true'
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with:
-                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
-
-            - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
-
-            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-              with:
-                  node-version: 22
-                  cache: pnpm
-
-            - name: Install dependencies
-              run: pnpm install --frozen-lockfile
-
-            - name: Record checkout SHA and tool versions
-              run: |
-                  expected="${{ github.event.pull_request.head.sha || github.sha }}"
-                  actual="$(git rev-parse HEAD)"
-                  echo "checkout_sha_expected=$expected"
-                  echo "checkout_sha_actual=$actual"
-                  if [ "$actual" != "$expected" ]; then
-                    echo "::error::Checked-out SHA does not match the pull request head."
-                    exit 1
-                  fi
-                  echo "node_version=$(node --version)"
-                  echo "vitest_version=$(pnpm --filter @touchai/desktop exec vitest --version)"
-
-            - name: Run original full Vitest workload
-              run: >-
-                  pnpm --filter @touchai/desktop exec vitest run
-                  --config vitest.config.ts
-                  --configLoader runner
-                  --coverage
-                  --reporter=default
-                  --reporter=json
-                  --outputFile.json=.coverage/ci-equivalence-results.json
-
-            - name: Verify baseline JSON outputs
-              if: ${{ !cancelled() }}
-              run: |
-                  node <<'NODE'
-                  const fs = require('node:fs');
-                  const path = require('node:path');
-                  const files = [
-                    'apps/desktop/.coverage/ci-equivalence-results.json',
-                    'apps/desktop/.coverage/unit/coverage-final.json',
-                    'apps/desktop/.coverage/unit/coverage-summary.json',
-                  ];
-                  let failed = false;
-                  for (const file of files) {
-                    try {
-                      const resolved = path.resolve(process.cwd(), file);
-                      const stat = fs.statSync(resolved);
-                      if (!stat.isFile() || stat.size === 0) {
-                        throw new Error('missing, not a regular file, or empty');
-                      }
-                      JSON.parse(fs.readFileSync(resolved, 'utf8'));
-                      console.log(`OK ${file} (${stat.size} bytes)`);
-                    } catch (error) {
-                      failed = true;
-                      console.error(`INVALID ${file}: ${error.message}`);
-                    }
-                  }
-                  if (failed) process.exitCode = 1;
-                  NODE
-
-            - name: Upload temporary baseline evidence
-              if: ${{ !cancelled() }}
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-              with:
-                  name: ci-equivalence-baseline
-                  path: |
-                      apps/desktop/.coverage/ci-equivalence-results.json
-                      apps/desktop/.coverage/unit/coverage-final.json
-                      apps/desktop/.coverage/unit/coverage-summary.json
-                  include-hidden-files: true
-                  if-no-files-found: error
-                  retention-days: 3
 
     ci-required:
         name: CI Required
