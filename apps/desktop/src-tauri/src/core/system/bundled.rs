@@ -152,6 +152,25 @@ mod tests {
     }
 
     #[test]
+    fn user_gets_a_mismatched_embedded_binary_rejected_without_replacing_an_existing_file() {
+        let temp = tempfile::tempdir().expect("temporary directory");
+        let bin_dir = temp.path().join("bin");
+        let binary_path = bin_dir.join("rtk.exe");
+        let existing_bytes = b"existing binary";
+        std::fs::create_dir_all(&bin_dir).expect("bin directory");
+        std::fs::write(&binary_path, existing_bytes).expect("existing binary");
+
+        let expected_hash = sha256_hex(b"expected binary");
+        assert!(
+            resolve_in_directory(bin_dir, "rtk.exe", &expected_hash, b"wrong binary").is_none()
+        );
+        assert_eq!(
+            std::fs::read(&binary_path).expect("existing binary after rejection"),
+            existing_bytes
+        );
+    }
+
+    #[test]
     fn user_gets_a_matching_embedded_binary_provisioned_and_reused() {
         let temp = tempfile::tempdir().expect("temporary directory");
         let bin_dir = temp.path().join("bin");
