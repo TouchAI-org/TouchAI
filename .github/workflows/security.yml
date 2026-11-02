@@ -1,5 +1,6 @@
 name: Security
 
+# Measure database preparation separately from security-query execution.
 on:
     pull_request:
     push:
@@ -14,8 +15,8 @@ permissions:
     security-events: write
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || github.run_id }}
-    cancel-in-progress: true
+    group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     changes:
@@ -42,11 +43,18 @@ jobs:
                       // slipped through here is caught there.
                       const rustPatterns = [
                         /^apps\/desktop\/src-tauri\/.*\.rs$/,
-                        /^apps\/desktop\/src-tauri\/Cargo\.toml$/,
-                        /^apps\/desktop\/src-tauri\/Cargo\.lock$/,
+                        /^apps\/desktop\/src-tauri\/Cargo\.(?:toml|lock)$/,
                         /^apps\/desktop\/src-tauri\/build\.rs$/,
-                        /^rust-toolchain\.toml$/,
+                        /^apps\/desktop\/src-tauri\/\.cargo\//,
+                        /^apps\/desktop\/src-tauri\/rust-toolchain(?:\.toml)?$/,
+                        /^apps\/desktop\/src-tauri\/(?:vendor|resources|capabilities|icons|wix)\//,
+                        /^apps\/desktop\/src-tauri\/windows-common-controls\.manifest$/,
                         /^apps\/desktop\/src-tauri\/tauri\.conf\.json$/,
+                        /^apps\/desktop\/product\.json$/,
+                        /^apps\/desktop\/src\/database\/(?:drizzle|artifacts)\//,
+                        /^\.cargo\//,
+                        /^Cargo\.(?:toml|lock)$/,
+                        /^rust-toolchain(?:\.toml)?$/,
                         /^\.github\/workflows\/security\.yml$/,
                       ];
 
@@ -110,7 +118,7 @@ jobs:
                         files = comparison.data.files ?? [];
 
                         // GitHub truncates compareCommits file lists at 300 entries. Fall back to full CI when unsure.
-                        if (files.length >= 300) {
+                        if (!Array.isArray(files) || files.length >= 300) {
                           setOutputs('false', 'true');
                           return;
                         }
@@ -118,16 +126,57 @@ jobs:
 
                       // An empty list means the API gave nothing to look at, not that the
                       // change was empty.
-                      if (files.length === 0) {
+                      if (!Array.isArray(files) || files.length === 0) {
                         setOutputs('false', 'true');
                         return;
                       }
 
-                      const docsOnly = files.every((file) =>
-                        docsOnlyPatterns.some((pattern) => pattern.test(file.filename))
+                      if (context.eventName === 'pull_request') {
+                        const expectedCount = context.payload.pull_request?.changed_files;
+
+                        if (
+                          files.length >= 3000 ||
+                          (Number.isInteger(expectedCount) && expectedCount !== files.length)
+                        ) {
+                          setOutputs('false', 'true');
+                          return;
+                        }
+                      }
+
+                      const validFilename = (value) =>
+                        typeof value === 'string' && value.trim().length > 0;
+                      const validFiles = files.every((file) => {
+                        if (file === null || typeof file !== 'object') {
+                          return false;
+                        }
+
+                        const hasPrevious = Object.prototype.hasOwnProperty.call(
+                          file,
+                          'previous_filename'
+                        );
+
+                        return (
+                          validFilename(file.filename) &&
+                          (!hasPrevious || validFilename(file.previous_filename)) &&
+                          (file.status !== 'renamed' || validFilename(file.previous_filename))
+                        );
+                      });
+
+                      if (!validFiles) {
+                        setOutputs('false', 'true');
+                        return;
+                      }
+
+                      const filenames = files.flatMap((file) =>
+                        file.previous_filename
+                          ? [file.filename, file.previous_filename]
+                          : [file.filename]
                       );
-                      const rustChanged = files.some((file) =>
-                        rustPatterns.some((pattern) => pattern.test(file.filename))
+                      const docsOnly = filenames.every((filename) =>
+                        docsOnlyPatterns.some((pattern) => pattern.test(filename))
+                      );
+                      const rustChanged = filenames.some((filename) =>
+                        rustPatterns.some((pattern) => pattern.test(filename))
                       );
 
                       setOutputs(docsOnly ? 'true' : 'false', rustChanged ? 'true' : 'false');
@@ -189,15 +238,16 @@ jobs:
               with:
                   languages: ${{ matrix.language }}
 
+            - name: Set up pnpm
+              if: steps.gate.outputs.run == 'true' && matrix.language == 'rust'
+              uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
+
             - name: Set up Node
               if: steps.gate.outputs.run == 'true' && matrix.language == 'rust'
               uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
-
-            - name: Set up pnpm
-              if: steps.gate.outputs.run == 'true' && matrix.language == 'rust'
-              uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
+                  package-manager-cache: false
 
             - name: Install Rust stable
               if: steps.gate.outputs.run == 'true' && matrix.language == 'rust'
@@ -241,12 +291,12 @@ jobs:
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+            - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
+
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
                   node-version: 22
                   cache: pnpm
-
-            - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6
 
             - name: Install Rust stable
               uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
@@ -258,7 +308,23 @@ jobs:
               run: pnpm audit --prod --audit-level high
 
             - name: Install cargo-audit
-              run: cargo install cargo-audit --locked
+              env:
+                  CARGO_AUDIT_VERSION: 0.22.2
+                  CARGO_AUDIT_SHA256: ab28a1bdb54db4d5d8ad5981cf1f959410370b3d28250dbd35f6a44248620e39
+                  CARGO_AUDIT_MEMBER: cargo-audit-x86_64-unknown-linux-gnu-v0.22.2/cargo-audit
+              run: |
+                  set -euo pipefail
+                  archive="$RUNNER_TEMP/cargo-audit.tgz"
+                  extract_dir="$RUNNER_TEMP/cargo-audit-extracted"
+                  curl --fail --silent --show-error --location \
+                    "https://github.com/rustsec/rustsec/releases/download/cargo-audit/v${CARGO_AUDIT_VERSION}/cargo-audit-x86_64-unknown-linux-gnu-v${CARGO_AUDIT_VERSION}.tgz" \
+                    --output "$archive"
+                  printf '%s  %s\n' "$CARGO_AUDIT_SHA256" "$archive" | sha256sum --check -
+                  rm -rf "$extract_dir"
+                  mkdir -p "$extract_dir" "$HOME/.cargo/bin"
+                  tar -xzf "$archive" -C "$extract_dir" "$CARGO_AUDIT_MEMBER"
+                  install -m 0755 "$extract_dir/$CARGO_AUDIT_MEMBER" "$HOME/.cargo/bin/cargo-audit"
+                  cargo-audit --version
 
             - name: Audit Rust dependencies
-              run: cargo audit --manifest-path apps/desktop/src-tauri/Cargo.toml
+              run: cargo-audit audit --file apps/desktop/src-tauri/Cargo.lock

@@ -469,11 +469,12 @@ function pruneClipboardArtifacts(document: Document): void {
 }
 
 function isHiddenInlineStyle(style: string): boolean {
-    const normalized = style.replace(/\s+/g, '').toLowerCase();
+    const declaration = document.createElement('span').style;
+    declaration.cssText = style.toLowerCase();
     return (
-        normalized.includes('display:none') ||
-        normalized.includes('visibility:hidden') ||
-        normalized.includes('opacity:0')
+        declaration.display === 'none' ||
+        declaration.visibility === 'hidden' ||
+        parseFloat(declaration.opacity) <= 0
     );
 }
 
