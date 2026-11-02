@@ -49,12 +49,12 @@ describe('AnalyticsService', () => {
         vi.clearAllMocks();
     });
 
-    it('user gets a persisted result when the native channel accepts the event', async () => {
-        nativeAnalytics.track.mockResolvedValue({ status: 'persisted', eventId: 'e-1' });
+    it('user gets a queued result when the native channel accepts the event', async () => {
+        nativeAnalytics.track.mockResolvedValue({ status: 'queued', eventId: 'e-1' });
 
         const result = await analytics.track('app.started', validAttributes);
 
-        expect(result.status).toBe('persisted');
+        expect(result.status).toBe('queued');
         expect(nativeAnalytics.track).toHaveBeenCalledWith(
             expect.objectContaining({
                 eventName: 'app.started',
@@ -85,7 +85,7 @@ describe('AnalyticsService', () => {
 
     it('user gets the native operation carried on a later completion', async () => {
         nativeAnalytics.beginOperation.mockResolvedValue(operation({ operationId: 'op-9' }));
-        nativeAnalytics.track.mockResolvedValue({ status: 'persisted', eventId: 'e-2' });
+        nativeAnalytics.track.mockResolvedValue({ status: 'queued', eventId: 'e-2' });
 
         const handle = await analytics.beginOperation();
         await analytics.track('app.started', validAttributes, { operation: handle });

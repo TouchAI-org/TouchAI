@@ -13,15 +13,16 @@ use sqlx::{
     Connection, SqliteConnection,
 };
 
-use crate::core::analytics::{RestoredConsent, DEPLOYMENT_KEY_SETTING};
+use crate::core::analytics::{sanitize_exported_state, RestoredConsent, ANALYTICS_STATE_SETTING};
 
-/// Removes analytics identity, consent epoch, pending-update metadata and queued
-/// payloads from a database snapshot.
+/// Removes analytics identity, consent epoch and pending-update metadata from a
+/// database snapshot.
 ///
 /// The consent status and explicit-choice marker survive alongside policy_version
 /// and a refreshed updated_at. Keeping the choice prevents a restore from silently
-/// re-enabling sharing. `journal_mode=DELETE` checkpoints the WAL, and `VACUUM`
-/// removes scrubbed payloads from free pages.
+/// re-enabling sharing. Legacy analytics tables are removed as well, because
+/// delivery is process-local and must never travel through a backup.
+/// `journal_mode=DELETE` checkpoints the WAL, and `VACUUM` compacts the snapshot.
 pub(crate) async fn sanitize_analytics_snapshot(
     path: &Path,
 ) -> Result<Option<RestoredConsent>, String> {
@@ -34,27 +35,51 @@ pub(crate) async fn sanitize_analytics_snapshot(
     .map_err(|error| format!("Failed to open analytics snapshot: {error}"))?;
 
     let result: Result<Option<RestoredConsent>, String> = async {
-        let mut restored_consent = None;
-        for table in ["analytics_outbox", "analytics_state"] {
-            if !snapshot_table_exists(&mut connection, table).await? {
-                continue;
-            }
-            if table == "analytics_state" {
-                restored_consent = scrub_snapshot_state(&mut connection).await?;
-            } else {
-                sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {table}")))
+        let value: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+            .bind(ANALYTICS_STATE_SETTING)
+            .fetch_optional(&mut connection)
+            .await
+            .map_err(|error| format!("Failed to read analytics snapshot state: {error}"))?;
+        let restored_consent = match value {
+            Some(value) => match sanitize_exported_state(&value) {
+                Ok((scrubbed, consent)) => {
+                    sqlx::query(
+                        "UPDATE settings SET value = ?, updated_at = datetime('now') WHERE key = ?",
+                    )
+                    .bind(scrubbed)
+                    .bind(ANALYTICS_STATE_SETTING)
                     .execute(&mut connection)
                     .await
-                    .map_err(|error| format!("Failed to scrub snapshot table {table}: {error}"))?;
-            }
-        }
-        // The deployment binding is local state too: drop it so an exported
-        // snapshot never carries another install's analytics target.
-        sqlx::query("DELETE FROM settings WHERE key = ?")
-            .bind(DEPLOYMENT_KEY_SETTING)
+                    .map_err(|error| {
+                        format!("Failed to scrub analytics snapshot state: {error}")
+                    })?;
+                    Some(consent)
+                }
+                Err(_) => {
+                    // Malformed analytics metadata is local-only and cannot be
+                    // represented safely in an export.
+                    sqlx::query("DELETE FROM settings WHERE key = ?")
+                        .bind(ANALYTICS_STATE_SETTING)
+                        .execute(&mut connection)
+                        .await
+                        .map_err(|error| {
+                            format!("Failed to remove malformed analytics state: {error}")
+                        })?;
+                    None
+                }
+            },
+            None => None,
+        };
+        // These tables existed only in the earlier persisted-queue design. They
+        // may still be present in a development backup, so never carry them.
+        sqlx::query("DROP TABLE IF EXISTS analytics_outbox")
             .execute(&mut connection)
             .await
-            .map_err(|error| format!("Failed to scrub analytics deployment key: {error}"))?;
+            .map_err(|error| format!("Failed to remove legacy analytics outbox: {error}"))?;
+        sqlx::query("DROP TABLE IF EXISTS analytics_state")
+            .execute(&mut connection)
+            .await
+            .map_err(|error| format!("Failed to remove legacy analytics state: {error}"))?;
         sqlx::query("VACUUM")
             .execute(&mut connection)
             .await
@@ -69,85 +94,57 @@ pub(crate) async fn sanitize_analytics_snapshot(
     Ok(restored_consent)
 }
 
-/// Keeps status, consent_explicit and policy_version; refreshes updated_at and
-/// clears installation identity, epoch, observation days, observed version and
-/// pending-update metadata.
-async fn scrub_snapshot_state(
-    connection: &mut SqliteConnection,
-) -> Result<Option<RestoredConsent>, String> {
-    let state: Option<(String, i64)> =
-        sqlx::query_as("SELECT status, consent_explicit FROM analytics_state WHERE id = 1")
-            .fetch_optional(&mut *connection)
-            .await
-            .map_err(|error| format!("Failed to read analytics snapshot state: {error}"))?;
-    sqlx::query(
-        "UPDATE analytics_state SET installation_id = NULL, consent_epoch = 0, \
-         observation_started_day = NULL, first_success_day = NULL, \
-         last_observed_app_version = NULL, pending_update_json = NULL, \
-         updated_at = datetime('now') WHERE id = 1",
-    )
-    .execute(&mut *connection)
-    .await
-    .map_err(|error| format!("Failed to scrub analytics snapshot state: {error}"))?;
-    Ok(state.map(|(status, consent_explicit)| RestoredConsent {
-        status,
-        explicit: consent_explicit == 1,
-    }))
-}
-
-async fn snapshot_table_exists(
-    connection: &mut SqliteConnection,
-    table: &str,
-) -> Result<bool, String> {
-    let present: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?")
-            .bind(table)
-            .fetch_one(&mut *connection)
-            .await
-            .map_err(|error| format!("Failed to inspect snapshot table {table}: {error}"))?;
-    Ok(present != 0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::database::DatabaseRuntime;
+    use crate::core::database::{contract::create_sqlite_pool, DatabaseRuntime};
+    use serde_json::{json, Value};
 
-    use crate::core::database::contract::create_sqlite_pool;
+    async fn seed_state(pool: &sqlx::SqlitePool, explicit: bool) {
+        let state = json!({
+            "policyVersion": 7,
+            "status": "disabled",
+            "consentExplicit": if explicit { 1 } else { 0 },
+            "installationId": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+            "consentEpoch": 4,
+            "observationStartedDay": "2026-01-01",
+            "firstSuccessDay": "2026-01-02",
+            "lastObservedAppVersion": "1.2.2",
+            "pendingUpdateJson": "{\"toVersion\":\"2.0.0\"}",
+            "deploymentKey": "https://analytics.invalid/send|project",
+            "updatedAtMs": 1
+        });
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?, ?) \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(ANALYTICS_STATE_SETTING)
+        .bind(state.to_string())
+        .execute(pool)
+        .await
+        .expect("seed analytics state");
+    }
 
-    async fn exported_snapshot(root: &Path) -> std::path::PathBuf {
+    async fn exported_snapshot(root: &Path, explicit: bool) -> std::path::PathBuf {
         let snapshot = root.join("snap.db");
         let runtime = DatabaseRuntime::initialize_for_tests(root)
             .await
             .expect("database runtime");
         let pool = runtime.pool();
-        sqlx::query(
-            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, \
-             consent_epoch, observation_started_day, first_success_day, \
-             last_observed_app_version, pending_update_json, policy_version, updated_at) \
-             VALUES (1, 'disabled', 1, '3f2504e0-4f89-41d3-9a0c-0305e82c3301', 4, \
-             '2026-01-01', '2026-01-02', '1.2.2', '{\"toVersion\":\"2.0.0\"}', 7, '2001-01-01 00:00:00')",
+        seed_state(pool, explicit).await;
+        sqlx::raw_sql(
+            "CREATE TABLE analytics_outbox (event_id TEXT PRIMARY KEY, payload_json TEXT); \
+             INSERT INTO analytics_outbox (event_id, payload_json) VALUES ('legacy', '{\"a\":1}'); \
+             CREATE TABLE analytics_state (id INTEGER PRIMARY KEY, status TEXT); \
+             INSERT INTO analytics_state (id, status) VALUES (1, 'disabled');",
         )
         .execute(pool)
         .await
-        .expect("seed state");
-        sqlx::query(
-            "INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, \
-             payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at) \
-             VALUES ('e1', 4, 1, 'app.started', '{\"a\":1}', 7, 1, 9, 1)",
-        )
-        .execute(pool)
-        .await
-        .expect("seed outbox");
+        .expect("seed legacy analytics tables");
         sqlx::query("INSERT INTO settings (key, value) VALUES ('keep', '1')")
             .execute(pool)
             .await
             .expect("seed settings");
-        sqlx::query("INSERT INTO settings (key, value) VALUES (?, 'https://x/send|abc')")
-            .bind(DEPLOYMENT_KEY_SETTING)
-            .execute(pool)
-            .await
-            .expect("seed deployment key");
         sqlx::query("VACUUM INTO ?")
             .bind(snapshot.to_string_lossy().as_ref())
             .execute(pool)
@@ -159,7 +156,7 @@ mod tests {
     #[tokio::test]
     async fn user_gets_an_exported_snapshot_that_keeps_an_explicit_opt_out_and_no_identity() {
         let root = tempfile::tempdir().expect("temp dir");
-        let snapshot = exported_snapshot(root.path()).await;
+        let snapshot = exported_snapshot(root.path(), true).await;
 
         let consent = sanitize_analytics_snapshot(&snapshot)
             .await
@@ -174,47 +171,33 @@ mod tests {
         );
 
         let sanitized = create_sqlite_pool(&snapshot).await.expect("open snapshot");
-        let (status, explicit, installation, epoch): (String, i64, Option<String>, i64) =
-            sqlx::query_as(
-                "SELECT status, consent_explicit, installation_id, consent_epoch \
-                 FROM analytics_state WHERE id = 1",
-            )
+        let value: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+            .bind(ANALYTICS_STATE_SETTING)
             .fetch_one(&sanitized)
             .await
             .expect("scrubbed state");
-        assert_eq!(status, "disabled");
-        assert_eq!(explicit, 1);
-        assert!(installation.is_none(), "identity is never exported");
-        assert_eq!(epoch, 0, "the consent epoch is never exported");
-        let (policy, refreshed): (i64, String) =
-            sqlx::query_as("SELECT policy_version, updated_at FROM analytics_state WHERE id = 1")
-                .fetch_one(&sanitized)
-                .await
-                .expect("remaining consent metadata");
-        assert_eq!(policy, 7, "the non-identifying policy version survives");
-        assert_ne!(
-            refreshed, "2001-01-01 00:00:00",
-            "the original row timestamp is not exported"
-        );
-        let scrubbed: (
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        ) = sqlx::query_as(
-            "SELECT observation_started_day, first_success_day, \
-                 last_observed_app_version, pending_update_json FROM analytics_state WHERE id = 1",
-        )
-        .fetch_one(&sanitized)
-        .await
-        .expect("scrubbed columns");
-        assert_eq!(scrubbed, (None, None, None, None));
+        let scrubbed: Value = serde_json::from_str(&value).expect("state json");
+        assert_eq!(scrubbed["status"], "disabled");
+        assert_eq!(scrubbed["consentExplicit"], 1);
+        assert_eq!(scrubbed["policyVersion"], 7);
+        assert_eq!(scrubbed["installationId"], Value::Null);
+        assert_eq!(scrubbed["consentEpoch"], 0);
+        assert_eq!(scrubbed["observationStartedDay"], Value::Null);
+        assert_eq!(scrubbed["firstSuccessDay"], Value::Null);
+        assert_eq!(scrubbed["lastObservedAppVersion"], Value::Null);
+        assert_eq!(scrubbed["pendingUpdateJson"], Value::Null);
+        assert_eq!(scrubbed["deploymentKey"], "");
+        assert_ne!(scrubbed["updatedAtMs"], 1);
         assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM analytics_outbox")
-                .fetch_one(&sanitized)
-                .await
-                .unwrap(),
-            0
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' \
+                 AND name IN ('analytics_outbox', 'analytics_state')"
+            )
+            .fetch_one(&sanitized)
+            .await
+            .unwrap(),
+            0,
+            "legacy queues and state tables never travel through a backup"
         );
         assert_eq!(
             sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'keep'")
@@ -223,38 +206,13 @@ mod tests {
                 .unwrap(),
             "1"
         );
-        assert_eq!(
-            sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM settings WHERE key = 'analytics.deploymentKey'"
-            )
-            .fetch_one(&sanitized)
-            .await
-            .unwrap(),
-            0,
-            "the exported snapshot must not carry the analytics deployment binding"
-        );
         sanitized.close().await;
     }
 
     #[tokio::test]
     async fn user_gets_a_derived_default_carried_without_becoming_an_explicit_choice() {
         let root = tempfile::tempdir().expect("temp dir");
-        let runtime = DatabaseRuntime::initialize_for_tests(root.path())
-            .await
-            .expect("database runtime");
-        sqlx::query(
-            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id) \
-             VALUES (1, 'enabled', 0, 'local-install')",
-        )
-        .execute(runtime.pool())
-        .await
-        .expect("seed state");
-        let snapshot = root.path().join("snap.db");
-        sqlx::query("VACUUM INTO ?")
-            .bind(snapshot.to_string_lossy().as_ref())
-            .execute(runtime.pool())
-            .await
-            .expect("snapshot");
+        let snapshot = exported_snapshot(root.path(), false).await;
 
         let consent = sanitize_analytics_snapshot(&snapshot)
             .await
@@ -263,7 +221,7 @@ mod tests {
         assert_eq!(
             consent,
             Some(RestoredConsent {
-                status: "enabled".to_string(),
+                status: "disabled".to_string(),
                 explicit: false,
             }),
             "a deployment default must not become the user's explicit choice"

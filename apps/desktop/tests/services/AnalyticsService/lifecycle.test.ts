@@ -39,7 +39,7 @@ describe('user updates the app', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         nativeAnalytics.getState.mockResolvedValue(state({ consentEpoch: 3 }));
-        nativeAnalytics.track.mockResolvedValue({ status: 'persisted', eventId: 'u-1' });
+        nativeAnalytics.track.mockResolvedValue({ status: 'queued', eventId: 'u-1' });
         nativeAnalytics.beginOperation.mockResolvedValue({
             operationId: 'op-1',
             enabled: true,
@@ -164,7 +164,7 @@ describe('user updates the app', () => {
         const order: string[] = [];
         nativeAnalytics.track.mockImplementation(async () => {
             order.push('track');
-            return { status: 'persisted' };
+            return { status: 'queued' };
         });
         nativeAnalytics.completeOperation.mockImplementation(async () => {
             order.push('release');

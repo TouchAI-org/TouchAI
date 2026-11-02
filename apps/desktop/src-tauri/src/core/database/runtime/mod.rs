@@ -363,6 +363,7 @@ fn next_counter() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::analytics::ANALYTICS_STATE_SETTING;
 
     #[tokio::test]
     async fn user_gets_an_exported_backup_without_analytics_identity_or_payloads() {
@@ -372,20 +373,25 @@ mod tests {
             .expect("database runtime");
         let pool = runtime.pool();
 
-        sqlx::query(
-            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, consent_epoch) \
-             VALUES (1, 'disabled', 1, '3f2504e0-4f89-41d3-9a0c-0305e82c3301', 4)",
-        )
-        .execute(pool)
-        .await
-        .expect("seed state");
-        sqlx::query(
-            "INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at) \
-             VALUES ('e1', 4, 1, 'app.started', '{\"a\":1}', 7, 1, 9, 1)",
-        )
-        .execute(pool)
-        .await
-        .expect("seed outbox");
+        let state = serde_json::json!({
+            "policyVersion": 1,
+            "status": "disabled",
+            "consentExplicit": 1,
+            "installationId": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+            "consentEpoch": 4,
+            "observationStartedDay": "2026-01-01",
+            "firstSuccessDay": null,
+            "lastObservedAppVersion": "1.2.2",
+            "pendingUpdateJson": null,
+            "deploymentKey": "https://analytics.invalid/send|project",
+            "updatedAtMs": 1
+        });
+        sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?)")
+            .bind(ANALYTICS_STATE_SETTING)
+            .bind(state.to_string())
+            .execute(pool)
+            .await
+            .expect("seed state");
         sqlx::query("INSERT INTO settings (key, value) VALUES ('keep', '1')")
             .execute(pool)
             .await
@@ -398,28 +404,17 @@ mod tests {
             .expect("export");
 
         let exported = create_sqlite_pool(&target).await.expect("open export");
-        let (status, explicit, installation, epoch): (String, i64, Option<String>, i64) =
-            sqlx::query_as(
-                "SELECT status, consent_explicit, installation_id, consent_epoch \
-                 FROM analytics_state WHERE id = 1",
-            )
+        let value: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+            .bind(ANALYTICS_STATE_SETTING)
             .fetch_one(&exported)
             .await
             .expect("exported state");
-        assert_eq!(
-            (status.as_str(), explicit),
-            ("disabled", 1),
-            "an exported backup keeps the user's explicit opt-out"
-        );
-        assert!(installation.is_none(), "no analytics identity is exported");
-        assert_eq!(epoch, 0, "no consent epoch is exported");
-        assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM analytics_outbox")
-                .fetch_one(&exported)
-                .await
-                .unwrap(),
-            0
-        );
+        let state: serde_json::Value = serde_json::from_str(&value).expect("state json");
+        assert_eq!(state["status"], "disabled");
+        assert_eq!(state["consentExplicit"], 1);
+        assert_eq!(state["installationId"], serde_json::Value::Null);
+        assert_eq!(state["consentEpoch"], 0);
+        assert_eq!(state["deploymentKey"], "");
         assert_eq!(
             sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'keep'")
                 .fetch_one(&exported)

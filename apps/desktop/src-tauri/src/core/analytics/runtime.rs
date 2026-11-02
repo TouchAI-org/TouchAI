@@ -1,13 +1,12 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
-//! Consent, identity, native session, operation context, bounded single-writer
-//! ingress and the bounded sender orchestration.
+//! Consent, identity, native session, operation context and the bounded
+//! best-effort in-memory sender orchestration.
 //!
 //! The WebView submits typed metadata only. The native runtime owns the process
 //! run identity, the startup classification, the analytics session, the consent
-//! epoch and the outbox. Every write goes through one admission gate and one
-//! writer so the shared `touchai.db` pool never sees a burst of competing
-//! analytics transactions.
+//! epoch and the in-memory queue. Only consent and small delivery metadata touch
+//! the shared `touchai.db` pool.
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -25,9 +24,8 @@ use crate::core::database::DatabaseRuntime;
 use crate::core::product_config::product_config;
 
 use super::events;
-use super::store::{
-    self, AnalyticsOutboxRow, AnalyticsStateRow, EnqueueOutcome, OutboxInsert, PendingUpdate,
-};
+use super::queue::{self, AnalyticsQueue, EnqueueOutcome, QueueInsert, QueuedEvent};
+use super::store::{self, AnalyticsStateRow, MetadataOutcome, PendingUpdate};
 use super::transport::{AnalyticsEventEnvelope, AnalyticsTransport, EventSender, SendOutcome};
 use super::{
     AnalyticsConsentStatus, AnalyticsLifecycleContext, AnalyticsOperationHandle,
@@ -37,10 +35,8 @@ use super::{
 
 const POLICY_VERSION: i64 = 1;
 const MIN_OCCURRED_AT_MS: i64 = 1_577_836_800_000;
-const SEND_INTERVAL: Duration = Duration::from_secs(30);
-/// Upper bound for the loop before each send in one flush pass. A pass can still
-/// overrun by at most one in-flight send (`TOTAL_TIMEOUT`, 10s) because the budget
-/// is checked between sends, not inside one.
+const SEND_INTERVAL: Duration = Duration::from_secs(5);
+/// Upper bound for the loop before each send in one flush pass.
 const FLUSH_BUDGET: Duration = Duration::from_secs(12);
 const BACKOFF_BASE_MS: i64 = 1_000;
 const BACKOFF_MAX_MS: i64 = 300_000;
@@ -54,10 +50,6 @@ const HEALTH_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const SESSION_IDLE: Duration = Duration::from_secs(30 * 60);
 /// Upper bound for the bounded pending-update metadata blob.
 const PENDING_UPDATE_MAX_BYTES: usize = 640;
-/// Bounded in-memory ingress admission. It counts rows, including work reserved
-/// but not yet committed, so a burst cannot outrun the single writer.
-const INGRESS_MAX_ENTRIES: i64 = 128;
-const INGRESS_MAX_BYTES: i64 = 256 * 1024;
 /// Bounded native operation registry. Handles expire and the map is capped so a
 /// long-lived process cannot grow it without limit.
 const OPERATION_TTL: Duration = Duration::from_secs(2 * 60 * 60);
@@ -176,70 +168,11 @@ impl OperationRegistry {
     }
 }
 
-#[derive(Default)]
-struct Admission {
-    entries: i64,
-    bytes: i64,
-}
-
-/// The admission gate. Counters live behind a synchronous mutex so the guard can
-/// release them from `Drop` without an await, which keeps a cancelled caller
-/// from leaking capacity.
-#[derive(Default)]
-struct Ingress {
-    admission: StdMutex<Admission>,
-}
-
-struct IngressGuard {
-    ingress: Arc<Ingress>,
-    entries: i64,
-    bytes: i64,
-}
-
-impl Drop for IngressGuard {
-    fn drop(&mut self) {
-        let mut admission = self
-            .ingress
-            .admission
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        admission.entries = (admission.entries - self.entries).max(0);
-        admission.bytes = (admission.bytes - self.bytes).max(0);
-    }
-}
-
-impl Ingress {
-    /// Reserves `entries` rows and `bytes` for the caller. Returns `None` when
-    /// the entry or byte budget is exhausted, so the caller fails fast instead of
-    /// growing a waiting queue. The reservation is released when the guard drops,
-    /// including on cancellation.
-    fn try_admit(self: &Arc<Self>, entries: i64, bytes: i64) -> Option<IngressGuard> {
-        let mut admission = self
-            .admission
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        if admission.entries + entries > INGRESS_MAX_ENTRIES
-            || admission.bytes + bytes > INGRESS_MAX_BYTES
-        {
-            return None;
-        }
-        admission.entries += entries;
-        admission.bytes += bytes;
-        Some(IngressGuard {
-            ingress: Arc::clone(self),
-            entries,
-            bytes,
-        })
-    }
-}
-
 struct AnalyticsConfig {
     policy_version: i64,
     default_enabled: bool,
     transport: Option<Arc<dyn EventSender>>,
-    /// The endpoint + project id this build delivers to. It binds the outbox to
-    /// one deployment so rows produced for a different endpoint are never sent
-    /// through this one.
+    /// The endpoint + project id this build delivers to.
     deployment_key: String,
 }
 
@@ -263,18 +196,17 @@ struct AnalyticsRuntimeInner {
     session: Mutex<Option<NativeSession>>,
     operations: Mutex<OperationRegistry>,
     exposures: Mutex<HashSet<String>>,
-    ingress: Arc<Ingress>,
-    /// Serializes the durable writer: only one analytics write transaction runs
-    /// at a time, so a burst cannot turn into many competing SQLite writes.
-    write_lock: Mutex<()>,
+    /// Best-effort events for this process only. Restarting the app drops them.
+    queue: Mutex<AnalyticsQueue>,
+    /// Serializes consent and session transitions that accompany queue changes.
+    state_lock: Mutex<()>,
     /// Process-wide run identity. Native-owned; the WebView reads it and never
     /// invents a process start.
     run_id: String,
     startup_source: String,
     activation: StdMutex<StartupActivation>,
     app_started_emitted: AtomicBool,
-    /// Serializes the single sender: the background loop and a manual flush can
-    /// never process the same rows at the same time.
+    /// Serializes the single sender.
     flush_lock: Mutex<()>,
     counters: Counters,
     notify: Notify,
@@ -317,8 +249,8 @@ impl AnalyticsRuntime {
                 session: Mutex::new(None),
                 operations: Mutex::new(OperationRegistry::default()),
                 exposures: Mutex::new(HashSet::new()),
-                ingress: Arc::new(Ingress::default()),
-                write_lock: Mutex::new(()),
+                queue: Mutex::new(AnalyticsQueue::default()),
+                state_lock: Mutex::new(()),
                 run_id: run_id.clone(),
                 startup_source: startup_source.clone(),
                 activation: StdMutex::new(StartupActivation {
@@ -417,6 +349,18 @@ impl AnalyticsRuntime {
         self.inner.build_state().await
     }
 
+    /// Reconciles in-memory delivery state after a database restore. Consent can
+    /// change outside the analytics command during a full import, so the queue
+    /// and native bindings must be invalidated before the next read or send.
+    pub(crate) async fn synchronize_after_restore(&self) -> Result<(), String> {
+        let _state = self.inner.state_lock.lock().await;
+        let row = store::load_state(self.inner.database.pool())
+            .await?
+            .ok_or_else(|| "analytics_state_missing".to_string())?;
+        self.inner.refresh_state(&row).await;
+        Ok(())
+    }
+
     pub async fn set_enabled(
         &self,
         enabled: bool,
@@ -425,7 +369,7 @@ impl AnalyticsRuntime {
         let Some(config) = &self.inner.config else {
             return self.inner.build_state().await;
         };
-        let _writer = self.inner.write_lock.lock().await;
+        let _state = self.inner.state_lock.lock().await;
         let updated = store::set_enabled(
             self.inner.database.pool(),
             enabled,
@@ -434,6 +378,9 @@ impl AnalyticsRuntime {
         )
         .await?;
         if let Some(row) = updated {
+            if !enabled {
+                self.inner.queue.lock().await.clear();
+            }
             self.inner.refresh_state(&row).await;
             if enabled {
                 self.inner.notify.notify_one();
@@ -446,9 +393,10 @@ impl AnalyticsRuntime {
         if self.inner.config.is_none() {
             return self.inner.build_state().await;
         }
-        let _writer = self.inner.write_lock.lock().await;
+        let _state = self.inner.state_lock.lock().await;
         match store::clear_pending(self.inner.database.pool(), expected_epoch).await? {
             Some(row) => {
+                self.inner.queue.lock().await.clear();
                 self.inner.apply_state(&row);
                 // A cleared start must not be referenced by later operations.
                 self.inner.clear_session().await;
@@ -513,7 +461,7 @@ impl AnalyticsRuntime {
     /// any) and the current consent epoch; the caller only passes the handle back
     /// on later events, so the WebView never supplies a session id.
     pub async fn begin_operation(&self) -> AnalyticsOperationHandle {
-        let _writer = self.inner.write_lock.lock().await;
+        let _state = self.inner.state_lock.lock().await;
         let session_id = self
             .inner
             .session
@@ -653,23 +601,9 @@ impl AnalyticsRuntime {
                 "invalid_timestamp",
             );
         }
-        // Reserve the largest possible two-row session batch before waiting on
-        // the writer. Context resolution and commit share that lock, so another
-        // window can never capture a provisional session whose start may fail.
-        let _admission = match self
-            .inner
-            .ingress
-            .try_admit(2, 2 * store::MAX_PAYLOAD_BYTES)
-        {
-            Some(admission) => admission,
-            None => {
-                return AnalyticsSubmitResult::with_reason(
-                    AnalyticsSubmitStatus::Unavailable,
-                    "ingress_full",
-                )
-            }
-        };
-        let _writer = self.inner.write_lock.lock().await;
+        // Context resolution and queue admission share one lock so another
+        // window cannot capture a provisional session whose queue commit fails.
+        let _state = self.inner.state_lock.lock().await;
         let state = match store::load_state(self.inner.database.pool()).await {
             Ok(Some(state)) => state,
             Ok(None) => {
@@ -798,9 +732,9 @@ impl AnalyticsRuntime {
             .enqueue_inserts(inserts, pending, primary_event_id)
             .await;
 
-        if result.status == AnalyticsSubmitStatus::Persisted {
-            // The session is real now: reset the per-session exposures and bind
-            // the operation handle to the immutable session that just committed.
+        if result.status == AnalyticsSubmitStatus::Queued {
+            // The session is live now: reset the per-session exposures and bind
+            // the operation handle to the immutable session that was queued.
             if started_session {
                 if let Some(session_id) = &session_id {
                     *self.inner.session.lock().await = Some(NativeSession {
@@ -817,7 +751,7 @@ impl AnalyticsRuntime {
                     .await
                     .set_session(operation, session_id.clone());
             }
-            // The exposure key is recorded only after the row actually persisted.
+            // The exposure key is recorded only after the event was queued.
             if let Some(key) = exposure_key {
                 let mut exposures = self.inner.exposures.lock().await;
                 if exposures.len() >= EXPOSURE_MAX {
@@ -919,11 +853,10 @@ impl AnalyticsRuntime {
         let Some(transport) = &config.transport else {
             return Ok(());
         };
-        let pool = self.inner.database.pool();
         let now = store::now_millis();
         {
-            let _writer = self.inner.write_lock.lock().await;
-            let state = store::load_state(pool)
+            let _state = self.inner.state_lock.lock().await;
+            let state = store::load_state(self.inner.database.pool())
                 .await?
                 .ok_or_else(|| "analytics_state_missing".to_string())?;
             self.inner.refresh_state(&state).await;
@@ -947,7 +880,13 @@ impl AnalyticsRuntime {
             }
 
             let now = store::now_millis();
-            let rows = store::due_batch(pool, now).await?;
+            let (rows, mut pending_starts) = {
+                let queue = self.inner.queue.lock().await;
+                (
+                    queue.due_batch(now, queue::SEND_BATCH_LIMIT),
+                    queue.pending_session_starts(),
+                )
+            };
             if rows.is_empty() {
                 break;
             }
@@ -956,14 +895,19 @@ impl AnalyticsRuntime {
             // off, so it is held to the start's own retry instant. This also lets
             // a start and its dependent settle in separate passes without
             // weakening receiver ordering.
-            let mut pending_starts = store::undelivered_session_starts(pool).await?;
-            let mut batch: Vec<(AnalyticsOutboxRow, AnalyticsEventEnvelope)> = Vec::new();
+            let mut batch: Vec<(QueuedEvent, AnalyticsEventEnvelope)> = Vec::new();
 
             for row in rows {
                 if started.elapsed() >= FLUSH_BUDGET {
                     break;
                 }
-                if !store::event_is_sendable(pool, &row.event_id).await? {
+                if !self
+                    .inner
+                    .queue
+                    .lock()
+                    .await
+                    .contains(&row.event_id, row.consent_epoch, now)
+                {
                     continue;
                 }
                 let envelope: AnalyticsEventEnvelope = match serde_json::from_str(&row.payload_json)
@@ -982,9 +926,13 @@ impl AnalyticsRuntime {
                         .and_then(|session_id| pending_starts.get(session_id).copied())
                     {
                         // Fail closed: the receiver must see the session start
-                        // first. `hold_event_until` never moves a row earlier, so
-                        // its own backoff is preserved.
-                        store::hold_event_until(pool, &row.event_id, retry_at).await?;
+                        // first. `hold_until` never moves an event earlier, so its
+                        // own backoff is preserved.
+                        self.inner
+                            .queue
+                            .lock()
+                            .await
+                            .hold_until(&row.event_id, retry_at);
                         continue;
                     }
                 }
@@ -1003,16 +951,16 @@ impl AnalyticsRuntime {
             if batch.is_empty() {
                 break;
             }
-            // A restore or clear-pending can remove rows while the batch is being
-            // assembled. Re-check the whole selected set immediately before the
-            // one HTTP attempt; a partial stale batch is deferred to the next pass.
-            let mut all_sendable = true;
-            for (row, _) in &batch {
-                if !store::event_is_sendable(pool, &row.event_id).await? {
-                    all_sendable = false;
-                    break;
-                }
-            }
+            // Consent withdrawal or clear-pending can remove entries while the
+            // batch is assembled. Re-check the whole selected set immediately
+            // before the one HTTP attempt; a partial stale batch is deferred.
+            let sendable_now = store::now_millis();
+            let all_sendable = {
+                let queue = self.inner.queue.lock().await;
+                batch
+                    .iter()
+                    .all(|(row, _)| queue.contains(&row.event_id, row.consent_epoch, sendable_now))
+            };
             if !all_sendable || !self.inner.enabled.load(Ordering::SeqCst) {
                 break;
             }
@@ -1021,19 +969,22 @@ impl AnalyticsRuntime {
                 batch.iter().map(|(_, envelope)| envelope.clone()).collect();
             match transport.send_batch(&wire_events).await {
                 SendOutcome::Accepted => {
-                    for (row, envelope) in &batch {
-                        store::delete_event(pool, &row.event_id).await?;
-                        // Health reports describe the product-event counters.
-                        // Counting their own delivery would make those counters
-                        // self-referential.
-                        if row.event_name != "analytics.health_reported" {
-                            self.inner.counters.accepted.fetch_add(1, Ordering::Relaxed);
-                        }
-                        if row.event_name == "analytics.session_started" {
-                            if let Some(session_id) = envelope.analytics_session_id.as_deref() {
-                                // The start is delivered, so its dependents may
-                                // follow on the next loop/pass.
-                                pending_starts.remove(session_id);
+                    {
+                        let mut queue = self.inner.queue.lock().await;
+                        for (row, envelope) in &batch {
+                            queue.remove(&row.event_id);
+                            // Health reports describe the product-event counters.
+                            // Counting their own delivery makes those counters
+                            // self-referential.
+                            if row.event_name != "analytics.health_reported" {
+                                self.inner.counters.accepted.fetch_add(1, Ordering::Relaxed);
+                            }
+                            if row.event_name == "analytics.session_started" {
+                                if let Some(session_id) = envelope.analytics_session_id.as_deref() {
+                                    // The start is delivered, so its dependents may
+                                    // follow on the next loop/pass.
+                                    pending_starts.remove(session_id);
+                                }
                             }
                         }
                     }
@@ -1041,8 +992,9 @@ impl AnalyticsRuntime {
                 }
                 SendOutcome::ConfigurationFailure { reason } => {
                     let next = store::now_millis() + CONFIG_RETRY_MS;
+                    let mut queue = self.inner.queue.lock().await;
                     for (row, _) in &batch {
-                        store::reschedule(pool, &row.event_id, next, row.attempt_count + 1).await?;
+                        queue.reschedule(&row.event_id, next);
                     }
                     self.inner
                         .counters
@@ -1053,8 +1005,9 @@ impl AnalyticsRuntime {
                 }
                 SendOutcome::RetryAfter { delay_ms } => {
                     let next = store::now_millis() + delay_ms;
+                    let mut queue = self.inner.queue.lock().await;
                     for (row, _) in &batch {
-                        store::reschedule(pool, &row.event_id, next, row.attempt_count + 1).await?;
+                        queue.reschedule(&row.event_id, next);
                     }
                     self.inner
                         .counters
@@ -1063,9 +1016,10 @@ impl AnalyticsRuntime {
                     break;
                 }
                 SendOutcome::Retry { reason } => {
+                    let mut queue = self.inner.queue.lock().await;
                     for (row, _) in &batch {
                         let next = store::now_millis() + backoff_ms(row.attempt_count);
-                        store::reschedule(pool, &row.event_id, next, row.attempt_count + 1).await?;
+                        queue.reschedule(&row.event_id, next);
                     }
                     self.inner
                         .counters
@@ -1087,48 +1041,30 @@ impl AnalyticsRuntime {
         Ok(())
     }
 
-    async fn drop_corrupt_row(
-        &self,
-        row: &AnalyticsOutboxRow,
-        reason: String,
-    ) -> Result<(), String> {
+    async fn drop_corrupt_row(&self, row: &QueuedEvent, reason: String) -> Result<(), String> {
         self.inner.counters.rejected.fetch_add(1, Ordering::Relaxed);
         log::debug!(target: "analytics", "local permanent rejection: {reason}");
         if row.event_name == "analytics.session_started" {
-            let session_id = store::session_id_from_payload(&row.payload_json);
+            let session_id = queue::session_id_from_payload(&row.payload_json);
             self.inner.abandon_session(session_id.as_deref()).await?;
         } else {
-            store::delete_event(self.inner.database.pool(), &row.event_id).await?;
+            self.inner.queue.lock().await.remove(&row.event_id);
         }
         Ok(())
     }
 }
 
 impl AnalyticsRuntimeInner {
-    /// Commits a group through the bounded ingress and the single durable writer.
-    /// `primary_event_id` is the id of the row the caller submitted, so a persisted
-    /// result still carries the stable id it was promised.
+    /// Commits a group through the bounded in-memory queue. `primary_event_id`
+    /// is the id of the event the caller submitted.
     async fn commit_inserts(
         &self,
-        inserts: Vec<OutboxInsert>,
+        inserts: Vec<QueueInsert>,
         pending: PendingUpdate,
         primary_event_id: Option<String>,
         operation_id: Option<&str>,
     ) -> AnalyticsSubmitResult {
-        let total_bytes: i64 = inserts
-            .iter()
-            .map(|insert| insert.payload_json.len() as i64)
-            .sum();
-        let _admission = match self.ingress.try_admit(inserts.len() as i64, total_bytes) {
-            Some(admission) => admission,
-            None => {
-                return AnalyticsSubmitResult::with_reason(
-                    AnalyticsSubmitStatus::Unavailable,
-                    "ingress_full",
-                )
-            }
-        };
-        let _writer = self.write_lock.lock().await;
+        let _state = self.state_lock.lock().await;
         if let Some(operation_id) = operation_id {
             let Some((_, epoch)) = self.operations.lock().await.get(operation_id) else {
                 return AnalyticsSubmitResult::with_reason(
@@ -1147,33 +1083,92 @@ impl AnalyticsRuntimeInner {
     /// Caller holds writer ownership and ingress admission through this commit.
     async fn enqueue_inserts(
         &self,
-        inserts: Vec<OutboxInsert>,
+        inserts: Vec<QueueInsert>,
         pending: PendingUpdate,
         primary_event_id: Option<String>,
     ) -> AnalyticsSubmitResult {
-        match store::enqueue_batch(self.database.pool(), inserts, pending).await {
-            Ok(EnqueueOutcome::Persisted) => {
+        let Some(consent_epoch) = inserts.first().map(|insert| insert.consent_epoch) else {
+            return AnalyticsSubmitResult::with_reason(
+                AnalyticsSubmitStatus::Error,
+                "empty_analytics_batch",
+            );
+        };
+        if inserts
+            .iter()
+            .any(|insert| insert.consent_epoch != consent_epoch)
+        {
+            return AnalyticsSubmitResult::with_reason(
+                AnalyticsSubmitStatus::Error,
+                "mixed_consent_epoch",
+            );
+        }
+        let marks_first_success = inserts.iter().any(|insert| insert.marks_first_success);
+        let event_ids: Vec<String> = inserts
+            .iter()
+            .map(|insert| insert.event_id.clone())
+            .collect();
+        let (outcome, _ignored) = {
+            let mut queue = self.queue.lock().await;
+            queue.enqueue_batch(inserts, store::now_millis())
+        };
+        match outcome {
+            EnqueueOutcome::Queued => {}
+            EnqueueOutcome::Unavailable => {
+                return AnalyticsSubmitResult::with_reason(
+                    AnalyticsSubmitStatus::Unavailable,
+                    "queue_full",
+                )
+            }
+            EnqueueOutcome::Rejected => {
+                return AnalyticsSubmitResult::with_reason(
+                    AnalyticsSubmitStatus::Rejected,
+                    "payload_too_large",
+                )
+            }
+        }
+
+        match store::apply_delivery_metadata(
+            self.database.pool(),
+            consent_epoch,
+            marks_first_success,
+            &pending,
+        )
+        .await
+        {
+            Ok(MetadataOutcome::Applied) => {
                 self.notify.notify_one();
                 AnalyticsSubmitResult {
-                    status: AnalyticsSubmitStatus::Persisted,
+                    status: AnalyticsSubmitStatus::Queued,
                     event_id: primary_event_id,
                     reason: None,
                 }
             }
-            Ok(EnqueueOutcome::Disabled) => {
+            Ok(MetadataOutcome::Disabled) => {
+                self.remove_queued_events(&event_ids).await;
                 AnalyticsSubmitResult::new(AnalyticsSubmitStatus::Disabled)
             }
-            Ok(EnqueueOutcome::StaleEpoch) => {
+            Ok(MetadataOutcome::StaleEpoch) => {
+                self.remove_queued_events(&event_ids).await;
                 AnalyticsSubmitResult::new(AnalyticsSubmitStatus::StaleEpoch)
             }
-            Ok(EnqueueOutcome::Unavailable) => {
-                AnalyticsSubmitResult::with_reason(AnalyticsSubmitStatus::Unavailable, "queue_full")
+            Ok(MetadataOutcome::PendingChanged) => {
+                self.remove_queued_events(&event_ids).await;
+                AnalyticsSubmitResult::with_reason(
+                    AnalyticsSubmitStatus::Deduplicated,
+                    "pending_update_changed",
+                )
             }
-            Ok(EnqueueOutcome::Rejected) => AnalyticsSubmitResult::with_reason(
-                AnalyticsSubmitStatus::Rejected,
-                "payload_too_large",
-            ),
-            Err(error) => AnalyticsSubmitResult::with_reason(AnalyticsSubmitStatus::Error, error),
+            Err(error) => {
+                self.remove_queued_events(&event_ids).await;
+                AnalyticsSubmitResult::with_reason(AnalyticsSubmitStatus::Error, error)
+            }
+        }
+    }
+
+    async fn remove_queued_events(&self, event_ids: &[String]) {
+        let mut queue = self.queue.lock().await;
+        for event_id in event_ids {
+            queue.remove(event_id);
         }
     }
 
@@ -1234,7 +1229,7 @@ impl AnalyticsRuntimeInner {
         let result = self
             .persist_native_event(state, "app.started", attributes, None)
             .await;
-        if result.status == AnalyticsSubmitStatus::Persisted {
+        if result.status == AnalyticsSubmitStatus::Queued {
             Ok(())
         } else {
             Err(result
@@ -1256,7 +1251,7 @@ impl AnalyticsRuntimeInner {
         if state.status != "enabled" {
             return Ok(());
         }
-        let (queue_depth, _) = store::queue_stats(self.database.pool()).await?;
+        let (queue_depth, _) = self.queue.lock().await.stats();
         let accepted = self
             .counters
             .accepted
@@ -1299,7 +1294,7 @@ impl AnalyticsRuntimeInner {
             .await
             .status
         {
-            AnalyticsSubmitStatus::Persisted
+            AnalyticsSubmitStatus::Queued
             | AnalyticsSubmitStatus::Disabled
             | AnalyticsSubmitStatus::Unavailable => Ok(()),
             AnalyticsSubmitStatus::StaleEpoch => Err("stale_consent_epoch".to_string()),
@@ -1340,6 +1335,7 @@ impl AnalyticsRuntimeInner {
     async fn refresh_state(&self, row: &AnalyticsStateRow) {
         if row.status != "enabled" || row.consent_epoch != self.consent_epoch.load(Ordering::SeqCst)
         {
+            self.queue.lock().await.clear();
             self.clear_session().await;
         }
         self.apply_state(row);
@@ -1364,19 +1360,15 @@ impl AnalyticsRuntimeInner {
     /// start. Its queued rows, handles and in-memory binding are revoked under
     /// the same writer lock, so no concurrent ingress can reintroduce the reference.
     async fn abandon_session(&self, session_id: Option<&str>) -> Result<(), String> {
-        let pool = self.database.pool();
-        let _writer = self.write_lock.lock().await;
+        let _state = self.state_lock.lock().await;
         let dropped = match session_id {
-            Some(session_id) => store::drop_session(pool, session_id).await?,
+            Some(session_id) => self.queue.lock().await.drop_session(session_id),
             // If corruption lost the binding, no queued session can be proven
             // independent. Clear pending work rather than send possible orphans.
             None => {
-                let dropped = store::queue_stats(pool).await?.0 as u64;
-                let epoch = store::load_state(pool)
-                    .await?
-                    .ok_or_else(|| "analytics_state_missing".to_string())?
-                    .consent_epoch;
-                store::clear_pending(pool, epoch).await?;
+                let mut queue = self.queue.lock().await;
+                let dropped = queue.stats().0 as u64;
+                queue.clear();
                 self.clear_session().await;
                 dropped
             }
@@ -1395,7 +1387,7 @@ impl AnalyticsRuntimeInner {
     /// Caller holds the writer lock so expiry and native revocation cannot race
     /// with an event capturing the session.
     async fn purge_expired_sessions(&self, now: i64) -> Result<(), String> {
-        let (_, abandoned) = store::purge_expired(self.database.pool(), now).await?;
+        let abandoned = self.queue.lock().await.purge_expired(now);
         for session_id in abandoned {
             match session_id {
                 Some(session_id) => {
@@ -1441,7 +1433,7 @@ impl AnalyticsRuntimeInner {
         session_id: &str,
         consent_epoch: i64,
         occurred_at_ms: i64,
-    ) -> Result<OutboxInsert, String> {
+    ) -> Result<QueueInsert, String> {
         let mut attributes = JsonMap::new();
         attributes.insert(
             "configured".to_string(),
@@ -1482,7 +1474,7 @@ impl AnalyticsRuntimeInner {
         consent_epoch: i64,
         request: &AnalyticsTrackRequest,
         marks_first_success: bool,
-    ) -> Result<OutboxInsert, String> {
+    ) -> Result<QueueInsert, String> {
         let envelope = AnalyticsEventEnvelope {
             schema_version: events::SCHEMA_VERSION,
             event_id: uuid::Uuid::new_v4().to_string(),
@@ -1505,7 +1497,7 @@ impl AnalyticsRuntimeInner {
     }
 
     async fn build_state(&self) -> Result<AnalyticsState, String> {
-        let (queue_depth, pending_bytes) = store::queue_stats(self.database.pool()).await?;
+        let (queue_depth, pending_bytes) = self.queue.lock().await.stats();
         let (status, consent_epoch) = if self.config.is_none() {
             (AnalyticsConsentStatus::Uninitialized, 0)
         } else {
@@ -1543,6 +1535,11 @@ impl AnalyticsRuntimeInner {
         // handoff is kept for a later provisioned start instead of being turned
         // into a confirmation that could never be sent.
         if !self.transport_ready {
+            return Ok(());
+        }
+        // Turning sharing off must not consume a handoff that was recorded while
+        // it was on. Re-enabling can then resolve that handoff on a later start.
+        if row.status != "enabled" {
             return Ok(());
         }
         let confirmation = parse_pending_update(pending_json).and_then(|pending| {
@@ -1595,16 +1592,28 @@ impl AnalyticsRuntimeInner {
             attributes,
         };
         let insert = self.build_event_insert(row, None, row.consent_epoch, &request, false)?;
-        // Persisted clears the pending metadata in the same transaction. Any
-        // other outcome (disabled, full, stale epoch) leaves it in place so the
-        // next start can retry instead of losing the confirmation.
-        store::enqueue_batch(
-            self.database.pool(),
-            vec![insert],
-            PendingUpdate::Confirm(pending_json.clone()),
-        )
-        .await?;
-        Ok(())
+        // Queued clears the pending metadata after the event enters the memory
+        // queue. Any other outcome leaves it in place for the next start.
+        let result = self
+            .enqueue_inserts(
+                vec![insert],
+                PendingUpdate::Confirm(pending_json.clone()),
+                None,
+            )
+            .await;
+        match result.status {
+            AnalyticsSubmitStatus::Queued => Ok(()),
+            // A queue-full start and a concurrent resolver both leave the stored
+            // handoff intact for a later attempt.
+            AnalyticsSubmitStatus::Unavailable
+            | AnalyticsSubmitStatus::Deduplicated
+            | AnalyticsSubmitStatus::Disabled => Ok(()),
+            AnalyticsSubmitStatus::StaleEpoch
+            | AnalyticsSubmitStatus::Rejected
+            | AnalyticsSubmitStatus::Error => Err(result
+                .reason
+                .unwrap_or_else(|| format!("restart_confirmation_{:?}", result.status))),
+        }
     }
 }
 
@@ -1621,13 +1630,12 @@ fn build_insert(
     consent_epoch: i64,
     marks_first_success: bool,
     event_name: &str,
-) -> Result<OutboxInsert, String> {
+) -> Result<QueueInsert, String> {
     let event_id = envelope.event_id.clone();
     let payload_json = serde_json::to_string(&envelope).map_err(|error| error.to_string())?;
-    Ok(OutboxInsert {
+    Ok(QueueInsert {
         event_id,
         consent_epoch,
-        schema_version: i64::from(events::SCHEMA_VERSION),
         event_name: event_name.to_string(),
         payload_json,
         priority: events::event_priority(event_name),
@@ -1927,8 +1935,8 @@ impl AnalyticsRuntime {
                 session: Mutex::new(None),
                 operations: Mutex::new(OperationRegistry::default()),
                 exposures: Mutex::new(HashSet::new()),
-                ingress: Arc::new(Ingress::default()),
-                write_lock: Mutex::new(()),
+                queue: Mutex::new(AnalyticsQueue::default()),
+                state_lock: Mutex::new(()),
                 run_id: run_id.clone(),
                 startup_source: startup_source.clone(),
                 activation: StdMutex::new(StartupActivation {
@@ -1982,23 +1990,55 @@ impl AnalyticsRuntime {
 
     /// Every persisted envelope, oldest first, for asserting session binding.
     async fn outbox_payloads_for_tests(&self) -> Vec<AnalyticsEventEnvelope> {
-        let payloads: Vec<String> = sqlx::query_scalar(
-            "SELECT payload_json FROM analytics_outbox ORDER BY enqueued_at ASC, event_id ASC",
-        )
-        .fetch_all(self.inner.database.pool())
-        .await
-        .expect("outbox payloads");
-        payloads
+        self.inner
+            .queue
+            .lock()
+            .await
+            .events_for_tests()
             .iter()
-            .map(|payload| serde_json::from_str(payload).expect("envelope"))
+            .map(|event| serde_json::from_str(&event.payload_json).expect("envelope"))
             .collect()
     }
 
     async fn clear_outbox_for_tests(&self) {
-        sqlx::query("DELETE FROM analytics_outbox")
-            .execute(self.inner.database.pool())
+        self.inner.queue.lock().await.clear();
+    }
+
+    async fn queue_depth_for_tests(&self) -> i64 {
+        self.inner.queue.lock().await.stats().0
+    }
+
+    async fn enqueue_for_tests(&self, insert: QueueInsert) -> EnqueueOutcome {
+        self.inner
+            .queue
+            .lock()
             .await
-            .expect("clear outbox");
+            .enqueue_batch(vec![insert], store::now_millis())
+            .0
+    }
+
+    async fn set_queue_next_attempt_for_tests(&self, event_name: &str, next: i64) {
+        self.inner
+            .queue
+            .lock()
+            .await
+            .set_next_attempt_for_event_name(event_name, next);
+    }
+
+    async fn set_all_queue_next_attempts_for_tests(&self, next: i64) {
+        self.inner.queue.lock().await.set_all_next_attempts(next);
+    }
+
+    async fn expire_session_starts_for_tests(&self) {
+        self.inner.queue.lock().await.expire_session_starts();
+    }
+
+    async fn corrupt_session_start_for_tests(&self) {
+        self.inner
+            .queue
+            .lock()
+            .await
+            .corrupt_session_start_for_tests();
     }
 }
 
@@ -2025,7 +2065,7 @@ mod tests {
         (root, runtime)
     }
 
-    fn outbox_insert(event_id: &str) -> OutboxInsert {
+    fn outbox_insert(event_id: &str) -> QueueInsert {
         // A real, decodable persisted envelope: the sender parses `payload_json`
         // back into an envelope, so a placeholder body would look like a poison
         // row and be dropped before any transport call.
@@ -2043,10 +2083,9 @@ mod tests {
             architecture: "x86_64".to_string(),
             attributes: JsonMap::new(),
         };
-        OutboxInsert {
+        QueueInsert {
             event_id: event_id.to_string(),
             consent_epoch: 0,
-            schema_version: 1,
             event_name: "app.started".to_string(),
             payload_json: serde_json::to_string(&envelope).expect("encode envelope"),
             priority: 100,
@@ -2054,11 +2093,10 @@ mod tests {
         }
     }
 
-    fn poison_insert(event_id: &str) -> OutboxInsert {
-        OutboxInsert {
+    fn poison_insert(event_id: &str) -> QueueInsert {
+        QueueInsert {
             event_id: event_id.to_string(),
             consent_epoch: 0,
-            schema_version: 1,
             event_name: "app.started".to_string(),
             payload_json: r#"{"not":"an envelope"}"#.to_string(),
             priority: 100,
@@ -2169,12 +2207,12 @@ mod tests {
         let (_root, runtime) = test_runtime(probe.clone()).await;
 
         for index in 0..4 {
-            store::enqueue(
-                runtime.inner.database.pool(),
-                outbox_insert(&format!("e{index}")),
-            )
-            .await
-            .expect("enqueue");
+            assert_eq!(
+                runtime
+                    .enqueue_for_tests(outbox_insert(&format!("e{index}")))
+                    .await,
+                EnqueueOutcome::Queued
+            );
         }
 
         let (first, second) = tokio::join!(runtime.flush_once(), runtime.flush_once());
@@ -2187,31 +2225,20 @@ mod tests {
             1,
             "four due events share one batch"
         );
-        assert_eq!(
-            store::queue_stats(runtime.inner.database.pool())
-                .await
-                .expect("stats")
-                .0,
-            0
-        );
+        assert_eq!(runtime.queue_depth_for_tests().await, 0);
     }
 
     #[tokio::test]
     async fn user_gets_a_delivered_event_removed_and_never_resent() {
         let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
         let (_root, runtime) = test_runtime(probe.clone()).await;
-        store::enqueue(runtime.inner.database.pool(), outbox_insert("e1"))
-            .await
-            .expect("enqueue");
+        assert_eq!(
+            runtime.enqueue_for_tests(outbox_insert("e1")).await,
+            EnqueueOutcome::Queued
+        );
 
         runtime.flush_once().await.expect("flush");
-        assert_eq!(
-            store::queue_stats(runtime.inner.database.pool())
-                .await
-                .expect("stats")
-                .0,
-            0
-        );
+        assert_eq!(runtime.queue_depth_for_tests().await, 0);
 
         runtime.flush_once().await.expect("flush again");
         assert_eq!(probe.sends.load(Ordering::SeqCst), 1);
@@ -2223,17 +2250,15 @@ mod tests {
             reason: "bot_rejected".to_string(),
         }));
         let (_root, runtime) = test_runtime(probe).await;
-        store::enqueue(runtime.inner.database.pool(), outbox_insert("e1"))
-            .await
-            .expect("enqueue");
+        assert_eq!(
+            runtime.enqueue_for_tests(outbox_insert("e1")).await,
+            EnqueueOutcome::Queued
+        );
 
         runtime.flush_once().await.expect("flush");
 
         assert_eq!(
-            store::queue_stats(runtime.inner.database.pool())
-                .await
-                .expect("stats")
-                .0,
+            runtime.queue_depth_for_tests().await,
             1,
             "a bot rejection must not discard the event"
         );
@@ -2243,20 +2268,15 @@ mod tests {
     async fn user_gets_a_poison_row_dropped_without_a_transport_call() {
         let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
         let (_root, runtime) = test_runtime(probe.clone()).await;
-        store::enqueue(runtime.inner.database.pool(), poison_insert("poison"))
-            .await
-            .expect("enqueue");
+        assert_eq!(
+            runtime.enqueue_for_tests(poison_insert("poison")).await,
+            EnqueueOutcome::Queued
+        );
 
         runtime.flush_once().await.expect("flush");
 
         assert_eq!(probe.sends.load(Ordering::SeqCst), 0);
-        assert_eq!(
-            store::queue_stats(runtime.inner.database.pool())
-                .await
-                .expect("stats")
-                .0,
-            0
-        );
+        assert_eq!(runtime.queue_depth_for_tests().await, 0);
     }
 
     #[tokio::test]
@@ -2271,13 +2291,7 @@ mod tests {
             .await;
         assert_eq!(result.status, AnalyticsSubmitStatus::Unavailable);
         assert_eq!(result.reason.as_deref(), Some("analytics_not_provisioned"));
-        assert_eq!(
-            store::queue_stats(runtime.inner.database.pool())
-                .await
-                .expect("stats")
-                .0,
-            0
-        );
+        assert_eq!(runtime.queue_depth_for_tests().await, 0);
     }
 
     #[tokio::test]
@@ -2406,7 +2420,7 @@ mod tests {
         let result = runtime
             .track(track_request("app.startup_completed", forged.clone()))
             .await;
-        assert_eq!(result.status, AnalyticsSubmitStatus::Persisted);
+        assert_eq!(result.status, AnalyticsSubmitStatus::Queued);
         let envelopes = runtime.outbox_payloads_for_tests().await;
         let completed = envelopes
             .iter()
@@ -2499,7 +2513,7 @@ mod tests {
         let completed = runtime
             .track(track_request("app.startup_completed", JsonMap::new()))
             .await;
-        assert_eq!(completed.status, AnalyticsSubmitStatus::Persisted);
+        assert_eq!(completed.status, AnalyticsSubmitStatus::Queued);
         let envelopes = runtime.outbox_payloads_for_tests().await;
         let startup = envelopes
             .iter()
@@ -2550,13 +2564,15 @@ mod tests {
     async fn user_gets_a_health_report_with_real_counters_queue_depth_and_no_session() {
         let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
         let (_root, runtime) = test_runtime(probe).await;
-        store::enqueue(runtime.inner.database.pool(), outbox_insert("delivered"))
-            .await
-            .expect("enqueue delivered");
+        assert_eq!(
+            runtime.enqueue_for_tests(outbox_insert("delivered")).await,
+            EnqueueOutcome::Queued
+        );
         runtime.flush_once().await.expect("flush delivered");
-        store::enqueue(runtime.inner.database.pool(), outbox_insert("queued"))
-            .await
-            .expect("enqueue queued");
+        assert_eq!(
+            runtime.enqueue_for_tests(outbox_insert("queued")).await,
+            EnqueueOutcome::Queued
+        );
 
         runtime.inner.emit_health_once().await.expect("health");
 
@@ -2595,9 +2611,10 @@ mod tests {
     async fn user_does_not_inflate_accepted_events_with_health_deliveries() {
         let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
         let (_root, runtime) = test_runtime(probe).await;
-        store::enqueue(runtime.inner.database.pool(), outbox_insert("delivered"))
-            .await
-            .expect("enqueue delivered");
+        assert_eq!(
+            runtime.enqueue_for_tests(outbox_insert("delivered")).await,
+            EnqueueOutcome::Queued
+        );
         runtime.flush_once().await.expect("flush delivered");
         runtime
             .inner
@@ -2671,7 +2688,7 @@ mod tests {
                 JsonMap::from_iter([("feature".to_string(), JsonValue::String("mcp".to_string()))]),
             ))
             .await;
-        assert_eq!(passive.status, AnalyticsSubmitStatus::Persisted);
+        assert_eq!(passive.status, AnalyticsSubmitStatus::Queued);
         assert!(
             runtime.session_id_for_tests().await.is_none(),
             "a passive exposure must not start a session"
@@ -2686,7 +2703,7 @@ mod tests {
                 )]),
             ))
             .await;
-        assert_eq!(interaction.status, AnalyticsSubmitStatus::Persisted);
+        assert_eq!(interaction.status, AnalyticsSubmitStatus::Queued);
         assert!(
             runtime.session_id_for_tests().await.is_some(),
             "a real interaction starts a session"
@@ -2697,7 +2714,7 @@ mod tests {
     async fn user_does_not_wait_for_analytics_while_another_event_is_being_saved() {
         let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
         let (_root, runtime) = test_runtime(probe).await;
-        let writer = runtime.inner.write_lock.lock().await;
+        let writer = runtime.inner.state_lock.lock().await;
 
         let operation = runtime
             .begin_operation_with_timeout(Duration::from_millis(20))
@@ -2724,7 +2741,7 @@ mod tests {
                 &handle.operation_id,
             ))
             .await;
-        assert_eq!(submitted.status, AnalyticsSubmitStatus::Persisted);
+        assert_eq!(submitted.status, AnalyticsSubmitStatus::Queued);
         let original = runtime
             .session_id_for_tests()
             .await
@@ -2740,7 +2757,7 @@ mod tests {
                 &handle.operation_id,
             ))
             .await;
-        assert_eq!(completed.status, AnalyticsSubmitStatus::Persisted);
+        assert_eq!(completed.status, AnalyticsSubmitStatus::Queued);
 
         let envelopes = runtime.outbox_payloads_for_tests().await;
         let completion = envelopes
@@ -2764,7 +2781,7 @@ mod tests {
         let first = runtime
             .track(track_request("product.feature_exposed", attributes()))
             .await;
-        assert_eq!(first.status, AnalyticsSubmitStatus::Persisted);
+        assert_eq!(first.status, AnalyticsSubmitStatus::Queued);
 
         let second = runtime
             .track(track_request("product.feature_exposed", attributes()))
@@ -2795,39 +2812,19 @@ mod tests {
         );
     }
 
-    #[test]
-    fn user_gets_ingress_capacity_released_when_a_caller_is_dropped() {
-        let ingress = Arc::new(Ingress::default());
-        {
-            let _guard = ingress
-                .try_admit(INGRESS_MAX_ENTRIES, INGRESS_MAX_BYTES)
-                .expect("capacity");
-            assert!(ingress.try_admit(1, 1).is_none(), "a full gate rejects");
-            assert!(
-                ingress.try_admit(0, 1).is_none(),
-                "the byte budget is enforced"
-            );
-        }
-        assert!(
-            ingress
-                .try_admit(INGRESS_MAX_ENTRIES, INGRESS_MAX_BYTES)
-                .is_some(),
-            "capacity returns as soon as the guard is dropped"
-        );
-    }
-
     #[tokio::test]
     async fn user_gets_no_provisional_session_when_the_start_does_not_commit() {
         let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
         let (_root, runtime) = test_runtime(probe).await;
 
-        // Hold the whole ingress budget so the next event cannot be admitted and
-        // therefore cannot commit.
-        let held = runtime
-            .inner
-            .ingress
-            .try_admit(INGRESS_MAX_ENTRIES, INGRESS_MAX_BYTES)
-            .expect("hold ingress");
+        for index in 0..queue::MAX_EVENTS {
+            assert_eq!(
+                runtime
+                    .enqueue_for_tests(outbox_insert(&format!("full-{index}")))
+                    .await,
+                EnqueueOutcome::Queued
+            );
+        }
 
         let result = runtime
             .track(track_request(
@@ -2843,7 +2840,6 @@ mod tests {
             runtime.session_id_for_tests().await.is_none(),
             "a session whose start did not commit must not be advertised to later events"
         );
-        drop(held);
     }
 
     #[test]
@@ -2996,14 +2992,14 @@ mod tests {
             }
         }));
         let (_root, runtime) = test_runtime(sender.clone()).await;
-        let pool = runtime.inner.database.pool();
         for event_id in [
             "11111111-1111-4111-8111-111111111111",
             "22222222-2222-4222-8222-222222222222",
         ] {
-            store::enqueue(pool, outbox_insert(event_id))
-                .await
-                .expect("enqueue");
+            assert_eq!(
+                runtime.enqueue_for_tests(outbox_insert(event_id)).await,
+                EnqueueOutcome::Queued
+            );
         }
 
         runtime.flush_once().await.expect("first flush");
@@ -3013,22 +3009,23 @@ mod tests {
             vec![vec!["app.started".to_string(), "app.started".to_string()]],
             "both due events share one batch"
         );
-        assert_eq!(store::queue_stats(pool).await.expect("stats").0, 2);
-        let attempts_after_failure: Vec<i64> =
-            sqlx::query_scalar("SELECT attempt_count FROM analytics_outbox ORDER BY event_id")
-                .fetch_all(pool)
-                .await
-                .expect("attempt counts");
+        assert_eq!(runtime.queue_depth_for_tests().await, 2);
+        let attempts_after_failure: Vec<i64> = runtime
+            .inner
+            .queue
+            .lock()
+            .await
+            .events_for_tests()
+            .iter()
+            .map(|event| event.attempt_count)
+            .collect();
         assert_eq!(
             attempts_after_failure,
             vec![1, 1],
             "a batch failure reschedules every selected row"
         );
 
-        sqlx::query("UPDATE analytics_outbox SET next_attempt_at = 0")
-            .execute(pool)
-            .await
-            .expect("make retry due");
+        runtime.set_all_queue_next_attempts_for_tests(0).await;
         runtime.flush_once().await.expect("retry flush");
 
         let batch_ids = sender.sent_batch_ids();
@@ -3037,18 +3034,20 @@ mod tests {
             batch_ids[0], batch_ids[1],
             "retrying the same ordered rows preserves the receiver idempotency key"
         );
-        assert_eq!(store::queue_stats(pool).await.expect("stats").0, 0);
+        assert_eq!(runtime.queue_depth_for_tests().await, 0);
     }
 
     #[tokio::test]
-    async fn user_splits_more_than_fifty_due_events_into_bounded_batches() {
+    async fn user_splits_due_events_into_bounded_batches() {
         let sender = Arc::new(RecordingSender::new());
         let (_root, runtime) = test_runtime(sender.clone()).await;
-        let pool = runtime.inner.database.pool();
-        for index in 0..75 {
-            store::enqueue(pool, outbox_insert(&format!("event-{index:03}")))
-                .await
-                .expect("enqueue");
+        for index in 0..25 {
+            assert_eq!(
+                runtime
+                    .enqueue_for_tests(outbox_insert(&format!("event-{index:03}")))
+                    .await,
+                EnqueueOutcome::Queued
+            );
         }
 
         runtime.flush_once().await.expect("flush");
@@ -3056,18 +3055,19 @@ mod tests {
         let batches = sender.sent_batches();
         assert_eq!(
             batches.iter().map(Vec::len).collect::<Vec<_>>(),
-            vec![50, 25]
+            vec![10, 10, 5]
         );
-        assert_eq!(store::queue_stats(pool).await.expect("stats").0, 0);
+        assert_eq!(runtime.queue_depth_for_tests().await, 0);
     }
 
     #[tokio::test]
     async fn user_gets_no_transport_call_when_consent_is_disabled_before_send() {
         let sender = Arc::new(RecordingSender::new());
         let (_root, runtime) = test_runtime(sender.clone()).await;
-        store::enqueue(runtime.inner.database.pool(), outbox_insert("pending"))
-            .await
-            .expect("enqueue");
+        assert_eq!(
+            runtime.enqueue_for_tests(outbox_insert("pending")).await,
+            EnqueueOutcome::Queued
+        );
 
         runtime.set_enabled(false, 0).await.expect("disable");
         runtime.flush_once().await.expect("flush");
@@ -3088,11 +3088,8 @@ mod tests {
                 request_submitted_attributes(),
             ))
             .await;
-        assert_eq!(submitted.status, AnalyticsSubmitStatus::Persisted);
+        assert_eq!(submitted.status, AnalyticsSubmitStatus::Queued);
         let session_id = runtime.session_id_for_tests().await.expect("session");
-        // Previously persisted starts may carry the old passive priority.
-        sqlx::query("UPDATE analytics_outbox SET priority = 200 WHERE event_name = 'analytics.session_started'")
-            .execute(runtime.inner.database.pool()).await.expect("legacy priority");
 
         let queued = runtime.outbox_payloads_for_tests().await;
         assert_eq!(queued.len(), 2, "one session start and one request event");
@@ -3153,7 +3150,6 @@ mod tests {
                 }
             }));
             let (_root, runtime) = test_runtime(sender.clone()).await;
-            let pool = runtime.inner.database.pool();
 
             let submitted = runtime
                 .track(track_request(
@@ -3161,7 +3157,7 @@ mod tests {
                     request_submitted_attributes(),
                 ))
                 .await;
-            assert_eq!(submitted.status, AnalyticsSubmitStatus::Persisted);
+            assert_eq!(submitted.status, AnalyticsSubmitStatus::Queued);
 
             // The first attempt leaves the start queued for retry.
             runtime.flush_once().await.expect("flush");
@@ -3170,14 +3166,12 @@ mod tests {
                 vec!["analytics.session_started".to_string()]
             );
             // Keep every retry deterministic, including the short transient backoff.
-            sqlx::query(
-                "UPDATE analytics_outbox SET next_attempt_at = ? \
-                 WHERE event_name = 'analytics.session_started'",
-            )
-            .bind(store::now_millis() + 3_600_000)
-            .execute(pool)
-            .await
-            .expect("keep start backing off");
+            runtime
+                .set_queue_next_attempt_for_tests(
+                    "analytics.session_started",
+                    store::now_millis() + 3_600_000,
+                )
+                .await;
 
             // A dependent enqueued after the delay must not overtake the start.
             let surface = runtime
@@ -3189,19 +3183,8 @@ mod tests {
                     )]),
                 ))
                 .await;
-            assert_eq!(surface.status, AnalyticsSubmitStatus::Persisted);
-            assert_eq!(store::queue_stats(pool).await.expect("stats").0, 3);
-            let start_retry_at: i64 = sqlx::query_scalar(
-                "SELECT next_attempt_at FROM analytics_outbox \
-                 WHERE event_name = 'analytics.session_started'",
-            )
-            .fetch_one(pool)
-            .await
-            .expect("start retry instant");
-            assert!(
-                start_retry_at > store::now_millis(),
-                "the start is still backing off"
-            );
+            assert_eq!(surface.status, AnalyticsSubmitStatus::Queued);
+            assert_eq!(runtime.queue_depth_for_tests().await, 3);
 
             // Two due dependents, one start that is not due: nothing is sent.
             runtime
@@ -3213,13 +3196,10 @@ mod tests {
                 vec!["analytics.session_started".to_string()],
                 "no dependent may be sent while its session start is delayed"
             );
-            assert_eq!(store::queue_stats(pool).await.expect("stats").0, 3);
+            assert_eq!(runtime.queue_depth_for_tests().await, 3);
 
             // Control the clock: the retry instant arrives without sleeping.
-            sqlx::query("UPDATE analytics_outbox SET next_attempt_at = 0")
-                .execute(pool)
-                .await
-                .expect("advance the queue");
+            runtime.set_all_queue_next_attempts_for_tests(0).await;
 
             runtime
                 .flush_once()
@@ -3235,7 +3215,7 @@ mod tests {
                 ],
                 "the start is delivered before the events that reference its session"
             );
-            assert_eq!(store::queue_stats(pool).await.expect("stats").0, 0);
+            assert_eq!(runtime.queue_depth_for_tests().await, 0);
         }
     }
 
@@ -3243,7 +3223,6 @@ mod tests {
     async fn user_gets_all_pending_rows_abandoned_when_a_stored_session_start_is_corrupt() {
         let sender = Arc::new(RecordingSender::new());
         let (_root, runtime) = test_runtime(sender.clone()).await;
-        let pool = runtime.inner.database.pool();
 
         let handle = runtime.begin_operation().await;
         let submitted = runtime
@@ -3252,7 +3231,7 @@ mod tests {
                 &handle.operation_id,
             ))
             .await;
-        assert_eq!(submitted.status, AnalyticsSubmitStatus::Persisted);
+        assert_eq!(submitted.status, AnalyticsSubmitStatus::Queued);
         let abandoned_session = runtime.session_id_for_tests().await.expect("session");
         runtime
             .track(track_request(
@@ -3263,17 +3242,14 @@ mod tests {
                 )]),
             ))
             .await;
-        assert_eq!(store::queue_stats(pool).await.expect("stats").0, 3);
-        store::enqueue(pool, outbox_insert("independent-startup"))
-            .await
-            .expect("enqueue an independent event");
-        sqlx::query(
-            "UPDATE analytics_outbox SET payload_json = '{\"not\":\"an envelope\"}' \
-             WHERE event_name = 'analytics.session_started'",
-        )
-        .execute(pool)
-        .await
-        .expect("corrupt session start");
+        assert_eq!(runtime.queue_depth_for_tests().await, 3);
+        assert_eq!(
+            runtime
+                .enqueue_for_tests(outbox_insert("independent-startup"))
+                .await,
+            EnqueueOutcome::Queued
+        );
+        runtime.corrupt_session_start_for_tests().await;
 
         runtime.flush_once().await.expect("flush");
 
@@ -3282,7 +3258,7 @@ mod tests {
             "a corrupt start is dropped before any batch reaches the sender"
         );
         assert_eq!(
-            store::queue_stats(pool).await.expect("stats").0,
+            runtime.queue_depth_for_tests().await,
             0,
             "all pending rows are cleared because no session binding can be proven"
         );
@@ -3301,7 +3277,7 @@ mod tests {
             .await;
         assert_eq!(late.status, AnalyticsSubmitStatus::Rejected);
         assert_eq!(late.reason.as_deref(), Some("stale_operation"));
-        assert_eq!(store::queue_stats(pool).await.expect("stats").0, 0);
+        assert_eq!(runtime.queue_depth_for_tests().await, 0);
 
         // A later interaction opens a fresh session with its own start row.
         runtime
@@ -3347,7 +3323,7 @@ mod tests {
                 request_submitted_attributes(),
             ))
             .await;
-        assert_eq!(submitted.status, AnalyticsSubmitStatus::Persisted);
+        assert_eq!(submitted.status, AnalyticsSubmitStatus::Queued);
         runtime
             .inner
             .emit_health_once()
@@ -3367,13 +3343,7 @@ mod tests {
                 "analytics.health_reported".to_string(),
             ]
         );
-        assert_eq!(
-            store::queue_stats(runtime.inner.database.pool())
-                .await
-                .expect("stats")
-                .0,
-            2
-        );
+        assert_eq!(runtime.queue_depth_for_tests().await, 2);
     }
 
     #[tokio::test]
@@ -3381,7 +3351,6 @@ mod tests {
         for reclaim_during_ingress in [false, true] {
             let sender = Arc::new(RecordingSender::new());
             let (_root, runtime) = test_runtime(sender.clone()).await;
-            let pool = runtime.inner.database.pool();
             let handle = runtime.begin_operation().await;
             assert_eq!(
                 runtime
@@ -3391,16 +3360,10 @@ mod tests {
                     ))
                     .await
                     .status,
-                AnalyticsSubmitStatus::Persisted
+                AnalyticsSubmitStatus::Queued
             );
             let old_session = runtime.session_id_for_tests().await.expect("session");
-            sqlx::query(
-                "UPDATE analytics_outbox SET expires_at = 0 \
-                 WHERE event_name = 'analytics.session_started'",
-            )
-            .execute(pool)
-            .await
-            .expect("expire the undelivered start");
+            runtime.expire_session_starts_for_tests().await;
 
             if reclaim_during_ingress {
                 // A later interaction must not reuse a start reclaimed on ingress.
@@ -3415,7 +3378,7 @@ mod tests {
                         ))
                         .await
                         .status,
-                    AnalyticsSubmitStatus::Persisted
+                    AnalyticsSubmitStatus::Queued
                 );
             }
             runtime.flush_once().await.expect("flush");
@@ -3456,13 +3419,13 @@ mod tests {
         use crate::core::database::types::{DatabaseImportMode, DatabaseImportRequest};
 
         let (source_root, source) = test_database().await;
-        sqlx::query(
-            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id) \
-             VALUES (1, 'disabled', 1, 'exported-install')",
-        )
-        .execute(source.pool())
-        .await
-        .expect("seed explicit opt-out");
+        store::ensure_state(source.pool(), POLICY_VERSION, true)
+            .await
+            .expect("source state");
+        store::set_enabled(source.pool(), false, 0, POLICY_VERSION)
+            .await
+            .expect("disable source")
+            .expect("matching source epoch");
         let backup_path = source_root.path().join("opt-out.db");
         source
             .export_backup(backup_path.to_str().expect("backup path"))
@@ -3480,19 +3443,23 @@ mod tests {
                 ))
                 .await
                 .status,
-            AnalyticsSubmitStatus::Persisted
+            AnalyticsSubmitStatus::Queued
         );
         let old_session = runtime.session_id_for_tests().await.expect("old session");
-        sqlx::query("UPDATE analytics_state SET pending_update_json = ? WHERE id = 1")
-            .bind(pending_handoff(
-                Some("11111111-1111-4111-8111-111111111111"),
-                Some("1.0.0"),
-                "2.0.0",
-                0,
-            ))
-            .execute(runtime.inner.database.pool())
-            .await
-            .expect("pending handoff");
+        let pending = pending_handoff(
+            Some("11111111-1111-4111-8111-111111111111"),
+            Some("1.0.0"),
+            "2.0.0",
+            0,
+        );
+        store::apply_delivery_metadata(
+            runtime.inner.database.pool(),
+            0,
+            false,
+            &PendingUpdate::Set(pending),
+        )
+        .await
+        .expect("pending handoff");
 
         runtime
             .inner
@@ -3503,6 +3470,10 @@ mod tests {
             })
             .await
             .expect("full restore");
+        runtime
+            .synchronize_after_restore()
+            .await
+            .expect("synchronize restore");
         let restored = runtime.state().await.expect("restored state");
         assert_eq!(restored.status, AnalyticsConsentStatus::Disabled);
         assert_eq!(restored.consent_epoch, 1);
@@ -3543,7 +3514,7 @@ mod tests {
                 ))
                 .await
                 .status,
-            AnalyticsSubmitStatus::Persisted
+            AnalyticsSubmitStatus::Queued
         );
         assert_ne!(
             runtime.session_id_for_tests().await.as_deref(),
@@ -3609,7 +3580,6 @@ mod tests {
     ) {
         let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
         let (_root, runtime) = test_runtime(probe).await;
-        let pool = runtime.inner.database.pool();
 
         let handle = runtime.begin_operation().await;
         // Withdrawing consent revokes every handle bound to the old epoch; opting
@@ -3630,7 +3600,7 @@ mod tests {
             runtime.session_id_for_tests().await.is_none(),
             "a stale handle must not start a session"
         );
-        assert_eq!(store::queue_stats(pool).await.expect("stats").0, 0);
+        assert_eq!(runtime.queue_depth_for_tests().await, 0);
     }
 
     #[tokio::test]
@@ -3663,7 +3633,7 @@ mod tests {
         let lifecycle = runtime
             .track(track_request("app.startup_completed", JsonMap::new()))
             .await;
-        assert_eq!(lifecycle.status, AnalyticsSubmitStatus::Persisted);
+        assert_eq!(lifecycle.status, AnalyticsSubmitStatus::Queued);
         runtime.flush_once().await.expect("flush lifecycle");
         assert_eq!(
             sender.sent_names(),
@@ -3677,7 +3647,7 @@ mod tests {
         let sender = Arc::new(RecordingSender::new());
         let (_root, runtime) = test_runtime(sender).await;
         let handle = runtime.begin_operation().await;
-        let writer = runtime.inner.write_lock.lock().await;
+        let writer = runtime.inner.state_lock.lock().await;
         let tracking = tokio::spawn({
             let runtime = runtime.clone();
             let operation_id = handle.operation_id.clone();
@@ -3690,24 +3660,7 @@ mod tests {
                     .await
             }
         });
-        tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                let waiting = runtime
-                    .inner
-                    .ingress
-                    .admission
-                    .lock()
-                    .expect("admission")
-                    .entries
-                    > 0;
-                if waiting {
-                    break;
-                }
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .expect("the startup event reached the writer queue");
+        tokio::time::sleep(Duration::from_millis(50)).await;
         runtime.complete_operation(&handle.operation_id).await;
         drop(writer);
 
@@ -3787,7 +3740,7 @@ mod tests {
                     .track_install_handoff(request, Some(from_version.clone()), to_version.clone(),)
                     .await
                     .status,
-                AnalyticsSubmitStatus::Persisted
+                AnalyticsSubmitStatus::Queued
             );
             let install_events = runtime.outbox_payloads_for_tests().await;
             let install_handoff = install_events
@@ -3866,7 +3819,7 @@ mod tests {
                     )
                     .await
                     .status,
-                AnalyticsSubmitStatus::Persisted
+                AnalyticsSubmitStatus::Queued
             );
             let events = runtime.outbox_payloads_for_tests().await;
             assert_eq!(events.len(), 1);
@@ -4023,17 +3976,11 @@ mod tests {
             runtime.clear_outbox_for_tests().await;
             let pool = runtime.inner.database.pool();
             if case.disabled {
-                sqlx::query(
-                    "UPDATE analytics_state SET status = 'disabled', consent_explicit = 1 \
-                     WHERE id = 1",
-                )
-                .execute(pool)
-                .await
-                .expect("disable sharing");
+                store::set_status_for_tests(pool, "disabled", true)
+                    .await
+                    .expect("disable sharing");
             }
-            sqlx::query("UPDATE analytics_state SET pending_update_json = ? WHERE id = 1")
-                .bind(&case.pending)
-                .execute(pool)
+            store::set_pending_update_for_tests(pool, Some(&case.pending))
                 .await
                 .expect("seed pending handoff");
             let row = store::load_state(pool)
@@ -4104,14 +4051,13 @@ mod tests {
         let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
         let (_root, runtime) = test_runtime(probe).await;
         let pool = runtime.inner.database.pool();
-        sqlx::query("UPDATE analytics_state SET pending_update_json = ? WHERE id = 1")
-            .bind(pending_handoff(
-                Some("11111111-1111-4111-8111-111111111111"),
-                Some("1.0.0"),
-                "2.0.0",
-                0,
-            ))
-            .execute(pool)
+        let pending = pending_handoff(
+            Some("11111111-1111-4111-8111-111111111111"),
+            Some("1.0.0"),
+            "2.0.0",
+            0,
+        );
+        store::set_pending_update_for_tests(pool, Some(&pending))
             .await
             .expect("seed pending handoff");
 
@@ -4152,14 +4098,13 @@ mod tests {
             let sender = Arc::new(RecordingSender::new());
             let (_root, runtime) = test_runtime(sender).await;
             let pool = runtime.inner.database.pool();
-            sqlx::query("UPDATE analytics_state SET pending_update_json = ? WHERE id = 1")
-                .bind(pending_handoff(
-                    Some("11111111-1111-4111-8111-111111111111"),
-                    Some("1.0.0"),
-                    "2.0.0",
-                    0,
-                ))
-                .execute(pool)
+            let old_pending = pending_handoff(
+                Some("11111111-1111-4111-8111-111111111111"),
+                Some("1.0.0"),
+                "2.0.0",
+                0,
+            );
+            store::set_pending_update_for_tests(pool, Some(&old_pending))
                 .await
                 .expect("old handoff");
             let old = store::load_state(pool).await.expect("load").expect("row");
@@ -4169,9 +4114,7 @@ mod tests {
                 "2.0.0",
                 0,
             );
-            sqlx::query("UPDATE analytics_state SET pending_update_json = ? WHERE id = 1")
-                .bind(&new_pending)
-                .execute(pool)
+            store::set_pending_update_for_tests(pool, Some(&new_pending))
                 .await
                 .expect("new handoff");
 
@@ -4216,24 +4159,17 @@ mod tests {
             "2.0.0",
             0,
         );
-        sqlx::query("UPDATE analytics_state SET pending_update_json = ? WHERE id = 1")
-            .bind(&pending)
-            .execute(pool)
+        store::set_pending_update_for_tests(pool, Some(&pending))
             .await
             .expect("handoff");
-        sqlx::query(
-            "WITH RECURSIVE rows(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM rows WHERE n < ?) \
-             INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, \
-             payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at, priority) \
-             SELECT printf('full-%d', n), 0, 1, 'agent.request_submitted', '{}', 2, ?, ?, ?, 10 FROM rows",
-        )
-        .bind(store::MAX_EVENTS)
-        .bind(store::now_millis())
-        .bind(store::now_millis() + store::TTL_MS)
-        .bind(store::now_millis())
-        .execute(pool)
-        .await
-        .expect("fill queue with higher-priority events");
+        for index in 0..queue::MAX_EVENTS {
+            assert_eq!(
+                runtime
+                    .enqueue_for_tests(outbox_insert(&format!("full-{index}")))
+                    .await,
+                EnqueueOutcome::Queued
+            );
+        }
         let row = store::load_state(pool).await.expect("load").expect("row");
 
         runtime
@@ -4250,10 +4186,7 @@ mod tests {
                 .as_deref(),
             Some(pending.as_str())
         );
-        assert_eq!(
-            store::queue_stats(pool).await.expect("stats").0,
-            store::MAX_EVENTS
-        );
+        assert_eq!(runtime.queue_depth_for_tests().await, queue::MAX_EVENTS);
         runtime.clear_outbox_for_tests().await;
 
         runtime
@@ -4304,7 +4237,7 @@ mod tests {
 
             assert_eq!(
                 runtime.track(request).await.status,
-                AnalyticsSubmitStatus::Persisted
+                AnalyticsSubmitStatus::Queued
             );
             let row = store::load_state(runtime.inner.database.pool())
                 .await

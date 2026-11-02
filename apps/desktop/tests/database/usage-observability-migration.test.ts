@@ -270,8 +270,7 @@ describe('when the app upgrades an existing database', () => {
 
     /**
      * The usage ledger landed while 0004 was still unreleased, so it lives in
-     * that migration rather than in a separate one; the analytics foundation
-     * tables landed later as their own additive 0005. A released migration must
+     * that migration rather than in a separate one. A released migration must
      * never be edited, so this guards the journal against a released step moving.
      */
     it('user gets the released migrations applied in order', () => {
@@ -281,11 +280,10 @@ describe('when the app upgrades an existing database', () => {
             '0002_quick_search_click_stats_unique',
             '0003_tough_amazoness',
             '0004_ordinary_solo',
-            '0005_mean_outlaw_kid',
         ]);
     });
 
-    it('user gets the analytics foundation tables added by the additive migration', () => {
+    it('user gets analytics state kept in settings without dedicated tables', () => {
         const db = migrated();
         try {
             const tables = (
@@ -293,36 +291,9 @@ describe('when the app upgrades an existing database', () => {
                     name: string;
                 }[]
             ).map((table) => table.name);
-            expect(tables).toContain('analytics_state');
-            expect(tables).toContain('analytics_outbox');
-
-            const stateColumns = (
-                db.prepare('PRAGMA table_info(analytics_state)').all() as { name: string }[]
-            ).map((column) => column.name);
-            for (const name of [
-                'policy_version',
-                'status',
-                'consent_explicit',
-                'installation_id',
-                'consent_epoch',
-                'pending_update_json',
-            ]) {
-                expect(stateColumns).toContain(name);
-            }
-
-            const outboxColumns = (
-                db.prepare('PRAGMA table_info(analytics_outbox)').all() as { name: string }[]
-            ).map((column) => column.name);
-            for (const name of [
-                'event_id',
-                'consent_epoch',
-                'schema_version',
-                'payload_json',
-                'payload_bytes',
-                'expires_at',
-            ]) {
-                expect(outboxColumns).toContain(name);
-            }
+            expect(tables).toContain('settings');
+            expect(tables).not.toContain('analytics_state');
+            expect(tables).not.toContain('analytics_outbox');
         } finally {
             db.close();
         }
