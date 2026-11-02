@@ -6526,6 +6526,7 @@ dependencies = [
  "block2 0.6.2",
  "cc",
  "clipboard-rs",
+ "cssparser 0.37.0",
  "dispatch2",
  "encoding_rs",
  "flate2",
