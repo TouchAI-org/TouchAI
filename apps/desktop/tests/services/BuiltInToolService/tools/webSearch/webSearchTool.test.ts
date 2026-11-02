@@ -797,7 +797,10 @@ describe('user searches the web from the assistant', () => {
 
         const payload = result.structuredPayload;
         expect(payload?.kind).toBe('web_search_sources');
-        expect(payload?.sources.map((source) => source.siteName)).toEqual([
+        if (payload?.kind !== 'web_search_sources') {
+            throw new Error('expected a web search payload');
+        }
+        expect(payload.sources.map((source) => source.siteName)).toEqual([
             'bbc.com',
             'news.cctv.com',
         ]);
@@ -828,6 +831,10 @@ describe('user searches the web from the assistant', () => {
             createExecutionContext()
         );
 
-        expect(result.structuredPayload?.sources[0]?.siteName).toBe('Example News');
+        const payload = result.structuredPayload;
+        if (payload?.kind !== 'web_search_sources') {
+            throw new Error('expected a web search payload');
+        }
+        expect(payload.sources[0]?.siteName).toBe('Example News');
     });
 });
