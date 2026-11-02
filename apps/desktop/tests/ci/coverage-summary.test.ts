@@ -385,15 +385,16 @@ describe('user opens the CI gate for a desktop change', () => {
         );
     });
 
-    it('user sees a failed Rust coverage run block the merge when the desktop app changes', async () => {
+    it('user sees a failed combined Rust validation block the merge when the desktop app changes', async () => {
         const workflow = await readFile(workflowPath, 'utf8');
 
-        expect(workflow).toContain('    rust-coverage:');
+        expect(workflow).toContain('    rust-checks:');
         expect(workflow).toContain('name: rust-coverage-report');
         expect(workflow).toContain('path: ${{ env.RUST_COVERAGE_REPORT }}');
-        expect(workflow).toContain("RUST_COVERAGE_RESULT: ${{ needs['rust-coverage'].result }}");
-        expect(workflow).toContain('required+=("rust-coverage:$RUST_COVERAGE_RESULT")');
-        expect(workflow).toContain('"rust-coverage:$RUST_COVERAGE_RESULT"');
+        expect(workflow).toContain("RUST_CHECKS_RESULT: ${{ needs['rust-checks'].result }}");
+        expect(workflow).toContain('required+=("rust-checks:$RUST_CHECKS_RESULT")');
+        expect(workflow).toContain('"rust-checks:$RUST_CHECKS_RESULT"');
+        expect(workflow).not.toContain('RUST_COVERAGE_RESULT');
     });
 
     it('user gets Rust coverage from cargo-llvm-cov with the llvm tools it needs', async () => {
