@@ -37,6 +37,7 @@ import IconChatHistory from '~icons/lucide/message-circle-more';
 import IconWindowRestore from '~icons/lucide/minimize';
 import IconCompress from '~icons/lucide/minimize-2';
 import IconMinus from '~icons/lucide/minus';
+import IconPointer from '~icons/lucide/mouse-pointer-2';
 import IconEdit from '~icons/lucide/pencil';
 import IconPin from '~icons/lucide/pin';
 import IconPlay from '~icons/lucide/play';
@@ -63,6 +64,7 @@ export const appIconMap = {
     'chevron-up': IconChevronUp,
     close: IconX,
     compress: IconCompress,
+    cursor: IconPointer,
     copy: IconCopy,
     database: IconData,
     delete: IconTrash,

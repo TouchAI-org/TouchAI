@@ -53,6 +53,7 @@ const BUILT_IN_TOOL_SEED_RISK_LEVELS: Record<BuiltInToolId, 'low' | 'medium' | '
     browser_session: 'medium',
     browser_observe: 'low',
     browser_act: 'high',
+    computer_use: 'high',
 };
 
 interface BuiltInToolExecutionOptions {

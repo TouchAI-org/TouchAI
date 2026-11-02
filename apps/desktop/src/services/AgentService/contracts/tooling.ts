@@ -156,9 +156,18 @@ export interface ShowWidgetEventPayload {
  * 形状与 `webSearch/sources.ts` 的 `WebSearchSourcesPayload` 一致；
  * 那边是工具层，这里不能反向依赖，所以用 `import type` 只在类型层引用。
  */
-export type ToolEventStructuredPayload = {
-    kind: 'web_search_sources';
-} & import('@/services/BuiltInToolService/tools/webSearch/sources').WebSearchSourcesPayload;
+export type ToolEventStructuredPayload =
+    | ({
+          kind: 'web_search_sources';
+      } & import('@/services/BuiltInToolService/tools/webSearch/sources').WebSearchSourcesPayload)
+    | {
+          action: string;
+          effect?: string;
+          kind: 'computer_use';
+          pid?: number;
+          route?: string;
+          windowId?: number;
+      };
 
 /**
  * Agent 循环过程中发给 UI 的统一事件。

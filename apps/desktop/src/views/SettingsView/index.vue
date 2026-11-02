@@ -62,6 +62,10 @@
         'built-in-tools',
         () => import('./components/BuiltInTools/index.vue')
     );
+    const ComputerUseView = defineSectionView(
+        'computer-use',
+        () => import('./components/ComputerUse/index.vue')
+    );
     const SearchView = defineSectionView('search', () => import('./components/Search/index.vue'));
     const BrowserView = defineSectionView(
         'browser',
@@ -105,6 +109,10 @@
         },
         'built-in-tools': {
             component: BuiltInToolsView,
+        },
+        'computer-use': {
+            component: ComputerUseView,
+            scrollable: true,
         },
         search: {
             component: SearchView,
