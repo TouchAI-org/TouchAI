@@ -95,6 +95,34 @@ The keys must stay at the top level of `thresholds`. A nested `global` object is
 - Run it locally with `pnpm test:coverage:patch` after `pnpm test:coverage`.
 - The floor lives in the workflow step, not in a config file, because it is a policy number rather than a measured one.
 
+**CI runs frontend tests in three native shards.** Together they run the original test inventory, with each shard executing its share through `vitest.ci-shard.config.ts`:
+
+```bash
+pnpm --filter @touchai/desktop exec vitest run \
+  --config vitest.ci-shard.config.ts \
+  --configLoader runner \
+  --coverage \
+  --shard=<n>/3 \
+  --reporter=default \
+  --reporter=blob
+```
+
+That config spreads `vitest.config.ts` and overrides only the coverage thresholds and reporters. A partial run may sit below a floor for the complete suite, so it does not enforce those floors or write a partial coverage report. It still writes a native Vitest blob containing the shard's test results and coverage data, and each shard uploads that hidden blob even when its tests fail; an absent blob fails the upload.
+
+`frontend-tests` waits for all three shards, refuses any shard result other than `success`, checks that the downloaded artifacts contain exactly `blob-1-3.json`, `blob-2-3.json`, and `blob-3-3.json`, then merges them with the original config:
+
+```bash
+pnpm --filter @touchai/desktop exec vitest \
+  --config vitest.config.ts \
+  --configLoader runner \
+  --merge-reports=.vitest-reports \
+  --coverage
+```
+
+Vitest's native merge reports the complete test results, including any shard failure, and enforces the original global and path-specific thresholds while writing the original coverage reporters. The summary, patch floor, and `frontend-coverage-report` artifact therefore apply only to the merged complete result. A failed shard, a missing or extra artifact, or an artifact that is not a regular file fails before the merge; there is no fallback success or synthesized report. UI preview tests run once in `ci-tests`, not per shard.
+
+**Native shard coverage merge workaround.** The transitive `istanbul-lib-coverage@3.2.2` identifies generated functions by body only and branches by their first arm only, so native merging can collapse distinct generated mappings. A pnpm patch keys functions by body and declaration, and branches by type and every ordered arm. It preserves the library's nearest-container fallback; use it only when every shard provides the same complete mapping metadata and each selected identity is unique. A matching source SHA alone is insufficient. Mixed present/absent declarations, heterogeneous maps, duplicate identities with different metadata, and truthy `bT` remain unsupported. Remove the patch after the installed Istanbul version merges these identities correctly and updated full-suite totals stay unchanged. Upstream: https://github.com/istanbuljs/istanbuljs/pull/712.
+
 Rust floor in `apps/desktop/src-tauri/coverage-floors.json`, from **cargo-llvm-cov** (rustc's own `-C instrument-coverage`, not a ptrace debugger). It reports line and region coverage; region is the finer signal because it flags an expression that was only partly evaluated.
 
 | Metric | Floor | Now | Target |

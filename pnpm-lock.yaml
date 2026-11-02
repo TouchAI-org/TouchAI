@@ -25,6 +25,11 @@ overrides:
   '@esbuild-kit/core-utils>esbuild': 0.25.12
   unifont>undici: 8.12.3
 
+patchedDependencies:
+  istanbul-lib-coverage@3.2.2:
+    hash: 2c1771870d2bae4924d2f783959906078329a76fa1b684e81611fb1dd1089bd6
+    path: patches/istanbul-lib-coverage@3.2.2.patch
+
 importers:
 
   .:
@@ -9921,7 +9926,7 @@ snapshots:
       '@bcoe/v8-coverage': 1.0.2
       '@vitest/utils': 4.1.12
       ast-v8-to-istanbul: 1.0.7
-      istanbul-lib-coverage: 3.2.2
+      istanbul-lib-coverage: 3.2.2(patch_hash=2c1771870d2bae4924d2f783959906078329a76fa1b684e81611fb1dd1089bd6)
       istanbul-lib-report: 3.0.1
       istanbul-reports: 3.2.0
       magicast: 0.5.5
@@ -12128,11 +12133,11 @@ snapshots:
 
   isexe@2.0.0: {}
 
-  istanbul-lib-coverage@3.2.2: {}
+  istanbul-lib-coverage@3.2.2(patch_hash=2c1771870d2bae4924d2f783959906078329a76fa1b684e81611fb1dd1089bd6): {}
 
   istanbul-lib-report@3.0.1:
     dependencies:
-      istanbul-lib-coverage: 3.2.2
+      istanbul-lib-coverage: 3.2.2(patch_hash=2c1771870d2bae4924d2f783959906078329a76fa1b684e81611fb1dd1089bd6)
       make-dir: 4.0.0
       supports-color: 7.2.0
 
