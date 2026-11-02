@@ -20,6 +20,22 @@ function resolveSerializedStreamChannel(payload: unknown): string {
     throw new Error('Expected built_in_tools_start_bash to receive an events channel');
 }
 
+function resolveExecutionId(payload: unknown): string {
+    if (payload && typeof payload === 'object' && 'request' in payload) {
+        const request = payload.request;
+        if (
+            request &&
+            typeof request === 'object' &&
+            'executionId' in request &&
+            typeof request.executionId === 'string'
+        ) {
+            return request.executionId;
+        }
+    }
+
+    throw new Error('Expected built_in_tools_start_bash to receive an execution id');
+}
+
 function createTaskSnapshot(): SessionTaskSnapshot {
     const now = Date.now();
     return {
@@ -69,7 +85,7 @@ describe('user watches a shell command produce output live', () => {
             const stream = resolveSerializedStreamChannel(payload);
             emitTauriChannelMessage(stream, {
                 kind: 'chunk',
-                executionId: 'call-1',
+                executionId: resolveExecutionId(payload),
                 stream: 'stdout',
                 chunk: 'alpha',
             });
@@ -77,7 +93,7 @@ describe('user watches a shell command produce output live', () => {
                 stream,
                 {
                     kind: 'completed',
-                    executionId: 'call-1',
+                    executionId: resolveExecutionId(payload),
                     response,
                 },
                 1
@@ -129,7 +145,7 @@ describe('user watches a shell command produce output live', () => {
             const stream = resolveSerializedStreamChannel(payload);
             emitTauriChannelMessage(stream, {
                 kind: 'chunk',
-                executionId: 'call-1',
+                executionId: resolveExecutionId(payload),
                 stream: 'stdout',
                 chunk: 'alpha\n',
             });
@@ -137,7 +153,7 @@ describe('user watches a shell command produce output live', () => {
                 stream,
                 {
                     kind: 'chunk',
-                    executionId: 'call-1',
+                    executionId: resolveExecutionId(payload),
                     stream: 'stdout',
                     chunk: 'beta',
                 },
@@ -147,7 +163,7 @@ describe('user watches a shell command produce output live', () => {
                 stream,
                 {
                     kind: 'completed',
-                    executionId: 'call-1',
+                    executionId: resolveExecutionId(payload),
                     response,
                 },
                 2
@@ -232,7 +248,7 @@ describe('user watches a shell command produce output live', () => {
                     stream,
                     {
                         kind: 'chunk',
-                        executionId: 'call-coalesce',
+                        executionId: resolveExecutionId(payload),
                         stream: 'stdout',
                         chunk: `line ${index}\n`,
                     },
@@ -248,7 +264,7 @@ describe('user watches a shell command produce output live', () => {
                 stream,
                 {
                     kind: 'completed',
-                    executionId: 'call-coalesce',
+                    executionId: resolveExecutionId(payload),
                     response: { ...response, stdout, combinedOutput: stdout },
                 },
                 messageIndex
@@ -297,7 +313,7 @@ describe('user watches a shell command produce output live', () => {
             const stream = resolveSerializedStreamChannel(payload);
             emitTauriChannelMessage(stream, {
                 kind: 'chunk',
-                executionId: 'call-flush',
+                executionId: resolveExecutionId(payload),
                 stream: 'stdout',
                 chunk: 'alpha\n',
             });
@@ -305,7 +321,7 @@ describe('user watches a shell command produce output live', () => {
                 stream,
                 {
                     kind: 'chunk',
-                    executionId: 'call-flush',
+                    executionId: resolveExecutionId(payload),
                     stream: 'stdout',
                     chunk: 'beta',
                 },
@@ -315,7 +331,7 @@ describe('user watches a shell command produce output live', () => {
                 stream,
                 {
                     kind: 'completed',
-                    executionId: 'call-flush',
+                    executionId: resolveExecutionId(payload),
                     response,
                 },
                 2
@@ -366,7 +382,7 @@ describe('user watches a shell command produce output live', () => {
             const stream = resolveSerializedStreamChannel(payload);
             emitTauriChannelMessage(stream, {
                 kind: 'chunk',
-                executionId: 'call-fail',
+                executionId: resolveExecutionId(payload),
                 stream: 'stdout',
                 chunk: 'alpha\n',
             });
@@ -374,7 +390,7 @@ describe('user watches a shell command produce output live', () => {
                 stream,
                 {
                     kind: 'chunk',
-                    executionId: 'call-fail',
+                    executionId: resolveExecutionId(payload),
                     stream: 'stdout',
                     chunk: 'beta',
                 },
@@ -429,7 +445,7 @@ describe('user watches a shell command produce output live', () => {
                 stream,
                 {
                     kind: 'completed',
-                    executionId: 'call-timeout',
+                    executionId: resolveExecutionId(payload),
                     response,
                 },
                 0
@@ -477,7 +493,7 @@ describe('user watches a shell command produce output live', () => {
                 stream,
                 {
                     kind: 'completed',
-                    executionId: 'call-error',
+                    executionId: resolveExecutionId(payload),
                     response,
                 },
                 0

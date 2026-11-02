@@ -1,5 +1,5 @@
 import type { BuiltInBashExecutionResponse } from '@services/NativeService';
-import { getLastTauriInvokeCall, mockTauriCommand } from '@tests/utils/tauri';
+import { getLastTauriInvokeCall, getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -116,8 +116,21 @@ describe('user runs a shell command from the assistant', () => {
 
         const call = getLastTauriInvokeCall('built_in_tools_execute_bash');
         expect(call?.payload).toEqual({
-            request: expect.objectContaining({ executionId: 'call-1' }),
+            request: expect.objectContaining({ executionId: expect.any(String) }),
         });
+    });
+
+    it('user gets separate native executions when sessions reuse the same tool call id', async () => {
+        const config = { ...DEFAULT_BASH_TOOL_CONFIG, defaultWorkingDirectory: 'D:/project' };
+
+        await executeBashTool({ command: 'dir' }, config, fakeContext({ callId: 'same-call' }));
+        await executeBashTool({ command: 'dir' }, config, fakeContext({ callId: 'same-call' }));
+
+        const ids = getTauriInvokeCalls('built_in_tools_execute_bash').map(
+            (call) => (call.payload as { request: { executionId: string } }).request.executionId
+        );
+        expect(ids).toHaveLength(2);
+        expect(ids[0]).not.toBe(ids[1]);
     });
 
     it('user sees the configured timeout passed to the shell', async () => {
@@ -264,7 +277,7 @@ describe('user runs a shell command from the assistant', () => {
         const call = getLastTauriInvokeCall('built_in_tools_execute_bash');
         expect(call?.payload).toEqual({
             request: {
-                executionId: 'call-1',
+                executionId: expect.any(String),
                 command: 'git diff',
                 workingDirectory: 'D:/other',
                 timeoutMs: 20000,
