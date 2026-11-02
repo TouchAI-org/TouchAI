@@ -45,6 +45,7 @@
     const AiServicesView = defineSectionView(() => import('./components/AiServices/index.vue'));
     const UsageView = defineSectionView(() => import('./components/Usage/index.vue'));
     const BuiltInToolsView = defineSectionView(() => import('./components/BuiltInTools/index.vue'));
+    const ComputerUseView = defineSectionView(() => import('./components/ComputerUse/index.vue'));
     const SearchView = defineSectionView(() => import('./components/Search/index.vue'));
     const BrowserView = defineSectionView(() => import('./components/Browser/index.vue'));
     const McpToolsView = defineSectionView(() => import('./components/McpTools/index.vue'));
@@ -80,6 +81,10 @@
         },
         'built-in-tools': {
             component: BuiltInToolsView,
+        },
+        'computer-use': {
+            component: ComputerUseView,
+            scrollable: true,
         },
         search: {
             component: SearchView,

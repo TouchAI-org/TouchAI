@@ -2,6 +2,7 @@ import { autostart } from './autostart';
 import { browser } from './browser';
 import { builtInTools } from './builtInTools';
 import { clipboard } from './clipboard';
+import { computerUse } from './computerUse';
 import { database } from './database';
 import { log } from './log';
 import * as mcp from './mcp';
@@ -47,6 +48,7 @@ export type {
     BuiltInBashStreamChannel,
     BuiltInBashStreamChunk,
     ClipboardPayload,
+    ComputerUseDriverStatus,
     DiagnosticBundleFile,
     DiagnosticBundlePreview,
     DiagnosticModeStatus,
@@ -66,6 +68,7 @@ export {
     browser,
     builtInTools,
     clipboard,
+    computerUse,
     database,
     log,
     mcp,
@@ -85,6 +88,7 @@ export const native = {
     browser,
     clipboard,
     builtInTools,
+    computerUse,
     log,
     observability,
     database,
