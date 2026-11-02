@@ -38,6 +38,7 @@ zip = { version = "9.1", default-features = false, features = ["deflate"] }
 
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api", "protocol-asset", "test", "tray-icon"] }
+libloading = "0.8"
 tauri-plugin-log = { version = "2", features = ["colored"] }
 tauri-plugin-wdio-webdriver = { version = "1.5.1", optional = true }
 tauri-plugin-opener = "2"
