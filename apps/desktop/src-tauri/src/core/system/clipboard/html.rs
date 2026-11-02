@@ -504,6 +504,23 @@ struct VisibilityDeclaration {
 
 struct VisibilityStyleParser;
 
+fn parse_dynamic_visibility_value<'i>(
+    input: &mut Parser<'i, '_>,
+    allowed_functions: &[&str],
+) -> Result<(), ParseError<'i, ()>> {
+    let function = input.expect_function()?.clone();
+    if !allowed_functions
+        .iter()
+        .any(|name| function.eq_ignore_ascii_case(name))
+    {
+        return Err(input.new_custom_error(()));
+    }
+    input.parse_nested_block(|nested| {
+        while nested.next().is_ok() {}
+        Ok(())
+    })
+}
+
 impl<'i> DeclarationParser<'i> for VisibilityStyleParser {
     type Declaration = VisibilityDeclaration;
     type Error = ();
@@ -515,20 +532,35 @@ impl<'i> DeclarationParser<'i> for VisibilityStyleParser {
         _start: &ParserState,
     ) -> Result<Self::Declaration, ParseError<'i, Self::Error>> {
         let (property, hidden) = if name.eq_ignore_ascii_case("display") {
-            let hidden = input.expect_ident()?.eq_ignore_ascii_case("none");
-            while input.try_parse(|input| input.expect_ident_cloned()).is_ok() {}
+            let hidden = if let Ok(value) = input.try_parse(|input| input.expect_ident_cloned()) {
+                while input.try_parse(|input| input.expect_ident_cloned()).is_ok() {}
+                value.eq_ignore_ascii_case("none")
+            } else {
+                parse_dynamic_visibility_value(input, &["var"])?;
+                false
+            };
             (VisibilityProperty::Display, hidden)
         } else if name.eq_ignore_ascii_case("visibility") {
-            let value = input.expect_ident()?;
-            (
-                VisibilityProperty::Visibility,
-                value.eq_ignore_ascii_case("hidden") || value.eq_ignore_ascii_case("collapse"),
-            )
+            let hidden = if let Ok(value) = input.try_parse(|input| input.expect_ident_cloned()) {
+                value.eq_ignore_ascii_case("hidden") || value.eq_ignore_ascii_case("collapse")
+            } else {
+                parse_dynamic_visibility_value(input, &["var"])?;
+                false
+            };
+            (VisibilityProperty::Visibility, hidden)
         } else if name.eq_ignore_ascii_case("opacity") {
-            let opacity = input
+            let hidden = match input
                 .try_parse(|input| input.expect_number())
-                .or_else(|_| input.expect_percentage())?;
-            (VisibilityProperty::Opacity, opacity <= 0.0)
+                .or_else(|_| input.try_parse(|input| input.expect_percentage()))
+            {
+                Ok(opacity) => opacity <= 0.0,
+                Err(_) => {
+                    parse_dynamic_visibility_value(input, &["var", "calc", "min", "max", "clamp"])?;
+                    // Only a known nonpositive value can safely hide clipboard content.
+                    false
+                }
+            };
+            (VisibilityProperty::Opacity, hidden)
         } else {
             return Err(input.new_custom_error(()));
         };
@@ -729,6 +761,41 @@ mod tests {
 
         assert_eq!(images.len(), 1);
         assert_eq!(images[0].source, "https://example.com/visible.png");
+    }
+
+    #[test]
+    fn user_keeps_images_when_later_dynamic_opacity_may_be_visible() {
+        for style in [
+            "--visible: 1; opacity: 0; opacity: var(--visible)",
+            "opacity: 0; opacity: calc(1)",
+        ] {
+            let html = format!("<img style=\"{style}\" src=\"https://example.com/visible.png\">");
+            let images = extract_html_clipboard_images(&html, None);
+
+            assert_eq!(images.len(), 1, "style: {style}");
+            assert_eq!(images[0].source, "https://example.com/visible.png");
+        }
+    }
+
+    #[test]
+    fn user_keeps_images_when_later_dynamic_display_or_visibility_may_be_visible() {
+        for style in [
+            "--layout: block; display: none; display: var(--layout)",
+            "--state: visible; visibility: hidden; visibility: var(--state)",
+        ] {
+            let html = format!("<img style=\"{style}\" src=\"https://example.com/visible.png\">");
+            assert_eq!(
+                extract_html_clipboard_images(&html, None).len(),
+                1,
+                "style: {style}"
+            );
+        }
+    }
+
+    #[test]
+    fn user_keeps_important_hidden_opacity_when_later_dynamic_value_is_not_important() {
+        let html = "<img style=\"opacity: 0 !important; opacity: calc(1)\" src=\"https://example.com/hidden.png\">";
+        assert!(extract_html_clipboard_images(html, None).is_empty());
     }
 
     #[test]
