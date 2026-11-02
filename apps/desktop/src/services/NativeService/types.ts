@@ -153,6 +153,7 @@ export type TrayStatusIndicator = SessionStatusReminderKind;
 
 export interface RuntimeInfo {
     isE2eTestMode: boolean;
+    isUiPreviewMode: boolean;
 }
 
 export interface AppUpdateInfo {

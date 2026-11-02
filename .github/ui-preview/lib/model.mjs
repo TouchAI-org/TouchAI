@@ -8,6 +8,7 @@
  */
 
 import { isUiPath } from './decision.mjs';
+import { LIMITS } from './scenarios.mjs';
 
 export const DEFAULT_TIMEOUT_MS = 240000;
 export const MAX_ATTEMPTS = 3;
@@ -74,6 +75,9 @@ export function buildPrompt({ title, body, files, diff, diffFiles, diffDropped, 
         ),
         '',
         'Allowed actions: bridge, click, hover, type, press, scroll, wait, shot.',
+        `Scroll steps take a pixel value between -${LIMITS.scrollPixels} and ${LIMITS.scrollPixels}.`,
+        `Wait steps take a millisecond value between 0 and ${LIMITS.waitMs}.`,
+        `Captions stay under ${LIMITS.captionLength} characters on one line.`,
         'Allowed bridge methods: openSettingsWindow, setSearchQuery.',
         'Allowed keys: Enter, Escape, Tab, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Backspace.',
         '',

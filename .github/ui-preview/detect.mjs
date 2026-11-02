@@ -15,7 +15,14 @@ import {
     findOwnPreviewComment,
     isUnchanged,
 } from './lib/comment.mjs';
-import { APPROVED_LABEL, classifyFiles, decide, DECISION, FORCE_LABEL } from './lib/decision.mjs';
+import {
+    APPROVED_LABEL,
+    classifyFiles,
+    decide,
+    DECISION,
+    FORCE_LABEL,
+    previewTrigger,
+} from './lib/decision.mjs';
 import { createClient, resolveBotLogin } from './lib/github.mjs';
 
 function readEvent() {
@@ -61,6 +68,7 @@ async function main() {
     const dryRun = String(process.env.UI_PREVIEW_DRY_RUN ?? '') === '1';
     const dispatchPr = Number(process.env.INPUT_PR ?? 0);
     const manualForce = String(process.env.INPUT_FORCE ?? '') === 'true';
+    const validationScripts = String(process.env.INPUT_SCRIPTS_REF ?? '').trim().length > 0;
 
     const isComment = eventName === 'issue_comment';
     const isDispatch = eventName === 'workflow_dispatch';
@@ -186,13 +194,11 @@ async function main() {
         base_ref: pull.base?.ref ?? '',
         base_sha: pull.base?.sha ?? '',
         run_url: runUrl,
-        trigger: isComment
-            ? 'maintainer request'
-            : isDispatch
-              ? 'manual run'
-              : maintainer
-                ? 'maintainer pull request'
-                : 'approved pull request',
+        trigger: previewTrigger({
+            eventName,
+            maintainer,
+            validationScripts,
+        }),
         touched_i18n: classification.touchedI18n,
         touched_window: classification.touchedWindow,
         touched_settings: classification.touchedSettings,

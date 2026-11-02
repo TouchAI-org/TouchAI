@@ -14,14 +14,6 @@ on:
             - created
     workflow_dispatch:
         inputs:
-            mode:
-                description: Run a preview or check the configured credentials
-                required: true
-                type: choice
-                options:
-                    - preview
-                    - doctor
-                default: preview
             pr:
                 description: Pull request number
                 required: false
@@ -35,8 +27,15 @@ on:
                 description: A plan JSON to use instead of the model
                 required: false
                 type: string
+            scripts_ref:
+                description: Use scripts from this ref for maintainer validation
+                required: false
+                type: string
 
 permissions: {}
+
+env:
+    UI_PREVIEW_DESKTOP_COLOUR: '#d9d4c8'
 
 concurrency:
     # The App adds the approval label during the /ui-preview run. That label
@@ -54,7 +53,6 @@ jobs:
     detect:
         name: Decide
         if: |
-            (github.event_name != 'workflow_dispatch' || inputs.mode != 'doctor') &&
             (github.event_name != 'pull_request_target' ||
               !contains(fromJSON('["labeled","unlabeled"]'), github.event.action) ||
               contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name)) &&
@@ -80,7 +78,7 @@ jobs:
             - name: Check out trusted scripts
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ github.event.repository.default_branch }}
+                  ref: ${{ inputs.scripts_ref || github.event.repository.default_branch }}
                   persist-credentials: false
                   sparse-checkout: |
                       .github/ui-preview
@@ -104,19 +102,34 @@ jobs:
                   UI_PREVIEW_BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]
                   INPUT_PR: ${{ inputs.pr }}
                   INPUT_FORCE: ${{ inputs.force }}
+                  INPUT_SCRIPTS_REF: ${{ inputs.scripts_ref }}
               run: node .github/ui-preview/detect.mjs
 
     explore:
-        name: Build and outline
+        name: Build and outline (${{ matrix.platform }})
         needs: detect
         if: needs.detect.outputs.decision == 'run'
-        runs-on: ubuntu-24.04
-        timeout-minutes: 60
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - platform: linux
+                      os: ubuntu-24.04
+                      binary: TouchAI
+                    - platform: macos
+                      os: macos-15
+                      binary: TouchAI
+                    - platform: windows
+                      os: windows-latest
+                      binary: TouchAI.exe
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 90
         permissions:
             contents: read
         env:
             CARGO_TARGET_DIR: ${{ github.workspace }}/.ui-preview-target
             TOUCHAI_E2E: '1'
+            UI_PREVIEW_PLATFORM: ${{ matrix.platform }}
         steps:
             - name: Check out the pull request
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -132,7 +145,7 @@ jobs:
             - name: Check out trusted scripts
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ github.event.repository.default_branch }}
+                  ref: ${{ inputs.scripts_ref || github.event.repository.default_branch }}
                   path: trusted
                   persist-credentials: false
                   sparse-checkout: |
@@ -147,12 +160,13 @@ jobs:
                   package-manager-cache: false
 
             - name: Install Linux dependencies
+              if: matrix.platform == 'linux'
               run: |
                   sudo apt-get update
                   sudo apt-get install -y --no-install-recommends \
                     build-essential \
                     curl \
-                    ffmpeg \
+                    feh \
                     file \
                     fonts-noto-cjk \
                     imagemagick \
@@ -166,11 +180,16 @@ jobs:
                     picom \
                     pkg-config \
                     wget \
-                    webkit2gtk-driver \
                     x11-utils \
                     x11-xserver-utils \
                     xdotool \
                     xvfb
+
+            - name: Install macOS dependencies
+              if: matrix.platform == 'macos'
+              run: |
+                  # The display helper needs Swift, which ships with Xcode.
+                  swift --version
 
             - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
@@ -181,37 +200,76 @@ jobs:
             - name: Install frontend dependencies
               run: pnpm install --frozen-lockfile
 
-            - name: Install the WebDriver bridge
-              run: cargo install tauri-driver --locked --version 2.1.0
+            - name: Configure the hosted display (macOS)
+              if: matrix.platform == 'macos'
+              run: |
+                  swift trusted/.github/ui-preview/macos-display.swift --list
+                  swift trusted/.github/ui-preview/macos-display.swift --configure-hosted
+
+            - name: Configure the hosted display (Windows)
+              if: matrix.platform == 'windows'
+              shell: pwsh
+              run: |
+                  ./trusted/.github/ui-preview/configure-display.ps1 -List
+                  ./trusted/.github/ui-preview/configure-display.ps1
 
             - name: Build the desktop app
-              run: pnpm tauri build --debug --no-bundle
+              run: pnpm tauri build --debug --no-bundle --features ui-preview-webdriver
 
-            - name: Collect the outline
+            - name: Collect the outline (Linux)
+              if: matrix.platform == 'linux'
               env:
-                  UI_PREVIEW_APP_BINARY: ${{ env.CARGO_TARGET_DIR }}/debug/TouchAI
+                  UI_PREVIEW_APP_BINARY: ${{ env.CARGO_TARGET_DIR }}/debug/${{ matrix.binary }}
+                  UI_PREVIEW_OUT: ${{ github.workspace }}/ui-preview-out
+                  UI_PREVIEW_SHA: ${{ needs.detect.outputs.sha }}
+                  UI_PREVIEW_BASE_SHA: ${{ needs.detect.outputs.base_sha }}
+                  UI_PREVIEW_DISPLAY_WIDTH: '1920'
+                  UI_PREVIEW_DISPLAY_HEIGHT: '1080'
+                  UI_PREVIEW_STAGE_WIDTH: '1920'
+                  UI_PREVIEW_STAGE_HEIGHT: '1080'
+                  UI_PREVIEW_STAGE_TOP: '40'
+                  UI_PREVIEW_SCALE_FACTOR: '1'
+                  TOUCHAI_APP_ROOT: ${{ runner.temp }}/ui-preview-app-root
+              run: |
+                  xvfb-run -a --server-args='-screen 0 1920x1080x24' \
+                    trusted/.github/ui-preview/with-display.sh \
+                    node trusted/.github/ui-preview/explore.mjs
+
+            - name: Collect the outline (macOS and Windows)
+              if: matrix.platform != 'linux'
+              env:
+                  UI_PREVIEW_APP_BINARY: ${{ env.CARGO_TARGET_DIR }}/debug/${{ matrix.binary }}
                   UI_PREVIEW_OUT: ${{ github.workspace }}/ui-preview-out
                   UI_PREVIEW_SHA: ${{ needs.detect.outputs.sha }}
                   UI_PREVIEW_BASE_SHA: ${{ needs.detect.outputs.base_sha }}
                   TOUCHAI_APP_ROOT: ${{ runner.temp }}/ui-preview-app-root
-              run: |
-                  xvfb-run -a --server-args='-screen 0 1280x900x24' \
-                    trusted/.github/ui-preview/with-display.sh \
-                    node trusted/.github/ui-preview/explore.mjs
+              run: node trusted/.github/ui-preview/explore.mjs
 
-            - name: Stage the artifact
+            - name: Stage the build and facts (Linux and macOS)
+              if: matrix.platform != 'windows'
               run: |
-                  mkdir -p ui-preview-build/debug
-                  cp .ui-preview-target/debug/TouchAI ui-preview-build/debug/TouchAI
-                  cp ui-preview-out/facts.json ui-preview-build/facts.json
+                  mkdir -p ui-preview-build
+                  cp "$CARGO_TARGET_DIR/debug/${{ matrix.binary }}" ui-preview-build/
+                  cp ui-preview-out/facts.json ui-preview-build/
                   if [ -f ui-preview-out/baseline-search.png ]; then
-                    cp ui-preview-out/baseline-search.png ui-preview-build/baseline-search.png
+                    cp ui-preview-out/baseline-search.png ui-preview-build/
                   fi
+
+            - name: Stage the build and facts (Windows)
+              if: matrix.platform == 'windows'
+              shell: pwsh
+              run: |
+                  New-Item -ItemType Directory -Force ui-preview-build | Out-Null
+                  Copy-Item "$env:CARGO_TARGET_DIR/debug/${{ matrix.binary }}" ui-preview-build/
+                  Copy-Item ui-preview-out/facts.json ui-preview-build/
+                  if (Test-Path ui-preview-out/baseline-search.png) {
+                    Copy-Item ui-preview-out/baseline-search.png ui-preview-build/
+                  }
 
             - name: Upload the build and facts
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
-                  name: ui-preview-build
+                  name: ui-preview-build-${{ matrix.platform }}
                   if-no-files-found: error
                   compression-level: 0
                   retention-days: 3
@@ -222,7 +280,9 @@ jobs:
         needs:
             - detect
             - explore
-        if: needs.detect.outputs.decision == 'run'
+        # A failed platform must not throw away the others. Planning uses the
+        # first available facts file, preferring Linux.
+        if: always() && needs.detect.outputs.decision == 'run' && needs.explore.result != 'cancelled'
         runs-on: ubuntu-24.04
         timeout-minutes: 15
         permissions:
@@ -232,16 +292,31 @@ jobs:
             - name: Check out trusted scripts
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ github.event.repository.default_branch }}
+                  ref: ${{ inputs.scripts_ref || github.event.repository.default_branch }}
                   persist-credentials: false
                   sparse-checkout: |
                       .github/ui-preview
                   sparse-checkout-cone-mode: false
 
             - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+              continue-on-error: true
               with:
-                  name: ui-preview-build
-                  path: ui-preview-out
+                  pattern: ui-preview-build-*
+                  path: ui-preview-builds
+
+            - name: Select the facts from an available platform
+              run: |
+                  for platform in linux macos windows; do
+                    candidate="ui-preview-builds/ui-preview-build-$platform/facts.json"
+                    if [ -f "$candidate" ]; then
+                      mkdir -p ui-preview-out
+                      cp "$candidate" ui-preview-out/facts.json
+                      echo "planning from the $platform facts"
+                      exit 0
+                    fi
+                  done
+                  echo "::error::no platform produced facts.json"
+                  exit 1
 
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
@@ -268,22 +343,36 @@ jobs:
                   path: ui-preview-out/plan.json
 
     record:
-        name: Record
+        name: Record (${{ matrix.platform }})
         needs:
             - detect
             - plan
         if: needs.detect.outputs.decision == 'run'
-        runs-on: ubuntu-24.04
-        timeout-minutes: 30
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - platform: linux
+                      os: ubuntu-24.04
+                      binary: TouchAI
+                    - platform: macos
+                      os: macos-15
+                      binary: TouchAI
+                    - platform: windows
+                      os: windows-latest
+                      binary: TouchAI.exe
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 45
         permissions:
             contents: read
         env:
             TOUCHAI_E2E: '1'
+            UI_PREVIEW_PLATFORM: ${{ matrix.platform }}
         steps:
             - name: Check out trusted scripts
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ github.event.repository.default_branch }}
+                  ref: ${{ inputs.scripts_ref || github.event.repository.default_branch }}
                   persist-credentials: false
                   sparse-checkout: |
                       .github/ui-preview
@@ -296,44 +385,94 @@ jobs:
 
             - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
               with:
-                  pattern: ui-preview-*
+                  name: ui-preview-build-${{ matrix.platform }}
                   path: ui-preview-out
-                  merge-multiple: true
+
+            - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+              with:
+                  name: ui-preview-plan
+                  path: ui-preview-out
 
             - name: Install Linux dependencies
+              if: matrix.platform == 'linux'
               run: |
                   sudo apt-get update
                   sudo apt-get install -y --no-install-recommends \
-                    build-essential \
-                    curl \
                     ffmpeg \
-                    file \
+                    feh \
                     fonts-noto-cjk \
                     imagemagick \
-                    libayatana-appindicator3-dev \
-                    libglib2.0-dev \
-                    librsvg2-dev \
-                    libssl-dev \
-                    libwebkit2gtk-4.1-dev \
-                    libxdo-dev \
+                    libayatana-appindicator3-1 \
+                    libwebkit2gtk-4.1-0 \
                     openbox \
                     picom \
-                    pkg-config \
-                    wget \
-                    webkit2gtk-driver \
                     x11-utils \
                     x11-xserver-utils \
                     xdotool \
                     xvfb
 
-            - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+            - name: Install macOS dependencies
+              if: matrix.platform == 'macos'
+              run: |
+                  brew install ffmpeg
+                  # The current Homebrew ffmpeg bottle no longer links libass,
+                  # so the caption pass silently fell back on macOS. ffmpeg@7
+                  # still ships the ass filter; point the recorder at it when
+                  # the filter is really there.
+                  brew install ffmpeg@7
+                  ffmpeg7="$(brew --prefix ffmpeg@7)/bin/ffmpeg"
+                  if "$ffmpeg7" -hide_banner -filters 2>/dev/null | grep -q ' ass '; then
+                    echo "UI_PREVIEW_FFMPEG=$ffmpeg7" >> "$GITHUB_ENV"
+                    echo "UI_PREVIEW_FFPROBE=$(brew --prefix ffmpeg@7)/bin/ffprobe" >> "$GITHUB_ENV"
+                  else
+                    echo "::warning::ffmpeg@7 has no ass filter; captions will fall back"
+                  fi
 
-            - name: Install the WebDriver bridge
-              run: cargo install tauri-driver --locked --version 2.1.0
+            - name: Install Windows dependencies
+              if: matrix.platform == 'windows'
+              shell: pwsh
+              run: |
+                  if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+                    choco install ffmpeg -y --no-progress
+                  }
+                  ffmpeg -version | Select-Object -First 1
 
-            - name: Record
+            - name: Configure the hosted display (macOS)
+              if: matrix.platform == 'macos'
+              run: |
+                  swift .github/ui-preview/macos-display.swift --list
+                  swift .github/ui-preview/macos-display.swift --configure-hosted
+
+            - name: Configure the hosted display (Windows)
+              if: matrix.platform == 'windows'
+              shell: pwsh
+              run: |
+                  ./.github/ui-preview/configure-display.ps1 -List
+                  ./.github/ui-preview/configure-display.ps1
+
+            - name: Hide the runner console (Windows)
+              if: matrix.platform == 'windows'
+              shell: pwsh
+              run: |
+                  Add-Type -TypeDefinition @"
+                  using System;
+                  using System.Runtime.InteropServices;
+                  public static class PreviewWindow {
+                      [DllImport("user32.dll")]
+                      public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+                  }
+                  "@
+                  Get-Process |
+                    Where-Object {
+                      $_.MainWindowHandle -ne 0 -and
+                      ($_.MainWindowTitle -match 'GitHub Actions|ProgramData|PowerShell|Command Prompt|System Properties|Server Manager')
+                    } |
+                    ForEach-Object { [PreviewWindow]::ShowWindow($_.MainWindowHandle, 0) | Out-Null }
+
+            - name: Record (Linux)
+              if: matrix.platform == 'linux'
               env:
-                  UI_PREVIEW_APP_BINARY: ${{ github.workspace }}/ui-preview-out/debug/TouchAI
+                  UI_PREVIEW_APP_BINARY: ${{ github.workspace }}/ui-preview-out/${{ matrix.binary }}
                   UI_PREVIEW_OUT: ${{ github.workspace }}/ui-preview-out
                   UI_PREVIEW_SHA: ${{ needs.detect.outputs.sha }}
                   UI_PREVIEW_PR: ${{ needs.detect.outputs.pr }}
@@ -341,23 +480,30 @@ jobs:
                   UI_PREVIEW_RUN_URL: ${{ needs.detect.outputs.run_url }}
                   UI_PREVIEW_TRIGGER: ${{ needs.detect.outputs.trigger }}
                   UI_PREVIEW_SEED: '1'
+                  UI_PREVIEW_DISPLAY_WIDTH: '1920'
+                  UI_PREVIEW_DISPLAY_HEIGHT: '1080'
+                  UI_PREVIEW_STAGE_WIDTH: '1920'
+                  UI_PREVIEW_STAGE_HEIGHT: '1080'
+                  UI_PREVIEW_STAGE_TOP: '40'
+                  UI_PREVIEW_SCALE_FACTOR: '1'
+                  TOUCHAI_UI_PREVIEW: '1'
                   TOUCHAI_APP_ROOT: ${{ runner.temp }}/ui-preview-app-root
               run: |
-                  chmod +x ui-preview-out/debug/TouchAI
+                  chmod +x ui-preview-out/TouchAI
                   # The failure report runs as its own step, so publish the app
                   # root to the job environment before the recorder can fail.
                   echo "TOUCHAI_APP_ROOT=$TOUCHAI_APP_ROOT" >> "$GITHUB_ENV"
-                  xvfb-run -a --server-args='-screen 0 1280x900x24' \
+                  xvfb-run -a --server-args='-screen 0 1920x1080x24' \
                     .github/ui-preview/with-display.sh node .github/ui-preview/record.mjs
 
             # A session that never registers looks identical whether the app
             # crashed, stalled, or lost its webview, so the job prints the state
             # it can see instead of only the recorder's timeout.
             - name: Report the app state
-              if: failure()
+              if: failure() && matrix.platform == 'linux'
               run: |
                   echo "== processes"
-                  pgrep -a -f 'TouchAI|tauri-driver|WebKit' \
+                  pgrep -a -f 'TouchAI|WebKit' \
                     || echo "no app process is running"
                   echo "== app root"
                   find "$TOUCHAI_APP_ROOT" -maxdepth 3 -printf '%y %s %p\n' \
@@ -366,11 +512,44 @@ jobs:
                   find "$TOUCHAI_APP_ROOT" -type f \( -name '*.log' -o -name '*.jsonl' \) \
                     -exec sh -c 'echo "-- $1"; tail -n 40 "$1"' _ {} \;
 
+            - name: Record (macOS)
+              if: matrix.platform == 'macos'
+              env:
+                  UI_PREVIEW_APP_BINARY: ${{ github.workspace }}/ui-preview-out/${{ matrix.binary }}
+                  UI_PREVIEW_OUT: ${{ github.workspace }}/ui-preview-out
+                  UI_PREVIEW_SHA: ${{ needs.detect.outputs.sha }}
+                  UI_PREVIEW_PR: ${{ needs.detect.outputs.pr }}
+                  UI_PREVIEW_TITLE: ${{ needs.detect.outputs.title }}
+                  UI_PREVIEW_RUN_URL: ${{ needs.detect.outputs.run_url }}
+                  UI_PREVIEW_TRIGGER: ${{ needs.detect.outputs.trigger }}
+                  UI_PREVIEW_SEED: '1'
+                  TOUCHAI_UI_PREVIEW: '1'
+                  TOUCHAI_APP_ROOT: ${{ runner.temp }}/ui-preview-app-root
+              run: |
+                  chmod +x ui-preview-out/TouchAI
+                  node .github/ui-preview/record.mjs
+
+            - name: Record (Windows)
+              if: matrix.platform == 'windows'
+              shell: pwsh
+              env:
+                  UI_PREVIEW_APP_BINARY: ${{ github.workspace }}/ui-preview-out/${{ matrix.binary }}
+                  UI_PREVIEW_OUT: ${{ github.workspace }}/ui-preview-out
+                  UI_PREVIEW_SHA: ${{ needs.detect.outputs.sha }}
+                  UI_PREVIEW_PR: ${{ needs.detect.outputs.pr }}
+                  UI_PREVIEW_TITLE: ${{ needs.detect.outputs.title }}
+                  UI_PREVIEW_RUN_URL: ${{ needs.detect.outputs.run_url }}
+                  UI_PREVIEW_TRIGGER: ${{ needs.detect.outputs.trigger }}
+                  UI_PREVIEW_SEED: '1'
+                  TOUCHAI_UI_PREVIEW: '1'
+                  TOUCHAI_APP_ROOT: ${{ runner.temp }}/ui-preview-app-root
+              run: node .github/ui-preview/record.mjs
+
             - name: Upload evidence
               if: always()
               uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
-                  name: ui-preview-evidence
+                  name: ui-preview-evidence-${{ matrix.platform }}
                   if-no-files-found: warn
                   retention-days: 14
                   path: |
@@ -384,14 +563,14 @@ jobs:
             - record
         if: always() && needs.detect.outputs.decision == 'run'
         runs-on: ubuntu-24.04
-        timeout-minutes: 15
+        timeout-minutes: 20
         permissions:
             contents: read
         steps:
             - name: Check out trusted scripts
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ github.event.repository.default_branch }}
+                  ref: ${{ inputs.scripts_ref || github.event.repository.default_branch }}
                   persist-credentials: false
                   sparse-checkout: |
                       .github/ui-preview
@@ -400,9 +579,9 @@ jobs:
             - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
               continue-on-error: true
               with:
-                  pattern: ui-preview-evidence
-                  path: ui-preview-out
-                  merge-multiple: true
+                  pattern: ui-preview-evidence-*
+                  path: ui-preview-out/platforms
+                  merge-multiple: false
 
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
               with:
@@ -426,81 +605,10 @@ jobs:
                   UI_PREVIEW_BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]
                   ATTACHMENT_TOKEN: ${{ secrets.ATTACHMENT_TOKEN }}
                   UI_PREVIEW_OUT: ${{ github.workspace }}/ui-preview-out
+                  UI_PREVIEW_PLATFORMS: linux,macos,windows
                   UI_PREVIEW_PR: ${{ needs.detect.outputs.pr }}
                   UI_PREVIEW_SHA: ${{ needs.detect.outputs.sha }}
                   UI_PREVIEW_TRIGGER: ${{ needs.detect.outputs.trigger }}
                   UI_PREVIEW_REPOSITORY_ID: ${{ github.event.repository.id }}
                   UI_PREVIEW_ARTIFACT_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts
               run: node .github/ui-preview/publish.mjs
-
-    doctor-model:
-        name: Doctor model credential
-        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'doctor'
-        runs-on: ubuntu-24.04
-        timeout-minutes: 10
-        environment: ui-preview
-        permissions:
-            contents: read
-        steps:
-            - name: Check out trusted scripts
-              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with:
-                  ref: ${{ github.event.repository.default_branch }}
-                  persist-credentials: false
-                  sparse-checkout: |
-                      .github/ui-preview
-                  sparse-checkout-cone-mode: false
-
-            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-              with:
-                  node-version: 22
-                  package-manager-cache: false
-
-            - name: Check the model
-              env:
-                  UI_PREVIEW_MODEL_API_KEY: ${{ secrets.UI_PREVIEW_MODEL_API_KEY }}
-                  UI_PREVIEW_MODEL_BASE_URL: ${{ vars.UI_PREVIEW_MODEL_BASE_URL }}
-                  UI_PREVIEW_MODEL: ${{ vars.UI_PREVIEW_MODEL }}
-              run: node .github/ui-preview/doctor.mjs --mode=model
-
-    doctor-publish:
-        name: Doctor publish credentials
-        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'doctor'
-        runs-on: ubuntu-24.04
-        timeout-minutes: 10
-        environment: ui-preview-publish
-        permissions:
-            contents: read
-        steps:
-            - name: Check out trusted scripts
-              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-              with:
-                  ref: ${{ github.event.repository.default_branch }}
-                  persist-credentials: false
-                  sparse-checkout: |
-                      .github/ui-preview
-                  sparse-checkout-cone-mode: false
-
-            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
-              with:
-                  node-version: 22
-                  package-manager-cache: false
-
-            - name: Mint the comment token
-              id: app
-              uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-              with:
-                  app-id: ${{ secrets.BOT_APP_ID }}
-                  private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-                  owner: ${{ github.repository_owner }}
-                  repositories: ${{ github.event.repository.name }}
-                  permission-issues: write
-                  permission-pull-requests: write
-
-            - name: Check the App and upload credentials
-              env:
-                  GH_TOKEN: ${{ steps.app.outputs.token }}
-                  UI_PREVIEW_BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]
-                  ATTACHMENT_TOKEN: ${{ secrets.ATTACHMENT_TOKEN }}
-                  UI_PREVIEW_REPOSITORY_ID: ${{ github.event.repository.id }}
-              run: node .github/ui-preview/doctor.mjs --mode=publish

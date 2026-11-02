@@ -39,6 +39,13 @@ function installedPackages(job) {
     return new Set(packages);
 }
 
+function stepBlock(job, name) {
+    const start = job.indexOf(`- name: ${name}`);
+    const next = job.slice(start + 1).search(/\n {12}- /);
+
+    return next === -1 ? job.slice(start) : job.slice(start, start + 1 + next);
+}
+
 describe('user opens a pull request that runs the preview', () => {
     it('user gets a preview trigger that never uses the default write token', () => {
         expect(workflow).toContain('pull_request_target');
@@ -55,11 +62,11 @@ describe('user opens a pull request that runs the preview', () => {
         expect(workflow).toContain("'approval' || 'run'");
     });
 
-    it('user can check credentials from the same workflow without a pull request', () => {
-        expect(workflow).toContain('mode:');
-        expect(workflow).toContain("inputs.mode == 'doctor'");
-        expect(workflow).toContain('doctor-model');
-        expect(workflow).toContain('doctor-publish');
+    it('user gets no separate credential check that can be run and forgotten', () => {
+        // Credential state is reported by the run that uses it, so there is no
+        // second dispatch mode that can drift from the real pipeline.
+        expect(workflow).not.toContain('doctor');
+        expect(workflow).not.toContain('inputs.mode');
     });
 
     it('user gets a decision for a fork pull request without an environment gate', () => {
@@ -91,24 +98,22 @@ describe('user opens a pull request that runs the preview', () => {
         expect(record).not.toContain('environment:');
     });
 
-    it('user gets the recording job installed with every library the build job needs', () => {
-        const explorePackages = installedPackages(jobBlock('explore'));
+    it('user gets the runtime library the embedded driver needs', () => {
         const recordPackages = installedPackages(jobBlock('record'));
 
-        // Both jobs drive the same binary through tauri-driver, so a package the
-        // build job needs to reach a session is needed by the recorder too.
-        expect([...explorePackages].filter((name) => !recordPackages.has(name))).toEqual([]);
-        expect(recordPackages.has('libwebkit2gtk-4.1-dev')).toBe(true);
+        expect(recordPackages.has('libwebkit2gtk-4.1-0')).toBe(true);
+        expect(recordPackages.has('libwebkit2gtk-4.1-dev')).toBe(false);
+        expect(recordPackages.has('webkit2gtk-driver')).toBe(false);
     });
 
     it('user gets the app state printed when the recording session never starts', () => {
         const record = jobBlock('record');
-        const report = record.slice(record.indexOf('- name: Report the app state'));
+        const report = stepBlock(record, 'Report the app state');
 
         // A session that never registers looks the same whether the app crashed
         // or stalled, so the job has to print what it can observe.
-        expect(report).toContain('if: failure()');
-        expect(report).toContain('tauri-driver');
+        expect(report).toContain("if: failure() && matrix.platform == 'linux'");
+        expect(report).toContain('TouchAI|WebKit');
         expect(report).toContain('tail -n 40');
 
         // The report reads the app root, so it must come from the job env rather
@@ -127,6 +132,56 @@ describe('user opens a pull request that runs the preview', () => {
         expect(record).toContain('apps/desktop/src/database');
     });
 
+    it('user gets the same stable centered frame in production and validation', () => {
+        const record = jobBlock('record');
+
+        expect(record.match(/TOUCHAI_UI_PREVIEW: '1'/g)).toHaveLength(3);
+    });
+
+    it('user gets native builds on Linux, macOS, and Windows', () => {
+        const explore = jobBlock('explore');
+        const record = jobBlock('record');
+
+        for (const platform of ['linux', 'macos', 'windows']) {
+            expect(explore).toContain(`platform: ${platform}`);
+            expect(record).toContain(`platform: ${platform}`);
+        }
+
+        expect(explore).toContain('os: ubuntu-24.04');
+        expect(explore).toContain('os: macos-15');
+        expect(explore).toContain('os: windows-latest');
+        expect(record).toContain('os: ubuntu-24.04');
+        expect(record).toContain('os: macos-15');
+        expect(record).toContain('os: windows-latest');
+    });
+
+    it('user gets the embedded WebDriver build instead of an external driver', () => {
+        expect(workflow).toContain(
+            'pnpm tauri build --debug --no-bundle --features ui-preview-webdriver'
+        );
+        expect(workflow).not.toContain('cargo install tauri-driver');
+        expect(workflow).not.toContain('webkit2gtk-driver');
+    });
+
+    it('user gets the hosted display configured before each native run', () => {
+        expect(workflow).toContain('macos-display.swift --configure-hosted');
+        expect(workflow).toContain('configure-display.ps1');
+        expect(workflow).toContain("UI_PREVIEW_DISPLAY_WIDTH: '1920'");
+        expect(workflow).toContain("UI_PREVIEW_DISPLAY_HEIGHT: '1080'");
+        expect(workflow).toContain("UI_PREVIEW_STAGE_WIDTH: '1920'");
+        expect(workflow).toContain("UI_PREVIEW_STAGE_HEIGHT: '1080'");
+        expect(workflow).toContain("UI_PREVIEW_SCALE_FACTOR: '1'");
+        expect(workflow).toContain('-screen 0 1920x1080x24');
+    });
+
+    it('user gets every platform evidence artifact merged into one publish job', () => {
+        const publish = jobBlock('publish');
+
+        expect(publish).toContain('pattern: ui-preview-evidence-*');
+        expect(publish).toContain('merge-multiple: false');
+        expect(publish).toContain('UI_PREVIEW_PLATFORMS: linux,macos,windows');
+    });
+
     it('user gets the model key only in a job that does not run pull-request code', () => {
         const plan = jobBlock('plan');
 
@@ -135,15 +190,22 @@ describe('user opens a pull request that runs the preview', () => {
         expect(plan).not.toContain('head_repo');
     });
 
-    it('user gets both publishing credentials only in the publish job', () => {
+    it('user gets the attachment and App credentials only in the publish job', () => {
         const publish = jobBlock('publish');
 
         expect(publish).not.toContain('environment:');
         expect(publish).toContain('secrets.ATTACHMENT_TOKEN');
         expect(publish).toContain('secrets.BOT_APP_ID');
         expect(publish).toContain('secrets.BOT_APP_PRIVATE_KEY');
-        expect(publish).toContain('UI_PREVIEW_BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]');
         expect(publish).not.toContain('head_repo');
+    });
+
+    it('user gets the App identity without asking an installation token for /user', () => {
+        const detect = jobBlock('detect');
+        const publish = jobBlock('publish');
+
+        expect(detect).toContain('UI_PREVIEW_BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]');
+        expect(publish).toContain('UI_PREVIEW_BOT_LOGIN: ${{ steps.app.outputs.app-slug }}[bot]');
     });
 
     it('user gets the comment edited in place rather than appended', () => {
@@ -168,10 +230,6 @@ describe('user opens a pull request that runs the preview', () => {
             for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
                 const full = path.join(current, entry.name);
 
-                if (entry.isDirectory() && full === path.join(directory, 'tests')) {
-                    continue;
-                }
-
                 if (entry.isDirectory()) {
                     queue.push(full);
                 } else {
@@ -187,5 +245,32 @@ describe('user opens a pull request that runs the preview', () => {
             expect(text).not.toMatch(/gh[opsu]_[A-Za-z0-9]{20,}/);
             expect(text).not.toMatch(/BEGIN (RSA )?PRIVATE KEY/);
         }
+    });
+});
+
+describe('user validates recorder changes through the preview workflow', () => {
+    const trustedRef = 'ref: ${{ inputs.scripts_ref || github.event.repository.default_branch }}';
+
+    it('user gets one workflow with an explicit branch-script validation input', () => {
+        expect(workflow).toContain('scripts_ref:');
+        expect(workflow).toContain('Use scripts from this ref for maintainer validation');
+        expect(
+            fs.existsSync(
+                path.join(repositoryRoot, '.github/workflows/ui-preview-native-validation.yml')
+            )
+        ).toBe(false);
+    });
+
+    it('user gets the selected validation scripts in every trusted checkout', () => {
+        for (const name of ['detect', 'explore', 'plan', 'record', 'publish']) {
+            expect(jobBlock(name)).toContain(trustedRef);
+        }
+    });
+
+    it('user gets native-validation comment wording only from a branch-script run', () => {
+        const detect = jobBlock('detect');
+
+        expect(detect).toContain('INPUT_SCRIPTS_REF: ${{ inputs.scripts_ref }}');
+        expect(detect).toContain('node .github/ui-preview/detect.mjs');
     });
 });

@@ -6,17 +6,20 @@ use std::path::PathBuf;
 
 const TOUCHAI_APP_ROOT_ENV: &str = "TOUCHAI_APP_ROOT";
 const TOUCHAI_E2E_ENV: &str = "TOUCHAI_E2E";
+const TOUCHAI_UI_PREVIEW_ENV: &str = "TOUCHAI_UI_PREVIEW";
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeInfo {
     pub is_e2e_test_mode: bool,
+    pub is_ui_preview_mode: bool,
 }
 
 impl RuntimeInfo {
     pub fn current() -> Self {
         Self {
             is_e2e_test_mode: is_e2e_test_mode(),
+            is_ui_preview_mode: is_ui_preview_mode(),
         }
     }
 }
@@ -24,6 +27,19 @@ impl RuntimeInfo {
 pub fn is_e2e_test_mode() -> bool {
     matches!(
         std::env::var(TOUCHAI_E2E_ENV)
+            .ok()
+            .map(|value| value.trim().to_ascii_lowercase())
+            .as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    )
+}
+
+/// The preview records a fixed-size, centered window. Content-driven resizes
+/// would move the window while the viewer is reading it, so they are disabled
+/// in this mode and the recorder sets the window frame once before capture.
+pub fn is_ui_preview_mode() -> bool {
+    matches!(
+        std::env::var(TOUCHAI_UI_PREVIEW_ENV)
             .ok()
             .map(|value| value.trim().to_ascii_lowercase())
             .as_deref(),
@@ -76,8 +92,8 @@ pub fn resolve_app_root_override() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        e2e_webview_additional_browser_args, is_e2e_test_mode,
-        DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS, TOUCHAI_E2E_ENV,
+        e2e_webview_additional_browser_args, is_e2e_test_mode, is_ui_preview_mode,
+        DEFAULT_E2E_WEBVIEW_ADDITIONAL_BROWSER_ARGS, TOUCHAI_E2E_ENV, TOUCHAI_UI_PREVIEW_ENV,
     };
     use std::sync::Mutex;
 
@@ -124,5 +140,32 @@ mod tests {
 
         std::env::remove_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS");
         std::env::remove_var(TOUCHAI_E2E_ENV);
+    }
+
+    #[test]
+    fn ui_preview_mode_accepts_the_same_truthy_values_as_e2e_mode() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+
+        for value in ["1", "true", "YES", " on "] {
+            std::env::set_var(TOUCHAI_UI_PREVIEW_ENV, value);
+            assert!(is_ui_preview_mode(), "{value:?} should enable preview mode");
+        }
+
+        std::env::set_var(TOUCHAI_UI_PREVIEW_ENV, "0");
+        assert!(!is_ui_preview_mode());
+        std::env::remove_var(TOUCHAI_UI_PREVIEW_ENV);
+    }
+
+    #[test]
+    fn user_preview_mode_keeps_session_reminders_in_process() {
+        let _guard = ENV_LOCK.lock().expect("env lock");
+        std::env::remove_var(TOUCHAI_E2E_ENV);
+        std::env::set_var(TOUCHAI_UI_PREVIEW_ENV, "1");
+
+        let runtime =
+            crate::core::window::status_reminder::SessionStatusReminderNotificationRuntime::new();
+
+        assert!(runtime.is_test_mode());
+        std::env::remove_var(TOUCHAI_UI_PREVIEW_ENV);
     }
 }
