@@ -155,6 +155,7 @@ mod tests {
     fn user_gets_a_matching_embedded_binary_provisioned_and_reused() {
         let temp = tempfile::tempdir().expect("temporary directory");
         let bin_dir = temp.path().join("bin");
+        let binary_path = bin_dir.join("rtk.exe");
         let bytes = b"expected binary";
         let expected_hash = sha256_hex(bytes);
 
@@ -162,13 +163,30 @@ mod tests {
             resolve_in_directory(bin_dir.clone(), "rtk.exe", &expected_hash, bytes),
             Some(bin_dir.clone())
         );
-        assert_eq!(
-            std::fs::read(bin_dir.join("rtk.exe")).expect("binary file"),
-            bytes
-        );
+        assert_eq!(std::fs::read(&binary_path).expect("binary file"), bytes);
+
+        let original_modified = std::time::UNIX_EPOCH + std::time::Duration::from_secs(946_684_800);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&binary_path)
+            .expect("existing binary")
+            .set_modified(original_modified)
+            .expect("set modification time");
+        let modified_before_reuse = std::fs::metadata(&binary_path)
+            .expect("binary metadata")
+            .modified()
+            .expect("modification time");
+
         assert_eq!(
             resolve_in_directory(bin_dir.clone(), "rtk.exe", &expected_hash, bytes),
             Some(bin_dir)
+        );
+        assert_eq!(
+            std::fs::metadata(&binary_path)
+                .expect("binary metadata after reuse")
+                .modified()
+                .expect("modification time after reuse"),
+            modified_before_reuse
         );
     }
 }
