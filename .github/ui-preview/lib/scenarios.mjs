@@ -199,7 +199,9 @@ export function validatePlan(plan, facts = {}) {
                 const pixels = Number(step.value);
 
                 if (!Number.isFinite(pixels) || Math.abs(pixels) > LIMITS.scrollPixels) {
-                    errors.push(`${stepLabel} scrolls out of range`);
+                    errors.push(
+                        `${stepLabel} scrolls ${step.value}, outside the allowed -${LIMITS.scrollPixels} to ${LIMITS.scrollPixels}`
+                    );
                     return;
                 }
             }
@@ -208,7 +210,9 @@ export function validatePlan(plan, facts = {}) {
                 const ms = Number(step.value);
 
                 if (!Number.isFinite(ms) || ms < 0 || ms > LIMITS.waitMs) {
-                    errors.push(`${stepLabel} waits out of range`);
+                    errors.push(
+                        `${stepLabel} waits ${step.value}ms, outside the allowed 0 to ${LIMITS.waitMs}`
+                    );
                     return;
                 }
             }
@@ -470,4 +474,18 @@ export function defaultPlan(facts = {}) {
         scenes,
         source: 'default',
     };
+}
+
+const RESULT_CLAIM = /\b(?:expanded|results?|content\s+height)\b/i;
+
+export const COMPACT_SEARCH_CAPTION = 'Compact search window; no results panel is visible';
+
+export function accurateSearchCaption(caption, expanded) {
+    const value = String(caption ?? '').trim();
+
+    if (expanded || !RESULT_CLAIM.test(value)) {
+        return value;
+    }
+
+    return COMPACT_SEARCH_CAPTION;
 }

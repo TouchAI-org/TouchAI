@@ -13,6 +13,11 @@ use core::window::popup::PopupRegistry;
 use log::{error, warn};
 use tauri::{Manager, WindowEvent};
 
+#[cfg(all(feature = "ui-preview-webdriver", not(debug_assertions)))]
+compile_error!(
+    "the ui-preview-webdriver feature starts an automation server and must only be used in debug builds"
+);
+
 fn resolve_single_instance_activation_window_label(
     has_settings_window: bool,
     has_main_window: bool,
@@ -95,7 +100,12 @@ pub fn run() {
         .manage(core::browser::BrowserRuntime::new())
         .manage(McpClientManager::new())
         .manage(core::updater::AppUpdaterState::default())
-        .manage(core::updater::notification::AppUpdateNotificationRuntime::default())
+        .manage(core::updater::notification::AppUpdateNotificationRuntime::default());
+
+    #[cfg(feature = "ui-preview-webdriver")]
+    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
+
+    let builder = builder
         .on_window_event(|window, event| {
             if matches!(window.label(), "main" | "settings")
                 && matches!(

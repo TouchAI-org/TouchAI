@@ -15,35 +15,40 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
-    burnCaptions,
     captureScreenshot,
     countDistinctStates,
     cropToElement,
     ensureDir,
+    finalizeRecording,
     hideWindow,
+    isPaintedWindowFrame,
     listAppWindows,
     moveWindow,
     paintDesktop,
+    pngSize,
     probeVideo,
     raiseWindow,
-    SCREEN_WIDTH,
+    resizeWindow,
     showWindow,
-    STAGE_TOP,
-    startRecording,
     windowForSurface,
     windowGeometry,
 } from './lib/capture.mjs';
+import { buildCropFilter, parseDisplaySize, startNativeRecording } from './lib/native-capture.mjs';
 import {
+    isFixtureProviderError,
     MIN_COVERAGE,
     MIN_DISTINCT_STATES,
     MIN_VIDEO_FRAMES,
     MIN_VIDEO_SECONDS,
 } from './lib/evidence.mjs';
 import { ELEMENT_CENTER_SCRIPT, ELEMENT_ROW_RECT_SCRIPT } from './lib/overlay.mjs';
+import { captureMode, detectPlatform, isUsableDisplay, platformLabel } from './lib/platform.mjs';
+import { resolveCaptureProfile, searchWindowFrame, stageLabel } from './lib/profile.mjs';
 import {
     boot,
     bridge,
     ensureOverlay,
+    hideCurrentWindow,
     mainWindowHandle,
     measureOverflow,
     openSettings,
@@ -51,7 +56,20 @@ import {
     switchToSurface,
     waitForBridge,
 } from './lib/runtime.mjs';
-import { testIdFromSelector } from './lib/scenarios.mjs';
+import { accurateSearchCaption, testIdFromSelector } from './lib/scenarios.mjs';
+
+const MAX_KEY_SHOTS = 10;
+const PREVIEW_FRAME_TOLERANCE = 4;
+const SEARCH_CONTENT_SCRIPT = String.raw`
+const visible = (element) => element instanceof HTMLElement && element.getClientRects().length > 0;
+const panel = document.querySelector("[data-testid='quick-search-panel']");
+const root = document.querySelector("[data-testid='search-view']");
+const contentHeight = root
+  ? Math.max(root.scrollHeight, root.getBoundingClientRect().height)
+  : 0;
+
+return { expanded: visible(panel) || contentHeight > 120, contentHeight };
+`;
 
 function env(name, fallback = '') {
     return process.env[name] ?? fallback;
@@ -61,13 +79,48 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForPaint(session) {
-    // A timeout rather than requestAnimationFrame: a window that was just
-    // remapped can have its frame callbacks paused, which would hang the driver.
-    await session.executeAsync(`
-        const done = arguments[arguments.length - 1];
-        setTimeout(() => done(true), 120);
-    `);
+/**
+ * Windows runners surface system dialogs after the app starts. The workflow
+ * hides them once, but the paging-file dialog can appear later, so hide the
+ * known runner windows again immediately before capture.
+ */
+function hideWindowsRunnerWindows(platform) {
+    if (platform !== 'windows') {
+        return;
+    }
+
+    const script = `
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class UiPreviewRunnerWindow {
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
+"@
+Get-Process |
+  Where-Object {
+    $_.MainWindowHandle -ne 0 -and
+    ($_.MainWindowTitle -match 'GitHub Actions|ProgramData|PowerShell|Command Prompt|System Properties|Server Manager')
+  } |
+  ForEach-Object { [UiPreviewRunnerWindow]::ShowWindow($_.MainWindowHandle, 0) | Out-Null }
+`;
+    const result = spawnSync(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', script],
+        { encoding: 'utf8', windowsHide: true }
+    );
+
+    if (result.status !== 0) {
+        console.log(`runner window cleanup skipped: ${(result.stderr || '').trim()}`);
+    }
+}
+
+async function waitForPaint(_session) {
+    // Keep the wait outside WebDriver's async transport. On Windows that
+    // transport posts a private message through WebView2, which Tauri's IPC
+    // handler also sees and reports as a JSON parse error.
+    await sleep(120);
 }
 
 async function moveCursor(session, selector) {
@@ -145,11 +198,40 @@ async function scrollContent(session, pixels) {
 }
 
 /**
+ * Usage is the one settings section whose first frame is a skeleton while its
+ * dashboard query runs. Waiting for the dashboard keeps a slow query from
+ * becoming the final frame of the clip.
+ */
+async function waitForSectionContent(session, target) {
+    if (!String(target ?? '').includes('settings-nav-usage')) {
+        return;
+    }
+
+    await session.waitForElement("[data-testid='settings-usage-dashboard']", 15000);
+    await sleep(300);
+}
+
+/**
+ * Returns the top-left position that centers a window in the preview stage.
+ *
+ * The preview records the whole stage, so the window should look like a real
+ * app window on a real desktop instead of sitting against the top edge.
+ */
+function centeredWindowPosition(stage, window) {
+    return [
+        Math.max(0, Math.round((stage.width - window.width) / 2)),
+        Math.max(0, Math.round((stage.height - window.height) / 2)),
+    ];
+}
+
+/**
  * Shows only the window for this surface. Without this the search window stayed
  * on top of the settings window and the video showed both at once.
  */
-async function isolateSurface(display, surface, state) {
+async function isolateLinuxSurface(display, surface, state) {
     state.windows ??= {};
+    state.activeSurface = surface;
+    const profile = state.profile;
 
     let target = null;
 
@@ -159,7 +241,7 @@ async function isolateSurface(display, surface, state) {
         target = windowGeometry(display, state.windows[surface]);
     }
 
-    target ??= windowForSurface(display, surface);
+    target ??= windowForSurface(display, surface, state.profile.scale);
 
     if (!target) {
         return null;
@@ -176,10 +258,187 @@ async function isolateSurface(display, surface, state) {
     }
 
     showWindow(display, target.id);
-    moveWindow(display, target.id, Math.max(0, Math.round((1280 - target.width) / 2)), STAGE_TOP);
+    moveWindow(display, target.id, ...centeredWindowPosition(profile.physical, target));
     raiseWindow(display, target.id);
     await sleep(250);
     return target;
+}
+
+/**
+ * Places the active webview in the middle of the preview stage and parks the
+ * other app windows off-screen. WebDriver can move every Tauri window on every
+ * platform, so Windows and macOS use the same logic instead of OS-specific
+ * window discovery.
+ */
+async function isolateWebviewSurface(session, surface, state) {
+    const handle = await switchToSurface(session, surface, state);
+    state.handles ??= {};
+    state.handles[surface] = handle;
+    const rect = await placeWebviewWindow(session, handle, state.profile);
+
+    for (const [name, other] of Object.entries(state.handles)) {
+        if (name === surface || !other) {
+            continue;
+        }
+
+        try {
+            await session.switchTo(other);
+            await hideCurrentWindow(session);
+        } catch {
+            // A window that closed between scenes has nothing to hide.
+        }
+    }
+
+    await session.switchTo(handle);
+    await session.focusWindow();
+    await sleep(250);
+    return {
+        id: handle,
+        x: Math.max(0, Math.round((state.profile.stage.width - rect.width) / 2)),
+        y: Math.max(0, Math.round((state.profile.stage.height - rect.height) / 2)),
+        width: rect.width,
+        height: rect.height,
+    };
+}
+
+async function placeWebviewWindow(session, handle, profile) {
+    await session.switchTo(handle);
+    await session.focusWindow();
+    const rect = await session.getWindowRect();
+    const x = Math.max(0, Math.round((profile.stage.width - rect.width) / 2));
+    const y = Math.max(0, Math.round((profile.stage.height - rect.height) / 2));
+
+    if (Math.abs(rect.x - x) > 2 || Math.abs(rect.y - y) > 2) {
+        await session.setWindowRect({ x, y });
+    }
+
+    return rect;
+}
+
+async function setPreviewWindowFrame({ session, platform, display, handle, frame, scale }) {
+    const { x, y, width, height } = frame;
+
+    await session.switchTo(handle);
+
+    try {
+        await session.setWindowRect({ x, y, width, height });
+    } catch (error) {
+        if (platform !== 'linux') {
+            throw error;
+        }
+
+        // WebKitWebDriver on Xvfb does not always implement setWindowRect;
+        // xdotool drives the same window manager the rest of the recorder uses.
+        const id = windowForSurface(display, 'search', scale)?.id;
+
+        if (!id) {
+            throw error;
+        }
+
+        resizeWindow(display, id, width, height);
+        moveWindow(display, id, x, y);
+    }
+
+    await session.focusWindow();
+    await sleep(250);
+}
+
+/**
+ * Gives the empty search window its compact bar, then expands once when results
+ * or a conversation appear. Preview mode suppresses the app's per-character
+ * resize, so the recorder makes this one transition instead of letting the
+ * window jump while the viewer reads it.
+ */
+async function searchContentState(session) {
+    const state = await session.execute(SEARCH_CONTENT_SCRIPT);
+    return {
+        expanded: Boolean(state?.expanded),
+        contentHeight: Number(state?.contentHeight ?? 0),
+    };
+}
+
+async function applySearchWindowFrame({
+    session,
+    platform,
+    display,
+    handle,
+    state,
+    expanded,
+    contentHeight,
+    force = false,
+}) {
+    const name = expanded ? 'expanded' : 'compact';
+
+    if (!force && state.searchFrame === name) {
+        return false;
+    }
+
+    const frame = searchWindowFrame(state.profile.stage, {
+        expanded,
+        contentHeight,
+    });
+
+    await setPreviewWindowFrame({
+        session,
+        platform,
+        display,
+        handle,
+        frame,
+        scale: state.profile.scale,
+    });
+    state.searchFrame = name;
+    state.previewFrame = frame;
+    await waitForPaint(session);
+    return true;
+}
+
+async function expandSearchFrameForContent({ session, platform, display, handle, state }) {
+    const content = await searchContentState(session);
+
+    if (!content.expanded || state.searchFrame === 'expanded') {
+        return false;
+    }
+
+    await applySearchWindowFrame({
+        session,
+        platform,
+        display,
+        handle,
+        state,
+        expanded: true,
+        contentHeight: content.contentHeight,
+    });
+    return true;
+}
+
+/**
+ * Proves the current preview frame survived the interactions in a search scene.
+ */
+async function checkPreviewFrame(
+    session,
+    handle,
+    frame,
+    name = 'Search window frame stayed stable'
+) {
+    await session.switchTo(handle);
+    const rect = await session.getWindowRect();
+    const stable =
+        Math.abs(rect.width - frame.width) <= PREVIEW_FRAME_TOLERANCE &&
+        Math.abs(rect.height - frame.height) <= PREVIEW_FRAME_TOLERANCE;
+
+    return {
+        name,
+        status: stable ? 'pass' : 'fail',
+        detail: stable
+            ? `${rect.width}x${rect.height}`
+            : `${rect.width}x${rect.height}, expected ${frame.width}x${frame.height}`,
+    };
+}
+
+async function isolateSurface({ session, platform, display, surface, state }) {
+    return platform === 'linux'
+        ? isolateLinuxSurface(display, surface, state)
+        : isolateWebviewSurface(session, surface, state);
 }
 
 function describeStep(step) {
@@ -212,13 +471,35 @@ function describeStep(step) {
 }
 
 /**
- * Puts the active window back on the stage line.
+ * Puts the active window back in the middle of the stage.
  *
- * The search window grows from 60 to 207 pixels tall when results appear and
- * the app recentres itself, which slides it to the middle of the screen
- * mid-clip. Re-pinning it after each step keeps the recording steady.
+ * The app centers the search window itself when its height changes. This only
+ * corrects a window that a native window manager moved away, and it tolerates a
+ * few pixels so it never fights the app's own resize animation.
  */
-async function keepWindowInPlace(display, surface, state) {
+async function keepWindowInPlace({ session, platform, display, surface, state }) {
+    const profile = state.profile;
+
+    if (platform !== 'linux') {
+        const handle = state.handles?.[surface];
+
+        if (!handle) {
+            return;
+        }
+
+        await session.switchTo(handle);
+        const rect = await session.getWindowRect();
+        const x = Math.max(0, Math.round((profile.stage.width - rect.width) / 2));
+        const y = Math.max(0, Math.round((profile.stage.height - rect.height) / 2));
+
+        if (Math.abs(rect.x - x) > 8 || Math.abs(rect.y - y) > 8) {
+            await session.setWindowRect({ x, y });
+            await sleep(120);
+        }
+
+        return;
+    }
+
     const id = state.windows?.[surface];
 
     if (!id) {
@@ -227,16 +508,17 @@ async function keepWindowInPlace(display, surface, state) {
 
     const geometry = windowGeometry(display, id);
 
-    if (!geometry || Math.abs(geometry.y - STAGE_TOP) <= 2) {
+    if (!geometry) {
         return;
     }
 
-    moveWindow(
-        display,
-        id,
-        Math.max(0, Math.round((SCREEN_WIDTH - geometry.width) / 2)),
-        STAGE_TOP
-    );
+    const [x, y] = centeredWindowPosition(profile.physical, geometry);
+
+    if (Math.abs(geometry.x - x) <= 8 && Math.abs(geometry.y - y) <= 8) {
+        return;
+    }
+
+    moveWindow(display, id, x, y);
     await sleep(120);
 }
 
@@ -244,10 +526,36 @@ async function keepWindowInPlace(display, surface, state) {
  * A window that was just remapped can return a black frame. Capture again when
  * the file is implausibly small for a real window.
  */
-async function captureStill({ session, display, surface, state, file }) {
-    const candidates = [state.windows?.[surface], windowForSurface(display, surface)?.id].filter(
-        Boolean
-    );
+async function captureStill({ session, platform, display, surface, state, file }) {
+    if (platform !== 'linux') {
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+            await session.execute('window.__UI_PREVIEW__?.hide();');
+            await sleep(220);
+
+            try {
+                const base64 = await session.screenshot();
+                fs.writeFileSync(file, Buffer.from(base64, 'base64'));
+            } catch (error) {
+                console.log(`screenshot attempt ${attempt} failed: ${error.message}`);
+            }
+
+            await session.execute('window.__UI_PREVIEW__?.show();');
+            await sleep(220);
+
+            if (isPaintedWindowFrame(file)) {
+                return pngSize(file);
+            }
+
+            await waitForPaint(session);
+        }
+
+        return null;
+    }
+
+    const candidates = [
+        state.windows?.[surface],
+        windowForSurface(display, surface, state.profile.scale)?.id,
+    ].filter(Boolean);
 
     for (let attempt = 1; attempt <= 3; attempt += 1) {
         await session.execute('window.__UI_PREVIEW__?.hide();');
@@ -258,7 +566,7 @@ async function captureStill({ session, display, surface, state, file }) {
         for (const id of candidates) {
             size = captureScreenshot({ display, file, id });
 
-            if (fs.existsSync(file) && fs.statSync(file).size >= 4096) {
+            if (isPaintedWindowFrame(file)) {
                 break;
             }
         }
@@ -266,7 +574,7 @@ async function captureStill({ session, display, surface, state, file }) {
         await session.execute('window.__UI_PREVIEW__?.show();');
         await sleep(250);
 
-        if (fs.statSync(file).size >= 4096) {
+        if (isPaintedWindowFrame(file)) {
             return size;
         }
 
@@ -274,6 +582,66 @@ async function captureStill({ session, display, surface, state, file }) {
     }
 
     return null;
+}
+
+/**
+ * Captures one reviewer-facing still. The overlay is hidden for the frame, the
+ * window is put back in the stage center first, and a target test id crops the
+ * image to the control a reviewer needs to judge.
+ */
+async function captureKeyShot({
+    session,
+    platform,
+    display,
+    surface,
+    state,
+    file,
+    caption,
+    target,
+    recorded,
+}) {
+    await isolateSurface({ session, platform, display, surface, state });
+    const element = target ? await session.execute(ELEMENT_ROW_RECT_SCRIPT, [target]) : null;
+
+    if (platform === 'linux') {
+        const id = state.windows?.[surface];
+
+        if (!id) {
+            throw new Error(`no visible ${surface} window to capture`);
+        }
+
+        raiseWindow(display, id);
+        await sleep(250);
+    }
+
+    let size = await captureStill({
+        session,
+        platform,
+        display,
+        surface,
+        state,
+        file,
+    });
+
+    if (!size) {
+        throw new Error(`the ${surface} window did not paint a frame`);
+    }
+
+    if (element) {
+        size =
+            cropToElement({
+                file,
+                rect: element.rect,
+                viewport: element.viewport,
+            }) ?? size;
+    }
+
+    recorded.shots.push({
+        file: path.basename(file),
+        caption: caption ?? '',
+        width: size.width,
+        height: size.height,
+    });
 }
 
 async function runStep(session, step) {
@@ -465,18 +833,47 @@ function findLogErrors(appRoot) {
 }
 
 /**
+ * Boots the app and waits for its bridge, retrying once.
+ *
+ * A hosted macOS runner occasionally starts the app without ever registering
+ * the bridge, and the next launch on the same machine works. One retry keeps
+ * the evidence real instead of reporting a recording that never started.
+ */
+async function bootWithBridge(application, platform, timeoutMs = 45000) {
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+        const runtime = await boot({ application, platform });
+
+        try {
+            await waitForBridge(runtime.session, timeoutMs);
+            return runtime;
+        } catch (error) {
+            lastError = error;
+            console.log(`bridge wait attempt ${attempt} failed: ${error.message}`);
+
+            try {
+                await runtime.close();
+            } catch {
+                // The app already gone is the expected shape of this failure.
+            }
+
+            await sleep(1500);
+        }
+    }
+
+    throw lastError;
+}
+
+/**
  * Boots the app once so it creates and migrates its database, quits, then
  * writes fixture rows into it. A fresh install records an empty Usage page,
  * which hides exactly the changes that page needs a reviewer to see.
  */
-async function seedAppData(application) {
-    const warm = await boot({ application });
+async function seedAppData(application, platform) {
+    const warm = await bootWithBridge(application, platform);
 
-    try {
-        await waitForBridge(warm.session, 45000);
-    } finally {
-        await warm.close();
-    }
+    await warm.close();
 
     // The driver port is released asynchronously; the real boot starts after.
     await sleep(800);
@@ -498,35 +895,39 @@ async function seedAppData(application) {
 
 async function main() {
     const application = env('UI_PREVIEW_APP_BINARY');
-    const outDir = path.resolve(env('UI_PREVIEW_OUT', 'ui-preview-out'));
+    const outDir = ensureDir(env('UI_PREVIEW_OUT', 'ui-preview-out'));
     const evidenceDir = ensureDir(path.join(outDir, 'evidence'));
+    const platform = detectPlatform();
     const display = env('DISPLAY', ':99');
+    const profile = resolveCaptureProfile(process.env);
+    const compactFrame = searchWindowFrame(profile.stage);
+    const displaySize = parseDisplaySize(process.env, platform, profile);
     const sha = env('UI_PREVIEW_SHA');
     const title = env('UI_PREVIEW_TITLE');
     const appRoot = env('TOUCHAI_APP_ROOT');
-    const facts = JSON.parse(fs.readFileSync(path.join(outDir, 'facts.json'), 'utf8'));
+    const factsPath = path.join(outDir, 'facts.json');
     const planFile = env('UI_PREVIEW_PLAN_FILE') || path.join(outDir, 'plan.json');
-    const plan = JSON.parse(fs.readFileSync(planFile, 'utf8'));
-
-    if (!application || !fs.existsSync(application)) {
-        throw new Error(`UI_PREVIEW_APP_BINARY does not exist: ${application}`);
-    }
-
-    paintDesktop(display);
-
-    const scenes = [...plan.scenes].sort((left, right) => {
-        if (left.surface === right.surface) {
-            return 0;
-        }
-        return left.surface === 'search' ? -1 : 1;
-    });
-
+    const facts = fs.existsSync(factsPath)
+        ? JSON.parse(fs.readFileSync(factsPath, 'utf8'))
+        : { files: [], testIds: {} };
+    const plan = fs.existsSync(planFile)
+        ? JSON.parse(fs.readFileSync(planFile, 'utf8'))
+        : { scenes: [] };
+    const consoleErrors = [];
+    let fixtureProviderErrors = 0;
+    let logErrors = [];
     const manifest = {
         version: 1,
         sha,
         pr: Number(env('UI_PREVIEW_PR', '0')),
         runUrl: env('UI_PREVIEW_RUN_URL'),
         trigger: env('UI_PREVIEW_TRIGGER'),
+        platform,
+        captureMode: captureMode(platform),
+        display: displaySize,
+        stage: profile.stage,
+        scale: profile.scale,
+        physicalStage: profile.physical,
         source: plan.source ?? 'model',
         summary: plan.summary ?? '',
         mismatch: plan.mismatch ?? '',
@@ -541,22 +942,84 @@ async function main() {
         failure: null,
     };
 
+    function fail(step, message) {
+        manifest.errors.push(`${step}: ${message}`);
+        manifest.failure ??= { step, message };
+    }
+
+    function persist() {
+        fs.writeFileSync(
+            path.join(outDir, 'manifest.json'),
+            `${JSON.stringify({ ...manifest, consoleErrors, logErrors }, null, 2)}\n`
+        );
+    }
+
+    if (!application || !fs.existsSync(application)) {
+        manifest.checks.push({
+            name: 'App build',
+            status: 'fail',
+            detail: `missing binary: ${application || '(empty)'}`,
+        });
+        fail('setup', `UI_PREVIEW_APP_BINARY does not exist: ${application}`);
+        persist();
+        return;
+    }
+
+    if (
+        !isUsableDisplay(
+            displaySize.width,
+            displaySize.height,
+            profile.physical.width,
+            profile.physical.height
+        )
+    ) {
+        manifest.checks.push({
+            name: 'Display',
+            status: 'fail',
+            detail: `${displaySize.width}x${displaySize.height}`,
+        });
+        fail(
+            'display',
+            `${platformLabel(platform)} exposes ${displaySize.width}x${displaySize.height}; native capture needs at least ${profile.physical.width}x${profile.physical.height}`
+        );
+        persist();
+        return;
+    }
+
+    manifest.checks.push({
+        name: 'Display',
+        status: 'pass',
+        detail: `${displaySize.width}x${displaySize.height} display, ${stageLabel(profile)} stage`,
+    });
+
+    if (platform === 'linux') {
+        paintDesktop(display);
+    }
+
+    const scenes = [...(plan.scenes ?? [])].sort((left, right) => {
+        if (left.surface === right.surface) {
+            return 0;
+        }
+        return left.surface === 'search' ? -1 : 1;
+    });
+
     if (env('UI_PREVIEW_SEED', '1') === '1') {
         try {
-            await seedAppData(application);
+            await seedAppData(application, platform);
         } catch (error) {
             manifest.warnings.push(`fixture data was not written: ${error.message}`);
             console.log(`seed skipped: ${error.message}`);
         }
     }
 
-    const runtime = await boot({ application });
-    const { session } = runtime;
-    const consoleErrors = [];
     const rawVideo = path.join(evidenceDir, 'recording-raw.mp4');
     const videoFile = path.join(evidenceDir, 'recording.mp4');
+    let runtime = null;
     let recording = null;
-    let recordingStartedAt = 0;
+    let recordingStartedAt = Date.now();
+    let keyShotCount = 0;
+    let compactFrameChecked = false;
+    let shotLimitReported = false;
     const timeline = [];
     let currentCaption = null;
 
@@ -578,10 +1041,20 @@ async function main() {
     }
 
     try {
-        await waitForBridge(session);
+        runtime = await bootWithBridge(application, platform);
+        const { session } = runtime;
+
         const mainHandle = await mainWindowHandle(session);
         await ensureOverlay(session);
         await session.waitForElement("[data-testid='search-view']");
+        await setPreviewWindowFrame({
+            session,
+            platform,
+            display,
+            handle: mainHandle,
+            frame: compactFrame,
+            scale: profile.scale,
+        });
         await waitForPaint(session);
 
         // Open Settings before recording so its first frame is already painted.
@@ -595,38 +1068,96 @@ async function main() {
 
         await session.switchTo(mainHandle);
         await session.waitForElement("[data-testid='search-view']");
+        await setPreviewWindowFrame({
+            session,
+            platform,
+            display,
+            handle: mainHandle,
+            frame: compactFrame,
+            scale: profile.scale,
+        });
         await ensureOverlay(session);
         await waitForPaint(session);
 
         const state = {
+            profile,
+            searchFrame: 'compact',
+            previewFrame: compactFrame,
             mainHandle,
             settingsHandle: opened.settings,
-            windows: {
-                search: windowForSurface(display, 'search')?.id,
-                settings: windowForSurface(display, 'settings')?.id,
-            },
+            windows:
+                platform === 'linux'
+                    ? {
+                          search: windowForSurface(display, 'search', profile.scale)?.id,
+                          settings: windowForSurface(display, 'settings', profile.scale)?.id,
+                      }
+                    : undefined,
+            handles:
+                platform === 'linux'
+                    ? undefined
+                    : { search: mainHandle, settings: opened.settings },
         };
-        await isolateSurface(display, 'search', state);
+        await isolateSurface({ session, platform, display, surface: 'search', state });
 
         await sleep(300);
-        recording = startRecording({ display, file: rawVideo });
-        recordingStartedAt = Date.now();
+        hideWindowsRunnerWindows(platform);
+        await sleep(300);
+
+        try {
+            recording = await startNativeRecording({
+                platform,
+                display,
+                width: displaySize.width,
+                height: displaySize.height,
+                file: rawVideo,
+            });
+            recordingStartedAt = recording.startedAt;
+        } catch (error) {
+            // The screenshots are still useful. Keep recording the flow and
+            // publish the capture failure instead of pretending there is video.
+            recordingStartedAt = Date.now();
+            fail(
+                'recording',
+                `native ${captureMode(platform)} capture did not start: ${error.message}`
+            );
+            console.log(`native recording did not start: ${error.message}`);
+        }
+
         await sleep(500);
         mark('UI preview start', recordingStartedAt);
 
-        for (const scene of scenes) {
+        for (const [sceneIndex, scene] of scenes.entries()) {
             const recorded = { title: scene.title, surface: scene.surface, shots: [] };
             manifest.scenes.push(recorded);
             let currentStep = 'scene';
 
             try {
-                await isolateSurface(display, scene.surface, state);
+                await isolateSurface({
+                    session,
+                    platform,
+                    display,
+                    surface: scene.surface,
+                    state,
+                });
                 const handle = await switchToSurface(session, scene.surface, state);
 
                 await session.switchTo(handle);
                 await ensureOverlay(session);
                 await waitForPaint(session);
-                if (env('UI_PREVIEW_DEBUG') === '1') {
+                if (scene.surface === 'search') {
+                    const content = await searchContentState(session);
+                    await applySearchWindowFrame({
+                        session,
+                        platform,
+                        display,
+                        handle,
+                        state,
+                        expanded: content.expanded,
+                        contentHeight: content.contentHeight,
+                        force: true,
+                    });
+                }
+                if (platform === 'linux' && env('UI_PREVIEW_DEBUG') === '1') {
                     console.log(
                         `debug ${scene.surface}:`,
                         listAppWindows(display)
@@ -643,6 +1174,20 @@ async function main() {
                 mark(scene.title);
                 await sleep(400);
 
+                if (scene.surface === 'search' && !compactFrameChecked) {
+                    compactFrameChecked = true;
+                    manifest.checks.push(
+                        await checkPreviewFrame(
+                            session,
+                            handle,
+                            state.previewFrame,
+                            state.searchFrame === 'expanded'
+                                ? 'Search window expanded for existing content'
+                                : 'Search window empty state stayed compact'
+                        )
+                    );
+                }
+
                 const overflow = await measureOverflow(session);
 
                 manifest.checks.push({
@@ -654,20 +1199,67 @@ async function main() {
                             : '',
                 });
 
+                // A scene-start frame gives the reviewer the before state when
+                // the plan waits before its first shot. A shot in the first
+                // two steps already shows that state, so skip the duplicate.
+                const firstShotIndex = scene.steps.findIndex((step) => step.do === 'shot');
+                const needsInitialShot = firstShotIndex === -1 || firstShotIndex > 2;
+
+                if (keyShotCount < MAX_KEY_SHOTS && needsInitialShot) {
+                    try {
+                        const file = path.join(
+                            evidenceDir,
+                            `${scene.surface}-scene-${sceneIndex + 1}.png`
+                        );
+                        await captureKeyShot({
+                            session,
+                            platform,
+                            display,
+                            surface: scene.surface,
+                            state,
+                            file,
+                            caption: 'Initial state',
+                            target: null,
+                            recorded,
+                        });
+                        keyShotCount += 1;
+                    } catch (error) {
+                        manifest.skippedSteps.push({
+                            scene: scene.title,
+                            step: 'initial screenshot',
+                            error: error.message,
+                        });
+                        console.log(`initial screenshot skipped: ${error.message}`);
+                    }
+                }
+
                 for (const step of scene.steps) {
                     currentStep = `${step.do}${step.value ? ` ${step.value}` : ''}${step.target ? ` ${step.target}` : ''}`;
-                    const caption = describeStep(step);
+                    const plannedCaption = describeStep(step);
+                    let caption = plannedCaption;
 
-                    if (caption) {
+                    if (caption && scene.surface === 'search') {
+                        const content = await searchContentState(session);
+                        caption = accurateSearchCaption(caption, content.expanded);
+                    }
+
+                    if (caption && !(scene.surface === 'search' && step.do === 'shot')) {
                         mark(caption);
                     }
 
                     if (step.do === 'bridge' && step.value === 'openSettingsWindow') {
                         if (state.settingsHandle) {
-                            if (state.windows.settings) {
+                            if (platform === 'linux' && state.windows?.settings) {
                                 showWindow(display, state.windows.settings);
                             }
                             await session.switchTo(state.settingsHandle);
+                            if (platform !== 'linux') {
+                                await placeWebviewWindow(
+                                    session,
+                                    state.settingsHandle,
+                                    state.profile
+                                );
+                            }
                             await ensureOverlay(session);
                             await waitForPaint(session);
                             continue;
@@ -675,61 +1267,76 @@ async function main() {
 
                         const next = await openSettings(session);
                         state.settingsHandle = next.settings;
+                        state.handles ??= {};
+                        state.handles.settings = next.settings;
+                        if (platform !== 'linux') {
+                            await placeWebviewWindow(session, next.settings, state.profile);
+                        }
                         await waitForPaint(session);
                         await sleep(500);
                         continue;
                     }
 
                     if (step.do === 'shot') {
-                        try {
-                            await sleep(200);
-                            await isolateSurface(display, scene.surface, state);
-                            const file = `${scene.surface}-${step.name}.png`;
-
-                            if (!state.windows?.[scene.surface]) {
-                                throw new Error(`no visible ${scene.surface} window to capture`);
+                        if (keyShotCount >= MAX_KEY_SHOTS) {
+                            if (!shotLimitReported) {
+                                shotLimitReported = true;
+                                manifest.warnings.push(
+                                    `the plan asked for more than ${MAX_KEY_SHOTS} key screenshots; the first ${MAX_KEY_SHOTS} were kept`
+                                );
                             }
+                            continue;
+                        }
 
-                            // A shot may name an element: the reviewer then sees
-                            // the control and the label beside it, not the whole
-                            // window scaled down.
-                            const element = step.target
-                                ? await session.execute(ELEMENT_ROW_RECT_SCRIPT, [step.target])
-                                : null;
+                        try {
+                            let shotCaption = step.caption ?? '';
 
-                            raiseWindow(display, state.windows[scene.surface]);
-                            await sleep(250);
-                            // The overlay helps the video, but it must not cover
-                            // the pixels a reviewer judges in a still.
-                            let size = await captureStill({
-                                session,
-                                display,
-                                file: path.join(evidenceDir, file),
-                                surface: scene.surface,
-                                state,
-                            });
-
-                            if (!size) {
-                                throw new Error(
-                                    `the ${scene.surface} window did not paint a frame`
+                            if (
+                                scene.surface === 'search' &&
+                                (await expandSearchFrameForContent({
+                                    session,
+                                    platform,
+                                    display,
+                                    handle,
+                                    state,
+                                }))
+                            ) {
+                                manifest.checks.push(
+                                    await checkPreviewFrame(
+                                        session,
+                                        handle,
+                                        state.previewFrame,
+                                        'Search window expanded once for results'
+                                    )
                                 );
                             }
 
-                            if (element) {
-                                size =
-                                    cropToElement({
-                                        file: path.join(evidenceDir, file),
-                                        rect: element.rect,
-                                        viewport: element.viewport,
-                                    }) ?? size;
+                            if (scene.surface === 'search') {
+                                const content = await searchContentState(session);
+                                shotCaption = accurateSearchCaption(shotCaption, content.expanded);
+
+                                if (shotCaption) {
+                                    mark(shotCaption);
+                                }
                             }
 
-                            recorded.shots.push({
+                            await sleep(200);
+                            const file = path.join(
+                                evidenceDir,
+                                `${scene.surface}-${String(sceneIndex + 1).padStart(2, '0')}-${step.name}.png`
+                            );
+                            await captureKeyShot({
+                                session,
+                                platform,
+                                display,
+                                surface: scene.surface,
+                                state,
                                 file,
-                                caption: step.caption ?? '',
-                                width: size.width,
-                                height: size.height,
+                                caption: shotCaption,
+                                target: step.target,
+                                recorded,
                             });
+                            keyShotCount += 1;
                         } catch (error) {
                             manifest.skippedSteps.push({
                                 scene: scene.title,
@@ -743,17 +1350,6 @@ async function main() {
 
                     try {
                         await runStep(session, step);
-                        await keepWindowInPlace(display, scene.surface, state);
-
-                        // Sections share one scroll container: a section opened
-                        // after a scroll would otherwise start mid-page.
-                        if (
-                            step.do === 'click' &&
-                            String(step.target ?? '').includes('settings-nav-')
-                        ) {
-                            await resetContentScroll(session);
-                            await waitForPaint(session);
-                        }
                     } catch (error) {
                         const repaired = await recoverStep(session, step);
 
@@ -766,8 +1362,85 @@ async function main() {
                                 error: error.message,
                             });
                             console.log(`step skipped: ${currentStep}: ${error.message}`);
+                            continue;
                         }
                     }
+
+                    try {
+                        if (
+                            scene.surface === 'search' &&
+                            (await expandSearchFrameForContent({
+                                session,
+                                platform,
+                                display,
+                                handle,
+                                state,
+                            }))
+                        ) {
+                            manifest.checks.push(
+                                await checkPreviewFrame(
+                                    session,
+                                    handle,
+                                    state.previewFrame,
+                                    'Search window expanded once for results'
+                                )
+                            );
+                        }
+
+                        if (scene.surface === 'search') {
+                            const content = await searchContentState(session);
+                            const corrected = accurateSearchCaption(
+                                plannedCaption,
+                                content.expanded
+                            );
+
+                            // Compare against the caption currently on screen:
+                            // the pre-step pass may have replaced the planned
+                            // caption with the compact one.
+                            if (corrected && corrected !== (currentCaption?.text ?? '')) {
+                                mark(corrected);
+                            }
+                        }
+
+                        await keepWindowInPlace({
+                            session,
+                            platform,
+                            display,
+                            surface: scene.surface,
+                            state,
+                        });
+
+                        // Sections share one scroll container: a section opened
+                        // after a scroll would otherwise start mid-page.
+                        if (
+                            step.do === 'click' &&
+                            String(step.target ?? '').includes('settings-nav-')
+                        ) {
+                            await resetContentScroll(session);
+                            await waitForPaint(session);
+                            await waitForSectionContent(session, step.target);
+                        }
+                    } catch (error) {
+                        manifest.checks.push({
+                            name: 'Window and content stayed stable after step',
+                            status: 'fail',
+                            detail: error.message,
+                        });
+                        console.log(
+                            `post-step bookkeeping failed: ${currentStep}: ${error.message}`
+                        );
+                    }
+                }
+
+                if (scene.surface === 'search') {
+                    manifest.checks.push(
+                        await checkPreviewFrame(
+                            session,
+                            handle,
+                            state.previewFrame,
+                            'Search window frame stayed stable'
+                        )
+                    );
                 }
             } catch (error) {
                 // One scene that cannot start must not throw away the scenes
@@ -794,12 +1467,21 @@ async function main() {
                 );
 
                 if (Array.isArray(errors)) {
-                    consoleErrors.push(...errors);
+                    for (const error of errors) {
+                        if (isFixtureProviderError(error)) {
+                            fixtureProviderErrors += 1;
+                        } else {
+                            consoleErrors.push(error);
+                        }
+                    }
                 }
             } catch {
                 // A window that already closed has no console to read.
             }
         }
+    } catch (error) {
+        fail('recording', error.message);
+        console.log(`recording stopped: ${error.message}`);
     } finally {
         const durationMs = Math.max(0, Date.now() - recordingStartedAt);
 
@@ -811,70 +1493,143 @@ async function main() {
             const result = await recording.stop();
 
             if (result.ok) {
-                const captioned = burnCaptions({
+                const crop = buildCropFilter(
+                    displaySize.width,
+                    displaySize.height,
+                    profile.physical
+                );
+                const finalized = finalizeRecording({
                     input: rawVideo,
                     output: videoFile,
                     title: `${sha.slice(0, 7)} · ${title || 'UI preview'}`,
                     durationMs,
                     steps: timeline,
+                    stage: profile.stage,
+                    crop,
                 });
 
-                if (captioned) {
+                if (finalized.output) {
                     fs.rmSync(rawVideo, { force: true });
+
+                    if (!finalized.captionsBurned) {
+                        manifest.warnings.push(
+                            finalized.cropped
+                                ? 'captions could not be burned in; the recording was cropped without captions'
+                                : 'captions could not be burned in; the native recording was published as-is'
+                        );
+                    }
                 } else {
+                    fs.rmSync(videoFile, { force: true });
                     fs.renameSync(rawVideo, videoFile);
+                    manifest.warnings.push(
+                        crop
+                            ? 'the display crop and captions could not be applied; the native recording was published as-is'
+                            : 'captions could not be burned in; the native recording was published as-is'
+                    );
                 }
 
-                const info = probeVideo(videoFile);
-                const distinctStates = countDistinctStates(videoFile);
-                const wallSeconds = durationMs / 1000;
-                const coverage = wallSeconds > 0 ? info.durationSeconds / wallSeconds : 0;
+                try {
+                    const info = probeVideo(videoFile);
+                    const distinctStates = countDistinctStates(videoFile);
+                    const wallSeconds = durationMs / 1000;
+                    const coverage = wallSeconds > 0 ? info.durationSeconds / wallSeconds : 0;
 
-                manifest.videoInfo = { ...info, distinctStates, wallSeconds, coverage };
-                manifest.video = path.basename(videoFile);
+                    manifest.videoInfo = {
+                        ...info,
+                        distinctStates,
+                        wallSeconds,
+                        coverage,
+                        mode: captureMode(platform),
+                        display: displaySize,
+                        stage: profile.stage,
+                        scale: profile.scale,
+                        physicalStage: profile.physical,
+                    };
+                    manifest.video = path.basename(videoFile);
 
-                manifest.checks.push(
-                    {
-                        name: 'Recording length',
-                        status: info.durationSeconds >= MIN_VIDEO_SECONDS ? 'pass' : 'fail',
-                        detail: `${info.durationSeconds.toFixed(1)}s, ${info.frames} frames`,
-                    },
-                    {
-                        name: 'Recording shows a flow',
-                        status: distinctStates >= MIN_DISTINCT_STATES ? 'pass' : 'fail',
-                        detail: `${distinctStates} distinct states`,
-                    },
-                    {
-                        name: 'Recording covers the session',
-                        status: coverage >= MIN_COVERAGE ? 'pass' : 'fail',
-                        detail: `${info.durationSeconds.toFixed(1)}s of ${wallSeconds.toFixed(1)}s captured`,
+                    manifest.checks.push(
+                        {
+                            name: 'Native resolution',
+                            status:
+                                info.width === profile.physical.width &&
+                                info.height === profile.physical.height
+                                    ? 'pass'
+                                    : 'fail',
+                            detail: `${info.width}x${info.height} at ${profile.scale}x`,
+                        },
+                        {
+                            name: 'Recording length',
+                            status: info.durationSeconds >= MIN_VIDEO_SECONDS ? 'pass' : 'fail',
+                            detail: `${info.durationSeconds.toFixed(1)}s, ${info.frames} frames`,
+                        },
+                        {
+                            name: 'Recording shows a flow',
+                            status: distinctStates >= MIN_DISTINCT_STATES ? 'pass' : 'fail',
+                            detail: `${distinctStates} distinct states`,
+                        },
+                        {
+                            name: 'Recording covers the session',
+                            status: coverage >= MIN_COVERAGE ? 'pass' : 'fail',
+                            detail: `${info.durationSeconds.toFixed(1)}s of ${wallSeconds.toFixed(1)}s captured`,
+                        }
+                    );
+
+                    if (
+                        info.frames < MIN_VIDEO_FRAMES ||
+                        info.durationSeconds < MIN_VIDEO_SECONDS
+                    ) {
+                        manifest.video = null;
+                        fail(
+                            'recording',
+                            `the recording has ${info.frames} frame(s) in ${info.durationSeconds.toFixed(1)}s`
+                        );
+                    } else if (coverage < MIN_COVERAGE) {
+                        fail(
+                            'recording',
+                            `the recorder captured only ${Math.round(coverage * 100)}% of the session, so the video is incomplete`
+                        );
                     }
-                );
-
-                if (info.frames < MIN_VIDEO_FRAMES || info.durationSeconds < 1) {
+                } catch (error) {
                     manifest.video = null;
-                    manifest.failure = {
-                        step: 'recording',
-                        message: `the recording has ${info.frames} frame(s) in ${info.durationSeconds.toFixed(1)}s`,
-                    };
-                } else if (coverage < MIN_COVERAGE) {
-                    manifest.failure = {
-                        step: 'recording',
-                        message: `the recorder captured only ${Math.round(coverage * 100)}% of the session, so the video is incomplete`,
-                    };
+                    fail('recording', `ffprobe could not read the recording: ${error.message}`);
                 }
             } else {
-                console.log(`recording failed: ${result.stderr.slice(0, 500)}`);
+                fail(
+                    'recording',
+                    `native capture stopped without a usable file: ${result.stderr.slice(0, 300)}`
+                );
             }
+        } else {
+            fs.rmSync(rawVideo, { force: true });
         }
 
-        await runtime.close();
+        if (runtime) {
+            try {
+                await runtime.close();
+            } catch (error) {
+                console.log(`could not close the app: ${error.message}`);
+            }
+        }
     }
 
-    const logErrors = findLogErrors(appRoot);
+    logErrors = findLogErrors(appRoot);
     const shots = manifest.scenes.flatMap((scene) => scene.shots);
 
+    // The seeded provider points at a closed port on purpose, so its connection
+    // errors are expected and stay out of the manifest: the comment only lists
+    // warnings a reviewer has to act on.
+    if (fixtureProviderErrors > 0) {
+        console.log(`ignored ${fixtureProviderErrors} fixture provider error(s)`);
+    }
+
     manifest.checks.push(
+        {
+            name: `Native recording (${captureMode(platform)})`,
+            status: manifest.video ? 'pass' : 'fail',
+            detail: manifest.video
+                ? `${displaySize.width}x${displaySize.height}`
+                : 'ffmpeg did not produce a usable mp4',
+        },
         {
             name: 'Screenshots captured',
             status: shots.length > 0 ? 'pass' : 'fail',
@@ -890,8 +1645,10 @@ async function main() {
         },
         {
             name: 'Recording captured',
-            status: manifest.video ? 'pass' : 'not checked',
-            detail: manifest.video ? '' : 'ffmpeg did not produce a usable mp4',
+            status: manifest.video ? 'pass' : 'fail',
+            detail: manifest.video
+                ? `${manifest.videoInfo?.frames ?? 0} frames`
+                : 'ffmpeg did not produce a usable mp4',
         },
         {
             name: 'Renderer console errors',
@@ -914,25 +1671,64 @@ async function main() {
     }
 
     if (!manifest.failure && shots.length === 0) {
-        manifest.failure = {
-            step: 'recording',
-            message: 'no screenshot was captured, so there is nothing to review',
-        };
+        fail('recording', 'no screenshot was captured, so there is nothing to review');
     }
 
-    fs.writeFileSync(
-        path.join(outDir, 'manifest.json'),
-        `${JSON.stringify({ ...manifest, consoleErrors, logErrors }, null, 2)}\n`
-    );
+    if (!manifest.failure && !manifest.video) {
+        fail('recording', 'native recording did not produce a usable mp4');
+    }
+
+    persist();
 
     if (manifest.failure) {
         console.log(`recording stopped: ${manifest.failure.message}`);
     }
 
-    console.log(`evidence: ${shots.length} screenshot(s), video=${manifest.video ?? 'none'}`);
+    console.log(
+        `evidence (${platform}): ${shots.length} screenshot(s), video=${manifest.video ?? 'none'}`
+    );
 }
 
 main().catch((error) => {
     console.error(error.stack ?? error.message);
+
+    try {
+        const outDir = path.resolve(env('UI_PREVIEW_OUT', 'ui-preview-out'));
+        const manifestPath = path.join(outDir, 'manifest.json');
+
+        if (!fs.existsSync(manifestPath)) {
+            const platform = detectPlatform();
+            const profile = resolveCaptureProfile(process.env);
+            fs.mkdirSync(outDir, { recursive: true });
+            fs.writeFileSync(
+                manifestPath,
+                `${JSON.stringify(
+                    {
+                        version: 1,
+                        sha: env('UI_PREVIEW_SHA'),
+                        pr: Number(env('UI_PREVIEW_PR', '0')),
+                        platform,
+                        captureMode: captureMode(platform),
+                        display: parseDisplaySize(process.env, platform, profile),
+                        stage: profile.stage,
+                        scale: profile.scale,
+                        physicalStage: profile.physical,
+                        scenes: [],
+                        checks: [],
+                        errors: [error.message],
+                        skippedSteps: [],
+                        video: null,
+                        videoInfo: null,
+                        failure: { step: 'recording', message: error.message },
+                    },
+                    null,
+                    2
+                )}\n`
+            );
+        }
+    } catch {
+        // The workflow artifact still carries the stderr above.
+    }
+
     process.exit(1);
 });

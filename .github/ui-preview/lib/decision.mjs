@@ -106,6 +106,18 @@ export function isPreviewCommand(body) {
     return trimmed === COMMAND || trimmed.startsWith(`${COMMAND} `);
 }
 
+export function previewTrigger(input) {
+    if (input.eventName === 'issue_comment') {
+        return 'maintainer request';
+    }
+
+    if (input.eventName === 'workflow_dispatch') {
+        return input.validationScripts ? 'native validation' : 'manual run';
+    }
+
+    return input.maintainer ? 'maintainer pull request' : 'approved pull request';
+}
+
 /**
  * @param {object} input
  * @param {'pull_request_target' | 'issue_comment' | 'workflow_dispatch'} input.eventName
