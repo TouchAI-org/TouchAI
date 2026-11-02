@@ -37,20 +37,38 @@
             content-class="mt-4"
             :viewport-style="conversationContainerStyle"
             :item-scroll-target="scrollToMessageById"
+            :item-ranges="railItemRange"
+            :rail-inset-top="RAIL_INSET_TOP"
             @follow-change="handleFollowChange"
             @state-change="handleScrollerStateChange"
         >
             <template #virtualized>
                 <!--
+                    不虚拟化时直接渲染全部消息。
+                    条目比视口还高的会话（长回答 + 工具卡 + widget）不适合虚拟滚动：
+                    未测量高度只能估算，误差会让 virtua 反复大幅补偿滚动位置。
+                -->
+                <div
+                    v-for="message in messagesWithoutVirtualization"
+                    :key="message.id"
+                    :data-message-id="message.id"
+                    :data-message-role="message.role"
+                    :data-message-scroller-item="message.id"
+                >
+                    <MessageItem :message="message" @regenerate="handleRegenerateMessage" />
+                </div>
+
+                <!--
                     必须等拿到滚动视口再渲染：virtua 在首次渲染时绑定 `scrollRef`，
                     拿不到就会退回用父元素（不可滚动），从而把整段消息都当成“可见”全量挂载。
                 -->
                 <Virtualizer
-                    v-if="scrollViewport"
+                    v-if="virtualizeMessages && scrollViewport"
                     ref="messageVirtualizer"
                     :data="messages"
                     :scroll-ref="scrollViewport"
-                    :item-size="320"
+                    :item-size="estimatedItemSize"
+                    :buffer-size="virtualBufferSize"
                     @scroll="handleVirtualScroll"
                     @resize="handleVirtualResize"
                 >
@@ -104,6 +122,12 @@
 
     import ConversationToolbar from './components/ConversationToolbar.vue';
     import MessageItem from './components/MessageItem.vue';
+    import { estimateMessageListItemSize } from './messageHeightEstimate';
+    import {
+        type NavigationTarget,
+        resolveDesiredOffset,
+        resolveNavigationCorrection,
+    } from './navigationAnchor';
 
     defineOptions({
         name: 'SearchConversationPanel',
@@ -143,10 +167,46 @@
     const conversationScroller = ref<MessageScrollerHandle | null>(null);
     const messageVirtualizer = ref<VirtualizerHandle | null>(null);
     const scrollViewport = ref<HTMLElement | null>(null);
+    /**
+     * 是否启用消息虚拟化。
+     *
+     * 只有消息太少（成本本来就不高）才关掉；其余都保留虚拟化。
+     * 之前“单条很高就不虚拟”的判据已经不说：真正的毛病是估算高度固定成 320px，
+     * 与实测差十几倍才导致 virtua 反复大幅补偿。现在 `item-size` 用内容估算的中位数，
+     * 误差已降到个位数，长回答会话也能稳定虚拟化。
+     */
+    const VIRTUALIZATION_MIN_MESSAGES = 12;
+    const virtualizeMessages = computed(() => props.messages.length >= VIRTUALIZATION_MIN_MESSAGES);
+
+    /** 不虚拟化时直接渲染全部消息。 */
+    const messagesWithoutVirtualization = computed(() =>
+        virtualizeMessages.value ? [] : props.messages
+    );
+
+    /** 条目高度提示：取估算中位数（参照 Cherry Studio 用 estimateSize 做滚动预算）。 */
+    const estimatedItemSize = computed(() => estimateMessageListItemSize(props.messages));
+
+    /**
+     * 预渲染缓冲：按“若干条消息”换算成像素。
+     * 固定 200px 在长消息场景下太小，滚动时会露出未挂载空白。
+     */
+    const VIRTUAL_OVERSCAN_ITEMS = 6;
+    const virtualBufferSize = computed(() =>
+        Math.max(200, VIRTUAL_OVERSCAN_ITEMS * estimatedItemSize.value)
+    );
     /** scroller 的跟随意图镜像：内容变高会把它的内部判定改成“已上滚”，这里保留原意图。 */
     const isFollowing = ref(true);
     let resizeSyncFrame: number | null = null;
     let pinFrame: number | null = null;
+    /** 导航锚点收敛的 rAF 句柄。 */
+    let navigationSettleFrame: number | null = null;
+    /** 当前导航目标；用户再次点击时直接覆盖。 */
+    let navigationTarget: NavigationTarget | null = null;
+    /** 导航后的一小段窗口内不自动贴底（对齐上游 reading 模式）。 */
+    let suppressAutoscrollUntil = 0;
+    /** virtua 的滚动结束时延（150ms）之后才完成测量；给足重测与收敛的时间。 */
+    const NAVIGATION_SETTLE_MS = 900;
+
     const conversationToolbar = ref<{
         getHistoryAnchor: () => HTMLElement | null;
     } | null>(null);
@@ -154,6 +214,13 @@
     const { outputScrollBehavior } = storeToRefs(settingsStore);
     const showScrollToBottom = ref(false);
     const USER_MESSAGE_SCROLL_GAP = 12;
+    /**
+     * 导航轨顶部要避开的拖动区高度。
+     *
+     * 工具栏（含窗口拖动区）高 4.5rem 且 z-index 在内容之上；轨道若从容器顶部开始，
+     * 最上面几个点会落在拖动区里，表现为“只能拖动、点不到”。
+     */
+    const RAIL_INSET_TOP = 72 + 8;
     const RAIL_PREVIEW_SOURCE_LENGTH = 320;
 
     const conversationContainerStyle = computed(() =>
@@ -212,6 +279,56 @@
         }));
     });
 
+    /** 每个 turn（用户提问 + 其后的回答）覆盖的消息 id 区间。 */
+    const turnMessageIds = computed<Map<string, string[]>>(() => {
+        const turns = new Map<string, string[]>();
+        let currentIds: string[] | undefined;
+        for (const message of props.messages) {
+            if (message.role === 'user') {
+                currentIds = [message.id];
+                turns.set(message.id, currentIds);
+                continue;
+            }
+
+            currentIds?.push(message.id);
+        }
+
+        return turns;
+    });
+
+    /**
+     * 某条轨道项在内容坐标系中的区间。
+     *
+     * 一整个 turn（提问 + 长回答）往往跨很多屏，所以高亮必须按区间判断重叠；
+     * 只按“视图中心最近的那条消息”会把回答占的多屏算成别人的位置。
+     * 虚拟列表无法给未挂载消息量 DOM，直接用 virtua 的累计偏移。
+     */
+    function railItemRange(itemId: string): { top: number; bottom: number } | null {
+        const ids = turnMessageIds.value.get(itemId);
+        const virtualizer = messageVirtualizer.value;
+        if (!ids?.length || !virtualizer) {
+            return null;
+        }
+
+        const indexOf = (id: string) => props.messages.findIndex((message) => message.id === id);
+        const firstIndex = indexOf(ids[0]!);
+        const lastIndex = indexOf(ids[ids.length - 1]!);
+        if (firstIndex < 0 || lastIndex < 0) {
+            return null;
+        }
+
+        /**
+         * virtua 的偏移相对“列表起点”，而轨道比较用的是容器 `scrollTop`。
+         * 两者相差容器内边距与列表外边距，用 `scrollTop - scrollOffset` 补回基准。
+         */
+        const base = (scrollViewport.value?.scrollTop ?? 0) - (virtualizer.scrollOffset ?? 0);
+        const top = base + virtualizer.getItemOffset(firstIndex);
+        const bottom =
+            base + virtualizer.getItemOffset(lastIndex) + virtualizer.getItemSize(lastIndex);
+
+        return { top, bottom };
+    }
+
     function focus() {
         conversationScroller.value?.focus();
     }
@@ -223,43 +340,74 @@
     }
 
     /**
-     * 打开或切换会话时把视图钉到底部，直到真的到底或次数用完。
+     * 打开或切换会话时把视图钉到底部，直到真的到底且安静一段时间。
      *
      * 虚拟列表的未知高度是估算值：首帧 `scrollToEnd` 时 `scrollHeight` 还很小，
-     * 条目挂载后高度一次跳到真实值，此时 scroller 的测量会把“离底很远”当成
-     * 用户上滚并关掉跟随，于是整个会话停在顶部。这里按帧重试几次，
-     * 一旦到底立即停止，因此不会和用户抢滚动。
+     * 条目挂载后高度一次跳到真实值；而代码块库（markstream）会在自己测量完后
+     * 再写一次外层 `scrollTop` 做锚定补偿，把我们贴好的底推开十几像素。
+     * 所以不能“两帧到底”就收手，要等位置和高度都**安静一段时间**（QUIET_MS）。
+     * 到底即停，不会和用户抢滚动。
      */
-    function pinToEndUntilSettled(attempts = 12): void {
+    function pinToEndUntilSettled(attempts = 180): void {
         if (pinFrame !== null) {
             return;
         }
 
+        // 代码块库（markstream）的锚定恢复可能在我们贴底后 1~2 秒才写一次
+        // 外层 scrollTop，所以安静窗口要盖过它；一旦用户自己滚动（isFollowing 转为 false）
+        // 立刻退出，不抢滚动。
+        const QUIET_MS = 1200;
         let lastScrollHeight = -1;
+        let lastScrollTop = -1;
+        let quietSince = 0;
 
         const step = () => {
             pinFrame = null;
+            if (!isFollowing.value) {
+                return;
+            }
+
             const state = conversationScroller.value?.getState();
             if (!state) {
                 return;
             }
 
-            // 新条目可能还没挂载：此时“已到底”是假象，高度还会再跳一次。
-            // 只有到底且高度不再变化时才停。
-            const settled = state.atEnd && state.scrollHeight === lastScrollHeight;
-            if (settled || attempts <= 0) {
+            const now = Date.now();
+            const changed =
+                state.scrollHeight !== lastScrollHeight || state.scrollTop !== lastScrollTop;
+            if (changed) {
+                lastScrollHeight = state.scrollHeight;
+                lastScrollTop = state.scrollTop;
+                quietSince = now;
+            }
+
+            const quiet = quietSince > 0 && now - quietSince >= QUIET_MS;
+            if (state.atEnd && quiet) {
                 return;
             }
 
-            lastScrollHeight = state.scrollHeight;
+            // 已到底但还不安静：先等着，不走无意义的写入。
+            if (state.atEnd) {
+                if (attempts <= 0) {
+                    return;
+                }
+                attempts -= 1;
+                pinFrame = requestAnimationFrame(step);
+                return;
+            }
+
+            if (attempts <= 0) {
+                return;
+            }
+
             attempts -= 1;
             conversationScroller.value?.scrollToEnd('auto');
             pinFrame = requestAnimationFrame(step);
         };
 
+        quietSince = Date.now();
         pinFrame = requestAnimationFrame(step);
     }
-
     function scrollByDelta(deltaY: number) {
         conversationScroller.value?.scrollBy(deltaY);
     }
@@ -301,6 +449,7 @@
 
     /** virtua 的 scroll 回调只给偏移量，状态统一从容器读。 */
     function handleVirtualScroll() {
+        // scroller 自身会监听同一个滚动事件并测量，这里只同步按钮与对外状态。
         handleScrollerStateChange();
     }
 
@@ -316,27 +465,11 @@
 
         resizeSyncFrame = requestAnimationFrame(() => {
             resizeSyncFrame = null;
-            const state = conversationScroller.value?.getState();
-            if (!state) {
-                return;
-            }
 
-            if (state.following && !state.atEnd) {
-                conversationScroller.value?.scrollToEnd('auto');
-                return;
-            }
-
-            if (
-                outputScrollBehavior.value === 'follow_output' &&
-                isFollowing.value &&
-                !state.atEnd
-            ) {
-                conversationScroller.value?.scrollToEnd('auto');
-                pinToEndUntilSettled();
-                return;
-            }
-
-            handleScrollerStateChange(state);
+            // 这里**不写 scrollTop**：resize 期间改写滚动会再次改变挂载集合，
+            // 从而又触发 resize，形成 `ResizeObserver loop` 自激循环。
+            // 贴底由 scroller 自己的跟随逻辑负责；导航修正由跳转时的收敛循环负责。
+            handleScrollerStateChange();
         });
     }
 
@@ -351,17 +484,164 @@
         messageId: string,
         options: MessageScrollerScrollOptions = {}
     ): boolean {
-        const virtualizer = messageVirtualizer.value;
         const index = props.messages.findIndex((message) => message.id === messageId);
-        if (!virtualizer || index < 0) {
+        const virtualizer = messageVirtualizer.value;
+        const scroller = scrollViewport.value;
+        if (index < 0 || !virtualizer || !scroller) {
             return false;
         }
 
-        virtualizer.scrollToIndex(index, {
+        // 用户主动跳转：放弃“首次打开钉到底”的重试，否则两者会互相抢滚动。
+        cancelPinToEnd();
+
+        // 跳到历史位置就是离开实时边缘：关掉跟随，否则 resize / 重测时
+        // primitive 会自动贴底，把刚跳到的位置又拽回去（看起来像“往上偏一点”）。
+        // 用户滚回底部时 `handleScroll` 会重新打开跟随。
+        conversationScroller.value?.setFollowing(false);
+        isFollowing.value = false;
+
+        const target: NavigationTarget = {
+            id: messageId,
             align: options.align ?? 'center',
-            offset: options.offset ?? 0,
-        });
+            gap: options.offset ?? 0,
+        };
+        navigationTarget = target;
+
+        // 导航期间不自动贴底：尺寸重测会改变可达范围，此时贴底会把用户拉走。
+        suppressAutoscrollUntil = Date.now() + NAVIGATION_SETTLE_MS;
+
+        // 估算跳一次，让目标进入挂载窗口（不在这里追求精确）。
+        virtualizer.scrollToIndex(index, { align: target.align });
+        settleNavigation(target);
+
+        handleScrollerStateChange();
         return true;
+    }
+
+    /**
+     * 跳转收敛：每帧按**元素实测位置**对齐，位置与容器高度都稳定才停。
+     *
+     * 为什么要两个判据：
+     * - 只判位置：第一帧往往在 virtua 测量完成前跑完（此时元素位置看似已对），
+     *   随后测量把上方条目高度改写，目标又被顶走——用户看到的就是“再点一次往上偏一点”。
+     * - 只判高度：位置可能因对齐判差太宽而不准。
+     * 两者连续两帧都稳定才收手，才能跨过 virtua 的异步重测。
+     */
+    function settleNavigation(target: NavigationTarget, frames = 60): void {
+        cancelNavigationSettle();
+
+        let remaining = frames;
+        let stableFrames = 0;
+        let stableHeight = -1;
+
+        const step = () => {
+            navigationSettleFrame = null;
+            if (remaining <= 0 || navigationTarget !== target) {
+                return;
+            }
+
+            if (Date.now() > suppressAutoscrollUntil) {
+                navigationTarget = null;
+                return;
+            }
+
+            remaining -= 1;
+
+            if (!hasMessageElement(target.id)) {
+                // 目标还没挂载：继续等下一帧。
+                navigationSettleFrame = requestAnimationFrame(step);
+                return;
+            }
+
+            const height = scrollViewport.value?.scrollHeight ?? 0;
+            const heightSettled = height === stableHeight;
+            stableHeight = height;
+
+            if (correctNavigationOnce(target)) {
+                stableFrames = 0;
+                navigationSettleFrame = requestAnimationFrame(step);
+                return;
+            }
+
+            // 容器高度还在变，说明 virtua 还在重测：此刻的“对齐”不算数。
+            if (!heightSettled) {
+                stableFrames = 0;
+                navigationSettleFrame = requestAnimationFrame(step);
+                return;
+            }
+
+            stableFrames += 1;
+            if (stableFrames < 2) {
+                navigationSettleFrame = requestAnimationFrame(step);
+                return;
+            }
+
+            navigationTarget = null;
+        };
+
+        navigationSettleFrame = requestAnimationFrame(step);
+    }
+
+    function hasMessageElement(messageId: string): boolean {
+        return Boolean(
+            scrollViewport.value?.querySelector(`[data-message-id="${cssEscape(messageId)}"]`)
+        );
+    }
+
+    /**
+     * 把目标元素对齐到期望位置。
+     *
+     * @returns 是否做了写入（需要继续检查）。
+     */
+    function correctNavigationOnce(target: NavigationTarget): boolean {
+        const scroller = scrollViewport.value;
+        if (!scroller) {
+            return false;
+        }
+
+        const element = scroller.querySelector<HTMLElement>(
+            `[data-message-id="${cssEscape(target.id)}"]`
+        );
+        if (!element) {
+            return false;
+        }
+
+        const containerTop = scroller.getBoundingClientRect().top;
+        const rect = element.getBoundingClientRect();
+        const desiredOffset = resolveDesiredOffset(
+            target.align,
+            target.gap,
+            rect.height,
+            scroller.clientHeight
+        );
+        const correction = resolveNavigationCorrection(rect.top - containerTop, desiredOffset);
+        if (correction === 0) {
+            return false;
+        }
+
+        const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+        scroller.scrollTop = Math.min(maxScrollTop, Math.max(0, scroller.scrollTop + correction));
+        return true;
+    }
+
+    function cancelNavigationSettle(): void {
+        if (navigationSettleFrame !== null) {
+            cancelAnimationFrame(navigationSettleFrame);
+            navigationSettleFrame = null;
+        }
+    }
+
+    function cssEscape(value: string): string {
+        return typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+            ? CSS.escape(value)
+            : value;
+    }
+
+    function cancelPinToEnd(): void {
+        if (pinFrame !== null) {
+            cancelAnimationFrame(pinFrame);
+            pinFrame = null;
+        }
     }
 
     function refreshScrollToBottomVisibility() {
@@ -464,10 +744,8 @@
     });
 
     onUnmounted(() => {
-        if (pinFrame !== null) {
-            cancelAnimationFrame(pinFrame);
-            pinFrame = null;
-        }
+        cancelPinToEnd();
+        cancelNavigationSettle();
         if (resizeSyncFrame !== null) {
             cancelAnimationFrame(resizeSyncFrame);
             resizeSyncFrame = null;
