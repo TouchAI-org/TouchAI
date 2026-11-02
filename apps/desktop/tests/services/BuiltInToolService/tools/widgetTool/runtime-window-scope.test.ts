@@ -107,4 +107,27 @@ describe('when a widget script uses the scoped window surface', () => {
 
         expect(globals().__scopeEvents).toEqual(eventsAfterDestroy);
     });
+
+    it('user does not get a string timer handler run after the widget is destroyed', async () => {
+        const renderer = createWidgetRenderer(host);
+        renderer.render({
+            widgetId: 'scope-widget-3',
+            title: 'Scope',
+            description: '',
+            html: [
+                '<div>x</div>',
+                '<script>',
+                'window.__scopeEvents = [];',
+                'setTimeout("window.__scopeEvents.push(\\"lateEval\\")", 0);',
+                '</script>',
+            ].join(''),
+            phase: 'ready',
+        });
+
+        // 立即销毁：字符串 handler 的定时器此时还没触发。
+        renderer.destroy();
+        await sleep(80);
+
+        expect(globals().__scopeEvents ?? []).not.toContain('lateEval');
+    });
 });

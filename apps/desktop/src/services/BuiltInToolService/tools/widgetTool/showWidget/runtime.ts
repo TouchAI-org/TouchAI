@@ -139,9 +139,16 @@ function createWidgetResourceScope(): WidgetResourceScope {
             return;
         }
         // 字符串形式的 TimerHandler 极少出现，但 setTimeout 规范允许。
-        window.setTimeout(() => {
+        // 必须走登记过的定时器：未登记的定时器不会被 dispose 清掉，
+        // widget 卸载后脚本还会再跑一次（表现为“销毁后仍有事件”）。
+        const handle = window.setTimeout(() => {
+            timers.delete(handle);
+            if (disposed) {
+                return;
+            }
             window.eval(String(handler));
         }, 0);
+        timers.add(handle);
     }
 
     function trackObserver<T extends { disconnect: () => void }>(instance: T): T {
