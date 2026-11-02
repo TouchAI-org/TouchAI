@@ -127,8 +127,8 @@ Rust floor in `apps/desktop/src-tauri/coverage-floors.json`, from **cargo-llvm-c
 
 | Metric | Floor | Now | Target |
 | --- | ---: | ---: | ---: |
-| Lines | 61% | 61.4% | 85% |
-| Regions | 62% | 62.3% | 85% |
+| Lines | 63% | 68.80% | 85% |
+| Regions | 64% | 69.78% | 85% |
 
 The `rust-checks` job fails with the exact metric that regressed. Raise with `pnpm test:coverage:rust:raise`. Same one-way rule.
 
