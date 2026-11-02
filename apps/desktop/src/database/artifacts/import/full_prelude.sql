@@ -1,7 +1,9 @@
 UPDATE main.models
 SET is_default = 0;
 
-DELETE FROM main.settings;
+-- Analytics consent stays native-local and is adopted separately from the
+-- scrubbed backup. Never let a full import overwrite this machine's decision.
+DELETE FROM main.settings WHERE key <> 'analytics.state.v1';
 DELETE FROM main.statistics;
 DELETE FROM main.llm_metadata_aliases;
 DELETE FROM main.llm_metadata;
@@ -108,7 +110,8 @@ WHERE EXISTS (
 
 INSERT INTO main.settings (key, value, created_at, updated_at)
 SELECT key, value, created_at, updated_at
-FROM imported.settings;
+FROM imported.settings
+WHERE key <> 'analytics.state.v1';
 
 INSERT INTO main.statistics (key, value, created_at, updated_at)
 SELECT key, value, created_at, updated_at

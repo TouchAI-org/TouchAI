@@ -5,17 +5,20 @@
 //! Business call sites submit typed, whitelisted metadata to `AnalyticsService`
 //! (TypeScript) which reaches this runtime through `NativeService/analytics.ts`
 //! and the `analytics_*` commands. The runtime owns consent, installation
-//! identity, the bounded outbox and the Umami-compatible sender. It reuses the
-//! existing `DatabaseRuntime` SQLite pool over `touchai.db`; there is no second
-//! database, connection or schema framework.
+//! identity, the bounded in-memory queue and the Umami-compatible sender. Consent
+//! state reuses the existing `settings` table; there is no analytics-specific
+//! database table or second pool.
 
 pub(crate) mod events;
+mod queue;
 mod runtime;
 mod store;
 mod transport;
 
 pub use runtime::AnalyticsRuntime;
-pub(crate) use store::{adopt_restored_consent, RestoredConsent, DEPLOYMENT_KEY_SETTING};
+pub(crate) use store::{
+    adopt_restored_consent, sanitize_exported_state, RestoredConsent, ANALYTICS_STATE_SETTING,
+};
 
 use std::{sync::OnceLock, time::Instant};
 
@@ -137,7 +140,7 @@ pub struct AnalyticsTrackRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AnalyticsSubmitStatus {
-    Persisted,
+    Queued,
     Disabled,
     Unavailable,
     Rejected,

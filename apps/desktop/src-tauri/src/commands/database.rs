@@ -4,6 +4,7 @@
 
 use tauri::{Runtime, State, WebviewWindow};
 
+use crate::core::analytics::AnalyticsRuntime;
 use crate::core::database::{
     types::{
         DatabaseImportRequest, DatabaseQueryRequest, DatabaseQueryResponse,
@@ -96,7 +97,11 @@ pub async fn database_export_backup(
 #[tauri::command]
 pub fn database_import_backup(
     runtime: State<'_, DatabaseRuntime>,
+    analytics: State<'_, AnalyticsRuntime>,
     request: DatabaseImportRequest,
 ) -> Result<(), String> {
-    tauri::async_runtime::block_on(runtime.import_backup(request))
+    tauri::async_runtime::block_on(async {
+        runtime.import_backup(request).await?;
+        analytics.synchronize_after_restore().await
+    })
 }
