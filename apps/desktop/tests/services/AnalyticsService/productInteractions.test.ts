@@ -58,7 +58,7 @@ describe('user opens a product surface', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         nativeAnalytics.getState.mockResolvedValue(state());
-        nativeAnalytics.track.mockResolvedValue({ status: 'persisted', eventId: 'e-1' });
+        nativeAnalytics.track.mockResolvedValue({ status: 'queued', eventId: 'e-1' });
         nativeAnalytics.beginOperation.mockResolvedValue({
             operationId: 'op-1',
             enabled: true,
@@ -119,7 +119,7 @@ describe('user configures a provider', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         nativeAnalytics.getState.mockResolvedValue(state({ consentEpoch: 7 }));
-        nativeAnalytics.track.mockResolvedValue({ status: 'persisted', eventId: 'e-2' });
+        nativeAnalytics.track.mockResolvedValue({ status: 'queued', eventId: 'e-2' });
         nativeAnalytics.beginOperation.mockResolvedValue({
             operationId: 'op-1',
             enabled: true,
@@ -363,7 +363,7 @@ describe('user searches in a settled interaction', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         nativeAnalytics.getState.mockResolvedValue(state());
-        nativeAnalytics.track.mockResolvedValue({ status: 'persisted', eventId: 'e-3' });
+        nativeAnalytics.track.mockResolvedValue({ status: 'queued', eventId: 'e-3' });
         nativeAnalytics.beginOperation.mockResolvedValue({
             operationId: 'op-1',
             enabled: true,
@@ -424,7 +424,7 @@ describe('user searches in a settled interaction', () => {
         const order: string[] = [];
         nativeAnalytics.track.mockImplementation(async (request) => {
             order.push(`track:${request.eventName}`);
-            return { status: 'persisted' };
+            return { status: 'queued' };
         });
         nativeAnalytics.completeOperation.mockImplementation(async () => {
             order.push('complete');
@@ -463,7 +463,7 @@ describe('user searches in a settled interaction', () => {
         const order: string[] = [];
         nativeAnalytics.track.mockImplementation(async (request) => {
             order.push(request.eventName);
-            return { status: 'persisted' };
+            return { status: 'queued' };
         });
         nativeAnalytics.completeOperation.mockImplementation(async () => {
             order.push('release');
@@ -482,7 +482,7 @@ describe('user completes an existing result action', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         nativeAnalytics.getState.mockResolvedValue(state());
-        nativeAnalytics.track.mockResolvedValue({ status: 'persisted', eventId: 'e-4' });
+        nativeAnalytics.track.mockResolvedValue({ status: 'queued', eventId: 'e-4' });
         nativeAnalytics.beginOperation.mockResolvedValue({
             operationId: 'op-1',
             enabled: true,
@@ -581,13 +581,13 @@ describe('user completes an existing result action', () => {
     });
 
     it('user gets the copy result before background telemetry settles', async () => {
-        const track = deferred<{ status: 'persisted'; eventId: string }>();
+        const track = deferred<{ status: 'queued'; eventId: string }>();
         nativeAnalytics.track.mockReturnValue(track.promise);
 
         await expect(runResultAction('copy_answer', async () => 'copied')).resolves.toBe('copied');
         expect(nativeAnalytics.completeOperation).not.toHaveBeenCalled();
 
-        track.resolve({ status: 'persisted', eventId: 'e-1' });
+        track.resolve({ status: 'queued', eventId: 'e-1' });
         await vi.waitFor(() => {
             expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
         });

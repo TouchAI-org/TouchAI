@@ -197,7 +197,9 @@ async fn prepare_import_database(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::analytics::ANALYTICS_STATE_SETTING;
     use crate::core::database::contract::{create_sqlite_pool, migrate_database};
+    use serde_json::{json, Value};
 
     fn contract() -> DatabaseContractSource {
         DatabaseContractSource::from_root(
@@ -207,6 +209,47 @@ mod tests {
                 .join("src/database"),
         )
         .unwrap()
+    }
+
+    async fn seed_analytics_state(
+        pool: &SqlitePool,
+        status: &str,
+        explicit: bool,
+        installation: Option<&str>,
+        epoch: i64,
+        pending: Option<&str>,
+    ) {
+        let state = json!({
+            "policyVersion": 1,
+            "status": status,
+            "consentExplicit": if explicit { 1 } else { 0 },
+            "installationId": installation,
+            "consentEpoch": epoch,
+            "observationStartedDay": installation.map(|_| "2026-01-01"),
+            "firstSuccessDay": null,
+            "lastObservedAppVersion": null,
+            "pendingUpdateJson": pending,
+            "deploymentKey": "https://analytics.invalid/send|project",
+            "updatedAtMs": 1
+        });
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?, ?) \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(ANALYTICS_STATE_SETTING)
+        .bind(state.to_string())
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn load_analytics_state(pool: &SqlitePool) -> Value {
+        let value: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+            .bind(ANALYTICS_STATE_SETTING)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        serde_json::from_str(&value).unwrap()
     }
 
     async fn backup(path: &std::path::Path, entry_count: usize) -> SqlitePool {
@@ -622,15 +665,14 @@ mod tests {
         source.close().await;
     }
     #[tokio::test]
-    async fn user_keeps_local_analytics_state_and_imports_no_remote_events() {
+    async fn user_keeps_local_analytics_choice_and_imports_the_chat() {
         let root = tempfile::tempdir().unwrap();
         let source_path = root.path().join("source.db");
-        // 6 entries cover the full released chain, including the analytics tables.
-        let source = backup(&source_path, 6).await;
-        sqlx::raw_sql(
-            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, consent_epoch) \
-             VALUES (1, 'enabled', 1, 'remote-install', 7);\n             INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at) \
-             VALUES ('remote-e1', 7, 1, 'app.started', '{\"a\":1}', 7, 1, 9, 1);\n             INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'imported-chat', 'Imported', 'test');",
+        let source = backup(&source_path, 5).await;
+        seed_analytics_state(&source, "enabled", true, Some("remote-install"), 7, None).await;
+        sqlx::query(
+            "INSERT INTO sessions (id, session_id, title, model) \
+             VALUES (1, 'imported-chat', 'Imported', 'test')",
         )
         .execute(&source)
         .await
@@ -641,14 +683,7 @@ mod tests {
         migrate_database(&mut *target.acquire().await.unwrap(), &contract())
             .await
             .unwrap();
-        sqlx::raw_sql(
-            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, consent_epoch) \
-             VALUES (1, 'disabled', 1, 'local-install', 5);\n             INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at) \
-             VALUES ('local-e1', 5, 1, 'app.started', '{\"b\":2}', 7, 1, 9, 1);",
-        )
-        .execute(&target)
-        .await
-        .unwrap();
+        seed_analytics_state(&target, "disabled", true, Some("local-install"), 5, None).await;
 
         run_import_backup(
             target.clone(),
@@ -662,37 +697,20 @@ mod tests {
         .await
         .unwrap();
 
-        // The explicit local choice wins: its identity, consent and epoch survive
-        // and nothing remote is adopted.
+        let state = load_analytics_state(&target).await;
+        assert_eq!(state["status"], "disabled");
+        assert_eq!(state["consentExplicit"], 1);
+        assert_eq!(state["installationId"], "local-install");
+        assert_eq!(state["consentEpoch"], 5);
         assert_eq!(
-            sqlx::query_scalar::<_, String>(
-                "SELECT installation_id FROM analytics_state WHERE id = 1"
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' \
+                 AND name IN ('analytics_state', 'analytics_outbox')"
             )
             .fetch_one(&target)
             .await
             .unwrap(),
-            "local-install"
-        );
-        assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT consent_epoch FROM analytics_state WHERE id = 1")
-                .fetch_one(&target)
-                .await
-                .unwrap(),
-            5
-        );
-        assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM analytics_outbox")
-                .fetch_one(&target)
-                .await
-                .unwrap(),
-            1
-        );
-        assert_eq!(
-            sqlx::query_scalar::<_, String>("SELECT event_id FROM analytics_outbox")
-                .fetch_one(&target)
-                .await
-                .unwrap(),
-            "local-e1"
+            0
         );
         assert_eq!(
             sqlx::query_scalar::<_, i64>(
@@ -712,16 +730,17 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let source_path = root.path().join("source.db");
         // The backup was exported from an install where sharing was explicitly
-        // turned off, with its own identity, epoch and a queued event.
-        let source = backup(&source_path, 6).await;
-        sqlx::raw_sql(
-            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, consent_epoch) \
-             VALUES (1, 'disabled', 1, 'exported-install', 4);\n             INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at) \
-             VALUES ('exported-e1', 4, 1, 'app.started', '{\"a\":1}', 7, 1, 9, 1);",
+        // turned off.
+        let source = backup(&source_path, 5).await;
+        seed_analytics_state(
+            &source,
+            "disabled",
+            true,
+            Some("exported-install"),
+            4,
+            Some("{\"toVersion\":\"1.0.0\"}"),
         )
-        .execute(&source)
-        .await
-        .unwrap();
+        .await;
 
         // The reinstall: a fresh database whose deployment default is enabled and
         // that has already queued an event and pending update metadata before the
@@ -731,14 +750,15 @@ mod tests {
         migrate_database(&mut *target.acquire().await.unwrap(), &contract())
             .await
             .unwrap();
-        sqlx::raw_sql(
-            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, consent_epoch, pending_update_json) \
-             VALUES (1, 'enabled', 0, 'fresh-install', 0, '{\"toVersion\":\"2.0.0\"}');\n             INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at) \
-             VALUES ('fresh-e1', 0, 1, 'app.started', '{\"a\":1}', 7, 1, 9, 1);",
+        seed_analytics_state(
+            &target,
+            "enabled",
+            false,
+            Some("fresh-install"),
+            0,
+            Some("{\"toVersion\":\"2.0.0\"}"),
         )
-        .execute(&target)
-        .await
-        .unwrap();
+        .await;
 
         run_import_backup(
             target.clone(),
@@ -752,41 +772,25 @@ mod tests {
         .await
         .unwrap();
 
-        let (status, explicit, installation, epoch, pending): (
-            String,
-            i64,
-            String,
-            i64,
-            Option<String>,
-        ) = sqlx::query_as(
-            "SELECT status, consent_explicit, installation_id, consent_epoch, pending_update_json \
-             FROM analytics_state WHERE id = 1",
-        )
-        .fetch_one(&target)
-        .await
-        .unwrap();
-        assert_eq!(status, "disabled", "the restored opt-out must survive");
-        assert_eq!(explicit, 1);
+        let state = load_analytics_state(&target).await;
         assert_eq!(
-            installation, "fresh-install",
+            state["status"], "disabled",
+            "the restored opt-out must survive"
+        );
+        assert_eq!(state["consentExplicit"], 1);
+        assert_eq!(
+            state["installationId"], "fresh-install",
             "the restored install keeps its own anonymous identity"
         );
-        assert_eq!(epoch, 1, "the applied choice bumps the local epoch");
+        assert_eq!(
+            state["consentEpoch"], 1,
+            "the applied choice bumps the local epoch"
+        );
         assert!(
-            pending.is_none(),
+            state["pendingUpdateJson"].is_null(),
             "a restored opt-out must clear pending update metadata"
         );
-        assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM analytics_outbox")
-                .fetch_one(&target)
-                .await
-                .unwrap(),
-            0,
-            "a restored opt-out must purge events queued before it"
-        );
 
-        // The native sender regression covers re-enabling this imported choice
-        // through the public consent boundary, without resurrecting old sends.
         source.close().await;
         target.close().await;
     }
@@ -795,30 +799,15 @@ mod tests {
     async fn user_gets_a_restored_explicit_choice_created_where_no_state_row_exists() {
         let root = tempfile::tempdir().unwrap();
         let source_path = root.path().join("source.db");
-        let source = backup(&source_path, 6).await;
-        sqlx::raw_sql(
-            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, consent_epoch) \
-             VALUES (1, 'disabled', 1, 'exported-install', 4);",
-        )
-        .execute(&source)
-        .await
-        .unwrap();
+        let source = backup(&source_path, 5).await;
+        seed_analytics_state(&source, "disabled", true, Some("exported-install"), 4, None).await;
 
-        // A full import into a database that has analytics tables but no state row.
+        // A full import into a database with no local analytics choice.
         let target_path = root.path().join("target.db");
         let target = create_sqlite_pool(&target_path).await.unwrap();
         migrate_database(&mut *target.acquire().await.unwrap(), &contract())
             .await
             .unwrap();
-
-        sqlx::query(
-            "INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, \
-             payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at) \
-             VALUES ('orphaned-local', 0, 1, 'app.started', '{}', 2, 1, 9, 1)",
-        )
-        .execute(&target)
-        .await
-        .unwrap();
 
         run_import_backup(
             target.clone(),
@@ -832,71 +821,67 @@ mod tests {
         .await
         .unwrap();
 
-        let (status, explicit, epoch, installation, observation): (
-            String,
-            i64,
-            i64,
-            Option<String>,
-            Option<String>,
-        ) = sqlx::query_as(
-            "SELECT status, consent_explicit, consent_epoch, installation_id, \
-             observation_started_day FROM analytics_state WHERE id = 1",
-        )
-        .fetch_one(&target)
-        .await
-        .unwrap();
+        let state = load_analytics_state(&target).await;
         assert_eq!(
-            status, "disabled",
+            state["status"], "disabled",
             "the restored opt-out must not be dropped"
         );
-        assert_eq!(explicit, 1);
-        assert_eq!(epoch, 0, "a created row starts on the base consent epoch");
+        assert_eq!(state["consentExplicit"], 1);
+        assert_eq!(
+            state["consentEpoch"], 0,
+            "a created state starts on the base consent epoch"
+        );
+        let installation = state["installationId"].as_str();
         assert!(
             installation.is_some(),
-            "a created row gets a fresh local installation identity"
+            "a created state gets a fresh local installation identity"
         );
-        assert_ne!(installation.as_deref(), Some("exported-install"));
-        assert!(observation.is_some(), "a created row records its first day");
-        assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM analytics_outbox")
-                .fetch_one(&target)
-                .await
-                .unwrap(),
-            0
+        assert_ne!(installation, Some("exported-install"));
+        assert!(
+            !state["observationStartedDay"].is_null(),
+            "a created state records its first day"
         );
         source.close().await;
         target.close().await;
     }
 
     #[tokio::test]
-    async fn user_keeps_local_consent_and_queue_on_a_chat_only_import() {
+    async fn user_keeps_local_analytics_choice_on_a_chat_only_import() {
         for restored_status in ["enabled", "disabled"] {
             let root = tempfile::tempdir().unwrap();
             let source_path = root.path().join("source.db");
-            let source = backup(&source_path, 6).await;
-            let seed_source = format!(
-                "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, consent_epoch) \
-                 VALUES (1, '{restored_status}', 1, 'exported-install', 4);\n                 INSERT INTO sessions (id, session_id, title, model) \
-                 VALUES (1, 'imported-chat', 'Imported', 'test');"
-            );
-            sqlx::raw_sql(sqlx::AssertSqlSafe(seed_source))
-                .execute(&source)
-                .await
-                .unwrap();
+            let source = backup(&source_path, 5).await;
+            seed_analytics_state(
+                &source,
+                restored_status,
+                true,
+                Some("exported-install"),
+                4,
+                None,
+            )
+            .await;
+            sqlx::query(
+                "INSERT INTO sessions (id, session_id, title, model) \
+                 VALUES (1, 'imported-chat', 'Imported', 'test')",
+            )
+            .execute(&source)
+            .await
+            .unwrap();
 
             let target_path = root.path().join("target.db");
             let target = create_sqlite_pool(&target_path).await.unwrap();
             migrate_database(&mut *target.acquire().await.unwrap(), &contract())
                 .await
                 .unwrap();
-            sqlx::raw_sql(
-                "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, consent_epoch, pending_update_json) \
-                 VALUES (1, 'enabled', 0, 'fresh-install', 3, '{\"toVersion\":\"2.0.0\"}');\n                 INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name, payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at) \
-                 VALUES ('fresh-e1', 3, 1, 'app.started', '{\"a\":1}', 7, 1, 9, 1);",
+            seed_analytics_state(
+                &target,
+                "enabled",
+                false,
+                Some("fresh-install"),
+                3,
+                Some("{\"toVersion\":\"2.0.0\"}"),
             )
-            .execute(&target)
-            .await
-            .unwrap();
+            .await;
 
             run_import_backup(
                 target.clone(),
@@ -910,38 +895,20 @@ mod tests {
             .await
             .unwrap();
 
-            let (status, explicit, installation, epoch, pending): (
-                String,
-                i64,
-                String,
-                i64,
-                Option<String>,
-            ) = sqlx::query_as(
-                "SELECT status, consent_explicit, installation_id, consent_epoch, pending_update_json \
-                 FROM analytics_state WHERE id = 1",
-            )
-            .fetch_one(&target)
-            .await
-            .unwrap();
+            let state = load_analytics_state(&target).await;
             assert_eq!(
-                (status.as_str(), explicit, installation.as_str(), epoch),
-                ("enabled", 0, "fresh-install", 3),
+                (
+                    state["status"].as_str(),
+                    state["consentExplicit"].as_i64(),
+                    state["installationId"].as_str(),
+                    state["consentEpoch"].as_i64()
+                ),
+                (Some("enabled"), Some(0), Some("fresh-install"), Some(3)),
                 "a chat-only import of a {restored_status} backup keeps local consent"
             );
             assert!(
-                pending.is_some(),
+                !state["pendingUpdateJson"].is_null(),
                 "a chat-only import keeps the local pending update metadata"
-            );
-            let kept_event: Option<String> = sqlx::query_scalar(
-                "SELECT event_id FROM analytics_outbox WHERE event_id = 'fresh-e1'",
-            )
-            .fetch_optional(&target)
-            .await
-            .unwrap();
-            assert_eq!(
-                kept_event.as_deref(),
-                Some("fresh-e1"),
-                "a chat-only import keeps the local queue"
             );
             // The chat itself was still merged.
             assert_eq!(
@@ -959,14 +926,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn user_keeps_consent_pending_events_and_chat_unchanged_when_restored_opt_out_cleanup_fails(
+    async fn user_keeps_analytics_choice_chat_and_settings_unchanged_when_restored_choice_adoption_fails(
     ) {
         let root = tempfile::tempdir().unwrap();
         let source_path = root.path().join("source.db");
-        let source = backup(&source_path, 6).await;
+        let source = backup(&source_path, 5).await;
+        seed_analytics_state(&source, "disabled", true, None, 0, None).await;
         sqlx::raw_sql(
-            "INSERT INTO analytics_state (id, status, consent_explicit) VALUES (1, 'disabled', 1);
-             INSERT INTO sessions (session_id, title, model) VALUES ('imported-chat', 'Imported', 'test');",
+            "INSERT INTO sessions (session_id, title, model) \
+             VALUES ('imported-chat', 'Imported', 'test');",
         )
         .execute(&source)
         .await
@@ -976,15 +944,20 @@ mod tests {
         migrate_database(&mut *target.acquire().await.unwrap(), &contract())
             .await
             .unwrap();
+        seed_analytics_state(
+            &target,
+            "enabled",
+            false,
+            Some("local-install"),
+            0,
+            Some("{}"),
+        )
+        .await;
         sqlx::raw_sql(
-            "INSERT INTO analytics_state (id, status, consent_explicit, installation_id, pending_update_json)
-             VALUES (1, 'enabled', 0, 'local-install', '{}');
-             INSERT INTO analytics_outbox (event_id, consent_epoch, schema_version, event_name,
-             payload_json, payload_bytes, enqueued_at, expires_at, next_attempt_at)
-             VALUES ('local', 0, 1, 'app.started', '{}', 2, 1, 9, 1);
-             INSERT INTO settings (key, value) VALUES ('keep', 'unchanged');
-             CREATE TRIGGER fail_pending_purge BEFORE UPDATE OF pending_update_json ON analytics_state
-             WHEN NEW.pending_update_json IS NULL BEGIN SELECT RAISE(ABORT, 'cleanup refused'); END;",
+            "INSERT INTO settings (key, value) VALUES ('keep', 'unchanged');
+             CREATE TRIGGER fail_analytics_adoption BEFORE UPDATE OF value ON settings
+             WHEN OLD.key = 'analytics.state.v1'
+             BEGIN SELECT RAISE(ABORT, 'cleanup refused'); END;",
         )
         .execute(&target)
         .await
@@ -1003,20 +976,12 @@ mod tests {
         .unwrap_err();
 
         assert!(error.contains("cleanup refused"), "{error}");
-        let state: (String, i64, i64, String) = sqlx::query_as(
-            "SELECT status, consent_explicit, consent_epoch, pending_update_json FROM analytics_state WHERE id = 1",
-        )
-        .fetch_one(&target)
-        .await
-        .unwrap();
-        assert_eq!(state, ("enabled".to_string(), 0, 0, "{}".to_string()));
-        assert_eq!(
-            sqlx::query_scalar::<_, String>("SELECT event_id FROM analytics_outbox")
-                .fetch_one(&target)
-                .await
-                .unwrap(),
-            "local"
-        );
+        let state = load_analytics_state(&target).await;
+        assert_eq!(state["status"], "enabled");
+        assert_eq!(state["consentExplicit"], 0);
+        assert_eq!(state["consentEpoch"], 0);
+        assert_eq!(state["installationId"], "local-install");
+        assert_eq!(state["pendingUpdateJson"], "{}");
         assert_eq!(
             sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'keep'")
                 .fetch_one(&target)

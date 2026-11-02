@@ -47,7 +47,7 @@ export interface AnalyticsTrackRequest {
 }
 
 export type AnalyticsSubmitStatus =
-    | 'persisted'
+    | 'queued'
     | 'disabled'
     | 'unavailable'
     | 'rejected'
