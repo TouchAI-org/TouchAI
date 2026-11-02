@@ -62,7 +62,7 @@ describe('NativeService analytics bridge', () => {
     });
 
     it('user gets the track request passed to the native command and its result back', async () => {
-        mockInvoke.mockResolvedValue({ status: 'persisted', eventId: 'e-1' });
+        mockInvoke.mockResolvedValue({ status: 'queued', eventId: 'e-1' });
         const request = {
             eventName: 'app.started' as const,
             occurredAtMs: 1_760_000_000_000,
