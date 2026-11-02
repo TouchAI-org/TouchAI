@@ -34,7 +34,10 @@ const state = vi.hoisted(() => {
             Object.assign(settings, patch);
             return settings;
         }),
-        setRecording: vi.fn(async () => undefined),
+        setRecording: vi.fn(async (enabled: boolean) => {
+            void enabled;
+            return undefined;
+        }),
         settings,
         status: vi.fn(async () => ({
             abiVersion: '1.1.0',
