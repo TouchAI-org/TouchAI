@@ -17,6 +17,7 @@ pub enum AppDirectory {
     Assets,
     AssetsFont,
     AssetsBin,
+    ComputerUse,
 }
 
 #[derive(Debug, Deserialize)]
@@ -32,6 +33,7 @@ pub(crate) const APP_DIRECTORY_LAYOUT: &[(AppDirectory, &str, &str)] = &[
     (AppDirectory::Assets, "ASSETS", "assets"),
     (AppDirectory::AssetsFont, "ASSETS_FONT", "assets/font"),
     (AppDirectory::AssetsBin, "ASSETS_BIN", "assets/bin"),
+    (AppDirectory::ComputerUse, "COMPUTER_USE", "computer-use"),
 ];
 
 fn resolve_program_root_directory() -> Result<PathBuf, String> {
