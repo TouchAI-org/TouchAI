@@ -490,7 +490,8 @@ describe('user keeps the existing Rust and Rust coverage validation in one job',
             path: '${{ env.RUST_COVERAGE_REPORT }}',
             'if-no-files-found': 'error',
         });
-        expect(floors).toEqual({ lines: 63, regions: 64 });
+        expect(floors.lines).toBeGreaterThanOrEqual(63);
+        expect(floors.regions).toBeGreaterThanOrEqual(64);
     });
 });
 

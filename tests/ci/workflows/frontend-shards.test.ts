@@ -395,7 +395,10 @@ describe('user splits frontend tests into native report shards', () => {
         expect(checkoutIndex).toBeLessThan(pnpmIndex);
         expect(pnpmIndex).toBeLessThan(nodeIndex);
         expect(nodeIndex).toBeLessThan(installIndex);
-        expect(checkout?.with?.ref).toBe('${{ github.event.pull_request.head.sha || github.sha }}');
+        expect(checkout?.with).toMatchObject({
+            ref: '${{ github.event.pull_request.head.sha || github.sha }}',
+            'persist-credentials': false,
+        });
         expect(node?.with).toMatchObject({ 'node-version': 22, cache: 'pnpm' });
         expect(normalizedCommand(step(shards, 'Install dependencies').run)).toBe(
             'pnpm install --frozen-lockfile'
@@ -560,6 +563,7 @@ describe('user merges complete shards under the original frontend policy', () =>
         expect(checkout?.with).toMatchObject({
             ref: '${{ github.event.pull_request.head.sha || github.sha }}',
             'fetch-depth': 0,
+            'persist-credentials': false,
         });
         expect(stepIndex(aggregate, checkoutAction)).toBeGreaterThan(0);
     });
