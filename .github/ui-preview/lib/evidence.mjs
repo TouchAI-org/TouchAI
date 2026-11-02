@@ -9,6 +9,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { captureMode, PLATFORMS } from './platform.mjs';
+
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const MP4_FTYP = Buffer.from('ftyp');
 
@@ -18,6 +20,7 @@ export const MIN_VIDEO_SECONDS = 6;
 export const MIN_VIDEO_FRAMES = 60;
 export const MIN_DISTINCT_STATES = 5;
 export const MIN_COVERAGE = 0.8;
+export const FIXTURE_PROVIDER_ENDPOINT = 'http://127.0.0.1:9/v1/chat/completions';
 
 const SECRET_PATTERNS = [
     /\bsk-[A-Za-z0-9_-]{16,}/,
@@ -42,6 +45,10 @@ export function findSecret(text) {
     return null;
 }
 
+export function isFixtureProviderError(error) {
+    return String(error).includes(FIXTURE_PROVIDER_ENDPOINT);
+}
+
 function isInside(root, candidate) {
     const relative = path.relative(root, candidate);
     return relative.length > 0 && !relative.startsWith('..') && !path.isAbsolute(relative);
@@ -57,6 +64,10 @@ export function readPngSize(buffer) {
 
 export function isMp4(buffer) {
     return buffer.length > 12 && buffer.subarray(4, 8).equals(MP4_FTYP);
+}
+
+function isPositiveInteger(value) {
+    return Number.isInteger(Number(value)) && Number(value) > 0;
 }
 
 /**
@@ -84,6 +95,54 @@ export function validateEvidence(evidenceDir, manifest) {
 
     if (!/^[0-9a-f]{7,40}$/.test(String(manifest.sha ?? ''))) {
         errors.push('manifest sha is not a commit sha');
+    }
+
+    if (manifest.platform && !PLATFORMS.includes(manifest.platform)) {
+        errors.push(`manifest platform is not supported: ${manifest.platform}`);
+    }
+
+    if (!manifest.platform) {
+        errors.push('manifest platform is missing');
+    }
+
+    if (!manifest.captureMode) {
+        errors.push('manifest capture mode is missing');
+    }
+
+    if (
+        manifest.platform &&
+        manifest.captureMode &&
+        manifest.captureMode !== captureMode(manifest.platform)
+    ) {
+        errors.push(
+            `manifest capture mode ${manifest.captureMode} does not match ${manifest.platform}`
+        );
+    }
+
+    if (manifest.stage) {
+        const stage = manifest.stage;
+        const scale = Number(manifest.scale);
+
+        if (!isPositiveInteger(stage.width) || !isPositiveInteger(stage.height)) {
+            errors.push('manifest stage is not a positive pixel size');
+        }
+
+        if (!Number.isFinite(scale) || scale <= 0 || scale > 4) {
+            errors.push('manifest scale is not between 0 and 4');
+        }
+
+        if (manifest.physicalStage) {
+            const physical = manifest.physicalStage;
+
+            if (!isPositiveInteger(physical.width) || !isPositiveInteger(physical.height)) {
+                errors.push('manifest physical stage is not a positive pixel size');
+            } else if (
+                Math.abs(Number(physical.width) - Math.round(Number(stage.width) * scale)) > 2 ||
+                Math.abs(Number(physical.height) - Math.round(Number(stage.height) * scale)) > 2
+            ) {
+                errors.push('manifest physical stage does not match its logical size and scale');
+            }
+        }
     }
 
     const scenes = Array.isArray(manifest.scenes) ? manifest.scenes : [];
@@ -157,6 +216,12 @@ export function validateEvidence(evidenceDir, manifest) {
                 const width = Number(info.width ?? 0);
                 const height = Number(info.height ?? 0);
 
+                if (info.mode !== manifest.captureMode) {
+                    errors.push(
+                        `video capture mode ${info.mode || '(missing)'} does not match ${manifest.captureMode}`
+                    );
+                }
+
                 if (duration < MIN_VIDEO_SECONDS) {
                     errors.push(`video is shorter than ${MIN_VIDEO_SECONDS}s`);
                 }
@@ -178,12 +243,27 @@ export function validateEvidence(evidenceDir, manifest) {
                 if (width < 320 || height < 240) {
                     errors.push('video is smaller than any app window');
                 }
+
+                if (manifest.physicalStage) {
+                    const expectedWidth = Number(manifest.physicalStage.width);
+                    const expectedHeight = Number(manifest.physicalStage.height);
+
+                    if (width !== expectedWidth || height !== expectedHeight) {
+                        errors.push(
+                            `video is ${width}x${height}, not the native ${expectedWidth}x${expectedHeight} stage`
+                        );
+                    }
+                }
             }
         }
     }
 
     if (shots.length === 0 && !video) {
         errors.push('the manifest has no usable evidence');
+    }
+
+    if (!manifest.video && !manifest.failure) {
+        errors.push('the manifest has no video and does not report a capture failure');
     }
 
     return { ok: errors.length === 0, errors, assets: { shots, video } };

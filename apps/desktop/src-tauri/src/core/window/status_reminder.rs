@@ -78,8 +78,12 @@ pub struct SessionStatusReminderNotificationRuntime {
 
 impl SessionStatusReminderNotificationRuntime {
     pub fn new() -> Self {
+        // Automation runs use an unsigned, unpackaged app. Keep reminders in
+        // process instead of calling OS notification APIs that require a bundle.
+        let test_mode = crate::core::system::runtime::is_e2e_test_mode()
+            || crate::core::system::runtime::is_ui_preview_mode();
         Self {
-            test_mode: AtomicBool::new(false),
+            test_mode: AtomicBool::new(test_mode),
             next_tag: AtomicU64::new(0),
             records: Mutex::new(Vec::new()),
             clear_count: AtomicUsize::new(0),

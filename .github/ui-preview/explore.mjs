@@ -18,6 +18,9 @@ import {
     windowForSurface,
 } from './lib/capture.mjs';
 import { checkLocaleParity } from './lib/i18n.mjs';
+import { parseDisplaySize } from './lib/native-capture.mjs';
+import { captureMode, detectPlatform, isUsableDisplay, platformLabel } from './lib/platform.mjs';
+import { resolveCaptureProfile, stageLabel } from './lib/profile.mjs';
 import {
     boot,
     collectOutline,
@@ -33,6 +36,10 @@ import {
 
 function env(name, fallback = '') {
     return process.env[name] ?? fallback;
+}
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function changedFiles() {
@@ -71,15 +78,33 @@ async function main() {
     const outDir = ensureDir(env('UI_PREVIEW_OUT', 'ui-preview-out'));
     const sha = env('UI_PREVIEW_SHA');
     const display = env('DISPLAY', ':99');
+    const platform = detectPlatform();
+    const profile = resolveCaptureProfile(process.env);
+    const displaySize = parseDisplaySize(process.env, platform, profile);
     const files = changedFiles();
 
     if (!application || !fs.existsSync(application)) {
         throw new Error(`UI_PREVIEW_APP_BINARY does not exist: ${application}`);
     }
 
-    paintDesktop(display);
+    if (
+        !isUsableDisplay(
+            displaySize.width,
+            displaySize.height,
+            profile.physical.width,
+            profile.physical.height
+        )
+    ) {
+        throw new Error(
+            `${platformLabel(platform)} exposes ${displaySize.width}x${displaySize.height}; the preview needs at least ${profile.physical.width}x${profile.physical.height}`
+        );
+    }
 
-    const runtime = await boot({ application });
+    if (platform === 'linux') {
+        paintDesktop(display);
+    }
+
+    const runtime = await boot({ application, platform });
     const { session } = runtime;
 
     try {
@@ -98,17 +123,41 @@ async function main() {
         const settingsOverflow = await measureOverflow(session);
 
         await switchToSurface(session, 'search');
-        const geometry = windowForSurface(display, 'search');
         const baselineFile = path.join(outDir, 'baseline-search.png');
+        let baseline = false;
+        let baselineError = null;
 
-        if (geometry) {
-            raiseWindow(display, geometry.id);
-            captureScreenshot({ display, file: baselineFile, geometry });
+        try {
+            if (platform === 'linux') {
+                const geometry = windowForSurface(display, 'search', profile.scale);
+
+                if (geometry) {
+                    raiseWindow(display, geometry.id);
+                    captureScreenshot({ display, file: baselineFile, geometry });
+                    baseline = fs.existsSync(baselineFile);
+                }
+            } else {
+                await session.focusWindow();
+                await sleep(500);
+                const base64 = await session.screenshot();
+                fs.writeFileSync(baselineFile, Buffer.from(base64, 'base64'));
+                baseline = fs.existsSync(baselineFile);
+            }
+        } catch (error) {
+            baselineError = error.message;
+            fs.rmSync(baselineFile, { force: true });
+            console.log(`baseline screenshot skipped: ${baselineError}`);
         }
 
         const facts = {
             version: 1,
             sha,
+            platform,
+            captureMode: captureMode(platform),
+            display: displaySize,
+            stage: profile.stage,
+            scale: profile.scale,
+            physicalStage: profile.physical,
             files,
             testIds: {
                 search: [...new Set([...searchTestIds, ...settingsOutline.testIds])].sort(),
@@ -125,12 +174,13 @@ async function main() {
                 settings: settingsOverflow,
             },
             i18nParity: checkLocaleParity(path.join(process.cwd(), 'apps/desktop/src/i18n')),
-            baseline: geometry ? path.basename(baselineFile) : null,
+            baseline: baseline ? path.basename(baselineFile) : null,
+            baselineError,
         };
 
         fs.writeFileSync(path.join(outDir, 'facts.json'), `${JSON.stringify(facts, null, 2)}\n`);
         console.log(
-            `outline: ${facts.testIds.settings.length} settings test ids, ${facts.settingsSections.length} sections`
+            `outline: ${facts.testIds.settings.length} settings test ids, ${facts.settingsSections.length} sections, ${stageLabel(profile)}`
         );
     } finally {
         await runtime.close();
