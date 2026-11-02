@@ -254,7 +254,7 @@ describe('user runs desktop E2E from one freshly built application', () => {
         expect(node.with?.['package-manager-cache']).toBe(false);
         expect(build.if).toBeUndefined();
         expect(buildIndex).toBeGreaterThan(getStepIndex(job, 'Install frontend dependencies'));
-        expect(buildIndex).toBeGreaterThan(getStepIndex(job, 'Install tauri-driver'));
+        expect(buildIndex).toBeGreaterThan(getStepIndex(job, 'Verify preinstalled tauri-driver'));
         expect(buildIndex).toBeGreaterThan(getStepIndex(job, 'Configure Edge WebDriver'));
         expect(buildIndex).toBeLessThan(runIndex);
         expect(buildIndex).toBeLessThan(updateIndex);
@@ -354,12 +354,17 @@ describe('user runs desktop E2E from one freshly built application', () => {
         });
     });
 
-    it('user keeps the verified tauri-driver source-install exception', () => {
+    it('user sees the runner-provided tauri-driver used without compilation', () => {
         const job = getJob(readWorkflow('e2e-smoke.yml'), 'desktop-e2e-smoke-windows');
-        const install = getNamedStep(job, 'Install tauri-driver');
+        const verify = getNamedStep(job, 'Verify preinstalled tauri-driver');
+        const workflowSource = JSON.stringify(job);
 
-        expect(getRun(install).trim()).toBe('cargo install tauri-driver --locked');
-        expect(JSON.stringify(job)).not.toMatch(/quickinstall|cargo-binstall|install-action/i);
+        expect(verify.shell).toBe('pwsh');
+        expect(getRun(verify)).toContain('$driver = Get-Command tauri-driver -ErrorAction Stop');
+        expect(getRun(verify)).toContain('tauri-driver --version');
+        expect(workflowSource).not.toMatch(
+            /cargo\s+install|quickinstall|cargo-binstall|install-action/i
+        );
     });
 });
 

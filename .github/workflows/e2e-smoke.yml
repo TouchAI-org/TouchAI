@@ -214,8 +214,12 @@ jobs:
             - name: Install frontend dependencies
               run: pnpm install --frozen-lockfile
 
-            - name: Install tauri-driver
-              run: cargo install tauri-driver --locked
+            - name: Verify preinstalled tauri-driver
+              shell: pwsh
+              run: |
+                  $driver = Get-Command tauri-driver -ErrorAction Stop
+                  tauri-driver --version
+                  Write-Output "Using runner-provided $driver"
 
             - name: Configure Edge WebDriver
               shell: pwsh
