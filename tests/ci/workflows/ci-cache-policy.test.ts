@@ -32,11 +32,6 @@ describe('user reviews cache writes and CI job scope', () => {
         expect(cacheContracts(readWorkflow('ci.yml'))).toEqual([
             {
                 job: 'rust-checks',
-                workspaces: 'apps/desktop/src-tauri -> ../../../rust-target/ci-check',
-                saveIf: mainOnlySaveIf,
-            },
-            {
-                job: 'rust-coverage',
                 workspaces: 'apps/desktop/src-tauri -> target',
                 saveIf: mainOnlySaveIf,
             },
@@ -104,7 +99,6 @@ describe('user reviews cache writes and CI job scope', () => {
             'ci-tests',
             'site-build',
             'rust-checks',
-            'rust-coverage',
             'build-windows',
         ]);
     });

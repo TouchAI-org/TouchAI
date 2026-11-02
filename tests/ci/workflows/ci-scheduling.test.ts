@@ -399,7 +399,6 @@ describe('user relies on required workflow reporting', () => {
                 'ci-tests',
                 'site-build',
                 'rust-checks',
-                'rust-coverage',
                 'build-windows',
             ].sort()
         );

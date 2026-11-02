@@ -575,7 +575,7 @@ describe('user merges complete shards under the original frontend policy', () =>
         expect(nodeIndex).toBeLessThan(installIndex);
         expect(node?.with).toMatchObject({ 'node-version': 22, cache: 'pnpm' });
         expect(normalizedCommand(step(aggregate, 'Install dependencies').run)).toBe(
-            'pnpm install --frozen-lockfile'
+            'pnpm install --frozen-lockfile --filter @touchai/desktop...'
         );
     });
 
@@ -812,7 +812,6 @@ describe('user runs every repository CI check and moved UI preview elsewhere', (
                 'ci-tests',
                 'site-build',
                 'rust-checks',
-                'rust-coverage',
                 'build-windows',
             ].sort()
         );

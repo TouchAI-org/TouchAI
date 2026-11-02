@@ -103,7 +103,7 @@ function expectMatrixEntries(
 
 describe('user prepares Rust coverage from a verified prebuilt tool', () => {
     it('user sees cargo-llvm-cov installed from one checksum-verified Linux archive', () => {
-        const job = getJob(readWorkflow('ci.yml'), 'rust-coverage');
+        const job = getJob(readWorkflow('ci.yml'), 'rust-checks');
         const step = getNamedStep(job, 'Install cargo-llvm-cov');
         const run = getRun(step);
 
@@ -444,12 +444,13 @@ describe('user records the UI preview from the supported macOS ffmpeg', () => {
     });
 });
 
-describe('user keeps the existing Rust coverage validation', () => {
-    it('user sees the same tools, conditional steps, command, report, artifact, and floors', () => {
+describe('user keeps the existing Rust and Rust coverage validation in one job', () => {
+    it('user sees the same formatter, coverage tools, report, artifact, and floors without duplicate cargo runs', () => {
         const workflow = readWorkflow('ci.yml');
-        const job = getJob(workflow, 'rust-coverage');
+        const job = getJob(workflow, 'rust-checks');
         const toolchain = getNamedStep(job, 'Install Rust stable');
         const cache = getNamedStep(job, 'Rust cache');
+        const formatting = getNamedStep(job, 'Check Rust formatting');
         const coverage = getNamedStep(job, 'Run Rust coverage');
         const resolveReport = getNamedStep(job, 'Locate Rust coverage report');
         const summarize = getNamedStep(job, 'Summarize coverage');
@@ -463,6 +464,12 @@ describe('user keeps the existing Rust coverage validation', () => {
 
         expect(toolchain.with?.components).toBe('llvm-tools-preview');
         expect(cache.uses).toMatch(/^swatinem\/rust-cache@/);
+        expect(getRun(formatting).trim()).toBe(
+            'cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all -- --check'
+        );
+        expect(job.steps.map((step) => step.name)).not.toContain('Check Rust targets');
+        expect(job.steps.map((step) => step.name)).not.toContain('Run Rust tests');
+        expect(workflow.jobs).not.toHaveProperty('rust-coverage');
         for (const step of [
             getNamedStep(job, 'Install cargo-llvm-cov'),
             cache,

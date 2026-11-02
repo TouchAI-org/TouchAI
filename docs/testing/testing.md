@@ -65,7 +65,7 @@ pnpm test:rust                          # Run Rust tests
 pnpm test:coverage:rust                 # Run Rust tests with coverage (requires cargo-llvm-cov)
 ```
 
-CI runs both coverage gates on every desktop change: frontend in `frontend-tests`, Rust in `rust-coverage`. Each publishes a table to the step summary, and each failure blocks the required `CI Required` check.
+CI runs both coverage gates on every desktop change: frontend in `frontend-tests`, Rust in `rust-checks`. Each publishes a table to the step summary, and each failure blocks the required `CI Required` check.
 
 ## Coverage
 
@@ -130,7 +130,7 @@ Rust floor in `apps/desktop/src-tauri/coverage-floors.json`, from **cargo-llvm-c
 | Lines | 61% | 61.4% | 85% |
 | Regions | 62% | 62.3% | 85% |
 
-The `rust-coverage` job fails with the exact metric that regressed. Raise with `pnpm test:coverage:rust:raise`. Same one-way rule.
+The `rust-checks` job fails with the exact metric that regressed. Raise with `pnpm test:coverage:rust:raise`. Same one-way rule.
 
 **Why Rust starts lower.** Of its 11043 measured lines, covering every testable pure-logic line tops out near 50% total. The rest sits in browser/CDP, window-shell, clipboard, bootstrap and MCP client code, whose only realistic unit test asserts against mocks. So Rust rises with integration and E2E coverage, not with mock-heavy unit tests. Do not close the gap by testing stubs.
 
