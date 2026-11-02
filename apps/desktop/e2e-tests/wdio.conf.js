@@ -238,10 +238,10 @@ export const config = {
     },
     onPrepare: () => {
         // Local visual-regression iteration can reuse the binary from the previous
-        // run; CI never sets this, so the checked-in evidence always comes from a
-        // fresh build. The default Cargo target lives under `runtimeRoot/tmp`, so
-        // clearing the whole directory would delete the binary this branch is meant
-        // to reuse.
+        // run. CI performs a preceding fresh explicit build, so the skip flag is only
+        // used for that checkout's execution path to reuse the binary it just built.
+        // The default Cargo target lives under `runtimeRoot/tmp`, so clearing the
+        // whole directory would delete the binary this branch is meant to reuse.
         if (process.env.TOUCHAI_E2E_SKIP_BUILD === '1') {
             if (fs.existsSync(runtimeRoot)) {
                 for (const entry of fs.readdirSync(runtimeRoot)) {

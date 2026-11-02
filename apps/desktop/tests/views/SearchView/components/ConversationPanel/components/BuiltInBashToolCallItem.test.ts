@@ -356,6 +356,12 @@ describe('user reviews a bash command in the conversation', () => {
         await nextTick();
 
         expect(scrollTop).toBe(480);
+
+        await new Promise<void>((resolve) => {
+            window.requestAnimationFrame(() => resolve());
+        });
+
+        expect(scrollTop).toBe(480);
     });
 
     it('user stops following growing output after the user scrolls up', async () => {

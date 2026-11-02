@@ -2,7 +2,7 @@
 
 //! 数据库运行时命令。
 
-use tauri::{Runtime, State, WebviewWindow};
+use tauri::{AppHandle, Manager, Runtime, State, WebviewWindow};
 
 use crate::core::analytics::AnalyticsRuntime;
 use crate::core::database::{
@@ -95,13 +95,16 @@ pub async fn database_export_backup(
 /// 这里保持同步命令签名，是为了与当前前端调用约定保持简单一致；
 /// 实际导入流程仍在异步运行时中执行。
 #[tauri::command]
-pub fn database_import_backup(
+pub fn database_import_backup<R: Runtime>(
+    app: AppHandle<R>,
     runtime: State<'_, DatabaseRuntime>,
-    analytics: State<'_, AnalyticsRuntime>,
     request: DatabaseImportRequest,
 ) -> Result<(), String> {
     tauri::async_runtime::block_on(async {
         runtime.import_backup(request).await?;
-        analytics.synchronize_after_restore().await
+        if let Some(analytics) = app.try_state::<AnalyticsRuntime>() {
+            analytics.synchronize_after_restore().await?;
+        }
+        Ok(())
     })
 }
