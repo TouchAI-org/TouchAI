@@ -1,5 +1,6 @@
 name: Desktop E2E Smoke
 
+# Native build preparation and test execution are separate performance budgets.
 on:
     push:
         branches:
@@ -20,8 +21,8 @@ permissions:
     pull-requests: read
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.merge_group.head_sha || github.ref }}
-    cancel-in-progress: true
+    group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     changes:
@@ -36,6 +37,11 @@ jobs:
               uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
               with:
                   script: |
+                      const fullClassification = () => {
+                        core.setOutput('docs_only', 'false');
+                        core.setOutput('desktop_changed', 'true');
+                      };
+
                       // merge_group must classify by base/head files; forcing desktop_changed=true
                       // made every queued PR (including actions/labeler, dependabot.yml) run Windows E2E.
                       if (
@@ -43,8 +49,7 @@ jobs:
                         context.eventName !== 'push' &&
                         context.eventName !== 'merge_group'
                       ) {
-                        core.setOutput('docs_only', 'false');
-                        core.setOutput('desktop_changed', 'true');
+                        fullClassification();
                         return;
                       }
 
@@ -71,6 +76,11 @@ jobs:
                         /^package\.json$/,
                         /^pnpm-lock\.yaml$/,
                         /^pnpm-workspace\.yaml$/,
+                        /^\.cargo\//,
+                        /^Cargo\.toml$/,
+                        /^Cargo\.lock$/,
+                        /^rust-toolchain$/,
+                        /^rust-toolchain\.toml$/,
                         /^\.github\/workflows\/e2e-smoke\.yml$/,
                       ];
 
@@ -93,8 +103,7 @@ jobs:
                             : context.payload.after;
 
                         if (!before || !after || /^0+$/.test(before)) {
-                          core.setOutput('docs_only', 'false');
-                          core.setOutput('desktop_changed', 'true');
+                          fullClassification();
                           return;
                         }
 
@@ -106,19 +115,63 @@ jobs:
 
                         files = comparison.data.files ?? [];
 
-                        if (files.length >= 300) {
-                          core.setOutput('docs_only', 'false');
-                          core.setOutput('desktop_changed', 'true');
+                        if (!Array.isArray(files) || files.length >= 300) {
+                          fullClassification();
                           return;
                         }
                       }
 
+                      if (!Array.isArray(files) || files.length === 0) {
+                        fullClassification();
+                        return;
+                      }
+
+                      if (context.eventName === 'pull_request') {
+                        const expectedCount = context.payload.pull_request?.changed_files;
+
+                        if (
+                          files.length >= 3000 ||
+                          (Number.isInteger(expectedCount) && expectedCount !== files.length)
+                        ) {
+                          fullClassification();
+                          return;
+                        }
+                      }
+
+                      const validFilename = (value) =>
+                        typeof value === 'string' && value.trim().length > 0;
+                      const validFiles = files.every((file) => {
+                        if (file === null || typeof file !== 'object') {
+                          return false;
+                        }
+
+                        const hasPrevious = Object.prototype.hasOwnProperty.call(
+                          file,
+                          'previous_filename'
+                        );
+
+                        return (
+                          validFilename(file.filename) &&
+                          (!hasPrevious || validFilename(file.previous_filename)) &&
+                          (file.status !== 'renamed' || validFilename(file.previous_filename))
+                        );
+                      });
+
+                      if (!validFiles) {
+                        fullClassification();
+                        return;
+                      }
+
+                      const filenames = files.flatMap((file) =>
+                        file.previous_filename
+                          ? [file.filename, file.previous_filename]
+                          : [file.filename]
+                      );
                       const docsOnly =
-                        files.length > 0 &&
-                        files.every((file) => docsOnlyPatterns.some((pattern) => pattern.test(file.filename)));
-                      const filenames = files.map((file) => file.filename);
+                        filenames.every((filename) =>
+                          docsOnlyPatterns.some((pattern) => pattern.test(filename))
+                        );
                       const desktopChanged =
-                        filenames.length === 0 ||
                         filenames.some((filename) => desktopPatterns.some((pattern) => pattern.test(filename)));
 
                       core.setOutput('docs_only', docsOnly ? 'true' : 'false');
@@ -156,12 +209,20 @@ jobs:
               uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
               with:
                   workspaces: apps/desktop/src-tauri -> target/e2e
+                  save-if: ${{ github.ref == 'refs/heads/main' }}
 
             - name: Install frontend dependencies
               run: pnpm install --frozen-lockfile
 
-            - name: Install tauri-driver
-              run: cargo install tauri-driver --locked
+            - name: Verify preinstalled tauri-driver
+              shell: pwsh
+              run: |
+                  $driver = Get-Command tauri-driver -ErrorAction Stop
+                  & $driver.Source --help
+                  if ($LASTEXITCODE -ne 0) {
+                      throw "tauri-driver --help failed with exit code $LASTEXITCODE."
+                  }
+                  Write-Output "Using runner-provided $($driver.Source)"
 
             - name: Configure Edge WebDriver
               shell: pwsh
@@ -206,9 +267,18 @@ jobs:
                   & $driverPath --version
                   "TOUCHAI_MSEDGEDRIVER_PATH=$driverPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+            - name: Build desktop smoke app
+              env:
+                  CARGO_TARGET_DIR: ${{ github.workspace }}/${{ env.TOUCHAI_CARGO_TARGET_DIR }}
+                  TEMP: ${{ runner.temp }}
+                  TMP: ${{ runner.temp }}
+              run: pnpm tauri build --debug --no-bundle -- --profile ci-check
+
             - name: Run desktop smoke tests
               id: tests
               if: ${{ !inputs.update_visual_baselines }}
+              env:
+                  TOUCHAI_E2E_SKIP_BUILD: '1'
               run: pnpm test:e2e
 
             # Baselines are rendered by the runner that gates the PR, so the pixels
@@ -216,6 +286,8 @@ jobs:
             # machine bakes that machine's DPI and font rasterisation into the files.
             - name: Regenerate visual baselines
               if: ${{ inputs.update_visual_baselines }}
+              env:
+                  TOUCHAI_E2E_SKIP_BUILD: '1'
               run: pnpm --filter @touchai/desktop test:e2e:visual:update
 
             # A failing comparison leaves the actual and diff images under
@@ -348,6 +420,25 @@ jobs:
                   CHANGES_RESULT: ${{ needs.changes.result }}
                   DESKTOP_E2E_RESULT: ${{ needs['desktop-e2e-smoke-windows'].result }}
               run: |
+                  if [ "$CHANGES_RESULT" = "success" ]; then
+                    invalid=0
+
+                    for check in "docs_only:$DOCS_ONLY" "desktop_changed:$DESKTOP_CHANGED"; do
+                      name="${check%%:*}"
+                      value="${check#*:}"
+
+                      if [ "$value" != "true" ] && [ "$value" != "false" ]; then
+                        echo "::error::Invalid changes output $name: expected 'true' or 'false', got '${value:-<missing>}'."
+                        invalid=1
+                      fi
+                    done
+
+                    if [ "$invalid" -ne 0 ]; then
+                      echo "One or more required E2E jobs did not pass."
+                      exit 1
+                    fi
+                  fi
+
                   required=("changes:$CHANGES_RESULT")
 
                   if [ "$DOCS_ONLY" != "true" ] && [ "$DESKTOP_CHANGED" = "true" ]; then

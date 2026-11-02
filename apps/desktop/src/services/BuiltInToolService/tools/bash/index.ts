@@ -300,7 +300,7 @@ export async function executeBashTool(
     try {
         response = await executeCancelableBash(
             {
-                executionId: context.callId,
+                executionId: crypto.randomUUID(),
                 command: commandContext.command,
                 workingDirectory: commandContext.workingDirectory,
                 timeoutMs: effectiveTimeout,
