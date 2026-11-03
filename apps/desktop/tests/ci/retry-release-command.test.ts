@@ -55,6 +55,55 @@ describe('retry release command', () => {
         ).toBe(true);
     });
 
+    it('recognizes the transport and status reasons the bundled download reports', async () => {
+        const retryModule = await loadRetryModule();
+        const failedDownload = (reason: string) =>
+            'failed to prepare bundled rtk: download failed after 3 attempts: ' +
+            'https://github.com/rtk-ai/rtk/releases/download/v0.40.0/rtk-x86_64-pc-windows-msvc.zip: ' +
+            reason;
+
+        // Each reason below has to match on its own: a fixture that also contains
+        // another transient phrase would keep the assertion green after its
+        // pattern was deleted.
+        expect(
+            retryModule?.isTransientReleaseDownloadError(
+                failedDownload('tls connection init failed: unexpected eof while reading')
+            )
+        ).toBe(true);
+        expect(
+            retryModule?.isTransientReleaseDownloadError(failedDownload('Connection Failed'))
+        ).toBe(true);
+        expect(retryModule?.isTransientReleaseDownloadError(failedDownload('Network Error'))).toBe(
+            true
+        );
+        expect(retryModule?.isTransientReleaseDownloadError(failedDownload('Dns Failed'))).toBe(
+            true
+        );
+        expect(
+            retryModule?.isTransientReleaseDownloadError(
+                failedDownload('timed out reading response')
+            )
+        ).toBe(true);
+        expect(
+            retryModule?.isTransientReleaseDownloadError(failedDownload('status code 504'))
+        ).toBe(true);
+    });
+
+    it('does not retry a download that failed verification or does not exist', async () => {
+        const retryModule = await loadRetryModule();
+
+        expect(
+            retryModule?.isTransientReleaseDownloadError(
+                'failed to prepare bundled rtk: digest mismatch for https://example.com/rtk.zip'
+            )
+        ).toBe(false);
+        expect(
+            retryModule?.isTransientReleaseDownloadError(
+                'failed to prepare bundled rtk: https://example.com/rtk.zip: status code 404'
+            )
+        ).toBe(false);
+    });
+
     it('retries transient release download failures and returns the successful status', async () => {
         const retryModule = await loadRetryModule();
         const spawnCommand = vi
