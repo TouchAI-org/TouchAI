@@ -1,7 +1,6 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { findSessionById } from '@database/queries/sessions';
-import type { SessionTurn } from '@database/schema';
 import { notify } from '@services/NotificationService';
 import { log } from '@services/ObservabilityService';
 import { computed, onUnmounted, ref } from 'vue';
@@ -39,7 +38,6 @@ function isCancelledError(requestError: Error): boolean {
  * - 把任务视图层状态重新整理为页面可直接消费的接口
  */
 export function useAgent(options: UseAiRequestOptions = {}) {
-    const currentTurn = ref<SessionTurn | null>(null);
     const isStartingTask = ref(false);
 
     const {
@@ -116,7 +114,6 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         // 也不应该再驱动当前页面的 onComplete / onError 链路。
         requestId += 1;
         abortTaskStartPending();
-        currentTurn.value = null;
     }
 
     /**
@@ -124,7 +121,6 @@ export function useAgent(options: UseAiRequestOptions = {}) {
      */
     function resetTransientState() {
         resetTaskViewState();
-        currentTurn.value = null;
     }
 
     /**
@@ -209,7 +205,6 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         error.value = null;
         response.value = '';
         reasoning.value = '';
-        currentTurn.value = null;
         markTaskStartPending(currentRequestId, startAbortController);
 
         try {
@@ -236,7 +231,6 @@ export function useAgent(options: UseAiRequestOptions = {}) {
 
             const result = await startedTask.completion;
             if (currentRequestId === requestId && isStillObservingTask(startedTaskId)) {
-                currentTurn.value = result.turn;
                 options.onComplete?.(result.response);
             }
         } catch (rawError) {
@@ -308,33 +302,39 @@ export function useAgent(options: UseAiRequestOptions = {}) {
     /**
      * 批准等待中的工具调用。
      */
-    function approvePendingToolApproval(callId?: string): boolean {
+    function approvePendingToolApproval(callId?: string, decisionId?: string): boolean {
         if (!attachedTaskId.value) {
             return false;
         }
 
-        return sessionTaskCenter.approveTaskToolCall(attachedTaskId.value, callId);
+        return sessionTaskCenter.approveTaskToolCall(attachedTaskId.value, callId, decisionId);
     }
 
     /**
      * 拒绝等待中的工具调用。
      */
-    function rejectPendingToolApproval(callId?: string): boolean {
+    function rejectPendingToolApproval(callId?: string, decisionId?: string): boolean {
         if (!attachedTaskId.value) {
             return false;
         }
 
-        return sessionTaskCenter.rejectTaskToolCall(attachedTaskId.value, callId);
+        return sessionTaskCenter.rejectTaskToolCall(attachedTaskId.value, callId, decisionId);
     }
 
     function settleUserQuestion(
         callId: string,
-        answers: import('@/services/AgentService/contracts/tooling').AskUserAnswer[] | null
+        answers: import('@/services/AgentService/contracts/tooling').AskUserAnswer[] | null,
+        decisionId?: string
     ): boolean {
         if (!attachedTaskId.value) {
             return false;
         }
-        return sessionTaskCenter.settleTaskUserQuestion(attachedTaskId.value, callId, answers);
+        return sessionTaskCenter.settleTaskUserQuestion(
+            attachedTaskId.value,
+            callId,
+            answers,
+            decisionId
+        );
     }
 
     onUnmounted(() => {

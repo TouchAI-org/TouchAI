@@ -1,22 +1,13 @@
 ﻿// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { createMcpToolLog, updateMcpToolLogByCallId } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
 import type { ProviderDriver } from '@database/schema';
 import type { Span } from '@opentelemetry/api';
 import { error as obsError, event, log } from '@services/ObservabilityService';
 import { ATTR } from '@services/ObservabilityService/attributes';
-import { serializeAuditPayload } from '@services/ObservabilityService/redact';
 import { withSpan } from '@services/ObservabilityService/tracing';
 
-import { tt } from '@/i18n';
-import {
-    type BuiltInToolControlSignal,
-    type BuiltInToolId,
-    builtInToolService,
-} from '@/services/BuiltInToolService';
-import { parseRequestedTimeoutMs } from '@/utils/timeouts';
-import { z } from '@/utils/zod';
+import type { BuiltInToolControlSignal, BuiltInToolId } from '@/services/BuiltInToolService';
 
 import { createProviderForModel, getModel, resolveToolDefinitions } from '../catalog';
 import { AiError, AiErrorCode } from '../contracts/errors';
@@ -51,32 +42,20 @@ import {
     getModelAttachmentCapabilities,
     getUnsupportedAttachmentTypes,
 } from '../infrastructure/attachments';
-import { mcpManager } from '../infrastructure/mcp';
 import {
     type AiProvider,
     createProviderFromRegistry,
     parseProviderConfigJson,
 } from '../infrastructure/providers';
+import { dispatchToolCall } from '../infrastructure/tools';
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
-import type { TurnEvent } from './runtime';
+import { LatestProgressWriter } from '../outputs/progressWriter';
+import type { RuntimeTurnEvent } from './runtime';
 
 const BUILT_IN_UPGRADE_TOOL_NAME = 'builtin__upgrade_model';
 const MAX_REQUEST_MODEL_SWITCHES = 4;
 const MODEL_SWITCH_EXCLUDED_TOOL_NAMES = [BUILT_IN_UPGRADE_TOOL_NAME];
-const toolArgumentsSchema = z.record(z.string(), z.unknown());
-/**
- * 这些文本会进入工具结果和会话历史，属于用户可见内容，因此统一使用中文。
- * console 日志仍保留英文，便于对齐 SDK、provider 和协议层排障信息。
- */
-const formatToolArgumentJsonError = (toolName: string): string =>
-    tt('工具参数协议错误：{toolName} 返回了无效的 JSON 参数。', { toolName });
-const formatToolArgumentShapeError = (toolName: string, issues: string): string =>
-    `${tt('工具参数协议错误：{toolName} 必须接收 JSON 对象。', { toolName })}\n${issues}`;
-const formatToolNotFoundError = (toolName: string): string =>
-    tt('未找到工具：{toolName}', { toolName });
-const formatToolExecutionFailedError = (errorMessage: string): string =>
-    tt('工具执行失败：{error}', { error: errorMessage });
 
 /** 合并 reasoning 片段的 providerOptions（外层 provider，内层字段）。 */
 function mergeReasoningProviderOptions(
@@ -103,14 +82,15 @@ export interface RequestExecutionCallbacks {
     taskId?: string;
     signal?: AbortSignal;
     onChunk?: (chunk: AiStreamChunk) => void;
-    onTurnEvent?: (event: TurnEvent) => void;
+    onTurnEvent?: (event: RuntimeTurnEvent) => void;
     onAttachmentManifestResolved?: (
         request: import('../contracts/protocol').AttachmentDeliveryManifestRequest
     ) => Promise<void> | void;
     requestToolApproval?: (payload: ToolApprovalDecisionRequest) => Promise<boolean>;
     requestUserQuestions?: (
         callId: string,
-        questions: AskUserQuestion[]
+        questions: AskUserQuestion[],
+        attemptToken?: string
     ) => Promise<AskUserAnswer[] | null>;
 }
 
@@ -219,6 +199,8 @@ export type AttemptFailureResult = Extract<AttemptExecutionResult, { type: 'fail
 export interface RunAttemptOptions extends RequestExecutionCallbacks {
     startCheckpoint: AttemptCheckpoint;
     persister: PersistenceProjector;
+    /** Opaque attempt identity stamped by the runtime; scopes bounded progress writes. */
+    attemptToken?: string;
     parentSpan?: Span;
 }
 
@@ -459,55 +441,6 @@ function throwIfAttachmentsUnsupportedByModel(
     });
 }
 
-function formatToolArgumentsIssues(error: z.ZodError): string {
-    return error.issues
-        .map((issue) => {
-            const path =
-                issue.path.length > 0
-                    ? issue.path.map((segment) => String(segment)).join('.')
-                    : 'input';
-            return `- "${path}": ${issue.message}`;
-        })
-        .join('\n');
-}
-
-function parseToolCallArguments(toolCall: AiToolCall):
-    | {
-          ok: true;
-          toolArgs: Record<string, unknown>;
-      }
-    | {
-          ok: false;
-          errorResult: string;
-      } {
-    let parsedArguments: unknown;
-
-    try {
-        parsedArguments = JSON.parse(toolCall.arguments);
-    } catch {
-        return {
-            ok: false,
-            errorResult: formatToolArgumentJsonError(toolCall.name),
-        };
-    }
-
-    const result = toolArgumentsSchema.safeParse(parsedArguments);
-    if (!result.success) {
-        return {
-            ok: false,
-            errorResult: formatToolArgumentShapeError(
-                toolCall.name,
-                formatToolArgumentsIssues(result.error)
-            ),
-        };
-    }
-
-    return {
-        ok: true,
-        toolArgs: result.data,
-    };
-}
-
 /**
  * 负责单次模型执行的底层编排：
  * - 模型解析
@@ -611,130 +544,6 @@ export class AiRequestExecutor {
         };
     }
 
-    private async executeMcpToolCall(options: {
-        toolCall: AiToolCall;
-        toolArgs: Record<string, unknown>;
-        iteration: number;
-        signal?: AbortSignal;
-        toolCallMessageId: number | null;
-        sessionId: number | null;
-        onChunk?: RequestExecutionCallbacks['onChunk'];
-        requestedTimeoutMs?: number;
-    }): Promise<{
-        toolCall: AiToolCall;
-        result: string;
-        isError: boolean;
-        toolLogId: number | null;
-        attachments?: AttachmentIndex[];
-        builtInToolId?: undefined;
-        controlSignal?: undefined;
-    }> {
-        const callStartTime = Date.now();
-        const mapping = await mcpManager.resolveToolCall(options.toolCall.name);
-
-        if (!mapping) {
-            const errorResult = formatToolNotFoundError(options.toolCall.name);
-            const durationMs = Date.now() - callStartTime;
-            this.emitToolEvent(options.onChunk, {
-                type: 'call_end',
-                callId: options.toolCall.id,
-                result: errorResult,
-                isError: true,
-                durationMs,
-                finalStatus: 'error',
-            });
-
-            return {
-                toolCall: options.toolCall,
-                result: errorResult,
-                isError: true,
-                toolLogId: null,
-                controlSignal: undefined,
-            };
-        }
-
-        this.emitToolEvent(options.onChunk, {
-            type: 'call_start',
-            callId: options.toolCall.id,
-            toolName: mapping.originalName,
-            namespacedName: options.toolCall.name,
-            source: 'mcp',
-            startedAt: callStartTime,
-            serverId: mapping.serverId,
-            arguments: options.toolArgs,
-        });
-
-        let toolLogId: number | null = null;
-        try {
-            const toolLog = await createMcpToolLog({
-                server_id: mapping.serverId,
-                tool_name: mapping.originalName,
-                tool_call_id: options.toolCall.id,
-                session_id: options.sessionId,
-                message_id: options.toolCallMessageId,
-                iteration: options.iteration,
-                input: serializeAuditPayload(options.toolArgs),
-                status: 'pending',
-            });
-            toolLogId = toolLog.id;
-        } catch (error) {
-            log.error('[AiRequestExecutor] Failed to create MCP tool log:', error);
-        }
-
-        let toolResult: { result: string; isError: boolean; attachments?: AttachmentIndex[] };
-        try {
-            toolResult = await mcpManager.executeTool(options.toolCall.name, options.toolArgs, {
-                signal: options.signal,
-                iteration: options.iteration,
-                toolCallId: options.toolCall.id,
-                requestedTimeoutMs: options.requestedTimeoutMs,
-                resolved: {
-                    serverId: mapping.serverId,
-                    originalName: mapping.originalName,
-                    toolTimeout: mapping.toolTimeout,
-                },
-            });
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            log.error(
-                `[AiRequestExecutor] MCP tool execution failed: ${options.toolCall.name}`,
-                error
-            );
-            toolResult = {
-                result: formatToolExecutionFailedError(errorMessage),
-                isError: true,
-            };
-        }
-
-        const durationMs = Date.now() - callStartTime;
-        this.emitToolEvent(options.onChunk, {
-            type: 'call_end',
-            callId: options.toolCall.id,
-            result: toolResult.result,
-            isError: toolResult.isError,
-            durationMs,
-            finalStatus: toolResult.isError ? 'error' : 'completed',
-        });
-
-        await updateMcpToolLogByCallId(options.toolCall.id, {
-            output: serializeAuditPayload(toolResult.result),
-            status: toolResult.isError ? 'error' : 'success',
-            duration_ms: durationMs,
-            error_message: toolResult.isError ? serializeAuditPayload(toolResult.result) : null,
-        }).catch((error) => {
-            log.error('[AiRequestExecutor] Failed to update MCP tool log:', error);
-        });
-
-        return {
-            toolCall: options.toolCall,
-            result: toolResult.result,
-            isError: toolResult.isError,
-            toolLogId,
-            attachments: toolResult.attachments,
-            controlSignal: undefined,
-        };
-    }
-
     createInitialCheckpoint(options: {
         initialModel: ModelWithProvider;
         baseMessages: AiMessage[];
@@ -813,9 +622,10 @@ export class AiRequestExecutor {
         runtime: AttemptRuntime,
         options: Pick<
             RequestExecutionCallbacks,
-            'signal' | 'onChunk' | 'onAttachmentManifestResolved'
+            'signal' | 'onChunk' | 'onAttachmentManifestResolved' | 'taskId'
         > & {
             persister: PersistenceProjector;
+            attemptToken?: string;
         }
     ): Promise<AttemptStepResult> {
         // Relay metadata is not authoritative: some models report reasoning=0
@@ -860,20 +670,27 @@ export class AiRequestExecutor {
             if (chars > 0) contentArrivals.push({ at: now, chars });
         };
 
-        let progressWrites = Promise.resolve();
-        let lastSavedSnapshot = '';
+        // Streamed progress is a replaceable snapshot: at most one write in flight,
+        // with a single latest pending write behind it. Intermediate snapshots are
+        // superseded instead of piling up an unbounded promise chain.
+        const progressWriter = new LatestProgressWriter(
+            {
+                taskId: options.taskId ?? '',
+                attemptToken: options.attemptToken ?? '',
+                attemptGeneration: options.persister.getAttemptGeneration(),
+                step: runtime.iteration,
+            },
+            (write) =>
+                options.persister.persistOutputProgress(write.parts, {
+                    attemptGeneration: write.attemptGeneration,
+                    step: write.step,
+                }),
+            (error) => {
+                log.error('[AiRequestExecutor] Failed to persist output parts:', error);
+            }
+        );
         const saveOutputParts = () => {
-            const parts = normalizeOutputParts(this.getCurrentStepOutputParts(runtime));
-            const snapshot = JSON.stringify(parts);
-            if (parts.length === 0 || snapshot === lastSavedSnapshot) return;
-            lastSavedSnapshot = snapshot;
-            progressWrites = progressWrites
-                .then(async () => {
-                    await options.persister.persistOutputProgress(parts);
-                })
-                .catch((error) => {
-                    log.error('[AiRequestExecutor] Failed to persist output parts:', error);
-                });
+            progressWriter.enqueue(this.getCurrentStepOutputParts(runtime));
         };
         let activeTextPart: Extract<PersistedOutputPart, { type: 'text' }> | null = null;
         const finishTextSegment = () => {
@@ -985,7 +802,11 @@ export class AiRequestExecutor {
         } finally {
             finishReasoningSegment();
             finishTextSegment();
-            await progressWrites;
+            // Step boundary: drop the replaceable pending snapshot and wait out the
+            // in-flight write before the authoritative write (tool-call message /
+            // final parts) replaces this step's parts.
+            progressWriter.close();
+            await progressWriter.drain();
         }
 
         const outputParts = normalizeOutputParts(runtime.currentStepOutputParts);
@@ -1059,70 +880,28 @@ export class AiRequestExecutor {
             persister: PersistenceProjector;
         } & RequestExecutionCallbacks
     ): Promise<ToolExecutionResult> {
-        throwIfAborted(options.signal);
-
-        const parsedToolArguments = parseToolCallArguments(options.toolCall);
-        if (!parsedToolArguments.ok) {
-            // 参数解析失败是「结构化输出能力」的直接信号，计入 attempt 级计数。
-            runtime.toolArgumentErrors += 1;
-            this.emitToolEvent(options.onChunk, {
-                type: 'call_end',
-                callId: options.toolCall.id,
-                result: parsedToolArguments.errorResult,
-                isError: true,
-                durationMs: 0,
-                finalStatus: 'error',
-            });
-
-            return {
-                toolCall: options.toolCall,
-                result: parsedToolArguments.errorResult,
-                isError: true,
-                toolLogId: null,
-            };
-        }
-
-        // 只有声明了自适应超时的工具才会把 `_meta` 当作超时信封剥离；
-        // 其余工具（含自带 `_meta` 业务参数的 MCP 工具）原样透传参数。
-        const supportsAdaptiveTimeout =
-            runtime.tools?.some(
-                (tool) =>
-                    tool.name === options.toolCall.name &&
-                    tool.adaptiveTimeoutCeilingMs !== undefined
-            ) ?? false;
-        const { requestedTimeoutMs, sanitizedToolArgs } = supportsAdaptiveTimeout
-            ? parseRequestedTimeoutMs(parsedToolArguments.toolArgs)
-            : { requestedTimeoutMs: undefined, sanitizedToolArgs: parsedToolArguments.toolArgs };
-
-        const builtInResult = await builtInToolService.executeTool({
+        // 参数解析、超时信封剥离与「内置工具 → MCP」回退都交给平台工具分发器，
+        // executor 只装配 attempt 上下文并累计结构化输出指标。
+        const outcome = await dispatchToolCall({
             toolCall: options.toolCall,
-            toolArgs: sanitizedToolArgs,
             iteration: runtime.iteration,
             currentModel: runtime.activeModel,
             hasExecutedBuiltInTool: (toolId) => runtime.executedBuiltInTools.has(toolId),
             signal: options.signal,
-            toolCallMessageId: options.toolCallMessageId,
             sessionId: options.persister.getSessionId(),
+            toolCallMessageId: options.toolCallMessageId,
+            emitToolEvent: (toolEvent) => this.emitToolEvent(options.onChunk, toolEvent),
             requestToolApproval: options.requestToolApproval,
             requestUserQuestions: options.requestUserQuestions,
-            emitToolEvent: (toolEvent) => this.emitToolEvent(options.onChunk, toolEvent),
-            requestedTimeoutMs,
+            toolDefinitions: runtime.tools,
         });
 
-        if (builtInResult) {
-            return builtInResult;
+        if (outcome.argumentParseFailed) {
+            // 参数解析失败是「结构化输出能力」的直接信号，计入 attempt 级计数。
+            runtime.toolArgumentErrors += 1;
         }
 
-        return this.executeMcpToolCall({
-            toolCall: options.toolCall,
-            toolArgs: sanitizedToolArgs,
-            iteration: runtime.iteration,
-            signal: options.signal,
-            toolCallMessageId: options.toolCallMessageId,
-            sessionId: options.persister.getSessionId(),
-            onChunk: options.onChunk,
-            requestedTimeoutMs,
-        });
+        return outcome;
     }
 
     private async runToolRound(
@@ -1272,6 +1051,8 @@ export class AiRequestExecutor {
                             signal: options.signal,
                             onChunk: options.onChunk,
                             persister: options.persister,
+                            taskId: options.taskId,
+                            attemptToken: options.attemptToken,
                             onAttachmentManifestResolved: async (request) => {
                                 try {
                                     await options.persister.syncDeliveryManifestRequest(request);

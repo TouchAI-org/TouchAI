@@ -1072,12 +1072,15 @@
         }
 
         if (payload.action === 'approve') {
-            approvePendingToolApproval(payload.callId ?? undefined);
+            approvePendingToolApproval(
+                payload.callId ?? undefined,
+                payload.decisionId ?? undefined
+            );
             return;
         }
 
         if (payload.action === 'reject') {
-            rejectPendingToolApproval(payload.callId ?? undefined);
+            rejectPendingToolApproval(payload.callId ?? undefined, payload.decisionId ?? undefined);
             return;
         }
 
@@ -1411,9 +1414,9 @@
                     },
                     (approved) => {
                         if (approved) {
-                            approvePendingToolApproval(approval.callId);
+                            approvePendingToolApproval(approval.callId, approval.decisionId);
                         } else {
-                            rejectPendingToolApproval(approval.callId);
+                            rejectPendingToolApproval(approval.callId, approval.decisionId);
                         }
                     }
                 );
@@ -1442,7 +1445,7 @@
                 askUserStore.enqueueQuestion(
                     question.questions,
                     (answers) => {
-                        settleUserQuestion(question.callId, answers);
+                        settleUserQuestion(question.callId, answers, question.decisionId);
                     },
                     { sourceCallId: question.callId }
                 );

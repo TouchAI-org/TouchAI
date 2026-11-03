@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
-import type { ExecuteRequestResult } from '@/services/AgentService/execution/runtime';
+import type { TaskResult } from '@/services/AgentService/execution/runtime';
 import { log } from '@/services/ObservabilityService';
 
 /**
@@ -55,19 +55,25 @@ vi.mock('@/services/AgentService/session/history', () => ({
 
 const { SessionTaskCenter } = await import('@/services/AgentService/task/center');
 
-const completedTurn = (response: string): ExecuteRequestResult =>
+const completedTurn = (response: string): TaskResult =>
     ({
-        model: { id: 'model-1', name: 'Model' },
+        model: {
+            modelDbId: 1,
+            providerId: 1,
+            providerName: 'Provider',
+            modelId: 'model-1',
+            modelName: 'Model',
+        },
         response,
         reasoning: '',
         turn: null,
-    }) as unknown as ExecuteRequestResult;
+    }) as unknown as TaskResult;
 
 /** A running task that has already bound to its session, as the real runtime reports. */
 function staysRunningInSession(sessionId: number | null) {
     return () => {
         latestOptions().onTurnEvent?.({ type: 'task_started', sessionId, turnId: 1 });
-        return new Promise<ExecuteRequestResult>(() => {});
+        return new Promise<TaskResult>(() => {});
     };
 }
 

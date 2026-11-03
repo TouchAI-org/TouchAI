@@ -374,7 +374,10 @@ describe('user sees usage counted once the answer is done', () => {
     it('user sees the reply reused when it was already streamed to the panel', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
-        await projector.persistOutputProgress([{ type: 'text', content: 'Streamed' }]);
+        await projector.persistOutputProgress([{ type: 'text', content: 'Streamed' }], {
+            attemptGeneration: projector.getAttemptGeneration(),
+            step: 0,
+        });
         queries.createMessage.mockClear();
 
         await projector.markCompleted({
@@ -833,7 +836,10 @@ describe('user reopens a turn whose bookkeeping was interrupted', () => {
         const projector = createProjector();
 
         await expect(
-            projector.persistOutputProgress([{ type: 'text', content: 'typing' }])
+            projector.persistOutputProgress([{ type: 'text', content: 'typing' }], {
+                attemptGeneration: projector.getAttemptGeneration(),
+                step: 0,
+            })
         ).resolves.toBeUndefined();
         expect(queries.syncOutputParts).not.toHaveBeenCalled();
     });
@@ -842,7 +848,10 @@ describe('user reopens a turn whose bookkeeping was interrupted', () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
 
-        await projector.persistOutputProgress([]);
+        await projector.persistOutputProgress([], {
+            attemptGeneration: projector.getAttemptGeneration(),
+            step: 0,
+        });
 
         expect(queries.syncOutputParts).not.toHaveBeenCalled();
     });
@@ -873,7 +882,10 @@ describe('user reopens a turn whose bookkeeping was interrupted', () => {
         const projector = createProjector();
 
         await projector
-            .persistOutputProgress([{ type: 'text', content: 'typing' }])
+            .persistOutputProgress([{ type: 'text', content: 'typing' }], {
+                attemptGeneration: projector.getAttemptGeneration(),
+                step: 0,
+            })
             .catch(() => {});
 
         expect(projector.getTurn()).toBeNull();
@@ -882,7 +894,10 @@ describe('user reopens a turn whose bookkeeping was interrupted', () => {
     it('user sees a cancelled turn keep the reply that already streamed', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
-        await projector.persistOutputProgress([{ type: 'text', content: 'Half an ans' }]);
+        await projector.persistOutputProgress([{ type: 'text', content: 'Half an ans' }], {
+            attemptGeneration: projector.getAttemptGeneration(),
+            step: 0,
+        });
         queries.createMessage.mockClear();
 
         await projector.markCancelled();
@@ -918,7 +933,10 @@ describe('user reopens a turn whose bookkeeping was interrupted', () => {
         await projector.recordTurnStart(createCheckpoint());
         queries.syncOutputParts.mockClear();
 
-        await projector.persistOutputProgress([{ type: 'text', content: '' }]);
+        await projector.persistOutputProgress([{ type: 'text', content: '' }], {
+            attemptGeneration: projector.getAttemptGeneration(),
+            step: 0,
+        });
 
         expect(queries.syncOutputParts).not.toHaveBeenCalled();
     });

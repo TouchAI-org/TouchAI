@@ -15,8 +15,9 @@ const { metadataFetchMock } = vi.hoisted(() => ({
     metadataFetchMock: vi.fn(),
 }));
 
-vi.mock('@services/AgentService/infrastructure/providers', () => ({
+vi.mock('@services/HttpService', () => ({
     createTauriFetch: () => metadataFetchMock,
+    cancelResponseBody: vi.fn(async () => {}),
 }));
 
 function getRequest(payload: InvokeArgs | undefined) {

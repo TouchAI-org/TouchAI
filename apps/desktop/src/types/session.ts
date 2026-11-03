@@ -149,6 +149,12 @@ export interface PendingToolApproval {
     enterHint: string;
     escHint: string;
     keyboardApproveAt: number;
+    /**
+     * In-memory identity of the runtime interaction that produced this pending
+     * approval. It is never persisted; decisions must carry it back so a stale
+     * decision (for example a callId reused by a later attempt) is rejected.
+     */
+    decisionId?: string;
 }
 
 export interface InputHistorySnapshot {
