@@ -26,6 +26,8 @@
         "test:run": "pnpm test:unit",
         "type:check": "node ./scripts/run-node-command.mjs vue-tsc --noEmit",
         "lint": "eslint . --fix",
+        "architecture:check": "node ./scripts/ci/architecture/check-boundaries.mjs && node ./scripts/ci/architecture/check-cycles.mjs && node ./scripts/ci/architecture/check-ipc-commands.mjs && node ./scripts/ci/architecture/check-db-drift.mjs --generation",
+        "architecture:db:baseline": "node ./scripts/ci/architecture/check-db-drift.mjs --write-baseline",
         "lint:check": "eslint .",
         "format:check": "prettier --check ../../apps/desktop --ignore-path ../../.prettierignore",
         "format:fix": "prettier --write ../../apps/desktop --ignore-path ../../.prettierignore && pnpm run format:rust:fix",

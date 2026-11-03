@@ -99,6 +99,7 @@ describe('user reviews cache writes and CI job scope', () => {
             'ci-tests',
             'site-build',
             'rust-checks',
+            'architecture',
             'build-windows',
         ]);
     });
