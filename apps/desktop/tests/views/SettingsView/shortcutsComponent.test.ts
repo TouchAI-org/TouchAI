@@ -155,6 +155,11 @@ describe('user configures keyboard shortcuts', () => {
         settingsStoreMock.updateSearchKeybindings.mockImplementation(async (value) => {
             settingsStoreMock.settings.value.searchKeybindings = { ...value };
         });
+        // The real store mirrors the committed value after a successful update, so the
+        // mock must too; the OS registration itself now lives in the settings owner.
+        settingsStoreMock.updateGlobalShortcut.mockImplementation(async (value) => {
+            settingsStoreMock.settings.value.globalShortcut = value as string;
+        });
     });
 
     afterEach(() => {
@@ -270,7 +275,6 @@ describe('user configures keyboard shortcuts', () => {
             .trigger('click');
         await flushPromises();
 
-        expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith('Ctrl+Space');
         expect(settingsStoreMock.updateGlobalShortcut).toHaveBeenCalledWith('Ctrl+Space');
         expect((input.element as HTMLInputElement).value).toBe('Ctrl+Space');
         expect(settingsStoreMock.settings.value.globalShortcut).toBe('Ctrl+Space');
@@ -309,9 +313,6 @@ describe('user configures keyboard shortcuts', () => {
             .trigger('click');
         await flushPromises();
 
-        expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith(
-            'Option+Shift+Space'
-        );
         expect(settingsStoreMock.updateGlobalShortcut).toHaveBeenCalledWith('Option+Shift+Space');
         expect((input.element as HTMLInputElement).value).toBe('Option+Shift+Space');
     });
@@ -391,7 +392,6 @@ describe('user configures keyboard shortcuts', () => {
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', ctrlKey: true }));
         await flushPromises();
 
-        expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith('Ctrl+N');
         expect(settingsStoreMock.updateGlobalShortcut).toHaveBeenCalledWith('Ctrl+N');
         expect(wrapper.find('[data-testid="settings-global-shortcut-preset-menu"]').exists()).toBe(
             false
@@ -414,7 +414,6 @@ describe('user configures keyboard shortcuts', () => {
         });
         await flushPromises();
 
-        expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith('Ctrl+Space');
         expect(settingsStoreMock.updateGlobalShortcut).toHaveBeenCalledWith('Ctrl+Space');
         expect((input.element as HTMLInputElement).value).toBe('Ctrl+Space');
         expect(settingsStoreMock.settings.value.globalShortcut).toBe('Ctrl+Space');

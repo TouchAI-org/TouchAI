@@ -1,7 +1,8 @@
+import { createSettingsBus, type SettingsBus } from '@tests/utils/settingsTransport';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
-import { setLocale } from '@/i18n';
+import { getLocale, setLocale } from '@/i18n';
 import {
     buildSettingApprovalRequest,
     executeSettingTool,
@@ -15,6 +16,10 @@ import {
     listSupportedSettings,
     parseSettingRequest,
 } from '@/services/BuiltInToolService/tools/setting/helper';
+import { setActiveSettingsService } from '@/services/SettingsService';
+import { replyErrorMessage, unknownKeyMessage } from '@/services/SettingsService/messages';
+import { SettingsService } from '@/services/SettingsService/service';
+import { SettingsErrorCode } from '@/services/SettingsService/types';
 
 const originalPlatform = navigator.platform;
 
@@ -25,68 +30,37 @@ function setPlatform(platform: string) {
     });
 }
 
-const {
-    mockSettingsStore,
-    mockRegisterGlobalShortcut,
-    mockUpdateGlobalShortcut,
-    mockUpdateLanguage,
-} = vi.hoisted(() => {
-    const mockUpdateGlobalShortcut = vi.fn();
-    const mockUpdateLanguage = vi.fn();
-    return {
-        mockRegisterGlobalShortcut: vi.fn(),
-        mockUpdateGlobalShortcut,
-        mockUpdateLanguage,
-        mockSettingsStore: {
-            settings: {
-                globalShortcut: 'Alt+Space',
-                searchKeybindings: {},
-                startOnBoot: false,
-                startMinimized: true,
-                outputScrollBehavior: 'follow_output',
-                searchWindowSizePreset: 'normal',
-                language: 'zh-CN',
-            },
-            initialize: vi.fn(async () => undefined),
-            updateGlobalShortcut: mockUpdateGlobalShortcut,
-            updateStartOnBoot: vi.fn(),
-            updateStartMinimized: vi.fn(),
-            updateOutputScrollBehavior: vi.fn(),
-            updateSearchWindowSizePreset: vi.fn(),
-            updateLanguage: mockUpdateLanguage,
-        },
-    };
-});
+const dbMock = vi.hoisted(() => ({
+    values: new Map<string, string | null>(),
+}));
 
-vi.mock('@/stores/settings', () => ({
-    useSettingsStore: () => mockSettingsStore,
+const nativeMock = vi.hoisted(() => ({
+    registerGlobalShortcut: vi.fn(),
+}));
+
+vi.mock('@database/queries', () => ({
+    getSettingValue: vi.fn(async ({ key }: { key: string }) => dbMock.values.get(key) ?? null),
+    setSetting: vi.fn(async ({ key, value }: { key: string; value: string }) => {
+        dbMock.values.set(key, value);
+        return { id: 1, key, value, created_at: '', updated_at: '' };
+    }),
 }));
 
 vi.mock('@services/NativeService', () => ({
     native: {
         autostart: {
-            isAutostartEnabled: vi.fn(async () => true),
+            isAutostartEnabled: vi.fn(async () => false),
+            enableAutostart: vi.fn(async () => undefined),
+            disableAutostart: vi.fn(async () => undefined),
         },
         shortcut: {
-            registerGlobalShortcut: mockRegisterGlobalShortcut,
+            registerGlobalShortcut: nativeMock.registerGlobalShortcut,
         },
         window: {
-            setSearchWindowDefaults: vi.fn(),
+            setSearchWindowDefaults: vi.fn(async () => undefined),
         },
     },
 }));
-
-const settingsStore = {
-    settings: {
-        globalShortcut: 'Alt+Space',
-        searchKeybindings: {},
-        startOnBoot: false,
-        startMinimized: true,
-        outputScrollBehavior: 'follow_output',
-        searchWindowSizePreset: 'normal',
-        language: 'zh-CN',
-    },
-} as never;
 
 function createExecutionContext(): Parameters<typeof executeSettingTool>[2] {
     return {
@@ -98,26 +72,30 @@ function createExecutionContext(): Parameters<typeof executeSettingTool>[2] {
 }
 
 describe('user changes app settings through the assistant', () => {
-    beforeEach(() => {
+    let service: SettingsService;
+    let bus: SettingsBus;
+
+    beforeEach(async () => {
         vi.clearAllMocks();
         setPlatform('Win32');
-        mockRegisterGlobalShortcut.mockResolvedValue(undefined);
-        mockUpdateGlobalShortcut.mockResolvedValue(undefined);
-        mockUpdateLanguage.mockResolvedValue(undefined);
-        mockSettingsStore.settings.globalShortcut = 'Alt+Space';
-        mockSettingsStore.settings.searchKeybindings = createDefaultSearchKeybindings();
-        mockSettingsStore.settings.language = 'zh-CN';
+        dbMock.values.clear();
+        nativeMock.registerGlobalShortcut.mockResolvedValue(undefined);
+        bus = createSettingsBus();
+        service = new SettingsService({ transport: bus.transport('main') });
+        setActiveSettingsService(service);
+        await service.initialize();
     });
 
     afterEach(() => {
+        setActiveSettingsService(null);
         setPlatform(originalPlatform);
     });
 
     it('user reads setting list and get results in English', async () => {
         setLocale('en-US');
 
-        const listOutput = await listSupportedSettings(settingsStore);
-        const getOutput = await getSettings(settingsStore, ['global_shortcut']);
+        const listOutput = await listSupportedSettings(service);
+        const getOutput = await getSettings(service, ['global_shortcut']);
 
         expect(listOutput).toContain('Available settings');
         expect(listOutput).toContain('Global shortcut');
@@ -184,10 +162,9 @@ describe('user changes app settings through the assistant', () => {
         });
     });
 
-    it('user reads failed setting updates and successful rollbacks in English', async () => {
+    it('user reads a failed setting update when the shortcut cannot be registered', async () => {
         setLocale('en-US');
-        mockRegisterGlobalShortcut.mockRejectedValueOnce(new Error('invalid shortcut'));
-        mockRegisterGlobalShortcut.mockResolvedValueOnce(undefined);
+        nativeMock.registerGlobalShortcut.mockRejectedValueOnce(new Error('invalid shortcut'));
 
         const result = await executeSettingTool(
             {
@@ -206,17 +183,88 @@ describe('user changes app settings through the assistant', () => {
             errorMessage: 'Shortcut Alt+Shift+Space has an invalid format.',
         });
         expect(result.result).toContain('Setting update failed');
-        expect(result.result).toContain(
-            'Tried to restore the setting value from before execution.'
+        expect(service.getSnapshot().globalShortcut).toBe('Alt+Space');
+    });
+
+    it('user cancels while the settings owner initializes and no setting is written', async () => {
+        setLocale('en-US');
+        const controller = new AbortController();
+        const initialize = vi.spyOn(service, 'initialize').mockImplementation(async () => {
+            controller.abort();
+        });
+        const mutate = vi.spyOn(service, 'mutate');
+
+        const result = await executeSettingTool(
+            {
+                action: 'set',
+                key: 'start_minimized',
+                value: true,
+                reason: 'User asked for it.',
+            },
+            {},
+            {
+                ...createExecutionContext(),
+                signal: controller.signal,
+            }
         );
+
+        expect(initialize).toHaveBeenCalledTimes(1);
+        expect(mutate).not.toHaveBeenCalled();
+        expect(result).toMatchObject({
+            isError: true,
+            status: 'error',
+            errorMessage: 'Request cancelled',
+        });
+    });
+
+    it('user sees the real committed result when cancellation arrives after the write starts', async () => {
+        setLocale('en-US');
+        const controller = new AbortController();
+        const mutate = vi.spyOn(service, 'mutate').mockImplementation(async (key, value) => {
+            controller.abort();
+            return {
+                status: 'committed',
+                key,
+                value,
+                revision: service.getRevision() + 1,
+            };
+        });
+
+        const result = await executeSettingTool(
+            {
+                action: 'set',
+                key: 'start_minimized',
+                value: false,
+                reason: 'User asked for it.',
+            },
+            {},
+            {
+                ...createExecutionContext(),
+                signal: controller.signal,
+            }
+        );
+
+        expect(mutate).toHaveBeenCalledTimes(1);
+        expect(result).toMatchObject({
+            isError: false,
+            status: 'success',
+        });
+        expect(result.result).toContain('Setting updated');
     });
 
     it('user sees a shortcut that duplicates a search shortcut rejected before registration', async () => {
         setLocale('en-US');
-        mockSettingsStore.settings.searchKeybindings = {
-            ...createDefaultSearchKeybindings(),
-            'search.history.open': 'Mod+K',
-        };
+        dbMock.values.set(
+            'search_keybindings',
+            JSON.stringify({
+                ...createDefaultSearchKeybindings(),
+                'search.history.open': 'Mod+K',
+            })
+        );
+        const bus = createSettingsBus();
+        service = new SettingsService({ transport: bus.transport('main') });
+        setActiveSettingsService(service);
+        await service.initialize();
 
         const result = await executeSettingTool(
             {
@@ -234,7 +282,7 @@ describe('user changes app settings through the assistant', () => {
             status: 'error',
         });
         expect(result.errorMessage).toContain('Open session history');
-        expect(mockRegisterGlobalShortcut).not.toHaveBeenCalledWith('Ctrl+K');
+        expect(nativeMock.registerGlobalShortcut).not.toHaveBeenCalledWith('Ctrl+K');
     });
 
     it('user sees a macOS system-reserved shortcut rejected before registration', async () => {
@@ -257,37 +305,18 @@ describe('user changes app settings through the assistant', () => {
             status: 'error',
         });
         expect(result.errorMessage).toContain('macOS');
-        expect(mockRegisterGlobalShortcut).not.toHaveBeenCalledWith('Cmd+Space');
-    });
-
-    it('user reads failed rollbacks in English', async () => {
-        setLocale('en-US');
-        mockRegisterGlobalShortcut
-            .mockRejectedValueOnce(new Error('invalid shortcut'))
-            .mockRejectedValueOnce(new Error('rollback failed'));
-
-        const result = await executeSettingTool(
-            {
-                action: 'set',
-                key: 'global_shortcut',
-                value: 'Alt+Shift+Space',
-                reason: 'User asked for it.',
-            },
-            {},
-            createExecutionContext()
-        );
-
-        expect(result.isError).toBe(true);
-        expect(result.result).toContain(
-            'Restore failed: Failed to register shortcut: Error: rollback failed'
-        );
+        expect(nativeMock.registerGlobalShortcut).not.toHaveBeenCalledWith('Cmd+Space');
     });
 
     it('user sees the language setting exposed in list, get, schema, approval, and set flows', async () => {
         setLocale('en-US');
+        // A fresh install defaults to the first-launch locale; pin the persisted value so
+        // the read path is deterministic instead of depending on the test host locale.
+        dbMock.values.set('language', 'zh-CN');
+        await service.refresh();
 
-        const listOutput = await listSupportedSettings(settingsStore);
-        const getOutput = await getSettings(settingsStore, ['language' as never]);
+        const listOutput = await listSupportedSettings(service);
+        const getOutput = await getSettings(service, ['language']);
         const keyProperty = SETTING_TOOL_INPUT_SCHEMA.properties?.key;
         const keysProperty = SETTING_TOOL_INPUT_SCHEMA.properties?.keys;
 
@@ -327,7 +356,8 @@ describe('user changes app settings through the assistant', () => {
             isError: false,
             status: 'success',
         });
-        expect(mockUpdateLanguage).toHaveBeenCalledWith('en-US');
+        expect(service.getSnapshot().language).toBe('en-US');
+        expect(getLocale()).toBe('en-US');
     });
 
     it('user reads invalid setting values in the active language with validation details kept', () => {
@@ -341,5 +371,48 @@ describe('user changes app settings through the assistant', () => {
                 reason: 'User asked for it.',
             })
         ).toThrow(/Setting tool received an invalid value for "start_minimized"\.\n- /);
+    });
+
+    it('user reads unknown-key and owner-reply messages in English', async () => {
+        setLocale('en-US');
+
+        expect(unknownKeyMessage('not_a_setting')).toBe('Unsupported setting key: not_a_setting');
+        expect(replyErrorMessage(SettingsErrorCode.NotReady)).toBe(
+            'Settings are not ready yet; try again in a moment.'
+        );
+        expect(replyErrorMessage(SettingsErrorCode.StaleEpoch)).toBe(
+            'Settings result unknown: the response came from a superseded settings owner.'
+        );
+        expect(replyErrorMessage(SettingsErrorCode.OwnerDisposed)).toBe(
+            'The settings owner was closed.'
+        );
+        expect(replyErrorMessage(SettingsErrorCode.TooManyPending)).toBe(
+            'Too many settings requests. Try again later.'
+        );
+        expect(replyErrorMessage('something-unknown')).toBe('The settings owner is unavailable.');
+    });
+
+    it('user sees a note when a setting saved but syncing to other windows failed', async () => {
+        setLocale('en-US');
+        bus.failNotices = true;
+
+        const result = await executeSettingTool(
+            {
+                action: 'set',
+                key: 'start_minimized',
+                value: false,
+                reason: 'User asked for it.',
+            },
+            {},
+            createExecutionContext()
+        );
+        bus.failNotices = false;
+
+        expect(result).toMatchObject({
+            isError: false,
+            status: 'success',
+        });
+        expect(result.result).toContain('Note');
+        expect(result.result).toContain('syncing to other windows failed');
     });
 });
