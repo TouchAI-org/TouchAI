@@ -1,20 +1,15 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 /**
- * 用户提示队列投影。
+ * 用户提示卡片投影。
  *
- * 维护待决审批和待决结构化提问的队列与 Promise resolver 映射，
- * 负责审批卡片在会话消息中的创建、更新与清理。
+ * 只负责把审批/提问渲染成会话消息里的展示卡片，并维护卡片状态的更新与清理。
+ * 「等待」与「结算」所有权在任务层（`TaskInteractions`），本模块不持有 resolver。
  */
 
 import type { PendingToolApproval, SessionMessage, ToolApprovalInfo } from '@/types/session';
 
-import type {
-    AskUserAnswer,
-    AskUserQuestion,
-    ToolApprovalDecisionRequest,
-} from '../../contracts/tooling';
-import { isCancellationStatusText } from './helpers';
+import type { ToolApprovalDecisionRequest } from '../../contracts/tooling';
 
 const APP_OWNED_APPROVAL_SOURCE_TEXT_BY_TRANSLATION = new Map<string, string>([
     ['Confirmation required', '需要确认'],
@@ -151,50 +146,60 @@ export interface ApprovalSettlementResult {
     isCancellationResolution: boolean;
 }
 
-export interface PendingUserQuestion {
-    callId: string;
-    sourceMessageId: string;
-    questions: AskUserQuestion[];
-    createdAt: number;
+/**
+ * 审批结算文本：优先采用调用方给出的本地化文本，否则回退到默认文案。
+ */
+export function resolveApprovalResolutionText(approved: boolean, resolutionText?: string): string {
+    return (
+        canonicalizeAppOwnedApprovalText(resolutionText) ??
+        (approved ? '已批准执行此命令' : '已拒绝执行此命令')
+    );
 }
 
 /**
- * 用户提示队列投影。
+ * 把审批请求格式化为可在会话历史中展示的卡片数据。
+ */
+function buildApprovalDisplay(
+    messageId: string,
+    payload: ToolApprovalDecisionRequest
+): PendingToolApproval {
+    return {
+        callId: payload.callId,
+        messageId,
+        title: canonicalizeAppOwnedApprovalText(payload.title) ?? '命令执行需要确认',
+        description:
+            canonicalizeAppOwnedApprovalText(payload.description) ??
+            '这是一个高风险命令，请确认后再继续执行。',
+        command: payload.command,
+        riskLabel: canonicalizeAppOwnedApprovalText(payload.riskLabel) ?? '高风险',
+        reason: canonicalizeAppOwnedApprovalText(payload.reason) ?? '命令可能修改文件或系统状态。',
+        approveLabel: canonicalizeAppOwnedApprovalText(payload.approveLabel) ?? '批准执行',
+        rejectLabel: canonicalizeAppOwnedApprovalText(payload.rejectLabel) ?? '拒绝执行',
+        enterHint: canonicalizeAppOwnedApprovalText(payload.enterHint) ?? 'Enter 批准',
+        escHint: canonicalizeAppOwnedApprovalText(payload.escHint) ?? 'Esc 拒绝',
+        keyboardApproveAt: Date.now() + (payload.keyboardApproveDelayMs ?? 450),
+    };
+}
+
+/**
+ * 用户提示卡片投影。
  *
- * 同时管理审批队列与结构化提问队列。
+ * 无状态：渲染卡片、返回展示数据。是否等待由任务层决定。
  */
 export class ProjectionUserPrompts {
-    private readonly approvalQueue: PendingToolApproval[] = [];
-    private readonly approvalResolvers = new Map<string, (approved: boolean) => void>();
-    private readonly questionQueue: PendingUserQuestion[] = [];
-    private readonly questionResolvers = new Map<
-        string,
-        (answers: AskUserAnswer[] | null) => void
-    >();
-
-    get pendingApprovalQueue(): readonly PendingToolApproval[] {
-        return this.approvalQueue;
+    /** 纯格式化：生成审批展示数据，不写入任何卡片。 */
+    formatApproval(
+        messageId: string | null,
+        payload: ToolApprovalDecisionRequest
+    ): PendingToolApproval {
+        return buildApprovalDisplay(messageId ?? '', payload);
     }
 
-    get pendingQuestionQueue(): readonly PendingUserQuestion[] {
-        return this.questionQueue;
-    }
-
-    get hasPending(): boolean {
-        return this.approvalQueue.length > 0 || this.questionQueue.length > 0;
-    }
-
-    getPendingApproval(): PendingToolApproval | null {
-        return this.approvalQueue[0] ?? null;
-    }
-
-    getPendingQuestion(): PendingUserQuestion | null {
-        return this.questionQueue[0] ?? null;
-    }
-
-    presentApproval(
+    /** 把审批卡片写入消息；没有对应 assistant 消息时不写入并返回 null。 */
+    renderApprovalCard(
         history: SessionMessage[],
-        messageId: string,
+        messageId: string | null,
+        display: PendingToolApproval,
         payload: ToolApprovalDecisionRequest
     ): ToolApprovalInfo | null {
         const message = history.find((item) => item.id === messageId && item.role === 'assistant');
@@ -202,185 +207,50 @@ export class ProjectionUserPrompts {
             return null;
         }
 
-        const keyboardApproveAt = Date.now() + (payload.keyboardApproveDelayMs ?? 450);
         const approval: ToolApprovalInfo = {
             id: crypto.randomUUID(),
-            callId: payload.callId,
+            callId: display.callId,
             status: 'pending',
-            title: canonicalizeAppOwnedApprovalText(payload.title) ?? '命令执行需要确认',
-            description:
-                canonicalizeAppOwnedApprovalText(payload.description) ??
-                '这是一个高风险命令，请确认后再继续执行。',
-            command: payload.command,
-            riskLabel: canonicalizeAppOwnedApprovalText(payload.riskLabel) ?? '高风险',
-            reason:
-                canonicalizeAppOwnedApprovalText(payload.reason) ?? '命令可能修改文件或系统状态。',
+            title: display.title,
+            description: display.description,
+            command: display.command,
+            riskLabel: display.riskLabel,
+            reason: display.reason,
             commandLabel: canonicalizeAppOwnedApprovalText(payload.commandLabel) ?? '命令预览',
-            approveLabel: canonicalizeAppOwnedApprovalText(payload.approveLabel) ?? '批准执行',
-            rejectLabel: canonicalizeAppOwnedApprovalText(payload.rejectLabel) ?? '拒绝执行',
-            enterHint: canonicalizeAppOwnedApprovalText(payload.enterHint) ?? 'Enter 批准',
-            escHint: canonicalizeAppOwnedApprovalText(payload.escHint) ?? 'Esc 拒绝',
-            keyboardApproveAt,
+            approveLabel: display.approveLabel,
+            rejectLabel: display.rejectLabel,
+            enterHint: display.enterHint,
+            escHint: display.escHint,
+            keyboardApproveAt: display.keyboardApproveAt,
         };
 
         const approvals = ensureAssistantApprovals(message);
-        const existingApproval = approvals.find((item) => item.callId === payload.callId);
+        const existingApproval = approvals.find((item) => item.callId === display.callId);
         if (existingApproval) {
             Object.assign(existingApproval, approval);
         } else {
             approvals.push(approval);
         }
 
-        ensureApprovalPart(message, payload.callId);
+        ensureApprovalPart(message, display.callId);
         return approval;
     }
 
-    requestApproval(
+    /**
+     * 生成审批展示数据，并在存在对应 assistant 消息时写入审批卡片。
+     *
+     * 即使没有可见消息也返回展示数据：等待由任务层保证，卡片只是呈现。
+     */
+    presentApproval(
         history: SessionMessage[],
-        messageId: string,
+        messageId: string | null,
         payload: ToolApprovalDecisionRequest
-    ): Promise<boolean> | null {
-        const approval = this.presentApproval(history, messageId, payload);
-        if (!approval) {
-            return null;
-        }
-
-        const existingResolver = this.approvalResolvers.get(payload.callId);
-        if (existingResolver) {
-            return new Promise<boolean>((resolve) => {
-                this.approvalResolvers.set(payload.callId, (approved) => {
-                    existingResolver(approved);
-                    resolve(approved);
-                });
-            });
-        }
-
-        const filtered = this.approvalQueue.filter((item) => item.callId !== payload.callId);
-        this.approvalQueue.splice(0, this.approvalQueue.length, ...filtered, {
-            callId: payload.callId,
+    ): ToolApprovalInfo | null {
+        return this.renderApprovalCard(
+            history,
             messageId,
-            title: approval.title,
-            description: approval.description,
-            command: approval.command,
-            riskLabel: approval.riskLabel,
-            reason: approval.reason,
-            approveLabel: approval.approveLabel,
-            rejectLabel: approval.rejectLabel,
-            enterHint: approval.enterHint,
-            escHint: approval.escHint,
-            keyboardApproveAt: approval.keyboardApproveAt,
-        });
-
-        return new Promise<boolean>((resolve) => {
-            this.approvalResolvers.set(payload.callId, resolve);
-        });
-    }
-
-    requestQuestion(
-        callId: string,
-        sourceMessageId: string,
-        questions: AskUserQuestion[]
-    ): Promise<AskUserAnswer[] | null> | null {
-        if (this.questionResolvers.has(callId)) {
-            return null;
-        }
-
-        this.questionQueue.push({
-            callId,
-            sourceMessageId,
-            questions,
-            createdAt: Date.now(),
-        });
-
-        return new Promise<AskUserAnswer[] | null>((resolve) => {
-            this.questionResolvers.set(callId, resolve);
-        });
-    }
-
-    settleApproval(
-        callId: string,
-        approved: boolean,
-        options: { resolutionText?: string } = {}
-    ): ApprovalSettlementResult | null {
-        const target = this.dequeueApproval(callId);
-        const resolver = this.approvalResolvers.get(callId);
-        this.approvalResolvers.delete(callId);
-
-        if (!target || !resolver) {
-            return null;
-        }
-
-        const resolutionText =
-            canonicalizeAppOwnedApprovalText(options.resolutionText) ??
-            (approved ? '已批准执行此命令' : '已拒绝执行此命令');
-        const isCancellationResolution = !approved && isCancellationStatusText(resolutionText);
-
-        resolver(approved);
-
-        return {
-            target,
-            approved,
-            resolutionText,
-            isCancellationResolution,
-        };
-    }
-
-    settleQuestion(callId: string, answers: AskUserAnswer[] | null): boolean {
-        const resolver = this.questionResolvers.get(callId);
-        if (!resolver) {
-            return false;
-        }
-
-        this.questionResolvers.delete(callId);
-        const index = this.questionQueue.findIndex((item) => item.callId === callId);
-        if (index >= 0) {
-            this.questionQueue.splice(index, 1);
-        }
-
-        resolver(answers);
-        return true;
-    }
-
-    clearAll(reason = '请求已取消'): {
-        approvals: ApprovalSettlementResult[];
-        cancelledQuestionCallIds: string[];
-    } {
-        const approvalCallIds = [...this.approvalResolvers.keys()];
-        const approvalResults: ApprovalSettlementResult[] = [];
-        for (const callId of approvalCallIds) {
-            const result = this.settleApproval(callId, false, { resolutionText: reason });
-            if (result) {
-                approvalResults.push(result);
-            }
-        }
-        this.approvalQueue.length = 0;
-
-        const questionCallIds = [...this.questionResolvers.keys()];
-        for (const callId of questionCallIds) {
-            this.settleQuestion(callId, null);
-        }
-
-        return { approvals: approvalResults, cancelledQuestionCallIds: questionCallIds };
-    }
-
-    cleanup(callId: string): void {
-        this.dequeueApproval(callId);
-        this.approvalResolvers.delete(callId);
-        const index = this.questionQueue.findIndex((item) => item.callId === callId);
-        if (index >= 0) {
-            this.questionQueue.splice(index, 1);
-        }
-        this.questionResolvers.delete(callId);
-    }
-
-    private dequeueApproval(callId: string): PendingToolApproval | null {
-        const target = this.approvalQueue.find((approval) => approval.callId === callId);
-        if (!target) {
-            return null;
-        }
-
-        const nextQueue = this.approvalQueue.filter((approval) => approval.callId !== callId);
-        this.approvalQueue.splice(0, this.approvalQueue.length, ...nextQueue);
-        return target;
+            this.formatApproval(messageId, payload),
+            payload
+        );
     }
 }

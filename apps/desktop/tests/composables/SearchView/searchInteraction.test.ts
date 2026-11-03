@@ -571,7 +571,7 @@ describe('createSearchKeyboardRouter', () => {
         const handled = router.route({ key: 'Escape' });
 
         expect(handled).toBe(true);
-        expect(callbacks.onRejectApproval).toHaveBeenCalledWith('approval-1');
+        expect(callbacks.onRejectApproval).toHaveBeenCalledWith('approval-1', undefined);
     });
 
     it('leaves IME composition keys to the editor instead of submitting or selecting', () => {

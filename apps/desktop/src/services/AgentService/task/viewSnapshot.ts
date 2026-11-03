@@ -15,7 +15,7 @@
 
 import type { SessionMessage } from '@/types/session';
 
-import type { SessionTaskSnapshot, SessionTaskViewSnapshot } from './types';
+import type { TaskViewSnapshot } from './types';
 import { cloneTaskValue } from './types';
 
 /**
@@ -88,16 +88,15 @@ function shareUnchangedMessages(
  * 未变化的消息沿用其对象引用，避免每帧重建整段历史。
  */
 export function cloneTaskViewSnapshot(
-    snapshot: SessionTaskSnapshot,
-    previous: SessionTaskViewSnapshot | null = null
-): SessionTaskViewSnapshot {
+    snapshot: TaskViewSnapshot,
+    previous: TaskViewSnapshot | null = null
+): TaskViewSnapshot {
     return {
         taskId: snapshot.taskId,
         sessionId: snapshot.sessionId,
         turnId: snapshot.turnId,
         status: snapshot.status,
         executionMode: snapshot.executionMode,
-        prompt: snapshot.prompt,
         sessionHistory: shareUnchangedMessages(
             snapshot.sessionHistory,
             previous?.sessionHistory ?? []
