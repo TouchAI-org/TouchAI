@@ -1,0 +1,2 @@
+import { native } from '@services/NativeService';
+export const x = native;
