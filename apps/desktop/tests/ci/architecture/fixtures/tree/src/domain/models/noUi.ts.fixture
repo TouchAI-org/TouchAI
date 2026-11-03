@@ -1,0 +1,2 @@
+import { Thing } from '@/stores/Thing';
+export const x = Thing;

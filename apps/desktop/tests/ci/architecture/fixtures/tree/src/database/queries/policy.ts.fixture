@@ -1,0 +1,2 @@
+import type { P } from '@/services/AgentService/contracts/protocol';
+export type X = P;
