@@ -811,6 +811,7 @@ describe('user runs every repository CI check and moved UI preview elsewhere', (
                 'ci-tests',
                 'site-build',
                 'rust-checks',
+                'architecture',
                 'build-windows',
             ].sort()
         );

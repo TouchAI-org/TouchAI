@@ -30,6 +30,7 @@
         "test:pr": "pnpm test:ci:typecheck && pnpm test:ci && pnpm --filter @touchai/desktop test:pr && pnpm --filter @touchai/site build",
         "type:check": "pnpm --filter @touchai/desktop type:check",
         "lint": "pnpm --filter @touchai/desktop lint",
+        "architecture:check": "pnpm --filter @touchai/desktop architecture:check",
         "lint:check": "pnpm --filter @touchai/desktop lint:check",
         "check": "pnpm --filter @touchai/desktop check",
         "format:check": "prettier --check . --ignore-path .prettierignore",
