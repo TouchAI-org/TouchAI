@@ -1,0 +1,9 @@
+import { invoke } from '@tauri-apps/api/core';
+
+export const known = () => invoke('known_cmd');
+export const other = () => invoke('other_cmd');
+export const missing = () => invoke('missing_cmd');
+export const pluginOk = () => invoke('plugin:log|log', {});
+export const pluginMisspelled = () => invoke('plugin:log|wrong', {});
+export const pluginUnknown = () => invoke('plugin:bogus|x', {});
+export const bare = () => invoke('bare_cmd');

@@ -1,0 +1,2 @@
+// invoke('plugin:log|log', {});
+export const pluginLogCommand = 'plugin:log|log';

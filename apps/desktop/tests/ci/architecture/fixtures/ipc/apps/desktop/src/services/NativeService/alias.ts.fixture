@@ -1,0 +1,3 @@
+import { invoke as call } from '@tauri-apps/api/core';
+
+export const aliasMissing = () => call('alias_missing_cmd');
