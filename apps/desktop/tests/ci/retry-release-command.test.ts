@@ -57,25 +57,35 @@ describe('retry release command', () => {
 
     it('recognizes the transport and status reasons the bundled download reports', async () => {
         const retryModule = await loadRetryModule();
+        const failedDownload = (reason: string) =>
+            'failed to prepare bundled rtk: download failed after 3 attempts: ' +
+            'https://github.com/rtk-ai/rtk/releases/download/v0.40.0/rtk-x86_64-pc-windows-msvc.zip: ' +
+            reason;
 
+        // Each reason below has to match on its own: a fixture that also contains
+        // another transient phrase would keep the assertion green after its
+        // pattern was deleted.
         expect(
             retryModule?.isTransientReleaseDownloadError(
-                'failed to prepare bundled rtk: download failed after 3 attempts: ' +
-                    'https://github.com/rtk-ai/rtk/releases/download/v0.40.0/rtk-x86_64-pc-windows-msvc.zip: ' +
-                    'Connection Failed: tls connection init failed: unexpected eof while reading'
+                failedDownload('tls connection init failed: unexpected eof while reading')
             )
         ).toBe(true);
         expect(
+            retryModule?.isTransientReleaseDownloadError(failedDownload('Connection Failed'))
+        ).toBe(true);
+        expect(retryModule?.isTransientReleaseDownloadError(failedDownload('Network Error'))).toBe(
+            true
+        );
+        expect(retryModule?.isTransientReleaseDownloadError(failedDownload('Dns Failed'))).toBe(
+            true
+        );
+        expect(
             retryModule?.isTransientReleaseDownloadError(
-                'failed to prepare bundled rtk: download failed after 3 attempts: ' +
-                    'https://github.com/rtk-ai/rtk/releases/download/v0.40.0/rtk-x86_64-pc-windows-msvc.zip: status code 504'
+                failedDownload('timed out reading response')
             )
         ).toBe(true);
         expect(
-            retryModule?.isTransientReleaseDownloadError(
-                'failed to prepare bundled rtk: download failed after 3 attempts: ' +
-                    'https://github.com/rtk-ai/rtk/releases/download/v0.40.0/rtk-x86_64-pc-windows-msvc.zip: Dns Failed'
-            )
+            retryModule?.isTransientReleaseDownloadError(failedDownload('status code 504'))
         ).toBe(true);
     });
 

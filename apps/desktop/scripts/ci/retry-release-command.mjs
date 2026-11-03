@@ -17,6 +17,7 @@ const TRANSIENT_RELEASE_DOWNLOAD_PATTERNS = [
     /\bEAI_AGAIN\b/i,
     /\bconnection timed out\b/i,
     /\bnetwork timeout\b/i,
+    /\btimed out reading response\b/i,
     /\btls connection init failed\b/i,
     /\bconnection failed\b/i,
     /\bnetwork error\b/i,

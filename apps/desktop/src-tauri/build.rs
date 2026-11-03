@@ -3,7 +3,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::{Cursor, Read},
+    io::{Cursor, Read, Write},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -247,8 +247,7 @@ fn materialize_binary(
     // release again, and an unreachable host would fail it. Reuse the copy this
     // machine already verified instead.
     if let Some(shared) = shared_binary_path(name, version, target_triple, file_name) {
-        if verified_binary(&shared, target)? {
-            fs::copy(&shared, &binary_path)?;
+        if copy_shared_binary(&shared, &binary_path, target) {
             return Ok(binary_path);
         }
     }
@@ -282,6 +281,24 @@ fn verified_binary(
         || (!target.binary_digest.is_empty() && digest == target.binary_digest))
 }
 
+/// Copy the machine-wide release into this target, or report a miss.
+///
+/// The shared cache is an optimisation, so an unreadable, missing or partially
+/// written file is a miss and the caller downloads instead. The copy is verified
+/// as well, because the shared file can change between the check and the copy;
+/// embedding bytes that never matched the manifest would be a silent corruption.
+fn copy_shared_binary(shared: &Path, destination: &Path, target: &BundledTarget) -> bool {
+    if !verified_binary(shared, target).unwrap_or(false) {
+        return false;
+    }
+
+    if fs::copy(shared, destination).is_err() {
+        return false;
+    }
+
+    verified_binary(destination, target).unwrap_or(false)
+}
+
 /// Path of the machine-wide copy, keyed by name, release version and target.
 ///
 /// `TOUCHAI_BUNDLED_BINARY_CACHE` overrides the location, which also lets CI and
@@ -306,6 +323,8 @@ fn shared_binary_path(
 }
 
 /// Best effort: a read-only or missing home directory must not fail the build.
+///
+/// The write is atomic so a concurrent build never copies a half-written file.
 fn store_shared_binary(
     name: &str,
     version: &str,
@@ -316,14 +335,21 @@ fn store_shared_binary(
     let Some(path) = shared_binary_path(name, version, target_triple, file_name) else {
         return;
     };
+    let Some(parent) = path.parent() else {
+        return;
+    };
 
-    if let Some(parent) = path.parent() {
-        if fs::create_dir_all(parent).is_err() {
-            return;
-        }
+    if fs::create_dir_all(parent).is_err() {
+        return;
     }
 
-    let _ = fs::write(path, bytes);
+    let Ok(mut temporary) = tempfile::NamedTempFile::new_in(parent) else {
+        return;
+    };
+
+    if temporary.write_all(bytes).is_ok() {
+        let _ = temporary.persist(&path);
+    }
 }
 
 /// Fetch an archive with a bounded wait and a few retries.
@@ -347,22 +373,14 @@ fn download_archive(url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         .timeout_write(READ_TIMEOUT)
         .build();
 
-    let mut last_error = None;
+    let mut last_reason = String::new();
 
     for attempt in 1..=ATTEMPTS {
-        match agent.get(url).call() {
-            Ok(response) => {
-                return Ok(response
-                    .into_reader()
-                    .bytes()
-                    .collect::<Result<Vec<_>, _>>()?);
-            }
-            Err(error) => {
-                if !is_transient_download_error(&error) {
-                    return Err(error.into());
-                }
-
-                last_error = Some(error);
+        match fetch_archive(&agent, url) {
+            Ok(bytes) => return Ok(bytes),
+            Err(DownloadFailure::Permanent(error)) => return Err(error),
+            Err(DownloadFailure::Transient(reason)) => {
+                last_reason = reason;
                 if attempt < ATTEMPTS {
                     std::thread::sleep(Duration::from_secs(u64::from(attempt)));
                 }
@@ -370,11 +388,37 @@ fn download_archive(url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         }
     }
 
-    let reason = last_error
-        .map(|error| error.to_string())
-        .unwrap_or_else(|| "no response".to_string());
+    Err(format!("download failed after {ATTEMPTS} attempts: {last_reason}").into())
+}
 
-    Err(format!("download failed after {ATTEMPTS} attempts: {reason}").into())
+/// One attempt, body included.
+///
+/// Reading the body is part of the attempt so a reset or stall in the middle of
+/// the transfer is retried like a connection failure, and the error names the
+/// URL the way the release wrapper expects.
+enum DownloadFailure {
+    /// A later attempt can succeed.
+    Transient(String),
+    /// Retrying cannot change the answer.
+    Permanent(Box<dyn std::error::Error>),
+}
+
+fn fetch_archive(agent: &ureq::Agent, url: &str) -> Result<Vec<u8>, DownloadFailure> {
+    let response = agent.get(url).call().map_err(|error| {
+        if is_transient_download_error(&error) {
+            DownloadFailure::Transient(error.to_string())
+        } else {
+            DownloadFailure::Permanent(error.into())
+        }
+    })?;
+
+    let mut bytes = Vec::new();
+    response
+        .into_reader()
+        .read_to_end(&mut bytes)
+        .map_err(|error| DownloadFailure::Transient(format!("{url}: {error}")))?;
+
+    Ok(bytes)
 }
 
 /// Whether another attempt can succeed where this one failed.
