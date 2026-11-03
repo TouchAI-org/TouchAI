@@ -24,7 +24,8 @@ vi.mock('@services/EventService', () => ({
 
 vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => ({
-        label: 'settings',
+        // The main WebView is the settings owner; the general section mirrors its state.
+        label: 'main',
     }),
 }));
 

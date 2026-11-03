@@ -13,7 +13,7 @@
         getSearchKeybindingDefinition,
         SEARCH_KEYBINDING_DEFINITIONS,
     } from '@/config/searchKeybindings';
-    import { type MessageKey, type MessageParams, t } from '@/i18n';
+    import { t } from '@/i18n';
     import { useSettingsStore } from '@/stores/settings';
     import {
         captureShortcutFromKeyboardEvent,
@@ -191,22 +191,22 @@
         shortcutRegistrationFailed.value = false;
 
         try {
-            const registered = await registerShortcut(newShortcut);
-            if (!registered) {
-                shortcutRegistrationFailed.value = true;
-                displayShortcut.value = formatShortcutForDisplay(newShortcut);
-                return;
-            }
-
             await settingsStore.updateGlobalShortcut(newShortcut);
-            settings.value.globalShortcut = newShortcut;
             displayShortcut.value = formatShortcutForDisplay(newShortcut);
             alertMessage.value?.success(t('settings.general.shortcutSaved'), 3000);
         } catch (error) {
             log.error('Failed to save shortcut:', error);
-            alertMessage.value?.error(t('settings.general.saveShortcutFailed'), 3000);
+            const errorMessage =
+                error instanceof Error && error.message
+                    ? error.message
+                    : t('settings.general.saveShortcutFailed');
+            notify({
+                title: t('notification.shortcutRegistrationFailed.title'),
+                body: errorMessage,
+            });
+            alertMessage.value?.error(errorMessage, 4000);
             displayShortcut.value = formatShortcutForDisplay(settings.value.globalShortcut);
-            shortcutRegistrationFailed.value = false;
+            shortcutRegistrationFailed.value = true;
         } finally {
             isSaving.value = false;
         }
@@ -249,75 +249,6 @@
         } catch (error) {
             log.error('Failed to load settings:', error);
             alertMessage.value?.error(t('settings.general.loadSettingsFailed'), 3000);
-        }
-    };
-
-    const registerShortcut = async (shortcut: string): Promise<boolean> => {
-        try {
-            await native.shortcut.registerGlobalShortcut(shortcut);
-            return true;
-        } catch (error) {
-            log.error('Failed to register shortcut:', error);
-
-            const errorStr = String(error);
-            const shortcutErrorMessage: {
-                friendlyMessageKey: MessageKey;
-                notificationBodyKey: MessageKey;
-                params?: MessageParams;
-            } = (():
-                | {
-                      friendlyMessageKey: MessageKey;
-                      notificationBodyKey: MessageKey;
-                      params: MessageParams;
-                  }
-                | {
-                      friendlyMessageKey: MessageKey;
-                      notificationBodyKey: MessageKey;
-                      params?: never;
-                  } => {
-                if (errorStr.includes('already registered') || errorStr.includes('已注册')) {
-                    return {
-                        friendlyMessageKey:
-                            'notification.shortcutRegistrationFailed.alreadyRegistered',
-                        notificationBodyKey:
-                            'notification.shortcutRegistrationFailed.alreadyRegisteredBody',
-                        params: { shortcut },
-                    };
-                }
-
-                if (errorStr.includes('invalid') || errorStr.includes('无效')) {
-                    return {
-                        friendlyMessageKey: 'notification.shortcutRegistrationFailed.invalid',
-                        notificationBodyKey: 'notification.shortcutRegistrationFailed.invalidBody',
-                        params: { shortcut },
-                    };
-                }
-
-                if (errorStr.includes('Unknown key')) {
-                    return {
-                        friendlyMessageKey: 'notification.shortcutRegistrationFailed.unsupported',
-                        notificationBodyKey:
-                            'notification.shortcutRegistrationFailed.unsupportedBody',
-                    };
-                }
-
-                return {
-                    friendlyMessageKey: 'notification.shortcutRegistrationFailed.generic',
-                    notificationBodyKey: 'notification.shortcutRegistrationFailed.generic',
-                    params: { error: errorStr },
-                };
-            })();
-
-            notify({
-                title: t('notification.shortcutRegistrationFailed.title'),
-                body: t(shortcutErrorMessage.notificationBodyKey, shortcutErrorMessage.params),
-            });
-
-            alertMessage.value?.error(
-                t(shortcutErrorMessage.friendlyMessageKey, shortcutErrorMessage.params),
-                4000
-            );
-            return false;
         }
     };
 

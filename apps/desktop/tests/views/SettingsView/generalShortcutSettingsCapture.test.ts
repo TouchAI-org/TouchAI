@@ -1,3 +1,4 @@
+import { formatShortcutRegistrationError } from '@services/SettingsService/messages';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -159,15 +160,15 @@ afterEach(() => {
 });
 
 describe('user reads the notification when the OS rejects a shortcut', () => {
-    async function rejectionBody(error: string): Promise<string> {
-        nativeMock.shortcut.registerGlobalShortcut.mockRejectedValue(new Error(error));
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    async function rejectionBody(reason: string): Promise<string> {
+        settingsMock.updateGlobalShortcut.mockRejectedValue(
+            new Error(formatShortcutRegistrationError('Ctrl+N', new Error(reason)))
+        );
         const wrapper = await mountSection();
         await startCapture(wrapper);
         await pressKeys({ key: 'n', ctrlKey: true });
 
         const body = (notifyMock.mock.calls[0]?.[0]?.body ?? '') as string;
-        consoleError.mockRestore();
         wrapper.unmount();
         return body;
     }
@@ -234,7 +235,7 @@ describe('user is told when settings could not be loaded', () => {
 describe('user keeps the field out of the way while a save is in flight', () => {
     it('user gets the field locked and the presets disabled while saving', async () => {
         let release: (() => void) | undefined;
-        nativeMock.shortcut.registerGlobalShortcut.mockImplementation(
+        settingsMock.updateGlobalShortcut.mockImplementation(
             () =>
                 new Promise<void>((resolve) => {
                     release = resolve;
@@ -256,7 +257,7 @@ describe('user keeps the field out of the way while a save is in flight', () => 
 
     it('user gets the preset menu ignored while saving', async () => {
         let release: (() => void) | undefined;
-        nativeMock.shortcut.registerGlobalShortcut.mockImplementation(
+        settingsMock.updateGlobalShortcut.mockImplementation(
             () =>
                 new Promise<void>((resolve) => {
                     release = resolve;
@@ -393,7 +394,8 @@ describe('user is told the Windows key cannot be used', () => {
         await pressKeys({ key: 'n', metaKey: true });
 
         expect(alertMock.warning).not.toHaveBeenCalled();
-        expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith('Cmd+N');
+        expect(settingsMock.updateGlobalShortcut).toHaveBeenCalledWith('Cmd+N');
+        expect(nativeMock.shortcut.registerGlobalShortcut).not.toHaveBeenCalled();
     });
 });
 
@@ -405,7 +407,8 @@ describe('user gets a system-reported key applied', () => {
         systemKey({ key: 'K', ctrl: true });
         await flushPromises();
 
-        expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith('Ctrl+K');
+        expect(settingsMock.updateGlobalShortcut).toHaveBeenCalledWith('Ctrl+K');
+        expect(nativeMock.shortcut.registerGlobalShortcut).not.toHaveBeenCalled();
     });
 
     it('user gets a system key without a modifier ignored', async () => {

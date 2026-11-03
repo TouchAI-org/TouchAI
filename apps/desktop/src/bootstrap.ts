@@ -282,6 +282,18 @@ function scheduleUsageMaintenance(pinia: ReturnType<typeof createPinia>): void {
     }
 }
 
+/**
+ * 窗口卸载时释放设置所有者/客户端：所有者关闭会广播 `gone`，客户端据此快速失败，
+ * 不会继续向已失效的所有者发请求。
+ */
+function registerSettingsDisposal(pinia: ReturnType<typeof createPinia>): void {
+    const dispose = () => {
+        void useSettingsStore(pinia).dispose();
+    };
+    window.addEventListener('beforeunload', dispose);
+    window.addEventListener('pagehide', dispose);
+}
+
 export async function initializeApp() {
     // zone.js 必须在 initTracing() 选择 context manager 之前加载，否则 await 之后
     // 拿不到当前 span。Vitest 里导入它会改写定时器，所以只在真实 WebView 加载。
@@ -340,6 +352,7 @@ export async function initializeApp() {
 
     // 先挂载输入外壳：语言/窗口策略就绪即可交互，不等后台能力准备。
     app.mount('#app');
+    registerSettingsDisposal(pinia);
 
     if (settingsInitializeError) {
         log.error(
