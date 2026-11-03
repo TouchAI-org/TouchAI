@@ -1,0 +1,3 @@
+import * as core from '@tauri-apps/api/core';
+
+export const nsKnown = () => core.invoke('ns_known_cmd');
