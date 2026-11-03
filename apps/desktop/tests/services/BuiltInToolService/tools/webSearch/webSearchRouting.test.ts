@@ -12,17 +12,18 @@ import { executeWebSearchTool, webSearchTool } from '@/services/BuiltInToolServi
  * and payload shaping run for real.
  */
 
-const { getSettingValueMock, tauriFetchMock } = vi.hoisted(() => ({
-    getSettingValueMock: vi.fn<() => Promise<string | null>>(async () => null),
+const { readEffectiveSettingValueMock, tauriFetchMock } = vi.hoisted(() => ({
+    readEffectiveSettingValueMock: vi.fn<() => Promise<string | null>>(async () => null),
     tauriFetchMock: vi.fn(),
 }));
 
-vi.mock('@database/queries', () => ({
-    getSettingValue: getSettingValueMock,
+vi.mock('@/services/BuiltInToolService/settingsReader', () => ({
+    readEffectiveSettingValue: readEffectiveSettingValueMock,
 }));
 
-vi.mock('@/services/AgentService/infrastructure/providers', () => ({
+vi.mock('@/services/HttpService', () => ({
     createTauriFetch: () => tauriFetchMock,
+    cancelResponseBody: vi.fn(async () => {}),
 }));
 
 function createExecutionContext(): Parameters<typeof executeWebSearchTool>[2] {
@@ -56,13 +57,13 @@ function anySearchResponse(): Response {
 
 beforeEach(() => {
     vi.clearAllMocks();
-    getSettingValueMock.mockResolvedValue(null);
+    readEffectiveSettingValueMock.mockResolvedValue(null);
     tauriFetchMock.mockResolvedValue(anySearchResponse());
 });
 
 describe('user searches with a provider they disabled', () => {
     it('user still gets results when the provider they chose is turned off', async () => {
-        getSettingValueMock.mockResolvedValue(
+        readEffectiveSettingValueMock.mockResolvedValue(
             settingsOf({
                 providers: {
                     brave: { enabled: false, apiKey: 'brave-key' },
@@ -85,7 +86,7 @@ describe('user searches with a provider they disabled', () => {
     });
 
     it('user gets the academic source they asked for when their chosen provider is unusable', async () => {
-        getSettingValueMock.mockResolvedValue(
+        readEffectiveSettingValueMock.mockResolvedValue(
             settingsOf({
                 providers: {
                     semantic_scholar: { enabled: false, apiKey: 'scholar-key' },
@@ -112,7 +113,7 @@ describe('user searches with a provider they disabled', () => {
     });
 
     it('user gets a code host when they asked a technical question and only GitHub is usable', async () => {
-        getSettingValueMock.mockResolvedValue(
+        readEffectiveSettingValueMock.mockResolvedValue(
             settingsOf({
                 providers: {
                     exa: { enabled: false, apiKey: 'exa-key' },
@@ -138,7 +139,7 @@ describe('user searches with a provider they disabled', () => {
     });
 
     it('user gets whichever provider is left when nothing they asked for can run', async () => {
-        getSettingValueMock.mockResolvedValue(
+        readEffectiveSettingValueMock.mockResolvedValue(
             settingsOf({
                 providers: {
                     exa: { enabled: false, apiKey: 'exa-key' },
@@ -163,7 +164,7 @@ describe('user searches with a provider they disabled', () => {
 
 describe('user searches with an intent route', () => {
     it('user gets the default provider when their intent route is set to auto', async () => {
-        getSettingValueMock.mockResolvedValue(
+        readEffectiveSettingValueMock.mockResolvedValue(
             settingsOf({
                 providers: { anysearch: { enabled: true }, openalex: { enabled: true } },
                 defaultProvider: 'anysearch',
@@ -182,7 +183,7 @@ describe('user searches with an intent route', () => {
     });
 
     it('user gets the routed provider when their intent route names one', async () => {
-        getSettingValueMock.mockResolvedValue(
+        readEffectiveSettingValueMock.mockResolvedValue(
             settingsOf({
                 providers: { anysearch: { enabled: true }, openalex: { enabled: true } },
                 defaultProvider: 'anysearch',
@@ -200,7 +201,7 @@ describe('user searches with an intent route', () => {
     });
 
     it('user gets the built-in academic default when they never touched the routes', async () => {
-        getSettingValueMock.mockResolvedValue(
+        readEffectiveSettingValueMock.mockResolvedValue(
             settingsOf({
                 providers: { anysearch: { enabled: true }, openalex: { enabled: true } },
                 defaultProvider: 'anysearch',
@@ -220,7 +221,7 @@ describe('user searches with an intent route', () => {
 
 describe('user sets the result count and timeout themselves', () => {
     it('user gets the settings count and timeout when their call omits them', async () => {
-        getSettingValueMock.mockResolvedValue(
+        readEffectiveSettingValueMock.mockResolvedValue(
             settingsOf({
                 providers: { anysearch: { enabled: true } },
                 defaultProvider: 'anysearch',
@@ -352,7 +353,7 @@ describe('user reads the search activity line', () => {
 
 describe('user searches when every provider is switched off', () => {
     it('user is told the search could not run rather than given an empty result', async () => {
-        getSettingValueMock.mockResolvedValue(
+        readEffectiveSettingValueMock.mockResolvedValue(
             settingsOf({
                 providers: Object.fromEntries(
                     [
@@ -389,7 +390,7 @@ describe('user searches when every provider is switched off', () => {
 
 describe('user is told how long to wait after the provider throttles them', () => {
     it('user gets the wait in seconds read from the provider retry hint', async () => {
-        getSettingValueMock.mockResolvedValue(
+        readEffectiveSettingValueMock.mockResolvedValue(
             settingsOf({
                 providers: { deepseek: { enabled: true, apiKey: 'ds-key' } },
                 defaultProvider: 'deepseek',
@@ -415,7 +416,7 @@ describe('user is told how long to wait after the provider throttles them', () =
     });
 
     it('user gets the wait read from a retry hint given as a date', async () => {
-        getSettingValueMock.mockResolvedValue(
+        readEffectiveSettingValueMock.mockResolvedValue(
             settingsOf({
                 providers: { deepseek: { enabled: true, apiKey: 'ds-key' } },
                 defaultProvider: 'deepseek',
@@ -442,7 +443,7 @@ describe('user is told how long to wait after the provider throttles them', () =
     });
 
     it('user gets no wait hint when the provider sent an unreadable retry hint', async () => {
-        getSettingValueMock.mockResolvedValue(
+        readEffectiveSettingValueMock.mockResolvedValue(
             settingsOf({
                 providers: { deepseek: { enabled: true, apiKey: 'ds-key' } },
                 defaultProvider: 'deepseek',

@@ -6,17 +6,18 @@ import {
     webSearchTool,
 } from '@/services/BuiltInToolService/tools/webSearch';
 
-const { getSettingValueMock, tauriFetchMock } = vi.hoisted(() => ({
-    getSettingValueMock: vi.fn<() => Promise<string | null>>(async () => null),
+const { readEffectiveSettingValueMock, tauriFetchMock } = vi.hoisted(() => ({
+    readEffectiveSettingValueMock: vi.fn<() => Promise<string | null>>(async () => null),
     tauriFetchMock: vi.fn(),
 }));
 
-vi.mock('@database/queries', () => ({
-    getSettingValue: getSettingValueMock,
+vi.mock('@/services/BuiltInToolService/settingsReader', () => ({
+    readEffectiveSettingValue: readEffectiveSettingValueMock,
 }));
 
-vi.mock('@/services/AgentService/infrastructure/providers', () => ({
+vi.mock('@/services/HttpService', () => ({
     createTauriFetch: () => tauriFetchMock,
+    cancelResponseBody: vi.fn(async () => {}),
 }));
 
 function createExecutionContext(): Parameters<typeof executeWebSearchTool>[2] {
@@ -37,7 +38,7 @@ function lastFetchCall(): [string, RequestInit] {
 describe('user searches the web from the assistant', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        getSettingValueMock.mockResolvedValue(null);
+        readEffectiveSettingValueMock.mockResolvedValue(null);
     });
 
     it('user sees one consolidated search tool without provider-specific tools', () => {
@@ -62,7 +63,7 @@ describe('user searches the web from the assistant', () => {
     });
 
     it('user sees the provider list built from enabled runtime settings', async () => {
-        getSettingValueMock.mockResolvedValueOnce(
+        readEffectiveSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
                     brave: { enabled: true, apiKey: 'brave-key' },
@@ -84,6 +85,12 @@ describe('user searches the web from the assistant', () => {
         expect(providerSchema.enum).not.toContain('firecrawl');
         expect(definition.description).toContain('brave: Fresh broad web/news discovery');
         expect(definition.description).toContain('exa: Semantic web discovery');
+    });
+
+    it('user sees search settings read through the active settings service', async () => {
+        await webSearchTool.buildToolDefinition('builtin__web_search');
+
+        expect(readEffectiveSettingValueMock).toHaveBeenCalledWith('search_settings');
     });
 
     it('user reads concise search activity text', () => {
@@ -267,7 +274,7 @@ describe('user searches the web from the assistant', () => {
     });
 
     it('user sees search settings defaults used when call arguments omit routing', async () => {
-        getSettingValueMock.mockResolvedValueOnce(
+        readEffectiveSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 defaultProvider: 'github',
                 maxResults: 4,
@@ -309,7 +316,7 @@ describe('user searches the web from the assistant', () => {
     });
 
     it('user sees general searches routed to AnySearch when selected', async () => {
-        getSettingValueMock.mockResolvedValueOnce(
+        readEffectiveSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 defaultProvider: 'anysearch',
                 providers: {
@@ -361,7 +368,7 @@ describe('user searches the web from the assistant', () => {
     });
 
     it('user sees Brave used when the model selects an enabled Brave provider', async () => {
-        getSettingValueMock.mockResolvedValueOnce(
+        readEffectiveSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
                     brave: { enabled: true, apiKey: 'brave-key' },
@@ -404,7 +411,7 @@ describe('user searches the web from the assistant', () => {
     });
 
     it('user sees Tavily used when the model selects an enabled Tavily provider', async () => {
-        getSettingValueMock.mockResolvedValueOnce(
+        readEffectiveSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
                     tavily: { enabled: true, apiKey: 'tavily-key' },
@@ -444,7 +451,7 @@ describe('user searches the web from the assistant', () => {
     });
 
     it('user sees Exa used when the model selects an enabled Exa provider', async () => {
-        getSettingValueMock.mockResolvedValueOnce(
+        readEffectiveSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
                     exa: { enabled: true, apiKey: 'exa-key' },
@@ -484,7 +491,7 @@ describe('user searches the web from the assistant', () => {
     });
 
     it('user sees Firecrawl used when the model selects an enabled Firecrawl provider', async () => {
-        getSettingValueMock.mockResolvedValueOnce(
+        readEffectiveSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
                     firecrawl: { enabled: true, apiKey: 'firecrawl-key' },
@@ -524,7 +531,7 @@ describe('user searches the web from the assistant', () => {
     });
 
     it('user sees Tavily keyless mode used when no API key is configured', async () => {
-        getSettingValueMock.mockResolvedValueOnce(
+        readEffectiveSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
                     tavily: { enabled: true, apiKey: '' },
@@ -562,7 +569,7 @@ describe('user searches the web from the assistant', () => {
     });
 
     it('user sees Firecrawl keyless mode used when no API key is configured', async () => {
-        getSettingValueMock.mockResolvedValueOnce(
+        readEffectiveSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
                     firecrawl: { enabled: true, apiKey: '' },
@@ -598,7 +605,7 @@ describe('user searches the web from the assistant', () => {
     });
 
     it('user sees the Exa public MCP endpoint used with SSE when no API key is configured', async () => {
-        getSettingValueMock.mockResolvedValueOnce(
+        readEffectiveSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
                     exa: { enabled: true, apiKey: '' },
@@ -648,7 +655,7 @@ describe('user searches the web from the assistant', () => {
     });
 
     it('user sees Exa tool-level errors surfaced instead of an empty result', async () => {
-        getSettingValueMock.mockResolvedValueOnce(
+        readEffectiveSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 providers: {
                     exa: { enabled: true, apiKey: '' },
@@ -690,7 +697,7 @@ describe('user searches the web from the assistant', () => {
     });
 
     it('user sees academic searches routed to Semantic Scholar when configured', async () => {
-        getSettingValueMock.mockResolvedValueOnce(
+        readEffectiveSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 intentRoutes: {
                     academic: 'semantic_scholar',
@@ -730,7 +737,7 @@ describe('user searches the web from the assistant', () => {
     });
 
     it('user sees searches routed to a configured SearXNG instance', async () => {
-        getSettingValueMock.mockResolvedValueOnce(
+        readEffectiveSettingValueMock.mockResolvedValueOnce(
             JSON.stringify({
                 defaultProvider: 'searxng',
                 providers: {

@@ -15,8 +15,9 @@ const { tauriFetchMock } = vi.hoisted(() => ({
     tauriFetchMock: vi.fn(),
 }));
 
-vi.mock('@/services/AgentService/infrastructure/providers', () => ({
+vi.mock('@/services/HttpService', () => ({
     createTauriFetch: () => tauriFetchMock,
+    cancelResponseBody: vi.fn(async () => {}),
 }));
 
 describe('user reads fetched page reports in their own language', () => {

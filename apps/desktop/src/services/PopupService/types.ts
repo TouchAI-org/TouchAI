@@ -1,7 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import type { SessionEntity } from '@database/types';
-import type { Component } from 'vue';
 
 import type { SessionTaskStatus } from '@/services/AgentService/task/types';
 
@@ -32,7 +31,10 @@ export type PositionCalculator = (
 ) => { x: number; y: number };
 
 /**
- * Popup 配置接口
+ * Popup 清单配置（协议层）。
+ *
+ * 只描述原生窗口与几何：Vue 渲染组件由 `views/PopupView` 的 renderer
+ * 注册表按 id 解析，协议层不持有组件引用。
  */
 export interface PopupConfig<TData = unknown> {
     /** 唯一标识符 */
@@ -43,8 +45,6 @@ export interface PopupConfig<TData = unknown> {
     height: number;
     /** 窗口最小高度（逻辑像素），用于内容不足时保持最低高度 */
     minHeight?: number;
-    /** Vue 组件 */
-    component: Component;
     /** 位置计算函数 */
     calculatePosition: PositionCalculator;
     /** 可选的数据验证器 */
