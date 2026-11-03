@@ -3,7 +3,7 @@ import {
     SEARCH_PROVIDER_METADATA,
     type SearchProviderId,
     type SearchSettingsConfig,
-} from '@/stores/setting/sections/search';
+} from '@services/SettingsService/domain/sections/search';
 
 import { anySearchAdapter } from './anysearch';
 import { braveAdapter } from './brave';

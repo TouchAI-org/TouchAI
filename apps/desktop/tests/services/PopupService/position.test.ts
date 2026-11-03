@@ -21,7 +21,6 @@ describe('user opens a popup anchored to the search bar', () => {
             id: 'session-history-popup',
             width: 320,
             height: 384,
-            component: {} as PopupConfig['component'],
             calculatePosition: () => ({ x: 180, y: 260 }),
         };
 

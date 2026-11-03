@@ -2,7 +2,7 @@ import type {
     SearchProviderConfig,
     SearchProviderId,
     SearchSettingsConfig,
-} from '@/stores/setting/sections/search';
+} from '@services/SettingsService/domain/sections/search';
 
 import type { WebSearchRequest, WebSearchResult } from '../helper';
 

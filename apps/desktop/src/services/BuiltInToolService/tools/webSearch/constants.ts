@@ -1,10 +1,11 @@
-import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
 import {
     SEARCH_PROVIDER_METADATA,
     SEARCH_ROUTE_INTENTS,
     type SearchProviderId,
     type SearchRouteIntent,
-} from '@/stores/setting/sections/search';
+} from '@services/SettingsService/domain/sections/search';
+
+import type { AiToolDefinition } from '@/services/AgentService/contracts/tooling';
 
 import {
     integerInRangeSchema,

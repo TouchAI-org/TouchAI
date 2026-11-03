@@ -59,6 +59,10 @@ vi.mock('@services/PopupService', () => ({
     },
 }));
 
+vi.mock('@/views/PopupView/renderers', () => ({
+    getPopupRenderer: vi.fn(() => null),
+}));
+
 vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: getCurrentWindowMock,
 }));

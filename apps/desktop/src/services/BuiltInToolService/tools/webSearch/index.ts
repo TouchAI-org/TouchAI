@@ -1,15 +1,15 @@
-import { getSettingValue } from '@database/queries';
-
-import { createTauriFetch } from '@/services/AgentService/infrastructure/providers';
 import {
     parseSearchSettingsConfig,
     SEARCH_PROVIDER_METADATA,
     SEARCH_SETTINGS_KEY,
     type SearchProviderId,
     type SearchSettingsConfig,
-} from '@/stores/setting/sections/search';
+} from '@services/SettingsService/domain/sections/search';
+
+import { cancelResponseBody, createTauriFetch } from '@/services/HttpService';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
+import { readEffectiveSettingValue } from '../../settingsReader';
 import {
     type BaseBuiltInToolExecutionContext,
     BuiltInTool,
@@ -195,6 +195,7 @@ async function requestSearchResponse(
     });
 
     if (!response.ok) {
+        await cancelResponseBody(response, 'WebSearch response discarded');
         throw new WebSearchHttpError(response.status, response.statusText, {
             retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after')),
         });
@@ -216,7 +217,8 @@ const fetchText: WebSearchFetchText = async (url, signal, init = {}) => {
 };
 
 async function loadSearchSettings(): Promise<SearchSettingsConfig> {
-    return parseSearchSettingsConfig(await getSettingValue({ key: SEARCH_SETTINGS_KEY }));
+    const value = await readEffectiveSettingValue(SEARCH_SETTINGS_KEY);
+    return parseSearchSettingsConfig(typeof value === 'string' ? value : null);
 }
 
 function routeProviderForSettings(

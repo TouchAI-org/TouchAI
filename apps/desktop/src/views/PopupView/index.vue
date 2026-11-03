@@ -14,6 +14,7 @@
     import { normalizeLocalShortcutString } from '@/utils/shortcuts';
 
     import { getPopupTypeFromLocation } from './location';
+    import { getPopupRenderer } from './renderers';
 
     defineOptions({
         name: 'PopupWindowView',
@@ -33,7 +34,7 @@
     let emptyPopupHideTimer: number | null = null;
 
     const popupComponent = computed(() =>
-        popupType.value ? popupRegistry.get(popupType.value)?.component : null
+        popupType.value ? getPopupRenderer(popupType.value) : null
     );
     const popupToggleActionByType: Record<PopupType, SearchSurfaceCommandEvent['actionId']> = {
         'model-dropdown-popup': 'search.model.toggle',
