@@ -17,15 +17,12 @@ function createSnapshot(): SessionTaskSnapshot {
         turnId: null,
         status: 'running',
         executionMode: 'foreground',
-        prompt: 'Prompt',
         sessionHistory: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,
         error: null,
         currentModel: null,
-        promptSnapshot: null,
-        lastCheckpoint: null,
         startedAt: 1,
         updatedAt: 1,
         modelSwitchCount: 0,
@@ -283,7 +280,7 @@ describe('user gets task metadata synchronised', () => {
         expect(snapshot.error).toBeNull();
     });
 
-    it('user gets the prompt snapshot stored when it is ready', () => {
+    it('user never sees prompt snapshot internals in the task view', () => {
         const { snapshot, projection } = createProjection();
 
         projection.syncTaskMetadata({
@@ -292,11 +289,11 @@ describe('user gets task metadata synchronised', () => {
             snapshot: { messages: [] },
         } as never);
 
-        expect(snapshot.promptSnapshot).toEqual({ messages: [] });
+        expect(snapshot).not.toHaveProperty('promptSnapshot');
     });
 
-    it('user gets the last checkpoint stored', () => {
-        const { snapshot, projection } = createProjection();
+    it('user never sees checkpoint internals in the task view', () => {
+        const { snapshot, publish, projection } = createProjection();
 
         projection.syncTaskMetadata({
             type: 'checkpoint_committed',
@@ -304,7 +301,8 @@ describe('user gets task metadata synchronised', () => {
             checkpoint: { attempt: 1 },
         } as never);
 
-        expect(snapshot.lastCheckpoint).toEqual({ attempt: 1 });
+        expect(snapshot).not.toHaveProperty('lastCheckpoint');
+        expect(publish).toHaveBeenCalled();
     });
 
     it('user gets a completion event ending the task', () => {

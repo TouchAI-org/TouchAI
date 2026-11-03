@@ -15,8 +15,8 @@ import {
     AiConversationRuntime,
     attemptSpanStatus,
     type ExecuteRequestOptions,
+    type RuntimeTurnEvent,
     summarizeTaskModel,
-    type TurnEvent,
 } from '@/services/AgentService/execution/runtime';
 import type { PromptSnapshot } from '@/services/AgentService/prompt/types';
 
@@ -257,10 +257,10 @@ function run(
     options: Partial<ExecuteRequestOptions> = {}
 ): {
     runtime: AiConversationRuntime;
-    events: TurnEvent[];
+    events: RuntimeTurnEvent[];
     chunks: unknown[];
 } {
-    const events: TurnEvent[] = [];
+    const events: RuntimeTurnEvent[] = [];
     const chunks: unknown[] = [];
     const runtime = new AiConversationRuntime(executor as never, {
         prompt: 'hello',
@@ -305,8 +305,9 @@ describe('user starts a turn that needs a new conversation', () => {
 
         expect(projectorMock.recordTurnStart).toHaveBeenCalledTimes(1);
         expect(events.map((event) => event.type)).toEqual([
-            'prompt_snapshot_ready',
             'task_started',
+            'attempt_started',
+            'attempt_finished',
             'task_completed',
         ]);
     });
@@ -317,7 +318,7 @@ describe('user starts a turn that needs a new conversation', () => {
 
         await runtime.run();
 
-        expect(events[1]).toMatchObject({
+        expect(events[0]).toMatchObject({
             type: 'task_started',
             taskId: 'task-1',
             sessionId: 1,
@@ -334,7 +335,7 @@ describe('user starts a turn that needs a new conversation', () => {
 
         await runtime.run();
 
-        expect(events[1]).toMatchObject({ type: 'task_started', turnId: null });
+        expect(events[0]).toMatchObject({ type: 'task_started', turnId: null });
     });
 
     it('user sees no live task events when the request runs outside a task', async () => {
@@ -357,7 +358,7 @@ describe('user starts a turn that needs a new conversation', () => {
 
         await runtime.run();
 
-        expect(events[1]).toMatchObject({ executionMode: 'background' });
+        expect(events[0]).toMatchObject({ executionMode: 'background' });
     });
 
     it('user keeps the conversation when saving its start fails', async () => {
@@ -500,6 +501,13 @@ describe('user asks a follow-up in an existing conversation', () => {
         findModelPricingMock.mockResolvedValue(null);
         updateModelLastUsedMock.mockResolvedValue(undefined);
         shouldRetryRequestFailureMock.mockReturnValue(false);
+        projectorMock.getSessionId.mockReturnValue(1);
+        projectorMock.getTurn.mockReturnValue({ id: 9 });
+        projectorMock.recordTurnStart.mockResolvedValue(undefined);
+        projectorMock.markCompleted.mockResolvedValue(undefined);
+        projectorMock.markCancelled.mockResolvedValue(undefined);
+        projectorMock.markFailed.mockResolvedValue(undefined);
+        projectorMock.beginNextAttempt.mockResolvedValue(undefined);
     });
 
     it('user sees the prompt built from their message when none was frozen yet', async () => {
@@ -511,7 +519,10 @@ describe('user asks a follow-up in an existing conversation', () => {
         expect(composePromptSnapshotMock).toHaveBeenCalledWith(
             expect.objectContaining({ prompt: 'hello', executionMode: 'foreground' })
         );
-        expect(events[0]).toMatchObject({ type: 'prompt_snapshot_ready' });
+        expect(buildPromptTransportMessagesMock).toHaveBeenCalledWith(
+            expect.objectContaining({ snapshot: expect.objectContaining({ userPrompt: 'hello' }) })
+        );
+        expect(events[0]).toMatchObject({ type: 'task_started' });
     });
 
     it('user keeps the frozen prompt on a retry instead of rebuilding it', async () => {
@@ -522,7 +533,10 @@ describe('user asks a follow-up in an existing conversation', () => {
         await runtime.run();
 
         expect(composePromptSnapshotMock).not.toHaveBeenCalled();
-        expect(events[0]).toMatchObject({ snapshot: frozen });
+        expect(buildPromptTransportMessagesMock).toHaveBeenCalledWith(
+            expect.objectContaining({ snapshot: frozen })
+        );
+        expect(events[0]).toMatchObject({ type: 'task_started' });
     });
 
     it('user gets the app language when the frozen prompt carries none', async () => {

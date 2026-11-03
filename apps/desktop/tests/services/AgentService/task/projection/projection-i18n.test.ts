@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
+import { TaskInteractions } from '@/services/AgentService/task/interactions';
 import { SessionTaskProjection } from '@/services/AgentService/task/projection/projection';
 import type { SessionTaskSnapshot } from '@/services/AgentService/task/types';
 import { selectToolCalls } from '@/utils/session';
@@ -12,15 +13,12 @@ function createSnapshot(): SessionTaskSnapshot {
         turnId: null,
         status: 'running',
         executionMode: 'foreground',
-        prompt: 'Prompt',
         sessionHistory: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,
         error: null,
         currentModel: null,
-        promptSnapshot: null,
-        lastCheckpoint: null,
         startedAt: 1,
         updatedAt: 1,
         modelSwitchCount: 0,
@@ -128,13 +126,18 @@ describe('user reads live task statuses in their own language', () => {
     it('user reads the pending approval cancellation text in English', async () => {
         setLocale('en-US');
         const snapshot = createSnapshot();
-        const projection = createProjection(snapshot);
+        const interactions = new TaskInteractions('task-1');
+        interactions.beginAttempt('attempt-1');
+        const projection = new SessionTaskProjection(snapshot, vi.fn(), interactions);
 
         projection.bootstrap([], 'Hello', []);
-        const decision = projection.requestToolApproval({
+        const payload = {
             callId: 'call-1',
             command: 'Remove-Item file.txt',
-        } as never);
+        } as never;
+        const display = projection.formatApproval(payload);
+        const decision = interactions.registerApproval(display, 'attempt-1');
+        projection.renderApproval(display, payload);
 
         projection.clearPendingApprovals();
 

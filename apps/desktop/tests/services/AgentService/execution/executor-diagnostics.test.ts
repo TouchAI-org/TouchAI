@@ -104,9 +104,20 @@ async function failWith(error: unknown, signal?: AbortSignal) {
     providerMock.classifyError.mockReturnValue(new AiError(AiErrorCode.NETWORK_ERROR));
     return new AiRequestExecutor().runAttempt({
         startCheckpoint: createCheckpoint(),
-        persister: {} as never,
+        persister: persisterStub() as never,
         signal,
     });
+}
+
+function persisterStub() {
+    return {
+        persistOutputProgress: vi.fn().mockResolvedValue(undefined),
+        persistToolCallMessage: vi.fn().mockResolvedValue(1),
+        persistToolResult: vi.fn().mockResolvedValue(undefined),
+        persistCheckpoint: vi.fn().mockResolvedValue(undefined),
+        getSessionId: vi.fn(() => 1),
+        getAttemptGeneration: vi.fn(() => 1),
+    };
 }
 
 beforeEach(() => {
@@ -296,7 +307,7 @@ describe('user cancels an attempt before the model answers', () => {
 
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: {} as never,
+            persister: persisterStub() as never,
             signal: controller.signal,
         });
 
@@ -314,7 +325,7 @@ describe('user gets an answer the model never produced', () => {
 
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: {} as never,
+            persister: persisterStub() as never,
         });
 
         expect(result).toMatchObject({ type: 'failed' });
@@ -332,7 +343,7 @@ describe('user gets an answer the model never produced', () => {
 
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: {} as never,
+            persister: persisterStub() as never,
         });
 
         expect(result).toMatchObject({ type: 'completed', reasoning: 'Thought about it' });
@@ -347,16 +358,6 @@ describe('user watches a tool loop commit its progress', () => {
         createProviderForModelMock.mockReturnValue(providerMock);
         resolveToolDefinitionsMock.mockResolvedValue([]);
     });
-
-    function persisterStub() {
-        return {
-            persistOutputProgress: vi.fn().mockResolvedValue(undefined),
-            persistToolCallMessage: vi.fn().mockResolvedValue(1),
-            persistToolResult: vi.fn().mockResolvedValue(undefined),
-            persistCheckpoint: vi.fn().mockResolvedValue(undefined),
-            getSessionId: vi.fn(() => 1),
-        };
-    }
 
     it('user sees a safe point reported after each tool round', async () => {
         providerMock.stream

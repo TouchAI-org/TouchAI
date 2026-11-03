@@ -12,6 +12,7 @@ export type SessionInputHistoryNavigationResult = 'navigated' | 'blocked' | 'ign
 interface PendingApprovalState {
     callId?: string;
     keyboardApproveAt: number;
+    decisionId?: string;
 }
 
 export interface SearchKeyboardRouteInput {
@@ -40,8 +41,8 @@ interface CreateSearchKeyboardRouterOptions {
     getSessionHistoryCount: () => number;
     isLoading: () => boolean;
     onPromptApprovalAttention: () => void;
-    onRejectApproval: (callId?: string) => void;
-    onApproveApproval: (callId?: string) => void;
+    onRejectApproval: (callId?: string, decisionId?: string) => void;
+    onApproveApproval: (callId?: string, decisionId?: string) => void;
     onForwardToPopup: (key: string) => void;
     onSubmit: () => void | Promise<void>;
     onOpenQuickSearch: () => void;
@@ -203,13 +204,13 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         const pendingApproval = getPendingApproval();
         if (pendingApproval) {
             if (input.key === 'Escape' || input.key === 'Esc') {
-                onRejectApproval(pendingApproval.callId);
+                onRejectApproval(pendingApproval.callId, pendingApproval.decisionId);
                 return true;
             }
 
             if (input.key === 'Enter') {
                 if (!input.shiftKey && Date.now() >= pendingApproval.keyboardApproveAt) {
-                    onApproveApproval(pendingApproval.callId);
+                    onApproveApproval(pendingApproval.callId, pendingApproval.decisionId);
                 } else {
                     onPromptApprovalAttention();
                 }

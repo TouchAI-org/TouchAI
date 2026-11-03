@@ -3,6 +3,7 @@
  */
 
 import { createTauriFetch } from '@services/AgentService/infrastructure/providers';
+import { cancelResponseBody } from '@services/HttpService';
 import { log } from '@services/ObservabilityService';
 
 import { buildMetadataList } from './catalog';
@@ -62,6 +63,7 @@ export async function updateModelMetadata(): Promise<ModelMetadataRefreshResult>
         });
 
         if (response.status === 304) {
+            await cancelResponseBody(response, 'ModelMetadata response discarded');
             await markModelMetadataChecked({
                 checkedAt: new Date().toISOString(),
                 etag: previousEtag,
@@ -71,6 +73,7 @@ export async function updateModelMetadata(): Promise<ModelMetadataRefreshResult>
         }
 
         if (!response.ok) {
+            await cancelResponseBody(response, 'ModelMetadata response discarded');
             throw new Error(`Failed to fetch metadata: ${response.statusText}`);
         }
 

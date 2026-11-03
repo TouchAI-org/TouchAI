@@ -5,7 +5,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiErrorCode } from '@/services/AgentService/contracts/errors';
-import type { ExecuteRequestResult } from '@/services/AgentService/execution/runtime';
+import type { TaskResult } from '@/services/AgentService/execution/runtime';
 
 /**
  * The task center is the only owner of a running turn. These cover the paths a page uses
@@ -56,7 +56,7 @@ const { SessionTaskCenter } = await import('@/services/AgentService/task/center'
 function staysRunningInSession(sessionId: number | null) {
     return () => {
         latestOptions().onTurnEvent?.({ type: 'task_started', sessionId, turnId: 1 });
-        return new Promise<ExecuteRequestResult>(() => {});
+        return new Promise<TaskResult>(() => {});
     };
 }
 
@@ -234,7 +234,7 @@ describe('user is told a task cannot start twice in one session', () => {
                 sessionId: options.sessionId ?? null,
                 turnId: 1,
             });
-            return new Promise<ExecuteRequestResult>(() => {});
+            return new Promise<TaskResult>(() => {});
         });
 
         const center = createCenter();
