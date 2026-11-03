@@ -7,7 +7,7 @@ import { llmMetadata, llmMetadataAliases, models } from '@database/schema';
 import type { UpstreamModelMetadataPatch } from '@database/types';
 import { eq, sql } from 'drizzle-orm';
 
-import { expandModelIdCandidates } from './modelIdCandidates';
+import { expandModelIdCandidates } from '@/domain/models/modelIdCandidates';
 
 /**
  * 把运行时模型行与 models.dev 元数据对齐：匹配规则是纯函数、可脱离数据库单测，
