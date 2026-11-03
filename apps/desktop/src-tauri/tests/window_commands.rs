@@ -455,3 +455,114 @@ fn user_cannot_drag_the_main_window_from_a_secondary_renderer() {
         .to_string()
         .contains("Only the main renderer can drag"));
 }
+
+/// A waiting-approval reminder carries the identity of the pending decision so the native
+/// action can be matched back to it later. These tests drive the command the renderer calls
+/// and read the record the native layer keeps, so they assert the payload that survives the
+/// IPC decoder, not the wrapper that forwards it.
+#[test]
+fn user_sees_the_approval_decision_identity_kept_when_a_waiting_reminder_is_shown() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+
+    let response: () = invoke_command_ok(
+        &test_app.main_webview,
+        "show_session_status_reminder_notification",
+        json!({
+            "payload": {
+                "title": "TouchAI",
+                "body": "A tool call needs approval",
+                "sessionId": 12,
+                "taskId": "task-12",
+                "kind": "waiting_approval",
+                "approval": {
+                    "callId": "call-7",
+                    "approveLabel": "Approve",
+                    "rejectLabel": "Reject",
+                    "decisionId": "task-12:1:call-7:1"
+                }
+            }
+        }),
+    );
+
+    assert_eq!(response, ());
+    let records = testing::session_status_reminder_notifications(&test_app.app);
+    assert_eq!(records.len(), 1);
+    let approval = records[0]
+        .approval
+        .as_ref()
+        .expect("waiting reminder keeps its approval payload");
+    assert_eq!(approval.call_id, "call-7");
+    assert_eq!(approval.decision_id.as_deref(), Some("task-12:1:call-7:1"));
+}
+
+#[test]
+fn user_sees_a_waiting_reminder_shown_when_the_approval_omits_the_decision_identity() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+
+    let response: () = invoke_command_ok(
+        &test_app.main_webview,
+        "show_session_status_reminder_notification",
+        json!({
+            "payload": {
+                "title": "TouchAI",
+                "body": "A tool call needs approval",
+                "sessionId": 4,
+                "taskId": "task-4",
+                "kind": "waiting_approval",
+                "approval": {
+                    "callId": "call-1",
+                    "approveLabel": "Approve",
+                    "rejectLabel": "Reject"
+                }
+            }
+        }),
+    );
+
+    assert_eq!(response, ());
+    let records = testing::session_status_reminder_notifications(&test_app.app);
+    assert_eq!(records.len(), 1);
+    let approval = records[0].approval.as_ref().expect("approval payload");
+    assert_eq!(approval.call_id, "call-1");
+    assert!(approval.decision_id.is_none());
+}
+
+#[test]
+fn user_sees_a_reminder_rejected_when_a_required_field_is_missing() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+
+    invoke_command_err(
+        &test_app.main_webview,
+        "show_session_status_reminder_notification",
+        json!({
+            "payload": {
+                "body": "Task completed",
+                "sessionId": 1,
+                "taskId": "task-1",
+                "kind": "completed"
+            }
+        }),
+    );
+
+    assert!(testing::session_status_reminder_notifications(&test_app.app).is_empty());
+}
+
+#[test]
+fn user_sees_a_reminder_rejected_when_a_required_field_has_the_wrong_type() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+
+    invoke_command_err(
+        &test_app.main_webview,
+        "show_session_status_reminder_notification",
+        json!({
+            "payload": {
+                "title": "TouchAI",
+                "body": "Task completed",
+                "sessionId": "not-a-number",
+                "taskId": "task-1",
+                "kind": "completed"
+            }
+        }),
+    );
+
+    assert!(testing::session_status_reminder_notifications(&test_app.app).is_empty());
+}
