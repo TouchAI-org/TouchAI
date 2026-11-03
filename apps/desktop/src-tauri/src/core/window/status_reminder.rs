@@ -34,6 +34,7 @@ pub struct SessionStatusReminderNotificationApprovalPayload {
     pub call_id: String,
     pub approve_label: String,
     pub reject_label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision_id: Option<String>,
 }
 
@@ -1583,6 +1584,40 @@ mod tests {
     }
 
     #[test]
+    fn user_activation_payload_carries_interaction_decision_id() {
+        let payload = SessionStatusReminderNotificationPayload {
+            title: "Waiting approval".to_string(),
+            body: "Approve".to_string(),
+            session_id: 1,
+            task_id: "task-1".to_string(),
+            kind: SessionStatusReminderKind::WaitingApproval,
+            approval: Some(SessionStatusReminderNotificationApprovalPayload {
+                call_id: "call-1".to_string(),
+                approve_label: "Approve".to_string(),
+                reject_label: "Reject".to_string(),
+                decision_id: Some("task-1:1:call-1:1".to_string()),
+            }),
+            open_label: None,
+            reply_placeholder: None,
+            reply_label: None,
+        };
+
+        let json = serialize_activation_payload(
+            &payload,
+            SessionStatusReminderAction::Approve,
+            payload.approval.as_ref(),
+        )
+        .expect("serialize activation payload");
+
+        let decoded: SessionStatusReminderActionPayload =
+            serde_json::from_str(&json).expect("decode activation payload");
+
+        assert_eq!(decoded.action, SessionStatusReminderAction::Approve);
+        assert_eq!(decoded.call_id.as_deref(), Some("call-1"));
+        assert_eq!(decoded.decision_id.as_deref(), Some("task-1:1:call-1:1"));
+    }
+
+    #[test]
     fn finalize_activation_payload_promotes_blank_reply_to_open() {
         let payload = finalize_activation_payload(
             SessionStatusReminderActionPayload {
@@ -1640,7 +1675,7 @@ mod tests {
             task_id: "task-1".to_string(),
             kind: SessionStatusReminderKind::WaitingApproval,
             call_id: Some("call-1".to_string()),
-            decision_id: None,
+            decision_id: Some("task-1:1:call-1:1".to_string()),
             reply_text: None,
         };
 
@@ -1666,7 +1701,7 @@ mod tests {
             task_id: "task-1".to_string(),
             kind: SessionStatusReminderKind::WaitingApproval,
             call_id: Some("call-1".to_string()),
-            decision_id: None,
+            decision_id: Some("task-1:1:call-1:1".to_string()),
             reply_text: None,
         };
 
@@ -1721,7 +1756,7 @@ mod tests_windows {
                 call_id: "call-1".to_string(),
                 approve_label: "Approve".to_string(),
                 reject_label: "Reject".to_string(),
-                decision_id: Some("decision-1".to_string()),
+                decision_id: Some("task-approve:1:call-1:1".to_string()),
             }),
             open_label: None,
             reply_placeholder: None,
