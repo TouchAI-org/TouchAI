@@ -4,7 +4,7 @@ import {
     expandModelIdCandidates,
     MAX_MODEL_ID_CANDIDATE_DEPTH,
     type ModelIdCandidate,
-} from '@/services/AgentService/infrastructure/modelMetadata/modelIdCandidates';
+} from '@/domain/models/modelIdCandidates';
 
 function depthOf(candidates: ModelIdCandidate[], candidate: string): number | undefined {
     return candidates.find((item) => item.candidate === candidate)?.depth;
