@@ -245,6 +245,39 @@ export interface ModelCreateData {
 
 export type ModelUpdateData = Partial<ModelCreateData>;
 
+export type ModelRole = 'entry' | 'fast' | 'general';
+
+export interface ModelPreferenceEntity {
+    id: string;
+    name: string;
+    description: string;
+    provider_id: number | null;
+    model_id: number | null;
+    priority: number;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface ModelPreferenceCreateData {
+    name: string;
+    description: string;
+    provider_id?: number | null;
+    model_id?: number | null;
+    priority?: number;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export type ModelPreferenceUpdateData = Partial<ModelPreferenceCreateData>;
+
+export interface ModelPreferenceWithModel extends ModelPreferenceEntity {
+    model_name: string | null;
+    model_api_id: string | null;
+    model_provider_id: number | null;
+    provider_name: string | null;
+    provider_enabled: number | null;
+}
+
 /**
  * 上游 `/v1/models` 声明的模型能力，已按数据库列格式化。
  *

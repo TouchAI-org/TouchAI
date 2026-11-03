@@ -36,6 +36,7 @@ export interface GeneralSettingsData {
     searchKeybindings: SearchKeybindings;
     startOnBoot: boolean;
     startMinimized: boolean;
+    allowModelAutoSwitch: boolean;
     outputScrollBehavior: OutputScrollBehavior;
     searchWindowSizePreset: SearchWindowSizePreset;
     searchWindowDefaultSize: SearchWindowDefaultSize;
@@ -113,6 +114,7 @@ export interface GeneralSettingUpdaters {
     updateSearchKeybindings(searchKeybindings: SearchKeybindings): Promise<void>;
     updateStartOnBoot(enabled: boolean): Promise<void>;
     updateStartMinimized(enabled: boolean): Promise<void>;
+    updateAllowModelAutoSwitch(enabled: boolean): Promise<void>;
     updateOutputScrollBehavior(mode: OutputScrollBehavior): Promise<void>;
     updateSearchWindowSizePreset(preset: SearchWindowSizePreset): Promise<void>;
     updateLanguage(language: AppLocale): Promise<void>;

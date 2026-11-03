@@ -13,16 +13,21 @@ import { composePromptSnapshot } from '@/services/AgentService/prompt';
 
 const {
     findAttachmentRemoteRefMock,
+    isModelRoutingEnabledMock,
     touchAttachmentRemoteRefLastUsedMock,
     upsertAttachmentRemoteRefMock,
 } = vi.hoisted(() => ({
     findAttachmentRemoteRefMock: vi.fn(),
+    isModelRoutingEnabledMock: vi.fn().mockResolvedValue(false),
     touchAttachmentRemoteRefLastUsedMock: vi.fn(),
     upsertAttachmentRemoteRefMock: vi.fn(),
 }));
 
 vi.mock('@database/queries', () => ({
     findAttachmentRemoteRef: findAttachmentRemoteRefMock,
+    findModelRoleWithProvider: vi.fn().mockResolvedValue(null),
+    isModelRoutingEnabled: isModelRoutingEnabledMock,
+    listModelPreferences: vi.fn().mockResolvedValue([]),
     touchAttachmentRemoteRefLastUsed: touchAttachmentRemoteRefLastUsedMock,
     upsertAttachmentRemoteRef: upsertAttachmentRemoteRefMock,
 }));

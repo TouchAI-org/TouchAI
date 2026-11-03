@@ -12,6 +12,7 @@ import {
 } from '../languageContext';
 import type { TaskExecutionMode } from '../task/types';
 import { TOUCHAI_BUILTIN_SYSTEM_PROMPT } from './builtin';
+import { buildModelPreferencesPrompt } from './modelPreferences';
 import type { PromptAssembly, PromptFragment, PromptFragmentSource, PromptSnapshot } from './types';
 
 const TOOL_DISCIPLINE_SYSTEM_PROMPT = [
@@ -87,6 +88,7 @@ async function summarizeAttachments(
 async function buildPromptAssembly(options: ComposePromptSnapshotOptions): Promise<PromptAssembly> {
     const executionMode = options.executionMode ?? 'foreground';
     const modelLanguageContext = getCurrentModelLanguageContext();
+    const modelPreferencesFragments = await buildModelPreferencesPrompt();
     const platformFragments = [
         ...(options.platform ?? [TOUCHAI_BUILTIN_SYSTEM_PROMPT]),
         buildCurrentLanguageSystemPrompt(modelLanguageContext),
@@ -101,7 +103,10 @@ async function buildPromptAssembly(options: ComposePromptSnapshotOptions): Promi
             'mode',
             options.mode ?? (executionMode === 'background' ? [BACKGROUND_MODE_PROMPT] : [])
         ),
-        feature: buildFragments('feature', options.feature ?? []),
+        feature: buildFragments('feature', [
+            ...modelPreferencesFragments,
+            ...(options.feature ?? []),
+        ]),
         user_append: buildFragments('user_append', options.userAppend ?? []),
     };
 

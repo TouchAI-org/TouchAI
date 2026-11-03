@@ -40,6 +40,9 @@ describe('user navigates the settings sections', () => {
         expect(wrapper.get('[data-testid="settings-nav-ai-services"]').attributes('title')).toBe(
             'Providers and models'
         );
+        expect(
+            wrapper.get('[data-testid="settings-nav-model-preferences"]').attributes('title')
+        ).toBe('Model routing');
         expect(wrapper.get('[data-testid="settings-nav-built-in-tools"]').attributes('title')).toBe(
             'Built-in tools'
         );
@@ -66,6 +69,7 @@ describe('user navigates the settings sections', () => {
             'General',
             'Shortcuts',
             'Providers and models',
+            'Model routing',
             'Usage',
             'Built-in tools',
             'Search',
