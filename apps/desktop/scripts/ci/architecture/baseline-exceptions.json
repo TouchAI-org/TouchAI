@@ -1,0 +1,20 @@
+[
+    {
+        "rule": "services-runtime-ui",
+        "importer": "services/AppUpdateService/index",
+        "target": "stores/settings",
+        "kind": "value",
+        "reason": "AppUpdateService reads the settings Vue store directly. Refactoring the app-update flow onto the SettingsService command path is outside RFC #710's authorized scope; the other built-in-tool settings consumers are migrated in this RFC.",
+        "exit": "Remove when AppUpdateService consumes settings through the SettingsService contract instead of the Vue store.",
+        "issue": "#710"
+    },
+    {
+        "rule": "no-self-barrel",
+        "importer": "services/AppUpdateService/notifications",
+        "target": "services/AppUpdateService/index",
+        "kind": "value",
+        "reason": "Pre-existing edge: AppUpdateService/notifications.ts reads the appUpdateService singleton from its own module barrel. No RFC #710 phase targets this file, and it is not a cycle.",
+        "exit": "Remove when notifications.ts imports the singleton's defining module directly, or the singleton moves out of index.ts.",
+        "issue": "#710"
+    }
+]

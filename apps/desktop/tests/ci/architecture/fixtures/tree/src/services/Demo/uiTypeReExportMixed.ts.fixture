@@ -1,0 +1,1 @@
+export { type Thing, Thing as thing } from '@/stores/Thing';

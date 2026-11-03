@@ -1,0 +1,2 @@
+import { ok } from '@/utils/ok';
+export const x = ok;
