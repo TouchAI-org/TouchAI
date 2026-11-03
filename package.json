@@ -28,6 +28,7 @@
         "test:ui": "pnpm --filter @touchai/desktop test:ui",
         "test:run": "pnpm --filter @touchai/desktop test:run",
         "test:pr": "pnpm test:ci:typecheck && pnpm test:ci && pnpm --filter @touchai/desktop test:pr && pnpm --filter @touchai/site build",
+        "perf:710": "node apps/desktop/scripts/perf/710/run.mjs",
         "type:check": "pnpm --filter @touchai/desktop type:check",
         "lint": "pnpm --filter @touchai/desktop lint",
         "architecture:check": "pnpm --filter @touchai/desktop architecture:check",
