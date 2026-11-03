@@ -1,0 +1,2 @@
+import type { R } from './reasoning';
+export type T = R;

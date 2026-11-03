@@ -1,0 +1,2 @@
+import type { Runtime } from '../execution/runtime';
+export type P = Runtime;
