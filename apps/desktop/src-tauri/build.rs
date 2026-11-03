@@ -188,14 +188,18 @@ fn prepare_bundled(name: &str) -> Result<(), Box<dyn std::error::Error>> {
         .join(&target_triple);
 
     if let Some(target) = manifest.targets.get(&target_triple) {
+        // The manifest is the only source of truth for what may be embedded. A
+        // target without an extracted-binary digest cannot be verified from the
+        // cache, and the empty module keeps the build honest instead of shipping
+        // bytes nothing can check.
+        if target.binary_digest.is_empty() {
+            generate_empty_asset_module(name, &out_dir)?;
+            return Ok(());
+        }
+
         let binary_path =
             materialize_binary(name, &manifest.version, &target_triple, target, &cache_dir)?;
-        let binary_hash = if !target.binary_digest.is_empty() {
-            target.binary_digest.clone()
-        } else {
-            sha256_file(&binary_path)?
-        };
-        generate_asset_module(name, &out_dir, &binary_path, &binary_hash)?;
+        generate_asset_module(name, &out_dir, &binary_path, &target.binary_digest)?;
     } else {
         generate_empty_asset_module(name, &out_dir)?;
     }
@@ -263,6 +267,15 @@ fn materialize_binary(
     }
 
     let extracted = extract_target_binary(name, &bytes, &target.format, &target.archive_path)?;
+    let extracted_digest = sha256_hex(&extracted);
+    if extracted_digest != target.binary_digest {
+        return Err(format!(
+            "{name}: extracted binary digest mismatch for {}: expected {}, got {extracted_digest}",
+            target.url, target.binary_digest
+        )
+        .into());
+    }
+
     fs::write(&binary_path, &extracted)?;
     store_shared_binary(name, version, target_triple, file_name, &extracted);
     Ok(binary_path)
@@ -272,13 +285,14 @@ fn verified_binary(
     path: &Path,
     target: &BundledTarget,
 ) -> Result<bool, Box<dyn std::error::Error>> {
-    if !path.exists() {
+    if !path.exists() || target.binary_digest.is_empty() {
         return Ok(false);
     }
 
-    let digest = sha256_file(path)?;
-    Ok(digest == target.digest
-        || (!target.binary_digest.is_empty() && digest == target.binary_digest))
+    // Only the extracted binary may live at this path. Accepting the archive
+    // digest here would let an archive that was dropped there pass as an
+    // executable and be embedded without ever being extracted.
+    Ok(sha256_file(path)? == target.binary_digest)
 }
 
 /// Copy the machine-wide release into this target, or report a miss.
