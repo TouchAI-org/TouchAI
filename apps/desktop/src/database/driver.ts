@@ -395,7 +395,20 @@ export function createDrizzleDb(): DrizzleDb {
             try {
                 await native.database.txRollback(txId);
             } catch (rollbackError) {
-                log.error('[Database] Failed to rollback transaction:', rollbackError);
+                void native.observability
+                    .ingest([
+                        {
+                            level: 5,
+                            event: 'database.transaction.rollback_failed',
+                            attrs: {
+                                'error.type':
+                                    rollbackError instanceof Error
+                                        ? rollbackError.name
+                                        : typeof rollbackError,
+                            },
+                        },
+                    ])
+                    .catch(() => undefined);
             }
             throw error;
         }
