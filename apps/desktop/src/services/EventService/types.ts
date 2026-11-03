@@ -143,6 +143,12 @@ export interface SessionStatusReminderApprovalActionPayload {
     callId: string;
     approveLabel: string;
     rejectLabel: string;
+    /**
+     * Opaque in-memory interaction identity captured when the reminder was built.
+     * It travels with the notification so a stale OS action cannot decide a later
+     * attempt that reused the same callId. Not persisted.
+     */
+    decisionId?: string | null;
 }
 
 export interface SessionStatusReminderPayload {
@@ -160,6 +166,7 @@ export interface SessionStatusReminderActionEvent {
     kind: SessionStatusReminderKind;
     action: 'open' | 'approve' | 'reject' | 'reply';
     callId?: string | null;
+    decisionId?: string | null;
     replyText?: string | null;
 }
 

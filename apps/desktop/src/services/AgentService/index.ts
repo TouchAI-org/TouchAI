@@ -58,6 +58,7 @@ export type {
     StartedSessionTask,
     StartSessionTaskOptions,
     TaskExecutionMode,
+    TaskViewSnapshot,
 } from './task';
 export { sessionTaskCenter } from './task';
 

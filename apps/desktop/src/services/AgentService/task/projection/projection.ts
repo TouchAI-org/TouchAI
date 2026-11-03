@@ -22,15 +22,17 @@ import { AiError } from '../../contracts/errors';
 import type { AiStreamChunk, ContextCompactionEvent } from '../../contracts/protocol';
 import type {
     AskUserAnswer,
-    AskUserQuestion,
     ToolApprovalDecisionRequest,
     ToolEvent,
 } from '../../contracts/tooling';
-import type { TurnEvent } from '../../execution';
-import type { AttemptCheckpoint } from '../../execution/executor';
-import { snapshotAiMessages } from '../../execution/messages';
 import { getRetryStatusMessage } from '../../execution/retry';
-import type { SessionTaskSnapshot, StartSessionTaskOptions } from '../types';
+import type { RuntimeTurnEvent } from '../../execution/runtime';
+import {
+    type InteractionRelease,
+    type PendingUserQuestion,
+    TaskInteractions,
+} from '../interactions';
+import type { StartSessionTaskOptions, TaskViewSnapshot } from '../types';
 import {
     attachStatusText,
     cloneValue,
@@ -44,6 +46,7 @@ import {
     type ApprovalSettlementResult,
     ProjectionUserPrompts,
     removeToolApproval,
+    resolveApprovalResolutionText,
     updateToolApproval,
 } from './userPrompts';
 import { ProjectionWidgets } from './widgets';
@@ -53,11 +56,6 @@ interface CheckpointPresentation {
     activeAssistantMessageId: string | null;
     response: string;
     reasoning: string;
-}
-
-function copyCheckpoint(checkpoint: AttemptCheckpoint): AttemptCheckpoint {
-    const { messages, ...state } = checkpoint;
-    return { ...cloneValue(state), messages: snapshotAiMessages(messages) };
 }
 
 /**
@@ -79,8 +77,9 @@ export class SessionTaskProjection {
     private readonly userPrompts = new ProjectionUserPrompts();
 
     constructor(
-        private readonly snapshot: SessionTaskSnapshot,
-        private readonly publish: () => void
+        private readonly snapshot: TaskViewSnapshot,
+        private readonly publish: () => void,
+        private readonly interactions: TaskInteractions = new TaskInteractions()
     ) {}
 
     // ────────────────────── 公共 API ──────────────────────
@@ -117,114 +116,103 @@ export class SessionTaskProjection {
         this.publish();
     }
 
+    getActiveAssistantMessageId(): string | null {
+        return this.activeAssistantMessageId;
+    }
+
     getPendingToolApproval(): PendingToolApproval | null {
-        return this.userPrompts.getPendingApproval();
+        return this.interactions.pendingApproval;
     }
 
-    approvePendingToolApproval(callId?: string): boolean {
-        const targetCallId = callId ?? this.userPrompts.getPendingApproval()?.callId;
-        if (!targetCallId) {
-            return false;
-        }
-
-        return this.settlePendingApproval(targetCallId, true);
+    /**
+     * 纯格式化：生成审批展示数据，不登记等待、不创建 Promise。
+     */
+    formatApproval(payload: ToolApprovalDecisionRequest): PendingToolApproval {
+        return this.userPrompts.formatApproval(this.activeAssistantMessageId, payload);
     }
 
-    rejectPendingToolApproval(callId?: string): boolean {
-        const targetCallId = callId ?? this.userPrompts.getPendingApproval()?.callId;
-        if (!targetCallId) {
-            return false;
-        }
-
-        return this.settlePendingApproval(targetCallId, false);
-    }
-
-    clearPendingApprovals(reason = tt('请求已取消')): void {
-        const { approvals: results } = this.userPrompts.clearAll(reason);
-        const settledCallIds = new Set(results.map((result) => result.target.callId));
-        for (const result of results) {
-            this.applyApprovalSettlement(result);
-        }
-        for (const result of this.collectDisplayedApprovalSettlements(reason, settledCallIds)) {
-            this.applyApprovalSettlement(result);
-        }
-        this.syncPendingApprovalState();
-        this.touch();
-        this.publish();
-    }
-
-    requestToolApproval(payload: ToolApprovalDecisionRequest): Promise<boolean> {
-        const existingApproval = this.findToolApproval(payload.callId);
-        if (existingApproval && existingApproval.status !== 'pending') {
-            return Promise.resolve(false);
-        }
-
-        const assistantMessage = this.getActiveAssistantMessage();
-        if (!assistantMessage) {
-            return Promise.resolve(false);
-        }
-
-        const promise = this.userPrompts.requestApproval(
+    /**
+     * 把已经登记的审批渲染成卡片与工具调用状态，并对外发布。
+     *
+     * 等待权与 resolver 归 `TaskInteractions`；这里只做展示同步。
+     */
+    renderApproval(display: PendingToolApproval, payload: ToolApprovalDecisionRequest): void {
+        const messageId = this.activeAssistantMessageId;
+        this.userPrompts.renderApprovalCard(
             this.snapshot.sessionHistory,
-            assistantMessage.id,
+            messageId,
+            display,
             payload
         );
-        if (!promise) {
-            return Promise.resolve(false);
+        if (messageId) {
+            updateToolCallStatus(
+                this.snapshot.sessionHistory,
+                messageId,
+                display.callId,
+                (toolCall) => {
+                    toolCall.status = 'awaiting_approval';
+                }
+            );
         }
-
-        updateToolCallStatus(
-            this.snapshot.sessionHistory,
-            assistantMessage.id,
-            payload.callId,
-            (toolCall) => {
-                toolCall.status = 'awaiting_approval';
-            }
-        );
 
         this.syncPendingApprovalState();
         this.touch();
         this.publish();
-
-        return promise;
     }
 
-    requestUserQuestions(
+    /** 把已经登记的提问渲染成工具调用等待状态，并对外发布。 */
+    renderQuestion(record: PendingUserQuestion): void {
+        const messageId = record.sourceMessageId || null;
+        if (messageId) {
+            updateToolCallStatus(
+                this.snapshot.sessionHistory,
+                messageId,
+                record.callId,
+                (toolCall) => {
+                    toolCall.status = 'awaiting_approval';
+                }
+            );
+        }
+
+        this.syncPendingApprovalState();
+        this.touch();
+        this.publish();
+    }
+
+    getPendingUserQuestion(): PendingUserQuestion | null {
+        return this.interactions.pendingQuestion;
+    }
+
+    /**
+     * 结算审批并把结果落到卡片上。
+     *
+     * 决定必须携带当前 generation 的 `decisionId`；旧 token / 旧 generation 一律拒绝。
+     */
+    settleInteractionApproval(
         callId: string,
-        questions: AskUserQuestion[]
-    ): Promise<AskUserAnswer[] | null> {
-        const assistantMessage = this.getActiveAssistantMessage();
-        if (!assistantMessage) {
-            return Promise.resolve(null);
+        approved: boolean,
+        options: { decisionId?: string; resolutionText?: string } = {}
+    ): boolean {
+        const settlement = this.interactions.settleApproval(callId, approved, options.decisionId);
+        if (!settlement) {
+            return false;
         }
 
-        const promise = this.userPrompts.requestQuestion(callId, assistantMessage.id, questions);
-        if (!promise) {
-            return Promise.resolve(null);
-        }
-
-        updateToolCallStatus(
-            this.snapshot.sessionHistory,
-            assistantMessage.id,
-            callId,
-            (toolCall) => {
-                toolCall.status = 'awaiting_approval';
-            }
+        this.applyApprovalSettlement(
+            this.buildSettlementResult(settlement.display, approved, options.resolutionText)
         );
-
         this.syncPendingApprovalState();
         this.touch();
         this.publish();
-
-        return promise;
+        return true;
     }
 
-    getPendingUserQuestion() {
-        return this.userPrompts.getPendingQuestion();
-    }
-
-    settleUserQuestion(callId: string, answers: AskUserAnswer[] | null): boolean {
-        const settled = this.userPrompts.settleQuestion(callId, answers);
+    settleInteractionQuestion(
+        callId: string,
+        answers: AskUserAnswer[] | null,
+        decisionId?: string
+    ): boolean {
+        const settled = this.interactions.settleQuestion(callId, answers, decisionId);
         if (!settled) {
             return false;
         }
@@ -232,6 +220,37 @@ export class SessionTaskProjection {
         this.touch();
         this.publish();
         return true;
+    }
+
+    clearPendingApprovals(reason = tt('请求已取消')): void {
+        this.applyInteractionSettlements(this.interactions.cancelAll(), reason);
+        this.syncPendingApprovalState();
+        this.touch();
+        this.publish();
+    }
+
+    /** 把一次交互释放（重试/终态/取消）同步到审批卡片与快照。 */
+    syncInteractionRelease(release: InteractionRelease, reason: string): void {
+        if (release.approvals.length === 0 && release.questionCallIds.length === 0) {
+            return;
+        }
+
+        this.applyInteractionSettlements(release, reason);
+        this.syncPendingApprovalState();
+        this.touch();
+        this.publish();
+    }
+
+    private applyInteractionSettlements(release: InteractionRelease, reason: string): void {
+        const settledCallIds = new Set(release.approvals.map((item) => item.display.callId));
+        for (const item of release.approvals) {
+            this.applyApprovalSettlement(
+                this.buildSettlementResult(item.display, item.approved, reason)
+            );
+        }
+        for (const result of this.collectDisplayedApprovalSettlements(reason, settledCallIds)) {
+            this.applyApprovalSettlement(result);
+        }
     }
 
     private finishReasoningPart(message: SessionMessage): void {
@@ -435,27 +454,19 @@ export class SessionTaskProjection {
         this.publish();
     }
 
-    syncTaskMetadata(event: TurnEvent): void {
+    syncTaskMetadata(event: RuntimeTurnEvent): void {
         if (event.type === 'task_started') {
             this.snapshot.sessionId = event.sessionId;
             this.snapshot.turnId = event.turnId;
             this.snapshot.currentModel = event.model;
             this.snapshot.error = null;
-            this.snapshot.status = this.userPrompts.hasPending ? 'waiting_approval' : 'running';
-            this.touch();
-            this.publish();
-            return;
-        }
-
-        if (event.type === 'prompt_snapshot_ready') {
-            this.snapshot.promptSnapshot = event.snapshot;
+            this.snapshot.status = this.interactions.hasPending ? 'waiting_approval' : 'running';
             this.touch();
             this.publish();
             return;
         }
 
         if (event.type === 'checkpoint_committed') {
-            this.snapshot.lastCheckpoint = copyCheckpoint(event.checkpoint);
             this.captureCheckpointPresentation();
             this.touch();
             this.publish();
@@ -463,8 +474,7 @@ export class SessionTaskProjection {
         }
 
         if (event.type === 'retry_scheduled') {
-            this.snapshot.lastCheckpoint = copyCheckpoint(event.checkpoint);
-            this.snapshot.status = this.userPrompts.hasPending ? 'waiting_approval' : 'running';
+            this.snapshot.status = this.interactions.hasPending ? 'waiting_approval' : 'running';
             this.touch();
             this.publish();
             return;
@@ -500,21 +510,6 @@ export class SessionTaskProjection {
             (message) =>
                 message.id === this.activeAssistantMessageId && message.role === 'assistant'
         );
-    }
-
-    private findToolApproval(callId: string): ToolApprovalInfo | undefined {
-        for (const message of this.snapshot.sessionHistory) {
-            if (message.role !== 'assistant') {
-                continue;
-            }
-
-            const approval = message.approvals?.find((item) => item.callId === callId);
-            if (approval) {
-                return approval;
-            }
-        }
-
-        return undefined;
     }
 
     private createStreamingAssistantMessage(): SessionMessage {
@@ -601,9 +596,9 @@ export class SessionTaskProjection {
     // ────────────────────── 状态同步 ──────────────────────
 
     private touch(): void {
-        this.snapshot.pendingToolApproval = cloneValue(this.userPrompts.getPendingApproval());
-        this.snapshot.pendingApprovals = cloneValue([...this.userPrompts.pendingApprovalQueue]);
-        this.snapshot.pendingUserQuestion = cloneValue(this.userPrompts.getPendingQuestion());
+        this.snapshot.pendingToolApproval = cloneValue(this.interactions.pendingApproval);
+        this.snapshot.pendingApprovals = cloneValue(this.interactions.pendingApprovals);
+        this.snapshot.pendingUserQuestion = cloneValue(this.interactions.pendingQuestion);
         this.snapshot.updatedAt = Date.now();
     }
 
@@ -612,40 +607,23 @@ export class SessionTaskProjection {
             return;
         }
 
-        this.snapshot.status = this.userPrompts.hasPending ? 'waiting_approval' : 'running';
+        this.snapshot.status = this.interactions.hasPending ? 'waiting_approval' : 'running';
     }
 
     // ────────────────────── 跨关注点编排 ──────────────────────
 
-    /**
-     * 结算审批并同步工具调用状态。
-     *
-     * 审批队列状态由 `ProjectionUserPrompts` 管理，
-     * 工具调用状态和消息中的审批卡片由本方法跨模块协调。
-     */
-    private settlePendingApproval(callId: string, approved: boolean): boolean {
-        const settled = this.settleApproval(callId, approved);
-        if (!settled) {
-            return false;
-        }
-        this.touch();
-        this.publish();
-        return true;
-    }
-
-    private settleApproval(
-        callId: string,
+    private buildSettlementResult(
+        display: PendingToolApproval,
         approved: boolean,
-        options: { resolutionText?: string } = {}
-    ): boolean {
-        const result = this.userPrompts.settleApproval(callId, approved, options);
-        if (!result) {
-            return false;
-        }
-
-        this.applyApprovalSettlement(result);
-        this.syncPendingApprovalState();
-        return true;
+        resolutionText?: string
+    ): ApprovalSettlementResult {
+        const text = resolveApprovalResolutionText(approved, resolutionText);
+        return {
+            target: display,
+            approved,
+            resolutionText: text,
+            isCancellationResolution: !approved && isCancellationStatusText(text),
+        };
     }
 
     private collectDisplayedApprovalSettlements(
@@ -833,9 +811,8 @@ export class SessionTaskProjection {
         }
 
         if (toolEvent.type === 'approval_resolved') {
-            this.settleApproval(toolEvent.callId, toolEvent.approved, {
-                resolutionText: toolEvent.resolutionText,
-            });
+            // Display-only echo. The actual decision settled through the task owner
+            // with a captured identity; this echo must never fabricate one to authorize.
             return;
         }
 
@@ -891,7 +868,6 @@ export class SessionTaskProjection {
                     toolCall.durationMs = toolEvent.durationMs;
                 }
             );
-            this.userPrompts.cleanup(toolEvent.callId);
             this.syncPendingApprovalState();
             return;
         }

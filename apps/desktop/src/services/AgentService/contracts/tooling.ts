@@ -77,6 +77,11 @@ export interface ToolApprovalRequest {
  */
 export interface ToolApprovalDecisionRequest extends ToolApprovalRequest {
     callId: string;
+    /**
+     * Opaque attempt identity stamped by the runtime when it forwards the request.
+     * Used to scope the wait to the current attempt; never persisted.
+     */
+    attemptToken?: string;
 }
 
 /**

@@ -14,7 +14,7 @@ import { GoogleProviderAdapter } from '@/services/AgentService/infrastructure/pr
 
 const { tauriFetchMock } = vi.hoisted(() => ({ tauriFetchMock: vi.fn() }));
 
-vi.mock('@/services/AgentService/infrastructure/providers/ai-sdk/tauriFetch', () => ({
+vi.mock('@services/HttpService', () => ({
     createTauriFetch: () => tauriFetchMock,
 }));
 
