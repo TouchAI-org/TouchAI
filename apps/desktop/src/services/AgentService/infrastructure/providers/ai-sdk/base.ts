@@ -1,6 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import type { ProviderDriver } from '@database/schema';
+import { createTauriFetch } from '@services/HttpService';
 import { log } from '@services/ObservabilityService';
 import { type FinishReason, type LanguageModel, streamText } from 'ai';
 
@@ -30,7 +31,6 @@ import type { ProviderAttachmentRequestContext } from './attachments';
 import { buildModelMessages, buildToolSet } from './messages';
 import { normalizeResponsesReasoningStream } from './responsesStream';
 import { createAiSdkStreamProcessor } from './stream';
-import { createTauriFetch } from './tauriFetch';
 
 /**
  * AI SDK 的 span 只在进程内交给本地 tracer，没有任何 exporter，因此不会离开本机。

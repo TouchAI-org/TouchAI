@@ -105,6 +105,7 @@ function createCheckpoint(): AttemptCheckpoint {
 function persisterStub() {
     return {
         persistOutputProgress: vi.fn().mockResolvedValue(undefined),
+        getAttemptGeneration: vi.fn(() => 0),
         getSessionId: vi.fn(() => 1),
         persistToolCallMessage: vi.fn().mockResolvedValue(1),
         persistToolResult: vi.fn().mockResolvedValue(undefined),

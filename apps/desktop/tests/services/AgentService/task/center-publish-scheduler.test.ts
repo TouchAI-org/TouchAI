@@ -5,27 +5,12 @@ import {
     createTaskPublishScheduler,
     shouldPublishTaskSnapshotImmediately,
 } from '@/services/AgentService/task/center';
-import type { SessionTaskSnapshot } from '@/services/AgentService/task/types';
+import type { TaskViewSnapshot } from '@/services/AgentService/task/types';
 import type { SessionMessage } from '@/types/session';
 
 describe('cloneTaskViewSnapshot', () => {
-    it('drops runtime checkpoint and prompt snapshot from the published view', () => {
-        const snapshot = createSnapshot({
-            promptSnapshot: {
-                id: 'prompt-1',
-                createdAt: '2026-01-01T00:00:00.000Z',
-                systemPrompt: 'system',
-                executionMode: 'foreground',
-                fragments: [],
-                userPrompt: 'hello',
-                attachments: [],
-                modelLanguageContext: { locale: 'zh-CN', label: 'Chinese' },
-            },
-            lastCheckpoint: {
-                messages: [{ role: 'user', content: 'hello' }],
-            } as SessionTaskSnapshot['lastCheckpoint'],
-        });
-
+    it('user sees only display fields in the published view', () => {
+        const snapshot = createSnapshot();
         const view = cloneTaskViewSnapshot(snapshot);
 
         expect('promptSnapshot' in view).toBe(false);
@@ -54,22 +39,19 @@ describe('cloneTaskViewSnapshot', () => {
     });
 });
 
-function createSnapshot(overrides: Partial<SessionTaskSnapshot> = {}): SessionTaskSnapshot {
+function createSnapshot(overrides: Partial<TaskViewSnapshot> = {}): TaskViewSnapshot {
     return {
         taskId: 'task-1',
         sessionId: 1,
         turnId: null,
         status: 'running',
         executionMode: 'background',
-        prompt: 'Prompt',
         sessionHistory: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,
         error: null,
         currentModel: null,
-        promptSnapshot: null,
-        lastCheckpoint: null,
         startedAt: 1,
         updatedAt: 1,
         modelSwitchCount: 0,

@@ -4,6 +4,7 @@ import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type { AiToolCall } from '@/services/AgentService/contracts/tooling';
 import { AiRequestExecutor } from '@/services/AgentService/execution';
 import type { AttemptCheckpoint } from '@/services/AgentService/execution/executor';
+import { dispatchToolCall } from '@/services/AgentService/infrastructure/tools';
 
 const providerMock = vi.hoisted(() => ({
     stream: vi.fn(),
@@ -165,7 +166,10 @@ describe('user sends a prompt and receives a streamed answer', () => {
 
         const outcome = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: {} as never,
+            persister: {
+                persistOutputProgress: vi.fn().mockResolvedValue(undefined),
+                getAttemptGeneration: () => 1,
+            } as never,
         });
 
         expect(outcome.type).toBe('completed');
@@ -190,6 +194,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
             persister: {
                 persistCheckpoint,
                 persistOutputProgress: vi.fn().mockResolvedValue(undefined),
+                getAttemptGeneration: () => 1,
             } as never,
         });
         expect(result).toMatchObject({
@@ -211,22 +216,26 @@ describe('user sends a prompt and receives a streamed answer', () => {
             yield { content: '', reasoningState: 'start', done: false };
             await Promise.resolve();
             await Promise.resolve();
-            expect(persistOutputProgress).toHaveBeenCalledWith([
-                { type: 'reasoning', content: '', startedAt: 1000 },
-            ]);
+            expect(persistOutputProgress).toHaveBeenCalledWith(
+                [{ type: 'reasoning', content: '', startedAt: 1000 }],
+                { attemptGeneration: 1, step: 0 }
+            );
             vi.setSystemTime(6000);
             yield { content: '', reasoning: 'Plan', done: false };
             yield { content: 'Answer', done: true };
         });
         const outcome = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: { persistOutputProgress } as never,
+            persister: { persistOutputProgress, getAttemptGeneration: () => 1 } as never,
         });
         expect(outcome.type).toBe('completed');
-        expect(persistOutputProgress).toHaveBeenLastCalledWith([
-            { type: 'reasoning', content: 'Plan', startedAt: 1000, endedAt: 6000 },
-            { type: 'text', content: 'Answer' },
-        ]);
+        expect(persistOutputProgress).toHaveBeenLastCalledWith(
+            [
+                { type: 'reasoning', content: 'Plan', startedAt: 1000, endedAt: 6000 },
+                { type: 'text', content: 'Answer' },
+            ],
+            { attemptGeneration: 1, step: 0 }
+        );
         expect(vi.getTimerCount()).toBe(0);
     });
 
@@ -240,21 +249,25 @@ describe('user sends a prompt and receives a streamed answer', () => {
             yield { content: 'Answer', done: false };
             // The completed reasoning fragment must survive before the reply finishes.
             await Promise.resolve();
-            expect(persistOutputProgress).toHaveBeenCalledWith([
-                { type: 'reasoning', content: 'Plan', startedAt: 1000, endedAt: 6000 },
-            ]);
+            expect(persistOutputProgress).toHaveBeenCalledWith(
+                [{ type: 'reasoning', content: 'Plan', startedAt: 1000, endedAt: 6000 }],
+                { attemptGeneration: 1, step: 0 }
+            );
             yield { content: ' complete', textState: 'end', done: false };
             yield { content: '', done: true };
         });
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: { persistOutputProgress } as never,
+            persister: { persistOutputProgress, getAttemptGeneration: () => 1 } as never,
         });
         expect(result.type).toBe('completed');
-        expect(persistOutputProgress).toHaveBeenLastCalledWith([
-            { type: 'reasoning', content: 'Plan', startedAt: 1000, endedAt: 6000 },
-            { type: 'text', content: 'Answer complete' },
-        ]);
+        expect(persistOutputProgress).toHaveBeenLastCalledWith(
+            [
+                { type: 'reasoning', content: 'Plan', startedAt: 1000, endedAt: 6000 },
+                { type: 'text', content: 'Answer complete' },
+            ],
+            { attemptGeneration: 1, step: 0 }
+        );
         expect(vi.getTimerCount()).toBe(0);
     });
 
@@ -314,6 +327,8 @@ describe('user sends a prompt and receives a streamed answer', () => {
                 persistToolCallMessage: vi.fn().mockResolvedValue(1),
                 persistToolResult: vi.fn().mockResolvedValue(undefined),
                 persistCheckpoint: vi.fn().mockResolvedValue(undefined),
+                getSessionId: () => 1,
+                getAttemptGeneration: () => 1,
             } as never,
         });
         expect(outcome.type).toBe('completed');
@@ -343,7 +358,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         const executor = new AiRequestExecutor();
         const result = await executor.runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: {} as never,
+            persister: { getAttemptGeneration: () => 1 } as never,
         });
 
         expect(result.type).toBe('failed');
@@ -358,26 +373,11 @@ describe('user sends a prompt and receives a streamed answer', () => {
     });
 });
 
-type TestExecutor = {
-    executeMcpToolCall(options: {
-        toolCall: AiToolCall;
-        toolArgs: Record<string, unknown>;
-        iteration: number;
-        sessionId: number | null;
-        toolCallMessageId: number | null;
-        onChunk?: (chunk: unknown) => void;
-    }): Promise<{
-        result: string;
-        isError: boolean;
-        toolLogKind: string | null;
-    }>;
-};
-
 function createToolCall(): AiToolCall {
     return {
         id: 'call-mcp-1',
         name: 'mcp__1__search',
-        arguments: '{}',
+        arguments: '{"query":"alpha"}',
     };
 }
 
@@ -395,18 +395,15 @@ describe('user runs a tool call and watches it start', () => {
             isError: false,
         });
 
-        const executor = new AiRequestExecutor();
-        const chunks: unknown[] = [];
-
-        const result = await (executor as unknown as TestExecutor).executeMcpToolCall({
+        const events: Array<{ type?: string }> = [];
+        const result = await dispatchToolCall({
             toolCall: createToolCall(),
-            toolArgs: {
-                query: 'alpha',
-            },
             iteration: 0,
+            currentModel: {} as never,
+            hasExecutedBuiltInTool: () => false,
             sessionId: null,
             toolCallMessageId: null,
-            onChunk: (chunk: unknown) => chunks.push(chunk),
+            emitToolEvent: (event) => events.push(event as { type?: string }),
         });
 
         expect(result).toMatchObject({
@@ -414,16 +411,11 @@ describe('user runs a tool call and watches it start', () => {
             result: 'done',
         });
 
-        const callStartChunk = chunks.find((chunk) => {
-            return (
-                typeof chunk === 'object' &&
-                chunk !== null &&
-                'toolEvent' in chunk &&
-                (chunk as { toolEvent?: { type?: string } }).toolEvent?.type === 'call_start'
-            );
-        }) as { toolEvent: Record<string, unknown> } | undefined;
+        const callStartEvent = events.find((event) => event.type === 'call_start') as
+            | Record<string, unknown>
+            | undefined;
 
-        expect(callStartChunk?.toolEvent).toMatchObject({
+        expect(callStartEvent).toMatchObject({
             type: 'call_start',
             callId: 'call-mcp-1',
             toolName: 'search',
@@ -451,13 +443,19 @@ describe('user runs a tool call and watches it start', () => {
             isError: false,
         });
 
-        const executor = new AiRequestExecutor();
-        await (executor as unknown as TestExecutor).executeMcpToolCall({
-            toolCall: createToolCall(),
-            toolArgs: { query: 'alpha', accessToken: 'argument-secret' },
+        const toolCall = createToolCall();
+        toolCall.arguments = JSON.stringify({
+            query: 'alpha',
+            accessToken: 'argument-secret',
+        });
+        await dispatchToolCall({
+            toolCall,
             iteration: 0,
+            currentModel: {} as never,
+            hasExecutedBuiltInTool: () => false,
             sessionId: null,
             toolCallMessageId: null,
+            emitToolEvent: vi.fn(),
         });
 
         const storedInput = createMcpToolLogMock.mock.calls[0]?.[0] as { input: string };
@@ -495,6 +493,7 @@ describe('user calls a tool the agent does not have', () => {
     function persisterStub() {
         return {
             persistOutputProgress: vi.fn().mockResolvedValue(undefined),
+            getAttemptGeneration: () => 1,
             getSessionId: vi.fn(() => 1),
             persistToolCallMessage: vi.fn().mockResolvedValue(1),
             persistToolResult: vi.fn().mockResolvedValue(undefined),
@@ -678,6 +677,7 @@ describe('user asks the agent to switch to a stronger model', () => {
     function persisterStub() {
         return {
             persistOutputProgress: vi.fn().mockResolvedValue(undefined),
+            getAttemptGeneration: () => 1,
             getSessionId: vi.fn(() => 1),
             persistToolCallMessage: vi.fn().mockResolvedValue(1),
             persistToolResult: vi.fn().mockResolvedValue(undefined),

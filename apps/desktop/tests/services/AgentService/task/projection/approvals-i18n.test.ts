@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import { ProjectionUserPrompts } from '@/services/AgentService/task/projection/userPrompts';
+import {
+    ProjectionUserPrompts,
+    resolveApprovalResolutionText,
+} from '@/services/AgentService/task/projection/userPrompts';
 import type { SessionMessage } from '@/types/session';
 
 function createAssistantMessage(): SessionMessage {
@@ -133,23 +136,11 @@ describe('user answers an approval prompt in their own language', () => {
         });
     });
 
-    it('user sees an approval settled with source-key default text', async () => {
+    it('user sees an approval settled with source-key default text', () => {
         setLocale('en-US');
-        const approvals = new ProjectionUserPrompts();
-        const history = [createAssistantMessage()];
 
-        const decision = approvals.requestApproval(history, 'message-1', {
-            callId: 'call-1',
-            command: 'Remove-Item file.txt',
-        } as never);
-
-        const settlement = approvals.settleApproval('call-1', true);
-
-        await expect(decision).resolves.toBe(true);
-        expect(settlement).toMatchObject({
-            approved: true,
-            resolutionText: '已批准执行此命令',
-            isCancellationResolution: false,
-        });
+        expect(resolveApprovalResolutionText(true)).toBe('已批准执行此命令');
+        expect(resolveApprovalResolutionText(false)).toBe('已拒绝执行此命令');
+        expect(resolveApprovalResolutionText(false, 'Request cancelled')).toBe('请求已取消');
     });
 });

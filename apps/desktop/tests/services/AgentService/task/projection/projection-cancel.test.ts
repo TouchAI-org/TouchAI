@@ -21,15 +21,12 @@ function createSnapshot(): SessionTaskSnapshot {
         turnId: null,
         status: 'running',
         executionMode: 'foreground',
-        prompt: 'Prompt',
         sessionHistory: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,
         error: null,
         currentModel: null,
-        promptSnapshot: null,
-        lastCheckpoint: null,
         startedAt: 1,
         updatedAt: 1,
         modelSwitchCount: 0,
@@ -56,7 +53,7 @@ beforeEach(() => {
 
 describe('user watches a task being retried', () => {
     it('user sees the task kept running while the retry waits', () => {
-        const { snapshot, projection } = createProjection();
+        const { snapshot, publish, projection } = createProjection();
         projection.bootstrap([], 'Hello', []);
 
         projection.syncTaskMetadata({
@@ -69,7 +66,7 @@ describe('user watches a task being retried', () => {
         } as never);
 
         expect(snapshot.status).toBe('running');
-        expect(snapshot.lastCheckpoint).toEqual({ attempt: 1 });
+        expect(publish).toHaveBeenCalled();
     });
 
     it('user sees the task marked completed when the retry finally succeeds', () => {

@@ -2,8 +2,7 @@
 
 import { updateModelLastUsed } from '@database/queries';
 import { findModelPricing } from '@database/queries/llmMetadata';
-import type { SessionTurnEntity } from '@database/types';
-import { SpanStatusCode } from '@opentelemetry/api';
+import { type Span, SpanStatusCode } from '@opentelemetry/api';
 import { event, log } from '@services/ObservabilityService';
 import { ATTR } from '@services/ObservabilityService/attributes';
 import { classifyError } from '@services/ObservabilityService/errors';
@@ -21,6 +20,8 @@ import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
 import type { AiCallRecord } from '../contracts/protocol';
+import type { TaskEvent, TaskExecutionMode, TaskResult } from '../contracts/task';
+import { summarizeTaskModel, summarizeTaskTurn } from '../contracts/task';
 import {
     type AgentPersistenceResult,
     type AgentRequestAnalytics,
@@ -35,13 +36,11 @@ import type { PromptSnapshot } from '../prompt/types';
 import { createSessionReadModel } from '../session/readModel';
 import { buildSessionTitle } from '../session/title';
 import { findUnsupportedSessionAttachmentTypes } from '../session/transport';
-import type { TaskExecutionMode } from '../task/types';
 import {
     AiRequestExecutor,
     type AttemptCheckpoint,
     type AttemptExecutionResult,
     type AttemptFailureResult,
-    type ModelWithProvider,
     type RequestExecutionCallbacks,
 } from './executor';
 import {
@@ -92,40 +91,44 @@ export interface RuntimePersistenceIssue {
     error: unknown;
 }
 
-export interface TaskModelSummary {
-    modelDbId: number | null;
-    providerId: number;
-    providerName: string;
-    modelId: string;
-    modelName: string;
-}
-
-export function summarizeTaskModel(model: ModelWithProvider): TaskModelSummary {
-    return {
-        modelDbId: model.id,
-        providerId: model.provider_id,
-        providerName: model.provider_name,
-        modelId: model.model_id,
-        modelName: model.name,
-    };
-}
+/**
+ * Re-exported for callers that still import the public task contract from the
+ * execution layer. The definitions live in `contracts/task` so `task` never has
+ * to depend back on the execution barrel.
+ */
+export type { TaskEvent, TaskModelSummary, TaskResult, TaskTurnSummary } from '../contracts/task';
+export { summarizeTaskModel, summarizeTaskTurn } from '../contracts/task';
 
 /**
- * Unified events emitted by the runtime.
+ * Internal runtime events consumed by the task projection. They may carry
+ * executor-internal state such as checkpoints, so they are not part of the
+ * exported contract.
  */
-export type TurnEvent =
-    | {
-          type: 'task_started';
-          taskId: string;
-          sessionId: number | null;
-          turnId: number | null;
-          executionMode: TaskExecutionMode;
-          model: TaskModelSummary;
-      }
+export type RuntimeTurnEvent =
+    | TaskEvent
     | {
           type: 'prompt_snapshot_ready';
           taskId: string;
           snapshot: PromptSnapshot;
+      }
+    | {
+          /**
+           * Internal attempt boundary. Not part of the public task contract: it
+           * carries an opaque attempt token used to scope approval/question waits
+           * to the current attempt so a late callback cannot register on a newer one.
+           */
+          type: 'attempt_started';
+          taskId: string;
+          attemptToken: string;
+      }
+    | {
+          /**
+           * Internal attempt boundary. Emitted once `runAttempt` returns (any
+           * outcome) so the task layer can close the attempt's interaction
+           * registration window before the next attempt begins.
+           */
+          type: 'attempt_finished';
+          taskId: string;
       }
     | {
           type: 'checkpoint_committed';
@@ -139,25 +142,6 @@ export type TurnEvent =
           maxRetries: number;
           reason: string;
           checkpoint: AttemptCheckpoint;
-      }
-    | {
-          type: 'task_completed';
-          taskId: string;
-          turnId: number | null;
-          model: TaskModelSummary;
-          response: string;
-          reasoning: string;
-      }
-    | {
-          type: 'task_failed';
-          taskId: string;
-          turnId: number | null;
-          error: string;
-      }
-    | {
-          type: 'task_cancelled';
-          taskId: string;
-          turnId: number | null;
       };
 
 export interface ExecuteRequestOptions extends RequestExecutionCallbacks {
@@ -170,13 +154,6 @@ export interface ExecuteRequestOptions extends RequestExecutionCallbacks {
     executionMode?: TaskExecutionMode;
     promptSnapshot?: PromptSnapshot;
     environment?: ConversationRuntimeEnvironment;
-}
-
-export interface ExecuteRequestResult {
-    model: ModelWithProvider;
-    response: string;
-    reasoning: string;
-    turn: SessionTurnEntity | null;
 }
 
 interface RuntimeContext {
@@ -240,7 +217,7 @@ export class AiConversationRuntime {
         }
     }
 
-    private notifyTurnEvent(event: TurnEvent): void {
+    private notifyTurnEvent(event: RuntimeTurnEvent): void {
         try {
             this.options.onTurnEvent?.(event);
         } catch {
@@ -493,10 +470,31 @@ export class AiConversationRuntime {
         });
     }
 
+    /**
+     * 运行一次 attempt，并保证与之配对的 `attempt_started` 一定有一个
+     * `attempt_finished`。
+     *
+     * `runAttempt` 可能在产生结果之前抛错（例如工具定义解析失败），此时任务层
+     * 的交互登记窗口必须照样关闭；`finally` 同时保证正常路径只发一次。
+     * 边界事件在重试/终态处理之前发出，原始错误照常向上抛。
+     */
+    private async runAttemptBoundary<T>(runAttempt: () => Promise<T>): Promise<T> {
+        try {
+            return await runAttempt();
+        } finally {
+            if (this.options.taskId) {
+                this.notifyTurnEvent({
+                    type: 'attempt_finished',
+                    taskId: this.options.taskId,
+                });
+            }
+        }
+    }
+
     private async handleCompleted(
         context: RuntimeContext,
         result: Extract<AttemptExecutionResult, { type: 'completed' }>
-    ): Promise<ExecuteRequestResult> {
+    ): Promise<TaskResult> {
         const leavePersistence = this.analytics.enterPhase('persistence');
         try {
             await context.persister.markCompleted({
@@ -553,10 +551,10 @@ export class AiConversationRuntime {
         }
 
         return {
-            model: result.model,
+            model: summarizeTaskModel(result.model),
             response: result.response,
             reasoning: result.reasoning,
-            turn: context.persister.getTurn(),
+            turn: summarizeTaskTurn(context.persister.getTurn()),
         };
     }
 
@@ -594,7 +592,7 @@ export class AiConversationRuntime {
     /**
      * Run the full request lifecycle.
      */
-    async run(): Promise<ExecuteRequestResult> {
+    async run(): Promise<TaskResult> {
         const attributes: Record<string, string | number> = {
             [ATTR.requestModel]: this.options.modelId ?? 'unknown',
         };
@@ -632,9 +630,7 @@ export class AiConversationRuntime {
         }
     }
 
-    private async runInSpan(
-        turnSpan: import('@opentelemetry/api').Span
-    ): Promise<ExecuteRequestResult> {
+    private async runInSpan(turnSpan: Span): Promise<TaskResult> {
         this.analytics.submit({ attachmentCount: (this.options.attachments ?? []).length });
 
         let context: RuntimeContext;
@@ -662,30 +658,58 @@ export class AiConversationRuntime {
 
             for (let retryAttempt = 0; retryAttempt <= MAX_REQUEST_RETRIES; retryAttempt += 1) {
                 const startingModelSwitchCount = resumeCheckpoint.modelSwitchCount;
-                const attemptResult = await withSpan(
-                    'touchai.attempt',
-                    { [ATTR.attempt]: retryAttempt + 1 },
-                    (attemptSpan) =>
-                        this.executor.runAttempt({
-                            startCheckpoint: resumeCheckpoint,
-                            persister: context.persister,
-                            taskId: this.options.taskId,
-                            signal: this.options.signal,
-                            parentSpan: attemptSpan,
-                            onChunk: (chunk) => {
-                                if (chunk.content) {
-                                    this.analytics.noteFirstOutput();
-                                }
-                                this.liveTracker?.consume(chunk);
-                                this.options.onChunk?.(chunk);
-                            },
-                            onTurnEvent: (event) => this.notifyTurnEvent(event),
-                            requestToolApproval,
-                            requestUserQuestions: this.options.requestUserQuestions,
-                            analytics: this.analytics,
-                        }),
-                    turnSpan,
-                    attemptSpanStatus
+                // A fresh attempt token scopes tool approvals and user questions to
+                // this attempt; a late callback from a previous attempt can no longer
+                // register on the current one.
+                const attemptToken = crypto.randomUUID();
+                if (this.options.taskId) {
+                    this.notifyTurnEvent({
+                        type: 'attempt_started',
+                        taskId: this.options.taskId,
+                        attemptToken,
+                    });
+                }
+
+                const attemptResult = await this.runAttemptBoundary(() =>
+                    withSpan(
+                        'touchai.attempt',
+                        { [ATTR.attempt]: retryAttempt + 1 },
+                        (attemptSpan) =>
+                            this.executor.runAttempt({
+                                startCheckpoint: resumeCheckpoint,
+                                persister: context.persister,
+                                taskId: this.options.taskId,
+                                attemptToken,
+                                signal: this.options.signal,
+                                parentSpan: attemptSpan,
+                                onChunk: (chunk) => {
+                                    if (chunk.content) {
+                                        this.analytics.noteFirstOutput();
+                                    }
+                                    this.liveTracker?.consume(chunk);
+                                    this.options.onChunk?.(chunk);
+                                },
+                                onTurnEvent: (event) => this.notifyTurnEvent(event),
+                                requestToolApproval: requestToolApproval
+                                    ? (payload) =>
+                                          requestToolApproval({
+                                              ...payload,
+                                              attemptToken,
+                                          })
+                                    : undefined,
+                                requestUserQuestions: this.options.requestUserQuestions
+                                    ? (callId, questions) =>
+                                          this.options.requestUserQuestions!(
+                                              callId,
+                                              questions,
+                                              attemptToken
+                                          )
+                                    : undefined,
+                                analytics: this.analytics,
+                            }),
+                        turnSpan,
+                        attemptSpanStatus
+                    )
                 );
 
                 this.accumulatedCalls.push(...attemptResult.calls);

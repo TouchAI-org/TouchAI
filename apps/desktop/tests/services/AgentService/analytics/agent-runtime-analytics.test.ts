@@ -58,6 +58,7 @@ const {
         markFailed: vi.fn(async () => undefined),
         beginNextAttempt: vi.fn(async () => undefined),
         persistOutputProgress: vi.fn(async () => undefined),
+        getAttemptGeneration: vi.fn(() => 0),
         persistToolCallMessage: vi.fn(async () => 1),
         persistToolResult: vi.fn(async () => undefined),
         persistCheckpoint: vi.fn(async () => undefined),
@@ -436,7 +437,7 @@ describe('user gets real agent telemetry from the runtime and executor seam', ()
             },
         }).run();
 
-        expect(result.model.model_id).toBe('upgraded-model');
+        expect(result.model.modelId).toBe('upgraded-model');
         expect(checkpoints).toMatchObject([{ modelSwitchCount: 1, iteration: 1 }]);
         expect((await waitForTerminal()).attributes).toMatchObject({
             result: 'success',

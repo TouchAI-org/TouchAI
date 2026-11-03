@@ -196,6 +196,8 @@ export interface SessionStatusReminderNotificationApprovalPayload {
     callId: string;
     approveLabel: string;
     rejectLabel: string;
+    /** Opaque interaction identity returned with the notification action. Not persisted. */
+    decisionId?: string | null;
 }
 
 export interface SessionStatusReminderNotificationPayload {
