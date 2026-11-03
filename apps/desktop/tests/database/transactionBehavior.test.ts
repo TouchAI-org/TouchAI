@@ -76,4 +76,30 @@ describe('when the app writes several rows together', () => {
         const call = getLastTauriInvokeCall('database_tx_query');
         expect(call?.payload).toMatchObject({ txId: 'tx_1' });
     });
+
+    it('user sees the original write error when rollback also fails', async () => {
+        installTransactionMocks();
+        mockTauriCommand('database_tx_rollback', () =>
+            Promise.reject(new Error('rollback failed'))
+        );
+        const db = createDrizzleDb();
+
+        await expect(
+            db.transaction(async () => {
+                throw new Error('write failed');
+            })
+        ).rejects.toThrow('write failed');
+
+        await Promise.resolve();
+
+        expect(getLastTauriInvokeCall('obs_ingest')?.payload).toMatchObject({
+            batch: [
+                {
+                    level: 5,
+                    event: 'database.transaction.rollback_failed',
+                    attrs: { 'error.type': 'Error' },
+                },
+            ],
+        });
+    });
 });
