@@ -1,0 +1,2 @@
+import type { Thing } from '@/stores/Thing';
+export type X = Thing;

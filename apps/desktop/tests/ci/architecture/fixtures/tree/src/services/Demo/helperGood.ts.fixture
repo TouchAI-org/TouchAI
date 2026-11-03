@@ -1,0 +1,2 @@
+import { otherHelper } from './indexOther';
+export const x = otherHelper;

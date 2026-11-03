@@ -1,0 +1,4 @@
+import type { P } from '@/services/AgentService/contracts/protocol';
+import { ok } from '@/utils/ok';
+export const x = ok;
+export type Y = P;
