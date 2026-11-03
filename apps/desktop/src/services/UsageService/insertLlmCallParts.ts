@@ -4,7 +4,7 @@ import { type DatabaseExecutor, db } from '@database';
 import { messageParts } from '@database/schema';
 import { eq, sql } from 'drizzle-orm';
 
-import { buildLlmCallPartData, type PersistedCall } from './index';
+import { buildLlmCallPartData, type PersistedCall } from './callParts';
 
 /**
  * 为一次回合的响应消息插入 `llm_call` 片段。
