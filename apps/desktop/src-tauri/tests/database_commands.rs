@@ -724,3 +724,116 @@ fn database_search_index_supports_contentless_delete_on_bundled_sqlite() {
         json!([])
     );
 }
+
+#[test]
+fn user_gets_atomic_tool_part_create_list_and_update_through_typed_operations() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO sessions (id, session_id, title, model)
+         VALUES (1001, 'typed-tool-parts', 'Tool parts', 'gpt-test')",
+        json!([]),
+    );
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO messages (id, session_id, role) VALUES (1001, 1001, 'assistant')",
+        json!([]),
+    );
+
+    let created = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "tool_part_create",
+            "toolKind": "builtin",
+            "data": {
+                "message_id": 1001,
+                "tool_call_id": "call-typed-1",
+                "tool_id": "shell",
+                "input": "{}",
+                "status": "streaming"
+            }
+        }),
+    );
+    assert_eq!(created["tool_call_id"], "call-typed-1");
+    assert_eq!(created["status"], "streaming");
+    assert_eq!(created["toolKind"], "builtin");
+
+    let listed = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "tool_part_list",
+            "toolKind": "builtin",
+            "filter": { "kind": "tool_id", "toolId": "shell" }
+        }),
+    );
+    assert_eq!(listed.as_array().expect("tool part list").len(), 1);
+    assert_eq!(listed[0]["id"], created["id"]);
+
+    let updated = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "tool_part_update",
+            "toolKind": "builtin",
+            "filter": { "kind": "id", "id": created["id"] },
+            "data": { "status": "success", "output": "done" }
+        }),
+    );
+    assert_eq!(updated["status"], "success");
+    assert_eq!(updated["output"], "done");
+    assert_eq!(updated["message_id"], 1001);
+
+    let persisted = query_sql(
+        &test_app.main_webview,
+        "SELECT json_extract(data, '$.status') AS status,
+                json_extract(data, '$.output') AS output,
+                tool_call_id,
+                tool_kind
+         FROM message_parts
+         WHERE id = ?",
+        json!([created["id"]]),
+    );
+    assert_eq!(
+        persisted["rows"],
+        json!([{
+            "status": "success",
+            "output": "done",
+            "tool_call_id": "call-typed-1",
+            "tool_kind": "builtin"
+        }])
+    );
+}
+
+#[test]
+fn user_gets_a_parent_tool_message_when_the_typed_create_has_only_a_session() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO sessions (id, session_id, title, model)
+         VALUES (1001, 'typed-tool-parent', 'Tool parent', 'gpt-test')",
+        json!([]),
+    );
+
+    let created = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "tool_part_create",
+            "toolKind": "mcp",
+            "data": {
+                "session_id": 1001,
+                "tool_call_id": "call-typed-parent",
+                "server_id": 7,
+                "tool_name": "search",
+                "input": "{}"
+            }
+        }),
+    );
+    assert_eq!(created["session_id"], 1001);
+    assert_eq!(created["tool_call_id"], "call-typed-parent");
+
+    let parent = query_sql(
+        &test_app.main_webview,
+        "SELECT role FROM messages WHERE id = ?",
+        json!([created["message_id"]]),
+    );
+    assert_eq!(parent["rows"], json!([{ "role": "tool_call" }]));
+}

@@ -4,6 +4,13 @@ import type { SqlValue } from '@database/schema';
 
 import { invoke } from './invoke';
 
+export type ToolPartKind = 'mcp' | 'builtin';
+export type ToolPartFilter =
+    | { kind: 'id'; id: number }
+    | { kind: 'tool_call_id'; toolCallId: string }
+    | { kind: 'server_id'; serverId: number }
+    | { kind: 'tool_id'; toolId: string };
+
 export type DatabaseOperation =
     | { kind: 'setting_find'; key: string }
     | { kind: 'setting_get'; key: string }
@@ -28,6 +35,20 @@ export type DatabaseOperation =
     | { kind: 'session_refresh_metadata'; id: number }
     | { kind: 'session_count' }
     | { kind: 'session_delete_all' }
+    | { kind: 'tool_part_create'; toolKind: ToolPartKind; data: Record<string, unknown> }
+    | {
+          kind: 'tool_part_list';
+          toolKind: ToolPartKind;
+          filter: ToolPartFilter;
+          limit?: number;
+          offset?: number;
+      }
+    | {
+          kind: 'tool_part_update';
+          toolKind: ToolPartKind;
+          filter: ToolPartFilter;
+          data: Record<string, unknown>;
+      }
     | { kind: 'provider_list' }
     | { kind: 'provider_find'; id: number }
     | { kind: 'provider_create'; data: Record<string, unknown> }
