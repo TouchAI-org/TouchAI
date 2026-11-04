@@ -40,6 +40,10 @@ export function openMigratedDatabase(): SqliteDatabase {
  */
 export function routeQueriesTo(database: SqliteDatabase): void {
     interceptTauriInvoke((call) => {
+        const operation = routeDatabaseOperation(database, call);
+        if (operation) {
+            return operation.value;
+        }
         if (call.cmd === 'database_tx_begin') {
             database.exec('BEGIN');
             return 'test-tx';
@@ -72,6 +76,121 @@ export function routeQueriesTo(database: SqliteDatabase): void {
             lastInsertId: null,
         };
     });
+}
+
+/**
+ * Routes one typed database operation to the test database. The production
+ * bridge deliberately has no generic SQL fallback, so this is the test-side
+ * equivalent of the Rust repository dispatch.
+ */
+export function routeDatabaseOperation(
+    database: SqliteDatabase,
+    call: { cmd: string; payload?: unknown }
+): { value: unknown } | undefined {
+    if (call.cmd !== 'database_operation') return undefined;
+    const request = (call.payload as { request?: Record<string, unknown> } | undefined)?.request;
+    if (!request) return { value: undefined };
+
+    const kind = String(request.kind);
+    const read = (sql: string, params: SQLInputValue[] = []) =>
+        database.prepare(sql).all(...params);
+    const run = (sql: string, params: SQLInputValue[] = []) => database.prepare(sql).run(...params);
+
+    switch (kind) {
+        case 'setting_find':
+            return {
+                value:
+                    read('SELECT * FROM settings WHERE key = ? LIMIT 1', [
+                        String(request.key),
+                    ])[0] ?? null,
+            };
+        case 'setting_get':
+            return {
+                value:
+                    (
+                        read('SELECT value FROM settings WHERE key = ? LIMIT 1', [
+                            String(request.key),
+                        ])[0] as { value?: string | null } | undefined
+                    )?.value ?? null,
+            };
+        case 'setting_set':
+            return {
+                value: database
+                    .prepare(
+                        `INSERT INTO settings (key, value) VALUES (?, ?)
+                         ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                         RETURNING *`
+                    )
+                    .get(String(request.key), String(request.value)),
+            };
+        case 'statistic_get':
+            return {
+                value:
+                    (
+                        read('SELECT value FROM statistics WHERE key = ? LIMIT 1', [
+                            String(request.key),
+                        ])[0] as { value?: string | null } | undefined
+                    )?.value ?? null,
+            };
+        case 'statistic_set':
+            run(
+                `INSERT INTO statistics (key, value) VALUES (?, ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+                [String(request.key), String(request.value)]
+            );
+            return { value: true };
+        case 'meta_get':
+            return {
+                value:
+                    (
+                        read('SELECT value FROM touchai_meta WHERE key = ? LIMIT 1', [
+                            String(request.key),
+                        ])[0] as { value?: string | null } | undefined
+                    )?.value ?? null,
+            };
+        case 'meta_set':
+            run(
+                `INSERT INTO touchai_meta (key, value) VALUES (?, ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+                [String(request.key), String(request.value)]
+            );
+            return { value: null };
+        case 'meta_delete':
+            run('DELETE FROM touchai_meta WHERE key = ?', [String(request.key)]);
+            return { value: null };
+        case 'quick_search_find':
+            return {
+                value: read(
+                    `SELECT path_norm, click_count, query_norm
+                     FROM quick_search_click_stats
+                     WHERE query_norm = ?
+                     ORDER BY click_count DESC, updated_at DESC
+                     LIMIT ?`,
+                    [String(request.queryNorm), Number(request.limit)]
+                ),
+            };
+        case 'quick_search_upsert':
+            if (!request.queryNorm || !request.pathNorm) return { value: null };
+            run(
+                `INSERT INTO quick_search_click_stats (query_norm, path_norm, click_count)
+                 VALUES (?, ?, 1)
+                 ON CONFLICT(query_norm, path_norm) DO UPDATE SET
+                   click_count = CASE
+                     WHEN quick_search_click_stats.click_count >= ? THEN ?
+                     ELSE quick_search_click_stats.click_count + 1
+                   END,
+                   updated_at = datetime('now')`,
+                [
+                    String(request.queryNorm),
+                    String(request.pathNorm),
+                    Number(request.maxClickCount),
+                    Number(request.maxClickCount),
+                ]
+            );
+            return { value: null };
+        default:
+            throw new Error(`Unhandled database operation in test: ${kind}`);
+    }
 }
 
 /** Closes every database opened by `openMigratedDatabase` in the current test file. */

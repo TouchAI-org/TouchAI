@@ -51,6 +51,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         window::close_tray_menu,
         database::database_query,
         database::database_batch,
+        database::database_operation,
         database::database_tx_begin,
         database::database_tx_query,
         database::database_tx_batch,

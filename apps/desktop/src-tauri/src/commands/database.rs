@@ -5,12 +5,23 @@
 use tauri::{Runtime, State, WebviewWindow};
 
 use crate::core::database::{
+    typed::{DatabaseOperation, DatabaseOperationError},
     types::{
         DatabaseImportRequest, DatabaseQueryRequest, DatabaseQueryResponse,
         DatabaseTransactionBehavior,
     },
     DatabaseRuntime,
 };
+
+/// Execute one typed database operation after applying the window surface guard.
+#[tauri::command]
+pub async fn database_operation<R: Runtime>(
+    window: WebviewWindow<R>,
+    runtime: State<'_, DatabaseRuntime>,
+    request: DatabaseOperation,
+) -> Result<serde_json::Value, DatabaseOperationError> {
+    runtime.execute_operation(window.label(), request).await
+}
 
 /// 通用数据库查询入口。
 #[tauri::command]

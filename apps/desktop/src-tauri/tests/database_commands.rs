@@ -2,6 +2,7 @@ mod common;
 
 use common::{build_test_app, invoke_command_err, invoke_command_ok, TestAppOptions};
 use serde_json::json;
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 #[test]
 fn database_query_returns_rows_from_sqlite_runtime() {
@@ -28,6 +29,58 @@ fn database_query_returns_rows_from_sqlite_runtime() {
             "lastInsertId": null
         })
     );
+}
+
+#[test]
+fn user_can_read_and_write_settings_through_the_typed_database_operation() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+
+    let written: serde_json::Value = invoke_command_ok(
+        &test_app.main_webview,
+        "database_operation",
+        json!({
+            "request": {
+                "kind": "setting_set",
+                "key": "language",
+                "value": "zh-CN"
+            }
+        }),
+    );
+    assert_eq!(written["key"], "language");
+    assert_eq!(written["value"], "zh-CN");
+
+    let value: String = invoke_command_ok(
+        &test_app.main_webview,
+        "database_operation",
+        json!({
+            "request": {
+                "kind": "setting_get",
+                "key": "language"
+            }
+        }),
+    );
+    assert_eq!(value, "zh-CN");
+}
+
+#[test]
+fn user_cannot_use_a_preview_window_to_read_settings() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let preview = WebviewWindowBuilder::new(&test_app.app, "preview-test", WebviewUrl::default())
+        .build()
+        .expect("preview window");
+
+    let error = invoke_command_err(
+        &preview,
+        "database_operation",
+        json!({
+            "request": {
+                "kind": "setting_get",
+                "key": "language"
+            }
+        }),
+    );
+
+    assert_eq!(error["code"], "database-forbidden");
 }
 
 #[test]

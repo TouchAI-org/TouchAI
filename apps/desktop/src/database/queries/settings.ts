@@ -1,9 +1,7 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { eq } from 'drizzle-orm';
+import { native } from '@services/NativeService';
 
-import { db } from '../index';
-import { settings } from '../schema';
 import type { SettingEntity, SettingIdentifier } from '../types';
 
 /**
@@ -14,7 +12,10 @@ export const findSettingByKey = async ({
 }: {
     key: SettingIdentifier;
 }): Promise<SettingEntity | undefined> =>
-    await db.select().from(settings).where(eq(settings.key, key)).get();
+    (await native.database.operation<SettingEntity | null>({
+        kind: 'setting_find',
+        key,
+    })) ?? undefined;
 
 /**
  * 获取设置值
@@ -24,8 +25,7 @@ export const getSettingValue = async ({
 }: {
     key: SettingIdentifier;
 }): Promise<string | null> => {
-    const setting = await findSettingByKey({ key });
-    return setting?.value ?? null;
+    return native.database.operation<string | null>({ kind: 'setting_get', key });
 };
 
 /**
@@ -38,16 +38,13 @@ export const setSetting = async ({
     key: SettingIdentifier;
     value: string;
 }): Promise<SettingEntity> => {
-    const result = await db
-        .insert(settings)
-        .values({ key, value })
-        .onConflictDoUpdate({ target: settings.key, set: { value } })
-        .returning()
-        .get();
-
-    if (!result || result.key === undefined) {
+    const result = await native.database.operation<SettingEntity | null>({
+        kind: 'setting_set',
+        key,
+        value,
+    });
+    if (!result) {
         throw new Error(`Failed to set setting: ${key}`);
     }
-
     return result;
 };
