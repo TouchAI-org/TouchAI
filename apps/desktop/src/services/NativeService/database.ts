@@ -21,7 +21,79 @@ export type DatabaseOperation =
           queryNorm: string;
           pathNorm: string;
           maxClickCount: number;
-      };
+      }
+    | { kind: 'provider_list' }
+    | { kind: 'provider_find'; id: number }
+    | { kind: 'provider_create'; data: Record<string, unknown> }
+    | { kind: 'provider_update'; id: number; data: Record<string, unknown> }
+    | { kind: 'provider_delete'; id: number }
+    | { kind: 'model_list_with_provider'; providerId?: number }
+    | { kind: 'model_find_default_with_provider' }
+    | { kind: 'model_find_by_provider_and_model_id'; providerId: number; modelId: string }
+    | { kind: 'model_find_default' }
+    | { kind: 'model_create'; data: Record<string, unknown> }
+    | { kind: 'model_update'; id: number; data: Record<string, unknown> }
+    | { kind: 'model_delete'; id: number }
+    | { kind: 'model_set_default'; modelId: number }
+    | {
+          kind: 'model_record_upstream_metadata';
+          providerId: number;
+          entries: Array<{ model_id: string; metadata: Record<string, unknown> }>;
+      }
+    | {
+          kind: 'model_persist_catalog';
+          providerId: number;
+          models: Array<{ model_id: string; name: string }>;
+          entries: Array<{ model_id: string; metadata: Record<string, unknown> }>;
+      }
+    | { kind: 'model_sync_metadata' }
+    | { kind: 'llm_metadata_find'; modelId: string }
+    | { kind: 'llm_metadata_insert'; data: Array<Record<string, unknown>> }
+    | { kind: 'llm_metadata_clear' }
+    | { kind: 'llm_metadata_is_empty' }
+    | { kind: 'llm_metadata_alias_is_empty' }
+    | { kind: 'llm_metadata_find_pricing'; modelId: string }
+    | { kind: 'llm_metadata_count_priced' }
+    | {
+          kind: 'llm_metadata_replace';
+          metadata: Array<Record<string, unknown>>;
+          aliases: Array<Record<string, unknown>>;
+          markUpdatedAt: boolean;
+          sourceEtag?: string | null;
+      }
+    | { kind: 'llm_metadata_mark_checked'; checkedAt: string; etag?: string | null }
+    | { kind: 'mcp_server_list'; enabledOnly: boolean }
+    | { kind: 'mcp_server_find_by_id'; id: number }
+    | { kind: 'mcp_server_find_by_name'; name: string }
+    | { kind: 'mcp_server_create'; data: Record<string, unknown> }
+    | { kind: 'mcp_server_update'; id: number; data: Record<string, unknown> }
+    | { kind: 'mcp_server_delete'; id: number }
+    | { kind: 'mcp_server_count' }
+    | { kind: 'mcp_tool_list'; serverId?: number; enabledOnly: boolean }
+    | { kind: 'mcp_tool_find_by_id'; id: number }
+    | { kind: 'mcp_tool_find_by_server_and_name'; serverId: number; name: string }
+    | { kind: 'mcp_tool_create'; data: Record<string, unknown> }
+    | { kind: 'mcp_tool_update'; id: number; data: Record<string, unknown> }
+    | { kind: 'mcp_tool_delete'; id: number }
+    | { kind: 'mcp_tool_delete_by_server'; serverId: number }
+    | { kind: 'mcp_tool_count'; serverId?: number }
+    | {
+          kind: 'mcp_tool_sync';
+          serverId: number;
+          tools: Array<{
+              name: string;
+              description?: string | null;
+              inputSchema: unknown;
+          }>;
+      }
+    | { kind: 'built_in_tool_list'; enabledOnly: boolean }
+    | { kind: 'built_in_tool_find_by_id'; id: number }
+    | { kind: 'built_in_tool_find_by_tool_id'; toolId: string }
+    | { kind: 'built_in_tool_create'; data: Record<string, unknown> }
+    | { kind: 'built_in_tool_update'; id: number; data: Record<string, unknown> }
+    | { kind: 'built_in_tool_update_many'; ids: number[]; data: Record<string, unknown> }
+    | { kind: 'built_in_tool_touch'; toolId: string; lastUsedAt: string }
+    | { kind: 'built_in_tool_count_enabled' };
 
 export interface DatabaseOperationError {
     code: string;

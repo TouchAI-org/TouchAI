@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import type { DatabaseSync as SqliteDatabase, SQLInputValue } from 'node:sqlite';
 
+import { routeDatabaseOperation } from '@tests/database/sqliteHarness';
 import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -31,6 +32,8 @@ function openDatabase(): SqliteDatabase {
 
 function routeQueriesTo(database: SqliteDatabase) {
     interceptTauriInvoke((call) => {
+        const operation = routeDatabaseOperation(database, call);
+        if (operation) return operation.value;
         if (call.cmd === 'database_tx_begin') {
             database.exec('BEGIN');
             return 'test-tx';

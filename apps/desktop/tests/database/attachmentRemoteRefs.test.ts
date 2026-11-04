@@ -8,7 +8,7 @@ import {
 import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { openMigratedDatabase } from './sqliteHarness';
+import { openMigratedDatabase, routeDatabaseOperation } from './sqliteHarness';
 
 /**
  * A remote reference is a provider-side handle for an attachment that has already been uploaded.
@@ -25,6 +25,8 @@ function openDatabase() {
 
 function routeQueriesTo(database: ReturnType<typeof openMigratedDatabase>) {
     interceptTauriInvoke((call) => {
+        const operation = routeDatabaseOperation(database, call);
+        if (operation) return operation.value;
         if (call.cmd === 'database_tx_begin') {
             database.exec('BEGIN');
             return 'test-tx';

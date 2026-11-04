@@ -4,7 +4,7 @@ import { canUseUsageArchive, getUsageTrendFromArchive } from '@database/queries/
 import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { openMigratedDatabase } from './sqliteHarness';
+import { openMigratedDatabase, routeDatabaseOperation } from './sqliteHarness';
 
 /**
  * Once old request rows are pruned, the only remaining history is the daily rollup. Reading it
@@ -21,6 +21,8 @@ function openDatabase() {
 
 function routeQueriesTo(database: ReturnType<typeof openMigratedDatabase>) {
     interceptTauriInvoke((call) => {
+        const operation = routeDatabaseOperation(database, call);
+        if (operation) return operation.value;
         if (call.cmd === 'database_tx_begin') {
             database.exec('BEGIN');
             return 'test-tx';

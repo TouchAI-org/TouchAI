@@ -6,16 +6,13 @@
  * 这个管理器作为前端的 MCP 客户端，通过 NativeService 与 Rust 后端通信
  */
 
-import { db } from '@database';
 import {
     findEnabledMcpServers,
     findEnabledMcpToolsByServerId,
     findMcpServerById,
     findMcpToolByServerIdAndName,
-    findMcpToolsByServerId,
     updateMcpServer,
 } from '@database/queries';
-import { mcpTools } from '@database/schema';
 import type { McpServerEntity } from '@database/types';
 import { AppEvent, eventService, type McpServerStatus } from '@services/EventService';
 import {
@@ -24,9 +21,9 @@ import {
     type McpToolCallResponse,
     type McpToolDefinition,
     type McpTransportType,
+    native,
 } from '@services/NativeService';
 import { log } from '@services/ObservabilityService';
-import { eq } from 'drizzle-orm';
 
 import { t } from '@/i18n';
 import { parseMcpToolSchemaJson } from '@/utils/mcpSchemas';
@@ -157,30 +154,14 @@ export class McpManager {
             // 获取工具列表
             const tools = await this.listTools(serverId);
 
-            const existingTools = await findMcpToolsByServerId(serverId);
-            // 保留用户对现有工具的启用/禁用偏好
-            // 当服务器重新连接时，我们希望保持用户之前启用或禁用的工具状态，而不是全部重置为启用
-            const existingEnabledByName = new Map(
-                existingTools.map((tool) => [tool.name, tool.enabled])
-            );
-
-            await db.transaction(async (tx) => {
-                await tx.delete(mcpTools).where(eq(mcpTools.server_id, serverId)).run();
-
-                if (tools.length > 0) {
-                    await tx
-                        .insert(mcpTools)
-                        .values(
-                            tools.map((tool) => ({
-                                server_id: serverId,
-                                name: tool.name,
-                                description: tool.description || null,
-                                input_schema: JSON.stringify(tool.input_schema),
-                                enabled: existingEnabledByName.get(tool.name) ?? 1,
-                            }))
-                        )
-                        .run();
-                }
+            await native.database.operation({
+                kind: 'mcp_tool_sync',
+                serverId,
+                tools: tools.map((tool) => ({
+                    name: tool.name,
+                    description: tool.description || null,
+                    inputSchema: tool.input_schema,
+                })),
             });
 
             log.debug(`[McpManager] Synced ${tools.length} tools for server ${serverId}`);
