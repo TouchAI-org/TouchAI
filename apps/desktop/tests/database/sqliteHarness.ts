@@ -168,6 +168,60 @@ const MODEL_WITH_PROVIDER = `
     INNER JOIN providers ON providers.id = models.provider_id
 `;
 
+const SESSION_SELECT = `
+    SELECT
+        sessions.*,
+        CASE
+            WHEN (
+                SELECT latest_session_turns.status
+                FROM session_turns latest_session_turns
+                WHERE latest_session_turns.session_id = sessions.id
+                ORDER BY latest_session_turns.created_at DESC, latest_session_turns.id DESC
+                LIMIT 1
+            ) IN ('completed', 'failed')
+            AND COALESCE((
+                SELECT latest_session_turns.id
+                FROM session_turns latest_session_turns
+                WHERE latest_session_turns.session_id = sessions.id
+                ORDER BY latest_session_turns.created_at DESC, latest_session_turns.id DESC
+                LIMIT 1
+            ), 0) > COALESCE(sessions.status_badge_dismissed_turn_id, 0)
+            THEN (
+                SELECT latest_session_turns.status
+                FROM session_turns latest_session_turns
+                WHERE latest_session_turns.session_id = sessions.id
+                ORDER BY latest_session_turns.created_at DESC, latest_session_turns.id DESC
+                LIMIT 1
+            )
+            ELSE NULL
+        END AS pending_terminal_status
+    FROM sessions
+`;
+
+function messageTextSql(messageAlias: string): string {
+    return `COALESCE((
+        SELECT group_concat(content, '') FROM (
+            SELECT CASE
+                WHEN part.type = 'text' THEN part.content
+                ELSE COALESCE(json_extract(part.data, '$.output'), '')
+            END AS content
+            FROM message_parts part
+            WHERE part.message_id = ${messageAlias}.id
+              AND part.type IN ('text', 'tool_call')
+            ORDER BY part.sort_order, part.id
+        )
+    ), '')`;
+}
+
+function escapeLikePattern(value: string): string {
+    return value.replace(/[\\%_]/g, '\\$&');
+}
+
+function normalizeSessionLimit(limit: unknown): number {
+    if (typeof limit !== 'number' || !Number.isFinite(limit)) return 40;
+    return Math.max(1, Math.min(Math.trunc(limit), 1000));
+}
+
 const UPSTREAM_METADATA_SQL = `
     WITH upstream_model_metadata AS (
         SELECT
@@ -549,6 +603,194 @@ export function routeDatabaseOperation(
                     Number(request.maxClickCount),
                 ]
             );
+            return { value: null };
+        case 'session_create': {
+            const created = insertRow(database, 'sessions', data(request.data));
+            return {
+                value: created ? { ...created, pending_terminal_status: null } : null,
+            };
+        }
+        case 'session_find_by_id':
+            return {
+                value:
+                    read(`${SESSION_SELECT} WHERE sessions.id = ? LIMIT 1`, [
+                        Number(request.id),
+                    ])[0] ?? null,
+            };
+        case 'session_list': {
+            const query = String(request.query ?? '').trim();
+            const params: SQLInputValue[] = [];
+            let where = '';
+            if (query) {
+                const pattern = `%${escapeLikePattern(query)}%`;
+                const token = Array.from(query).slice(0, 3).join('');
+                const useFts = Array.from(token).length === 3 && !query.includes('\0');
+                const fts = useFts
+                    ? `AND searchable_messages.id IN (
+                           SELECT rowid FROM message_search_fts
+                           WHERE message_search_fts MATCH ?
+                       )`
+                    : '';
+                where = ` WHERE (
+                    lower(sessions.title) LIKE lower(?) ESCAPE '\\'
+                    OR EXISTS (
+                        SELECT 1
+                        FROM messages searchable_messages
+                        WHERE searchable_messages.session_id = sessions.id
+                          AND searchable_messages.role IN ('user', 'assistant', 'tool_call')
+                          ${fts}
+                          AND lower(${messageTextSql('searchable_messages')}) LIKE lower(?) ESCAPE '\\'
+                    )
+                )`;
+                params.push(pattern);
+                if (useFts) params.push(`"${token.replace(/"/g, '""')}"`);
+                params.push(pattern);
+            }
+            params.push(normalizeSessionLimit(request.limit));
+            return {
+                value: read(
+                    `${SESSION_SELECT}${where}
+                     ORDER BY COALESCE(sessions.last_message_at, sessions.updated_at) DESC,
+                              sessions.id DESC
+                     LIMIT ?`,
+                    params
+                ),
+            };
+        }
+        case 'session_update': {
+            const patch = data(request.data);
+            const keys = Object.keys(patch).filter((key) => key !== 'updated_at');
+            const assignments = keys.map((key) => `"${key}" = ?`).join(', ');
+            const updated = database
+                .prepare(
+                    `UPDATE sessions SET ${assignments ? `${assignments}, ` : ''}
+                     updated_at = datetime('now') WHERE id = ? RETURNING *`
+                )
+                .get(...keys.map((key) => sqlValue(patch[key])), Number(request.id));
+            return { value: updated ?? null };
+        }
+        case 'session_dismiss_terminal_status':
+            transaction(database, () => {
+                const latest = read(
+                    `SELECT id, status FROM session_turns
+                     WHERE session_id = ?
+                     ORDER BY created_at DESC, id DESC LIMIT 1`,
+                    [Number(request.id)]
+                )[0];
+                if (!latest || (latest.status !== 'completed' && latest.status !== 'failed')) {
+                    return;
+                }
+                run('UPDATE sessions SET status_badge_dismissed_turn_id = ? WHERE id = ?', [
+                    Number(latest.id),
+                    Number(request.id),
+                ]);
+            });
+            return { value: null };
+        case 'session_refresh_metadata': {
+            const id = Number(request.id);
+            const assistantText = messageTextSql('assistant_messages');
+            const toolText = messageTextSql('tool_call_messages');
+            const userText = messageTextSql('user_messages');
+            run(
+                `UPDATE sessions
+                 SET
+                     message_count = (
+                         SELECT count(*) FROM messages counted_messages
+                         WHERE counted_messages.session_id = ?
+                           AND counted_messages.role IN ('user', 'assistant')
+                     ),
+                     last_message_at = COALESCE(
+                         (
+                             SELECT assistant_messages.created_at
+                             FROM messages assistant_messages
+                             WHERE assistant_messages.session_id = ?
+                               AND assistant_messages.role = 'assistant'
+                               AND trim(${assistantText}) <> ''
+                             ORDER BY assistant_messages.created_at DESC, assistant_messages.id DESC
+                             LIMIT 1
+                         ),
+                         (
+                             SELECT tool_call_messages.created_at
+                             FROM messages tool_call_messages
+                             WHERE tool_call_messages.session_id = ?
+                               AND tool_call_messages.role = 'tool_call'
+                               AND trim(${toolText}) <> ''
+                             ORDER BY tool_call_messages.created_at DESC, tool_call_messages.id DESC
+                             LIMIT 1
+                         ),
+                         (
+                             SELECT user_messages.created_at
+                             FROM messages user_messages
+                             WHERE user_messages.session_id = ?
+                               AND user_messages.role = 'user'
+                             ORDER BY user_messages.created_at DESC, user_messages.id DESC
+                             LIMIT 1
+                         )
+                     ),
+                     last_message_preview = COALESCE(
+                         (
+                             SELECT CASE
+                                 WHEN length(${assistantText}) > 160
+                                     THEN substr(${assistantText}, 1, 160) || '...'
+                                 ELSE ${assistantText}
+                             END
+                             FROM messages assistant_messages
+                             WHERE assistant_messages.session_id = ?
+                               AND assistant_messages.role = 'assistant'
+                               AND trim(${assistantText}) <> ''
+                             ORDER BY assistant_messages.created_at DESC, assistant_messages.id DESC
+                             LIMIT 1
+                         ),
+                         (
+                             SELECT CASE
+                                 WHEN length(${toolText}) > 160
+                                     THEN substr(${toolText}, 1, 160) || '...'
+                                 ELSE ${toolText}
+                             END
+                             FROM messages tool_call_messages
+                             WHERE tool_call_messages.session_id = ?
+                               AND tool_call_messages.role = 'tool_call'
+                               AND trim(${toolText}) <> ''
+                             ORDER BY tool_call_messages.created_at DESC, tool_call_messages.id DESC
+                             LIMIT 1
+                         ),
+                         (
+                             SELECT CASE
+                                 WHEN length(${userText}) > 160
+                                     THEN substr(${userText}, 1, 160) || '...'
+                                 ELSE ${userText}
+                             END
+                             FROM messages user_messages
+                             WHERE user_messages.session_id = ?
+                               AND user_messages.role = 'user'
+                             ORDER BY user_messages.created_at DESC, user_messages.id DESC
+                             LIMIT 1
+                         )
+                     ),
+                     provider_id = COALESCE(
+                         (
+                             SELECT latest_models.provider_id
+                             FROM session_turns latest_turns
+                             INNER JOIN models latest_models
+                                 ON latest_models.id = latest_turns.model_id
+                             WHERE latest_turns.session_id = ?
+                             ORDER BY latest_turns.created_at DESC, latest_turns.id DESC
+                             LIMIT 1
+                         ),
+                         sessions.provider_id
+                     ),
+                     updated_at = datetime('now')
+                 WHERE id = ?`,
+                [id, id, id, id, id, id, id, id, id]
+            );
+            return { value: null };
+        }
+        case 'session_count':
+            return {
+                value: Number((read('SELECT count(*) AS count FROM sessions')[0] as Data).count),
+            };
+        case 'session_delete_all':
+            run('DELETE FROM sessions');
             return { value: null };
         case 'provider_list': {
             const providers = read('SELECT * FROM providers');

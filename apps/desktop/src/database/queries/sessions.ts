@@ -1,6 +1,7 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { and, count, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { native } from '@services/NativeService';
+import { and, count, desc, eq, or, sql } from 'drizzle-orm';
 import { aliasedTable } from 'drizzle-orm/alias';
 
 import { type DatabaseExecutor, db } from '../index';
@@ -24,56 +25,6 @@ function normalizeSessionLimit(limit?: number): number {
     return Math.max(1, Math.min(Math.trunc(limit), MAX_SESSION_LIMIT));
 }
 
-function escapeLikePattern(value: string): string {
-    return value.replace(/[\\%_]/g, '\\$&');
-}
-
-function isTerminalTurnStatus(
-    status: string | null | undefined
-): status is NonNullable<SessionEntity['pending_terminal_status']> {
-    return status === 'completed' || status === 'failed';
-}
-
-function createSessionListSelection(drizzle: typeof db) {
-    const latestTurns = aliasedTable(sessionTurns, 'latest_session_turns');
-    const latestTurnIdQuery = drizzle
-        .select({ value: latestTurns.id })
-        .from(latestTurns)
-        .where(eq(latestTurns.session_id, sessions.id))
-        .orderBy(desc(latestTurns.created_at), desc(latestTurns.id))
-        .limit(1);
-    const latestTurnStatusQuery = drizzle
-        .select({ value: latestTurns.status })
-        .from(latestTurns)
-        .where(eq(latestTurns.session_id, sessions.id))
-        .orderBy(desc(latestTurns.created_at), desc(latestTurns.id))
-        .limit(1);
-
-    return {
-        id: sessions.id,
-        session_id: sessions.session_id,
-        title: sessions.title,
-        model: sessions.model,
-        provider_id: sessions.provider_id,
-        last_message_preview: sessions.last_message_preview,
-        last_message_at: sessions.last_message_at,
-        message_count: sessions.message_count,
-        status_badge_dismissed_turn_id: sessions.status_badge_dismissed_turn_id,
-        pending_terminal_status: sql<SessionEntity['pending_terminal_status']>`
-            CASE
-                WHEN (${latestTurnStatusQuery}) IN ('completed', 'failed')
-                    AND coalesce((${latestTurnIdQuery}), 0) > coalesce(${sessions.status_badge_dismissed_turn_id}, 0)
-                THEN (${latestTurnStatusQuery})
-                ELSE NULL
-            END
-        `.as('pending_terminal_status'),
-        pinned_at: sessions.pinned_at,
-        archived_at: sessions.archived_at,
-        created_at: sessions.created_at,
-        updated_at: sessions.updated_at,
-    };
-}
-
 /**
  * 创建会话。
  */
@@ -81,6 +32,20 @@ export const createSession = async (
     data: SessionCreateData,
     database: DatabaseExecutor = db
 ): Promise<SessionEntity> => {
+    // Task writes still join the caller's Drizzle transaction until their Rust bundle lands.
+    if (database === db) {
+        const createdSession = await native.database.operation<SessionEntity | null>({
+            kind: 'session_create',
+            data: { ...data },
+        });
+
+        if (!createdSession || createdSession.id === undefined) {
+            throw new Error('Failed to create session');
+        }
+
+        return createdSession;
+    }
+
     const createdSession = await database.insert(sessions).values(data).returning().get();
 
     if (!createdSession || createdSession.id === undefined) {
@@ -98,105 +63,27 @@ export const createSession = async (
  * 根据主键查找会话。
  */
 export const findSessionById = async (sessionId: number): Promise<SessionEntity | undefined> =>
-    await db
-        .select(createSessionListSelection(db))
-        .from(sessions)
-        .where(eq(sessions.id, sessionId))
-        .get();
+    (await native.database.operation<SessionEntity | null>({
+        kind: 'session_find_by_id',
+        id: sessionId,
+    })) ?? undefined;
 
 /**
  * 列出会话。
  */
 export const listSessions = async (options: ListSessionsOptions = {}): Promise<SessionEntity[]> => {
-    const query = options.query?.trim().toLocaleLowerCase() ?? '';
-    const limit = normalizeSessionLimit(options.limit);
-    const drizzle = db;
-    const searchableMessages = aliasedTable(messages, 'searchable_messages');
-    const sessionSelection = createSessionListSelection(drizzle);
-
-    if (query) {
-        const pattern = `%${escapeLikePattern(query)}%`;
-        const titleMatches = sql`lower(${sessions.title}) LIKE ${pattern} ESCAPE '\\'`;
-        // The compact trigram index only supplies candidates, never the source text.
-        // Quote a single three-codepoint token to keep MATCH literal and bounded;
-        // the full LIKE check below rejects false positives and preserves old semantics.
-        // Short queries (and NUL-containing input) cannot safely use trigram MATCH.
-        const token = Array.from(query).slice(0, 3);
-        const indexedCandidates =
-            token.length === 3 && !query.includes('\0')
-                ? sql`${searchableMessages.id} IN (
-                    SELECT rowid FROM message_search_fts
-                    WHERE message_search_fts MATCH ${'"' + token.join('').replace(/"/g, '""') + '"'}
-                )`
-                : undefined;
-        const contentMatches = inArray(
-            sessions.id,
-            drizzle
-                .select({ sessionId: searchableMessages.session_id })
-                .from(searchableMessages)
-                .where(
-                    and(
-                        or(
-                            eq(searchableMessages.role, 'user'),
-                            eq(searchableMessages.role, 'assistant'),
-                            eq(searchableMessages.role, 'tool_call')
-                        ),
-                        indexedCandidates,
-                        sql`lower(${messageText(searchableMessages.id)}) LIKE ${pattern} ESCAPE '\\'`
-                    )
-                )
-        );
-        const searchWhereClause = or(titleMatches, contentMatches)!;
-
-        return drizzle
-            .select(sessionSelection)
-            .from(sessions)
-            .orderBy(
-                desc(sql`coalesce(${sessions.last_message_at}, ${sessions.updated_at})`),
-                desc(sessions.id)
-            )
-            .limit(limit)
-            .where(searchWhereClause)
-            .all();
-    }
-
-    return drizzle
-        .select(sessionSelection)
-        .from(sessions)
-        .orderBy(
-            desc(sql`coalesce(${sessions.last_message_at}, ${sessions.updated_at})`),
-            desc(sessions.id)
-        )
-        .limit(limit)
-        .all();
+    return native.database.operation<SessionEntity[]>({
+        kind: 'session_list',
+        query: options.query?.trim().toLocaleLowerCase(),
+        limit: normalizeSessionLimit(options.limit),
+    });
 };
 
-export const dismissSessionTerminalStatus = async (
-    sessionId: number,
-    database: DatabaseExecutor = db
-): Promise<void> => {
-    const latestTurn = await database
-        .select({
-            id: sessionTurns.id,
-            status: sessionTurns.status,
-        })
-        .from(sessionTurns)
-        .where(eq(sessionTurns.session_id, sessionId))
-        .orderBy(desc(sessionTurns.created_at), desc(sessionTurns.id))
-        .limit(1)
-        .get();
-
-    if (!latestTurn || !isTerminalTurnStatus(latestTurn.status)) {
-        return;
-    }
-
-    await database
-        .update(sessions)
-        .set({
-            status_badge_dismissed_turn_id: latestTurn.id,
-        })
-        .where(eq(sessions.id, sessionId))
-        .run();
+export const dismissSessionTerminalStatus = async (sessionId: number): Promise<void> => {
+    await native.database.operation({
+        kind: 'session_dismiss_terminal_status',
+        id: sessionId,
+    });
 };
 
 /**
@@ -211,6 +98,16 @@ export const updateSession = async ({
     sessionPatch: SessionUpdateData;
     database?: DatabaseExecutor;
 }): Promise<void> => {
+    // Task writes still join the caller's Drizzle transaction until their Rust bundle lands.
+    if (database === db) {
+        await native.database.operation({
+            kind: 'session_update',
+            id,
+            data: { ...sessionPatch },
+        });
+        return;
+    }
+
     await database
         .update(sessions)
         .set({
@@ -234,6 +131,15 @@ export const refreshSessionMetadata = async (
     sessionId: number,
     database: DatabaseExecutor = db
 ): Promise<void> => {
+    // Task writes still join the caller's Drizzle transaction until their Rust bundle lands.
+    if (database === db) {
+        await native.database.operation({
+            kind: 'session_refresh_metadata',
+            id: sessionId,
+        });
+        return;
+    }
+
     const drizzle = database;
     const assistantMessages = aliasedTable(messages, 'assistant_messages');
     const userMessages = aliasedTable(messages, 'user_messages');
@@ -380,13 +286,12 @@ export const refreshSessionMetadata = async (
  * 统计会话数量。
  */
 export const countSessions = async (): Promise<number> => {
-    const result = await db.select({ count: count() }).from(sessions).get();
-    return result?.count || 0;
+    return native.database.operation<number>({ kind: 'session_count' });
 };
 
 /**
  * 删除所有会话。
  */
 export const deleteAllSessions = async (): Promise<void> => {
-    await db.delete(sessions).run();
+    await native.database.operation({ kind: 'session_delete_all' });
 };

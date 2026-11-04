@@ -307,6 +307,154 @@ fn user_keeps_built_in_tool_state_when_a_typed_bulk_update_is_invalid() {
 }
 
 #[test]
+fn user_finds_a_conversation_by_its_ordered_message_parts() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO sessions (id, session_id, title, model)
+         VALUES (3001, 'typed-session-search', 'Weekly planning', 'gpt-test')",
+        json!([]),
+    );
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO messages (id, session_id, role)
+         VALUES (3101, 3001, 'assistant')",
+        json!([]),
+    );
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO message_parts (message_id, type, content, sort_order)
+         VALUES (3101, 'text', 'Quarterly ', 0), (3101, 'text', 'budget review', 1)",
+        json!([]),
+    );
+
+    let sessions = database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "session_list", "query": "budget", "limit": 40 }),
+    );
+
+    assert_eq!(sessions.as_array().expect("session array").len(), 1);
+    assert_eq!(sessions[0]["id"], 3001);
+    assert_eq!(sessions[0]["title"], "Weekly planning");
+}
+
+#[test]
+fn user_sees_and_dismisses_the_latest_terminal_badge() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO providers (id, name, driver, api_endpoint, logo)
+         VALUES (7001, 'Typed session provider', 'openai', 'https://provider.example/v1', 'openai.png')",
+        json!([]),
+    );
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO models (id, provider_id, name, model_id)
+         VALUES (1001, 7001, 'Typed model', 'typed-model')",
+        json!([]),
+    );
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO sessions (id, session_id, title, model)
+         VALUES (3002, 'typed-session-badge', 'Badge', 'typed-model');
+         INSERT INTO session_turns (id, session_id, model_id, task_id, prompt_snapshot_json, status)
+         VALUES (3201, 3002, 1001, 'typed-task', '{}', 'completed')",
+        json!([]),
+    );
+
+    let before = database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "session_find_by_id", "id": 3002 }),
+    );
+    assert_eq!(before["pending_terminal_status"], "completed");
+
+    let dismissed = database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "session_dismiss_terminal_status", "id": 3002 }),
+    );
+    assert_eq!(dismissed, serde_json::Value::Null);
+
+    let after = database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "session_find_by_id", "id": 3002 }),
+    );
+    assert_eq!(after["pending_terminal_status"], serde_json::Value::Null);
+}
+
+#[test]
+fn user_keeps_the_selected_provider_until_a_turn_records_another_model() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO providers (id, name, driver, api_endpoint, logo)
+         VALUES (7002, 'Selected', 'openai', 'https://selected.example/v1', 'selected.png'),
+                (8002, 'Recorded', 'openai', 'https://recorded.example/v1', 'recorded.png');
+         INSERT INTO models (id, provider_id, name, model_id)
+         VALUES (1002, 7002, 'Selected model', 'selected-model'),
+                (1003, 8002, 'Recorded model', 'recorded-model');
+         INSERT INTO sessions (id, session_id, title, model, provider_id)
+         VALUES (3003, 'typed-session-provider', 'Provider', 'selected-model', 7002)",
+        json!([]),
+    );
+
+    database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "session_refresh_metadata", "id": 3003 }),
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT provider_id FROM sessions WHERE id = 3003",
+            json!([]),
+        )["rows"],
+        json!([{ "provider_id": 7002 }])
+    );
+
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO session_turns (session_id, model_id, task_id, prompt_snapshot_json)
+         VALUES (3003, 1003, 'typed-provider-task', '{}')",
+        json!([]),
+    );
+    database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "session_refresh_metadata", "id": 3003 }),
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT provider_id FROM sessions WHERE id = 3003",
+            json!([]),
+        )["rows"],
+        json!([{ "provider_id": 8002 }])
+    );
+}
+
+#[test]
+fn user_cannot_read_agent_sessions_from_settings_or_popup_windows() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let settings = WebviewWindowBuilder::new(&test_app.app, "settings", WebviewUrl::default())
+        .build()
+        .expect("settings window");
+    let popup = WebviewWindowBuilder::new(
+        &test_app.app,
+        "popup-session-permission-test",
+        WebviewUrl::default(),
+    )
+    .build()
+    .expect("popup window");
+
+    for webview in [&settings, &popup] {
+        let error = invoke_command_err(
+            webview,
+            "database_operation",
+            json!({ "request": { "kind": "session_list", "limit": 40 } }),
+        );
+        assert_eq!(error["code"], "database-forbidden");
+    }
+}
+
+#[test]
 fn user_cannot_use_a_preview_window_to_read_settings() {
     let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
     let preview = WebviewWindowBuilder::new(&test_app.app, "preview-test", WebviewUrl::default())
