@@ -87,7 +87,7 @@ where
 /// 将前端 JSON 参数绑定为 sqlx query。
 ///
 /// 这是前后端数据库协议的唯一参数桥接层，保持类型规则集中。
-fn build_query<'q>(
+pub(crate) fn build_query<'q>(
     sql: &'q str,
     params: Vec<JsonValue>,
 ) -> Result<sqlx::query::Query<'q, Sqlite, SqliteArguments>, String> {

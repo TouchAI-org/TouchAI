@@ -60,6 +60,8 @@ pub struct DatabaseRuntime {
     inner: Arc<DatabaseRuntimeInner>,
 }
 
+pub(crate) use self::executor::build_query;
+
 struct DatabaseRuntimeInner {
     pool: SqlitePool,
     database_path: PathBuf,
@@ -116,6 +118,15 @@ impl DatabaseRuntime {
             responses.push(self.query(request).await?);
         }
         Ok(responses)
+    }
+
+    /// Execute one named, typed database operation owned by this runtime.
+    pub(crate) async fn execute_operation(
+        &self,
+        window_label: &str,
+        operation: crate::core::database::typed::DatabaseOperation,
+    ) -> Result<serde_json::Value, crate::core::database::typed::DatabaseOperationError> {
+        crate::core::database::typed::execute(&self.inner.pool, window_label, operation).await
     }
 
     /// 为前端开启一个显式事务，并返回事务句柄。

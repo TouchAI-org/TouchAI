@@ -3,8 +3,9 @@
 //! 应用统一数据库运行时。
 
 mod contract;
-mod protocol;
-mod runtime;
+pub(crate) mod protocol;
+pub(crate) mod runtime;
+pub(crate) mod typed;
 
 pub use protocol::types;
 

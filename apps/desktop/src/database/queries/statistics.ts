@@ -1,9 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { eq } from 'drizzle-orm';
+import { native } from '@services/NativeService';
 
-import { type DatabaseExecutor, db } from '../index';
-import { statistics } from '../schema';
 import type { StatisticIdentifier } from '../types';
 
 /**
@@ -14,8 +12,7 @@ export const getStatistic = async ({
 }: {
     key: StatisticIdentifier;
 }): Promise<string | null> => {
-    const statistic = await db.select().from(statistics).where(eq(statistics.key, key)).get();
-    return statistic?.value ?? null;
+    return native.database.operation<string | null>({ kind: 'statistic_get', key });
 };
 
 /**
@@ -24,25 +21,18 @@ export const getStatistic = async ({
 export const setStatistic = async ({
     key,
     value,
-    database = db,
 }: {
     key: StatisticIdentifier;
     value: string;
-    database?: DatabaseExecutor;
+    database?: unknown;
 }): Promise<boolean> => {
-    const updatedStatistic = await database
-        .insert(statistics)
-        .values({ key, value })
-        .onConflictDoUpdate({
-            target: statistics.key,
-            set: { value },
-        })
-        .returning({ key: statistics.key })
-        .get();
-
-    if (!updatedStatistic || updatedStatistic.key === undefined) {
+    const updated = await native.database.operation<boolean>({
+        kind: 'statistic_set',
+        key,
+        value,
+    });
+    if (!updated) {
         throw new Error('Failed to set statistic');
     }
-
     return true;
 };
