@@ -7,7 +7,7 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 
 use super::super::model_id;
 use super::super::operation::DatabaseOperationError;
-use super::super::repository::{fetch_one, fetch_rows, json_row, run};
+use super::super::repository::{begin_immediate, fetch_one, fetch_rows, json_row, run};
 use super::super::row::{count, insert_many_ignore};
 use super::models;
 
@@ -78,7 +78,7 @@ pub(super) async fn insert(
     if data.is_empty() {
         return Ok(JsonValue::Null);
     }
-    let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
+    let mut transaction = begin_immediate(pool).await?;
     insert_many_ignore(
         &mut transaction,
         "llm_metadata",
@@ -94,7 +94,7 @@ pub(super) async fn insert(
 }
 
 pub(super) async fn clear(pool: &SqlitePool) -> Result<JsonValue, DatabaseOperationError> {
-    let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
+    let mut transaction = begin_immediate(pool).await?;
     run(
         &mut *transaction,
         "DELETE FROM llm_metadata_aliases",
@@ -320,7 +320,7 @@ pub(super) async fn replace(
     mark_updated_at: bool,
     source_etag: Option<String>,
 ) -> Result<JsonValue, DatabaseOperationError> {
-    let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
+    let mut transaction = begin_immediate(pool).await?;
     run(
         &mut *transaction,
         "DELETE FROM llm_metadata_aliases",
@@ -365,7 +365,7 @@ pub(super) async fn mark_checked(
     checked_at: String,
     etag: Option<String>,
 ) -> Result<JsonValue, DatabaseOperationError> {
-    let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
+    let mut transaction = begin_immediate(pool).await?;
     upsert_statistic(
         &mut transaction,
         "model_metadata_last_checked_at",

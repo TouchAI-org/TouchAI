@@ -4,7 +4,9 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use sqlx::SqlitePool;
 
 use super::super::operation::DatabaseOperationError;
-use super::super::repository::{fetch_one, fetch_rows, json_object, json_row, run};
+use super::super::repository::{
+    begin_immediate, fetch_one, fetch_rows, json_object, json_row, run,
+};
 use super::super::row::{count, insert_one, update_by_id};
 
 const BUILTIN_TOOL_COLUMNS: &[&str] = &[
@@ -109,7 +111,7 @@ pub(super) async fn update_many(
         return Ok(JsonValue::Array(Vec::new()));
     }
 
-    let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
+    let mut transaction = begin_immediate(pool).await?;
     let mut updated = Vec::with_capacity(ids.len());
     for id in ids {
         let row = update_by_id(
