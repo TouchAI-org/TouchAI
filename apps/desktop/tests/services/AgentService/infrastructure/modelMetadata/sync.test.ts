@@ -1,6 +1,9 @@
-import type { InvokeArgs } from '@tauri-apps/api/core';
-import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
-import { describe, expect, it } from 'vitest';
+import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
     type LlmMetadataRecord,
@@ -10,9 +13,7 @@ import {
     syncAllModelsMetadata,
 } from '@/services/AgentService/infrastructure/modelMetadata/sync';
 
-function getRequest(payload: InvokeArgs | undefined) {
-    return (payload as { request?: { sql: string; params?: unknown[]; method: string } })?.request;
-}
+afterEach(closeTestDatabases);
 
 function metadata(modelId: string, overrides: Partial<LlmMetadataRecord> = {}): LlmMetadataRecord {
     return {
@@ -179,124 +180,89 @@ describe('user sees the metadata row resolved for a model', () => {
 });
 
 describe('user sees every model synced in one pass', () => {
-    const MODEL_ROW = { id: 1, model_id: 'group/auto-gpt-5-6-sol', upstream_metadata: null };
-    const METADATA_ROW = {
-        model_id: 'openai/gpt-5-6-sol',
-        attachment: 1,
-        modalities: '{"input":["text","image"],"output":["text"]}',
-        open_weights: 0,
-        reasoning: 1,
-        reasoning_options: null,
-        release_date: '2025-09-01',
-        temperature: 1,
-        tool_call: 1,
-        knowledge: null,
-        limit: '{"context":400000,"output":128000}',
-    };
-
-    it('user sees candidates matched in memory and written in one bulk update', async () => {
-        interceptTauriInvoke((call) => {
-            if (call.cmd !== 'database_query') {
-                return undefined;
-            }
-
-            const request = getRequest(call.payload);
-            if (request?.method !== 'all') {
-                return { rows: [], rowsAffected: 1, lastInsertId: null };
-            }
-
-            if (request.sql.includes('"llm_metadata_aliases"')) {
-                return {
-                    rows: [{ alias: 'gpt-5-6-sol', model_id: 'openai/gpt-5-6-sol' }],
-                    rowsAffected: 0,
-                    lastInsertId: null,
-                };
-            }
-
-            if (request.sql.includes('"llm_metadata"')) {
-                return { rows: [METADATA_ROW], rowsAffected: 0, lastInsertId: null };
-            }
-
-            return { rows: [MODEL_ROW], rowsAffected: 0, lastInsertId: null };
-        });
+    it('user sees matching catalog metadata written to the runtime model', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        database.exec(`
+            INSERT INTO providers (id, name, driver, api_endpoint, logo)
+            VALUES (1, 'OpenAI', 'openai', 'https://openai.example/v1', 'openai.png');
+            INSERT INTO models (id, provider_id, name, model_id)
+            VALUES (1, 1, 'GPT 5.6 Sol', 'group/auto-gpt-5-6-sol');
+            INSERT INTO llm_metadata_aliases (alias, model_id)
+            VALUES ('gpt-5-6-sol', 'openai/gpt-5-6-sol');
+            INSERT INTO llm_metadata (
+                model_id, name, attachment, modalities, open_weights, reasoning,
+                release_date, temperature, tool_call, knowledge, "limit"
+            ) VALUES (
+                'openai/gpt-5-6-sol', 'GPT 5.6 Sol', 1,
+                '{"input":["text","image"],"output":["text"]}', 0, 1,
+                '2025-09-01', 1, 1, NULL, '{"context":400000,"output":128000}'
+            );
+        `);
 
         await expect(syncAllModelsMetadata()).resolves.toBeUndefined();
 
-        const requests = getTauriInvokeCalls('database_query').map((call) =>
-            getRequest(call.payload)
-        );
-
-        // 只同步非自定义行；匹配在应用层完成后只剩这一条 UPDATE。
-        const modelSelect = requests.find(
-            (request) =>
-                request?.method === 'all' &&
-                request.sql.includes('from "models"') &&
-                request.sql.includes('"is_custom_metadata"')
-        );
-        expect(modelSelect?.sql).toContain('"models"."is_custom_metadata" = ?');
-        expect(modelSelect?.params).toEqual([0]);
-
-        const updateCalls = requests.filter((request) => request?.method === 'run');
-        expect(updateCalls).toHaveLength(1);
-        expect(updateCalls[0]!.sql).toContain('UPDATE models');
-        expect(updateCalls[0]!.sql).toContain('COALESCE');
-
-        expect(JSON.parse(String(updateCalls[0]!.params?.[0]))).toEqual([
-            {
-                id: 1,
-                attachment: 1,
-                modalities: '{"input":["text","image"],"output":["text"]}',
-                open_weights: 0,
-                reasoning: 1,
-                reasoning_options: null,
-                release_date: '2025-09-01',
-                temperature: 1,
-                tool_call: 1,
-                knowledge: null,
-                context_limit: 400000,
-                output_limit: 128000,
-                clear_reasoning_options: 0,
-            },
-        ]);
+        expect(
+            database
+                .prepare(
+                    `SELECT attachment, modalities, reasoning, release_date, tool_call,
+                            context_limit, output_limit
+                     FROM models WHERE id = 1`
+                )
+                .get()
+        ).toEqual({
+            attachment: 1,
+            modalities: '{"input":["text","image"],"output":["text"]}',
+            reasoning: 1,
+            release_date: '2025-09-01',
+            tool_call: 1,
+            context_limit: 400_000,
+            output_limit: 128_000,
+        });
     });
 
-    it('user sees no write when no candidate matches the alias table', async () => {
-        interceptTauriInvoke((call) => {
-            if (call.cmd !== 'database_query') {
-                return undefined;
-            }
-
-            const request = getRequest(call.payload);
-            if (request?.method === 'all' && request.sql.includes('"llm_metadata_aliases"')) {
-                return { rows: [], rowsAffected: 0, lastInsertId: null };
-            }
-
-            if (request?.method === 'all') {
-                return { rows: [MODEL_ROW], rowsAffected: 0, lastInsertId: null };
-            }
-
-            return { rows: [], rowsAffected: 1, lastInsertId: null };
-        });
+    it('user keeps existing model metadata when no catalog alias matches', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        database.exec(`
+            INSERT INTO providers (id, name, driver, api_endpoint, logo)
+            VALUES (1, 'Local', 'openai', 'http://local', '');
+            INSERT INTO models (
+                id, provider_id, name, model_id, context_limit, output_limit, reasoning
+            ) VALUES (1, 1, 'Local', 'private-model', 777, 333, 1);
+        `);
 
         await expect(syncAllModelsMetadata()).resolves.toBeUndefined();
 
-        const runCalls = getTauriInvokeCalls('database_query').filter(
-            (call) => getRequest(call.payload)?.method === 'run'
-        );
-        expect(runCalls).toHaveLength(0);
+        expect(
+            database
+                .prepare('SELECT context_limit, output_limit, reasoning FROM models WHERE id = 1')
+                .get()
+        ).toEqual({ context_limit: 777, output_limit: 333, reasoning: 1 });
     });
 
-    it('user sees no database work when there are no non-custom models', async () => {
-        interceptTauriInvoke((call) => {
-            if (call.cmd !== 'database_query') {
-                return undefined;
-            }
-
-            return { rows: [], rowsAffected: 0, lastInsertId: null };
-        });
+    it('user keeps custom model metadata untouched', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        database.exec(`
+            INSERT INTO providers (id, name, driver, api_endpoint, logo)
+            VALUES (1, 'OpenAI', 'openai', 'https://openai.example/v1', 'openai.png');
+            INSERT INTO models (
+                id, provider_id, name, model_id, context_limit, is_custom_metadata
+            ) VALUES (1, 1, 'Custom', 'group/auto-gpt-5-6-sol', 555, 1);
+            INSERT INTO llm_metadata_aliases (alias, model_id)
+            VALUES ('gpt-5-6-sol', 'openai/gpt-5-6-sol');
+            INSERT INTO llm_metadata (model_id, name, modalities, "limit")
+            VALUES (
+                'openai/gpt-5-6-sol', 'GPT 5.6 Sol',
+                '{"input":["text"],"output":["text"]}', '{"context":400000}'
+            );
+        `);
 
         await expect(syncAllModelsMetadata()).resolves.toBeUndefined();
 
-        expect(getTauriInvokeCalls('database_query')).toHaveLength(1);
+        expect(database.prepare('SELECT context_limit FROM models WHERE id = 1').get()).toEqual({
+            context_limit: 555,
+        });
     });
 });

@@ -2,13 +2,9 @@
  * Copyright (c) 2025-2026. Qian Cheng. Licensed under GPL v3
  */
 
-import { db } from '@database';
-import { createModels, recordUpstreamModelMetadata } from '@database/queries/models';
-import { models } from '@database/schema';
-import { eq } from 'drizzle-orm';
+import { native } from '@services/NativeService';
 
 import type { ModelInfo } from '../providers/types';
-import { syncAllModelsMetadata } from './sync';
 import { toUpstreamModelMetadataEntries } from './upstreamEntries';
 
 export interface PersistRefreshedModelsPayload {
@@ -31,34 +27,16 @@ export async function persistRefreshedModels({
     providerId,
     models: fetchedModels,
 }: PersistRefreshedModelsPayload): Promise<ModelRefreshPersistenceResult> {
-    return await db.transaction(async (tx) => {
-        const existingRows = await tx
-            .select({ modelId: models.model_id })
-            .from(models)
-            .where(eq(models.provider_id, providerId))
-            .all();
-        const existingModelIds = new Set(existingRows.map((row) => row.modelId));
-
-        const newModels = fetchedModels
-            .filter((fetchedModel) => !existingModelIds.has(fetchedModel.id))
-            .map((fetchedModel) => ({
-                provider_id: providerId,
-                name: fetchedModel.name,
-                model_id: fetchedModel.id,
-                is_default: 0,
-            }));
-
-        if (newModels.length > 0) {
-            await createModels(newModels, tx);
-        }
-
-        const entries = toUpstreamModelMetadataEntries(fetchedModels);
-        if (entries.length > 0) {
-            await recordUpstreamModelMetadata({ providerId, entries }, tx);
-        }
-
-        await syncAllModelsMetadata(tx);
-
-        return { addedCount: newModels.length };
+    return native.database.operation<ModelRefreshPersistenceResult>({
+        kind: 'model_persist_catalog',
+        providerId,
+        models: fetchedModels.map((model) => ({
+            model_id: model.id,
+            name: model.name,
+        })),
+        entries: toUpstreamModelMetadataEntries(fetchedModels).map((entry) => ({
+            model_id: entry.model_id,
+            metadata: { ...entry.metadata },
+        })),
     });
 }

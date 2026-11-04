@@ -7,6 +7,7 @@ import { db } from '@database';
 import type { PersistedCall } from '@services/UsageService';
 import { sumUsage } from '@services/UsageService';
 import { insertLlmCallParts } from '@services/UsageService/insertLlmCallParts';
+import { routeDatabaseOperation } from '@tests/database/sqliteHarness';
 import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -33,6 +34,8 @@ function openDatabase(): SqliteDatabase {
 
 function routeQueriesTo(database: SqliteDatabase) {
     interceptTauriInvoke((call) => {
+        const operation = routeDatabaseOperation(database, call);
+        if (operation) return operation.value;
         if (call.cmd === 'database_tx_begin') {
             database.exec('BEGIN');
             return 'test-tx';
