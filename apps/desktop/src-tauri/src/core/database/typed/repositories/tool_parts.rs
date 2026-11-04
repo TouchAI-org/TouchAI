@@ -4,7 +4,7 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use sqlx::SqlitePool;
 
 use super::super::operation::{DatabaseOperationError, ToolPartFilter, ToolPartKind};
-use super::super::repository::{fetch_one, fetch_rows};
+use super::super::repository::{begin_immediate, fetch_one, fetch_rows};
 use super::super::row::insert_one;
 
 fn tool_payload(data: &JsonMap<String, JsonValue>) -> JsonMap<String, JsonValue> {
@@ -112,7 +112,7 @@ pub(super) async fn create(
     kind: ToolPartKind,
     data: JsonMap<String, JsonValue>,
 ) -> Result<JsonValue, DatabaseOperationError> {
-    let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
+    let mut transaction = begin_immediate(pool).await?;
     let message_id = match data.get("message_id").and_then(JsonValue::as_i64) {
         Some(id) if id > 0 => id,
         _ => {
@@ -245,7 +245,7 @@ pub(super) async fn update(
     filter: ToolPartFilter,
     data: JsonMap<String, JsonValue>,
 ) -> Result<JsonValue, DatabaseOperationError> {
-    let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
+    let mut transaction = begin_immediate(pool).await?;
     let mut params = Vec::new();
     let where_clause = filter_clause(kind, &filter, &mut params);
     let existing = fetch_rows(

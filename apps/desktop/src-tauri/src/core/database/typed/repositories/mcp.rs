@@ -6,7 +6,9 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use sqlx::SqlitePool;
 
 use super::super::operation::{DatabaseOperationError, McpToolDefinition};
-use super::super::repository::{fetch_one, fetch_rows, json_object, json_row, run};
+use super::super::repository::{
+    begin_immediate, fetch_one, fetch_rows, json_object, json_row, run,
+};
 use super::super::row::{count, delete_by_id, insert_one, update_by_id};
 
 const MCP_SERVER_COLUMNS: &[&str] = &[
@@ -253,7 +255,7 @@ pub(super) async fn sync_tools(
     server_id: i64,
     tools: Vec<McpToolDefinition>,
 ) -> Result<JsonValue, DatabaseOperationError> {
-    let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
+    let mut transaction = begin_immediate(pool).await?;
     let existing = fetch_rows(
         &mut *transaction,
         "SELECT name, enabled FROM mcp_tools WHERE server_id = ?",
