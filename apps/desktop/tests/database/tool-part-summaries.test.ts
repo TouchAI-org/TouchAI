@@ -24,6 +24,14 @@ function respondWithRows(rows: unknown[]) {
     );
 }
 
+function respondWithSettingValues(values: Record<string, string | null>) {
+    interceptTauriInvoke((call) => {
+        if (call.cmd !== 'database_operation') return undefined;
+        const request = (call.payload as InvokeArgs & { request?: { kind?: string } }).request;
+        return request?.kind === 'setting_get_many' ? values : undefined;
+    });
+}
+
 function lastSql(): string {
     const calls = getTauriInvokeCalls('database_query');
     return (calls[calls.length - 1]!.payload as InvokeArgs & { request: { sql: string } }).request
@@ -75,16 +83,16 @@ describe('when the settings page reads several keys at once', () => {
 
     it('user gets an empty result without a query when no key is requested', async () => {
         expect(await getSettingValues({ keys: [] })).toEqual({});
-        expect(getTauriInvokeCalls('database_query')).toHaveLength(0);
+        expect(getTauriInvokeCalls('database_operation')).toHaveLength(0);
     });
 
     it('user gets every requested key, with missing ones reported as null', async () => {
-        respondWithRows([{ key: 'language', value: 'zh' }]);
+        respondWithSettingValues({ language: 'zh', missing: null });
 
         const values = await getSettingValues({ keys: ['language', 'missing'] });
 
         expect(values).toEqual({ language: 'zh', missing: null });
-        expect(lastSql()).toContain('in (');
+        expect(getTauriInvokeCalls('database_operation')).toHaveLength(1);
     });
 });
 

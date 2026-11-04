@@ -4,6 +4,30 @@ import type { SqlValue } from '@database/schema';
 
 import { invoke } from './invoke';
 
+export type DatabaseOperation =
+    | { kind: 'setting_find'; key: string }
+    | { kind: 'setting_get'; key: string }
+    | { kind: 'setting_get_many'; keys: string[] }
+    | { kind: 'setting_set'; key: string; value: string }
+    | { kind: 'statistic_get'; key: string }
+    | { kind: 'statistic_set'; key: string; value: string }
+    | { kind: 'meta_get'; key: string }
+    | { kind: 'meta_set'; key: string; value: string }
+    | { kind: 'meta_delete'; key: string }
+    | { kind: 'quick_search_find'; queryNorm: string; limit: number }
+    | { kind: 'quick_search_find_recent'; queryNorm: string; limit: number }
+    | {
+          kind: 'quick_search_upsert';
+          queryNorm: string;
+          pathNorm: string;
+          maxClickCount: number;
+      };
+
+export interface DatabaseOperationError {
+    code: string;
+    message: string;
+}
+
 export type DatabaseQueryMethod = 'run' | 'all' | 'get' | 'values';
 export type DatabaseTransactionBehavior = 'deferred' | 'immediate' | 'exclusive';
 export type DatabaseImportMode = 'chat_only' | 'full';
@@ -26,6 +50,13 @@ export interface DatabaseImportRequest {
 }
 
 export const database = {
+    operation<T>(request: DatabaseOperation): Promise<T> {
+        return invoke<T>('database_operation', { request }).catch((error: unknown) => {
+            const normalized = normalizeDatabaseOperationError(error);
+            throw normalized;
+        });
+    },
+
     query(request: DatabaseQueryRequest): Promise<DatabaseQueryResponse> {
         return invoke('database_query', { request });
     },
@@ -62,3 +93,20 @@ export const database = {
         return invoke('database_import_backup', { request });
     },
 } as const;
+
+function normalizeDatabaseOperationError(error: unknown): Error {
+    if (error instanceof Error) {
+        return error;
+    }
+    if (error && typeof error === 'object') {
+        const value = error as Partial<DatabaseOperationError>;
+        if (typeof value.message === 'string') {
+            const normalized = new Error(value.message);
+            if (typeof value.code === 'string') {
+                (normalized as Error & { code?: string }).code = value.code;
+            }
+            return normalized;
+        }
+    }
+    return new Error(String(error));
+}

@@ -66,6 +66,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         font::prepare_product_font_file,
         database::database_query,
         database::database_batch,
+        database::database_operation,
         database::database_tx_begin,
         database::database_tx_query,
         database::database_tx_batch,
