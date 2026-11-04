@@ -6,7 +6,9 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use sqlx::SqlitePool;
 
 use super::super::operation::DatabaseOperationError;
-use super::super::repository::{fetch_one, fetch_rows, json_object, json_row, run};
+use super::super::repository::{
+    begin_immediate, fetch_one, fetch_rows, json_object, json_row, run,
+};
 use super::super::row::{count, insert_one};
 
 const SESSION_COLUMNS: &[&str] = &[
@@ -234,7 +236,7 @@ pub(super) async fn dismiss_terminal_status(
     pool: &SqlitePool,
     id: i64,
 ) -> Result<JsonValue, DatabaseOperationError> {
-    let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
+    let mut transaction = begin_immediate(pool).await?;
     let latest = fetch_one(
         &mut *transaction,
         "SELECT id, status FROM session_turns

@@ -7,7 +7,9 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 
 use super::super::model_id;
 use super::super::operation::{CatalogModel, DatabaseOperationError, UpstreamMetadataEntry};
-use super::super::repository::{fetch_one, fetch_rows, json_object, json_row, run};
+use super::super::repository::{
+    begin_immediate, fetch_one, fetch_rows, json_object, json_row, run,
+};
 use super::super::row::{delete_by_id, insert_one, update_by_id};
 
 const MODEL_COLUMNS: &[&str] = &[
@@ -185,7 +187,7 @@ pub(super) async fn set_default(
     pool: &SqlitePool,
     model_id: i64,
 ) -> Result<JsonValue, DatabaseOperationError> {
-    let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
+    let mut transaction = begin_immediate(pool).await?;
     let target = fetch_one(
         &mut *transaction,
         "SELECT models.id, providers.enabled, providers.name AS provider_name
@@ -276,7 +278,7 @@ pub(super) async fn record_upstream_metadata(
     if entries.is_empty() {
         return Ok(JsonValue::Null);
     }
-    let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
+    let mut transaction = begin_immediate(pool).await?;
     record_upstream_metadata_on(&mut transaction, provider_id, &entries).await?;
     transaction
         .commit()
@@ -291,7 +293,7 @@ pub(super) async fn persist_catalog(
     models: Vec<CatalogModel>,
     entries: Vec<UpstreamMetadataEntry>,
 ) -> Result<JsonValue, DatabaseOperationError> {
-    let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
+    let mut transaction = begin_immediate(pool).await?;
     let existing = fetch_rows(
         &mut *transaction,
         "SELECT model_id FROM models WHERE provider_id = ?",
@@ -331,7 +333,7 @@ pub(super) async fn persist_catalog(
 }
 
 pub(super) async fn sync_metadata(pool: &SqlitePool) -> Result<JsonValue, DatabaseOperationError> {
-    let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
+    let mut transaction = begin_immediate(pool).await?;
     sync_metadata_on(&mut transaction).await?;
     transaction
         .commit()
