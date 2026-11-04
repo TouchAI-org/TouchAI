@@ -7,6 +7,7 @@ mod models;
 mod providers;
 mod sessions;
 mod settings;
+mod tool_parts;
 
 use serde_json::Value as JsonValue;
 use sqlx::SqlitePool;
@@ -56,6 +57,26 @@ pub(super) async fn execute(
         }
         DatabaseOperation::SessionCount => sessions::count_sessions(pool).await,
         DatabaseOperation::SessionDeleteAll => sessions::delete_all(pool).await,
+        DatabaseOperation::ToolPartCreate { tool_kind, data } => {
+            tool_parts::create(pool, tool_kind, data).await
+        }
+        DatabaseOperation::ToolPartList {
+            tool_kind,
+            filter,
+            limit,
+            offset,
+        } => tool_parts::list(pool, tool_kind, filter, limit, offset).await,
+        DatabaseOperation::ToolPartSummaries {
+            tool_kind,
+            filter,
+            limit,
+            offset,
+        } => tool_parts::summaries(pool, tool_kind, filter, limit, offset).await,
+        DatabaseOperation::ToolPartUpdate {
+            tool_kind,
+            filter,
+            data,
+        } => tool_parts::update(pool, tool_kind, filter, data).await,
         DatabaseOperation::ModelListWithProvider { provider_id } => {
             models::list_with_provider(pool, provider_id).await
         }

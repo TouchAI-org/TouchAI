@@ -11,10 +11,8 @@ import { getMessageText, syncOutputParts } from '@database/queries/messageParts'
 import { findMessagesBySessionId } from '@database/queries/messages';
 import { listSessions, refreshSessionMetadata } from '@database/queries/sessions';
 import { createToolPart, findToolParts, updateToolPart } from '@database/queries/toolParts';
-import { messageParts } from '@database/schema';
 import { routeDatabaseOperation } from '@tests/database/sqliteHarness';
 import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
-import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const { DatabaseSync } = createRequire(import.meta.url)(
@@ -121,11 +119,15 @@ describe('when conversations are stored as ordered message parts', () => {
             toolKind: 'builtin',
             status: 'pending',
         });
-        const updated = await updateToolPart('builtin', eq(messageParts.id, created.id), {
-            tool_call_id: 'call-renamed',
-            status: 'success',
-            output: 'result',
-        });
+        const updated = await updateToolPart(
+            'builtin',
+            { kind: 'id', id: created.id },
+            {
+                tool_call_id: 'call-renamed',
+                status: 'success',
+                output: 'result',
+            }
+        );
         expect(updated?.tool_call_id).toBe('call-renamed');
         expect(savedData()).toMatchObject({
             toolCallId: 'call-renamed',
@@ -133,18 +135,23 @@ describe('when conversations are stored as ordered message parts', () => {
             output: 'result',
         });
         expect(
-            await findToolParts('builtin', eq(messageParts.tool_call_id, 'call-original'))
+            await findToolParts('builtin', {
+                kind: 'tool_call_id',
+                toolCallId: 'call-original',
+            })
         ).toEqual([]);
         expect(
-            await findToolParts('builtin', eq(messageParts.tool_call_id, 'call-renamed'))
+            await findToolParts('builtin', {
+                kind: 'tool_call_id',
+                toolCallId: 'call-renamed',
+            })
         ).toHaveLength(1);
-        const writes = getTauriInvokeCalls('database_tx_query')
-            .map((call) => (call.payload as { request: { sql: string } }).request.sql)
-            .filter((sql) => /^(insert|update)/i.test(sql));
-        for (const sql of writes) {
-            const assignment = sql.split(/returning/i)[0]!;
-            expect(assignment).not.toMatch(/"(tool_call_id|tool_kind|attachment_id)"/);
-        }
+        expect(getTauriInvokeCalls('database_tx_query')).toEqual([]);
+        expect(
+            database
+                .prepare('SELECT tool_call_id, tool_kind FROM message_parts WHERE id = ?')
+                .get(created.id)
+        ).toEqual({ tool_call_id: 'call-renamed', tool_kind: 'builtin' });
     });
 
     it('user sees a tool update leave the part where it was', async () => {
@@ -164,7 +171,7 @@ describe('when conversations are stored as ordered message parts', () => {
             message_id: 2,
             created_at: '2026-10-02 00:00:00',
         };
-        const updated = await updateToolPart('builtin', eq(messageParts.id, created.id), patch);
+        const updated = await updateToolPart('builtin', { kind: 'id', id: created.id }, patch);
         expect(updated).toMatchObject({
             id: created.id,
             message_id: 1,

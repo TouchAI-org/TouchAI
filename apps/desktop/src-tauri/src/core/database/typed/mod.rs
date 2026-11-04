@@ -37,6 +37,7 @@ pub(crate) enum OperationGroup {
     Config,
     Agent,
     Search,
+    ToolHistory,
     Usage,
     Backup,
 }

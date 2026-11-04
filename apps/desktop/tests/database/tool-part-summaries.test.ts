@@ -12,30 +12,27 @@ import {
     findToolPartSummaries,
     type ToolPartSummaryRow,
 } from '@database/queries/toolParts';
-import type { InvokeArgs } from '@tauri-apps/api/core';
+import type { DatabaseOperation } from '@services/NativeService/database';
 import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 const CREATED_AT = '2026-05-29T00:00:00.000Z';
 
-function respondWithRows(rows: unknown[]) {
-    interceptTauriInvoke((call) =>
-        call.cmd === 'database_query' ? { rows, rowsAffected: 0, lastInsertId: null } : undefined
-    );
-}
-
-function respondWithSettingValues(values: Record<string, string | null>) {
+function respondWithOperation(kind: DatabaseOperation['kind'], value: unknown) {
     interceptTauriInvoke((call) => {
         if (call.cmd !== 'database_operation') return undefined;
-        const request = (call.payload as InvokeArgs & { request?: { kind?: string } }).request;
-        return request?.kind === 'setting_get_many' ? values : undefined;
+        const request = (call.payload as { request?: DatabaseOperation } | undefined)?.request;
+        return request?.kind === kind ? value : undefined;
     });
 }
 
-function lastSql(): string {
-    const calls = getTauriInvokeCalls('database_query');
-    return (calls[calls.length - 1]!.payload as InvokeArgs & { request: { sql: string } }).request
-        .sql;
+function respondWithSettingValues(values: Record<string, string | null>) {
+    respondWithOperation('setting_get_many', values);
+}
+
+function lastOperation(): DatabaseOperation {
+    const calls = getTauriInvokeCalls('database_operation');
+    return (calls[calls.length - 1]!.payload as { request: DatabaseOperation }).request;
 }
 
 function summaryRow(overrides: Partial<ToolPartSummaryRow> = {}): ToolPartSummaryRow {
@@ -76,6 +73,7 @@ function flatToolPartRow(overrides: Record<string, unknown> = {}) {
         ...overrides,
     };
 }
+
 describe('when the settings page reads several keys at once', () => {
     beforeEach(() => {
         interceptTauriInvoke(() => undefined);
@@ -92,76 +90,143 @@ describe('when the settings page reads several keys at once', () => {
         const values = await getSettingValues({ keys: ['language', 'missing'] });
 
         expect(values).toEqual({ language: 'zh', missing: null });
-        expect(getTauriInvokeCalls('database_operation')).toHaveLength(1);
+        expect(lastOperation()).toEqual({
+            kind: 'setting_get_many',
+            keys: ['language', 'missing'],
+        });
     });
 });
 
 describe('when the settings log viewer pages through tool parts', () => {
-    it('user gets a summary row with defaults filled in for missing data', async () => {
-        respondWithRows([summaryRow({ tool_name: null as never, status: null as never })]);
+    it('user sends the typed summary request with paging', async () => {
+        respondWithOperation('tool_part_summaries', [summaryRow()]);
 
-        const rows = await findToolPartSummaries('builtin', undefined, { limit: 20, offset: 40 });
+        const rows = await findToolPartSummaries(
+            'builtin',
+            { kind: 'tool_call_id', toolCallId: 'call-1' },
+            { limit: 20, offset: 40 }
+        );
 
-        expect(rows[0]).toMatchObject({ tool_name: '', status: 'pending' });
-        const sql = lastSql();
-        expect(sql).toContain('limit');
-        expect(sql).toContain('offset');
+        expect(rows).toHaveLength(1);
+        expect(lastOperation()).toEqual({
+            kind: 'tool_part_summaries',
+            toolKind: 'builtin',
+            filter: { kind: 'tool_call_id', toolCallId: 'call-1' },
+            limit: 20,
+            offset: 40,
+        });
     });
 
     it('user gets summaries without paging when no limit is requested', async () => {
-        respondWithRows([summaryRow()]);
+        respondWithOperation('tool_part_summaries', [summaryRow()]);
 
-        const rows = await findToolPartSummaries('mcp');
+        const rows = await findToolPartSummaries('mcp', {
+            kind: 'tool_call_id',
+            toolCallId: 'call-2',
+        });
 
         expect(rows).toHaveLength(1);
-        expect(lastSql()).toContain('json_extract');
+        expect(lastOperation()).toEqual({
+            kind: 'tool_part_summaries',
+            toolKind: 'mcp',
+            filter: { kind: 'tool_call_id', toolCallId: 'call-2' },
+            limit: undefined,
+            offset: undefined,
+        });
     });
 
     it('user gets the full part only when the id and kind both match', async () => {
-        respondWithRows([flatToolPartRow({ id: 9, tool_call_id: 'call-9' })]);
+        respondWithOperation('tool_part_list', [
+            flatToolPartRow({ id: 9, tool_call_id: 'call-9' }),
+        ]);
 
         const part = await findToolPartById('builtin', 9);
 
         expect(part).toMatchObject({ id: 9, session_id: 3 });
-        expect(lastSql()).toContain('"tool_kind" =');
+        expect(lastOperation()).toEqual({
+            kind: 'tool_part_list',
+            toolKind: 'builtin',
+            filter: { kind: 'id', id: 9 },
+            limit: 1,
+            offset: 0,
+        });
     });
+
     it('user gets nothing when the part is gone', async () => {
-        respondWithRows([]);
+        respondWithOperation('tool_part_list', []);
 
         expect(await findToolPartById('mcp', 404)).toBeUndefined();
+        expect(lastOperation()).toEqual({
+            kind: 'tool_part_list',
+            toolKind: 'mcp',
+            filter: { kind: 'id', id: 404 },
+            limit: 1,
+            offset: 0,
+        });
     });
 });
 
 describe('when the log viewers load one entry by id', () => {
     it('user gets the built-in log entry by id', async () => {
-        respondWithRows([flatToolPartRow({ id: 5, tool_call_id: 'call-5' })]);
+        respondWithOperation('tool_part_list', [
+            flatToolPartRow({ id: 5, tool_call_id: 'call-5' }),
+        ]);
 
         expect(await findBuiltInToolLogById(5)).toMatchObject({ id: 5 });
+        expect(lastOperation()).toEqual({
+            kind: 'tool_part_list',
+            toolKind: 'builtin',
+            filter: { kind: 'id', id: 5 },
+            limit: 1,
+            offset: 0,
+        });
     });
+
     it('user gets the mcp log entry by id', async () => {
-        respondWithRows([]);
+        respondWithOperation('tool_part_list', []);
 
         expect(await findMcpToolLogById(6)).toBeUndefined();
-        expect(lastSql()).toContain('"tool_kind" =');
+        expect(lastOperation()).toEqual({
+            kind: 'tool_part_list',
+            toolKind: 'mcp',
+            filter: { kind: 'id', id: 6 },
+            limit: 1,
+            offset: 0,
+        });
     });
 });
 
 describe('when the log viewers list entries for one owner', () => {
     it('user gets built-in entries filtered by tool id', async () => {
-        respondWithRows([summaryRow({ tool_name: 'bash' })]);
+        respondWithOperation('tool_part_summaries', [summaryRow({ tool_name: 'bash' })]);
 
-        const rows = await findBuiltInToolLogSummariesByToolId('bash', { limit: 10, offset: 0 });
+        const rows = await findBuiltInToolLogSummariesByToolId('bash', {
+            limit: 10,
+            offset: 0,
+        });
 
         expect(rows).toHaveLength(1);
-        expect(lastSql()).toContain('"tool_id" =');
+        expect(lastOperation()).toEqual({
+            kind: 'tool_part_summaries',
+            toolKind: 'builtin',
+            filter: { kind: 'tool_id', toolId: 'bash' },
+            limit: 10,
+            offset: 0,
+        });
     });
 
     it('user gets mcp entries filtered by server id', async () => {
-        respondWithRows([summaryRow({ server_id: 4 })]);
+        respondWithOperation('tool_part_summaries', [summaryRow({ server_id: 4 })]);
 
         const rows = await findMcpToolLogSummariesByServerId(4, { limit: 10, offset: 0 });
 
         expect(rows[0]).toMatchObject({ server_id: 4 });
-        expect(lastSql()).toContain('"server_id" =');
+        expect(lastOperation()).toEqual({
+            kind: 'tool_part_summaries',
+            toolKind: 'mcp',
+            filter: { kind: 'server_id', serverId: 4 },
+            limit: 10,
+            offset: 0,
+        });
     });
 });

@@ -1,6 +1,3 @@
-import { eq } from 'drizzle-orm';
-
-import { messageParts } from '../schema';
 import type {
     BuiltInToolLogCreateData,
     BuiltInToolLogEntity,
@@ -24,7 +21,7 @@ export const findBuiltInToolLogsByToolId = async (
 ) =>
     (await findToolParts(
         'builtin',
-        eq(messageParts.tool_id, id),
+        { kind: 'tool_id', toolId: id },
         options
     )) as BuiltInToolLogEntity[];
 
@@ -33,7 +30,7 @@ export const findBuiltInToolLogSummariesByToolId = async (
     id: string,
     options?: { limit?: number; offset?: number }
 ): Promise<BuiltInToolLogSummary[]> =>
-    await findToolPartSummaries('builtin', eq(messageParts.tool_id, id), options);
+    await findToolPartSummaries('builtin', { kind: 'tool_id', toolId: id }, options);
 
 /** 展开时按主键读取完整日志正文。 */
 export const findBuiltInToolLogById = async (id: number) =>
@@ -42,6 +39,6 @@ export const findBuiltInToolLogById = async (id: number) =>
 export const createBuiltInToolLog = async (data: BuiltInToolLogCreateData) =>
     (await createToolPart('builtin', { ...data })) as BuiltInToolLogEntity;
 export const updateBuiltInToolLogByCallId = async (id: string, data: BuiltInToolLogUpdateData) =>
-    (await updateToolPart('builtin', eq(messageParts.tool_call_id, id), { ...data })) as
+    (await updateToolPart('builtin', { kind: 'tool_call_id', toolCallId: id }, { ...data })) as
         | BuiltInToolLogEntity
         | undefined;
