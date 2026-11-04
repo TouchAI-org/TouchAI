@@ -6,9 +6,11 @@
 //! business/read operation with a fixed payload and an explicit surface
 //! permission.
 
+mod model_id;
 mod operation;
 mod repositories;
 mod repository;
+mod row;
 
 pub(crate) use operation::{DatabaseOperation, DatabaseOperationError};
 

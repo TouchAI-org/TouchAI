@@ -4,6 +4,38 @@ use common::{build_test_app, invoke_command_err, invoke_command_ok, TestAppOptio
 use serde_json::json;
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
+fn database_operation(
+    webview: &tauri::WebviewWindow<tauri::test::MockRuntime>,
+    request: serde_json::Value,
+) -> serde_json::Value {
+    invoke_command_ok(webview, "database_operation", json!({ "request": request }))
+}
+
+fn execute_sql(
+    webview: &tauri::WebviewWindow<tauri::test::MockRuntime>,
+    sql: &str,
+    params: serde_json::Value,
+) {
+    let response: serde_json::Value = invoke_command_ok(
+        webview,
+        "database_query",
+        json!({ "request": { "sql": sql, "params": params, "method": "run" } }),
+    );
+    assert!(response["rowsAffected"].as_u64().is_some());
+}
+
+fn query_sql(
+    webview: &tauri::WebviewWindow<tauri::test::MockRuntime>,
+    sql: &str,
+    params: serde_json::Value,
+) -> serde_json::Value {
+    invoke_command_ok(
+        webview,
+        "database_query",
+        json!({ "request": { "sql": sql, "params": params, "method": "all" } }),
+    )
+}
+
 #[test]
 fn database_query_returns_rows_from_sqlite_runtime() {
     let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
@@ -72,6 +104,218 @@ fn user_can_read_and_write_settings_through_the_typed_database_operation() {
         }),
     );
     assert_eq!(values, json!({ "language": "zh-CN", "missing": null }));
+}
+
+#[test]
+fn user_gets_exactly_one_default_model_through_the_typed_database_operation() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO providers (id, name, driver, api_endpoint, logo, enabled)
+         VALUES (7001, 'OpenAI', 'openai', 'https://openai.example/v1', 'openai.png', 1)",
+        json!([]),
+    );
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO models (id, provider_id, name, model_id, is_default)
+         VALUES (1001, 7001, 'Old', 'old-model', 1), (1002, 7001, 'New', 'new-model', 0)",
+        json!([]),
+    );
+
+    let response = database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "model_set_default", "modelId": 1002 }),
+    );
+    assert_eq!(response, serde_json::Value::Null);
+
+    let defaults = query_sql(
+        &test_app.main_webview,
+        "SELECT id FROM models WHERE is_default = 1 ORDER BY id",
+        json!([]),
+    );
+    assert_eq!(defaults["rows"], json!([{ "id": 1002 }]));
+}
+
+#[test]
+fn user_keeps_the_previous_default_when_the_typed_target_provider_is_disabled() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO providers (id, name, driver, api_endpoint, logo, enabled)
+         VALUES (7001, 'Enabled', 'openai', 'https://enabled.example/v1', 'openai.png', 1),
+                (8001, 'Disabled', 'openai', 'https://disabled.example/v1', 'openai.png', 0)",
+        json!([]),
+    );
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO models (id, provider_id, name, model_id, is_default)
+         VALUES (1001, 7001, 'Current', 'current-model', 1),
+                (1002, 8001, 'Disabled', 'disabled-model', 0)",
+        json!([]),
+    );
+
+    let error = invoke_command_err(
+        &test_app.main_webview,
+        "database_operation",
+        json!({
+            "request": {
+                "kind": "model_set_default",
+                "modelId": 1002
+            }
+        }),
+    );
+    assert_eq!(error["code"], "provider-disabled");
+    assert_eq!(error["message"], "Disabled");
+
+    let defaults = query_sql(
+        &test_app.main_webview,
+        "SELECT id FROM models WHERE is_default = 1 ORDER BY id",
+        json!([]),
+    );
+    assert_eq!(defaults["rows"], json!([{ "id": 1001 }]));
+}
+
+#[test]
+fn user_gets_mcp_tool_enabled_preferences_kept_after_typed_sync() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO mcp_servers (id, name, transport_type)
+         VALUES (9001, 'Local typed test', 'stdio')",
+        json!([]),
+    );
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO mcp_tools (id, server_id, name, input_schema, enabled)
+         VALUES (9001, 9001, 'old-tool', '{}', 0), (9002, 9001, 'removed-tool', '{}', 1)",
+        json!([]),
+    );
+
+    let response = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "mcp_tool_sync",
+            "serverId": 9001,
+            "tools": [
+                {
+                    "name": "old-tool",
+                    "description": "Still here",
+                    "inputSchema": { "type": "object" }
+                },
+                {
+                    "name": "new-tool",
+                    "description": "New",
+                    "inputSchema": { "type": "object" }
+                }
+            ]
+        }),
+    );
+    assert_eq!(response, serde_json::Value::Null);
+
+    let tools = query_sql(
+        &test_app.main_webview,
+        "SELECT name, enabled FROM mcp_tools WHERE server_id = 9001 ORDER BY name",
+        json!([]),
+    );
+    assert_eq!(
+        tools["rows"],
+        json!([
+            { "name": "new-tool", "enabled": 1 },
+            { "name": "old-tool", "enabled": 0 }
+        ])
+    );
+}
+
+#[test]
+fn user_keeps_old_llm_metadata_when_a_typed_replace_is_invalid() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO llm_metadata (model_id, name, modalities)
+         VALUES ('old-model', 'Old', '{}')",
+        json!([]),
+    );
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO llm_metadata_aliases (alias, model_id)
+         VALUES ('old-alias', 'old-model')",
+        json!([]),
+    );
+
+    let error = invoke_command_err(
+        &test_app.main_webview,
+        "database_operation",
+        json!({
+            "request": {
+                "kind": "llm_metadata_replace",
+                "metadata": [
+                    {
+                        "model_id": "new-model",
+                        "name": "New",
+                        "modalities": "{}",
+                        "unsupported_column": true
+                    }
+                ],
+                "aliases": [],
+                "markUpdatedAt": true,
+                "sourceEtag": "new-etag"
+            }
+        }),
+    );
+    assert_eq!(error["code"], "database-validation");
+
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT model_id, name FROM llm_metadata ORDER BY model_id",
+            json!([]),
+        )["rows"],
+        json!([{ "model_id": "old-model", "name": "Old" }])
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT alias, model_id FROM llm_metadata_aliases ORDER BY alias",
+            json!([]),
+        )["rows"],
+        json!([{ "alias": "old-alias", "model_id": "old-model" }])
+    );
+}
+
+#[test]
+fn user_keeps_built_in_tool_state_when_a_typed_bulk_update_is_invalid() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO built_in_tools (id, tool_id, display_name, enabled)
+         VALUES (9001, 'first-typed-test', 'First', 1), (9002, 'second-typed-test', 'Second', 1)",
+        json!([]),
+    );
+
+    let error = invoke_command_err(
+        &test_app.main_webview,
+        "database_operation",
+        json!({
+            "request": {
+                "kind": "built_in_tool_update_many",
+                "ids": [9001, 999999],
+                "data": { "enabled": 0 }
+            }
+        }),
+    );
+    assert_eq!(error["code"], "built-in-tool-not-found");
+
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT id, enabled FROM built_in_tools WHERE id IN (9001, 9002) ORDER BY id",
+            json!([]),
+        )["rows"],
+        json!([
+            { "id": 9001, "enabled": 1 },
+            { "id": 9002, "enabled": 1 }
+        ])
+    );
 }
 
 #[test]

@@ -12,6 +12,7 @@ import { findMessagesBySessionId } from '@database/queries/messages';
 import { listSessions, refreshSessionMetadata } from '@database/queries/sessions';
 import { createToolPart, findToolParts, updateToolPart } from '@database/queries/toolParts';
 import { messageParts } from '@database/schema';
+import { routeDatabaseOperation } from '@tests/database/sqliteHarness';
 import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
 import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -47,6 +48,8 @@ function attachImportDatabase(database: SqliteDatabase) {
 }
 function routeQueriesTo(database: SqliteDatabase) {
     interceptTauriInvoke((call) => {
+        const operation = routeDatabaseOperation(database, call);
+        if (operation) return operation.value;
         if (call.cmd === 'database_tx_begin') {
             database.exec('BEGIN');
             return 'test-tx';

@@ -10,7 +10,7 @@ import {
 import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { openMigratedDatabase } from './sqliteHarness';
+import { openMigratedDatabase, routeDatabaseOperation } from './sqliteHarness';
 
 /**
  * The conversation list is the app's home screen. A wrong order hides the conversation the user
@@ -26,6 +26,8 @@ function openDatabase() {
 
 function routeQueriesTo(database: ReturnType<typeof openMigratedDatabase>) {
     interceptTauriInvoke((call) => {
+        const operation = routeDatabaseOperation(database, call);
+        if (operation) return operation.value;
         if (call.cmd === 'database_tx_begin') {
             database.exec('BEGIN');
             return 'test-tx';
