@@ -52,6 +52,28 @@ pub(crate) enum DatabaseOperation {
         path_norm: String,
         max_click_count: u32,
     },
+    SessionCreate {
+        data: JsonMap<String, JsonValue>,
+    },
+    SessionFindById {
+        id: i64,
+    },
+    SessionList {
+        query: Option<String>,
+        limit: Option<u32>,
+    },
+    SessionUpdate {
+        id: i64,
+        data: JsonMap<String, JsonValue>,
+    },
+    SessionDismissTerminalStatus {
+        id: i64,
+    },
+    SessionRefreshMetadata {
+        id: i64,
+    },
+    SessionCount,
+    SessionDeleteAll,
     ProviderList,
     ProviderFind {
         id: i64,
@@ -235,6 +257,14 @@ impl DatabaseOperation {
             Self::QuickSearchFind { .. } | Self::QuickSearchUpsert { .. } => {
                 OperationSurface::new(OperationGroup::Search)
             }
+            Self::SessionCreate { .. }
+            | Self::SessionFindById { .. }
+            | Self::SessionList { .. }
+            | Self::SessionUpdate { .. }
+            | Self::SessionDismissTerminalStatus { .. }
+            | Self::SessionRefreshMetadata { .. }
+            | Self::SessionCount
+            | Self::SessionDeleteAll => OperationSurface::new(OperationGroup::Agent),
             Self::ProviderList
             | Self::ProviderFind { .. }
             | Self::ProviderCreate { .. }

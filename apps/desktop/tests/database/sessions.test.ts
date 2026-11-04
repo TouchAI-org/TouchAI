@@ -1,52 +1,86 @@
-import { refreshSessionMetadata } from '@database/queries/sessions';
-import { listSessions } from '@database/queries/sessions';
-import type { InvokeArgs } from '@tauri-apps/api/core';
-import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
-import { describe, expect, it } from 'vitest';
+import {
+    dismissSessionTerminalStatus,
+    findSessionById,
+    refreshSessionMetadata,
+} from '@database/queries/sessions';
+import { afterEach, describe, expect, it } from 'vitest';
 
-function getRequest(payload: InvokeArgs | undefined) {
-    return (payload as { request?: { sql: string; params?: unknown[]; method: string } })?.request;
+import { openMigratedDatabase, routeQueriesTo } from './sqliteHarness';
+
+const databases: ReturnType<typeof openMigratedDatabase>[] = [];
+
+function openDatabase() {
+    const database = openMigratedDatabase();
+    databases.push(database);
+    routeQueriesTo(database);
+    return database;
 }
+
+function seedProvidersAndModels(database: ReturnType<typeof openMigratedDatabase>) {
+    database.exec(`
+        INSERT INTO providers (id, name, driver, api_endpoint, logo)
+        VALUES
+            (11, 'Chosen provider', 'openai', 'https://chosen.example/v1', 'chosen.png'),
+            (22, 'Turn provider', 'openai', 'https://turn.example/v1', 'turn.png');
+        INSERT INTO models (id, provider_id, name, model_id)
+        VALUES
+            (101, 11, 'Chosen model', 'chosen-model'),
+            (202, 22, 'Turn model', 'turn-model');
+        INSERT INTO sessions (id, session_id, title, model, provider_id)
+        VALUES (7, 'session-7', 'Conversation', 'chosen-model', 11);
+    `);
+}
+
+afterEach(() => {
+    databases.splice(0).forEach((database) => database.close());
+});
 
 describe('when a conversation records its model', () => {
     it('user keeps the provider they picked before the first message is sent', async () => {
-        interceptTauriInvoke((call) => {
-            if (call.cmd === 'database_query') {
-                return { rows: [], rowsAffected: 1, lastInsertId: null };
-            }
+        const database = openDatabase();
+        seedProvidersAndModels(database);
 
-            return undefined;
+        await refreshSessionMetadata(7);
+
+        expect(database.prepare('SELECT provider_id FROM sessions WHERE id = 7').get()).toEqual({
+            provider_id: 11,
         });
-
-        await expect(refreshSessionMetadata(17)).resolves.toBeUndefined();
-
-        const request = getTauriInvokeCalls('database_query')
-            .map((call) => getRequest(call.payload))
-            .find((candidate) => candidate?.method === 'run');
-        const normalizedSql = request?.sql.replace(/\s+/g, ' ').trim().toLowerCase() ?? '';
-
-        expect(normalizedSql).toContain('"provider_id" = coalesce((');
-        expect(normalizedSql).toContain('from "session_turns" "latest_turns"');
-        expect(normalizedSql).toContain('"sessions"."provider_id"');
-        expect(normalizedSql).not.toContain('"provider_id" = (select');
     });
 
-    it('narrows session content search with multiple necessary trigrams', async () => {
-        interceptTauriInvoke((call) => {
-            if (call.cmd === 'database_query') {
-                return { rows: [], rowsAffected: 0, lastInsertId: null };
-            }
+    it('user sees the provider of the latest turn after a message records its model', async () => {
+        const database = openDatabase();
+        seedProvidersAndModels(database);
+        database.exec(`
+            INSERT INTO session_turns (session_id, model_id, task_id, prompt_snapshot_json)
+            VALUES (7, 202, 'task-7', '{}');
+        `);
 
-            return undefined;
+        await refreshSessionMetadata(7);
+
+        expect(database.prepare('SELECT provider_id FROM sessions WHERE id = 7').get()).toEqual({
+            provider_id: 22,
+        });
+    });
+});
+
+describe('when a conversation finishes a turn', () => {
+    it('user clears the terminal badge after dismissing it', async () => {
+        const database = openDatabase();
+        seedProvidersAndModels(database);
+        database.exec(`
+            INSERT INTO session_turns (session_id, model_id, task_id, prompt_snapshot_json, status)
+            VALUES (7, 202, 'task-7', '{}', 'completed');
+        `);
+
+        await expect(findSessionById(7)).resolves.toMatchObject({
+            pending_terminal_status: 'completed',
         });
 
-        await listSessions({ query: 'abcdefghi', limit: 40 });
+        await dismissSessionTerminalStatus(7);
 
-        const searchRequest = getTauriInvokeCalls('database_query')
-            .map((call) => getRequest(call.payload))
-            .find((candidate) => candidate?.sql.includes('message_search_fts'));
-
-        expect(searchRequest).toBeDefined();
-        expect(searchRequest!.params).toContain('"abc" AND "def" AND "ghi"');
+        await expect(findSessionById(7)).resolves.toMatchObject({
+            pending_terminal_status: null,
+        });
     });
+
 });

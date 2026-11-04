@@ -6,6 +6,7 @@ import {
     deleteAllSessions,
     findSessionById,
     listSessions,
+    updateSession,
 } from '@database/queries/sessions';
 import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -202,6 +203,22 @@ describe('user creates and reads a conversation', () => {
 
         await expect(findSessionById(2)).resolves.toMatchObject({ title: 'Budget review' });
         await expect(findSessionById(99)).resolves.toBeUndefined();
+    });
+
+    it('user sees updated conversation details when they rename and pin it', async () => {
+        const database = openDatabase();
+        routeQueriesTo(database);
+        seed(database);
+
+        await updateSession({
+            id: 2,
+            sessionPatch: { title: 'Budget approved', pinned_at: '2026-01-06T00:00:00Z' },
+        });
+
+        await expect(findSessionById(2)).resolves.toMatchObject({
+            title: 'Budget approved',
+            pinned_at: '2026-01-06T00:00:00Z',
+        });
     });
 
     it('user gets the conversation count', async () => {
