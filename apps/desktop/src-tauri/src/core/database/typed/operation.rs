@@ -78,6 +78,27 @@ pub(crate) enum DatabaseOperation {
     },
     SessionCount,
     SessionDeleteAll,
+    ToolPartCreate {
+        tool_kind: ToolPartKind,
+        data: JsonMap<String, JsonValue>,
+    },
+    ToolPartList {
+        tool_kind: ToolPartKind,
+        filter: ToolPartFilter,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    },
+    ToolPartSummaries {
+        tool_kind: ToolPartKind,
+        filter: ToolPartFilter,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    },
+    ToolPartUpdate {
+        tool_kind: ToolPartKind,
+        filter: ToolPartFilter,
+        data: JsonMap<String, JsonValue>,
+    },
     ProviderList,
     ProviderFind {
         id: i64,
@@ -237,6 +258,35 @@ pub(crate) struct CatalogModel {
     pub name: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ToolPartKind {
+    Mcp,
+    Builtin,
+}
+
+impl ToolPartKind {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Mcp => "mcp",
+            Self::Builtin => "builtin",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub(crate) enum ToolPartFilter {
+    Id { id: i64 },
+    ToolCallId { tool_call_id: String },
+    ServerId { server_id: i64 },
+    ToolId { tool_id: String },
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct McpToolDefinition {
@@ -269,6 +319,12 @@ impl DatabaseOperation {
             | Self::SessionRefreshMetadata { .. }
             | Self::SessionCount
             | Self::SessionDeleteAll => OperationSurface::new(OperationGroup::Agent),
+            Self::ToolPartCreate { .. } | Self::ToolPartUpdate { .. } => {
+                OperationSurface::new(OperationGroup::Agent)
+            }
+            Self::ToolPartList { .. } | Self::ToolPartSummaries { .. } => {
+                OperationSurface::new(OperationGroup::ToolHistory)
+            }
             Self::ProviderList
             | Self::ProviderFind { .. }
             | Self::ProviderCreate { .. }

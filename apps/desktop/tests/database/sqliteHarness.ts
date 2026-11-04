@@ -136,6 +136,106 @@ function transaction<T>(database: SqliteDatabase, callback: () => T): T {
     }
 }
 
+function toolPartPayload(data: Data): Data {
+    const payload = { ...data };
+    delete payload.message_id;
+    delete payload.session_id;
+    delete payload.tool_call_id;
+    delete payload.created_at;
+    if (typeof data.tool_call_id === 'string') payload.toolCallId = data.tool_call_id;
+    return payload;
+}
+
+function toolPartFilter(request: OperationRequest): { clause: string; params: SQLInputValue[] } {
+    const filter = request.filter as Data;
+    switch (filter.kind) {
+        case 'id':
+            return { clause: 'message_parts.id = ?', params: [Number(filter.id)] };
+        case 'tool_call_id':
+            return {
+                clause: 'message_parts.tool_call_id = ?',
+                params: [String(filter.toolCallId)],
+            };
+        case 'server_id':
+            return {
+                clause: 'message_parts.server_id = ?',
+                params: [Number(filter.serverId)],
+            };
+        case 'tool_id':
+            return {
+                clause: 'message_parts.tool_id = ?',
+                params: [String(filter.toolId)],
+            };
+        default:
+            throw new Error(`Unsupported tool part filter: ${String(filter.kind)}`);
+    }
+}
+
+function createToolPartOperation(database: SqliteDatabase, request: OperationRequest): Data {
+    const input = request.data as Data;
+    const messageId =
+        typeof input.message_id === 'number' && input.message_id > 0
+            ? input.message_id
+            : insertRow(database, 'messages', {
+                  session_id: input.session_id,
+                  role: 'tool_call',
+              })?.id;
+    if (typeof messageId !== 'number') {
+        throw Object.assign(new Error('A tool call must belong to a session'), {
+            code: 'database-validation',
+        });
+    }
+
+    const kind = String(request.toolKind);
+    const payload: Data = {
+        iteration: 1,
+        output: null,
+        status: 'pending',
+        duration_ms: null,
+        error_message: null,
+        ...(kind === 'builtin'
+            ? {
+                  approval_state: 'none',
+                  approval_summary: null,
+                  conversation_semantic_json: null,
+                  structured_payload_json: null,
+              }
+            : {}),
+        ...toolPartPayload(input),
+        toolKind: kind,
+    };
+    const created = insertRow(database, 'message_parts', {
+        message_id: messageId,
+        type: 'tool_call',
+        content: '',
+        sort_order: Number(
+            database
+                .prepare(
+                    'SELECT COALESCE(MAX(sort_order), -1) + 1 AS value FROM message_parts WHERE message_id = ?'
+                )
+                .get(messageId)?.value
+        ),
+        data: JSON.stringify(payload),
+        ...(typeof input.created_at === 'string' ? { created_at: input.created_at } : {}),
+    });
+    const parent = database
+        .prepare('SELECT session_id FROM messages WHERE id = ?')
+        .get(messageId) as Data | undefined;
+    if (!created || !parent) {
+        throw Object.assign(new Error('Failed to persist tool part'), {
+            code: 'database-unavailable',
+        });
+    }
+    return {
+        ...(JSON.parse(String(created.data)) as Data),
+        id: created.id,
+        tool_call_id: created.tool_call_id ?? null,
+        session_id: parent.session_id,
+        message_id: created.message_id,
+        created_at: created.created_at,
+    };
+}
+
 const BUILTIN_PROVIDER_ORDER = new Map(
     [
         'OpenAI',
@@ -845,6 +945,130 @@ export function routeDatabaseOperation(
         case 'session_delete_all':
             run('DELETE FROM sessions');
             return { value: null };
+        case 'tool_part_create':
+            return { value: createToolPartOperation(database, request) };
+        case 'tool_part_list': {
+            const filter = toolPartFilter(request);
+            const params: SQLInputValue[] = [String(request.toolKind), ...filter.params];
+            const limit = request.limit === undefined ? undefined : Number(request.limit);
+            const offset = request.offset === undefined ? 0 : Number(request.offset);
+            const pagination =
+                limit === undefined
+                    ? request.offset === undefined
+                        ? ''
+                        : ' LIMIT -1 OFFSET ?'
+                    : ' LIMIT ? OFFSET ?';
+            if (limit !== undefined) params.push(limit, offset);
+            else if (request.offset !== undefined) params.push(offset);
+            return {
+                value: read(
+                    `SELECT message_parts.*, messages.session_id
+                     FROM message_parts
+                     INNER JOIN messages ON messages.id = message_parts.message_id
+                     WHERE message_parts.type = 'tool_call'
+                       AND message_parts.tool_kind = ?
+                       AND ${filter.clause}
+                     ORDER BY message_parts.created_at DESC, message_parts.id DESC${pagination}`,
+                    params
+                ).map((part) => ({
+                    ...(JSON.parse(String(part.data)) as Data),
+                    id: part.id,
+                    session_id: part.session_id,
+                    message_id: part.message_id,
+                    tool_call_id: part.tool_call_id ?? null,
+                    created_at: part.created_at,
+                })),
+            };
+        }
+        case 'tool_part_summaries': {
+            const filter = toolPartFilter(request);
+            const params: SQLInputValue[] = [String(request.toolKind), ...filter.params];
+            const limit = request.limit === undefined ? undefined : Number(request.limit);
+            const offset = request.offset === undefined ? 0 : Number(request.offset);
+            const pagination =
+                limit === undefined
+                    ? request.offset === undefined
+                        ? ''
+                        : ' LIMIT -1 OFFSET ?'
+                    : ' LIMIT ? OFFSET ?';
+            if (limit !== undefined) params.push(limit, offset);
+            else if (request.offset !== undefined) params.push(offset);
+            const toolName =
+                request.toolKind === 'builtin'
+                    ? 'message_parts.tool_id'
+                    : `json_extract(message_parts.data, '$."tool_name"')`;
+            const serverId =
+                request.toolKind === 'builtin'
+                    ? 'NULL'
+                    : 'message_parts.server_id';
+            return {
+                value: read(
+                    `SELECT
+                        message_parts.id,
+                        message_parts.message_id,
+                        messages.session_id,
+                        message_parts.tool_call_id,
+                        message_parts.created_at,
+                        json_extract(message_parts.data, '$."status"') AS status,
+                        json_extract(message_parts.data, '$."duration_ms"') AS duration_ms,
+                        ${toolName} AS tool_name,
+                        ${serverId} AS server_id,
+                        substr(coalesce(json_extract(message_parts.data, '$."input"'), ''), 1, 200)
+                            AS input_preview,
+                        length(coalesce(json_extract(message_parts.data, '$."output"'), ''))
+                            AS output_length
+                     FROM message_parts
+                     INNER JOIN messages ON messages.id = message_parts.message_id
+                     WHERE message_parts.type = 'tool_call'
+                       AND message_parts.tool_kind = ?
+                       AND ${filter.clause}
+                     ORDER BY message_parts.created_at DESC, message_parts.id DESC${pagination}`,
+                    params
+                ).map((row) => ({
+                    ...row,
+                    tool_name: row.tool_name ?? '',
+                    status: row.status ?? 'pending',
+                })),
+            };
+        }
+        case 'tool_part_update': {
+            const filter = toolPartFilter(request);
+            const existing = read(
+                `SELECT message_parts.*, messages.session_id
+                 FROM message_parts
+                 INNER JOIN messages ON messages.id = message_parts.message_id
+                 WHERE message_parts.type = 'tool_call'
+                   AND message_parts.tool_kind = ?
+                   AND ${filter.clause}
+                 ORDER BY message_parts.id ASC`,
+                [String(request.toolKind), ...filter.params]
+            );
+            const payload = toolPartPayload(request.data as Data);
+            let result: Data | null = null;
+            for (const part of existing) {
+                const merged = {
+                    ...(JSON.parse(String(part.data)) as Data),
+                    ...payload,
+                    toolKind: String(request.toolKind),
+                };
+                const updated = database
+                    .prepare(
+                        "UPDATE message_parts SET data = ?, updated_at = datetime('now') WHERE id = ? RETURNING *"
+                    )
+                    .get(JSON.stringify(merged), Number(part.id)) as Data;
+                if (!result) {
+                    result = {
+                        ...merged,
+                        id: updated.id,
+                        session_id: part.session_id,
+                        message_id: updated.message_id,
+                        tool_call_id: updated.tool_call_id ?? null,
+                        created_at: updated.created_at,
+                    };
+                }
+            }
+            return { value: result };
+        }
         case 'provider_list': {
             const providers = read('SELECT * FROM providers');
             const models = read('SELECT * FROM models');
