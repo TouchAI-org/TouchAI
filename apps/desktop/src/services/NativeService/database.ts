@@ -22,6 +22,14 @@ export type DatabaseOperation =
           pathNorm: string;
           maxClickCount: number;
       }
+    | { kind: 'session_create'; data: Record<string, unknown> }
+    | { kind: 'session_find_by_id'; id: number }
+    | { kind: 'session_list'; query?: string; limit?: number }
+    | { kind: 'session_update'; id: number; data: Record<string, unknown> }
+    | { kind: 'session_dismiss_terminal_status'; id: number }
+    | { kind: 'session_refresh_metadata'; id: number }
+    | { kind: 'session_count' }
+    | { kind: 'session_delete_all' }
     | { kind: 'provider_list' }
     | { kind: 'provider_find'; id: number }
     | { kind: 'provider_create'; data: Record<string, unknown> }

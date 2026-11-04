@@ -5,6 +5,7 @@ mod llm_metadata;
 mod mcp;
 mod models;
 mod providers;
+mod sessions;
 mod settings;
 
 use serde_json::Value as JsonValue;
@@ -46,6 +47,18 @@ pub(super) async fn execute(
         DatabaseOperation::ProviderCreate { data } => providers::create(pool, data).await,
         DatabaseOperation::ProviderUpdate { id, data } => providers::update(pool, id, data).await,
         DatabaseOperation::ProviderDelete { id } => providers::delete(pool, id).await,
+        DatabaseOperation::SessionCreate { data } => sessions::create(pool, data).await,
+        DatabaseOperation::SessionFindById { id } => sessions::find_by_id(pool, id).await,
+        DatabaseOperation::SessionList { query, limit } => sessions::list(pool, query, limit).await,
+        DatabaseOperation::SessionUpdate { id, data } => sessions::update(pool, id, data).await,
+        DatabaseOperation::SessionDismissTerminalStatus { id } => {
+            sessions::dismiss_terminal_status(pool, id).await
+        }
+        DatabaseOperation::SessionRefreshMetadata { id } => {
+            sessions::refresh_metadata(pool, id).await
+        }
+        DatabaseOperation::SessionCount => sessions::count_sessions(pool).await,
+        DatabaseOperation::SessionDeleteAll => sessions::delete_all(pool).await,
         DatabaseOperation::ModelListWithProvider { provider_id } => {
             models::list_with_provider(pool, provider_id).await
         }

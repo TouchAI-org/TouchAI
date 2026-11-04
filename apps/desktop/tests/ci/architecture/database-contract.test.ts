@@ -27,7 +27,7 @@ function sha256(bytes: string | Uint8Array): string {
 }
 
 function quoteIdentifier(value: string): string {
-    return `"${value.replaceAll('"', '""')}"`;
+    return `"${value.replace(/"/g, '""')}"`;
 }
 
 function normalize(value: unknown): unknown {

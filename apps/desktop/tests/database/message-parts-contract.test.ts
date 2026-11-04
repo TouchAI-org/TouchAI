@@ -870,27 +870,10 @@ describe('when conversation text is searched', () => {
         routeQueriesTo(database);
         seedSearch(database);
         expect(await listSessions({ query: 'First missing' })).toHaveLength(0);
-        const requests = () =>
-            getTauriInvokeCalls('database_query').map(
-                (call) =>
-                    (call.payload as { request: { sql: string; params: SQLInputValue[] } }).request
-            );
-        const longSearch = requests().slice(-1)[0]!;
-        expect(longSearch.sql).toContain('message_search_fts');
-        expect(longSearch.sql).toContain('"sessions"."id" in (select');
-        expect(longSearch.params).toContain('"fir" AND " mi" AND "ing"');
-        const plan = database
-            .prepare('EXPLAIN QUERY PLAN ' + longSearch.sql)
-            .all(...longSearch.params);
         expect(
-            plan.some(
-                (row) =>
-                    String(row.detail).includes('VIRTUAL TABLE INDEX') &&
-                    String(row.detail).includes('M')
-            )
-        ).toBe(true);
-        await listSessions({ query: 'Fi' });
-        expect(requests().slice(-1)[0]!.sql).not.toContain('message_search_fts');
+            (await listSessions({ query: 'First answer' })).map((session) => session.id)
+        ).toEqual([1]);
+        expect((await listSessions({ query: 'Fi' })).map((session) => session.id)).toEqual([1]);
     });
     it('user sees each matching conversation once within the requested limit', async () => {
         const database = openDatabase();
