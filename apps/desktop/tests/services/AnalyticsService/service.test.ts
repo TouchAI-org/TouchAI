@@ -123,6 +123,14 @@ describe('AnalyticsService', () => {
         expect(handle).toMatchObject({ operationId: '', enabled: false, consentEpoch: 0 });
     });
 
+    it('user gets a fail-closed handle when the native runtime returns no operation', async () => {
+        nativeAnalytics.beginOperation.mockResolvedValue(undefined as never);
+
+        const handle = await analytics.beginOperation();
+
+        expect(handle).toMatchObject({ operationId: '', enabled: false, consentEpoch: 0 });
+    });
+
     it('user gets a completed handle released through the native runtime', async () => {
         nativeAnalytics.completeOperation.mockResolvedValue(undefined);
 

@@ -71,10 +71,14 @@ class AnalyticsService {
         // operation whose start predates the latest consent transition.
         const startedAtMs = Date.now();
         try {
-            return await native.analytics.beginOperation(startedAtMs);
+            const operation = await native.analytics.beginOperation(startedAtMs);
+            if (operation?.operationId) {
+                return operation;
+            }
         } catch {
-            return { operationId: '', enabled: false, consentEpoch: 0 };
+            // Fall through to the unavailable handle.
         }
+        return { operationId: '', enabled: false, consentEpoch: 0 };
     }
 
     /** Releases a native operation handle once the operation is finished. */

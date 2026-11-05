@@ -105,7 +105,7 @@ export function beginAdmittedOperation(): Promise<AnalyticsOperationHandle | nul
             (operation) => {
                 clearTimeout(timer);
                 if (timedOut) {
-                    if (operation.operationId) {
+                    if (operation?.operationId) {
                         releaseLateOperation(operation, generation);
                     } else {
                         releaseOperation(generation);
@@ -113,7 +113,7 @@ export function beginAdmittedOperation(): Promise<AnalyticsOperationHandle | nul
                     return;
                 }
                 settled = true;
-                if (!operation.operationId) {
+                if (!operation?.operationId) {
                     releaseOperation(generation);
                     resolve(null);
                     return;
