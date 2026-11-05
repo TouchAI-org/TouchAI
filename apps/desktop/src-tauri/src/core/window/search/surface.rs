@@ -21,7 +21,7 @@ pub enum SearchSurfaceShowSource {
 
 impl SearchSurfaceShowSource {
     /// 转成前端事件载荷字符串。
-    fn as_str(&self) -> &'static str {
+    pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::Shortcut => "shortcut",
             Self::Notification => "notification",
@@ -328,12 +328,18 @@ pub fn show_surface<R: Runtime>(
     app_handle: &AppHandle<R>,
     source: SearchSurfaceShowSource,
 ) -> Result<(), String> {
-    let runtime = app_handle
-        .try_state::<SearchWindowRuntime>()
-        .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
     let window = app_handle
         .get_webview_window("main")
         .ok_or_else(|| "Failed to get main window".to_string())?;
+    if crate::core::window::webview_recovery::defer_show_if_recovering(
+        &window,
+        crate::core::window::webview_recovery::ShowIntent::SearchSurface(source),
+    ) {
+        return Ok(());
+    }
+    let runtime = app_handle
+        .try_state::<SearchWindowRuntime>()
+        .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
 
     // Only a real hidden/unfocused -> foreground entry starts a new activation.
     // Showing an already-focused surface is not a reactivation.

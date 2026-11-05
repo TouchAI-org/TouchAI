@@ -47,6 +47,12 @@ fn focus_single_instance_activation_window<R: tauri::Runtime>(
     let window = app
         .get_webview_window(label)
         .ok_or_else(|| format!("Activation window '{label}' disappeared before focus"))?;
+    if core::window::webview_recovery::defer_show_if_recovering(
+        &window,
+        core::window::webview_recovery::ShowIntent::Focus,
+    ) {
+        return Ok(());
+    }
     window.unminimize().map_err(|error| error.to_string())?;
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
@@ -117,6 +123,7 @@ pub fn run() {
         )
         .manage(PopupRegistry::new())
         .manage(core::window::search::surface::SearchSurfaceRuntime::new())
+        .manage(core::window::webview_recovery::WebviewRecoveryRuntime::new())
         .manage(core::window::status_reminder::SessionStatusReminderNotificationRuntime::new())
         .manage(core::window::tray::TrayStatusRuntime::new())
         .manage(BuiltInProcessExecutionRegistry::new())
@@ -200,6 +207,7 @@ pub fn run() {
                 let app_handle = window.app_handle().clone();
                 let window_label = window.label().to_string();
                 core::window::search::surface::handle_window_destroyed(&app_handle, &window_label);
+                core::window::webview_recovery::forget_window(&app_handle, &window_label);
 
                 if let Some(runtime) = window.app_handle().try_state::<DatabaseRuntime>() {
                     let runtime = runtime.inner().clone();
