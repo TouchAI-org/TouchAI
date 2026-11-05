@@ -52,6 +52,20 @@ export interface DatabaseAttemptUsageWrite {
     summary: DatabaseUsageSummary;
 }
 
+export interface DatabaseUsageFilter {
+    from: string;
+    to: string;
+    modelIds?: number[];
+    providerIds?: number[];
+    statuses?: Array<'pending' | 'streaming' | 'completed' | 'failed' | 'cancelled'>;
+    onlyFailed?: boolean;
+    onlyRetried?: boolean;
+    search?: string;
+}
+
+export type DatabaseUsageDimension = 'model' | 'provider';
+export type DatabaseUsageRankMetric = 'tokens' | 'cost' | 'duration';
+
 export interface DatabaseTurnBehaviorSignals {
     firstTextMs?: number | null;
     toolCallCount: number;
@@ -213,6 +227,49 @@ export type DatabaseOperation =
           kind: 'attachment_remote_ref_touch';
           id: number;
           lastUsedAt?: string | null;
+      }
+    | { kind: 'usage_summary'; filter: DatabaseUsageFilter }
+    | {
+          kind: 'usage_dashboard';
+          filter: DatabaseUsageFilter;
+          taskIds: string[];
+          dimension: DatabaseUsageDimension;
+      }
+    | {
+          kind: 'usage_trend';
+          filter: DatabaseUsageFilter;
+          dimension: DatabaseUsageDimension;
+      }
+    | { kind: 'usage_archive_trend' }
+    | { kind: 'usage_by_model'; filter: DatabaseUsageFilter }
+    | { kind: 'usage_by_provider'; filter: DatabaseUsageFilter }
+    | {
+          kind: 'usage_model_ranking';
+          filter: DatabaseUsageFilter;
+          metric: DatabaseUsageRankMetric;
+          limit: number;
+      }
+    | {
+          kind: 'usage_session_ranking';
+          filter: DatabaseUsageFilter;
+          metric: DatabaseUsageRankMetric;
+          limit: number;
+      }
+    | { kind: 'usage_filter_options'; filter: DatabaseUsageFilter }
+    | { kind: 'usage_composition'; filter: DatabaseUsageFilter }
+    | { kind: 'usage_tool_stats'; filter: DatabaseUsageFilter }
+    | { kind: 'usage_heatmap'; filter: DatabaseUsageFilter }
+    | { kind: 'usage_context_profiles'; filter: DatabaseUsageFilter }
+    | { kind: 'usage_context_points'; filter: DatabaseUsageFilter; limit: number }
+    | { kind: 'usage_append_llm_call_parts'; messageId: number; calls: DatabaseLlmCallPartInput[] }
+    | { kind: 'usage_rollup_daily' }
+    | { kind: 'usage_prune_detail'; retentionDays: number }
+    | {
+          kind: 'usage_maintenance';
+          retentionDays: number;
+          minIntervalMs: number;
+          now: string;
+          statisticKey: string;
       }
     | {
           kind: 'task_record_start';

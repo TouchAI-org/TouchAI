@@ -39,6 +39,7 @@ pub(crate) enum OperationGroup {
     Search,
     ToolHistory,
     Usage,
+    UsageWrite,
     Backup,
 }
 
@@ -47,7 +48,10 @@ impl OperationSurface {
         let surface = Surface::from_label(window_label);
         match surface {
             Surface::Main => true,
-            Surface::Settings => self.group != OperationGroup::Agent,
+            Surface::Settings => !matches!(
+                self.group,
+                OperationGroup::Agent | OperationGroup::UsageWrite
+            ),
             Surface::Popup => matches!(self.group, OperationGroup::Search | OperationGroup::Config),
             Surface::Preview | Surface::Unknown => false,
         }
@@ -109,5 +113,33 @@ mod tests {
         };
 
         assert!(operation.surface().allows("popup-model-dropdown-popup"));
+    }
+
+    #[test]
+    fn user_can_read_usage_from_the_settings_surface() {
+        let operation = DatabaseOperation::UsageSummary {
+            filter: super::operation::UsageFilterInput {
+                from: "2026-01-01 00:00:00".to_string(),
+                to: "2026-12-31 23:59:59".to_string(),
+                model_ids: None,
+                provider_ids: None,
+                statuses: None,
+                only_failed: None,
+                only_retried: None,
+                search: None,
+            },
+        };
+
+        assert!(operation.surface().allows("settings"));
+    }
+
+    #[test]
+    fn user_cannot_write_usage_detail_from_the_settings_surface() {
+        let operation = DatabaseOperation::UsageAppendLlmCallParts {
+            message_id: 1,
+            calls: Vec::new(),
+        };
+
+        assert!(!operation.surface().allows("settings"));
     }
 }

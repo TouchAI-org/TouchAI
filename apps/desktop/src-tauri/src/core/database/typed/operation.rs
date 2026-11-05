@@ -272,6 +272,68 @@ pub(crate) enum DatabaseOperation {
         id: i64,
         last_used_at: Option<String>,
     },
+    UsageSummary {
+        filter: UsageFilterInput,
+    },
+    UsageDashboard {
+        filter: UsageFilterInput,
+        task_ids: Vec<String>,
+        dimension: UsageDimension,
+    },
+    UsageTrend {
+        filter: UsageFilterInput,
+        dimension: UsageDimension,
+    },
+    UsageArchiveTrend,
+    UsageByModel {
+        filter: UsageFilterInput,
+    },
+    UsageByProvider {
+        filter: UsageFilterInput,
+    },
+    UsageModelRanking {
+        filter: UsageFilterInput,
+        metric: UsageRankMetric,
+        limit: u32,
+    },
+    UsageSessionRanking {
+        filter: UsageFilterInput,
+        metric: UsageRankMetric,
+        limit: u32,
+    },
+    UsageFilterOptions {
+        filter: UsageFilterInput,
+    },
+    UsageComposition {
+        filter: UsageFilterInput,
+    },
+    UsageToolStats {
+        filter: UsageFilterInput,
+    },
+    UsageHeatmap {
+        filter: UsageFilterInput,
+    },
+    UsageContextProfiles {
+        filter: UsageFilterInput,
+    },
+    UsageContextPoints {
+        filter: UsageFilterInput,
+        limit: u32,
+    },
+    UsageAppendLlmCallParts {
+        message_id: i64,
+        calls: Vec<LlmCallPartInput>,
+    },
+    UsageRollupDaily,
+    UsagePruneDetail {
+        retention_days: f64,
+    },
+    UsageMaintenance {
+        retention_days: f64,
+        min_interval_ms: i64,
+        now: String,
+        statistic_key: String,
+    },
     TaskRecordStart {
         input: TaskRecordStartInput,
     },
@@ -328,6 +390,34 @@ pub(crate) struct AttachmentRemoteRefInput {
     pub last_used_at: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UsageFilterInput {
+    pub from: String,
+    pub to: String,
+    pub model_ids: Option<Vec<i64>>,
+    pub provider_ids: Option<Vec<i64>>,
+    pub statuses: Option<Vec<String>>,
+    pub only_failed: Option<bool>,
+    pub only_retried: Option<bool>,
+    pub search: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum UsageDimension {
+    Model,
+    Provider,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum UsageRankMetric {
+    Tokens,
+    Cost,
+    Duration,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -614,6 +704,24 @@ impl DatabaseOperation {
             | Self::AttachmentRemoteRefFind { .. }
             | Self::AttachmentRemoteRefUpsert { .. }
             | Self::AttachmentRemoteRefTouch { .. } => OperationSurface::new(OperationGroup::Agent),
+            Self::UsageSummary { .. }
+            | Self::UsageDashboard { .. }
+            | Self::UsageTrend { .. }
+            | Self::UsageArchiveTrend
+            | Self::UsageByModel { .. }
+            | Self::UsageByProvider { .. }
+            | Self::UsageModelRanking { .. }
+            | Self::UsageSessionRanking { .. }
+            | Self::UsageFilterOptions { .. }
+            | Self::UsageComposition { .. }
+            | Self::UsageToolStats { .. }
+            | Self::UsageHeatmap { .. }
+            | Self::UsageContextProfiles { .. }
+            | Self::UsageContextPoints { .. } => OperationSurface::new(OperationGroup::Usage),
+            Self::UsageAppendLlmCallParts { .. }
+            | Self::UsageRollupDaily
+            | Self::UsagePruneDetail { .. }
+            | Self::UsageMaintenance { .. } => OperationSurface::new(OperationGroup::UsageWrite),
         }
     }
 }
