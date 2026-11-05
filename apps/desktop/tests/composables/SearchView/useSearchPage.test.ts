@@ -148,6 +148,7 @@ function createController() {
         invalidateModelDropdownData: vi.fn(),
         isQuickSearchOpen: vi.fn(() => false),
         closeQuickSearch: vi.fn(),
+        settleQuickSearchInteraction: vi.fn(),
     };
 }
 

@@ -19,6 +19,7 @@ use crate::{
         window::{
             popup::PopupRegistry, search::surface::SearchSurfaceRuntime,
             status_reminder::SessionStatusReminderNotificationRuntime, tray::TrayStatusRuntime,
+            webview_recovery::WebviewRecoveryRuntime,
         },
     },
 };
@@ -34,6 +35,7 @@ pub fn test_builder() -> Builder<MockRuntime> {
         .invoke_handler(commands::invoke_handler::<MockRuntime>())
         .manage(PopupRegistry::new())
         .manage(SearchSurfaceRuntime::new())
+        .manage(WebviewRecoveryRuntime::new())
         .manage(SessionStatusReminderNotificationRuntime::for_tests())
         .manage(TrayStatusRuntime::new())
         .manage(BrowserRuntime::new())

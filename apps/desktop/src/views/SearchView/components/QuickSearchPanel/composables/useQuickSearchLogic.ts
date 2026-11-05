@@ -195,8 +195,13 @@ function useQuickSearchFlow(
     }
 
     function captureSearchSelection() {
+        panelSessionActive = false;
+        if (!interactionReady && results.value.length > 0) {
+            beginSearchInteractionSession();
+        }
         const ready = interactionReady;
         interactionReady = null;
+        panelSessionActive = false;
         return ready ? { ready, resultCount: results.value.length } : null;
     }
 
@@ -580,6 +585,7 @@ function useQuickSearchFlow(
         prepareIndex,
         open,
         close,
+        settleInteraction: settleSearchInteractionSession,
         getHighlightedItem,
         openHighlightedItem,
         triggerSearch,
@@ -907,6 +913,7 @@ export function useQuickSearchLogic(
         openContextMenuForHighlightedItem: quickSearch.openContextMenuForHighlightedItem,
         open: quickSearch.open,
         close: requestCloseFromPanel,
+        settleInteraction: quickSearch.settleInteraction,
         syncClosedState: () => {},
         getHighlightedItem: quickSearch.getHighlightedItem,
         openHighlightedItem: quickSearch.openHighlightedItem,

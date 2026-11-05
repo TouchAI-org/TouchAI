@@ -438,12 +438,17 @@ pub(crate) fn apply_webview_runtime_defaults<R: Runtime>(
     window
         .with_webview(move |webview| {
             let controller = webview.controller();
-            let result = disable_browser_accelerator_keys_with_controller(&controller)
+            let accelerator_result = disable_browser_accelerator_keys_with_controller(&controller)
                 .and_then(|_| register_system_menu_accelerator_handler(&window_clone, &controller))
                 .and_then(|_| register_devtools_accelerator_handler(&controller));
+            let recovery_result = crate::core::window::webview_recovery::register_webview_recovery(
+                &window_clone,
+                &controller,
+            );
             if let Ok(hwnd) = top_level_hwnd(&window_clone) {
                 install_system_menu_interceptor_on_children(hwnd);
             }
+            let result = accelerator_result.and(recovery_result);
             let _ = tx.send(result);
         })
         .map_err(|error| format!("Failed to access platform webview: {}", error))?;

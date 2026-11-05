@@ -157,8 +157,8 @@ describe('user searches in quick search', () => {
         expect(telemetry.released).toEqual(['operation-1']);
     });
 
-    it.each(['succeeds in a pinned window', 'fails'])(
-        'user keeps one interaction when a result open %s and the still open panel receives another query',
+    it.each(['succeeds in a pinned window', 'fails'] as const)(
+        'user gets a new interaction when a result open %s and the still open panel receives another query',
         async (outcome) => {
             if (outcome === 'fails') openPath.mockRejectedValueOnce(new Error('no handler'));
             const mounted = await search();
@@ -167,18 +167,44 @@ describe('user searches in quick search', () => {
             await flushPromises();
             expect(mounted.isOpen.value).toBe(true);
             await showResults(mounted, 'updated');
-            mounted.result.close();
+            await mounted.result.handleItemClick(0);
             await flushPromises();
 
-            expect(completed()).toHaveLength(1);
-            expect(selected()).toHaveLength(1);
-            expect(
-                telemetry.events.filter((event) => event.eventName === 'product.feature_exposed')
-            ).toHaveLength(1);
-            expect(telemetry.released).toEqual(['operation-1']);
+            expect(completed().map((event) => event.operationId)).toEqual([
+                'operation-1',
+                'operation-2',
+            ]);
+            expect(selected().map((event) => event.operationId)).toEqual([
+                'operation-1',
+                'operation-2',
+            ]);
+            expect(selected()[0]?.attributes.opened).toBe(outcome !== 'fails');
+            expect(selected()[1]?.attributes.opened).toBe(true);
+            expect(telemetry.released).toEqual(['operation-1', 'operation-2']);
             expect(telemetry.active.size).toBe(0);
         }
     );
+
+    it('user gets one interaction for each repeat selection while the panel stays open', async () => {
+        const mounted = await search();
+        await showResults(mounted);
+        await mounted.result.handleItemClick(0);
+        await flushPromises();
+        await mounted.result.handleItemClick(0);
+        await flushPromises();
+
+        expect(mounted.isOpen.value).toBe(true);
+        expect(completed().map((event) => event.operationId)).toEqual([
+            'operation-1',
+            'operation-2',
+        ]);
+        expect(selected().map((event) => event.operationId)).toEqual([
+            'operation-1',
+            'operation-2',
+        ]);
+        expect(telemetry.released).toEqual(['operation-1', 'operation-2']);
+        expect(telemetry.active.size).toBe(0);
+    });
 
     it('user gets one settled interaction when updating the query in an already open panel', async () => {
         const mounted = await search();

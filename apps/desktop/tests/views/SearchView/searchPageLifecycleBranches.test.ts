@@ -120,6 +120,7 @@ function createController(overrides: Record<string, unknown> = {}) {
         isQuickSearchItemHighlighted: vi.fn(() => false),
         isQuickSearchContextMenuOpen: vi.fn(() => false),
         closeQuickSearch: vi.fn(),
+        settleQuickSearchInteraction: vi.fn(),
         closeQuickSearchContextMenu: vi.fn(),
         prepareModelDropdownOpen: vi.fn().mockResolvedValue(undefined),
         selectModelFromDropdown: vi.fn().mockResolvedValue({ modelId: null, providerId: null }),
@@ -354,7 +355,7 @@ describe('when a stale surface event arrives', () => {
         mounted.unmount();
     });
 
-    it('user gets quick search closed when the surface hides', async () => {
+    it('user gets quick search settled without closing when the surface hides', async () => {
         const controller = createController();
         const mounted = await mountComposable(() =>
             useSearchPageLifecycle({
@@ -376,7 +377,8 @@ describe('when a stale surface event arrives', () => {
         });
         await flushLifecycle();
 
-        expect(controller.closeQuickSearch).toHaveBeenCalledTimes(1);
+        expect(controller.settleQuickSearchInteraction).toHaveBeenCalledTimes(1);
+        expect(controller.closeQuickSearch).not.toHaveBeenCalled();
 
         mounted.unmount();
     });

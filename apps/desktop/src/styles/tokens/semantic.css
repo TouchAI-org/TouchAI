@@ -62,14 +62,11 @@
     --color-text-primary: #4a4039;
     --color-text-secondary: #6b5f54;
     --color-text-tertiary: #968b7d;
-    --color-text-inverse: #ffffff;
 
     /* ── Borders ─────────────────────────────────────────────────────────── */
 
     --color-border: #e5e5e5;
     --color-border-subtle: rgba(74, 64, 57, 0.12);
-    --color-border-strong: rgba(74, 64, 57, 0.28);
-    --color-input: #e5e5e5;
     --color-ring: var(--color-primary-300);
 
     /*
@@ -82,24 +79,14 @@
     /* ── Interactive ─────────────────────────────────────────────────────── */
 
     --color-primary: var(--color-primary-700);
-    --color-primary-foreground: #ffffff;
     --color-secondary: var(--color-primary-100);
-    --color-secondary-foreground: var(--color-primary-700);
     --color-accent: var(--color-primary-100);
-    --color-accent-foreground: var(--color-primary-700);
-    --color-destructive: #dc2626;
-    --color-destructive-foreground: #ffffff;
 
     /* ── Markdown surfaces ───────────────────────────────────────────────── */
 
     --color-markdown-surface: rgba(253, 251, 253, 0.98);
     --color-markdown-surface-soft: rgba(251, 249, 245, 0.98);
     --color-markdown-surface-border: rgba(230, 224, 214, 0.9);
-
-    /* ── Code ────────────────────────────────────────────────────────────── */
-
-    --color-code-inline-bg: #f1ece1;
-    --color-code-inline-text: #691d1d;
 
     /* ── Chrome ──────────────────────────────────────────────────────────── */
 

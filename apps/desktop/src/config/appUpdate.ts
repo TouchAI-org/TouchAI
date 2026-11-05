@@ -2,7 +2,6 @@
 
 export type { AppUpdateChannel } from './product';
 export {
-    APP_PRODUCT_CONFIG,
     APP_UPDATE_CHANNELS,
     appUpdateChannelLabel,
     DEFAULT_APP_UPDATE_CHANNEL,

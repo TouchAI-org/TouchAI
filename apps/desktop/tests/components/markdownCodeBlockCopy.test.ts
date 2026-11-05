@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale } from '@/i18n';
 
 import { deferred, installProductAnalytics } from '../utils/productAnalytics';
+import { mockTauriCommand } from '../utils/tauri';
 
 vi.mock('@tauri-apps/plugin-notification', () => ({
     sendNotification: vi.fn(),
@@ -51,22 +52,29 @@ describe('user copies a rendered code block', () => {
         return wrapper;
     }
 
-    function clipboard(writeText?: (value: string) => Promise<void>) {
+    function nativeClipboard(
+        writeText: (payload?: unknown) => Promise<unknown> = async () => undefined
+    ) {
+        const nativeWriteText = vi.fn(writeText);
+        mockTauriCommand('write_clipboard_text', nativeWriteText);
+        return nativeWriteText;
+    }
+
+    function browserClipboard(writeText?: (value: string) => Promise<void>) {
         Object.defineProperty(navigator, 'clipboard', {
             configurable: true,
             value: writeText ? { writeText } : undefined,
         });
     }
 
-    it('user sees a successful copy only after a delayed clipboard write finishes', async () => {
+    it('user sees a successful copy only after a delayed native clipboard write finishes', async () => {
         const write = deferred<void>();
-        const writeText = vi.fn(() => write.promise);
-        clipboard(writeText);
+        const writeText = nativeClipboard(() => write.promise);
         const wrapper = await renderCode();
 
         await wrapper.get('button[aria-label="Copy"]').trigger('click');
         await flushPromises();
-        expect(writeText).toHaveBeenCalledWith('private code\n');
+        expect(writeText).toHaveBeenCalledWith({ text: 'private code\n' });
         expect(sendNotification).not.toHaveBeenCalled();
         expect(telemetry.events).toEqual([]);
         expect(telemetry.active.size).toBe(1);
@@ -84,13 +92,11 @@ describe('user copies a rendered code block', () => {
         expect(sendNotification).toHaveBeenCalledWith({ title: 'TouchAI', body: 'Copied' });
     });
 
-    it('user sees a copy failure when the clipboard rejects the write', async () => {
-        const write = deferred<void>();
-        clipboard(() => write.promise);
+    it('user sees a copy failure when the native clipboard rejects the write', async () => {
+        nativeClipboard(() => Promise.reject(new Error('clipboard denied')));
         const wrapper = await renderCode();
         await wrapper.get('button[aria-label="Copy"]').trigger('click');
 
-        write.reject(new Error('clipboard denied'));
         await flushPromises();
         expect(telemetry.events[0]?.attributes).toMatchObject({
             action: 'copy_code',
@@ -100,20 +106,29 @@ describe('user copies a rendered code block', () => {
         expect(sendNotification).toHaveBeenCalledWith({ title: 'TouchAI', body: 'Copy failed' });
     });
 
-    it('user sees a copy failure when the browser clipboard API is missing', async () => {
-        clipboard();
-        const wrapper = await renderCode();
-        await wrapper.get('button[aria-label="Copy"]').trigger('click');
-        await flushPromises();
+    it.each(['missing', 'blocked'] as const)(
+        'user gets code copied through the native clipboard when the browser clipboard is %s',
+        async (browserClipboardState) => {
+            const browserWriteText = vi.fn().mockRejectedValue(new Error('browser denied'));
+            browserClipboard(browserClipboardState === 'blocked' ? browserWriteText : undefined);
+            const nativeWriteText = nativeClipboard();
+            const wrapper = await renderCode();
 
-        expect(telemetry.events[0]?.attributes.result).toBe('failure');
-        expect(telemetry.released).toEqual(['operation-1']);
-        expect(sendNotification).toHaveBeenCalledWith({ title: 'TouchAI', body: 'Copy failed' });
-    });
+            await wrapper.get('button[aria-label="Copy"]').trigger('click');
+            await flushPromises();
+
+            expect(nativeWriteText).toHaveBeenCalledWith({ text: 'private code\n' });
+            if (browserClipboardState === 'blocked') {
+                expect(browserWriteText).not.toHaveBeenCalled();
+            }
+            expect(telemetry.events[0]?.attributes.result).toBe('success');
+            expect(telemetry.released).toEqual(['operation-1']);
+            expect(sendNotification).toHaveBeenCalledWith({ title: 'TouchAI', body: 'Copied' });
+        }
+    );
 
     it('user can collapse a rendered block and still copy its original code', async () => {
-        const writeText = vi.fn(async () => undefined);
-        clipboard(writeText);
+        const writeText = nativeClipboard();
         const wrapper = await renderCode();
         const collapse = wrapper.get('button[aria-pressed]');
         expect(collapse.attributes('aria-pressed')).toBe('false');
@@ -122,7 +137,7 @@ describe('user copies a rendered code block', () => {
 
         await wrapper.get('button[aria-label="Copy"]').trigger('click');
         await flushPromises();
-        expect(writeText).toHaveBeenCalledWith('private code\n');
+        expect(writeText).toHaveBeenCalledWith({ text: 'private code\n' });
         expect(telemetry.events[0]?.attributes.result).toBe('success');
         expect(wrapper.findAll('[role="status"]').map((status) => status.text())).toContain(
             'Copied'
@@ -134,7 +149,7 @@ describe('user copies a rendered code block', () => {
         async (initial) => {
             if (initial === 'disabled at copy start') telemetry.setEnabled(false);
             const write = deferred<void>();
-            clipboard(() => write.promise);
+            nativeClipboard(() => write.promise);
             const wrapper = await renderCode();
             await wrapper.get('button[aria-label="Copy"]').trigger('click');
             await flushPromises();
