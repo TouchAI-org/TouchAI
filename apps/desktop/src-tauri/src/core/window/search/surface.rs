@@ -298,6 +298,10 @@ pub fn hide_popup_surface<R: Runtime>(
         if let Some(window) = app_handle.get_webview_window(&closed_session.window_label) {
             let _ = window.set_focusable(false);
             window.hide().map_err(|error| error.to_string())?;
+            crate::core::window::webview_recovery::cancel_pending_show(
+                app_handle,
+                &closed_session.window_label,
+            );
         }
         emit_registered_popup_closed(app_handle, vec![closed_session])?;
 
@@ -317,6 +321,7 @@ pub fn hide_popup_surface<R: Runtime>(
             if label.starts_with("popup-") {
                 let _ = window.set_focusable(false);
                 window.hide().map_err(|error| error.to_string())?;
+                crate::core::window::webview_recovery::cancel_pending_show(app_handle, &label);
             }
         }
         emit_registered_popup_closed(app_handle, runtime.take_popup_sessions())
@@ -376,6 +381,7 @@ pub fn hide_surface<R: Runtime>(
 
     hide_popup_surface(app_handle, None)?;
     window.hide().map_err(|error| error.to_string())?;
+    crate::core::window::webview_recovery::cancel_pending_show(app_handle, "main");
     app_handle
         .emit(
             "search-surface-hidden",

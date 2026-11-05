@@ -175,6 +175,7 @@ pub fn clear_tray_status_indicator<R: Runtime>(app: AppHandle<R>) -> Result<(), 
 pub fn close_tray_menu<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(TRAY_MENU_WINDOW_LABEL) {
         window.hide().map_err(|error| error.to_string())?;
+        crate::core::window::webview_recovery::cancel_pending_show(&app, "tray-menu");
     }
     Ok(())
 }

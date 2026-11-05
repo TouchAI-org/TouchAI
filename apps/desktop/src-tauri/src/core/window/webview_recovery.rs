@@ -275,6 +275,22 @@ impl WebviewRecoveryRuntime {
         }
     }
 
+    fn cancel_pending_show(&self, window_label: &str) {
+        let mut windows = self
+            .windows
+            .lock()
+            .expect("webview recovery runtime poisoned");
+        let Some(state) = windows.get_mut(window_label) else {
+            return;
+        };
+        if state.phase == RecoveryPhase::Idle {
+            return;
+        }
+
+        state.show_after_recovery = false;
+        state.show_intent = None;
+    }
+
     fn note_navigation_started(&self, window_label: &str, navigation_id: u64) -> bool {
         let mut windows = self
             .windows
@@ -609,7 +625,7 @@ fn classify_process_failed_kind(
             "render_process_unresponsive",
         ),
         COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED => (
-            ProcessFailureKind::RendererExited,
+            ProcessFailureKind::ChromiumManaged,
             "frame_render_process_exited",
         ),
         COREWEBVIEW2_PROCESS_FAILED_KIND_GPU_PROCESS_EXITED => {
@@ -963,6 +979,13 @@ pub(crate) fn defer_show_if_recovering<R: Runtime>(
     false
 }
 
+pub(crate) fn cancel_pending_show<R: Runtime>(app: &tauri::AppHandle<R>, window_label: &str) {
+    let Some(runtime) = app.try_state::<WebviewRecoveryRuntime>() else {
+        return;
+    };
+    runtime.cancel_pending_show(window_label);
+}
+
 #[cfg(target_os = "windows")]
 fn show_retry_dialog<R: Runtime>(window: &WebviewWindow<R>) {
     let app = window.app_handle().clone();
@@ -1261,6 +1284,27 @@ mod tests {
     }
 
     #[test]
+    fn user_gets_a_pending_show_cancelled_when_the_window_is_hidden_during_recovery() {
+        let runtime = WebviewRecoveryRuntime::new();
+        start_recovery(&runtime, "settings", false, 0);
+        assert_eq!(
+            runtime.request_show("settings", ShowIntent::Settings { show_updates: true }),
+            ShowReadiness::Deferred
+        );
+
+        runtime.cancel_pending_show("settings");
+        runtime.note_navigation_started("settings", 9);
+
+        assert_eq!(
+            runtime.complete_navigation("settings", 9, true),
+            NavigationCompletion::Show {
+                show: false,
+                intent: None
+            }
+        );
+    }
+
+    #[test]
     fn user_gets_no_stale_navigation_completion_used_for_recovery() {
         let runtime = WebviewRecoveryRuntime::new();
         start_recovery(&runtime, "main", true, 0);
@@ -1371,5 +1415,17 @@ mod tests {
             runtime.request_show("main", ShowIntent::Focus),
             ShowReadiness::Deferred
         );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn user_gets_subframe_renderer_exits_left_to_chromium() {
+        use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED;
+
+        let (kind, _) = super::classify_process_failed_kind(
+            COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED,
+        );
+
+        assert_eq!(kind, ProcessFailureKind::ChromiumManaged);
     }
 }
