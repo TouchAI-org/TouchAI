@@ -1,8 +1,8 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tauri::{
     test::{mock_builder, MockRuntime},
-    App, Builder, Manager, Runtime,
+    App, Builder, Manager, Runtime, WebviewWindow,
 };
 
 use crate::{
@@ -22,6 +22,8 @@ use crate::{
         },
     },
 };
+
+pub use crate::core::database::protocol::decode::decode_row;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SearchSurfacePolicySnapshot {
@@ -49,6 +51,14 @@ pub fn attach_test_database_runtime(
     let runtime =
         tauri::async_runtime::block_on(DatabaseRuntime::initialize_for_tests(database_root))?;
     Ok(builder.manage(runtime))
+}
+
+#[doc(hidden)]
+pub fn database_path_for_tests<R: Runtime>(webview: &WebviewWindow<R>) -> PathBuf {
+    webview
+        .state::<DatabaseRuntime>()
+        .database_path_for_tests()
+        .to_path_buf()
 }
 
 pub fn popup_registry_has<R: Runtime>(app: &App<R>, id: &str) -> bool {
