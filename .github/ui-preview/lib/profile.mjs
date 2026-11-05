@@ -67,6 +67,12 @@ export function stageLabel(profile) {
 export const SEARCH_WINDOW_WIDTH = 750;
 export const SEARCH_WINDOW_IDLE_HEIGHT = 60;
 export const SEARCH_WINDOW_RESULTS_HEIGHT = 420;
+/**
+ * Transparent room the app leaves inside each native window for its CSS
+ * shadow. The recorder works in visible-content coordinates and only converts
+ * to native ones where the platform requires it.
+ */
+export const WINDOW_SHADOW_GUTTER = 24;
 
 /**
  * @param {{ width: number, height: number }} stage
@@ -90,5 +96,36 @@ export function searchWindowFrame(stage, options = {}) {
         height,
         x: Math.max(0, Math.round((stage.width - width) / 2)),
         y: Math.max(0, Math.round((stage.height - height) / 2)),
+    };
+}
+
+/**
+ * Converts a visible-content frame into the native window that contains it.
+ *
+ * The app draws a 24px transparent gutter on every side so the browser can
+ * anti-alias the radius and paint a CSS shadow. X11 window managers (and
+ * xdotool) size the native window, so Linux previews have to add that gutter
+ * back; WebDriver on Windows and macOS reports content dimensions, so it uses
+ * the frame as-is.
+ */
+export function nativeWindowFrame(frame, gutter = WINDOW_SHADOW_GUTTER) {
+    return {
+        width: frame.width + gutter * 2,
+        height: frame.height + gutter * 2,
+        x: frame.x - gutter,
+        y: frame.y - gutter,
+    };
+}
+
+/**
+ * The inverse of `nativeWindowFrame`, used to crop a native capture back to
+ * the content a reviewer should see.
+ */
+export function contentWindowFrame(frame, gutter = WINDOW_SHADOW_GUTTER) {
+    return {
+        width: Math.max(1, frame.width - gutter * 2),
+        height: Math.max(1, frame.height - gutter * 2),
+        x: frame.x + gutter,
+        y: frame.y + gutter,
     };
 }

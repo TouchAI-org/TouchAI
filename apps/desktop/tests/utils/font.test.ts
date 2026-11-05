@@ -188,6 +188,40 @@ describe('user reads text in the bundled serif font', () => {
     );
 
     it(
+        'user still gets the serif font when the style is removed while it is being verified',
+        async () => {
+            const appendChild = document.head.appendChild.bind(document.head);
+            let removedOnce = false;
+            const appendSpy = vi
+                .spyOn(document.head, 'appendChild')
+                .mockImplementation((node: Node) => {
+                    const appended = appendChild(node);
+
+                    if (
+                        !removedOnce &&
+                        node instanceof HTMLStyleElement &&
+                        node.matches(FONT_STYLE_SELECTOR)
+                    ) {
+                        removedOnce = true;
+                        node.remove();
+                    }
+
+                    return appended;
+                });
+
+            const { initializeFontLoader } = await import('@/utils/font');
+
+            initializeFontLoader();
+
+            await vi.waitFor(() => {
+                expect(appendSpy).toHaveBeenCalledTimes(2);
+                expect(fontStyles()).toHaveLength(1);
+            });
+        },
+        FONT_TEST_TIMEOUT_MS
+    );
+
+    it(
         'user refreshes an early font-face rule after the font file is downloaded',
         async () => {
             const { initializeFontLoader } = await import('@/utils/font');

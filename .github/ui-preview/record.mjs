@@ -43,7 +43,13 @@ import {
 } from './lib/evidence.mjs';
 import { ELEMENT_CENTER_SCRIPT, ELEMENT_ROW_RECT_SCRIPT } from './lib/overlay.mjs';
 import { captureMode, detectPlatform, isUsableDisplay, platformLabel } from './lib/platform.mjs';
-import { resolveCaptureProfile, searchWindowFrame, stageLabel } from './lib/profile.mjs';
+import {
+    nativeWindowFrame,
+    resolveCaptureProfile,
+    searchWindowFrame,
+    stageLabel,
+    WINDOW_SHADOW_GUTTER,
+} from './lib/profile.mjs';
 import {
     boot,
     bridge,
@@ -316,27 +322,24 @@ async function placeWebviewWindow(session, handle, profile) {
 }
 
 async function setPreviewWindowFrame({ session, platform, display, handle, frame, scale }) {
-    const { x, y, width, height } = frame;
-
     await session.switchTo(handle);
 
-    try {
-        await session.setWindowRect({ x, y, width, height });
-    } catch (error) {
-        if (platform !== 'linux') {
-            throw error;
-        }
-
-        // WebKitWebDriver on Xvfb does not always implement setWindowRect;
-        // xdotool drives the same window manager the rest of the recorder uses.
+    if (platform === 'linux') {
+        // xdotool sizes the native X11 window, while `frame` describes the
+        // visible content. Add the transparent shadow gutter so the webview
+        // renders at the sizes the plan asserts and the rest of the app uses.
+        const native = nativeWindowFrame(frame);
         const id = windowForSurface(display, 'search', scale)?.id;
 
         if (!id) {
-            throw error;
+            throw new Error('no visible search window to resize');
         }
 
-        resizeWindow(display, id, width, height);
-        moveWindow(display, id, x, y);
+        resizeWindow(display, id, native.width, native.height);
+        moveWindow(display, id, native.x, native.y);
+    } else {
+        const { x, y, width, height } = frame;
+        await session.setWindowRect({ x, y, width, height });
     }
 
     await session.focusWindow();
@@ -418,20 +421,24 @@ async function checkPreviewFrame(
     session,
     handle,
     frame,
+    platform,
     name = 'Search window frame stayed stable'
 ) {
     await session.switchTo(handle);
     const rect = await session.getWindowRect();
+    const expected = platform === 'linux' ? nativeWindowFrame(frame) : frame;
     const stable =
-        Math.abs(rect.width - frame.width) <= PREVIEW_FRAME_TOLERANCE &&
-        Math.abs(rect.height - frame.height) <= PREVIEW_FRAME_TOLERANCE;
+        Math.abs(rect.width - expected.width) <= PREVIEW_FRAME_TOLERANCE &&
+        Math.abs(rect.height - expected.height) <= PREVIEW_FRAME_TOLERANCE;
 
     return {
         name,
         status: stable ? 'pass' : 'fail',
         detail: stable
-            ? `${rect.width}x${rect.height}`
-            : `${rect.width}x${rect.height}, expected ${frame.width}x${frame.height}`,
+            ? platform === 'linux'
+                ? `${rect.width}x${rect.height} native (${frame.width}x${frame.height} content)`
+                : `${rect.width}x${rect.height}`
+            : `${rect.width}x${rect.height}, expected ${expected.width}x${expected.height}`,
     };
 }
 
@@ -564,7 +571,12 @@ async function captureStill({ session, platform, display, surface, state, file }
         let size = null;
 
         for (const id of candidates) {
-            size = captureScreenshot({ display, file, id });
+            size = captureScreenshot({
+                display,
+                file,
+                id,
+                inset: WINDOW_SHADOW_GUTTER,
+            });
 
             if (isPaintedWindowFrame(file)) {
                 break;
@@ -1181,6 +1193,7 @@ async function main() {
                             session,
                             handle,
                             state.previewFrame,
+                            platform,
                             state.searchFrame === 'expanded'
                                 ? 'Search window expanded for existing content'
                                 : 'Search window empty state stayed compact'
@@ -1306,6 +1319,7 @@ async function main() {
                                         session,
                                         handle,
                                         state.previewFrame,
+                                        platform,
                                         'Search window expanded once for results'
                                     )
                                 );
@@ -1382,6 +1396,7 @@ async function main() {
                                     session,
                                     handle,
                                     state.previewFrame,
+                                    platform,
                                     'Search window expanded once for results'
                                 )
                             );
@@ -1438,6 +1453,7 @@ async function main() {
                             session,
                             handle,
                             state.previewFrame,
+                            platform,
                             'Search window frame stayed stable'
                         )
                     );

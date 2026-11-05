@@ -91,7 +91,7 @@ export const SHOW_WIDGET_THEME_FALLBACKS: Record<ShowWidgetThemeVarName, string>
     '--color-scrollbar-thumb': 'rgba(156, 163, 175, 0.4)',
     '--color-scrollbar-thumb-hover': 'rgba(156, 163, 175, 0.6)',
     '--font-sans':
-        "'Segoe UI Variable Text', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Noto Sans SC', 'WenQuanYi Micro Hei', system-ui, sans-serif",
+        "'Segoe UI Variable Text', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', system-ui, 'Noto Sans CJK SC', 'Noto Sans SC', 'WenQuanYi Micro Hei', sans-serif",
     '--font-serif':
         "'TouchAI Source Han Serif SC', 'Source Han Serif SC', 'Noto Serif CJK SC', 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', 'NSimSun', serif",
     '--font-mono':

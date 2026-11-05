@@ -139,7 +139,8 @@ describe('primitive tokens', () => {
         ]) {
             expect(sans).toContain(family);
         }
-        expect(sans.trim().endsWith('system-ui, sans-serif')).toBe(true);
+        expect(sans).toContain('system-ui');
+        expect(sans.trim().endsWith('sans-serif')).toBe(true);
 
         for (const family of [
             "'Source Han Serif SC'",

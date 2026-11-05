@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { ffmpegBinary, ffprobeBinary } from './platform.mjs';
+import { contentWindowFrame } from './profile.mjs';
 
 // Keep this in sync with the workflow env and the platform display helpers.
 export const DESKTOP_COLOUR = '#d9d4c8';
@@ -307,14 +308,42 @@ export function cropToElement({
  * recenters itself when its height changes, so a geometry read a moment earlier
  * can be stale and produce a black crop.
  */
-export function captureScreenshot({ display, file, geometry, id }) {
+export function captureScreenshot({ display, file, geometry, id, inset = 0 }) {
     if (id) {
-        const direct = run('import', ['-window', String(id), file], {
+        const directFile = inset > 0 ? `${file}.window.png` : file;
+        const direct = run('import', ['-window', String(id), directFile], {
             env: { ...process.env, DISPLAY: display },
         });
 
-        if (direct.status === 0 && fs.existsSync(file)) {
+        if (direct.status === 0 && fs.existsSync(directFile)) {
             const size = windowGeometry(display, id);
+
+            if (inset > 0) {
+                if (!size) {
+                    fs.rmSync(directFile, { force: true });
+                    throw new Error(
+                        'the window disappeared before its screenshot could be cropped'
+                    );
+                }
+
+                const content = contentWindowFrame(size, inset);
+                const convert = hasCommand('magick') ? 'magick' : 'convert';
+                const result = run(convert, [
+                    directFile,
+                    '-crop',
+                    `${content.width}x${content.height}+${inset}+${inset}`,
+                    '+repage',
+                    file,
+                ]);
+
+                fs.rmSync(directFile, { force: true });
+
+                if (result.status !== 0) {
+                    throw new Error(`${convert} failed: ${result.stderr.trim()}`);
+                }
+
+                return { width: content.width, height: content.height };
+            }
 
             return {
                 width: size?.width ?? 0,
@@ -340,7 +369,8 @@ export function captureScreenshot({ display, file, geometry, id }) {
         throw new Error('the window disappeared before its screenshot could be cropped');
     }
 
-    const crop = `${target.width}x${target.height}+${target.x}+${target.y}`;
+    const content = inset > 0 ? contentWindowFrame(target, inset) : target;
+    const crop = `${content.width}x${content.height}+${content.x}+${content.y}`;
     const convert = hasCommand('magick') ? 'magick' : 'convert';
     const result = run(convert, [scratch, '-crop', crop, '+repage', file]);
 

@@ -151,6 +151,19 @@ describe('initializeDesktopShell', () => {
         });
     });
 
+    it('user gets the size fallback when the platform cannot report either window state', async () => {
+        stubUserAgent(WINDOWS_UA);
+        isMaximized.mockRejectedValue(new Error('maximize state unavailable'));
+        isFullscreen.mockRejectedValue(new Error('fullscreen state unavailable'));
+        stubViewport(1400, 900);
+
+        initializeDesktopShell();
+
+        await vi.waitFor(() => {
+            expect(document.documentElement.dataset.windowMaximized).toBe('true');
+        });
+    });
+
     it('user gets monitor bounds compared in logical pixels on a scaled display', async () => {
         stubUserAgent(LINUX_UA);
         scaleFactor.mockResolvedValue(2);
