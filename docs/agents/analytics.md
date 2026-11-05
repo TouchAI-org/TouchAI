@@ -82,12 +82,17 @@ Consent and local metadata live in one JSON value under
 
 Native owns the current session. A user interaction starts or refreshes it; a
 session expires after 30 minutes without interaction. Passive events never open
-a session.
+a session. Session admission re-checks idleness and refreshes `last_activity`;
+an operation that already admitted its original session keeps that session even
+after it later goes idle.
 
-`beginOperation()` returns an opaque handle bound to the current session and
-consent epoch. Completions must use that handle. An unknown, expired, or revoked
-handle fails as `stale_operation`; it never falls back to the current session or
-a newer epoch. Handles expire after 2 hours and the registry is capped at 256.
+`beginOperation(startedAtMs)` returns an opaque handle bound to the current
+session and consent epoch. Native rejects the start when its timestamp cannot
+prove the action began after the latest consent transition, so a capture queued
+while sharing was off cannot bind an epoch the user enabled later. Completions
+must use that handle. An unknown, expired, or revoked handle fails as
+`stale_operation`; it never falls back to the current session or a newer epoch.
+Handles expire after 2 hours and the registry is capped at 256.
 
 A queued session start is delivered before its dependents. If the start is
 permanently rejected or expires, dependent events are dropped and the session is
@@ -105,6 +110,12 @@ single-flight. Authentication, configuration, rate-limit, and transient failures
 retain the event and apply the owning retry policy. A batch or event is removed
 only after the receiver explicitly confirms persistence; a bare successful HTTP
 status is not enough.
+
+Before a batch is sent, its ordered members, exact body, batch id and retry
+deadline are frozen as one pending reservation. A transient retry resends that
+reservation unchanged; new events wait for a later batch. The reservation is
+released only by explicit acknowledgement, a configuration failure, consent
+invalidation, or TTL expiry.
 
 Delivery must re-check the live queue, consent state, epoch, and expiry before
 sending. Work purged by opt-out, restore, or test cleanup must never be sent from
@@ -125,13 +136,22 @@ rejected rather than disabled.
 ## Privacy
 
 Collected fields are limited to event names, bounded categories, UUIDs, UTC
-days, counts and durations, and coarse app/platform facts.
+days, counts and durations, and coarse app/platform facts. Event bodies do not
+include IP addresses or location.
 
 Never collect prompts, messages, file contents or names, paths, URLs, clipboard
-contents, error strings, model names, provider credentials, window titles, or
-location. The event body does not include IP addresses. Transport metadata may
-still be visible to the network edge; that is covered by the deployment's
-privacy policy, not added to the analytics envelope.
+contents, error strings, model names, provider credentials, or window titles.
+The network edge and receiver may retain the source IP address and derive coarse
+location from it for abuse prevention and aggregate geographic usage analysis.
+That receiver-side processing is outside the analytics envelope and must be
+described accurately in the user-facing privacy disclosure.
+
+The user-facing analytics description must state that events are linked to a
+random installation id, that the receiver may associate IP address and coarse
+location for abuse prevention and geographic usage analysis, and that disabling
+analytics stops event delivery while pseudonymous installation and observation
+metadata remains on the device and may be included in later events after sharing
+is re-enabled.
 
 Internal states such as endpoint readiness, queue depth, and save failures are
 for structured logs only. Settings must show only the user's privacy choice and

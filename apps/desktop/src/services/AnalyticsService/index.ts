@@ -66,8 +66,12 @@ class AnalyticsService {
      * WebView never supplies a session id.
      */
     async beginOperation(): Promise<AnalyticsOperationHandle> {
+        // Capture the action-start instant synchronously, before an IPC queue
+        // delay can let the user change consent. Native refuses to bind an
+        // operation whose start predates the latest consent transition.
+        const startedAtMs = Date.now();
         try {
-            return await native.analytics.beginOperation();
+            return await native.analytics.beginOperation(startedAtMs);
         } catch {
             return { operationId: '', enabled: false, consentEpoch: 0 };
         }

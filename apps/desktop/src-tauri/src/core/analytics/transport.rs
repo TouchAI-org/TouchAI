@@ -37,6 +37,15 @@ pub(crate) struct AnalyticsEventEnvelope {
     pub(crate) attributes: JsonMap<String, JsonValue>,
 }
 
+/// One immutable HTTP batch. Retries reuse the same ordered events, batch id and
+/// gzipped body so receiver idempotency does not depend on recomputing either.
+#[derive(Debug, Clone)]
+pub(crate) struct PreparedAnalyticsBatch {
+    pub(crate) events: Vec<AnalyticsEventEnvelope>,
+    pub(crate) batch_id: String,
+    pub(crate) encoded_body: Vec<u8>,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum SendOutcome {
     /// R2 confirmed persistence for the whole batch.
@@ -56,7 +65,7 @@ pub(crate) enum SendOutcome {
 pub(crate) trait EventSender: Send + Sync {
     fn send_batch<'a>(
         &'a self,
-        envelopes: &'a [AnalyticsEventEnvelope],
+        batch: &'a PreparedAnalyticsBatch,
     ) -> Pin<Box<dyn Future<Output = SendOutcome> + Send + 'a>>;
 }
 
@@ -109,6 +118,18 @@ fn gzip(bytes: &[u8]) -> Result<Vec<u8>, String> {
     encoder
         .finish()
         .map_err(|error| format!("gzip_finish:{error}"))
+}
+
+pub(crate) fn prepare_batch(
+    events: &[AnalyticsEventEnvelope],
+) -> Result<PreparedAnalyticsBatch, String> {
+    let batch_id = batch_id(events)?;
+    let encoded_body = batch_body_bytes(events).and_then(|body| gzip(&body))?;
+    Ok(PreparedAnalyticsBatch {
+        events: events.to_vec(),
+        batch_id,
+        encoded_body,
+    })
 }
 
 /// The receiver answers 202 with the exact stable batch id, stored event count
@@ -236,32 +257,15 @@ impl AnalyticsTransport {
         })
     }
 
-    pub(crate) async fn send_batch(&self, events: &[AnalyticsEventEnvelope]) -> SendOutcome {
-        let batch_id = match batch_id(events) {
-            Ok(batch_id) => batch_id,
-            Err(error) => {
-                return SendOutcome::ConfigurationFailure {
-                    reason: format!("batch_id_failed:{error}"),
-                };
-            }
-        };
-        let body = match batch_body_bytes(events).and_then(|body| gzip(&body)) {
-            Ok(body) => body,
-            Err(error) => {
-                return SendOutcome::ConfigurationFailure {
-                    reason: format!("batch_build_failed:{error}"),
-                };
-            }
-        };
-
+    pub(crate) async fn send_batch(&self, batch: &PreparedAnalyticsBatch) -> SendOutcome {
         let response = self
             .client
             .post(&self.batch_url)
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .header(reqwest::header::CONTENT_ENCODING, "gzip")
-            .header("x-touchai-batch-id", &batch_id)
+            .header("x-touchai-batch-id", &batch.batch_id)
             .header("x-touchai-project-id", &self.project_id)
-            .body(body)
+            .body(batch.encoded_body.clone())
             .send()
             .await;
         let response = match response {
@@ -288,16 +292,22 @@ impl AnalyticsTransport {
                 reason: "response_too_large".to_string(),
             };
         }
-        classify_response(status, &body, &batch_id, events.len(), retry_after)
+        classify_response(
+            status,
+            &body,
+            &batch.batch_id,
+            batch.events.len(),
+            retry_after,
+        )
     }
 }
 
 impl EventSender for AnalyticsTransport {
     fn send_batch<'a>(
         &'a self,
-        envelopes: &'a [AnalyticsEventEnvelope],
+        batch: &'a PreparedAnalyticsBatch,
     ) -> Pin<Box<dyn Future<Output = SendOutcome> + Send + 'a>> {
-        Box::pin(async move { AnalyticsTransport::send_batch(self, envelopes).await })
+        Box::pin(async move { AnalyticsTransport::send_batch(self, batch).await })
     }
 }
 

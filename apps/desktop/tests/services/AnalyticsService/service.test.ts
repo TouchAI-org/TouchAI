@@ -96,6 +96,16 @@ describe('AnalyticsService', () => {
         );
     });
 
+    it('user gets the original action-start time sent when consent capture is delayed', async () => {
+        const now = vi.spyOn(Date, 'now').mockReturnValue(1_760_000_000_321);
+        nativeAnalytics.beginOperation.mockResolvedValue(operation());
+
+        await analytics.beginOperation();
+
+        expect(nativeAnalytics.beginOperation).toHaveBeenCalledWith(1_760_000_000_321);
+        now.mockRestore();
+    });
+
     it('user gets a disabled result without a native call when the operation started while off', async () => {
         const result = await analytics.track('app.started', validAttributes, {
             operation: operation({ enabled: false }),

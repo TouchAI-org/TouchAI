@@ -1008,7 +1008,7 @@ const zhCNMessages = {
     'settings.analytics.title': '隐私与产品统计',
     'settings.analytics.share': '分享产品使用统计',
     'settings.analytics.shareDescription':
-        '分享脱敏后的产品使用统计，帮助我们改进产品。关闭后不再收集或发送统计信息。',
+        '分享与随机安装 ID 关联的产品使用统计。接收端可能将你的 IP 地址和粗略位置与事件关联，用于滥用防护和地理使用分析。关闭后不再发送分析事件；本机现有的假名化安装与观测元数据会保留，并可能在重新开启分享后随事件发送。',
     'settings.diagnostics.diagnosticMode': '调试日志',
     'settings.diagnostics.remaining': '剩余 {time}',
     'settings.diagnostics.exportBundle': '导出诊断包',
@@ -2125,7 +2125,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.analytics.title': 'Privacy and product analytics',
     'settings.analytics.share': 'Share product usage statistics',
     'settings.analytics.shareDescription':
-        'Share de-identified product usage statistics to help improve the product. When off, no analytics data is collected or sent.',
+        'Share product usage statistics linked to a random installation id. The receiver may associate your IP address and coarse location with events for abuse prevention and geographic usage analysis. When off, no analytics events are sent; existing pseudonymous installation and observation metadata stays on this device and may be included in later events after sharing is enabled.',
     'settings.diagnostics.diagnosticMode': 'Debug logging',
     'settings.diagnostics.remaining': '{time} remaining',
     'settings.diagnostics.exportBundle': 'Export diagnostics',

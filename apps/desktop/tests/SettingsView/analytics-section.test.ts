@@ -48,7 +48,7 @@ describe('user configures product analytics', () => {
 
         expect(wrapper.text()).toContain('Privacy and product analytics');
         expect(wrapper.get('[data-testid="settings-analytics-share"]').text()).toContain(
-            'Share de-identified product usage statistics to help improve the product. When off, no analytics data is collected or sent.'
+            'Share product usage statistics linked to a random installation id. The receiver may associate your IP address and coarse location with events for abuse prevention and geographic usage analysis. When off, no analytics events are sent; existing pseudonymous installation and observation metadata stays on this device and may be included in later events after sharing is enabled.'
         );
         const toggle = wrapper.get('[data-testid="settings-analytics-toggle"]');
         expect((toggle.element as HTMLButtonElement).disabled).toBe(false);
@@ -65,7 +65,7 @@ describe('user configures product analytics', () => {
         await flushPromises();
 
         expect(wrapper.get('[data-testid="settings-analytics-share"]').text()).toContain(
-            'Share de-identified product usage statistics to help improve the product. When off, no analytics data is collected or sent.'
+            'Share product usage statistics linked to a random installation id. The receiver may associate your IP address and coarse location with events for abuse prevention and geographic usage analysis. When off, no analytics events are sent; existing pseudonymous installation and observation metadata stays on this device and may be included in later events after sharing is enabled.'
         );
         const toggle = wrapper.get('[data-testid="settings-analytics-toggle"]');
         expect((toggle.element as HTMLButtonElement).disabled).toBe(true);
@@ -82,7 +82,7 @@ describe('user configures product analytics', () => {
         await flushPromises();
 
         expect(wrapper.get('[data-testid="settings-analytics-share"]').text()).toContain(
-            'Share de-identified product usage statistics to help improve the product. When off, no analytics data is collected or sent.'
+            'Share product usage statistics linked to a random installation id. The receiver may associate your IP address and coarse location with events for abuse prevention and geographic usage analysis. When off, no analytics events are sent; existing pseudonymous installation and observation metadata stays on this device and may be included in later events after sharing is enabled.'
         );
         expect(wrapper.text()).not.toContain('analytics endpoint');
         const toggle = wrapper.get('[data-testid="settings-analytics-toggle"]');

@@ -5,6 +5,7 @@ import type {
     AppUpdateCheckResult,
     AppUpdateInfo,
 } from '@services/AppUpdateService/types';
+import { native } from '@services/NativeService';
 import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
 import { describe, expect, it, type Mock, vi } from 'vitest';
 
@@ -50,6 +51,7 @@ function createAnalytics(): {
             updateOperationId: updateOperationId ?? crypto.randomUUID(),
             closed: false,
             pending: Promise.resolve(),
+            pendingCount: 0,
         })
     );
     const finish = vi.fn(async (operation: UpdateOperation) => {
@@ -359,11 +361,95 @@ describe('user downloads and installs an update', () => {
             {
                 updateOperationId: operationId,
                 source: 'user',
+                operationId: 'op-1',
             }
         );
         await vi.waitFor(() => {
             expect(analytics.finish).toHaveBeenCalledTimes(1);
         });
+    });
+
+    it('user still installs while a stale update operation suppresses the handoff across consent changes', async () => {
+        const telemetry = installProductAnalytics();
+        const { controller, installUpdate } = createController({});
+
+        await controller.checkNow('manual');
+        await controller.download();
+        const operationId = [...telemetry.active.keys()][0];
+        expect(operationId).toBeTruthy();
+        await vi.waitFor(() => expect(telemetry.events).toHaveLength(4));
+        expect(new Set(telemetry.events.map((event) => event.operationId))).toEqual(
+            new Set([operationId])
+        );
+
+        telemetry.setEnabled(false);
+        telemetry.setEnabled(true);
+        installUpdate.mockImplementation(async (_channel, _version, _fileName, analytics) => {
+            const result = await native.analytics.track({
+                eventName: 'app.update_transition',
+                occurredAtMs: Date.now(),
+                operationId: analytics.operationId,
+                attributes: {
+                    update_operation_id: analytics.updateOperationId,
+                    phase: 'install_handoff',
+                    result: 'success',
+                    source: 'user',
+                },
+            });
+            expect(result.status).toBe('disabled');
+            return true;
+        });
+
+        await expect(controller.install()).resolves.toBe(true);
+
+        expect(installUpdate).toHaveBeenCalledWith(
+            'stable',
+            availableUpdate.version,
+            availableUpdate.fileName,
+            expect.objectContaining({
+                updateOperationId: expect.any(String),
+                operationId,
+                source: 'user',
+            })
+        );
+        expect(
+            telemetry.events.filter((event) => event.attributes.phase === 'install_handoff')
+        ).toEqual([]);
+        await vi.waitFor(() => expect(telemetry.active.size).toBe(0));
+        await controller.dispose();
+    });
+
+    it('user still installs when no update operation was captured', async () => {
+        const analytics = createAnalytics();
+        const begin = vi.fn(
+            async (updateOperationId?: string): Promise<UpdateOperation> => ({
+                operation: { operationId: '', enabled: false, consentEpoch: 0 },
+                updateOperationId: updateOperationId ?? crypto.randomUUID(),
+                closed: false,
+                pending: Promise.resolve(),
+                pendingCount: 0,
+            })
+        );
+        analytics.analytics.beginUpdateOperation = begin;
+        const { controller, installUpdate } = createController({
+            analytics: analytics.analytics,
+        });
+
+        await controller.checkNow('manual');
+        await controller.download();
+        await expect(controller.install()).resolves.toBe(true);
+
+        expect(installUpdate).toHaveBeenCalledWith(
+            'stable',
+            availableUpdate.version,
+            availableUpdate.fileName,
+            {
+                updateOperationId: expect.any(String),
+                source: 'user',
+            }
+        );
+        await vi.waitFor(() => expect(analytics.finish).toHaveBeenCalledTimes(1));
+        await controller.dispose();
     });
 
     it('user gets the install handle released once when the installer fails', async () => {
@@ -389,6 +475,7 @@ describe('user downloads and installs an update', () => {
                 updateOperationId: 'u',
                 closed: false,
                 pending: Promise.resolve(),
+                pendingCount: 0,
             })),
             trackUpdateTransition: vi.fn().mockRejectedValue(new Error('ipc down')),
             finishUpdateOperation: finish,

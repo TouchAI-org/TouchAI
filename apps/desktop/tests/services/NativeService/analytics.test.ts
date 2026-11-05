@@ -119,9 +119,11 @@ describe('NativeService analytics bridge', () => {
             consentEpoch: 2,
         });
 
-        const handle = await analytics.beginOperation();
+        const handle = await analytics.beginOperation(1_760_000_000_123);
 
-        expect(mockInvoke).toHaveBeenCalledWith('analytics_begin_operation');
+        expect(mockInvoke).toHaveBeenCalledWith('analytics_begin_operation', {
+            startedAtMs: 1_760_000_000_123,
+        });
         expect(handle.operationId).toBe('op-1');
     });
 

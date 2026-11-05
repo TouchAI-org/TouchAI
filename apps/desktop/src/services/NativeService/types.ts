@@ -175,6 +175,8 @@ export interface AppUpdateInfo {
 export interface AppUpdateInstallAnalytics {
     updateOperationId: string;
     source: 'background' | 'user' | 'other';
+    /** Original native operation captured at update check start. */
+    operationId?: string;
 }
 
 export interface AppUpdateNotificationAction {

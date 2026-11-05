@@ -238,6 +238,17 @@ impl AnalyticsQueue {
     }
 
     #[cfg(test)]
+    pub(crate) fn set_attempt_count(&mut self, event_id: &str, attempt_count: i64) {
+        if let Some(event) = self
+            .entries
+            .iter_mut()
+            .find(|event| event.event_id == event_id)
+        {
+            event.attempt_count = attempt_count;
+        }
+    }
+
+    #[cfg(test)]
     pub(crate) fn expire_session_starts(&mut self) {
         for event in &mut self.entries {
             if event.event_name == "analytics.session_started" {
