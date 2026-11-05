@@ -68,6 +68,7 @@ function createControllerStub() {
         isQuickSearchItemHighlighted: vi.fn(() => false),
         openQuickSearch: vi.fn(),
         closeQuickSearch: vi.fn(),
+        settleQuickSearchInteraction: vi.fn(),
         moveQuickSearchSelection: vi.fn(),
         openHighlightedQuickSearchItem: vi.fn().mockResolvedValue(undefined),
         triggerQuickSearch: vi.fn(),

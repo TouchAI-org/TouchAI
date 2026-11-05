@@ -183,6 +183,7 @@
         openContextMenuForHighlightedItem,
         open: openPanel,
         close: closePanel,
+        settleInteraction,
         syncClosedState,
         getHighlightedItem,
         openHighlightedItem,
@@ -229,6 +230,7 @@
     defineExpose({
         open: openPanel,
         close: closePanel,
+        settleInteraction,
         syncClosedState,
         moveSelection,
         getHighlightedItem,

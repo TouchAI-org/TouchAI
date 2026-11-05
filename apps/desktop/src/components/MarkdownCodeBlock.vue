@@ -8,6 +8,7 @@
 
     import { t } from '@/i18n';
     import { runResultAction } from '@/services/AnalyticsService/productInteractions';
+    import { clipboardService } from '@/services/ClipboardService';
 
     defineOptions({ inheritAttrs: false });
     const props = withDefaults(
@@ -24,12 +25,7 @@
 
     async function copyCode() {
         try {
-            await runResultAction('copy_code', async () => {
-                if (typeof navigator.clipboard?.writeText !== 'function') {
-                    throw new Error('Clipboard write is unavailable');
-                }
-                await navigator.clipboard.writeText(props.node.code);
-            });
+            await runResultAction('copy_code', () => clipboardService.writeText(props.node.code));
             if (disposed) return;
             copied.value = true;
             clearTimeout(copyTimer);

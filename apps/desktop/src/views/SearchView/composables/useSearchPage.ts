@@ -303,6 +303,10 @@ export function useSearchPageController(options: {
         quickSearchOpen.value = false;
     }
 
+    function settleQuickSearchInteraction() {
+        quickSearchPanel.value?.settleInteraction();
+    }
+
     function moveQuickSearchSelection(direction: 'up' | 'down' | 'left' | 'right') {
         quickSearchPanel.value?.moveSelection(direction);
     }
@@ -363,6 +367,7 @@ export function useSearchPageController(options: {
         isQuickSearchItemHighlighted,
         openQuickSearch,
         closeQuickSearch,
+        settleQuickSearchInteraction,
         moveQuickSearchSelection,
         openHighlightedQuickSearchItem,
         triggerQuickSearch,
@@ -734,7 +739,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                     return;
                 }
                 latestSurfaceSequence = Math.max(latestSurfaceSequence, sequence);
-                controller.closeQuickSearch();
+                controller.settleQuickSearchInteraction();
                 interactionContext.clearActivePopupSession();
                 interactionContext.markWindowHidden({
                     hideReason: payload.reason,
