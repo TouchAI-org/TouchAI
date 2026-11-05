@@ -184,14 +184,17 @@
         return RAIL_WAVE_SCALES[railTickDistance(index)] ?? 1;
     }
 
-    function railTickTransition(index: number) {
+    function railTickStyle(index: number) {
         const distance = railTickDistance(index);
+        const delay =
+            reducedMotion.value || !Number.isFinite(distance)
+                ? 0
+                : duration(distance * RAIL_WAVE_STEP_DELAY * 1000) / 1000;
         return {
-            ...transitions.value.quick,
-            delay:
-                reducedMotion.value || !Number.isFinite(distance)
-                    ? 0
-                    : duration(distance * RAIL_WAVE_STEP_DELAY * 1000) / 1000,
+            transform: `scaleX(${railTickScale(index)})`,
+            transition: reducedMotion.value
+                ? 'none'
+                : `transform ${transitions.value.quick.duration}s var(--ease-smooth-out) ${delay}s`,
         };
     }
 
@@ -613,7 +616,7 @@
         if (id) addPinnedDismissListeners();
     });
 
-    watch(() => props.items, handleResize, { deep: true, flush: 'post' });
+    watch(() => props.items, handleResize, { flush: 'post' });
 
     watch(
         () => props.followOutput,
@@ -701,13 +704,10 @@
                     @blur="handleBlur"
                     @click="handleRailItemSelect(item)"
                 >
-                    <motion.span
+                    <span
                         aria-hidden="true"
                         class="block h-0.5 w-3 origin-right bg-current"
-                        :animate="{
-                            scaleX: railTickScale(index),
-                        }"
-                        :transition="reducedMotion ? { duration: 0 } : railTickTransition(index)"
+                        :style="railTickStyle(index)"
                         :data-tick-scale="railTickScale(index)"
                         data-slot="message-scroller-tick"
                     />
