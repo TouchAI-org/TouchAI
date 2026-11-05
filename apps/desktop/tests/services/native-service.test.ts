@@ -599,7 +599,7 @@ describe('user data is read and written through the database', () => {
             name: 'user exports a database backup',
             call: () => database.exportBackup('D:/backup/touchai.db'),
             cmd: 'database_export_backup',
-            payload: { targetPath: 'D:/backup/touchai.db' },
+            payload: { request: { targetPath: 'D:/backup/touchai.db' } },
         },
         {
             name: 'user imports a database backup',

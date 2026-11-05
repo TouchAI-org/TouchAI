@@ -34,6 +34,13 @@ pub struct DatabaseQueryResponse {
     pub last_insert_id: Option<i64>,
 }
 
+/// 导出数据库备份请求。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseBackupExportRequest {
+    pub target_path: String,
+}
+
 /// SQLite 事务开启模式。
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]

@@ -428,7 +428,7 @@ export const database = {
     },
 
     exportBackup(targetPath: string): Promise<void> {
-        return invoke('database_export_backup', { targetPath });
+        return invoke('database_export_backup', { request: { targetPath } });
     },
 
     importBackup(request: DatabaseImportRequest): Promise<void> {
