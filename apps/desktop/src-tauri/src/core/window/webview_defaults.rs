@@ -495,7 +495,12 @@ pub(crate) fn apply_webview_runtime_defaults<R: Runtime>(
     window: &WebviewWindow<R>,
 ) -> Result<(), String> {
     #[cfg(target_os = "linux")]
-    crate::core::window::webkit_cors::allow_custom_scheme_requests(window)?;
+    if let Err(error) = crate::core::window::webkit_cors::allow_custom_scheme_requests(window) {
+        log::warn!(
+            "Failed to register WebKitGTK custom schemes as CORS-enabled: {}",
+            error
+        );
+    }
 
     #[cfg(not(target_os = "linux"))]
     let _ = window;
