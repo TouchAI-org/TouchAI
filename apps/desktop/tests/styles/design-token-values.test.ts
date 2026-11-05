@@ -346,7 +346,7 @@ describe('desktop window shell', () => {
         );
     });
 
-    it('user gets a window shadow that stays legible on light and dark desktops', () => {
+    it('user gets an ambient window shadow instead of a dark halo', () => {
         const resolve = resolveToken(primitiveCss, semanticCss);
         const shadow = [
             '--shadow-window-key',
@@ -357,11 +357,12 @@ describe('desktop window shell', () => {
             .map((token) => resolve(token))
             .join(', ');
 
+        // Fluent 2 shadow16: a 1px stroke, a 2px contact, and an 8px/16px ambient layer.
         expect(shadow).toContain('0 0 0 1px');
-        expect(shadow).toContain('0 0 8px');
-        expect(shadow).toContain('0 6px 18px -4px');
-        expect(shadow).toContain('0 10px 24px -10px');
-        expect(shadow).toContain('rgb(15 23 42 / 0.48)');
+        expect(shadow).toContain('0 1px 2px');
+        expect(shadow).toContain('0 4px 8px -1px');
+        expect(shadow).toContain('0 8px 16px');
+        expect(shadow).toContain('rgb(15 23 42 / 0.12)');
     });
 
     it('user gets the shared font stack without a generic family in the middle', () => {

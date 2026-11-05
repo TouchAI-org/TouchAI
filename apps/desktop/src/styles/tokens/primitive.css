@@ -121,10 +121,18 @@
     --radius-card: 0.75rem;
     --radius-panel: 1rem;
 
-    --shadow-window-key: 0 0 0 1px rgb(15 23 42 / 0.1);
-    --shadow-window-halo: 0 0 8px rgb(15 23 42 / 0.16);
-    --shadow-window-mid: 0 6px 18px -4px rgb(15 23 42 / 0.38);
-    --shadow-window-far: 0 10px 24px -10px rgb(15 23 42 / 0.48);
+    /*
+     * Window shadow follows Fluent 2's shadow16 (`0 0 2px 12%` plus
+     * `0 8px 16px 14%`), the Windows 11 elevation for floating surfaces. Windows
+     * outlines a window with a hairline stroke instead of a key shadow, so the
+     * rim becomes a 1px ring and the contact/mid layers keep the falloff
+     * smooth. The 8px offset plus 16px blur ends exactly at the 24px
+     * transparent gutter, so no layer is cut off by the native window edge.
+     */
+    --shadow-window-key: 0 0 0 1px rgb(15 23 42 / 0.06);
+    --shadow-window-halo: 0 1px 2px rgb(15 23 42 / 0.05);
+    --shadow-window-mid: 0 4px 8px -1px rgb(15 23 42 / 0.06);
+    --shadow-window-far: 0 8px 16px rgb(15 23 42 / 0.12);
 
     /* ── Brand ramp (warm brown) ─────────────────────────────────────────── */
 
