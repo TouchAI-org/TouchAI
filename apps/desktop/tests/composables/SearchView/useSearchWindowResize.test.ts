@@ -206,7 +206,7 @@ function createAnimatedCard(height: number) {
             rejectAnimation = reject;
         });
         const cancel = vi.fn(() => rejectAnimation(new DOMException('Cancelled', 'AbortError')));
-        const animation = { finished, cancel } as unknown as Animation;
+        const animation = { finished, cancel, finish } as unknown as Animation;
         animations.push({ finish, cancel });
         return animation;
     });
@@ -1158,5 +1158,35 @@ describe('useSearchWindowResize', () => {
         await flushLifecycle();
 
         expect(unlisten).toHaveBeenCalledOnce();
+    });
+
+    it('user switches to reduced motion during a shrink and still reaches the final native size', async () => {
+        let mediaListener!: (event: { matches: boolean }) => void;
+        vi.stubGlobal(
+            'matchMedia',
+            vi.fn(() => ({
+                matches: false,
+                addEventListener: (_: string, listener: typeof mediaListener) => {
+                    mediaListener = listener;
+                },
+                removeEventListener: vi.fn(),
+            }))
+        );
+        const card = createAnimatedCard(60);
+        const { mounted } = await mount({ card: ref(card.element) });
+        await flushLifecycle();
+        await mounted.result.playSessionExpandAnimation(290);
+        card.animations[0]!.finish();
+        await flushLifecycle();
+        card.setHeight(290);
+        const collapse = mounted.result.collapseSessionToIdle();
+        await flushLifecycle();
+        mediaListener({ matches: true });
+        await collapse;
+        await vi.advanceTimersByTimeAsync(40);
+        expect(mounted.result.cardHeight.value).toBe(60);
+        expect(mounted.result.isSessionExpandAnimating.value).toBe(false);
+        expect(mounted.result.isCardGrowing.value).toBe(false);
+        mounted.unmount();
     });
 });

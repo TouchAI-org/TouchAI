@@ -345,10 +345,14 @@ describe('SearchOverlayHost', () => {
         wrapper.unmount();
     });
 
-    it('releases the closing overlay on the next frame when reduced motion is preferred', async () => {
+    it('user releases the closing overlay immediately when reduced motion is preferred', async () => {
         vi.stubGlobal(
             'matchMedia',
-            vi.fn(() => ({ matches: true }))
+            vi.fn(() => ({
+                matches: true,
+                addEventListener: vi.fn(),
+                removeEventListener: vi.fn(),
+            }))
         );
         const anchor = document.createElement('button');
         vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue(rect(20, 20));
@@ -361,10 +365,6 @@ describe('SearchOverlayHost', () => {
         runFrames();
 
         await wrapper.setProps({ open: false });
-        await nextTick();
-        expect(wrapper.find('[data-search-overlay-host=true]').exists()).toBe(true);
-
-        runFrames();
         await nextTick();
         expect(wrapper.find('[data-search-overlay-host=true]').exists()).toBe(false);
         expect(wrapper.emitted('afterLeave')).toHaveLength(1);

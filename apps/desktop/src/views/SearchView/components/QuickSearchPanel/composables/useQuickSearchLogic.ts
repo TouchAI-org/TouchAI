@@ -1,4 +1,5 @@
 import { type ContextMenuItem, useContextMenu } from '@composables/useContextMenu';
+import { useMotion } from '@composables/useMotion';
 import { clipboardService } from '@services/ClipboardService';
 import { native, type QuickShortcutItem } from '@services/NativeService';
 import { log } from '@services/ObservabilityService';
@@ -140,8 +141,7 @@ function useQuickSearchFlow(
     // 1. 搜索流程状态
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let resultResetTimer: ReturnType<typeof setTimeout> | null = null;
-    const closeRetentionMs =
-        Math.max(SEARCH_SURFACE_MOTION.durationMs, SEARCH_SURFACE_MOTION.revealDurationMs) + 40;
+    const { duration } = useMotion();
     let lastSearchedQuery = '';
     const clickStats = useQuickSearchClickStats();
 
@@ -376,10 +376,15 @@ function useQuickSearchFlow(
         if (resultResetTimer !== null) {
             clearTimeout(resultResetTimer);
         }
-        resultResetTimer = setTimeout(() => {
-            resultResetTimer = null;
-            resetResultState();
-        }, closeRetentionMs);
+        resultResetTimer = setTimeout(
+            () => {
+                resultResetTimer = null;
+                resetResultState();
+            },
+            duration(
+                Math.max(SEARCH_SURFACE_MOTION.durationMs, SEARCH_SURFACE_MOTION.revealDurationMs)
+            ) + 40
+        );
     }
 
     /**

@@ -116,10 +116,8 @@
     });
 
     const viewReady = ref(false);
-    const { reducedMotion } = useMotion();
-    const surfaceAnimationDuration = computed(() =>
-        reducedMotion.value ? 0 : SEARCH_SURFACE_MOTION.durationMs
-    );
+    const { reducedMotion, duration } = useMotion();
+    const surfaceAnimationDuration = computed(() => duration(SEARCH_SURFACE_MOTION.durationMs));
     const searchBar = ref<SearchBarHandle>();
     const draft = reactive<SearchDraftState>({
         queryText: '',
@@ -595,7 +593,7 @@
         const style: Record<string, string> = {
             '--search-surface-duration': `${surfaceAnimationDuration.value}ms`,
             '--search-surface-easing': SEARCH_SURFACE_EASING,
-            '--search-reveal-duration': `${reducedMotion.value ? 0 : SEARCH_SURFACE_MOTION.revealDurationMs}ms`,
+            '--search-reveal-duration': `${duration(SEARCH_SURFACE_MOTION.revealDurationMs)}ms`,
             '--search-reveal-easing': SEARCH_SURFACE_REVEAL_EASING,
         };
         if (borderWidth) {

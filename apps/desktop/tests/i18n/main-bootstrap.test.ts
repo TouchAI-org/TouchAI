@@ -216,6 +216,20 @@ describe('user opens the main window', () => {
 });
 
 describe('user opens the tray menu or settings', () => {
+    it('user gets the tray immediately while its motion preferences load in the background', async () => {
+        stubRoot();
+        vi.mocked(getCurrentWindow).mockReturnValue({ label: 'tray-menu' } as never);
+        let finish!: () => void;
+        settingsStoreMock.initialize.mockReturnValue(
+            new Promise<void>((resolve) => {
+                finish = resolve;
+            })
+        );
+        await initializeApp();
+        expect(document.querySelector('[data-testid="app-root"]')).not.toBeNull();
+        expect(settingsStoreMock.initialize).toHaveBeenCalledOnce();
+        finish();
+    });
     it.each([
         [
             'the tray menu route',

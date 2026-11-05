@@ -87,7 +87,7 @@ const easeHostShift = cubicBezier(...SEARCH_SURFACE_MOTION.easing);
 /** One serialized geometry owner coordinates native bounds and the visible card. */
 export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     const currentWindow = getCurrentWindow();
-    const { reducedMotion } = useMotion();
+    const { reducedMotion, duration: motionDuration } = useMotion();
 
     const currentWidth = ref(0);
     const currentHeight = ref(0);
@@ -264,7 +264,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             frame.x,
             frame.fromY,
             frame.toY,
-            Math.max(1, SEARCH_SURFACE_MOTION.durationMs - SEARCH_SURFACE_MOTION.hostLeadMs),
+            motionDuration(SEARCH_SURFACE_MOTION.durationMs - SEARCH_SURFACE_MOTION.hostLeadMs),
             generation
         );
     }
@@ -281,7 +281,9 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         let applied: number | null = null;
         const step = async () => {
             if (!isCurrentGeometry(generation) || token !== hostShiftToken) return;
-            const progress = Math.min(1, (performance.now() - startedAt) / duration);
+            const progress = reducedMotion.value
+                ? 1
+                : Math.min(1, (performance.now() - startedAt) / duration);
             const y = Math.round(fromY + (toY - fromY) * easeHostShift(progress));
             if (y !== applied) {
                 applied = y;
@@ -388,12 +390,16 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         cardAnimation.value = animateCardHeight(
             fromHeight,
             toHeight,
-            reducedMotion.value ? 0 : SEARCH_SURFACE_MOTION.durationMs
+            motionDuration(SEARCH_SURFACE_MOTION.durationMs)
         );
         applySurfaceFrame(frame, animateFrame, generation);
         return cardAnimation.value;
     }
     const isCardGrowing = computed(() => cardAnimation.value !== null);
+    watch(reducedMotion, (reduced) => {
+        // Resolve the existing completion promise so shrink commits and reveal cleanup still run.
+        if (reduced) cardAnimation.value?.finish();
+    });
 
     const searchWindowHeightPolicy = computed(() =>
         resolveSearchWindowHeightPolicy({

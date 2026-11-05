@@ -17,6 +17,7 @@
 
     import AnalyticsSection from './AnalyticsSection.vue';
     import DiagnosticsSection from './DiagnosticsSection.vue';
+    import MotionSettingsSection from './MotionSettingsSection.vue';
     import UpdateAvailableBadge from './UpdateAvailableBadge.vue';
     import UpdateSettingsSection from './UpdateSettingsSection.vue';
 
@@ -310,6 +311,8 @@
                     </SettingsRow>
                 </div>
             </section>
+
+            <MotionSettingsSection />
 
             <DiagnosticsSection />
 

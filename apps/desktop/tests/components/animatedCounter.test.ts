@@ -24,6 +24,50 @@ afterEach(() => {
 });
 
 describe('user reads an animated number', () => {
+    it('user sees the final value without counting when reduced motion is enabled', () => {
+        const requestFrame = vi.fn();
+        vi.stubGlobal('requestAnimationFrame', requestFrame);
+        vi.stubGlobal('matchMedia', () => ({
+            matches: true,
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+        }));
+        const wrapper = mount(AnimatedCounter, { props: { value: 123, animateOnView: true } });
+        expect(
+            wrapper
+                .findAll('[aria-hidden="true"]')
+                .map((node) => node.text())
+                .join('')
+        ).toContain('123');
+        expect(requestFrame).not.toHaveBeenCalled();
+        wrapper.unmount();
+    });
+
+    it('user stops an in-flight counter when reduced motion becomes active', async () => {
+        let listener!: (event: { matches: boolean }) => void;
+        vi.stubGlobal('matchMedia', () => ({
+            matches: false,
+            addEventListener: (_: string, callback: typeof listener) => {
+                listener = callback;
+            },
+            removeEventListener: vi.fn(),
+        }));
+        const cancel = vi.fn();
+        vi.stubGlobal('requestAnimationFrame', () => 42);
+        vi.stubGlobal('cancelAnimationFrame', cancel);
+        const wrapper = mount(AnimatedCounter, { props: { value: 10 } });
+        await wrapper.setProps({ value: 123 });
+        listener({ matches: true });
+        await wrapper.vm.$nextTick();
+        expect(cancel).toHaveBeenCalledWith(42);
+        expect(
+            wrapper
+                .findAll('[aria-hidden="true"]')
+                .map((node) => node.text())
+                .join('')
+        ).toContain('123');
+        wrapper.unmount();
+    });
     it('user sees the value with prefix and suffix', () => {
         const wrapper = mount(AnimatedCounter, {
             props: { value: 12.63, prefix: '¥', decimals: 2, locale: 'en-US' },
