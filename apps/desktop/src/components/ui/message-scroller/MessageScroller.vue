@@ -176,14 +176,15 @@
         return RAIL_WAVE_SCALES[railTickDistance(index)] ?? 1;
     }
 
-    function railTickTransition(index: number) {
+    function railTickStyle(index: number) {
         const distance = railTickDistance(index);
+        const delay =
+            reducedMotion.value || !Number.isFinite(distance) ? 0 : distance * RAIL_WAVE_STEP_DELAY;
         return {
-            ...transitions.value.quick,
-            delay:
-                reducedMotion.value || !Number.isFinite(distance)
-                    ? 0
-                    : distance * RAIL_WAVE_STEP_DELAY,
+            transform: `scaleX(${railTickScale(index)})`,
+            transition: reducedMotion.value
+                ? 'none'
+                : `transform var(--duration-quick) var(--ease-smooth-out) ${delay}s`,
         };
     }
 
@@ -588,8 +589,7 @@
         () => props.items,
         () => {
             scheduleMeasure(false);
-        },
-        { deep: true }
+        }
     );
 
     watch(
@@ -677,13 +677,10 @@
                     @blur="handleBlur"
                     @click="handleRailItemSelect(item)"
                 >
-                    <motion.span
+                    <span
                         aria-hidden="true"
                         class="block h-0.5 w-3 origin-right bg-current"
-                        :animate="{
-                            scaleX: railTickScale(index),
-                        }"
-                        :transition="reducedMotion ? { duration: 0 } : railTickTransition(index)"
+                        :style="railTickStyle(index)"
                         :data-tick-scale="railTickScale(index)"
                         data-slot="message-scroller-tick"
                     />
