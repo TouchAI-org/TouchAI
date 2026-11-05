@@ -192,12 +192,26 @@ pub async fn show_popup_window<R: Runtime>(
         popup
             .set_size(tauri::Size::Logical(tauri::LogicalSize { width, height }))
             .map_err(|e| e.to_string())?;
-        popup.show().map_err(|e| e.to_string())
+        if crate::core::window::webview_recovery::defer_show_if_recovering(
+            &popup,
+            crate::core::window::webview_recovery::ShowIntent::Focus,
+        ) {
+            Ok(())
+        } else {
+            popup.show().map_err(|e| e.to_string())
+        }
     } else {
         let url = popup_route(&popup_type);
         let popup = build_popup_window(&app, &window_label, &popup_type, url, width, height, x, y)?;
         let _ = popup.set_focusable(true);
-        popup.show().map_err(|e| e.to_string())
+        if crate::core::window::webview_recovery::defer_show_if_recovering(
+            &popup,
+            crate::core::window::webview_recovery::ShowIntent::Focus,
+        ) {
+            Ok(())
+        } else {
+            popup.show().map_err(|e| e.to_string())
+        }
     };
 
     if let Err(error) = result {
