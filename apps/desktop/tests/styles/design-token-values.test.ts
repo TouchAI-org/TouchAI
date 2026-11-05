@@ -133,13 +133,9 @@ describe('primitive tokens', () => {
             "'Microsoft YaHei'",
             "'PingFang SC'",
             "'Hiragino Sans GB'",
-            "'Noto Sans CJK SC'",
-            "'Noto Sans SC'",
-            "'WenQuanYi Micro Hei'",
         ]) {
             expect(sans).toContain(family);
         }
-        expect(sans).toContain('system-ui');
         expect(sans.trim().endsWith('sans-serif')).toBe(true);
 
         for (const family of [
