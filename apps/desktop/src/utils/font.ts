@@ -14,12 +14,14 @@ const FONT_FACE_STYLE_KEY = 'source-han-serif-sc';
 const FONT_LOAD_TEST = `16px '${FONT_FACE_FAMILY}'`;
 const FONT_LOAD_ATTEMPTS = 3;
 const FONT_LOAD_RETRY_DELAY_MS = 16;
+const FONT_WEIGHT_RANGE = '250 900';
 
 let fontLoadPromise: Promise<void> | null = null;
 let fontReadyListenerPromise: Promise<void> | null = null;
 let fontReloadToken = 0;
 let fontInjectionToken = 0;
 let registeredFontFace: FontFace | null = null;
+let fontRegisteredFromBytes = false;
 
 interface LoadFontFaceOptions {
     refresh?: boolean;
@@ -30,12 +32,13 @@ interface FontLoadDiagnostics {
     fontUrl: string;
     fontLoaded: boolean;
     fontsApiAvailable: boolean;
+    fontsLoadError?: string;
     fetchOk?: boolean;
     fetchStatus?: number;
     fetchStatusText?: string;
-    contentType?: string | null;
+    fetchContentLength?: string | null;
+    fetchError?: string;
     userAgent: string;
-    error?: string;
 }
 
 function getInjectedFontFaceStyle(): HTMLStyleElement | null {
@@ -57,10 +60,18 @@ function stringifyError(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
+function errorName(error: unknown): string {
+    return error instanceof Error ? error.name : typeof error;
+}
+
 function delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
         window.setTimeout(resolve, ms);
     });
+}
+
+function hasUsableFontFace(): boolean {
+    return hasInjectedFontFace() || fontRegisteredFromBytes;
 }
 
 async function waitForStyleProcessing(): Promise<void> {
@@ -100,7 +111,12 @@ async function verifyInjectedFontFace(fontUrl: string): Promise<boolean> {
                     await delay(FONT_LOAD_RETRY_DELAY_MS);
                 }
 
-                await document.fonts.load(FONT_LOAD_TEST);
+                try {
+                    await document.fonts.load(FONT_LOAD_TEST);
+                } catch (error) {
+                    diagnostics.fontsLoadError = stringifyError(error);
+                }
+
                 diagnostics.fontLoaded = document.fonts.check(FONT_LOAD_TEST);
 
                 if (diagnostics.fontLoaded) {
@@ -108,16 +124,20 @@ async function verifyInjectedFontFace(fontUrl: string): Promise<boolean> {
                 }
             }
         }
+    } catch (error) {
+        diagnostics.fontsLoadError = stringifyError(error);
+    }
 
-        if (typeof fetch === 'function') {
+    if (typeof fetch === 'function') {
+        try {
             const response = await fetch(fontUrl);
             diagnostics.fetchOk = response.ok;
             diagnostics.fetchStatus = response.status;
             diagnostics.fetchStatusText = response.statusText;
-            diagnostics.contentType = response.headers.get('content-type');
+            diagnostics.fetchContentLength = response.headers.get('content-length');
+        } catch (error) {
+            diagnostics.fetchError = stringifyError(error);
         }
-    } catch (error) {
-        diagnostics.error = stringifyError(error);
     }
 
     if (diagnostics.fontLoaded && diagnostics.fetchOk !== false) {
@@ -131,11 +151,29 @@ async function verifyInjectedFontFace(fontUrl: string): Promise<boolean> {
 
 function removeRegisteredFontFace(): void {
     if (!registeredFontFace) {
+        fontRegisteredFromBytes = false;
         return;
     }
 
     document.fonts.delete(registeredFontFace);
     registeredFontFace = null;
+    fontRegisteredFromBytes = false;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+    if (
+        bytes.byteOffset === 0 &&
+        bytes.byteLength === bytes.buffer.byteLength &&
+        bytes.buffer instanceof ArrayBuffer
+    ) {
+        return bytes.buffer;
+    }
+
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
+function readFontSignature(bytes: Uint8Array): string {
+    return String.fromCharCode(...bytes.subarray(0, 4));
 }
 
 async function registerFontFaceFromFile(
@@ -151,39 +189,91 @@ async function registerFontFaceFromFile(
         return false;
     }
 
+    let bytes: Uint8Array;
+
     try {
-        const bytes = await readFile(fontPath);
-
-        if (injectionToken !== fontInjectionToken) {
-            return false;
-        }
-
-        const fontFace = new FontFace(FONT_FACE_FAMILY, bytes, {
-            weight: '250 900',
-            style: 'normal',
-            display: 'swap',
-        });
-        await fontFace.load();
-
-        if (injectionToken !== fontInjectionToken) {
-            return false;
-        }
-
-        removeRegisteredFontFace();
-        document.fonts.add(fontFace);
-        registeredFontFace = fontFace;
-        log.info('Source Han Serif font registered from file:', {
-            byteLength: bytes.byteLength,
-            userAgent: navigator.userAgent,
-        });
-        return true;
+        bytes = await readFile(fontPath);
     } catch (error) {
-        log.warn('Source Han Serif font file fallback failed:', {
+        log.warn('Source Han Serif font file fallback failed at readFile:', {
+            errorName: errorName(error),
             error: stringifyError(error),
             userAgent: navigator.userAgent,
         });
         return false;
     }
+
+    if (injectionToken !== fontInjectionToken) {
+        return false;
+    }
+
+    const byteLength = bytes.byteLength;
+    log.info('Source Han Serif font bytes read:', {
+        byteLength,
+        signature: readFontSignature(bytes),
+        userAgent: navigator.userAgent,
+    });
+
+    const descriptors: FontFaceDescriptors = {
+        weight: FONT_WEIGHT_RANGE,
+        style: 'normal',
+        display: 'swap',
+    };
+    const fontBuffer = toArrayBuffer(bytes);
+    const candidates: Array<{
+        label: string;
+        source: BufferSource;
+        descriptors: FontFaceDescriptors;
+    }> = [
+        {
+            label: 'arraybuffer-range',
+            source: fontBuffer,
+            descriptors,
+        },
+        {
+            label: 'uint8-range',
+            source: new Uint8Array(fontBuffer) as BufferSource,
+            descriptors,
+        },
+    ];
+
+    for (const candidate of candidates) {
+        try {
+            const fontFace = new FontFace(
+                FONT_FACE_FAMILY,
+                candidate.source,
+                candidate.descriptors
+            );
+            await fontFace.load();
+
+            if (injectionToken !== fontInjectionToken) {
+                return false;
+            }
+
+            removeRegisteredFontFace();
+            document.fonts.add(fontFace);
+            registeredFontFace = fontFace;
+            fontRegisteredFromBytes = true;
+            log.info('Source Han Serif font registered from file:', {
+                variant: candidate.label,
+                byteLength,
+                userAgent: navigator.userAgent,
+            });
+            return true;
+        } catch (error) {
+            log.warn('Source Han Serif font file candidate failed:', {
+                variant: candidate.label,
+                errorName: errorName(error),
+                error: stringifyError(error),
+                userAgent: navigator.userAgent,
+            });
+        }
+    }
+
+    log.warn('Source Han Serif font file fallback failed:', {
+        byteLength,
+        userAgent: navigator.userAgent,
+    });
+    return false;
 }
 
 async function injectFontFace(
@@ -192,7 +282,7 @@ async function injectFontFace(
 ): Promise<boolean> {
     const { refresh = false, requireExistingFile = false } = options;
 
-    if (!refresh && hasInjectedFontFace()) {
+    if (!refresh && hasUsableFontFace()) {
         return true;
     }
 
@@ -205,54 +295,32 @@ async function injectFontFace(
         ? appendFontReloadToken(convertFileSrc(fontPath), ++fontReloadToken)
         : convertFileSrc(fontPath);
 
-    if (!refresh && hasInjectedFontFace()) {
+    if (!refresh && hasUsableFontFace()) {
         return true;
     }
 
     const style = document.createElement('style');
     style.setAttribute(FONT_FACE_STYLE_ATTRIBUTE, FONT_FACE_STYLE_KEY);
     /*
-     * The `format()` hint decides whether this variable font is painted at all.
-     *
-     * The file is Source Han Serif SC VF: `fvar` declares `wght` 250..900 with named
-     * instances at 250, 300, 400, 500, 600, 700 and 900. An engine that is not told the
-     * file carries a variation axis loads it as a static face, finds no instance for the
-     * weight the page asks for, and silently substitutes whatever `serif` resolves to.
-     * Nothing throws: `document.fonts.check()` still returns `true` and the face still
-     * reports `status: "loaded"`, because the bytes downloaded and parsed fine. That
-     * silent substitution is why the interface was never painted in the font it ships.
-     *
-     * `format('woff2-variations')` is the form CSS Fonts 4 defines for this. The spec's
-     * compatibility table maps it to the modern `tech()` syntax and keeps it valid
-     * permanently:
-     *
-     *     format("woff2-variations")  ==  format(woff2) tech(variations)
-     *
-     * An earlier version of this rule used `format('woff2 supports variations')`. That
-     * string is not in the specification: `<font-format>` accepts only `woff2`, `woff`,
-     * `opentype` and friends, and the variation requirement is expressed through
-     * `<font-tech>`. It came from articles describing a pre-2018 draft. Chromium 156
-     * parses it leniently enough to work, Chromium 155 rejects the whole `src` entry, so
-     * the same rule rendered the font on a developer machine and fell back on CI.
-     *
-     * Measured in WebView2 156 with the app's own file, comparing the painted outline
-     * against a face built directly from those bytes: `woff2-variations` agrees within
-     * 3 pixels of anti-aliasing, while the unsupported string produces no face at all.
-     *
-     * The weight range below is what lets the axis interpolate once the file is
-     * accepted; keep it.
+     * `format('woff2')` is the container hint every supported engine parses. The
+     * legacy `woff2-variations` alias is rejected by WebKitGTK 2.52 in release
+     * builds: the whole `src` entry is dropped and the face ends in `status:
+     * "error"`, even though the bytes are a valid variable WOFF2. Variation
+     * capability comes from `font-weight: 250 900` below, not from the format
+     * hint, so the standard WOFF2 container value keeps the axis intact.
      */
     style.textContent = `
         @font-face {
             font-family: '${FONT_FACE_FAMILY}';
-            src: url('${fontUrl}') format('woff2-variations');
-            font-weight: 250 900;
+            src: url('${fontUrl}') format('woff2');
+            font-weight: ${FONT_WEIGHT_RANGE};
             font-style: normal;
             font-display: swap;
         }
     `;
     getInjectedFontFaceStyle()?.remove();
     document.head.appendChild(style);
+    fontRegisteredFromBytes = false;
 
     const injectionToken = ++fontInjectionToken;
     const fontLoaded = await verifyInjectedFontFace(fontUrl);
@@ -268,6 +336,16 @@ async function injectFontFace(
     if (fontLoaded) {
         removeRegisteredFontFace();
     } else {
+        // A failed face with the same family must leave the font set before the
+        // bytes fallback registers its replacement, or WebKit keeps resolving
+        // the poisoned family to the failed face.
+        getInjectedFontFaceStyle()?.remove();
+        await waitForStyleProcessing();
+
+        if (injectionToken !== fontInjectionToken) {
+            return true;
+        }
+
         await registerFontFaceFromFile(fontPath, injectionToken);
     }
 
@@ -277,7 +355,7 @@ async function injectFontFace(
 function loadFontFace(options: LoadFontFaceOptions = {}): Promise<void> {
     const { refresh = false } = options;
 
-    if (!refresh && hasInjectedFontFace()) {
+    if (!refresh && hasUsableFontFace()) {
         return Promise.resolve();
     }
 

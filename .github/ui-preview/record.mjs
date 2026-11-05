@@ -849,8 +849,10 @@ function findLogErrors(appRoot) {
  * remaining failures are a missing @font-face or a rejected asset URL. A face
  * can report `loaded` while the engine silently paints a fallback, so compare
  * a Han outline against a guaranteed-missing family. Equal outlines mean the
- * product face did not paint. E2E uses the same proof; this keeps preview
- * screenshots honest as well.
+ * product face did not paint. The app may also register the face directly
+ * from the file bytes when WebKitGTK cannot fetch the asset URL, so a missing
+ * style rule is not a failure by itself. E2E uses the same proof; this keeps
+ * preview screenshots honest as well.
  */
 async function productFontState(session) {
     const deadline = Date.now() + 10000;
@@ -865,20 +867,8 @@ async function productFontState(session) {
             const fallbackFamily = 'TouchAI Preview Missing 9x8z';
             const sample = '\u901a\u7528\u542f\u52a8';
             const style = document.querySelector('style[data-touchai-font-face]');
-            if (!style) {
-                return {
-                    ok: false,
-                    retry: true,
-                    detail: 'waiting for the app to inject its @font-face rule',
-                };
-            }
-
-            const match = (style.textContent || '').match(/url\('([^']+)'\)/);
-            if (!match) {
-                return { ok: false, detail: 'the injected @font-face rule has no asset URL' };
-            }
-
-            const fontUrl = match[1];
+            const match = (style?.textContent || '').match(/url\('([^']+)'\)/);
+            const fontUrl = match ? match[1] : null;
             const facesFor = (name) =>
                 [...document.fonts].filter((face) => face.family === name);
             const productProbe = '500 52px "' + family + '"';
@@ -944,7 +934,7 @@ async function productFontState(session) {
             return {
                 ok: true,
                 detail:
-                    fontUrl +
+                    (fontUrl || 'registered in-memory face') +
                     ' (Han outline differs from the fallback by ' +
                     differingPixels +
                     ' px)',
