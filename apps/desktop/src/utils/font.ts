@@ -5,7 +5,7 @@ import { paths } from '@services/NativeService';
 import { log } from '@services/ObservabilityService';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
-import { exists } from '@tauri-apps/plugin-fs';
+import { exists, readFile } from '@tauri-apps/plugin-fs';
 
 const FONT_FILENAME = 'SourceHanSerifSC-VF.ttf.woff2';
 const FONT_FACE_FAMILY = 'TouchAI Source Han Serif SC';
@@ -18,6 +18,8 @@ const FONT_LOAD_RETRY_DELAY_MS = 16;
 let fontLoadPromise: Promise<void> | null = null;
 let fontReadyListenerPromise: Promise<void> | null = null;
 let fontReloadToken = 0;
+let fontInjectionToken = 0;
+let registeredFontFace: FontFace | null = null;
 
 interface LoadFontFaceOptions {
     refresh?: boolean;
@@ -79,7 +81,7 @@ async function resolveFontPath(): Promise<string> {
     return join(fontDir, FONT_FILENAME);
 }
 
-async function verifyInjectedFontFace(fontUrl: string): Promise<void> {
+async function verifyInjectedFontFace(fontUrl: string): Promise<boolean> {
     const diagnostics: FontLoadDiagnostics = {
         fontUrl,
         fontLoaded: false,
@@ -122,6 +124,65 @@ async function verifyInjectedFontFace(fontUrl: string): Promise<void> {
         log.info('Source Han Serif font ready:', diagnostics);
     } else {
         log.warn('Source Han Serif font diagnostics:', diagnostics);
+    }
+
+    return !diagnostics.fontsApiAvailable || diagnostics.fontLoaded;
+}
+
+function removeRegisteredFontFace(): void {
+    if (!registeredFontFace) {
+        return;
+    }
+
+    document.fonts.delete(registeredFontFace);
+    registeredFontFace = null;
+}
+
+async function registerFontFaceFromFile(
+    fontPath: string,
+    injectionToken: number
+): Promise<boolean> {
+    if (
+        typeof FontFace !== 'function' ||
+        typeof document.fonts?.add !== 'function' ||
+        typeof document.fonts?.delete !== 'function'
+    ) {
+        log.warn('Source Han Serif font file fallback is unavailable');
+        return false;
+    }
+
+    try {
+        const bytes = await readFile(fontPath);
+
+        if (injectionToken !== fontInjectionToken) {
+            return false;
+        }
+
+        const fontFace = new FontFace(FONT_FACE_FAMILY, bytes, {
+            weight: '250 900',
+            style: 'normal',
+            display: 'swap',
+        });
+        await fontFace.load();
+
+        if (injectionToken !== fontInjectionToken) {
+            return false;
+        }
+
+        removeRegisteredFontFace();
+        document.fonts.add(fontFace);
+        registeredFontFace = fontFace;
+        log.info('Source Han Serif font registered from file:', {
+            byteLength: bytes.byteLength,
+            userAgent: navigator.userAgent,
+        });
+        return true;
+    } catch (error) {
+        log.warn('Source Han Serif font file fallback failed:', {
+            error: stringifyError(error),
+            userAgent: navigator.userAgent,
+        });
+        return false;
     }
 }
 
@@ -193,10 +254,21 @@ async function injectFontFace(
     getInjectedFontFaceStyle()?.remove();
     document.head.appendChild(style);
 
-    await verifyInjectedFontFace(fontUrl);
+    const injectionToken = ++fontInjectionToken;
+    const fontLoaded = await verifyInjectedFontFace(fontUrl);
 
     if (recoverRemovedStyle && !hasInjectedFontFace()) {
         return injectFontFace(options, false);
+    }
+
+    if (injectionToken !== fontInjectionToken || !hasInjectedFontFace()) {
+        return true;
+    }
+
+    if (fontLoaded) {
+        removeRegisteredFontFace();
+    } else {
+        await registerFontFaceFromFile(fontPath, injectionToken);
     }
 
     return true;

@@ -1,11 +1,13 @@
 import { AppEvent } from '@services/EventService';
 import { emit } from '@tauri-apps/api/event';
 import { getTauriInvokeCalls, interceptTauriInvoke, mockTauriCommand } from '@tests/utils/tauri';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const existsMock = vi.hoisted(() => vi.fn(async () => true));
+const readFileMock = vi.hoisted(() => vi.fn(async () => new Uint8Array([0x77, 0x4f, 0x46, 0x32])));
 vi.mock('@tauri-apps/plugin-fs', () => ({
     exists: existsMock,
+    readFile: readFileMock,
 }));
 
 const FONT_STYLE_SELECTOR = 'style[data-touchai-font-face="source-han-serif-sc"]';
@@ -46,13 +48,36 @@ function fontReadyListenCalls() {
 function mockFontLoadingApi(checkResult = true) {
     const load = vi.fn().mockResolvedValue([]);
     const check = vi.fn().mockReturnValue(checkResult);
+    const add = vi.fn();
+    const deleteFace = vi.fn();
 
     Object.defineProperty(document, 'fonts', {
         configurable: true,
-        value: { load, check },
+        value: { load, check, add, delete: deleteFace },
     });
 
-    return { load, check };
+    return { load, check, add, delete: deleteFace };
+}
+
+function stubFontFaceLoader() {
+    const createdFaces: Array<{
+        family: string;
+        source: FontFaceSource;
+        descriptors: FontFaceDescriptors;
+    }> = [];
+    const load = vi.fn().mockResolvedValue(undefined);
+
+    class FontFaceStub {
+        readonly load = load;
+
+        constructor(family: string, source: FontFaceSource, descriptors: FontFaceDescriptors = {}) {
+            createdFaces.push({ family, source, descriptors });
+        }
+    }
+
+    vi.stubGlobal('FontFace', FontFaceStub);
+
+    return { createdFaces, load };
 }
 
 describe('user reads text in the bundled serif font', () => {
@@ -62,7 +87,17 @@ describe('user reads text in the bundled serif font', () => {
         document.head.innerHTML = '';
         existsMock.mockReset();
         existsMock.mockResolvedValue(true);
+        readFileMock.mockReset();
+        readFileMock.mockResolvedValue(new Uint8Array([0x77, 0x4f, 0x46, 0x32]));
         mockTauriCommand('get_app_directory_path', 'D:\\TouchAI\\assets\\font');
+        mockTauriCommand('plugin:path|join', (payload?: unknown) => {
+            const paths = (payload as { paths?: string[] } | undefined)?.paths ?? [];
+            return paths.join('\\');
+        });
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
     });
 
     it(
@@ -370,6 +405,7 @@ describe('user reads text in the bundled serif font', () => {
                 expect(fontApi.load).toHaveBeenCalledWith("16px 'TouchAI Source Han Serif SC'");
                 expect(fontApi.check).toHaveBeenCalledWith("16px 'TouchAI Source Han Serif SC'");
                 expect(fontStyles()).toHaveLength(1);
+                expect(readFileMock).not.toHaveBeenCalled();
             });
 
             vi.unstubAllGlobals();
@@ -402,6 +438,120 @@ describe('user reads text in the bundled serif font', () => {
             });
 
             vi.unstubAllGlobals();
+        },
+        FONT_TEST_TIMEOUT_MS
+    );
+
+    it(
+        'user still gets the bundled serif face when the asset protocol cannot load it',
+        async () => {
+            const fontApi = mockFontLoadingApi(false);
+            const fontBytes = new Uint8Array([0x77, 0x4f, 0x46, 0x32]);
+            readFileMock.mockResolvedValue(fontBytes);
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockRejectedValue(new Error(' A network error occurred.'))
+            );
+            const { createdFaces, load } = stubFontFaceLoader();
+
+            const { initializeFontLoader } = await import('@/utils/font');
+
+            initializeFontLoader();
+
+            await vi.waitFor(() => {
+                expect(readFileMock).toHaveBeenCalledWith(
+                    expect.stringContaining('SourceHanSerifSC-VF.ttf.woff2')
+                );
+                expect(load).toHaveBeenCalledTimes(1);
+                expect(fontApi.add).toHaveBeenCalledTimes(1);
+            });
+
+            expect(createdFaces).toEqual([
+                {
+                    family: 'TouchAI Source Han Serif SC',
+                    source: fontBytes,
+                    descriptors: {
+                        weight: '250 900',
+                        style: 'normal',
+                        display: 'swap',
+                    },
+                },
+            ]);
+        },
+        FONT_TEST_TIMEOUT_MS
+    );
+
+    it(
+        'user switches back to the asset face after a font-ready refresh',
+        async () => {
+            const fontApi = mockFontLoadingApi(false);
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockRejectedValue(new Error(' A network error occurred.'))
+            );
+            stubFontFaceLoader();
+
+            const { initializeFontLoader } = await import('@/utils/font');
+
+            initializeFontLoader();
+            await waitForFontReadyListener();
+            await vi.waitFor(() => expect(fontApi.add).toHaveBeenCalledTimes(1));
+            const fallbackFace = fontApi.add.mock.calls[0]?.[0];
+
+            fontApi.check.mockReturnValue(true);
+            await emit(AppEvent.FONT_READY, {});
+
+            await vi.waitFor(() => {
+                expect(fontStyles()).toHaveLength(1);
+                expect(fontStyleText()).toContain('touchaiFontReload=1');
+                expect(fontApi.delete).toHaveBeenCalledWith(fallbackFace);
+            });
+        },
+        FONT_TEST_TIMEOUT_MS
+    );
+
+    it(
+        'user does not let a slower failed startup font replace a refreshed face',
+        async () => {
+            const fontApi = mockFontLoadingApi(true);
+            let rejectStartupLoad: ((error: Error) => void) | undefined;
+            const firstLoad = new Promise<never[]>((_, reject) => {
+                rejectStartupLoad = reject;
+            });
+            fontApi.load.mockReturnValueOnce(firstLoad);
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockResolvedValue({
+                    ok: true,
+                    status: 200,
+                    statusText: 'OK',
+                    headers: new Headers({ 'content-type': 'font/woff2' }),
+                })
+            );
+            stubFontFaceLoader();
+            const { log: fontLog } = await import('@services/ObservabilityService');
+            const warn = vi.spyOn(fontLog, 'warn').mockImplementation(() => {});
+
+            const { initializeFontLoader } = await import('@/utils/font');
+
+            initializeFontLoader();
+            await waitForFontReadyListener();
+            await vi.waitFor(() => expect(fontApi.load).toHaveBeenCalledTimes(1));
+
+            await emit(AppEvent.FONT_READY, {});
+            await vi.waitFor(() => {
+                expect(fontStyles()).toHaveLength(1);
+                expect(fontStyleText()).toContain('touchaiFontReload=1');
+            });
+
+            rejectStartupLoad?.(new Error(' A network error occurred.'));
+            await vi.waitFor(() => {
+                expect(warn).toHaveBeenCalledWith(
+                    'Source Han Serif font diagnostics:',
+                    expect.objectContaining({ error: ' A network error occurred.' })
+                );
+            });
+            expect(readFileMock).not.toHaveBeenCalled();
         },
         FONT_TEST_TIMEOUT_MS
     );
