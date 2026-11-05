@@ -885,7 +885,7 @@ pub(super) async fn persist_tool_result(
             "UPDATE message_parts
              SET data = ?, updated_at = datetime('now')
              WHERE id = ?
-             RETURNING message_parts.*",
+             RETURNING *",
             vec![
                 JsonValue::String(
                     serde_json::to_string(&JsonValue::Object(data))
