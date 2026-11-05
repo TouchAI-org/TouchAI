@@ -20,6 +20,8 @@ import {
     type QuickSearchFileItem,
     type QuickSearchResult,
     type QuickSearchStatus,
+    type SearchSurfacePreparation,
+    type SearchWindowRegionUpdate,
     shortcut,
     updater,
     window as windowCommands,
@@ -27,7 +29,7 @@ import {
 import type { DatabaseQueryResponse } from '@services/NativeService/database';
 import type { SearchWindowState } from '@services/NativeService/types';
 import { getLastTauriInvokeCall, interceptTauriInvoke, mockTauriCommand } from '@tests/utils/tauri';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import { APP_PRODUCT_CONFIG } from '@/config/product';
 
@@ -46,8 +48,8 @@ async function callAndExpectInvoke(
     return result;
 }
 
-describe('user reaches the native backend through one facade', () => {
-    it('user gets every native module from one facade', () => {
+describe('NativeService barrel', () => {
+    it('exposes the same module instances through the native facade', () => {
         expect(native.window).toBe(windowCommands);
         expect(native.shortcut).toBe(shortcut);
         expect(native.autostart).toBe(autostart);
@@ -63,73 +65,16 @@ describe('user reaches the native backend through one facade', () => {
     });
 });
 
-describe('user diagnostics reach the native backend', () => {
-    const envelope = {
-        ts: 1_760_000_000_000,
-        level: 3,
-        event: 'app.log',
-        msg: 'hello',
-        attrs: { scope: 'test' },
-    };
-
+describe('NativeService browser boundary', () => {
     it.each([
         {
-            name: 'user sends a structured log batch',
-            call: () => native.observability.ingest([envelope]),
-            cmd: 'obs_ingest',
-            payload: { batch: [envelope] },
-        },
-        {
-            name: 'user reads the run identifier',
-            call: () => native.observability.runId(),
-            cmd: 'obs_run_id',
-            payload: undefined,
-        },
-        {
-            name: 'user turns diagnostic mode on',
-            call: () => native.observability.setDiagnosticMode(true),
-            cmd: 'obs_set_diagnostic_mode',
-            payload: { enabled: true },
-        },
-        {
-            name: 'user reads the diagnostic mode status',
-            call: () => native.observability.diagnosticModeStatus(),
-            cmd: 'obs_diagnostic_mode_status',
-            payload: undefined,
-        },
-        {
-            name: 'user previews the diagnostic bundle',
-            call: () => native.observability.previewBundle(),
-            cmd: 'obs_preview_bundle',
-            payload: undefined,
-        },
-        {
-            name: 'user exports the diagnostic bundle',
-            call: () => native.observability.exportBundle('/tmp/bundle.zip'),
-            cmd: 'obs_export_bundle',
-            payload: { destination: '/tmp/bundle.zip' },
-        },
-        {
-            name: 'user dismisses recorded crashes',
-            call: () => native.observability.dismissCrashes(),
-            cmd: 'obs_dismiss_crashes',
-            payload: undefined,
-        },
-    ])('$name', async ({ call, cmd, payload }) => {
-        await callAndExpectInvoke(call, cmd, payload);
-    });
-});
-
-describe('user drives a browser through the app', () => {
-    it.each([
-        {
-            name: 'user reads browser status',
+            name: 'reads browser status',
             call: () => browser.status(),
             cmd: 'browser_status',
             payload: undefined,
         },
         {
-            name: 'user starts a managed browser',
+            name: 'starts a managed browser',
             call: () =>
                 browser.start({
                     headless: true,
@@ -144,55 +89,55 @@ describe('user drives a browser through the app', () => {
             },
         },
         {
-            name: 'user discovers installed browsers',
+            name: 'discovers installed browsers',
             call: () => browser.discoverInstalled(),
             cmd: 'browser_discover_installed',
             payload: undefined,
         },
         {
-            name: 'user reads the default managed browser data path',
+            name: 'reads the default managed browser data path',
             call: () => browser.defaultDataPath(),
             cmd: 'browser_default_data_path',
             payload: undefined,
         },
         {
-            name: 'user stops a managed browser session',
+            name: 'stops a managed browser session',
             call: () => browser.stop(),
             cmd: 'browser_stop',
             payload: undefined,
         },
         {
-            name: 'user navigates the selected tab',
+            name: 'navigates the selected tab',
             call: () => browser.navigate({ url: 'https://example.test/path' }),
             cmd: 'browser_navigate',
             payload: { request: { url: 'https://example.test/path' } },
         },
         {
-            name: 'user goes back in the browser',
+            name: 'goes back',
             call: () => browser.back({ tabId: 'tab-1' }),
             cmd: 'browser_back',
             payload: { request: { tabId: 'tab-1' } },
         },
         {
-            name: 'user goes forward in the browser',
+            name: 'goes forward',
             call: () => browser.forward({ tabId: 'tab-1' }),
             cmd: 'browser_forward',
             payload: { request: { tabId: 'tab-1' } },
         },
         {
-            name: 'user reloads the page',
+            name: 'reloads',
             call: () => browser.reload({ tabId: 'tab-1' }),
             cmd: 'browser_reload',
             payload: { request: { tabId: 'tab-1' } },
         },
         {
-            name: 'user observes browser state',
+            name: 'observes browser state',
             call: () => browser.observe({ operation: 'snapshot' }),
             cmd: 'browser_observe',
             payload: { request: { operation: 'snapshot' } },
         },
         {
-            name: 'user acts on browser state',
+            name: 'acts on browser state',
             call: () => browser.act({ action: 'click', ref: 'e1' }),
             cmd: 'browser_act',
             payload: { request: { action: 'click', ref: 'e1' } },
@@ -202,34 +147,46 @@ describe('user drives a browser through the app', () => {
     });
 });
 
-describe('user works with app windows', () => {
+describe('NativeService window boundary', () => {
     it.each([
         {
-            name: 'user hides the search window',
+            name: 'hides the search window',
             call: () => windowCommands.hideSearchWindow(),
             cmd: 'hide_search_window',
             payload: undefined,
         },
         {
-            name: 'user shows the search window',
+            name: 'shows the search window',
             call: () => windowCommands.showSearchWindow(),
             cmd: 'show_search_window',
             payload: undefined,
         },
         {
-            name: 'user updates the tray status indicator',
+            name: 'reads the current search renderer epoch',
+            call: () => windowCommands.getSearchWindowRendererEpoch(),
+            cmd: 'get_search_window_renderer_epoch',
+            payload: undefined,
+        },
+        {
+            name: 'marks the search renderer ready for its first native show',
+            call: () => windowCommands.markSearchWindowReady(12),
+            cmd: 'mark_search_window_ready',
+            payload: { rendererEpoch: 12 },
+        },
+        {
+            name: 'updates the tray status indicator',
             call: () => windowCommands.setTrayStatusIndicator('failed'),
             cmd: 'set_tray_status_indicator',
             payload: { status: 'failed' },
         },
         {
-            name: 'user clears the tray status indicator',
+            name: 'clears the tray status indicator',
             call: () => windowCommands.clearTrayStatusIndicator(),
             cmd: 'clear_tray_status_indicator',
             payload: undefined,
         },
         {
-            name: 'user shows a session status reminder notification',
+            name: 'shows a session status reminder notification',
             call: () =>
                 windowCommands.showSessionStatusReminderNotification({
                     title: 'TouchAI',
@@ -252,104 +209,37 @@ describe('user works with app windows', () => {
             },
         },
         {
-            name: 'user clears session status reminder notifications',
+            name: 'clears session status reminder notifications',
             call: () => windowCommands.clearSessionStatusReminderNotifications(),
             cmd: 'clear_session_status_reminder_notifications',
             payload: undefined,
         },
         {
-            name: 'user opens the settings window',
+            name: 'opens the settings window',
             call: () => windowCommands.openSettingsWindow(),
             cmd: 'open_settings_window',
             payload: undefined,
         },
         {
-            name: 'user closes the tray menu',
+            name: 'closes the tray menu',
             call: () => windowCommands.closeTrayMenu(),
             cmd: 'close_tray_menu',
             payload: undefined,
         },
         {
-            name: 'user preloads popup windows',
-            call: () => windowCommands.preloadPopupWindows(),
-            cmd: 'preload_popup_windows',
-            payload: undefined,
-        },
-        {
-            name: 'user resets search window bounds',
-            call: () => windowCommands.resetSearchWindowBounds(),
-            cmd: 'reset_search_window_bounds',
-            payload: undefined,
-        },
-        {
-            name: 'user registers popup configs',
-            call: () =>
-                windowCommands.registerPopupConfigs([
-                    { id: 'session-history-popup', width: 320, height: 384 },
-                ]),
-            cmd: 'register_popup_configs',
-            payload: {
-                configs: [{ id: 'session-history-popup', width: 320, height: 384 }],
-            },
-        },
-        {
-            name: 'user shows a popup window',
-            call: () =>
-                windowCommands.showPopupWindow({
-                    popupId: 'popup-model-dropdown-popup:1',
-                    popupSessionVersion: 1,
-                    popupType: 'model-dropdown-popup',
-                    width: 320,
-                    height: 384,
-                    x: 80,
-                    y: 120,
-                    windowLabel: 'popup-model-dropdown-popup',
-                }),
-            cmd: 'show_popup_window',
-            payload: {
-                params: {
-                    popupId: 'popup-model-dropdown-popup:1',
-                    popupSessionVersion: 1,
-                    popupType: 'model-dropdown-popup',
-                    width: 320,
-                    height: 384,
-                    x: 80,
-                    y: 120,
-                    windowLabel: 'popup-model-dropdown-popup',
-                },
-            },
-        },
-        {
-            name: 'user hides a popup window',
-            call: () =>
-                windowCommands.hidePopupWindow({
-                    popupId: 'popup-model-dropdown-popup:1',
-                    popupSessionVersion: 1,
-                    windowLabel: 'popup-model-dropdown-popup',
-                }),
-            cmd: 'hide_popup_window',
-            payload: {
-                params: {
-                    popupId: 'popup-model-dropdown-popup:1',
-                    popupSessionVersion: 1,
-                    windowLabel: 'popup-model-dropdown-popup',
-                },
-            },
-        },
-        {
-            name: 'user syncs app blur policy for the search surface',
+            name: 'syncs app blur policy for the search surface',
             call: () => windowCommands.setSearchSurfaceHideOnAppBlur(true),
             cmd: 'set_search_surface_hide_on_app_blur',
             payload: { shouldHide: true },
         },
         {
-            name: 'user syncs manual height override policy',
+            name: 'syncs manual height override policy',
             call: () => windowCommands.setSearchWindowAllowHeightOverride(false),
             cmd: 'set_search_window_allow_height_override',
             payload: { allow: false },
         },
         {
-            name: 'user resizes the search window height',
+            name: 'resizes the search window height',
             call: () =>
                 windowCommands.resizeWindowHeight({
                     targetHeight: 420,
@@ -368,7 +258,7 @@ describe('user works with app windows', () => {
             },
         },
         {
-            name: 'user updates the search window minimum size',
+            name: 'updates the search window minimum size',
             call: () =>
                 windowCommands.setSearchWindowMinSize({
                     minWidth: 420,
@@ -388,7 +278,49 @@ describe('user works with app windows', () => {
         await callAndExpectInvoke(call, cmd, payload);
     });
 
-    it('user sees the backend clamp the search window defaults', async () => {
+    it('returns the native acknowledgement for a search window region update', async () => {
+        const response: SearchWindowRegionUpdate = { status: 'applied', generation: 7 };
+        const regions = [
+            { x: 24, y: 32, width: 750, height: 420, cornerRadius: 12 },
+            { x: 454, y: 96, width: 320, height: 384, cornerRadius: 12 },
+        ];
+        mockTauriCommand('set_search_window_regions', response);
+        const preparation: SearchSurfacePreparation = {
+            rendererEpoch: 2,
+            showEpoch: 4,
+            hostEpoch: 6,
+            source: 'shortcut',
+            physicalViewport: { x: -1920, y: 0, width: 1920, height: 1040 },
+            scaleFactor: 1.25,
+        };
+        expectTypeOf(windowCommands.setSearchWindowRegions).returns.toEqualTypeOf<
+            Promise<SearchWindowRegionUpdate>
+        >();
+
+        await expect(
+            callAndExpectInvoke(
+                () => windowCommands.setSearchWindowRegions(regions, 7, preparation),
+                'set_search_window_regions',
+                { generation: 7, regions, preparation }
+            )
+        ).resolves.toEqual(response);
+    });
+
+    it('returns a pending preparation from the epoch-aware renderer handshake', async () => {
+        const preparation: SearchSurfacePreparation = {
+            rendererEpoch: 2,
+            showEpoch: 4,
+            hostEpoch: 6,
+            source: 'notification',
+            physicalViewport: { x: 0, y: 0, width: 2560, height: 1400 },
+            scaleFactor: 1.5,
+        };
+        mockTauriCommand('mark_search_window_ready', preparation);
+
+        await expect(windowCommands.markSearchWindowReady(2)).resolves.toEqual(preparation);
+    });
+
+    it('returns the clamped search window defaults from the backend', async () => {
         const response = { width: 960, height: 320 };
         mockTauriCommand('set_search_window_defaults', response);
 
@@ -410,12 +342,14 @@ describe('user works with app windows', () => {
         ).resolves.toEqual(response);
     });
 
-    it('user sees the current search window state', async () => {
+    it('returns the current search window runtime snapshot', async () => {
         const response: SearchWindowState = {
             defaults: { width: 750, height: 60 },
             currentWidth: 900,
             currentHeight: 420,
             heightMode: 'manual_override',
+            hostContentHeight: 580,
+            monitorHost: true,
         };
         mockTauriCommand('get_search_window_state', response);
 
@@ -427,7 +361,42 @@ describe('user works with app windows', () => {
         ).resolves.toEqual(response);
     });
 
-    it('user sees a window backend failure instead of a silent success', async () => {
+    it('commits a logical panel resize with both the frontend origin and final size', async () => {
+        const response: SearchWindowState = {
+            defaults: { width: 750, height: 60 },
+            currentWidth: 900,
+            currentHeight: 420,
+            heightMode: 'manual_override',
+            hostContentHeight: 580,
+            monitorHost: true,
+        };
+        mockTauriCommand('commit_search_panel_resize', response);
+
+        await expect(
+            callAndExpectInvoke(
+                () =>
+                    windowCommands.commitSearchPanelResize({
+                        from: { width: 750, height: 300 },
+                        to: { width: 900, height: 420 },
+                        hostContentHeight: 580,
+                        placement: 'preserve-origin',
+                        physicalOrigin: { x: -1200, y: 40 },
+                    }),
+                'commit_search_panel_resize',
+                {
+                    resize: {
+                        from: { width: 750, height: 300 },
+                        to: { width: 900, height: 420 },
+                        hostContentHeight: 580,
+                        placement: 'preserve-origin',
+                        physicalOrigin: { x: -1200, y: 40 },
+                    },
+                }
+            )
+        ).resolves.toEqual(response);
+    });
+
+    it('rethrows backend invoke failures', async () => {
         const backendError = new Error('window backend unavailable');
         interceptTauriInvoke((call, next) => {
             if (call.cmd === 'hide_search_window') {
@@ -441,8 +410,8 @@ describe('user works with app windows', () => {
     });
 });
 
-describe('user data is read and written through the database', () => {
-    it('user gets rows back from a database query', async () => {
+describe('NativeService database boundary', () => {
+    it('forwards query requests and returns rows', async () => {
         const response: DatabaseQueryResponse = {
             rows: [{ id: 1, title: 'TouchAI' }],
             rowsAffected: 1,
@@ -470,7 +439,7 @@ describe('user data is read and written through the database', () => {
         ).resolves.toEqual(response);
     });
 
-    it('user gets results back from a database batch', async () => {
+    it('forwards batch requests', async () => {
         const response: DatabaseQueryResponse[] = [
             { rows: [], rowsAffected: 1, lastInsertId: 1 },
             { rows: [{ count: 1 }], rowsAffected: 0, lastInsertId: null },
@@ -509,7 +478,7 @@ describe('user data is read and written through the database', () => {
         ).resolves.toEqual(response);
     });
 
-    it('user gets a transaction id for the requested transaction behavior', async () => {
+    it('starts explicit transactions with the requested behavior', async () => {
         mockTauriCommand('database_tx_begin', 'tx_123');
 
         await expect(
@@ -519,7 +488,7 @@ describe('user data is read and written through the database', () => {
         ).resolves.toBe('tx_123');
     });
 
-    it('user gets transactional query results against the tracked transaction', async () => {
+    it('runs transactional commands against the tracked transaction id', async () => {
         const response: DatabaseQueryResponse = {
             rows: [{ applied: true }],
             rowsAffected: 1,
@@ -550,25 +519,25 @@ describe('user data is read and written through the database', () => {
 
     it.each([
         {
-            name: 'user commits a transaction',
+            name: 'commits a transaction',
             call: () => database.txCommit('tx_123'),
             cmd: 'database_tx_commit',
             payload: { txId: 'tx_123' },
         },
         {
-            name: 'user rolls back a transaction',
+            name: 'rolls back a transaction',
             call: () => database.txRollback('tx_123'),
             cmd: 'database_tx_rollback',
             payload: { txId: 'tx_123' },
         },
         {
-            name: 'user exports a database backup',
+            name: 'exports a database backup',
             call: () => database.exportBackup('D:/backup/touchai.db'),
             cmd: 'database_export_backup',
             payload: { targetPath: 'D:/backup/touchai.db' },
         },
         {
-            name: 'user imports a database backup',
+            name: 'imports a database backup',
             call: () =>
                 database.importBackup({
                     sourcePath: 'D:/backup/touchai.db',
@@ -586,7 +555,7 @@ describe('user data is read and written through the database', () => {
         await callAndExpectInvoke(call, cmd, payload);
     });
 
-    it('user sees a database failure instead of a silent success', async () => {
+    it('rethrows query failures', async () => {
         const backendError = new Error('database busy');
         interceptTauriInvoke((call, next) => {
             if (call.cmd === 'database_query') {
@@ -605,7 +574,7 @@ describe('user data is read and written through the database', () => {
     });
 });
 
-describe('user uses MCP tools', () => {
+describe('NativeService MCP boundary', () => {
     const serverConfig: McpServerConfig = {
         id: 7,
         name: 'filesystem',
@@ -616,13 +585,13 @@ describe('user uses MCP tools', () => {
         tool_timeout: 30_000,
     };
 
-    it('user connects an MCP server with its declared transport', async () => {
+    it('connects a server with the declared transport config', async () => {
         await callAndExpectInvoke(() => mcp.connectServer(serverConfig), 'mcp_connect_server', {
             config: serverConfig,
         });
     });
 
-    it('user lists the tools an MCP server exposes', async () => {
+    it('lists server tools', async () => {
         const tools: McpToolDefinition[] = [
             {
                 name: 'read_file',
@@ -637,7 +606,7 @@ describe('user uses MCP tools', () => {
         ).resolves.toEqual(tools);
     });
 
-    it('user calls an MCP tool with the native argument shape', async () => {
+    it('calls a tool with the tauri argument payload shape', async () => {
         const response: McpToolCallResponse = {
             success: true,
             content: [{ type: 'text', text: 'ok' }],
@@ -658,7 +627,7 @@ describe('user uses MCP tools', () => {
         ).resolves.toEqual(response);
     });
 
-    it('user sees current and aggregate MCP connection status', async () => {
+    it('returns current and aggregate connection status snapshots', async () => {
         const singleStatus: McpServerStatusInfo = {
             server_id: 7,
             status: 'connected',
@@ -688,13 +657,13 @@ describe('user uses MCP tools', () => {
 
     it.each([
         {
-            name: 'user disconnects one server',
+            name: 'disconnects one server',
             call: () => mcp.disconnectServer(7),
             cmd: 'mcp_disconnect_server',
             payload: { serverId: 7 },
         },
         {
-            name: 'user disconnects all servers',
+            name: 'disconnects all servers',
             call: () => mcp.disconnectAll(),
             cmd: 'mcp_disconnect_all',
             payload: undefined,
@@ -703,7 +672,7 @@ describe('user uses MCP tools', () => {
         await callAndExpectInvoke(call, cmd, payload);
     });
 
-    it('user sees an MCP tool failure instead of a silent success', async () => {
+    it('rethrows tool invocation failures', async () => {
         const backendError = new Error('tool execution failed');
         interceptTauriInvoke((call, next) => {
             if (call.cmd === 'mcp_call_tool') {
@@ -719,8 +688,8 @@ describe('user uses MCP tools', () => {
     });
 });
 
-describe('user searches files and shortcuts', () => {
-    it('user searches shortcuts with the default page size', async () => {
+describe('NativeService quick search boundary', () => {
+    it('searches shortcuts with the default page size', async () => {
         const response: QuickSearchResult = {
             shortcuts: [{ name: 'TouchAI', path: 'D:/TouchAI.lnk', source: 'desktop_user' }],
             files: [],
@@ -739,7 +708,7 @@ describe('user searches files and shortcuts', () => {
         ).resolves.toEqual(response);
     });
 
-    it('user searches files with shortcut inclusion sent in snake case', async () => {
+    it('searches files with shortcut inclusion normalized to snake case', async () => {
         const response: QuickSearchFileItem[] = [{ name: 'README.md', path: 'D:/README.md' }];
         mockTauriCommand('quick_search_search_files', response);
 
@@ -759,7 +728,7 @@ describe('user searches files and shortcuts', () => {
         ).resolves.toEqual(response);
     });
 
-    it('user loads icons and runtime status with default sizes', async () => {
+    it('loads icons and runtime status with default sizes', async () => {
         const icon = 'data:image/png;base64,abc';
         const icons = { 'D:/TouchAI.lnk': icon };
         const thumbnails = { 'D:/cover.png': icon };
@@ -804,7 +773,7 @@ describe('user searches files and shortcuts', () => {
         ).resolves.toEqual(status);
     });
 
-    it('user prepares the search index with an explicit force flag', async () => {
+    it('prepares the search index with the explicit force flag', async () => {
         await callAndExpectInvoke(
             () => quickSearch.prepareIndex(true),
             'quick_search_prepare_index',
@@ -812,7 +781,7 @@ describe('user searches files and shortcuts', () => {
         );
     });
 
-    it('user sees an indexing failure instead of a silent success', async () => {
+    it('rethrows indexing failures', async () => {
         const backendError = new Error('indexing failed');
         interceptTauriInvoke((call, next) => {
             if (call.cmd === 'quick_search_prepare_index') {
@@ -826,8 +795,8 @@ describe('user searches files and shortcuts', () => {
     });
 });
 
-describe('user uses clipboard, shortcuts, autostart, and updates', () => {
-    it('user checks, downloads, and installs app updates', async () => {
+describe('NativeService supporting boundaries', () => {
+    it('checks, downloads, and installs app updates through updater commands', async () => {
         const update: AppUpdateInfo = {
             version: '0.2.0',
             fileName: `${APP_PRODUCT_CONFIG.identifier}-0.2.0-full.nupkg`,
@@ -882,11 +851,7 @@ describe('user uses clipboard, shortcuts, autostart, and updates', () => {
             callAndExpectInvoke(
                 () => updater.downloadUpdate('beta', update.version, update.fileName),
                 'updater_download_update',
-                {
-                    channel: 'beta',
-                    version: update.version,
-                    fileName: update.fileName,
-                }
+                { channel: 'beta', version: update.version, fileName: update.fileName }
             )
         ).resolves.toEqual(update);
 
@@ -894,16 +859,12 @@ describe('user uses clipboard, shortcuts, autostart, and updates', () => {
             callAndExpectInvoke(
                 () => updater.installUpdate('beta', update.version, update.fileName),
                 'updater_install_update',
-                {
-                    channel: 'beta',
-                    version: update.version,
-                    fileName: update.fileName,
-                }
+                { channel: 'beta', version: update.version, fileName: update.fileName }
             )
         ).resolves.toBe(true);
     });
 
-    it('user reads clipboard payloads and consumes shortcut snapshots', async () => {
+    it('reads clipboard payloads and consumes shortcut snapshots', async () => {
         const payload: ClipboardPayload = {
             snapshotId: 'snapshot-1',
             observedAt: 1_234,
@@ -930,50 +891,31 @@ describe('user uses clipboard, shortcuts, autostart, and updates', () => {
 
     it.each([
         {
-            name: 'user writes clipboard text',
+            name: 'writes clipboard text',
             call: () => clipboard.writeClipboardText('TouchAI'),
             cmd: 'write_clipboard_text',
             payload: { text: 'TouchAI' },
         },
         {
-            name: 'user registers the global shortcut',
+            name: 'registers the global shortcut',
             call: () => shortcut.registerGlobalShortcut('Ctrl+Shift+K'),
             cmd: 'register_global_shortcut',
             payload: { shortcut: 'Ctrl+Shift+K' },
         },
         {
-            name: 'user syncs search surface shortcuts',
-            call: () =>
-                shortcut.setSearchSurfaceShortcuts([
-                    {
-                        actionId: 'search.model.toggle',
-                        shortcut: 'Mod+M',
-                    },
-                ]),
-            cmd: 'set_search_surface_shortcuts',
-            payload: {
-                entries: [
-                    {
-                        actionId: 'search.model.toggle',
-                        shortcut: 'Mod+M',
-                    },
-                ],
-            },
-        },
-        {
-            name: 'user enables autostart',
+            name: 'enables autostart',
             call: () => autostart.enableAutostart(),
             cmd: 'enable_autostart',
             payload: undefined,
         },
         {
-            name: 'user disables autostart',
+            name: 'disables autostart',
             call: () => autostart.disableAutostart(),
             cmd: 'disable_autostart',
             payload: undefined,
         },
         {
-            name: 'user writes an app log entry through the native log plugin',
+            name: 'logs through the tauri log plugin command',
             call: () => log.log({ level: 3, message: 'TouchAI ready', file: 'main.ts', line: 7 }),
             cmd: 'plugin:log|log',
             payload: { level: 3, message: 'TouchAI ready', file: 'main.ts', line: 7 },
@@ -982,7 +924,7 @@ describe('user uses clipboard, shortcuts, autostart, and updates', () => {
         await callAndExpectInvoke(call, cmd, payload);
     });
 
-    it('user sees autostart status, app paths, shortcut status, and tool results', async () => {
+    it('returns autostart status, app paths, shortcut status, and built-in tool results', async () => {
         const bashResponse: BuiltInBashExecutionResponse = {
             command: 'dir',
             shell: 'powershell',

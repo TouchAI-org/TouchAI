@@ -66,6 +66,7 @@
         followChange: [following: boolean];
         itemSelect: [item: MessageScrollerItem];
         stateChange: [state: MessageScrollerState];
+        contentResize: [height: number];
     }>();
 
     const viewport = ref<HTMLElement | null>(null);
@@ -73,7 +74,6 @@
     const rail = ref<HTMLElement | null>(null);
     const railHeight = ref(0);
     const overflowing = ref(false);
-    const atEnd = ref(true);
     const following = ref(props.followOutput);
     const activeItemId = ref(props.items[0]?.id ?? '');
     const visibleItemIds = ref<Set<string>>(new Set());
@@ -189,9 +189,9 @@
 
     const viewportClasses = computed(() =>
         cn(
-            'h-full overflow-y-auto overscroll-contain outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring no-scrollbar',
+            'h-full overflow-y-auto overscroll-contain outline-none no-scrollbar',
             props.viewportClass,
-            railVisible.value ? 'pr-12' : ''
+            props.navigation === 'rail' ? 'pr-12' : ''
         )
     );
 
@@ -201,9 +201,10 @@
     let programmaticScroll = false;
     let programmaticScrollTimer: ReturnType<typeof setTimeout> | null = null;
     let measureFrame: number | null = null;
-    let followFrame: number | null = null;
     let measureUpdatesFollowing = false;
+    let measureFollowsOutput = false;
     let lastEmittedState = '';
+    let lastContentHeight = -1;
     let touchStartScrollTop = 0;
 
     type FrameCallback = (timestamp: number) => void;
@@ -236,10 +237,8 @@
             };
         }
 
-        const distance = Math.max(
-            0,
-            element.scrollHeight - element.scrollTop - element.clientHeight
-        );
+        const { scrollHeight, scrollTop, clientHeight } = element;
+        const distance = Math.max(0, scrollHeight - scrollTop - clientHeight);
         const nextFollowing = distance <= props.followThreshold;
 
         if (updateFollowing) {
@@ -248,14 +247,13 @@
 
         const nextState: MessageScrollerState = {
             atEnd: distance <= END_TOLERANCE,
-            overflowing: element.scrollHeight > element.clientHeight + 1,
+            overflowing: scrollHeight > clientHeight + 1,
             following: following.value,
-            scrollTop: element.scrollTop,
-            scrollHeight: element.scrollHeight,
-            clientHeight: element.clientHeight,
+            scrollTop,
+            scrollHeight,
+            clientHeight,
         };
 
-        atEnd.value = nextState.atEnd;
         overflowing.value = nextState.overflowing;
         return nextState;
     }
@@ -297,27 +295,7 @@
         return [...left].every((id) => right.has(id));
     }
 
-    function updateVisibleItems(element: HTMLElement, viewportRect: DOMRect): void {
-        const viewportBottom =
-            viewportRect.height > 0 ? viewportRect.bottom : viewportRect.top + element.clientHeight;
-        const nextIds = new Set<string>();
-
-        for (const item of displayItems.value) {
-            const target = findItemElement(item.id);
-            if (!target) continue;
-
-            const rect = target.getBoundingClientRect();
-            if (rect.bottom > viewportRect.top && rect.top < viewportBottom) {
-                nextIds.add(item.id);
-            }
-        }
-
-        if (!sameIds(visibleItemIds.value, nextIds)) {
-            visibleItemIds.value = nextIds;
-        }
-    }
-
-    function updateActiveItem(): void {
+    function updateActiveItem(state: MessageScrollerState): void {
         const element = viewport.value;
         if (!element || !railVisible.value) {
             activeItemId.value = displayItems.value[0]?.id ?? '';
@@ -326,20 +304,10 @@
         }
 
         const viewportRect = element.getBoundingClientRect();
-        updateVisibleItems(element, viewportRect);
-
-        if (element.scrollTop <= props.followThreshold) {
-            activeItemId.value = displayItems.value[0]?.id ?? '';
-            return;
-        }
-
-        const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
-        if (distance <= props.followThreshold) {
-            activeItemId.value = displayItems.value[displayItems.value.length - 1]?.id ?? '';
-            return;
-        }
-
+        const viewportBottom =
+            viewportRect.height > 0 ? viewportRect.bottom : viewportRect.top + state.clientHeight;
         const viewportCenter = viewportRect.top + viewportRect.height / 2;
+        const nextIds = new Set<string>();
         let nearestId = displayItems.value[0]?.id ?? '';
         let nearestDistance = Number.POSITIVE_INFINITY;
 
@@ -347,6 +315,9 @@
             const target = findItemElement(item.id);
             if (!target) continue;
             const rect = target.getBoundingClientRect();
+            if (rect.bottom > viewportRect.top && rect.top < viewportBottom) {
+                nextIds.add(item.id);
+            }
             const center = rect.top + rect.height / 2;
             const itemDistance = Math.abs(center - viewportCenter);
             if (itemDistance < nearestDistance) {
@@ -355,24 +326,58 @@
             }
         }
 
-        activeItemId.value = nearestId;
+        if (!sameIds(visibleItemIds.value, nextIds)) {
+            visibleItemIds.value = nextIds;
+        }
+        const distance = state.scrollHeight - state.scrollTop - state.clientHeight;
+        activeItemId.value =
+            state.scrollTop <= props.followThreshold
+                ? (displayItems.value[0]?.id ?? '')
+                : distance <= props.followThreshold
+                  ? (displayItems.value[displayItems.value.length - 1]?.id ?? '')
+                  : nearestId;
     }
 
     function measure(updateFollowing = false): void {
         const state = readState(updateFollowing);
-        updateActiveItem();
+        updateActiveItem(state);
         railHeight.value = rail.value?.clientHeight ?? 0;
         emitState(state);
+        const height = getContentHeight();
+        if (height !== lastContentHeight) {
+            lastContentHeight = height;
+            emit('contentResize', height);
+        }
     }
 
-    function scheduleMeasure(updateFollowing = false): void {
+    function getContentHeight(): number {
+        if (!content.value || !viewport.value) return 0;
+        const style = getComputedStyle(viewport.value);
+        return (
+            content.value.getBoundingClientRect().height +
+            (Number.parseFloat(style.paddingTop) || 0) +
+            (Number.parseFloat(style.paddingBottom) || 0)
+        );
+    }
+
+    function scheduleMeasure(updateFollowing = false, followOutput = false): void {
         measureUpdatesFollowing ||= updateFollowing;
+        measureFollowsOutput ||= followOutput;
         if (measureFrame !== null) return;
         measureFrame = requestFrame(() => {
             measureFrame = null;
             const shouldUpdateFollowing = measureUpdatesFollowing;
+            const shouldFollowOutput = measureFollowsOutput;
             measureUpdatesFollowing = false;
-            measure(shouldUpdateFollowing);
+            measureFollowsOutput = false;
+            // Publish the settled layout, so a resize cannot flash an "away from bottom" state.
+            if (shouldFollowOutput && props.followOutput && following.value) {
+                if (shouldUpdateFollowing) readState(true);
+                if (following.value) scrollToEnd(defaultFollowBehavior());
+                measure(false);
+            } else {
+                measure(shouldUpdateFollowing);
+            }
         });
     }
 
@@ -508,14 +513,7 @@
     }
 
     function handleResize(): void {
-        scheduleMeasure(false);
-        if (!props.followOutput || !following.value) return;
-        if (followFrame !== null) cancelFrame(followFrame);
-        followFrame = requestFrame(() => {
-            followFrame = null;
-            if (!props.followOutput || !following.value) return;
-            scrollToEnd(defaultFollowBehavior());
-        });
+        scheduleMeasure(false, true);
     }
 
     function setupResizeObserver(): void {
@@ -584,13 +582,7 @@
         if (id) addPinnedDismissListeners();
     });
 
-    watch(
-        () => props.items,
-        () => {
-            scheduleMeasure(false);
-        },
-        { deep: true }
-    );
+    watch(() => props.items, handleResize, { deep: true, flush: 'post' });
 
     watch(
         () => props.followOutput,
@@ -631,14 +623,13 @@
         removePinnedDismissListeners();
         interruptProgrammaticScroll();
         if (measureFrame !== null) cancelFrame(measureFrame);
-        if (followFrame !== null) cancelFrame(followFrame);
         measureFrame = null;
-        followFrame = null;
     });
 
     defineExpose({
         focus,
         getState,
+        getContentHeight,
         isAtEnd,
         recalculate: () => measure(true),
         scrollBy,

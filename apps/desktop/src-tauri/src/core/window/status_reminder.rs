@@ -215,8 +215,8 @@ fn restore_search_window_from_status_reminder<R: Runtime>(
         let task_handle = app_handle.clone();
         if let Err(error) = app_handle.run_on_main_thread(move || {
             if should_restore_search_window_from_status_reminder(payload.as_ref()) {
-                if let Err(error) = crate::core::window::show_search_window(
-                    task_handle.clone(),
+                if let Err(error) = crate::core::window::show_search_window_on_main_thread(
+                    &task_handle,
                     crate::core::window::search::surface::SearchSurfaceShowSource::Notification,
                 ) {
                     log::warn!(

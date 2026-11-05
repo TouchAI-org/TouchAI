@@ -7,9 +7,11 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use tauri::{
-    AppHandle, LogicalUnit, Manager, Monitor, PhysicalPosition, PhysicalSize, Runtime,
-    WebviewWindow, Window, WindowSizeConstraints,
+    AppHandle, Manager, Monitor, PhysicalPosition, PhysicalSize, Runtime, WebviewWindow, Window,
 };
+
+#[cfg(not(target_os = "windows"))]
+use tauri::{LogicalUnit, WindowSizeConstraints};
 
 #[cfg(target_os = "windows")]
 use raw_window_handle::HasWindowHandle;
@@ -258,11 +260,11 @@ mod tests {
         let state = WindowAnimationState::default();
 
         let main = state.next_token("main");
-        let popup = state.next_token("popup-model-dropdown");
+        let settings = state.next_token("settings");
 
         // Two windows animating at once must not invalidate each other.
         assert!(state.is_token_current("main", main));
-        assert!(state.is_token_current("popup-model-dropdown", popup));
+        assert!(state.is_token_current("settings", settings));
     }
 
     #[test]
@@ -346,9 +348,11 @@ fn apply_window_min_size<R: Runtime>(
 
 /// set_size_constraints 是全量替换，max_height 为 None 时部分平台会清除整个约束（含 min_height）。
 /// 因此 max_height 必须始终提供值，"不限制"时用足够大的默认值代替 None。
+#[cfg(not(target_os = "windows"))]
 const DEFAULT_MAX_HEIGHT_UNCONSTRAINED: f64 = 2000.0;
 
 /// 设置窗口尺寸约束（最小宽高 + 可选最大高度）。
+#[cfg(not(target_os = "windows"))]
 fn apply_window_resize_constraints<R: Runtime>(
     window: &WebviewWindow<R>,
     min_width: f64,
@@ -392,6 +396,10 @@ pub fn record_search_window_runtime_resize<R: Runtime>(
     let runtime = app_handle
         .try_state::<crate::core::window::search::surface::SearchWindowRuntime>()
         .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
+    #[cfg(target_os = "windows")]
+    if window.label() == "main" {
+        return Ok(runtime.window_state().snapshot().height_mode);
+    }
     if window.is_maximized().map_err(|e| e.to_string())? {
         return Ok(runtime.window_state().snapshot().height_mode);
     }
@@ -421,10 +429,19 @@ pub fn set_search_window_min_size<R: Runtime>(
         return Ok(());
     }
 
-    let window = app_handle
-        .get_webview_window("main")
-        .ok_or_else(|| "Failed to get main window".to_string())?;
-    apply_window_resize_constraints(&window, min_width, min_height, max_height)
+    #[cfg(target_os = "windows")]
+    {
+        let _ = (app_handle, min_width, min_height, max_height);
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let window = app_handle
+            .get_webview_window("main")
+            .ok_or_else(|| "Failed to get main window".to_string())?;
+        apply_window_resize_constraints(&window, min_width, min_height, max_height)
+    }
 }
 
 /// 将搜索窗口尺寸重置为当前默认值，并清空手动高度 override。
@@ -441,7 +458,33 @@ pub fn reset_search_window_to_defaults<R: Runtime>(
         .app_handle()
         .try_state::<crate::core::window::search::surface::SearchWindowRuntime>()
         .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
+    let previous = runtime.window_state().snapshot();
     let snapshot = runtime.window_state().reset_to_defaults();
+    #[cfg(target_os = "windows")]
+    if window.label() == "main" {
+        let native_resize_enabled = window
+            .app_handle()
+            .try_state::<crate::core::window::search_host::SearchHostRefreshRuntime>()
+            .map(|runtime| runtime.native_enabled())
+            .unwrap_or(true);
+        if native_resize_enabled {
+            if let Err(error) = runtime.resize_host_preserving_surface(|| {
+                crate::core::window::search_host::resize_main_search_host_for_panel_with_placement(
+                    window,
+                    snapshot.current_width,
+                    snapshot.current_height,
+                    None,
+                    crate::core::window::search_host::SearchHostPlacement::Idle,
+                )
+            }) {
+                runtime
+                    .window_state()
+                    .rollback_failed_resize(previous, snapshot);
+                return Err(error);
+            }
+        }
+        return Ok(());
+    }
     let result: Result<(), String> = (|| {
         if window.is_maximized().map_err(|e| e.to_string())? {
             window
@@ -496,6 +539,11 @@ pub fn reset_search_window_to_defaults<R: Runtime>(
         Ok(())
     })();
     runtime.window_state().end_programmatic_resize();
+    if result.is_err() {
+        runtime
+            .window_state()
+            .rollback_failed_resize(previous, snapshot);
+    }
     result?;
     Ok(())
 }
@@ -548,6 +596,18 @@ pub async fn resize_window_height<R: Runtime>(
         clamp_height(target_height)
     };
     if clamped_height <= 0.0 {
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    if label == "main" {
+        if let Some(runtime) = search_window_runtime.as_ref() {
+            runtime.window_state().apply_programmatic_size(
+                None,
+                Some(clamped_height),
+                Some(HeightMode::Auto),
+            );
+        }
         return Ok(());
     }
 

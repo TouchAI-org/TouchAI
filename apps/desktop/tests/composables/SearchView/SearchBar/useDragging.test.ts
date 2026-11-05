@@ -65,7 +65,7 @@ function asMouseEvent(event: Partial<MouseEvent>): MouseEvent {
     return event as unknown as MouseEvent;
 }
 
-describe('when the user drags the search window by its empty area', () => {
+describe('useDragging', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useFakeTimers();
@@ -79,7 +79,7 @@ describe('when the user drags the search window by its empty area', () => {
         document.body.innerHTML = '';
     });
 
-    it('user moves the window when dragging empty space but not from the logo', async () => {
+    it('starts window dragging from the empty container surface and ignores logo-area clicks', async () => {
         const emitDragStart = vi.fn();
         const emitDragEnd = vi.fn();
         const dragging = useDragging({
@@ -116,7 +116,32 @@ describe('when the user drags the search window by its empty area', () => {
         expect(emitDragEnd).toHaveBeenCalledTimes(1);
     });
 
-    it('user moves the window after dragging the editor past the threshold without a stray click', async () => {
+    it('uses an injected search-panel drag strategy with the initiating mouse event', async () => {
+        const startDragging = vi.fn().mockResolvedValue(undefined);
+        const emitDragEnd = vi.fn();
+        const dragging = useDragging({
+            editor: shallowRef(null),
+            emitDragStart: vi.fn(),
+            emitDragEnd,
+            startDragging,
+        });
+        const container = document.createElement('div');
+        const event = asMouseEvent({
+            button: 0,
+            clientX: 320,
+            clientY: 180,
+            target: container,
+            currentTarget: container,
+        });
+
+        await dragging.handleContainerMouseDown(event);
+
+        expect(startDragging).toHaveBeenCalledWith(event);
+        expect(startDraggingMock).not.toHaveBeenCalled();
+        expect(emitDragEnd).toHaveBeenCalledTimes(1);
+    });
+
+    it('starts a drag after crossing the editor drag threshold and suppresses the next click once', async () => {
         const emitDragStart = vi.fn();
         const emitDragEnd = vi.fn();
         const target = document.createElement('div');
@@ -148,7 +173,7 @@ describe('when the user drags the search window by its empty area', () => {
         expect(dragging.consumeEditorClickAfterDrag()).toBe(false);
     });
 
-    it('user gets no window drag when clicking near selectable text', async () => {
+    it('does not treat blank-area clicks near selectable text as a window drag gesture', async () => {
         const target = document.createElement('div');
         resolveMouseEventTargetMock.mockReturnValue(target);
         isBlankEditorAreaTargetMock.mockReturnValue(true);
@@ -188,7 +213,118 @@ describe('when the user drags the search window by its empty area', () => {
         expect(startDraggingMock).not.toHaveBeenCalled();
     });
 
-    it('user gets a normal click again after the drag state is reset', async () => {
+    it('starts dragging from blank editor space after text when the pointer is away from the text boundary', async () => {
+        const target = document.createElement('div');
+        resolveMouseEventTargetMock.mockReturnValue(target);
+        isBlankEditorAreaTargetMock.mockReturnValue(true);
+        const dragging = useDragging({
+            editor: shallowRef(
+                createEditor({
+                    isEmpty: false,
+                    posAtCoords: { pos: 8 },
+                    coordsAtPos: {
+                        left: 100,
+                        right: 160,
+                        top: 100,
+                        bottom: 120,
+                    },
+                }) as never
+            ),
+            emitDragStart: vi.fn(),
+            emitDragEnd: vi.fn(),
+        });
+
+        dragging.handleEditorMouseDown(
+            new MouseEvent('mousedown', {
+                button: 0,
+                clientX: 260,
+                clientY: 110,
+            })
+        );
+        await flushAsyncWork();
+
+        expect(startDraggingMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        [110, false],
+        [260, true],
+    ])(
+        'preserves paragraph text selection and drags only blank space at x=%s',
+        async (clientX, shouldDrag) => {
+            const paragraph = document.createElement('p');
+            resolveMouseEventTargetMock.mockReturnValue(paragraph);
+            isBlankEditorAreaTargetMock.mockReturnValue(true);
+            const dragging = useDragging({
+                editor: shallowRef(
+                    createEditor({
+                        isEmpty: false,
+                        posAtCoords: { pos: 8 },
+                        coordsAtPos: {
+                            left: 100,
+                            right: 120,
+                            top: 100,
+                            bottom: 120,
+                        },
+                    }) as never
+                ),
+                emitDragStart: vi.fn(),
+                emitDragEnd: vi.fn(),
+            });
+
+            await dragging.handleEditorMouseDown(
+                asMouseEvent({
+                    button: 0,
+                    clientX,
+                    clientY: 110,
+                    target: paragraph,
+                    preventDefault: vi.fn(),
+                    stopPropagation: vi.fn(),
+                })
+            );
+
+            expect(startDraggingMock).toHaveBeenCalledTimes(shouldDrag ? 1 : 0);
+        }
+    );
+
+    it('consumes the original mousedown when dragging from blank editor space after text', async () => {
+        const target = document.createElement('div');
+        resolveMouseEventTargetMock.mockReturnValue(target);
+        isBlankEditorAreaTargetMock.mockReturnValue(true);
+        const startDragging = vi.fn().mockResolvedValue(undefined);
+        const dragging = useDragging({
+            editor: shallowRef(
+                createEditor({
+                    isEmpty: false,
+                    posAtCoords: { pos: 8 },
+                    coordsAtPos: {
+                        left: 100,
+                        right: 160,
+                        top: 100,
+                        bottom: 120,
+                    },
+                }) as never
+            ),
+            emitDragStart: vi.fn(),
+            emitDragEnd: vi.fn(),
+            startDragging,
+        });
+        const event = new MouseEvent('mousedown', {
+            button: 0,
+            clientX: 260,
+            clientY: 110,
+            cancelable: true,
+        });
+
+        const handled = dragging.handleEditorMouseDown(event);
+        await flushAsyncWork();
+
+        expect(handled).toBe(true);
+        expect(event.defaultPrevented).toBe(true);
+        expect(startDragging).toHaveBeenCalledWith(event);
+    });
+
+    it('clears the deferred click-suppression state when the composable is reset', async () => {
         const target = document.createElement('div');
         resolveMouseEventTargetMock.mockReturnValue(target);
         const dragging = useDragging({

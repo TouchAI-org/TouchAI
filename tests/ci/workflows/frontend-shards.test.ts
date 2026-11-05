@@ -93,12 +93,6 @@ const originalThresholds = {
         functions: 75,
         lines: 72,
     },
-    'src/views/SearchView/composables/interaction/useSearchKeyboardRouter.ts': {
-        statements: 85,
-        branches: 75,
-        functions: 85,
-        lines: 85,
-    },
     'src/views/SearchView/composables/useSearchInput.ts': {
         statements: 90,
         branches: 75,

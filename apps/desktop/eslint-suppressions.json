@@ -156,33 +156,6 @@
             "count": 1
         }
     },
-    "src/views/PopupView/components/ModelDropdownPopup/index.vue": {
-        "tailwindcss/no-arbitrary-value": {
-            "count": 5
-        },
-        "tailwindcss/no-custom-classname": {
-            "count": 6
-        },
-        "vue/no-restricted-class": {
-            "count": 17
-        }
-    },
-    "src/views/PopupView/components/SessionHistoryPopover/index.vue": {
-        "tailwindcss/no-arbitrary-value": {
-            "count": 2
-        },
-        "tailwindcss/no-custom-classname": {
-            "count": 11
-        },
-        "vue/no-restricted-class": {
-            "count": 15
-        }
-    },
-    "src/views/PopupView/index.vue": {
-        "tailwindcss/no-custom-classname": {
-            "count": 2
-        }
-    },
     "src/views/SearchView/components/AskUser/AskUserQuestions.vue": {
         "tailwindcss/no-arbitrary-value": {
             "count": 6
@@ -203,13 +176,13 @@
     },
     "src/views/SearchView/components/ConversationPanel/components/AssistantMessage.vue": {
         "tailwindcss/no-arbitrary-value": {
-            "count": 3
+            "count": 2
         },
         "tailwindcss/no-custom-classname": {
             "count": 3
         },
         "vue/no-restricted-class": {
-            "count": 2
+            "count": 1
         }
     },
     "src/views/SearchView/components/ConversationPanel/components/BuiltInBashToolCallItem.vue": {
@@ -218,9 +191,6 @@
         }
     },
     "src/views/SearchView/components/ConversationPanel/components/ConversationToolbar.vue": {
-        "tailwindcss/no-arbitrary-value": {
-            "count": 1
-        },
         "tailwindcss/no-custom-classname": {
             "count": 3
         }
@@ -269,6 +239,17 @@
             "count": 1
         }
     },
+    "src/views/SearchView/components/ModelDropdownPopup/index.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 4
+        },
+        "tailwindcss/no-custom-classname": {
+            "count": 6
+        },
+        "vue/no-restricted-class": {
+            "count": 15
+        }
+    },
     "src/views/SearchView/components/QuickSearchPanel/QuickSearchListItem.vue": {
         "tailwindcss/no-arbitrary-value": {
             "count": 1
@@ -288,9 +269,6 @@
     "src/views/SearchView/components/SearchBar/index.vue": {
         "tailwindcss/no-custom-classname": {
             "count": 4
-        },
-        "vue/no-restricted-class": {
-            "count": 2
         }
     },
     "src/views/SearchView/components/SearchBar/tags/attachment/AttachmentTagView.vue": {
@@ -303,6 +281,17 @@
             "count": 8
         }
     },
+    "src/views/SearchView/components/SessionHistoryPopover/index.vue": {
+        "tailwindcss/no-arbitrary-value": {
+            "count": 2
+        },
+        "tailwindcss/no-custom-classname": {
+            "count": 11
+        },
+        "vue/no-restricted-class": {
+            "count": 13
+        }
+    },
     "src/views/SearchView/components/WebSearch/WebSearchCitation.vue": {
         "tailwindcss/no-custom-classname": {
             "count": 8
@@ -311,9 +300,6 @@
     "src/views/SearchView/index.vue": {
         "tailwindcss/no-arbitrary-value": {
             "count": 1
-        },
-        "tailwindcss/no-custom-classname": {
-            "count": 2
         },
         "vue/no-restricted-class": {
             "count": 1

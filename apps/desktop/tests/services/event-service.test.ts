@@ -34,6 +34,10 @@ describe('user receives app events across windows', () => {
         const payload: SearchSurfaceShownEvent = {
             source: 'shortcut',
             sequence: 2,
+            rendererEpoch: 2,
+            showEpoch: 3,
+            hostEpoch: 4,
+            generation: 5,
         };
 
         const unlisten = await eventService.on(AppEvent.SEARCH_SURFACE_SHOWN, callback);
@@ -43,7 +47,14 @@ describe('user receives app events across windows', () => {
         expect(callback).toHaveBeenCalledWith(payload);
 
         await unlisten();
-        await emit(AppEvent.SEARCH_SURFACE_SHOWN, { source: 'shortcut', sequence: 3 });
+        await emit(AppEvent.SEARCH_SURFACE_SHOWN, {
+            source: 'shortcut',
+            sequence: 3,
+            rendererEpoch: 2,
+            showEpoch: 3,
+            hostEpoch: 4,
+            generation: 5,
+        });
 
         expect(callback).toHaveBeenCalledTimes(1);
     });

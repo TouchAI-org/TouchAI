@@ -3,6 +3,7 @@
 //! 主窗口管理逻辑。
 
 pub mod bounds;
+pub mod protocol;
 pub mod surface;
 
 use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
@@ -25,17 +26,16 @@ use windows::Win32::{
 };
 
 /// 隐藏主搜索窗口。
-pub fn hide_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    surface::hide_surface(&app, surface::SearchSurfaceHideReason::ManualDismiss)
+pub fn hide_search_window_on_main_thread<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    surface::hide_surface_on_main_thread(app, surface::SearchSurfaceHideReason::ManualDismiss)
 }
 
 /// 显示主搜索窗口并广播搜索窗口组已显示事件。
-/// 入口来源由调用方给出，分析口径只信任原生事实。
-pub fn show_search_window<R: Runtime>(
-    app: AppHandle<R>,
+pub fn show_search_window_on_main_thread<R: Runtime>(
+    app: &AppHandle<R>,
     source: surface::SearchSurfaceShowSource,
 ) -> Result<(), String> {
-    surface::show_surface(&app, source)
+    surface::show_surface_on_main_thread(app, source)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,15 +67,28 @@ fn shortcut_action_requires_foreground_activation(action: ShortcutToggleAction) 
 }
 
 /// 处理全局快捷键触发的搜索窗口显隐切换。
-pub fn show_search_window_from_shortcut<R: Runtime>(
+pub fn show_search_window_from_shortcut_on_main_thread<R: Runtime>(
     app_handle: &AppHandle<R>,
 ) -> Result<(), String> {
     let window = app_handle
         .get_webview_window("main")
         .ok_or_else(|| "Failed to get main window".to_string())?;
     let is_visible = window.is_visible().map_err(|e| e.to_string())?;
-    let is_app_focused = crate::core::window::popup::is_app_focused(app_handle.clone())?;
-    let action = resolve_shortcut_toggle_action(is_visible, is_app_focused);
+    let is_app_focused = window.is_focused().map_err(|error| error.to_string())?;
+    let action = app_handle
+        .try_state::<surface::SearchWindowRuntime>()
+        .map(
+            |runtime| match runtime.resolve_shortcut_action(is_visible, is_app_focused) {
+                protocol::SearchShortcutAction::Show => {
+                    ShortcutToggleAction::ShowWithAutoPasteAuthorization
+                }
+                protocol::SearchShortcutAction::FocusVisible => {
+                    ShortcutToggleAction::FocusExistingVisible
+                }
+                protocol::SearchShortcutAction::Hide => ShortcutToggleAction::HideOnly,
+            },
+        )
+        .unwrap_or_else(|| resolve_shortcut_toggle_action(is_visible, is_app_focused));
 
     if let ShortcutToggleAction::ShowWithAutoPasteAuthorization = action {
         if let Some(runtime) =
@@ -86,9 +99,12 @@ pub fn show_search_window_from_shortcut<R: Runtime>(
     }
 
     if shortcut_action_requires_foreground_activation(action) {
-        surface::show_surface(app_handle, surface::SearchSurfaceShowSource::Shortcut)?;
+        surface::show_surface_on_main_thread(
+            app_handle,
+            surface::SearchSurfaceShowSource::Shortcut,
+        )?;
     } else {
-        surface::hide_surface(
+        surface::hide_surface_on_main_thread(
             app_handle,
             surface::SearchSurfaceHideReason::PolicyToggleHide,
         )?;
@@ -104,9 +120,11 @@ pub fn set_search_surface_hide_on_app_blur<R: Runtime>(
     surface::set_hide_on_app_blur(&app_handle, should_hide)
 }
 
-/// 仅用于测试模式：显示主搜索窗口并立即激活其输入焦点。
-pub fn show_search_window_for_testing<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
-    show_and_activate_search_window(window)
+/// 测试模式在 renderer 就绪前只登记首次显示请求。
+pub fn show_search_window_for_testing_on_main_thread<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<(), String> {
+    surface::show_surface_on_main_thread(app, surface::SearchSurfaceShowSource::Notification)
 }
 
 /// 显示搜索窗口，并确保它成为后续键盘输入的目标窗口。
@@ -115,9 +133,101 @@ pub(super) fn show_and_activate_search_window<R: Runtime>(
 ) -> Result<(), String> {
     let _ = window.unminimize();
     crate::core::window::rounded_corners::sync_window_corner_style(window)?;
+    #[cfg(target_os = "windows")]
+    show_search_window_without_animation(window)?;
+    #[cfg(not(target_os = "windows"))]
     window.show().map_err(|e| e.to_string())?;
     crate::core::window::rounded_corners::sync_window_corner_style(window)?;
     reactivate_search_window_input(window)
+}
+
+/// Hide the prepared host with Win32 directly so Windows does not animate the
+/// transparent search surface during a shortcut toggle or app-blur dismiss.
+pub(super) fn hide_search_window_without_animation<R: Runtime>(
+    window: &WebviewWindow<R>,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
+            SWP_NOSIZE, SWP_NOZORDER,
+        };
+
+        let hwnd = match get_window_hwnd(window) {
+            Ok(hwnd) => hwnd,
+            Err(_) => return window.hide().map_err(|error| error.to_string()),
+        };
+        let result = unsafe {
+            SetWindowPos(
+                hwnd,
+                None,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE
+                    | SWP_NOSIZE
+                    | SWP_NOZORDER
+                    | SWP_NOOWNERZORDER
+                    | SWP_NOACTIVATE
+                    | SWP_HIDEWINDOW,
+            )
+        };
+        return match result {
+            Ok(()) => Ok(()),
+            Err(_) => window.hide().map_err(|error| error.to_string()),
+        };
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    window.hide().map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "windows")]
+/// Show the already-prepared host with SetWindowPos instead of Tauri's
+/// ShowWindow wrapper. The latter lets Windows apply the user-level show
+/// animation, which makes the transparent search surface appear to slide in.
+fn show_search_window_without_animation<R: Runtime>(
+    window: &WebviewWindow<R>,
+) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetForegroundWindow, SetWindowPos, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
+        SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
+    };
+
+    let hwnd = match get_window_hwnd(window) {
+        Ok(hwnd) => hwnd,
+        Err(_) => return window.show().map_err(|error| error.to_string()),
+    };
+    let result = unsafe {
+        SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE
+                | SWP_NOSIZE
+                | SWP_NOZORDER
+                | SWP_NOOWNERZORDER
+                | SWP_NOACTIVATE
+                | SWP_SHOWWINDOW,
+        )
+    };
+    match result {
+        Ok(()) => {
+            // SWP_NOACTIVATE is required to suppress the Windows show
+            // animation, but it also prevents the hidden surface from
+            // becoming the foreground window. Restore foreground activation
+            // explicitly before the WebView focus handoff below.
+            unsafe {
+                let _ = SetForegroundWindow(hwnd);
+            }
+            Ok(())
+        }
+        Err(_) => window.show().map_err(|error| error.to_string()),
+    }
 }
 
 /// 让主搜索窗口重新成为键盘输入目标，并唤醒 WebView2 accelerator 管线。
@@ -127,9 +237,7 @@ pub(super) fn reactivate_search_window_input<R: Runtime>(
     window.set_focus().map_err(|e| e.to_string())?;
     #[cfg(target_os = "windows")]
     activate_search_window(window)?;
-    focus_search_webview_content(window)?;
-    prime_webview_input_pipeline();
-    Ok(())
+    focus_search_webview_content(window)
 }
 
 #[cfg(target_os = "windows")]
@@ -222,16 +330,29 @@ fn prime_webview_input_pipeline() {
 fn prime_webview_input_pipeline() {}
 
 #[cfg(target_os = "windows")]
+/// 将 WebView focus 任务投递给 UI dispatcher，但绝不在当前调用栈等待任务完成。
+fn dispatch_search_webview_focus<T, Dispatch, Focus>(
+    focus: Focus,
+    dispatch: Dispatch,
+) -> Result<(), String>
+where
+    Dispatch: FnOnce(Focus) -> Result<(), String>,
+    Focus: FnOnce(T) + Send + 'static,
+{
+    dispatch(focus)
+}
+
+#[cfg(target_os = "windows")]
 /// 将键盘焦点推进 WebView2 内容层，确保页面可以收到后续 keydown。
 pub(super) fn focus_search_webview_content<R: Runtime>(
     window: &WebviewWindow<R>,
 ) -> Result<(), String> {
     let main_hwnd = get_window_hwnd(window)?;
     let main_hwnd_raw = main_hwnd.0 as isize;
-    let (tx, rx) = std::sync::mpsc::channel();
-    window
-        .with_webview(move |webview| {
-            let result = (|| unsafe {
+    let window_label = window.label().to_string();
+    dispatch_search_webview_focus(
+        move |webview: tauri::webview::PlatformWebview| {
+            let result: Result<(), String> = (|| unsafe {
                 let main_hwnd = HWND(main_hwnd_raw as _);
                 let container_hwnd = GetWindow(main_hwnd, GW_CHILD).unwrap_or_default();
                 let content_hwnd = if container_hwnd.0.is_null() {
@@ -250,16 +371,21 @@ pub(super) fn focus_search_webview_content<R: Runtime>(
                     })?;
                 Ok(())
             })();
-            let _ = tx.send(result);
-        })
-        .map_err(|error| format!("Failed to access search WebView2 content: {}", error))?;
-
-    rx.recv().map_err(|error| {
-        format!(
-            "Failed to receive search WebView2 content focus result: {}",
-            error
-        )
-    })?
+            match result {
+                Ok(()) => prime_webview_input_pipeline(),
+                Err(error) => log::warn!(
+                    "Failed to focus search WebView2 content for '{}': {}",
+                    window_label,
+                    error
+                ),
+            }
+        },
+        |focus| {
+            window
+                .with_webview(focus)
+                .map_err(|error| format!("Failed to access search WebView2 content: {error}"))
+        },
+    )
 }
 
 #[cfg(target_os = "windows")]
@@ -300,6 +426,14 @@ mod tests {
     use super::{
         resolve_shortcut_toggle_action, shortcut_action_requires_foreground_activation,
         ShortcutToggleAction,
+    };
+
+    #[cfg(target_os = "windows")]
+    use super::dispatch_search_webview_focus;
+    #[cfg(target_os = "windows")]
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
     };
 
     // The global shortcut is the main way into the app. Each press has to do the right one of
@@ -351,5 +485,38 @@ mod tests {
         assert!(!shortcut_action_requires_foreground_activation(
             ShortcutToggleAction::HideOnly
         ));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn webview_focus_dispatch_returns_before_deferred_task_runs() {
+        type DeferredTask = Box<dyn FnOnce() + Send>;
+
+        let deferred = Arc::new(Mutex::new(None::<DeferredTask>));
+        let focused = Arc::new(AtomicBool::new(false));
+
+        dispatch_search_webview_focus(
+            {
+                let focused = Arc::clone(&focused);
+                move |_: ()| focused.store(true, Ordering::Release)
+            },
+            {
+                let deferred = Arc::clone(&deferred);
+                move |focus| {
+                    *deferred.lock().unwrap_or_else(|error| error.into_inner()) =
+                        Some(Box::new(move || focus(())));
+                    Ok(())
+                }
+            },
+        )
+        .expect("focus dispatch");
+
+        assert!(!focused.load(Ordering::Acquire));
+        deferred
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+            .expect("deferred focus task")();
+        assert!(focused.load(Ordering::Acquire));
     }
 }

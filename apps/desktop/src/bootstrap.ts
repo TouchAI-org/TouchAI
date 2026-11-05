@@ -15,13 +15,14 @@ import { installI18n } from './i18n';
 import router from './router';
 import { useSettingsStore } from './stores/settings';
 import { initializeFontLoader } from './utils/font';
+import { isE2eTestMode } from './utils/runtimeMode';
 
 const runUsageMaintenance = async (retentionDays = 0): Promise<void> => {
     const { runUsageMaintenance: run } = await import('./services/UsageService/maintenance');
     await run(retentionDays);
 };
 const AUXILIARY_WINDOW_LABELS = new Set(['tray-menu']);
-const AUXILIARY_ROUTE_PREFIXES = ['#/popup', '#/tray-menu'];
+const AUXILIARY_ROUTE_PREFIXES = ['#/tray-menu'];
 
 /** 定时检查远端目录的间隔；是否真正请求由刷新入口按上次检查时间决定。 */
 const MODEL_METADATA_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -39,7 +40,7 @@ function isAuxiliaryWindowLabel(label: string | null): boolean {
         return false;
     }
 
-    return AUXILIARY_WINDOW_LABELS.has(label) || label.startsWith('popup-');
+    return AUXILIARY_WINDOW_LABELS.has(label);
 }
 
 function isAuxiliaryRoute(): boolean {
@@ -268,7 +269,9 @@ export async function initializeApp() {
     const settingsWindow = isSettingsWindow();
     if (!settingsWindow) {
         await Promise.all([syncBuiltInTools(), prewarmBuiltInBash()]);
-        await initializeModelMetadata();
+        if (!(await isE2eTestMode())) {
+            await initializeModelMetadata();
+        }
     }
 
     let settingsInitializeError: unknown;

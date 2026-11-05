@@ -138,7 +138,7 @@ tests/ci/
 apps/desktop/tests/
 ├── setup/                  # Vitest global setup, Tauri mocks
 ├── utils/                  # Shared test helpers and fixtures
-├── services/               # Service tests (PopupService/, EventService, NativeService)
+├── services/               # Service tests (EventService, NativeService)
 ├── composables/
 │   └── SearchView/         # SearchView composable tests
 └── SearchView/             # SearchView view-level tests (windowSizing, utils)
@@ -148,7 +148,7 @@ apps/desktop/e2e-tests/     # Desktop E2E (WebDriverIO)
 apps/desktop/src-tauri/tests/ # Rust integration / command tests
 ```
 
-- Frontend tests: `apps/desktop/tests/**/*.test.ts`, mirroring the `src/` structure (`src/services/PopupService/manager.ts` → `tests/services/PopupService/manager.test.ts`)
+- Frontend tests: `apps/desktop/tests/**/*.test.ts`, mirroring the `src/` structure (`src/views/SearchView/windowSizing.ts` → `tests/SearchView/windowSizing.test.ts`)
 - Repository CI tests: `tests/ci/**/*.test.ts`. Workflow and CODEOWNERS contracts live in `tests/ci/workflows/`; lockfile policy in `tests/ci/repository/`; ESLint design-system guards in `tests/ci/design-system/`. A test that imports `apps/desktop/scripts/**` stays in `apps/desktop/tests/ci/`, because it covers desktop build or release tooling.
 - UI preview tests: `tests/ci/ui-preview/**/*.test.js`, colocated with the repository automation they cover.
 - Desktop E2E: `apps/desktop/e2e-tests/**/*.e2e.js`

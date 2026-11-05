@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SearchView 请求层。
  * 收口请求提交、排队与会话续发逻辑，让输入层与页面层保持解耦。
  */
@@ -70,7 +70,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
 
     const pendingRequest = ref<PendingRequest | null>(null);
     const isWaitingForCompletion = ref(false);
-    const sessionHistoryPopupOpen = ref(false);
+    const sessionHistoryOverlayOpen = ref(false);
     const sessionList = ref<SessionEntity[]>([]);
     const sessionListQuery = ref('');
     const isSessionListLoading = ref(false);
@@ -103,7 +103,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     function invalidateSessionListCache(options?: { refreshIfOpen?: boolean }) {
         sessionListResolvedKey = null;
 
-        if (!options?.refreshIfOpen || !sessionHistoryPopupOpen.value) {
+        if (!options?.refreshIfOpen || !sessionHistoryOverlayOpen.value) {
             return;
         }
 
@@ -216,7 +216,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
 
             // 会话运行允许脱离当前页面继续进行；
             // 旧会话进入终态时，当前页不一定还能收到 useAgent 的 onComplete/onError。
-            // 这里统一按全局状态事件作废历史列表缓存，保证 popup 能看到最新终态圆点。
+            // 这里统一按全局状态事件作废历史列表缓存，保证 overlay 能看到最新终态圆点。
             invalidateSessionListCache({
                 refreshIfOpen: true,
             });
@@ -248,7 +248,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     }
 
     /**
-     * 历史会话 popup 会在搜索和会话切换后反复刷新。
+     * 历史会话 overlay 会在搜索和会话切换后反复刷新。
      * 这里用递增 requestId 丢弃过时响应，避免快速输入时列表回跳。
      */
     async function refreshSessionList() {
@@ -314,8 +314,8 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
      *
      * @param open 是否打开历史会话弹层。
      */
-    async function setSessionHistoryPopupOpen(open: boolean) {
-        sessionHistoryPopupOpen.value = open;
+    async function setSessionHistoryOverlayOpen(open: boolean) {
+        sessionHistoryOverlayOpen.value = open;
         if (open) {
             return;
         }
@@ -339,7 +339,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
 
     async function updateSessionSearchQuery(query: string) {
         sessionListQuery.value = query;
-        if (sessionHistoryPopupOpen.value) {
+        if (sessionHistoryOverlayOpen.value) {
             await refreshSessionList();
         }
     }
@@ -397,6 +397,11 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     }
 
     function startNewSession() {
+        clearSessionState();
+        clearDraft();
+    }
+
+    function clearAll() {
         clearSessionState();
         clearDraft();
     }
@@ -496,16 +501,17 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         error,
         currentSessionId,
         sessionHistory: sessionHistory as Ref<SessionMessage[]>,
-        sessionHistoryPopupOpen,
+        sessionHistoryOverlayOpen,
         sessionList,
         sessionListQuery,
         isSessionListLoading,
         clearSession: clearSessionState,
-        setSessionHistoryPopupOpen,
+        setSessionHistoryOverlayOpen,
         updateSessionSearchQuery,
         refreshSessionList,
         ensureSessionListLoaded,
         startNewSession,
+        clearAll,
         reopenLastClosedSession,
         openSession,
         pendingToolApproval,

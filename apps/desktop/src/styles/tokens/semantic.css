@@ -69,6 +69,8 @@
     --color-border: #e5e5e5;
     --color-border-subtle: rgba(74, 64, 57, 0.12);
     --color-border-strong: rgba(74, 64, 57, 0.28);
+    --color-model-logo-border: var(--color-gray-300);
+    --color-model-logo-border-hover: var(--color-gray-400);
     --color-input: #e5e5e5;
     --color-ring: var(--color-primary-300);
 

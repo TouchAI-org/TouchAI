@@ -1,19 +1,24 @@
 /**
  * SearchView 页面层。
- * 集中管理页面 controller、生命周期编排、popup 打开时序与 DOM 事件挂载。
+ * 集中管理页面 controller、生命周期编排、overlay 打开时序与 DOM 事件挂载。
  */
 import { useAlert } from '@composables/useAlert';
-import { AppEvent, eventService } from '@services/EventService';
+import {
+    AppEvent,
+    type AppEventMap,
+    type AppEventName,
+    eventService,
+} from '@services/EventService';
 import type {
     SearchSurfaceCommandEvent,
+    SearchSurfaceHiddenEvent,
+    SearchSurfaceShownEvent,
     SearchSurfaceShowSource,
     SessionStatusReminderActionEvent,
 } from '@services/EventService/types';
 import { native } from '@services/NativeService';
 import { initNotificationPermission, notify } from '@services/NotificationService';
 import { log } from '@services/ObservabilityService';
-import type { ModelDropdownData, ModelDropdownPopupItem } from '@services/PopupService';
-import { popupManager } from '@services/PopupService';
 import { runStartupTasks } from '@services/StartupService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
@@ -28,22 +33,19 @@ import { useSettingsStore } from '@/stores/settings';
 import { isE2eTestMode } from '@/utils/runtimeMode';
 import { normalizeLocalShortcutString } from '@/utils/shortcuts';
 
+import type { ModelDropdownItem } from '../types';
 import type {
     ConversationPanelHandle,
     QuickSearchHandle,
     SearchBarHandle,
-    SearchModelDropdownContext,
-    SearchModelDropdownState,
-    SearchModelOverride,
     SearchPageController,
 } from '../types';
-import type { SearchOverlayCommand, SearchPopupSessionIdentity } from './searchInteraction';
 import type { createSearchInteractionContext, UseSearchKeyboardOptions } from './searchInteraction';
 import { createSearchKeydownHandler } from './searchInteraction';
 import { createSessionStatusReminderCoordinator } from './sessionStatusReminder';
-import { useModelDropdownPopup } from './useModelDropdownPopup';
 
 const HIDE_TIMEOUT_MS = 5 * 60 * 1000;
+const WEBVIEW_BLUR_RECONCILE_DELAY_MS = 50;
 
 interface SearchSurfaceShortcutSyncContext {
     quickSearchOpen: boolean;
@@ -123,24 +125,7 @@ export function useSearchWindowPin() {
     };
 }
 
-function mapPopupModel(
-    model: SearchModelDropdownContext['models'][number]
-): ModelDropdownPopupItem {
-    return {
-        id: model.id,
-        modelId: model.model_id,
-        name: model.name,
-        providerId: model.provider_id,
-        providerName: model.provider_name,
-        reasoning: model.reasoning,
-        tool_call: model.tool_call,
-        modalities: model.modalities,
-        attachment: model.attachment,
-        open_weights: model.open_weights,
-    };
-}
-
-function filterModelDropdownItems(models: ModelDropdownPopupItem[], searchQuery: string) {
+export function filterModelDropdownItems(models: ModelDropdownItem[], searchQuery: string) {
     const query = searchQuery.toLowerCase().trim();
     if (!query) {
         return models;
@@ -178,7 +163,7 @@ function filterModelDropdownItems(models: ModelDropdownPopupItem[], searchQuery:
                 score: totalScore,
             };
         })
-        .filter(Boolean) as Array<{ model: ModelDropdownPopupItem; score: number }>;
+        .filter(Boolean) as Array<{ model: ModelDropdownItem; score: number }>;
 
     return scored.sort((left, right) => right.score - left.score).map((item) => item.model);
 }
@@ -418,19 +403,21 @@ interface UseSearchPageLifecycleOptions {
     isPinned: Ref<boolean>;
     isMaximized?: Readonly<Ref<boolean>>;
     searchKeybindings?: Readonly<Ref<SearchKeybindings>>;
+    /** Native host resize can transiently blur WebView2 during a CSS handoff. */
+    isSurfaceTransitioning?: Readonly<Ref<boolean>>;
     interactionContext: ReturnType<typeof createSearchInteractionContext>;
     syncWindowPinState: () => Promise<boolean>;
     clearSession: () => void | Promise<void>;
     shouldClearSessionAfterTimeout?: () => boolean | Promise<boolean>;
-    reconcilePopupSurfaces?: () => Promise<void>;
+    reconcileSearchOverlays?: (restoreFocus?: boolean) => Promise<void>;
     remeasureSearchWindowHeight?: () => void | Promise<void>;
     onSurfaceHidden?: () => void | Promise<void>;
+    handleSearchSurfaceCommand?: (payload: SearchSurfaceCommandEvent) => void | Promise<void>;
     handleSessionStatusReminderAction?: (
         payload: SessionStatusReminderActionEvent
     ) => void | Promise<void>;
     handleAiModelsUpdated?: () => void | Promise<void>;
-    handleShortcutAutoPaste?: () => void | Promise<void>;
-    handleSearchSurfaceCommand?: (payload: SearchSurfaceCommandEvent) => void | Promise<void>;
+    handleShortcutAutoPaste?: (isCurrent?: () => boolean) => void | Promise<void>;
 }
 
 export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
@@ -441,27 +428,25 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         isPinned,
         isMaximized,
         searchKeybindings,
+        isSurfaceTransitioning,
         interactionContext,
         syncWindowPinState,
         clearSession,
         shouldClearSessionAfterTimeout,
-        reconcilePopupSurfaces,
+        reconcileSearchOverlays,
         remeasureSearchWindowHeight,
         onSurfaceHidden,
+        handleSearchSurfaceCommand,
         handleSessionStatusReminderAction,
         handleAiModelsUpdated,
         handleShortcutAutoPaste,
-        handleSearchSurfaceCommand,
     } = options;
 
     const settingsStore = useSettingsStore();
+    const currentWindow = getCurrentWindow();
 
-    let unlistenAiModelsUpdated: (() => void) | null = null;
-    let unlistenSearchSurfaceShown: (() => void) | null = null;
-    let unlistenSearchSurfaceHidden: (() => void) | null = null;
-    let unlistenSearchSurfaceCommand: (() => void) | null = null;
-    let unlistenSessionTaskStatusChanged: (() => void) | null = null;
-    let unlistenSessionStatusReminderAction: (() => void) | null = null;
+    const unlisteners: Array<() => void> = [];
+    let disposed = false;
     let stopReadyWatch: (() => void) | null = null;
     let stopPinnedWatch: (() => void) | null = null;
     let stopSearchSurfaceShortcutWatch: (() => void) | null = null;
@@ -469,6 +454,10 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     let lifecycleInitialized = false;
     let restoredActivationEpoch: number | null = null;
     let latestSurfaceSequence = 0;
+    let surfaceLifecycleEpoch = 0;
+    let blurReconcileTimer: ReturnType<typeof setTimeout> | null = null;
+    let blurReconcileEpoch = 0;
+    let previousDragging = isDragging.value;
     const sessionStatusReminderCoordinator = createSessionStatusReminderCoordinator({
         isSearchSurfaceForegrounded: () =>
             interactionContext.state.windowVisible &&
@@ -485,9 +474,12 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         await native.window.hideSearchWindow();
     }
 
-    function syncFocusStateOnFocus() {
-        interactionContext.clearActivePopupSession();
+    async function syncSearchSurfaceHideOnAppBlur(shouldHide: boolean) {
+        const isE2e = await isE2eTestMode();
+        await native.window.setSearchSurfaceHideOnAppBlur(shouldHide && !isE2e);
+    }
 
+    function syncFocusStateOnFocus() {
         if (!interactionContext.state.windowVisible) {
             if (interactionContext.state.activationSource === 'unknown') {
                 interactionContext.recordActivation('manual');
@@ -502,59 +494,44 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         interactionContext.setAppFocused(true);
     }
 
-    function hasActivePopupWindowFocus() {
-        const popupManagerState = popupManager.state ?? {
-            isOpen: false,
-            currentType: null,
-            currentPopupId: null,
-            currentWindowLabel: null,
-            currentPopupSessionVersion: null,
-        };
-        const activePopupIdentity = interactionContext.state.activePopupIdentity;
-
-        return (
-            popupManagerState.isOpen === true &&
-            activePopupIdentity !== null &&
-            popupManagerState.currentPopupId === activePopupIdentity.popupId &&
-            popupManagerState.currentWindowLabel === activePopupIdentity.windowLabel &&
-            popupManagerState.currentPopupSessionVersion === activePopupIdentity.popupSessionVersion
-        );
+    async function reconcileSearchOverlaysAfterActivation() {
+        await reconcileSearchOverlays?.();
     }
 
-    async function reconcilePopupSurfacesAfterActivation() {
-        if (hasActivePopupWindowFocus()) {
-            return;
-        }
-
-        await reconcilePopupSurfaces?.();
-    }
-
-    async function restoreSearchWindowAfterActivation(surfaceSource: SearchSurfaceShowSource) {
+    async function restoreSearchWindowAfterActivation(
+        surfaceSource: SearchSurfaceShowSource,
+        isCurrent: () => boolean
+    ) {
         await nextTick();
-        await reconcilePopupSurfacesAfterActivation();
+        if (!isCurrent()) return;
+        await reconcileSearchOverlaysAfterActivation();
+        if (!isCurrent()) return;
         await controller.focusSearchInput();
+        if (!isCurrent()) return;
         await controller.loadActiveModel();
+        if (!isCurrent()) return;
         await syncWindowPinStateSafely('focus');
+        if (!isCurrent()) return;
         await remeasureSearchWindowHeightSafely('activation');
+        if (!isCurrent()) return;
 
         if (surfaceSource !== 'shortcut') {
             return;
         }
 
         try {
-            await handleShortcutAutoPaste?.();
+            await handleShortcutAutoPaste?.(isCurrent);
         } catch (error) {
             log.error('[SearchView] Failed to handle shortcut auto-paste:', error);
         }
     }
 
-    async function handleSearchWindowActivated(surfaceSource: SearchSurfaceShowSource) {
+    async function handleSearchWindowActivated(
+        surfaceSource: SearchSurfaceShowSource,
+        isCurrent: () => boolean
+    ) {
+        if (!isCurrent()) return;
         interactionContext.recordActivation(surfaceSource === 'shortcut' ? 'shortcut' : 'manual');
-        if (hasActivePopupWindowFocus()) {
-            restoredActivationEpoch = interactionContext.state.activationEpoch;
-            return;
-        }
-
         syncFocusStateOnFocus();
 
         const timedOut = interactionContext.shouldRunTimeoutClearOnFocus(
@@ -564,19 +541,23 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         );
         if (timedOut) {
             const shouldClear = await Promise.resolve(shouldClearSessionAfterTimeout?.() ?? true);
+            if (!isCurrent()) return;
             if (shouldClear) {
                 await Promise.resolve(clearSession());
+                if (!isCurrent()) return;
             }
         }
 
+        if (!isCurrent()) return;
         const activationEpoch = interactionContext.state.activationEpoch;
         if (restoredActivationEpoch === activationEpoch) {
-            await reconcilePopupSurfacesAfterActivation();
+            await reconcileSearchOverlaysAfterActivation();
+            if (!isCurrent()) return;
             return;
         }
         restoredActivationEpoch = activationEpoch;
 
-        await restoreSearchWindowAfterActivation(surfaceSource);
+        await restoreSearchWindowAfterActivation(surfaceSource, isCurrent);
     }
 
     async function initializeGlobalShortcut() {
@@ -634,7 +615,6 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         try {
             await initializeGlobalShortcut();
             useAlert();
-            await popupManager.initialize();
         } catch (error) {
             log.error('[SearchView] Failed to initialize:', error);
         }
@@ -657,26 +637,32 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     }
 
     async function startLifecycleOnceReady() {
-        if (lifecycleInitialized || !viewReady.value) {
+        if (disposed || lifecycleInitialized || !viewReady.value) {
             return;
         }
 
         lifecycleInitialized = true;
         await initializeSearchView();
-        interactionContext.state.windowVisible = await getCurrentWindow()
-            .isVisible()
-            .catch(() => true);
+        if (disposed) return;
+        const visible = await currentWindow.isVisible().catch(() => true);
+        if (disposed) return;
+        interactionContext.state.windowVisible = visible;
         interactionContext.setWindowFocused(interactionContext.state.windowVisible);
         interactionContext.setAppFocused(interactionContext.state.windowVisible);
         if (interactionContext.state.windowVisible) {
             handleReminderSurfaceVisible();
         }
         await syncWindowPinStateSafely('initialize');
+        if (disposed) return;
         await initFocusListener();
+        if (disposed) return;
         startSearchSurfaceShortcutSync();
-        if (!(await isE2eTestMode())) {
+        const isE2e = await isE2eTestMode();
+        if (disposed) return;
+        if (!isE2e) {
             await initNotificationPermission();
         }
+        if (disposed) return;
         await runStartupTasks();
     }
 
@@ -694,8 +680,20 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         );
     }
 
+    async function listenWhileMounted<T extends AppEventName>(
+        event: T,
+        callback: (payload: AppEventMap[T]) => void
+    ) {
+        if (disposed) return;
+        const unlisten = await eventService.on(event, (payload) => {
+            if (!disposed) return callback(payload);
+        });
+        if (disposed) unlisten();
+        else unlisteners.push(unlisten);
+    }
+
     async function initFocusListener() {
-        unlistenAiModelsUpdated = await eventService.on(AppEvent.AI_MODELS_UPDATED, () => {
+        await listenWhileMounted(AppEvent.AI_MODELS_UPDATED, () => {
             if (!handleAiModelsUpdated) {
                 controller.invalidateModelDropdownData();
                 return;
@@ -706,63 +704,59 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             });
         });
 
-        unlistenSearchSurfaceShown = await eventService.on(
-            AppEvent.SEARCH_SURFACE_SHOWN,
-            async (payload) => {
-                const sequence = payload.sequence ?? 0;
-                if (sequence > 0 && sequence < latestSurfaceSequence) {
-                    return;
-                }
-
-                latestSurfaceSequence = Math.max(latestSurfaceSequence, sequence);
-                interactionContext.markWindowVisible();
-                handleReminderSurfaceVisible();
-                await handleSearchWindowActivated(payload.source ?? 'shortcut');
-            }
-        );
-
-        unlistenSearchSurfaceHidden = await eventService.on(
-            AppEvent.SEARCH_SURFACE_HIDDEN,
-            async (payload) => {
-                const sequence = payload.sequence ?? 0;
-                if (sequence > 0 && sequence < latestSurfaceSequence) {
-                    return;
-                }
-                latestSurfaceSequence = Math.max(latestSurfaceSequence, sequence);
-                interactionContext.clearActivePopupSession();
-                interactionContext.markWindowHidden({
-                    hideReason: payload.reason,
-                    hiddenAt: Date.now(),
-                });
-                await Promise.resolve(onSurfaceHidden?.()).catch((error) => {
-                    log.error('[SearchView] Failed to clear UI after surface hidden:', error);
-                });
-            }
-        );
-
-        if (handleSearchSurfaceCommand) {
-            unlistenSearchSurfaceCommand = await eventService.on(
-                AppEvent.SEARCH_SURFACE_COMMAND,
-                (payload) => {
-                    void Promise.resolve(handleSearchSurfaceCommand(payload)).catch((error) => {
-                        log.error('[SearchView] Failed to handle search surface command:', error);
-                    });
-                }
-            );
-        }
-
-        unlistenSessionTaskStatusChanged = await eventService.on(
+        await listenWhileMounted(
             AppEvent.SESSION_TASK_STATUS_CHANGED,
             sessionStatusReminderCoordinator.handleTaskStatusChanged
         );
 
-        unlistenSessionStatusReminderAction = await eventService.on(
+        await listenWhileMounted(
             AppEvent.SESSION_STATUS_REMINDER_ACTION,
             sessionStatusReminderCoordinator.handleReminderAction
         );
+
+        await listenWhileMounted(AppEvent.SEARCH_SURFACE_COMMAND, async (payload) => {
+            await Promise.resolve(handleSearchSurfaceCommand?.(payload)).catch((error) => {
+                log.error('[SearchView] Failed to handle search surface command:', error);
+            });
+        });
+    }
+
+    async function handleSearchSurfaceShown(payload: SearchSurfaceShownEvent) {
+        if (disposed || payload.sequence < latestSurfaceSequence) return;
+        cancelPendingBlurReconcile();
+        latestSurfaceSequence = payload.sequence;
+        surfaceLifecycleEpoch += 1;
+        const lifecycleEpoch = surfaceLifecycleEpoch;
+        const isCurrent = () =>
+            lifecycleEpoch === surfaceLifecycleEpoch && interactionContext.state.windowVisible;
+        interactionContext.markWindowVisible();
+        handleReminderSurfaceVisible();
+        await handleSearchWindowActivated(payload.source, isCurrent);
+    }
+
+    async function handleSearchSurfaceHidden(payload: SearchSurfaceHiddenEvent) {
+        if (disposed || payload.sequence < latestSurfaceSequence) return;
+        cancelPendingBlurReconcile();
+        latestSurfaceSequence = payload.sequence;
+        surfaceLifecycleEpoch += 1;
+        interactionContext.markWindowHidden({
+            hideReason: payload.reason,
+            hiddenAt: Date.now(),
+        });
+        await Promise.resolve(onSurfaceHidden?.()).catch((error) => {
+            log.error('[SearchView] Failed to clear UI after surface hidden:', error);
+        });
+    }
+
+    function cancelPendingBlurReconcile() {
+        blurReconcileEpoch += 1;
+        if (blurReconcileTimer === null) return;
+        clearTimeout(blurReconcileTimer);
+        blurReconcileTimer = null;
     }
 
     const handleWindowFocus = () => {
+        cancelPendingBlurReconcile();
         interactionContext.markWindowVisible();
         interactionContext.setWindowFocused(true);
         interactionContext.setAppFocused(true);
@@ -770,6 +764,42 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     };
     const handleWindowBlur = () => {
         interactionContext.setWindowFocused(false);
+        cancelPendingBlurReconcile();
+        const epoch = blurReconcileEpoch;
+        const isCurrent = () => !disposed && epoch === blurReconcileEpoch;
+        // Native bounded-host resizing can produce a transient WebView blur
+        // before focus returns. Wait through the native foreground recheck so
+        // that event pair does not dismiss an overlay that is being opened
+        // during the resize.
+        blurReconcileTimer = setTimeout(() => {
+            blurReconcileTimer = null;
+            void currentWindow
+                .isFocused()
+                .then((nativeWindowFocused) => {
+                    if (!isCurrent() || document.hasFocus() || nativeWindowFocused) return;
+
+                    // The native Focused(false) event is normally responsible for
+                    // hiding the bounded search surface. WebView2 can lose focus
+                    // without delivering that native event when the host is being
+                    // resized, so keep a renderer-side fallback for the same
+                    // confirmed app-blur state. Pinned/maximized surfaces still
+                    // dismiss their overlays but remain visible.
+                    return Promise.resolve(reconcileSearchOverlays?.(false)).then(() => {
+                        if (
+                            isCurrent() &&
+                            !isPinned.value &&
+                            !isDragging.value &&
+                            !isMaximized?.value &&
+                            !isSurfaceTransitioning?.value
+                        ) {
+                            return hideSearchWindow();
+                        }
+                    });
+                })
+                .catch((error) => {
+                    log.error('[SearchView] Failed to dismiss overlays after window blur:', error);
+                });
+        }, WEBVIEW_BLUR_RECONCILE_DELAY_MS);
     };
     const handleVisibilityChange = () => {
         const isVisible = document.visibilityState !== 'hidden';
@@ -793,15 +823,55 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         stopPinnedWatch = watch(
             [isPinned, isDragging, () => Boolean(isMaximized?.value)],
             ([nextPinned, dragging, maximized]) => {
+                const wasDragging = previousDragging;
+                previousDragging = dragging;
                 interactionContext.state.isPinned = nextPinned;
-                void native.window
-                    .setSearchSurfaceHideOnAppBlur(!nextPinned && !dragging && !maximized)
-                    .catch((error) => {
-                        log.error(
-                            '[SearchView] Failed to sync search surface app-blur policy:',
-                            error
-                        );
-                    });
+                const shouldHideOnAppBlur = !nextPinned && !dragging && !maximized;
+                const policyOperation = syncSearchSurfaceHideOnAppBlur(shouldHideOnAppBlur);
+
+                const interactionEndedWhileUnfocused =
+                    wasDragging &&
+                    !dragging &&
+                    !nextPinned &&
+                    !maximized &&
+                    interactionContext.state.windowVisible &&
+                    (!interactionContext.state.windowFocused ||
+                        !interactionContext.state.appFocused);
+                if (interactionEndedWhileUnfocused) {
+                    const epoch = blurReconcileEpoch;
+                    void policyOperation
+                        .catch((error) => {
+                            log.error(
+                                '[SearchView] Failed to sync search surface app-blur policy:',
+                                error
+                            );
+                        })
+                        .then(() => {
+                            if (
+                                !disposed &&
+                                epoch === blurReconcileEpoch &&
+                                !isPinned.value &&
+                                !isDragging.value &&
+                                !isMaximized?.value &&
+                                interactionContext.state.windowVisible &&
+                                (!interactionContext.state.windowFocused ||
+                                    !interactionContext.state.appFocused)
+                            ) {
+                                return hideSearchWindow();
+                            }
+                        })
+                        .catch((error) => {
+                            log.error(
+                                '[SearchView] Failed to hide search surface after panel interaction:',
+                                error
+                            );
+                        });
+                    return;
+                }
+
+                void policyOperation.catch((error) => {
+                    log.error('[SearchView] Failed to sync search surface app-blur policy:', error);
+                });
             },
             { immediate: true, flush: 'sync' }
         );
@@ -827,6 +897,9 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     });
 
     onUnmounted(() => {
+        disposed = true;
+        surfaceLifecycleEpoch += 1;
+        cancelPendingBlurReconcile();
         window.removeEventListener('focus', handleWindowFocus);
         window.removeEventListener('blur', handleWindowBlur);
         document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -836,255 +909,13 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         stopPinnedWatch = null;
         stopSearchSurfaceShortcutWatch?.();
         stopSearchSurfaceShortcutWatch = null;
-        unlistenAiModelsUpdated?.();
-        unlistenAiModelsUpdated = null;
-        unlistenSearchSurfaceShown?.();
-        unlistenSearchSurfaceShown = null;
-        unlistenSearchSurfaceHidden?.();
-        unlistenSearchSurfaceHidden = null;
-        unlistenSearchSurfaceCommand?.();
-        unlistenSearchSurfaceCommand = null;
-        unlistenSessionTaskStatusChanged?.();
-        unlistenSessionTaskStatusChanged = null;
-        unlistenSessionStatusReminderAction?.();
-        unlistenSessionStatusReminderAction = null;
+        for (const unlisten of unlisteners.splice(0)) unlisten();
     });
 
     return {
         hideSearchWindow,
-    };
-}
-
-interface UseSearchModelDropdownCoordinatorOptions {
-    pageContainer: Ref<HTMLElement | null>;
-    controller: SearchPageController;
-    modelOverride: Ref<SearchModelOverride>;
-    modelDropdownState: Ref<SearchModelDropdownState>;
-    modelDropdownQuery: Ref<string>;
-    getModelToggleShortcut?: () => string | null | undefined;
-    requestModelDropdownOpen: () => SearchOverlayCommand;
-    handleQuickSearchClosedForModelDropdown: () => SearchOverlayCommand;
-    handleLayoutStableForModelDropdown: () => SearchOverlayCommand;
-    handleModelDropdownOpened: () => void;
-    handleModelDropdownClosed: () => void;
-    syncOverlayState: () => void;
-    onPopupSessionStart?: (identity: SearchPopupSessionIdentity) => void;
-    onPopupSessionEnd?: () => void;
-}
-
-export function useSearchModelDropdownCoordinator(
-    options: UseSearchModelDropdownCoordinatorOptions
-) {
-    const {
-        pageContainer,
-        controller,
-        modelOverride,
-        modelDropdownState,
-        modelDropdownQuery,
-        getModelToggleShortcut,
-        requestModelDropdownOpen,
-        handleQuickSearchClosedForModelDropdown,
-        handleLayoutStableForModelDropdown,
-        handleModelDropdownOpened,
-        handleModelDropdownClosed,
-        syncOverlayState,
-        onPopupSessionStart,
-        onPopupSessionEnd,
-    } = options;
-
-    function getPopupData(): ModelDropdownData {
-        const context = controller.getModelDropdownContext();
-        return {
-            activeModelId: context.activeModelId ?? '',
-            activeProviderId: context.activeProviderId,
-            selectedModelId: context.selectedModelId ?? '',
-            selectedProviderId: context.selectedProviderId,
-            searchQuery: modelDropdownQuery.value,
-            toggleShortcut: getModelToggleShortcut?.() ?? null,
-            models: filterModelDropdownItems(
-                context.models.filter((model) => model.provider_enabled === 1).map(mapPopupModel),
-                modelDropdownQuery.value
-            ),
-        };
-    }
-
-    const dropdownPopup = useModelDropdownPopup({
-        getAnchorElement: controller.getModelDropdownAnchor,
-        getPopupData,
-        isModelDropdownActive: () => modelDropdownState.value.isOpen,
-        onModelSelect: async (modelDbId) => {
-            modelOverride.value = await controller.selectModelFromDropdown(modelDbId);
-            await closeModelDropdown();
-        },
-        onModelSearchQueryChange: (query) => {
-            modelDropdownQuery.value = query;
-        },
-        onClose: () => {
-            modelDropdownState.value = {
-                isOpen: false,
-            };
-            modelDropdownQuery.value = '';
-            handleModelDropdownClosed();
-        },
-        onPopupSessionStart,
-        onPopupSessionEnd,
-    });
-
-    async function waitForLayoutStable() {
-        const el = pageContainer.value;
-        if (!el) {
-            return;
-        }
-
-        const maxWaitMs = 200;
-        const stableFramesRequired = 2;
-        const heightThreshold = 0.5;
-        const start = performance.now();
-        let stableFrames = 0;
-        let lastHeight = el.getBoundingClientRect().height;
-
-        while (performance.now() - start < maxWaitMs) {
-            await new Promise((resolve) => requestAnimationFrame(resolve));
-            const currentHeight = el.getBoundingClientRect().height;
-            if (Math.abs(currentHeight - lastHeight) <= heightThreshold) {
-                stableFrames += 1;
-                if (stableFrames >= stableFramesRequired) {
-                    return;
-                }
-            } else {
-                stableFrames = 0;
-                lastHeight = currentHeight;
-            }
-        }
-    }
-
-    async function runModelDropdownOpenSequence(initialCommand: SearchOverlayCommand) {
-        let command = initialCommand;
-
-        while (command !== 'noop') {
-            if (command === 'close-quick-search') {
-                controller.closeQuickSearch();
-                await nextTick();
-                command = handleQuickSearchClosedForModelDropdown();
-                continue;
-            }
-
-            if (command === 'wait-layout-stable') {
-                await waitForLayoutStable();
-                command = handleLayoutStableForModelDropdown();
-                continue;
-            }
-
-            if (command === 'open-model-dropdown') {
-                try {
-                    await controller.prepareModelDropdownOpen();
-                    modelDropdownQuery.value = '';
-                    await dropdownPopup.open();
-                    modelDropdownState.value = {
-                        isOpen: dropdownPopup.isOpen.value,
-                    };
-                    if (dropdownPopup.isOpen.value) {
-                        handleModelDropdownOpened();
-                    } else {
-                        handleModelDropdownClosed();
-                    }
-                } catch (error) {
-                    modelDropdownState.value = {
-                        isOpen: false,
-                    };
-                    modelDropdownQuery.value = '';
-                    syncOverlayState();
-                    log.error('[SearchView] Failed to open model dropdown popup:', error);
-                }
-                return;
-            }
-        }
-    }
-
-    async function openModelDropdownWithLayoutSync() {
-        const command = requestModelDropdownOpen();
-        if (command === 'noop') {
-            return;
-        }
-
-        await runModelDropdownOpenSequence(command);
-    }
-
-    async function closeModelDropdown() {
-        try {
-            await dropdownPopup.close();
-        } finally {
-            modelDropdownState.value = {
-                isOpen: false,
-            };
-            modelDropdownQuery.value = '';
-            handleModelDropdownClosed();
-        }
-    }
-
-    async function hideAllDropdowns() {
-        if (!modelDropdownState.value.isOpen) {
-            handleModelDropdownClosed();
-            return;
-        }
-
-        await closeModelDropdown();
-    }
-
-    async function refreshModelDropdownData() {
-        if (!modelDropdownState.value.isOpen) {
-            return;
-        }
-
-        await dropdownPopup.updateData();
-    }
-
-    async function handleToggleModelDropdownRequest() {
-        if (modelDropdownState.value.isOpen && dropdownPopup.isOpen.value) {
-            if (dropdownPopup.isLiveSession()) {
-                await closeModelDropdown();
-                return;
-            }
-
-            modelDropdownState.value = {
-                isOpen: false,
-            };
-            modelDropdownQuery.value = '';
-            handleModelDropdownClosed();
-        }
-
-        if (modelDropdownState.value.isOpen && !dropdownPopup.isOpen.value) {
-            modelDropdownState.value = {
-                isOpen: false,
-            };
-            handleModelDropdownClosed();
-        }
-
-        await openModelDropdownWithLayoutSync();
-    }
-
-    watch(
-        () => [
-            modelDropdownState.value.isOpen,
-            modelDropdownQuery.value,
-            getModelToggleShortcut?.() ?? null,
-        ],
-        ([isOpen]) => {
-            if (!isOpen) {
-                return;
-            }
-
-            void dropdownPopup.updateData();
-        },
-        { flush: 'post' }
-    );
-
-    return {
-        openModelDropdownWithLayoutSync,
-        closeModelDropdown,
-        hideAllDropdowns,
-        refreshModelDropdownData,
-        handleToggleModelDropdownRequest,
+        handleSearchSurfaceShown,
+        handleSearchSurfaceHidden,
     };
 }
 
@@ -1096,8 +927,8 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
     const {
         viewReady,
         modelDropdownState,
-        sessionHistoryPopupOpen,
-        hideAllPopups,
+        sessionHistoryOverlayOpen,
+        hideAllOverlays,
         hideSearchWindow,
     } = options;
 
@@ -1111,20 +942,21 @@ export function useSearchKeyboard(options: UseSearchKeyboardOptions) {
         const target = event.target as HTMLElement | null;
         if (
             target?.closest('.logo-container') ||
-            target?.closest('[data-history-trigger="true"]')
+            target?.closest('[data-history-trigger="true"]') ||
+            target?.closest('[data-search-overlay-host="true"]')
         ) {
             return;
         }
 
         if (modelDropdownState.value.isOpen) {
-            void hideAllPopups();
+            void hideAllOverlays();
             event.preventDefault();
             event.stopPropagation();
             return;
         }
 
-        if (sessionHistoryPopupOpen.value) {
-            void hideAllPopups();
+        if (sessionHistoryOverlayOpen.value) {
+            void hideAllOverlays();
         }
     }
 

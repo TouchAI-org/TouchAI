@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { SearchWindowHeightMode } from '@/config/searchWindow';
-
 const windowApiMock = vi.hoisted(() => {
     let resizeListener: (() => void) | null = null;
     const unlisten = vi.fn();
@@ -26,22 +24,30 @@ const windowApiMock = vi.hoisted(() => {
     };
 });
 
+const observabilityMock = vi.hoisted(() => ({
+    error: vi.fn(),
+}));
+
 vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => windowApiMock.currentWindow,
+}));
+
+vi.mock('@services/ObservabilityService', () => ({
+    log: observabilityMock,
 }));
 
 import {
     createWindowViewportSyncScheduler,
     ensureWindowMaximized,
     ensureWindowRestoredFromMaximized,
+    resolveAutoSessionPanelHeight,
     resolveEffectiveWindowMaximized,
     resolveSearchWindowDefaultSizeApplyAction,
     resolveSearchWindowHeightPolicy,
+    resolveSearchWindowMeasuredHeight,
     resolveSearchWindowMinimumSize,
-    shouldEnforceIdleDefaultBounds,
     shouldFillConversationAvailableHeight,
     shouldRemeasureAfterMaximizedRestore,
-    shouldRepairIdleSearchWindowHeight,
 } from '@/views/SearchView/windowSizing';
 
 afterEach(() => {
@@ -49,50 +55,59 @@ afterEach(() => {
     windowApiMock.reset();
 });
 
-describe('when the search window has no conversation on screen', () => {
-    it('user gets a window locked to the default height that still follows the search bar', () => {
+describe('resolveSearchWindowMeasuredHeight', () => {
+    it('prefers the natural overlay requirement over a clamped bottom edge for a bounded host', () => {
         expect(
-            resolveSearchWindowHeightPolicy({
-                sessionCount: 0,
-                quickSearchOpen: false,
+            resolveSearchWindowMeasuredHeight({
+                panelHeight: 120,
+                overlayBottom: 160,
+                overlayRequiredViewportHeight: 260,
+                monitorHost: false,
             })
-        ).toEqual({
-            hasManagedPanel: false,
-            autoResizeEnabled: true,
-            respectManualOverride: false,
-            allowHeightOverride: false,
-            shouldEnforceIdleDefaultHeight: true,
-        });
+        ).toBe(260);
     });
 
-    it('user gets a fixed min and max height so the idle window cannot be resized by hand', () => {
+    it('keeps monitor-host panel height independent from overlay geometry', () => {
         expect(
-            resolveSearchWindowMinimumSize({
-                defaultWidth: 750,
-                defaultHeight: 60,
-                hasManagedPanel: false,
-                autoHeightFloor: 180,
+            resolveSearchWindowMeasuredHeight({
+                panelHeight: 120,
+                overlayBottom: 260,
+                overlayRequiredViewportHeight: 340,
+                monitorHost: true,
             })
-        ).toEqual({
-            minWidth: 750,
-            minHeight: 60,
-            maxHeight: 60,
-        });
+        ).toBe(120);
     });
 
-    it('user gets the default size restored instead of a stale panel measurement', () => {
+    it('returns to the natural panel height after overlay measurements are cleared', () => {
         expect(
-            resolveSearchWindowDefaultSizeApplyAction({
-                ready: true,
-                maximized: false,
-                hasManagedPanel: false,
+            resolveSearchWindowMeasuredHeight({
+                panelHeight: 120,
+                overlayBottom: null,
+                overlayRequiredViewportHeight: null,
+                monitorHost: false,
             })
-        ).toBe('reset_idle_bounds');
+        ).toBe(120);
     });
 });
 
-describe('when a conversation is on screen', () => {
-    it('user gets a window that follows the content and remembers a manual height', () => {
+describe('resolveAutoSessionPanelHeight', () => {
+    it('adds the conversation auto cap to the current search bar height', () => {
+        expect(
+            resolveAutoSessionPanelHeight({
+                searchBarHeight: 60,
+            })
+        ).toBe(660);
+        expect(
+            resolveAutoSessionPanelHeight({
+                searchBarHeight: 72,
+                conversationMaxHeight: 600,
+            })
+        ).toBe(672);
+    });
+});
+
+describe('resolveSearchWindowHeightPolicy', () => {
+    it('enables auto resize and manual override only when a conversation panel exists', () => {
         expect(
             resolveSearchWindowHeightPolicy({
                 sessionCount: 1,
@@ -103,11 +118,76 @@ describe('when a conversation is on screen', () => {
             autoResizeEnabled: true,
             respectManualOverride: true,
             allowHeightOverride: true,
-            shouldEnforceIdleDefaultHeight: false,
+        });
+
+        expect(
+            resolveSearchWindowHeightPolicy({
+                sessionCount: 0,
+                quickSearchOpen: true,
+            })
+        ).toEqual({
+            hasManagedPanel: true,
+            autoResizeEnabled: true,
+            respectManualOverride: false,
+            allowHeightOverride: false,
         });
     });
 
-    it('user can shrink the window no further than the auto-height floor', () => {
+    it('keeps idle windows on the default height while still allowing content-driven auto resize', () => {
+        expect(
+            resolveSearchWindowHeightPolicy({
+                sessionCount: 0,
+                quickSearchOpen: false,
+            })
+        ).toEqual({
+            hasManagedPanel: false,
+            autoResizeEnabled: true,
+            respectManualOverride: false,
+            allowHeightOverride: false,
+        });
+    });
+});
+
+describe('resolveSearchWindowDefaultSizeApplyAction', () => {
+    it('skips default-size application while the window is not ready or still maximized', () => {
+        expect(
+            resolveSearchWindowDefaultSizeApplyAction({
+                ready: false,
+                maximized: false,
+                hasManagedPanel: true,
+            })
+        ).toBe('skip');
+
+        expect(
+            resolveSearchWindowDefaultSizeApplyAction({
+                ready: true,
+                maximized: true,
+                hasManagedPanel: false,
+            })
+        ).toBe('skip');
+    });
+
+    it('remeasures managed panels but only resets idle windows', () => {
+        expect(
+            resolveSearchWindowDefaultSizeApplyAction({
+                ready: true,
+                maximized: false,
+                hasManagedPanel: true,
+            })
+        ).toBe('reset_and_remeasure_managed_panel');
+
+        expect(
+            resolveSearchWindowDefaultSizeApplyAction({
+                ready: true,
+                maximized: false,
+                hasManagedPanel: false,
+            })
+        ).toBe('reset_idle_bounds');
+    });
+});
+
+describe('resolveSearchWindowMinimumSize', () => {
+    it('uses the larger of the default height and auto-height floor when a panel is managed', () => {
         expect(
             resolveSearchWindowMinimumSize({
                 defaultWidth: 750,
@@ -122,17 +202,24 @@ describe('when a conversation is on screen', () => {
         });
     });
 
-    it('user gets the panel measured again after the default size is restored', () => {
+    it('locks idle windows to the default height', () => {
         expect(
-            resolveSearchWindowDefaultSizeApplyAction({
-                ready: true,
-                maximized: false,
-                hasManagedPanel: true,
+            resolveSearchWindowMinimumSize({
+                defaultWidth: 750,
+                defaultHeight: 60,
+                hasManagedPanel: false,
+                autoHeightFloor: 180,
             })
-        ).toBe('reset_and_remeasure_managed_panel');
+        ).toEqual({
+            minWidth: 750,
+            minHeight: 60,
+            maxHeight: 60,
+        });
     });
+});
 
-    it('user sees the conversation fill the window when maximized or holding a manual height', () => {
+describe('layout policy helpers', () => {
+    it('fills the conversation height only for maximized or manual-override conversation layouts', () => {
         expect(
             shouldFillConversationAvailableHeight({
                 hasConversationPanel: true,
@@ -148,159 +235,24 @@ describe('when a conversation is on screen', () => {
                 shouldRespectManualHeightOverride: true,
             })
         ).toBe(true);
-    });
-});
-
-describe('when the quick search panel is open with no conversation', () => {
-    it('user gets the window following the panel but not remembering a manual height', () => {
-        expect(
-            resolveSearchWindowHeightPolicy({
-                sessionCount: 0,
-                quickSearchOpen: true,
-            })
-        ).toEqual({
-            hasManagedPanel: true,
-            autoResizeEnabled: true,
-            respectManualOverride: false,
-            allowHeightOverride: false,
-            shouldEnforceIdleDefaultHeight: false,
-        });
-    });
-});
-
-describe('when the window is not ready or is maximized', () => {
-    it('user gets no size change until the window is ready again', () => {
-        expect(
-            resolveSearchWindowDefaultSizeApplyAction({
-                ready: false,
-                maximized: false,
-                hasManagedPanel: true,
-            })
-        ).toBe('skip');
 
         expect(
-            resolveSearchWindowDefaultSizeApplyAction({
-                ready: true,
-                maximized: true,
-                hasManagedPanel: false,
-            })
-        ).toBe('skip');
-    });
-
-    it('user gets no idle-height repair while maximized', () => {
-        expect(
-            shouldRepairIdleSearchWindowHeight({
-                ready: true,
-                idle: true,
-                heightMode: SearchWindowHeightMode.Auto,
-                maximized: true,
-            })
-        ).toBe(false);
-    });
-
-    it('user gets no idle bounds re-applied while maximized', () => {
-        expect(
-            shouldEnforceIdleDefaultBounds({
-                ready: true,
-                hasManagedPanel: false,
-                maximized: true,
-            })
-        ).toBe(false);
-    });
-});
-
-describe('when the window returns from a conversation to the idle state', () => {
-    it('user gets the idle height repaired when a manual height leaked out of the conversation', () => {
-        expect(
-            shouldRepairIdleSearchWindowHeight(
-                {
-                    ready: true,
-                    idle: true,
-                    heightMode: SearchWindowHeightMode.ManualOverride,
-                    maximized: false,
-                },
-                {
-                    ready: true,
-                    idle: true,
-                    heightMode: SearchWindowHeightMode.Auto,
-                    maximized: false,
-                }
-            )
-        ).toBe(true);
-    });
-
-    it('user gets the idle height left alone while the window is still starting up', () => {
-        expect(
-            shouldRepairIdleSearchWindowHeight({
-                ready: false,
-                idle: true,
-                heightMode: SearchWindowHeightMode.Auto,
-                maximized: false,
-            })
-        ).toBe(false);
-    });
-
-    it('user gets the default bounds re-applied when the conversation closes', () => {
-        expect(
-            shouldEnforceIdleDefaultBounds(
-                {
-                    ready: true,
-                    hasManagedPanel: false,
-                    maximized: false,
-                },
-                {
-                    ready: true,
-                    hasManagedPanel: true,
-                    maximized: false,
-                }
-            )
-        ).toBe(true);
-    });
-
-    it('user gets no bounds change while a panel is still on screen', () => {
-        expect(
-            shouldEnforceIdleDefaultBounds({
-                ready: true,
-                hasManagedPanel: true,
-                maximized: false,
-            })
-        ).toBe(false);
-    });
-});
-
-describe('when the window is transitioning between maximized and restored', () => {
-    it('user gets the conversation treated as maximized for the whole transition', () => {
-        expect(resolveEffectiveWindowMaximized(false, true)).toBe(true);
-        expect(resolveEffectiveWindowMaximized(true, false)).toBe(true);
-        expect(resolveEffectiveWindowMaximized(false, false)).toBe(false);
-    });
-
-    it('user gets the conversation remeasured only after a real restore', () => {
-        expect(
-            shouldRemeasureAfterMaximizedRestore({
-                wasMaximized: true,
+            shouldFillConversationAvailableHeight({
+                hasConversationPanel: true,
                 isMaximized: false,
-                hasManagedPanel: true,
-            })
+                shouldRespectManualHeightOverride: true,
+                isIntrinsicHeightMeasurementPending: true,
+            } as Parameters<typeof shouldFillConversationAvailableHeight>[0])
+        ).toBe(false);
+
+        expect(
+            shouldFillConversationAvailableHeight({
+                hasConversationPanel: true,
+                isMaximized: true,
+                shouldRespectManualHeightOverride: false,
+                isIntrinsicHeightMeasurementPending: true,
+            } as Parameters<typeof shouldFillConversationAvailableHeight>[0])
         ).toBe(true);
-
-        expect(
-            shouldRemeasureAfterMaximizedRestore({
-                wasMaximized: false,
-                isMaximized: false,
-                hasManagedPanel: true,
-            })
-        ).toBe(false);
-    });
-
-    it('user gets no remeasure when no conversation is on screen', () => {
-        expect(
-            shouldRemeasureAfterMaximizedRestore({
-                wasMaximized: true,
-                isMaximized: false,
-                hasManagedPanel: false,
-            })
-        ).toBe(false);
 
         expect(
             shouldFillConversationAvailableHeight({
@@ -310,10 +262,28 @@ describe('when the window is transitioning between maximized and restored', () =
             })
         ).toBe(false);
     });
+
+    it('treats maximize transitions as maximized and remeasures only after restoring managed panels', () => {
+        expect(resolveEffectiveWindowMaximized(false, true)).toBe(true);
+        expect(
+            shouldRemeasureAfterMaximizedRestore({
+                wasMaximized: true,
+                isMaximized: false,
+                hasManagedPanel: true,
+            })
+        ).toBe(true);
+        expect(
+            shouldRemeasureAfterMaximizedRestore({
+                wasMaximized: false,
+                isMaximized: false,
+                hasManagedPanel: true,
+            })
+        ).toBe(false);
+    });
 });
 
-describe('when the app restores the window from maximized', () => {
-    it('user gets an immediate confirmation when the window is already restored', async () => {
+describe('window maximize helpers', () => {
+    it('returns immediately when the window is already restored from maximized state', async () => {
         const window = {
             isMaximized: vi.fn().mockResolvedValue(false),
             maximize: vi.fn(),
@@ -326,7 +296,7 @@ describe('when the app restores the window from maximized', () => {
         expect(windowApiMock.currentWindow.onResized).not.toHaveBeenCalled();
     });
 
-    it('user gets the restore confirmed only after the window animation settles', async () => {
+    it('waits for the resize stream to settle before confirming a maximized window was restored', async () => {
         vi.useFakeTimers();
         const window = {
             isMaximized: vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false),
@@ -351,7 +321,7 @@ describe('when the app restores the window from maximized', () => {
         expect(windowApiMock.unlisten).toHaveBeenCalledTimes(1);
     });
 
-    it('user gets the maximize reported as failed when the window never settles', async () => {
+    it('times out maximize confirmation when the window never emits a stabilized resize event', async () => {
         vi.useFakeTimers();
         const window = {
             isMaximized: vi.fn().mockResolvedValue(false),
@@ -371,8 +341,8 @@ describe('when the app restores the window from maximized', () => {
     });
 });
 
-describe('when the window viewport keeps changing', () => {
-    it('user gets one sync immediately and the rest coalesced into a single trailing sync', async () => {
+describe('createWindowViewportSyncScheduler', () => {
+    it('runs immediately the first time and coalesces repeated schedules inside the throttle window', async () => {
         vi.useFakeTimers();
         const sync = vi.fn().mockResolvedValue(undefined);
         const scheduler = createWindowViewportSyncScheduler(sync, 100);
@@ -393,7 +363,7 @@ describe('when the window viewport keeps changing', () => {
         vi.useRealTimers();
     });
 
-    it('user gets no trailing sync after the scheduler is disposed', () => {
+    it('cancels the trailing sync when the scheduler is disposed before the throttle window ends', () => {
         vi.useFakeTimers();
         const sync = vi.fn().mockResolvedValue(undefined);
         const scheduler = createWindowViewportSyncScheduler(sync, 100);
@@ -407,8 +377,7 @@ describe('when the window viewport keeps changing', () => {
         vi.useRealTimers();
     });
 
-    it('user gets further syncs after one of them failed', async () => {
-        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    it('swallows sync failures so later scheduling can continue', async () => {
         const sync = vi.fn(async () => undefined);
         sync.mockRejectedValueOnce(new Error('sync failed')).mockResolvedValueOnce(undefined);
         const scheduler = createWindowViewportSyncScheduler(sync, 0);
@@ -419,5 +388,9 @@ describe('when the window viewport keeps changing', () => {
         await Promise.resolve();
 
         expect(sync).toHaveBeenCalledTimes(2);
+        expect(observabilityMock.error).toHaveBeenCalledWith(
+            '[SearchView] Failed to sync viewport state:',
+            expect.any(Error)
+        );
     });
 });

@@ -18,11 +18,6 @@ const routes = [
         name: 'TrayMenu',
         component: () => import('@/views/TrayView/index.vue'),
     },
-    {
-        path: '/popup',
-        name: 'Popup',
-        component: () => import('@/views/PopupView/index.vue'),
-    },
 ];
 
 const router = createRouter({

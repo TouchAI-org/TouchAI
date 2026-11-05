@@ -492,8 +492,8 @@ describe('when quick search is not available on this machine', () => {
         mounted.unmount();
     });
 
-    it('user gets the panel closed when the feature becomes unavailable while open', async () => {
-        const { result, open, enabled, unmount } = await mountWithResults();
+    it('user sees the panel close before its results are released when the feature is disabled', async () => {
+        const { result, open, enabled, shortcut, unmount } = await mountWithResults();
         expect(open.value).toBe(true);
 
         enabled.value = false;
@@ -501,6 +501,12 @@ describe('when quick search is not available on this machine', () => {
         await flushAsyncWork();
 
         expect(open.value).toBe(false);
+        expect(result.results.value).toEqual([shortcut]);
+
+        await vi.advanceTimersByTimeAsync(419);
+        expect(result.results.value).toEqual([shortcut]);
+
+        await vi.advanceTimersByTimeAsync(1);
         expect(result.results.value).toEqual([]);
 
         unmount();

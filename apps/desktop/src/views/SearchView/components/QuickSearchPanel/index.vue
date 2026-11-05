@@ -4,7 +4,7 @@
 
 <template>
     <div
-        v-if="results.length > 0"
+        v-if="results.length > 0 || props.open"
         data-testid="quick-search-panel"
         class="quick-search-panel mt-1.5 w-full rounded-lg border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur"
         @click.self="handleBlankSurfaceClick"
@@ -145,10 +145,12 @@
         open: boolean;
         searchQuery: string;
         enabled?: boolean;
+        handoff?: boolean;
     }
 
     const props = withDefaults(defineProps<Props>(), {
         enabled: true,
+        handoff: false,
     });
 
     const emit = defineEmits<{
@@ -160,6 +162,7 @@
         open: toRef(props, 'open'),
         searchQuery: toRef(props, 'searchQuery'),
         enabled: toRef(props, 'enabled'),
+        handoff: toRef(props, 'handoff'),
         emitOpenUpdate: (value) => emit('update:open', value),
     });
 
@@ -183,7 +186,6 @@
         openContextMenuForHighlightedItem,
         open: openPanel,
         close: closePanel,
-        syncClosedState,
         getHighlightedItem,
         openHighlightedItem,
         triggerSearch,
@@ -229,7 +231,6 @@
     defineExpose({
         open: openPanel,
         close: closePanel,
-        syncClosedState,
         moveSelection,
         getHighlightedItem,
         openHighlightedItem,

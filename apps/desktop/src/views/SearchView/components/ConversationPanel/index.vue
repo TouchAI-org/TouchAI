@@ -3,7 +3,7 @@
   -->
 
 <template>
-    <div class="relative w-full" :class="props.fillAvailableHeight ? 'h-full min-h-0' : ''">
+    <div class="relative h-full min-h-0 w-full">
         <ConversationToolbar
             ref="conversationToolbar"
             :is-pinned="isPinned"
@@ -11,6 +11,7 @@
             :can-pin="messages.length > 0"
             :disabled="toolbarDisabled"
             :history-open="historyOpen"
+            :start-dragging="startDragging"
             @pin-change="emit('pinChange', $event)"
             @maximize-toggle="emit('maximizeToggle')"
             @new-session="emit('newSession')"
@@ -32,11 +33,11 @@
             :label="t('conversation.scroller.label')"
             :navigation-label="t('conversation.scroller.navigation')"
             :empty-label="t('conversation.scroller.message')"
-            :class="props.fillAvailableHeight ? 'h-full' : ''"
-            viewport-class="bg-background-primary px-10 pt-18 pb-5"
-            content-class="mt-4"
-            :viewport-style="conversationContainerStyle"
+            class="h-full"
+            viewport-class="bg-background-primary px-10 pt-18 pb-9"
+            content-class="flow-root min-h-0"
             @state-change="handleScrollerStateChange"
+            @content-resize="emit('contentResize', $event)"
         >
             <div
                 v-for="message in messages"
@@ -95,17 +96,15 @@
         error: Error | null;
         isPinned: boolean;
         isMaximized?: boolean;
-        fillAvailableHeight?: boolean;
         historyOpen: boolean;
         toolbarDisabled?: boolean;
-        maxHeight?: number;
+        startDragging?: (event: MouseEvent) => Promise<void>;
     }
 
     const props = withDefaults(defineProps<Props>(), {
-        maxHeight: 600,
         toolbarDisabled: false,
         isMaximized: false,
-        fillAvailableHeight: false,
+        startDragging: undefined,
     });
 
     const emit = defineEmits<{
@@ -118,6 +117,7 @@
         dragStart: [];
         dragEnd: [];
         latestContentVisibilityChange: [visible: boolean];
+        contentResize: [height: number];
     }>();
 
     const conversationScroller = ref<MessageScrollerHandle | null>(null);
@@ -129,18 +129,6 @@
     const showScrollToBottom = ref(false);
     const USER_MESSAGE_SCROLL_GAP = 12;
     const RAIL_PREVIEW_SOURCE_LENGTH = 320;
-
-    const conversationContainerStyle = computed(() =>
-        props.fillAvailableHeight
-            ? {
-                  height: '100%',
-                  maxHeight: 'none',
-              }
-            : {
-                  height: 'auto',
-                  maxHeight: `${props.maxHeight}px`,
-              }
-    );
 
     function normaliseMessageText(content: string): string {
         return content.slice(0, RAIL_PREVIEW_SOURCE_LENGTH).replace(/\s+/g, ' ').trim();
@@ -207,17 +195,18 @@
         return conversationScroller.value?.isAtEnd() ?? true;
     }
 
+    function getContentHeight() {
+        return conversationScroller.value?.getContentHeight() ?? 0;
+    }
+
     defineExpose({
         focus,
         revealLatestContent,
         scrollByDelta,
         getHistoryAnchor,
         isLatestContentVisible,
+        getContentHeight,
     });
-
-    function emitLatestContentVisibility() {
-        emit('latestContentVisibilityChange', isLatestContentVisible());
-    }
 
     function handleRegenerateMessage(messageId: string) {
         emit('regenerateMessage', messageId);
@@ -225,13 +214,13 @@
 
     function handleScrollerStateChange(state: MessageScrollerState) {
         showScrollToBottom.value = state.overflowing && !state.atEnd;
-        emitLatestContentVisibility();
+        emit('latestContentVisibilityChange', state.atEnd);
     }
 
     function refreshScrollToBottomVisibility() {
         const state = conversationScroller.value?.getState();
         showScrollToBottom.value = Boolean(state?.overflowing && !state.atEnd);
-        emitLatestContentVisibility();
+        emit('latestContentVisibilityChange', state?.atEnd ?? true);
     }
 
     function scrollToUserMessageTop(messageId: string, gap = USER_MESSAGE_SCROLL_GAP): boolean {
@@ -271,8 +260,6 @@
                 if (latestAppendedUserMessage) {
                     conversationScroller.value?.scrollToEnd('auto');
                     showScrollToBottom.value = false;
-                } else {
-                    refreshScrollToBottomVisibility();
                 }
                 return;
             }

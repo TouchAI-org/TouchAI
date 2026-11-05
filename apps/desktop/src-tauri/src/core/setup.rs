@@ -229,11 +229,13 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
         {
             warn!("Failed to set rounded corners: {}", error);
         }
+    }
 
-        if crate::core::system::runtime::is_e2e_test_mode() {
-            if let Err(error) = crate::core::window::show_search_window_for_testing(&window) {
-                warn!("Failed to show main window in E2E test mode: {}", error);
-            }
+    if crate::core::system::runtime::is_e2e_test_mode() {
+        if let Err(error) =
+            crate::core::window::show_search_window_for_testing_on_main_thread(app.handle())
+        {
+            warn!("Failed to show main window in E2E test mode: {}", error);
         }
     }
 

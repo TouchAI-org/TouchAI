@@ -237,7 +237,7 @@ describe('when the override model comes from the loaded dropdown list', () => {
         const modelOverride = ref({ modelId: 'sonnet', providerId: 2 });
         const mounted = await mountWithDefaults(modelOverride);
         await flushAsyncWork();
-        await mounted.result.loadPopupModels();
+        await mounted.result.loadDropdownModels();
 
         expect(mounted.result.selectedModel.value?.id).toBe(7);
         expect(mounted.result.selectedModelName.value).toBe('Sonnet');
@@ -298,7 +298,7 @@ describe('when the dropdown list already holds the override model', () => {
         await flushAsyncWork();
 
         findModelsWithProviderMock.mockResolvedValue([overrideModel]);
-        await mounted.result.loadPopupModels();
+        await mounted.result.loadDropdownModels();
 
         // Now the page pins an override that is already in the loaded list.
         modelOverride.value = { modelId: 'listed', providerId: 6 };
@@ -410,7 +410,7 @@ describe('when the dropdown list fails to load', () => {
         const mounted = await mountWithDefaults();
         await flushAsyncWork();
 
-        await expect(mounted.result.loadPopupModels()).resolves.toEqual([]);
+        await expect(mounted.result.loadDropdownModels()).resolves.toEqual([]);
         expect(mounted.result.getModelDropdownContext().models).toEqual([]);
 
         mounted.unmount();
@@ -423,9 +423,9 @@ describe('when the dropdown list fails to load', () => {
         const mounted = await mountWithDefaults();
         await flushAsyncWork();
 
-        await mounted.result.loadPopupModels();
+        await mounted.result.loadDropdownModels();
         findModelsWithProviderMock.mockResolvedValue([createModel(5)]);
-        const models = await mounted.result.loadPopupModels();
+        const models = await mounted.result.loadDropdownModels();
 
         // A failure must not be cached as "already loaded".
         expect(models).toHaveLength(1);
@@ -438,7 +438,7 @@ describe('when the user picks a model from the dropdown', () => {
     it('user gets the current override kept when the id is not in the list', async () => {
         const mounted = await mountWithDefaults(ref({ modelId: 'kept', providerId: 4 }));
         await flushAsyncWork();
-        await mounted.result.loadPopupModels();
+        await mounted.result.loadDropdownModels();
 
         // An unknown id cannot change the draft's model.
         await expect(mounted.result.handleModelSelect(12345)).resolves.toEqual({
@@ -456,7 +456,7 @@ describe('when the user picks a model from the dropdown', () => {
 
         const mounted = await mountWithDefaults();
         await flushAsyncWork();
-        await mounted.result.loadPopupModels();
+        await mounted.result.loadDropdownModels();
 
         await expect(mounted.result.handleModelSelect(21)).resolves.toEqual({
             modelId: 'picked',

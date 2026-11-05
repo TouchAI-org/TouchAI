@@ -10,7 +10,10 @@ import { log } from '@services/ObservabilityService';
  */
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
-import type { SearchWindowHeightMode } from '@/config/searchWindow';
+import { SEARCH_CONVERSATION_AUTO_MAX_HEIGHT } from '@/config/searchWindow';
+
+/** Physical top inset used by the compact search surface on monitor hosts. */
+export const SEARCH_WINDOW_TOP_INSET = 96;
 
 // ============================================================
 // 类型定义
@@ -21,23 +24,11 @@ export interface SearchWindowHeightPolicyInput {
     quickSearchOpen: boolean;
 }
 
-export interface IdleSearchWindowHeightState {
-    idle: boolean;
-    heightMode: SearchWindowHeightMode;
-    maximized: boolean;
-    ready: boolean;
-}
-
-export interface IdleSearchWindowBoundsState {
-    ready: boolean;
-    hasManagedPanel: boolean;
-    maximized: boolean;
-}
-
 export interface SearchWindowConversationLayoutInput {
     hasConversationPanel: boolean;
     isMaximized: boolean;
     shouldRespectManualHeightOverride: boolean;
+    isIntrinsicHeightMeasurementPending?: boolean;
 }
 
 export interface SearchWindowDefaultSizeApplyInput {
@@ -51,7 +42,6 @@ export interface SearchWindowHeightPolicy {
     autoResizeEnabled: boolean;
     respectManualOverride: boolean;
     allowHeightOverride: boolean;
-    shouldEnforceIdleDefaultHeight: boolean;
 }
 
 export interface SearchWindowMinimumSizeInput {
@@ -72,6 +62,47 @@ export type SearchWindowDefaultSizeApplyAction =
     | 'reset_idle_bounds'
     | 'reset_and_remeasure_managed_panel';
 
+export interface AutoSessionPanelHeightInput {
+    searchBarHeight: number;
+    conversationMaxHeight?: number;
+}
+
+export function resolveAutoSessionPanelHeight(input: AutoSessionPanelHeightInput) {
+    const searchBarHeight = Math.max(
+        60,
+        Math.round(Number.isFinite(input.searchBarHeight) ? input.searchBarHeight : 60)
+    );
+    const conversationMaxHeight = Math.max(
+        0,
+        Math.round(
+            Number.isFinite(input.conversationMaxHeight)
+                ? (input.conversationMaxHeight as number)
+                : SEARCH_CONVERSATION_AUTO_MAX_HEIGHT
+        )
+    );
+    return searchBarHeight + conversationMaxHeight;
+}
+
+export interface SearchWindowMeasuredHeightInput {
+    panelHeight: number;
+    overlayBottom: number | null;
+    overlayRequiredViewportHeight: number | null;
+    monitorHost: boolean;
+}
+
+/** Include fixed inline overlays only when the native host is content-bounded. */
+export function resolveSearchWindowMeasuredHeight(input: SearchWindowMeasuredHeightInput) {
+    if (input.monitorHost) {
+        return input.panelHeight;
+    }
+
+    const overlayHeights = [input.overlayBottom, input.overlayRequiredViewportHeight].filter(
+        (height): height is number => height !== null && Number.isFinite(height)
+    );
+
+    return Math.max(input.panelHeight, ...overlayHeights);
+}
+
 // ============================================================
 // 高度策略决策
 // ============================================================
@@ -80,8 +111,7 @@ export type SearchWindowDefaultSizeApplyAction =
  * 根据会话状态计算高度策略。
  *
  * - 空态（无会话、QuickSearch 关闭）：允许内容驱动的自动 resize（让 SearchBar 多行
- *   时窗口跟随扩展），但禁止手动覆盖；状态切换时由 shouldEnforceIdleDefaultBounds
- *   保证回到默认高度。
+ *   时窗口跟随扩展），但禁止手动覆盖。
  * - 对话态：启用自动 resize，允许手动覆盖，遵循 ManualOverride。
  * - QuickSearch 打开但无会话：启用自动 resize，但不允许手动覆盖。
  */
@@ -96,7 +126,6 @@ export function resolveSearchWindowHeightPolicy(
         autoResizeEnabled: true,
         respectManualOverride: hasConversationPanel,
         allowHeightOverride: hasConversationPanel,
-        shouldEnforceIdleDefaultHeight: !hasManagedPanel,
     };
 }
 
@@ -137,60 +166,21 @@ export function resolveSearchWindowMinimumSize(
 }
 
 /**
- * 判断是否需要修复空态搜索窗口高度。
- *
- * 触发条件：空态 + 非最大化 + 状态刚变为就绪/空态/ManualOverride/从最大化恢复。
- * 防止 ManualOverride 模式从对话态泄漏到空态。
- */
-export function shouldRepairIdleSearchWindowHeight(
-    current: IdleSearchWindowHeightState,
-    previous?: IdleSearchWindowHeightState
-) {
-    if (!current.ready || !current.idle) {
-        return false;
-    }
-
-    if (current.maximized) {
-        return false;
-    }
-
-    return (
-        !previous ||
-        previous.ready !== current.ready ||
-        previous.idle !== current.idle ||
-        (current.heightMode === 'manual_override' && previous.heightMode !== 'manual_override') ||
-        (!current.maximized && previous.maximized)
-    );
-}
-
-/**
- * 判断是否应强制空态默认尺寸。
- *
- * 触发条件：就绪 + 无面板 + 非最大化 + 从有面板/未就绪/最大化状态转变而来。
- */
-export function shouldEnforceIdleDefaultBounds(
-    current: IdleSearchWindowBoundsState,
-    previous?: IdleSearchWindowBoundsState
-) {
-    if (!current.ready || current.hasManagedPanel || current.maximized) {
-        return false;
-    }
-
-    return (
-        !previous ||
-        !previous.ready ||
-        previous.hasManagedPanel ||
-        (previous.maximized && !current.maximized)
-    );
-}
-
-/**
  * 判断对话面板是否应撑满可用高度（最大化或手动覆盖模式下生效）。
+ *
+ * 最大化时忽略 intrinsic 测量锁：工作区已经由 native host 撑满，
+ * 对话区必须立刻吃掉剩余高度，否则搜索栏会停在内容高度中间。
  */
 export function shouldFillConversationAvailableHeight(input: SearchWindowConversationLayoutInput) {
-    return (
-        input.hasConversationPanel && (input.isMaximized || input.shouldRespectManualHeightOverride)
-    );
+    if (!input.hasConversationPanel) {
+        return false;
+    }
+
+    if (input.isMaximized) {
+        return true;
+    }
+
+    return !input.isIntrinsicHeightMeasurementPending && input.shouldRespectManualHeightOverride;
 }
 
 // ============================================================

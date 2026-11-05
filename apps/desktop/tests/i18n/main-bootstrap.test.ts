@@ -3,7 +3,7 @@
 /**
  * Startup behavior.
  *
- * What a user observes from the boot path: a window that renders, popup and
+ * What a user observes from the boot path: a window that renders,
  * tray windows that start without the main-window warm-up, links that stay in
  * the app, and background work whose failure never blocks the window.
  *
@@ -65,7 +65,6 @@ vi.mock('@/router', async () => {
             { path: '/', component: screen },
             { path: '/settings', component: screen },
             { path: '/tray-menu', component: screen },
-            { path: '/popup', component: screen },
         ],
     });
     return { default: memoryRouter };
@@ -216,13 +215,13 @@ describe('user opens the main window', () => {
     });
 });
 
-describe('user opens a popup or the tray menu', () => {
+describe('user opens the tray menu or settings', () => {
     it.each([
         [
-            'a popup route',
+            'the tray menu route',
             () => {
                 stubRoot();
-                window.history.replaceState(null, '', '/#/popup?type=session-history-popup');
+                window.history.replaceState(null, '', '/#/tray-menu');
             },
         ],
         [

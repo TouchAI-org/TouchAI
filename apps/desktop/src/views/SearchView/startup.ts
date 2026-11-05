@@ -5,7 +5,6 @@ type StartupTask = () => Promise<unknown>;
 export interface SearchViewStartupDependencies {
     initializeSettings: StartupTask;
     initializeMcpStore: StartupTask;
-    initializePopups: StartupTask;
     syncWindowPinState: StartupTask;
     syncSearchWindowState: StartupTask;
     isE2eTestMode: () => Promise<boolean>;
@@ -46,6 +45,7 @@ export async function initializeSearchViewForFirstPaint(
     try {
         dependencies.onReady(false);
         await dependencies.initializeSettings();
+        await dependencies.syncSearchWindowState();
         dependencies.onReady(true);
 
         runBackgroundTask(
@@ -55,18 +55,8 @@ export async function initializeSearchViewForFirstPaint(
         );
         runBackgroundTask(
             dependencies,
-            '[SearchView] Failed to initialize popup service:',
-            dependencies.initializePopups
-        );
-        runBackgroundTask(
-            dependencies,
             '[SearchView] Failed to sync window pin state on initialize:',
             dependencies.syncWindowPinState
-        );
-        runBackgroundTask(
-            dependencies,
-            '[SearchView] Failed to sync search window state on initialize:',
-            dependencies.syncSearchWindowState
         );
         runBackgroundTask(dependencies, '[SearchView] Failed to auto-connect MCP servers:', () =>
             startMcpAutoConnect(dependencies)

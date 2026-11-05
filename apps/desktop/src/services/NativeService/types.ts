@@ -101,23 +101,6 @@ export interface BuiltInBashExecutionResponse {
     compressed?: boolean;
 }
 
-export interface ShowPopupWindowParams {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    popupType: string;
-    popupId: string;
-    windowLabel: string;
-    popupSessionVersion: number;
-}
-
-export interface HidePopupWindowParams {
-    popupId: string;
-    windowLabel: string;
-    popupSessionVersion: number;
-}
-
 export interface ResizeWindowHeightParams {
     targetHeight: number;
     center?: boolean;
@@ -125,10 +108,80 @@ export interface ResizeWindowHeightParams {
     respectManualOverride?: boolean;
 }
 
+export interface SearchWindowRegion {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    cornerRadius?: number;
+}
+
+export interface SearchSurfacePhysicalViewport {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface SearchSurfacePreparation {
+    rendererEpoch: number;
+    showEpoch: number;
+    hostEpoch: number;
+    source: 'shortcut' | 'notification' | 'tray' | 'main';
+    physicalViewport: SearchSurfacePhysicalViewport;
+    scaleFactor: number;
+}
+
+export interface SearchSurfaceShowStatus {
+    status: 'shown';
+    rendererEpoch: number;
+    showEpoch: number;
+    hostEpoch: number;
+    generation: number;
+}
+
+export type SearchWindowRegionUpdate =
+    | {
+          status: 'applied';
+          generation: number;
+          showStatus?: SearchSurfaceShowStatus;
+      }
+    | {
+          status: 'stale';
+          requestedGeneration: number;
+          activeGeneration: number;
+      };
+
 export interface SearchWindowMinimumSize {
     minWidth: number;
     minHeight: number;
     maxHeight: number | null;
+}
+
+export interface SearchPanelSize {
+    width: number;
+    height: number;
+}
+
+export type SearchHostPlacement =
+    | 'preserve-origin'
+    | 'preserve-center'
+    | 'idle'
+    | 'work-area'
+    | 'restore';
+
+export interface SearchPanelResizeCommit {
+    from: SearchPanelSize;
+    to: SearchPanelSize;
+    /** Logical client-space extent required by the bounded host, including overlays. */
+    hostContentHeight?: number;
+    /** Renderer-owned content/viewport resize; keep native height mode Auto. */
+    auto?: boolean;
+    /** One-shot session-open measurement may clear a stale native manual override. */
+    respectManualOverride?: boolean;
+    /** Explicit host placement; omitted placement preserves the current center. */
+    placement?: SearchHostPlacement;
+    physicalOrigin?: { x: number; y: number };
 }
 
 export interface SearchWindowState {
@@ -136,6 +189,9 @@ export interface SearchWindowState {
     currentWidth: number;
     currentHeight: number;
     heightMode: SearchWindowHeightMode;
+    /** Logical client-space height currently reserved by the native host for overlays. */
+    hostContentHeight: number | null;
+    monitorHost: boolean;
 }
 
 export type SessionStatusReminderNotificationKind = SessionStatusReminderKind;
