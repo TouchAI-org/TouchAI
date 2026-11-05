@@ -10,6 +10,8 @@ pub mod search;
 pub mod settings;
 pub mod status_reminder;
 pub mod tray;
+#[cfg(target_os = "linux")]
+pub(crate) mod webkit_cors;
 pub(crate) mod webview_defaults;
 pub(crate) mod webview_recovery;
 

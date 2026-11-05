@@ -6563,6 +6563,7 @@ dependencies = [
  "ureq 2.12.1",
  "uuid",
  "velopack",
+ "webkit2gtk",
  "webview2-com",
  "windows 0.62.2",
  "windows-core 0.62.2",

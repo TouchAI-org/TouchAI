@@ -145,3 +145,4 @@ objc2-user-notifications = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 notify-rust = "4.11"
+webkit2gtk = "2.0"

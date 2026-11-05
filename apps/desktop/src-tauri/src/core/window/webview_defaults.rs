@@ -492,7 +492,13 @@ mod tests {
  * 非 Windows 平台无需额外的 WebView2 默认配置。
  */
 pub(crate) fn apply_webview_runtime_defaults<R: Runtime>(
-    _window: &WebviewWindow<R>,
+    window: &WebviewWindow<R>,
 ) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    crate::core::window::webkit_cors::allow_custom_scheme_requests(window)?;
+
+    #[cfg(not(target_os = "linux"))]
+    let _ = window;
+
     Ok(())
 }
