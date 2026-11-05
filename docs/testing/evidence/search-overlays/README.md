@@ -29,3 +29,18 @@ fixtures is the fixed-height test row labeled `Input`.
 | Pending, 750px | Cancelled, 750px |
 | --- | --- |
 | ![Pending conversation](conversation-loading-750.png) | ![Cancelled conversation](conversation-cancelled-750.png) |
+
+## Overlay alignment and centered expansion
+
+[Geometry results](geometry-regression.json) record eight real-browser cases at
+420px/750px, 100%/150% scale, with normal and interrupted expansion. A simulated
+native boundary moves the host before acknowledging its new dimensions. The test
+measures the card's screen-space center each frame and checks picker alignment,
+editor clearance, hard viewport bounds, and reopening. Maximum center drift in
+this run was below 0.02 physical pixels; this is a layout assertion, not a latency
+or performance measurement.
+
+The lifecycle regression separately delays the viewport and native-region
+acknowledgement. The menu stays hidden until both can contain it, and a late
+acknowledgement cannot revive a dismissed menu. Actual Windows hide/show and
+native clipping still need desktop acceptance.

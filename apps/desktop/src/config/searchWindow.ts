@@ -32,7 +32,6 @@ export const SEARCH_CONVERSATION_AUTO_MAX_HEIGHT = 600;
 export const SEARCH_SURFACE_MOTION = {
     durationMs: 320,
     easing: [0.4, 0, 0.2, 1] as const,
-    hostLeadMs: 60,
     revealDurationMs: 380,
     revealEasing: [0.22, 1, 0.36, 1] as const,
 } as const;

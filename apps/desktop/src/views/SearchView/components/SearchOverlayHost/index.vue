@@ -95,11 +95,6 @@
         return props.positionAnchor ?? props.anchor;
     }
 
-    /** Left edge for the overlay, in the same space the position was computed in. */
-    function overlayLeft(computed: number) {
-        return props.leftAlignElement?.getBoundingClientRect().left ?? computed;
-    }
-
     function updatePosition() {
         const positionAnchor = resolvePositionAnchor();
         if (!props.open || !props.anchor || !positionAnchor || !overlayElement.value) {
@@ -109,14 +104,13 @@
 
         // Covering a popup takes its box from the element it covers: the slot defines both its left
         // edge and the row it starts on, whatever control the caller anchored to.
-        const anchorRect = (
-            props.overlayOnAnchor ? (props.leftAlignElement ?? positionAnchor) : positionAnchor
-        ).getBoundingClientRect();
+        const anchorRect = positionAnchor.getBoundingClientRect();
+        const alignmentRect = props.leftAlignElement?.getBoundingClientRect() ?? anchorRect;
         if (props.overlayOnAnchor) {
             const overlayRect = overlayElement.value.getBoundingClientRect();
             const top = anchorRect.top + props.gap;
             overlayStyle.value = {
-                left: `${overlayLeft(anchorRect.left)}px`,
+                left: `${alignmentRect.left}px`,
                 top: `${top}px`,
                 visibility: props.reveal ? 'visible' : 'hidden',
                 '--search-overlay-max-height':
@@ -126,7 +120,7 @@
             };
             overlayOrigin.value = `top-${props.align}`;
             emit('positioned', {
-                left: overlayLeft(anchorRect.left),
+                left: alignmentRect.left,
                 top,
                 side: 'bottom',
                 // Relative to the window's top edge, the same unit the host reserves space in.
@@ -137,7 +131,14 @@
         }
 
         const position = calculateSearchOverlayPosition({
-            anchor: anchorRect,
+            anchor: {
+                left: alignmentRect.left,
+                right: alignmentRect.right,
+                width: alignmentRect.width,
+                top: anchorRect.top,
+                bottom: anchorRect.bottom,
+                height: anchorRect.height,
+            },
             overlay: overlayElement.value.getBoundingClientRect(),
             viewport: {
                 width: document.documentElement.clientWidth,
@@ -152,7 +153,7 @@
         });
 
         overlayStyle.value = {
-            left: `${overlayLeft(position.left)}px`,
+            left: `${position.left}px`,
             top: `${position.top}px`,
             visibility: props.reveal ? 'visible' : 'hidden',
             '--search-overlay-max-height':
@@ -393,6 +394,9 @@
         () => [
             props.anchor,
             props.positionAnchor,
+            props.leftAlignElement,
+            props.overlayOnAnchor,
+            props.allowFlip,
             props.layoutTarget,
             props.preferredSide,
             props.align,

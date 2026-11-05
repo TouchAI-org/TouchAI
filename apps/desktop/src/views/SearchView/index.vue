@@ -398,7 +398,14 @@
         });
     }
 
-    async function waitForSearchViewportToSettle(requiredHeight: number | null) {
+    function overlayFitsViewport() {
+        return (
+            overlayRequiredViewportHeight.value === null ||
+            document.documentElement.clientHeight >= overlayRequiredViewportHeight.value - 1
+        );
+    }
+
+    async function waitForSearchViewportToSettle() {
         let previousHeight = -1;
         let stableFrames = 0;
 
@@ -416,17 +423,13 @@
             stableFrames = viewportHeight === previousHeight ? stableFrames + 1 : 0;
             previousHeight = viewportHeight;
 
-            if (
-                stableFrames >= 1 &&
-                (requiredHeight === null || viewportHeight >= requiredHeight - 1)
-            ) {
-                return;
+            if (stableFrames >= 1 && overlayFitsViewport()) {
+                return true;
             }
         }
 
-        // Reveal even when the required height never arrived: a hidden overlay is a
-        // dead end, while a visible one self-corrects on the next position update (a
-        // resize in flight can keep the viewport short for longer than this window).
+        // The resize listener retries positioning when WebView2 receives the new viewport.
+        return false;
     }
 
     function buildCurrentInputHistorySnapshot(query = queryText.value): InputHistorySnapshot {
@@ -853,24 +856,27 @@
         overlayRequiredViewportHeight.value = position.requiredViewportHeight;
         if (!overlayPositionReady.value && overlaySettleInFlightEpoch !== overlaySettleEpoch) {
             const settleEpoch = overlaySettleEpoch;
+            const isCurrentOverlay = () =>
+                settleEpoch === overlaySettleEpoch &&
+                activeOverlay.value !== 'none' &&
+                !searchViewListenersDisposed;
             overlaySettleInFlightEpoch = settleEpoch;
             void (async () => {
                 try {
                     await remeasureTargetHeight();
-                    if (settleEpoch !== overlaySettleEpoch || searchViewListenersDisposed) return;
-                    await waitForSearchViewportToSettle(position.requiredViewportHeight);
+                    if (!isCurrentOverlay()) return;
+                    if (!(await waitForSearchViewportToSettle())) return;
                     await nextTick();
-                    if (
-                        settleEpoch !== overlaySettleEpoch ||
-                        activeOverlay.value === 'none' ||
-                        searchViewListenersDisposed
-                    ) {
-                        return;
-                    }
+                    if (!isCurrentOverlay()) return;
 
                     await overlayHost.value?.refreshPosition();
                     await nextTick();
-                    if (settleEpoch === overlaySettleEpoch && !searchViewListenersDisposed) {
+                    if (!isCurrentOverlay() || !overlayFitsViewport()) return;
+                    const regionsAccepted = await searchWindowRegionReporter.flush(
+                        'overlay-reveal',
+                        true
+                    );
+                    if (regionsAccepted && isCurrentOverlay() && overlayFitsViewport()) {
                         overlayPositionReady.value = true;
                         await nextTick();
                         focusPendingOverlayWhenReady();
@@ -1728,6 +1734,8 @@
 
     async function clearSurfaceUiAfterHidden() {
         surfaceHiding.value = true;
+        overlaySettleEpoch += 1;
+        overlayPositionReady.value = false;
         const intentEpoch = beginOverlayIntent();
         cancelSearchPanelResizing();
         cancelSearchPanelDragging();
@@ -1771,14 +1779,11 @@
             return;
         }
         overlayAnchorElement.value = controller.getModelDropdownAnchor();
-        // Without a conversation the dropdown hangs below the content box, so it reads
-        // as a popup outside the card. With a conversation the content box fills the
-        // host, so the dropdown anchors to its own button instead and lets the surface
-        // keep a fixed content position either way.
+        // The picker belongs to the editor row, including its padding, in every surface mode.
         overlayPositionAnchorElement.value =
-            sessionHistory.value.length > 0
-                ? overlayAnchorElement.value
-                : (pageContent.value ?? overlayAnchorElement.value);
+            overlayAnchorElement.value?.closest<HTMLElement>('[data-testid="search-bar"]') ??
+            pageContent.value ??
+            overlayAnchorElement.value;
         if (quickSearchOpen.value) {
             // A popup opened over the results list covers it: the slot's left edge is the surface's and
             // its top edge is the list's first row, which is the search box's bottom.
@@ -1848,7 +1853,9 @@
         }
         if (!isOverlayIntentCurrent(intentEpoch)) return;
         overlayAnchorElement.value = payload.anchorElement;
-        overlayPositionAnchorElement.value = payload.anchorElement;
+        overlayPositionAnchorElement.value = overlayFloatsOverResults.value
+            ? overlayLeftAlignElement.value
+            : payload.anchorElement;
         if (!overlayAnchorElement.value) return;
         const historyStateUpdate = setSessionHistoryOverlayOpen(true);
         renderedOverlay.value = 'session-history';
@@ -2719,7 +2726,11 @@
                 renderedOverlay === 'session-history' && sessionHistory.length > 0 ? 'end' : 'start'
             "
             :gap="overlayPositionGap"
-            :left-align-element="overlayFloatsOverResults ? overlayLeftAlignElement : null"
+            :left-align-element="
+                renderedOverlay === 'model-dropdown' || overlayFloatsOverResults
+                    ? searchViewCard
+                    : null
+            "
             :overlay-on-anchor="overlayFloatsOverResults"
             @after-leave="handleOverlayAfterLeave"
             @outside-click="handleOverlayOutsideClick"
