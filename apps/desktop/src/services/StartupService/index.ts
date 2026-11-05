@@ -1,7 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
+import { MetaKey } from '@database/keys';
 import { deleteMeta, getMeta } from '@database/queries/touchaiMeta';
-import { MetaKey } from '@database/schema';
 import { notify } from '@services/NotificationService';
 import { log } from '@services/ObservabilityService';
 

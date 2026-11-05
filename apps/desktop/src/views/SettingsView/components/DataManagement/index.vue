@@ -8,6 +8,7 @@
         type ImportMode,
         isDatabaseBackupCancelledError,
     } from '@database/backup';
+    import { MetaKey, StatisticKey } from '@database/keys';
     import {
         countMessages,
         countSessions,
@@ -18,7 +19,6 @@
         getStatistic,
     } from '@database/queries';
     import { setMeta } from '@database/queries/touchaiMeta';
-    import { MetaKey, StatisticKey } from '@database/schema';
     import { log } from '@services/ObservabilityService';
     import { relaunch } from '@tauri-apps/plugin-process';
     import { computed, onMounted, onUnmounted, ref } from 'vue';

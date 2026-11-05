@@ -1,13 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
-import type { DatabaseSync as SqliteDatabase, SQLInputValue } from 'node:sqlite';
+import type { DatabaseSync as SqliteDatabase } from 'node:sqlite';
 
 import type { PersistedCall } from '@services/UsageService';
 import { sumUsage } from '@services/UsageService';
 import { insertLlmCallParts } from '@services/UsageService/insertLlmCallParts';
-import { routeDatabaseOperation } from '@tests/database/sqliteHarness';
-import { interceptTauriInvoke } from '@tests/utils/tauri';
+import { routeQueriesTo } from '@tests/database/sqliteHarness';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const { DatabaseSync } = createRequire(import.meta.url)(
@@ -29,44 +28,6 @@ function openDatabase(): SqliteDatabase {
         database.exec(readFileSync(`${databaseRoot}/drizzle/${entry.tag}.sql`, 'utf8'));
     }
     return database;
-}
-
-function routeQueriesTo(database: SqliteDatabase) {
-    interceptTauriInvoke((call) => {
-        const operation = routeDatabaseOperation(database, call);
-        if (operation) return operation.value;
-        if (call.cmd === 'database_tx_begin') {
-            database.exec('BEGIN');
-            return 'test-tx';
-        }
-        if (call.cmd === 'database_tx_commit') {
-            database.exec('COMMIT');
-            return null;
-        }
-        if (call.cmd === 'database_tx_rollback') {
-            database.exec('ROLLBACK');
-            return null;
-        }
-        if (call.cmd !== 'database_query' && call.cmd !== 'database_tx_query') return undefined;
-
-        const { request } = call.payload as {
-            request: { sql: string; params: SQLInputValue[]; method: string };
-        };
-        const statement = database.prepare(request.sql);
-        if (request.method === 'run') {
-            const result = statement.run(...(request.params ?? []));
-            return {
-                rows: [],
-                rowsAffected: Number(result.changes),
-                lastInsertId: Number(result.lastInsertRowid),
-            };
-        }
-        return {
-            rows: statement.all(...(request.params ?? [])),
-            rowsAffected: 0,
-            lastInsertId: null,
-        };
-    });
 }
 
 function seed(database: SqliteDatabase) {

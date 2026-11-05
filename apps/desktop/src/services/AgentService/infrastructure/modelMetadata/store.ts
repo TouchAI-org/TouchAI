@@ -2,8 +2,9 @@
  * Copyright (c) 2025-2026. Qian Cheng. Licensed under GPL v3
  */
 
+import { StatisticKey } from '@database/keys';
 import { getStatistic } from '@database/queries/statistics.ts';
-import { type NewLlmMetadata, type NewLlmMetadataAlias, StatisticKey } from '@database/schema.ts';
+import { type NewLlmMetadata, type NewLlmMetadataAlias } from '@database/schema.ts';
 import { native } from '@services/NativeService';
 
 export interface ModelMetadataContents {

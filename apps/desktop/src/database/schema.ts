@@ -28,24 +28,6 @@ export type SqlParams = SqlValue[];
 export type ToolLogKind = 'mcp' | 'builtin';
 
 /**
- * 统计键枚举
- */
-export enum StatisticKey {
-    MODEL_METADATA_LAST_UPDATED_AT = 'model_metadata_last_updated_at',
-    MODEL_METADATA_LAST_CHECKED_AT = 'model_metadata_last_checked_at',
-    MODEL_METADATA_SOURCE_ETAG = 'model_metadata_source_etag',
-    USAGE_MAINTENANCE_RUN_AT = 'usage_maintenance_run_at',
-}
-
-/**
- * 元数据键枚举
- */
-export enum MetaKey {
-    APP_ID = 'app_id',
-    IMPORT_SUCCESS = 'import_success',
-}
-
-/**
  * 会话表
  */
 export const sessions = sqliteTable(

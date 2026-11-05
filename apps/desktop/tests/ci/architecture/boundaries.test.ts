@@ -229,6 +229,24 @@ describe('user runs the architecture boundary gate', () => {
             expect(violations('src/services/Demo/crossService.ts')).toHaveLength(0);
         });
     });
+
+    describe('given production code that reaches for the offline database tooling', () => {
+        it('user sees a violation for a runtime drizzle-orm import', () => {
+            expect(violations('src/services/Demo/drizzleRuntime.ts')).toHaveLength(1);
+        });
+
+        it('user sees a violation for a dynamic drizzle-orm import', () => {
+            expect(violations('src/services/Demo/drizzleDynamic.ts')).toHaveLength(1);
+        });
+
+        it('user sees a violation for a runtime schema import', () => {
+            expect(violations('src/services/Demo/schemaRuntime.ts')).toHaveLength(1);
+        });
+
+        it('user sees no violation for a type-only schema import', () => {
+            expect(violations('src/services/Demo/schemaTypeOnly.ts')).toHaveLength(0);
+        });
+    });
 });
 
 describe('user resolves module paths for the boundary gate', () => {

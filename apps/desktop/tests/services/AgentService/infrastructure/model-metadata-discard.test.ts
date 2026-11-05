@@ -49,8 +49,8 @@ describe('user refreshes model metadata and the source rejects the request', () 
     beforeEach(() => {
         vi.clearAllMocks();
         interceptTauriInvoke((call) => {
-            if (call.cmd === 'database_query') {
-                return { rows: [], rowsAffected: 0, lastInsertId: null };
+            if (call.cmd === 'database_operation') {
+                return null;
             }
             return undefined;
         });
