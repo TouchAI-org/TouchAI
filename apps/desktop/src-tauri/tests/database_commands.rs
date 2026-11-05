@@ -701,6 +701,37 @@ fn user_cannot_read_agent_sessions_from_settings_or_popup_windows() {
 }
 
 #[test]
+fn user_can_read_usage_but_cannot_write_usage_detail_from_the_settings_window() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let settings = WebviewWindowBuilder::new(&test_app.app, "settings", WebviewUrl::default())
+        .build()
+        .expect("settings window");
+
+    database_operation(
+        &settings,
+        json!({
+            "kind": "usage_summary",
+            "filter": {
+                "from": "2026-01-01 00:00:00",
+                "to": "2026-12-31 23:59:59"
+            }
+        }),
+    );
+    let error = invoke_command_err(
+        &settings,
+        "database_operation",
+        json!({
+            "request": {
+                "kind": "usage_append_llm_call_parts",
+                "messageId": 1,
+                "calls": [{ "data": "{}" }]
+            }
+        }),
+    );
+    assert_eq!(error["code"], "database-forbidden");
+}
+
+#[test]
 fn user_cannot_use_a_preview_window_to_read_settings() {
     let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
     let preview = WebviewWindowBuilder::new(&test_app.app, "preview-test", WebviewUrl::default())
@@ -1496,4 +1527,232 @@ fn user_can_finish_a_legacy_task_without_a_turn_or_attempt() {
         )["rows"],
         json!([{ "count": 0 }])
     );
+}
+
+#[test]
+fn user_gets_typed_usage_aggregates_and_context_profiles_from_rust() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO providers (id, name, driver, api_endpoint, logo)
+         VALUES (8101, 'Usage Provider', 'openai', 'https://usage.example/v1', 'openai');
+         INSERT INTO models (id, provider_id, name, model_id, context_limit)
+         VALUES (9101, 8101, 'Usage Model', 'usage-model', 100000);
+         INSERT INTO sessions (id, session_id, title, model, provider_id)
+         VALUES (9201, 'usage-session', 'Usage session', 'usage-model', 8101);
+         INSERT INTO session_turns (
+             id, session_id, model_id, task_id, prompt_snapshot_json,
+             prompt_breakdown_json, status, created_at, input_tokens, output_tokens,
+             cache_read_tokens, cache_write_tokens, total_cost_micros, unpriced_calls,
+             ttft_ms, first_text_ms, duration_ms
+         ) VALUES
+             (9301, 9201, 9101, 'usage-task-1', '{}',
+              '{\"fragments\":{\"platform\":4000},\"userPrompt\":100,\"attachments\":50,\"builtinToolDefinitions\":200,\"mcpToolDefinitions\":300,\"systemPromptTotal\":5000}',
+              'completed', '2026-05-01 10:00:00', 1000, 100, 500, 0, 10, 1, 100, 120, 1000),
+             (9302, 9201, 9101, 'usage-task-2', '{}',
+              '{\"fragments\":{\"platform\":4000},\"userPrompt\":100,\"attachments\":50,\"builtinToolDefinitions\":200,\"mcpToolDefinitions\":300,\"systemPromptTotal\":5000}',
+              'failed', '2026-05-02 10:00:00', 2000, 200, 0, 0, 20, 0, NULL, NULL, 2000)",
+        json!([]),
+    );
+
+    let filter = json!({
+        "from": "2026-05-01 00:00:00",
+        "to": "2026-05-03 23:59:59"
+    });
+    let summary = database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "usage_summary", "filter": filter.clone() }),
+    );
+    assert_eq!(summary["requestCount"], 2);
+    assert_eq!(summary["sessionCount"], 1);
+    assert_eq!(summary["activeDayCount"], 2);
+    assert_eq!(summary["inputTokens"], 3000);
+    assert_eq!(summary["outputTokens"], 300);
+    assert_eq!(summary["cacheReadTokens"], 500);
+    assert_eq!(summary["totalCostMicros"], 30);
+    assert_eq!(summary["unpricedCount"], 1);
+    assert_eq!(summary["meanTtftMs"], 100);
+    assert_eq!(summary["meanDurationMs"], 1500);
+
+    let trend = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "usage_trend",
+            "filter": filter.clone(),
+            "dimension": "model"
+        }),
+    );
+    let trend_tokens = trend["points"]
+        .as_array()
+        .expect("trend points")
+        .iter()
+        .map(|point| point["tokens"].as_i64().unwrap_or_default())
+        .sum::<i64>();
+    assert_eq!(trend_tokens, 3800);
+    assert_eq!(trend["points"][0]["segments"][0]["name"], "Usage Model");
+
+    let composition = database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "usage_composition", "filter": filter.clone() }),
+    );
+    let output = composition["tokens"]["segments"]
+        .as_array()
+        .expect("token segments")
+        .iter()
+        .find(|segment| segment["key"] == "output")
+        .expect("output segment");
+    assert_eq!(output["value"], 300);
+
+    let profiles = database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "usage_context_profiles", "filter": filter.clone() }),
+    );
+    assert_eq!(profiles["overall"]["turnCount"], 2);
+    assert_eq!(profiles["models"][0]["modelName"], "Usage Model");
+
+    let points = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "usage_context_points",
+            "filter": filter,
+            "limit": 200
+        }),
+    );
+    assert_eq!(points.as_array().expect("context points").len(), 2);
+    assert_eq!(points[0]["promptTokens"].as_f64(), Some(1500.0));
+    assert_eq!(points[1]["promptTokens"].as_f64(), Some(2000.0));
+}
+
+#[test]
+fn user_gets_typed_usage_detail_rollup_prune_and_maintenance() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO providers (id, name, driver, api_endpoint, logo)
+         VALUES (8102, 'Usage Detail Provider', 'openai', 'https://detail.example/v1', 'openai');
+         INSERT INTO models (id, provider_id, name, model_id)
+         VALUES (9102, 8102, 'Usage Detail Model', 'usage-detail-model');
+         INSERT INTO sessions (id, session_id, title, model)
+         VALUES (9202, 'usage-detail-session', 'Usage detail', 'usage-detail-model');
+         INSERT INTO messages (id, session_id, role)
+         VALUES (9402, 9202, 'assistant');
+         INSERT INTO session_turns (
+             id, session_id, model_id, task_id, prompt_snapshot_json,
+             status, created_at, input_tokens, output_tokens
+         ) VALUES (9302, 9202, 9102, 'usage-detail-task', '{}',
+                   'completed', '2026-05-01 10:00:00', 10, 20);
+         INSERT INTO message_parts (id, message_id, type, content, sort_order)
+         VALUES (9502, 9402, 'text', 'already here', 0)",
+        json!([]),
+    );
+
+    let appended = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "usage_append_llm_call_parts",
+            "messageId": 9402,
+            "calls": [
+                {
+                    "data": "{\"call\":1}",
+                    "startedAt": 100,
+                    "endedAt": 200
+                },
+                {
+                    "data": "{\"call\":2}",
+                    "startedAt": 300,
+                    "endedAt": 400
+                }
+            ]
+        }),
+    );
+    assert_eq!(appended, 2);
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT type, sort_order FROM message_parts
+             WHERE message_id = 9402 ORDER BY sort_order",
+            json!([]),
+        )["rows"],
+        json!([
+            { "type": "text", "sort_order": 0 },
+            { "type": "llm_call", "sort_order": 1 },
+            { "type": "llm_call", "sort_order": 2 }
+        ])
+    );
+
+    database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "usage_rollup_daily" }),
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT request_count, input_tokens, output_tokens
+             FROM usage_daily_rollups",
+            json!([]),
+        )["rows"],
+        json!([{
+            "request_count": 1,
+            "input_tokens": 10,
+            "output_tokens": 20
+        }])
+    );
+
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO message_parts (
+             id, message_id, type, content, sort_order, created_at
+         ) VALUES
+             (9601, 9402, 'llm_call', '', 3, '2000-01-01 00:00:00'),
+             (9602, 9402, 'llm_call', '', 4, '2999-01-01 00:00:00')",
+        json!([]),
+    );
+    assert_eq!(
+        database_operation(
+            &test_app.main_webview,
+            json!({ "kind": "usage_prune_detail", "retentionDays": 30 }),
+        ),
+        1
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT id FROM message_parts
+             WHERE type = 'llm_call' AND id IN (9601, 9602)
+             ORDER BY id",
+            json!([]),
+        )["rows"],
+        json!([{ "id": 9602 }])
+    );
+
+    let first = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "usage_maintenance",
+            "retentionDays": 30,
+            "minIntervalMs": 900000,
+            "now": "2026-11-05T10:00:00.000Z",
+            "statisticKey": "usage_maintenance_run_at"
+        }),
+    );
+    assert_eq!(first["ran"], true);
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT value FROM statistics WHERE key = ?",
+            json!(["usage_maintenance_run_at"]),
+        )["rows"],
+        json!([{ "value": "2026-11-05T10:00:00.000Z" }])
+    );
+    let second = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "usage_maintenance",
+            "retentionDays": 30,
+            "minIntervalMs": 900000,
+            "now": "2026-11-05T10:01:00.000Z",
+            "statisticKey": "usage_maintenance_run_at"
+        }),
+    );
+    assert_eq!(second["ran"], false);
 }

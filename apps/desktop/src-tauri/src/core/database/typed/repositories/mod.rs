@@ -11,6 +11,7 @@ mod sessions;
 mod settings;
 mod tasks;
 mod tool_parts;
+mod usage;
 
 use serde_json::Value as JsonValue;
 use sqlx::SqlitePool;
@@ -188,6 +189,53 @@ pub(super) async fn execute(
         DatabaseOperation::AttachmentRemoteRefTouch { id, last_used_at } => {
             attachment_remote_refs::touch(pool, id, last_used_at).await
         }
+        DatabaseOperation::UsageSummary { filter } => usage::summary(pool, filter).await,
+        DatabaseOperation::UsageDashboard {
+            filter,
+            task_ids,
+            dimension,
+        } => usage::dashboard(pool, filter, task_ids, dimension).await,
+        DatabaseOperation::UsageTrend { filter, dimension } => {
+            usage::trend(pool, filter, dimension).await
+        }
+        DatabaseOperation::UsageArchiveTrend => usage::archive_trend(pool).await,
+        DatabaseOperation::UsageByModel { filter } => usage::by_model(pool, filter).await,
+        DatabaseOperation::UsageByProvider { filter } => usage::by_provider(pool, filter).await,
+        DatabaseOperation::UsageModelRanking {
+            filter,
+            metric,
+            limit,
+        } => usage::model_ranking(pool, filter, metric, limit).await,
+        DatabaseOperation::UsageSessionRanking {
+            filter,
+            metric,
+            limit,
+        } => usage::session_ranking(pool, filter, metric, limit).await,
+        DatabaseOperation::UsageFilterOptions { filter } => {
+            usage::filter_options(pool, filter).await
+        }
+        DatabaseOperation::UsageComposition { filter } => usage::composition(pool, filter).await,
+        DatabaseOperation::UsageToolStats { filter } => usage::tool_stats(pool, filter).await,
+        DatabaseOperation::UsageHeatmap { filter } => usage::heatmap(pool, filter).await,
+        DatabaseOperation::UsageContextProfiles { filter } => {
+            usage::context_profiles(pool, filter).await
+        }
+        DatabaseOperation::UsageContextPoints { filter, limit } => {
+            usage::context_points(pool, filter, limit).await
+        }
+        DatabaseOperation::UsageAppendLlmCallParts { message_id, calls } => {
+            usage::append_llm_call_parts(pool, message_id, calls).await
+        }
+        DatabaseOperation::UsageRollupDaily => usage::rollup_daily(pool).await,
+        DatabaseOperation::UsagePruneDetail { retention_days } => {
+            usage::prune_detail(pool, retention_days).await
+        }
+        DatabaseOperation::UsageMaintenance {
+            retention_days,
+            min_interval_ms,
+            now,
+            statistic_key,
+        } => usage::maintenance(pool, retention_days, min_interval_ms, now, statistic_key).await,
         DatabaseOperation::TaskRecordStart { input } => tasks::record_start(pool, input).await,
         DatabaseOperation::TaskPersistOutputMessage { input } => {
             tasks::persist_output_message(pool, input).await

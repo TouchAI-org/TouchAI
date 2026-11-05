@@ -7,6 +7,8 @@ import { interceptTauriInvoke } from '@tests/utils/tauri';
 
 import { expandModelIdCandidates } from '@/domain/models/modelIdCandidates';
 
+import { routeUsageOperation } from './usageHarness';
+
 const { DatabaseSync } = createRequire(import.meta.url)(
     'node:sqlite'
 ) as typeof import('node:sqlite');
@@ -605,6 +607,8 @@ export function routeDatabaseOperation(
     if (call.cmd !== 'database_operation') return undefined;
     const request = (call.payload as { request?: OperationRequest } | undefined)?.request;
     if (!request) return { value: undefined };
+    const usageOperation = routeUsageOperation(database, request);
+    if (usageOperation) return usageOperation;
 
     const read = (sql: string, params: SQLInputValue[] = []) =>
         database.prepare(sql).all(...params) as Data[];

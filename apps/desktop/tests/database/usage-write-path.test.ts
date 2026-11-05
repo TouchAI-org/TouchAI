@@ -222,7 +222,7 @@ describe('when a turn records its model calls', () => {
             VALUES (1, 1, 'text', '你好，我是 TouchAI。', 0);
         `);
 
-        await insertLlmCallParts(1, [call()], (await import('@database')).db);
+        await insertLlmCallParts(1, [call()]);
 
         const rows = database
             .prepare(
@@ -246,11 +246,11 @@ describe('when a turn records its model calls', () => {
             VALUES (1, 1, 'text', '正文', 0);
         `);
 
-        await insertLlmCallParts(
-            1,
-            [call({ iteration: 0 }), call({ iteration: 1 }), call({ iteration: 2 })],
-            (await import('@database')).db
-        );
+        await insertLlmCallParts(1, [
+            call({ iteration: 0 }),
+            call({ iteration: 1 }),
+            call({ iteration: 2 }),
+        ]);
 
         const orders = database
             .prepare(
@@ -267,7 +267,7 @@ describe('when a turn records its model calls', () => {
         seed(database);
 
         const { db } = await import('@database');
-        await insertLlmCallParts(1, [call()], db);
+        await insertLlmCallParts(1, [call()]);
         await updateSessionTurnAttemptUsage({
             id: 1,
             usagePatch: {
@@ -328,8 +328,7 @@ describe('when a turn records its model calls', () => {
         routeQueriesTo(database);
         seed(database);
 
-        const { db } = await import('@database');
-        await insertLlmCallParts(1, [call()], db);
+        await insertLlmCallParts(1, [call()]);
 
         // 列表 UI 已移除，这里直接断言落库载荷：它是 ledger 的唯一真相源
         const row = JSON.parse(
@@ -353,8 +352,7 @@ describe('when a turn records its model calls', () => {
         routeQueriesTo(database);
         seed(database);
 
-        const { db } = await import('@database');
-        await insertLlmCallParts(1, [call()], db, 1);
+        await insertLlmCallParts(1, [call()], 1);
 
         const row = JSON.parse(
             (
@@ -392,8 +390,7 @@ describe('when a turn records its model calls', () => {
             priced: true,
         };
 
-        const { db } = await import('@database');
-        await insertLlmCallParts(1, [priced], db);
+        await insertLlmCallParts(1, [priced]);
 
         const persisted = JSON.parse(
             (
@@ -417,7 +414,7 @@ describe('when a turn records its model calls', () => {
         const { db } = await import('@database');
 
         // 第一次尝试：请求失败，只有少量输入
-        await insertLlmCallParts(1, [call({ errorMessage: 'timeout' })], db);
+        await insertLlmCallParts(1, [call({ errorMessage: 'timeout' })]);
         await updateSessionTurnAttemptUsage({
             id: 1,
             usagePatch: {
@@ -441,7 +438,7 @@ describe('when a turn records its model calls', () => {
         `);
         database.exec(`INSERT INTO messages (id, session_id, role) VALUES (2, 1, 'assistant');`);
 
-        await insertLlmCallParts(2, [call({ iteration: 0 })], db);
+        await insertLlmCallParts(2, [call({ iteration: 0 })]);
         await updateSessionTurnAttemptUsage({
             id: 2,
             usagePatch: {
