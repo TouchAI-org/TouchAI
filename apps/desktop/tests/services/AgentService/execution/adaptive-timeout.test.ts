@@ -102,6 +102,7 @@ function persister() {
         persistToolResult: vi.fn().mockResolvedValue(undefined),
         persistCheckpoint: vi.fn().mockResolvedValue(undefined),
         getSessionId: vi.fn(() => 1),
+        getAttemptGeneration: vi.fn(() => 1),
     } as never;
 }
 

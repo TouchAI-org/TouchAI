@@ -78,6 +78,17 @@ function createCheckpoint(): AttemptCheckpoint {
     };
 }
 
+/** A progress write scoped to the projector's current attempt (matches the writer path). */
+function persistProgress(
+    projector: PersistenceProjector,
+    parts: Parameters<PersistenceProjector['persistOutputProgress']>[0]
+) {
+    return projector.persistOutputProgress(parts, {
+        attemptGeneration: projector.getAttemptGeneration(),
+        step: 0,
+    });
+}
+
 describe('reasoning and the answer are saved as they stream', () => {
     beforeEach(() => {
         vi.resetAllMocks();
@@ -119,7 +130,7 @@ describe('reasoning and the answer are saved as they stream', () => {
             const projector = createProjector();
             await projector.recordTurnStart(createCheckpoint());
             const start = { type: 'reasoning' as const, content: '', startedAt: 1000 };
-            await projector.persistOutputProgress([start]);
+            await persistProgress(projector, [start]);
             const closed = [{ ...start, endedAt: 1500 }];
             if (status === 'failed') {
                 await projector.markFailed('offline', closed);
@@ -226,7 +237,7 @@ describe('reasoning and the answer are saved as they stream', () => {
         async (status) => {
             const projector = createProjector();
             await projector.recordTurnStart(createCheckpoint());
-            await projector.persistOutputProgress([
+            await persistProgress(projector, [
                 { type: 'reasoning', content: 'Saved thought', startedAt: 1000, endedAt: 2000 },
                 { type: 'text', content: 'Saved answer' },
             ]);
@@ -289,7 +300,7 @@ describe('reasoning and the answer are saved as they stream', () => {
             startedAt: 1000,
             endedAt: 2000,
         };
-        await projector.persistOutputProgress([thought]);
+        await persistProgress(projector, [thought]);
         await projector.markCompleted({
             durationMs: 5000,
             outputParts: [thought, { type: 'text', content: 'Answer' }],
@@ -321,7 +332,7 @@ describe('reasoning and the answer are saved as they stream', () => {
     it('user keeps streamed output when completion brings no final parts', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());
-        await projector.persistOutputProgress([
+        await persistProgress(projector, [
             { type: 'reasoning', content: 'Saved thought', startedAt: 1000, endedAt: 2000 },
         ]);
         queries.syncOutputParts.mockClear();
@@ -345,7 +356,7 @@ describe('reasoning and the answer are saved as they stream', () => {
         const parts = [
             { type: 'reasoning' as const, content: 'Plan', startedAt: 1000, endedAt: 2000 },
         ];
-        await projector.persistOutputProgress(parts);
+        await persistProgress(projector, parts);
         expect(await projector.persistToolCallMessage(parts)).toBe(11);
         await projector.markCompleted({
             durationMs: 5000,

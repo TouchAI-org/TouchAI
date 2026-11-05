@@ -120,8 +120,8 @@ export interface UseSearchKeyboardOptions {
     hasPendingRequest: () => boolean;
     isLoading: Ref<boolean>;
     pendingToolApproval: Ref<PendingToolApproval | null>;
-    approvePendingToolApproval: (callId?: string) => boolean;
-    rejectPendingToolApproval: (callId?: string) => boolean;
+    approvePendingToolApproval: (callId?: string, decisionId?: string) => boolean;
+    rejectPendingToolApproval: (callId?: string, decisionId?: string) => boolean;
     promptPendingToolApprovalAttention: () => void;
     getActivePopupType: () => SearchPopupSurfaceType | null;
     hasActivePopupWindowFocus: () => boolean;
@@ -691,6 +691,7 @@ export function createSearchKeydownHandler(
                 ? {
                       callId: pendingToolApproval.value.callId,
                       keyboardApproveAt: pendingToolApproval.value.keyboardApproveAt,
+                      decisionId: pendingToolApproval.value.decisionId,
                   }
                 : null,
         getActiveSurface: () => {

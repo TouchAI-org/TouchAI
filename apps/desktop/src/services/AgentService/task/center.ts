@@ -14,18 +14,26 @@ import {
 import { getSessionStatusReminderContent } from '@/utils/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
-import type { ConversationRuntimeEnvironment, TurnEvent } from '../execution';
+import type { TaskResult } from '../contracts/task';
+import type {
+    AskUserAnswer,
+    AskUserQuestion,
+    ToolApprovalDecisionRequest,
+} from '../contracts/tooling';
+import type { ConversationRuntimeEnvironment } from '../execution';
 import { AiRequestExecutor } from '../execution/executor';
-import { AiConversationRuntime, type ExecuteRequestResult } from '../execution/runtime';
+import { AiConversationRuntime, type RuntimeTurnEvent } from '../execution/runtime';
 import { reportRuntimePersistenceIssue } from '../outputs';
 import { loadSessionHistory } from '../session/history';
+import { TaskInteractions } from './interactions';
+import { NotificationCoalescer } from './notificationCoalescer';
 import { SessionTaskProjection } from './projection';
 import type {
-    SessionTaskSnapshot,
     SessionTaskStatus,
     StartedSessionTask,
     StartSessionTaskOptions,
     TaskSnapshotListener,
+    TaskViewSnapshot,
 } from './types';
 import { cloneTaskValue } from './types';
 
@@ -33,11 +41,12 @@ interface MutableSessionTask {
     taskId: string;
     sessionId: number | null;
     subscribers: Set<TaskSnapshotListener>;
-    snapshot: SessionTaskSnapshot;
+    snapshot: TaskViewSnapshot;
     abortController: AbortController;
     detachAbortRelay: () => void;
+    interactions: TaskInteractions;
     projection: SessionTaskProjection;
-    completion: Promise<ExecuteRequestResult> | null;
+    completion: Promise<TaskResult> | null;
     releaseTimer: ReturnType<typeof setTimeout> | null;
     lastPublishedStatus: SessionTaskStatus | null;
     lastPublishedSessionId: number | null;
@@ -45,7 +54,7 @@ interface MutableSessionTask {
 }
 
 const TERMINAL_TASK_RETENTION_MS = 5 * 60 * 1000;
-function cloneTaskSnapshot(snapshot: SessionTaskSnapshot): SessionTaskSnapshot {
+function cloneTaskSnapshot(snapshot: TaskViewSnapshot): TaskViewSnapshot {
     return cloneTaskValue(snapshot);
 }
 
@@ -63,16 +72,17 @@ function getReminderPublishKey(reminder: SessionStatusReminderPayload | null): s
         title: reminder.title,
         body: reminder.body,
         approvalCallId: reminder.approval?.callId ?? null,
+        approvalDecisionId: reminder.approval?.decisionId ?? null,
     });
 }
 
 /** 判断任务是否已进入终态（完成、失败或已取消）。 */
-function isTerminalStatus(status: SessionTaskSnapshot['status']): boolean {
+function isTerminalStatus(status: TaskViewSnapshot['status']): boolean {
     return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
 
 export function buildSessionStatusReminder(
-    snapshot: SessionTaskSnapshot
+    snapshot: TaskViewSnapshot
 ): SessionStatusReminderPayload | null {
     if (snapshot.status === 'completed') {
         return {
@@ -126,6 +136,7 @@ export function buildSessionStatusReminder(
             callId: snapshot.pendingToolApproval.callId,
             approveLabel: tt('批准'),
             rejectLabel: tt('拒绝'),
+            decisionId: snapshot.pendingToolApproval.decisionId,
         },
     };
 }
@@ -174,6 +185,10 @@ export class SessionTaskCenter {
     private readonly tasks = new Map<string, MutableSessionTask>();
     private readonly sessionActiveTaskIndex = new Map<number, string>();
     private readonly executor = new AiRequestExecutor();
+    /** Coalesces high-frequency streaming snapshots; terminal/error paths flush now. */
+    private readonly notificationCoalescer = new NotificationCoalescer((taskId) =>
+        this.flushTaskNotifications(taskId)
+    );
 
     /**
      * 注册并启动一个新的会话任务。
@@ -185,28 +200,30 @@ export class SessionTaskCenter {
         const taskId = crypto.randomUUID();
         const abortController = new AbortController();
         const detachAbortRelay = relayAbortSignal(options.signal, abortController);
-        const snapshot: SessionTaskSnapshot = {
+        const snapshot: TaskViewSnapshot = {
             taskId,
             sessionId: options.sessionId ?? null,
             turnId: null,
             status: 'running',
             executionMode: options.executionMode ?? 'foreground',
-            prompt: options.prompt,
             sessionHistory: [],
             pendingToolApproval: null,
             pendingApprovals: [],
             pendingUserQuestion: null,
             error: null,
             currentModel: null,
-            promptSnapshot: null,
-            lastCheckpoint: null,
             startedAt: Date.now(),
             updatedAt: Date.now(),
             modelSwitchCount: 0,
         };
-        const projection = new SessionTaskProjection(snapshot, () => {
-            this.notifySubscribers(taskId);
-        });
+        const interactions = new TaskInteractions(taskId);
+        const projection = new SessionTaskProjection(
+            snapshot,
+            () => {
+                this.notifySubscribers(taskId);
+            },
+            interactions
+        );
         const task: MutableSessionTask = {
             taskId,
             sessionId: options.sessionId ?? null,
@@ -214,6 +231,7 @@ export class SessionTaskCenter {
             snapshot,
             abortController,
             detachAbortRelay,
+            interactions,
             projection,
             completion: null,
             releaseTimer: null,
@@ -274,10 +292,10 @@ export class SessionTaskCenter {
                     projection.syncTaskMetadata(event);
                 },
                 requestToolApproval: (payload) => {
-                    return projection.requestToolApproval(payload);
+                    return this.requestTaskToolApproval(task, payload);
                 },
-                requestUserQuestions: (callId, questions) => {
-                    return projection.requestUserQuestions(callId, questions);
+                requestUserQuestions: (callId, questions, attemptToken) => {
+                    return this.requestTaskUserQuestions(task, callId, questions, attemptToken);
                 },
             });
 
@@ -324,47 +342,122 @@ export class SessionTaskCenter {
 
         task.abortController.abort();
         task.projection.clearPendingApprovals(tt('请求已取消'));
+        // Cancellation is decisive: clearing pending cards must reach subscribers now,
+        // not on the next coalesced tick.
+        this.notificationCoalescer.flushNow(taskId);
         return true;
     }
 
-    /** 批准任务中指定的工具调用（按 callId 匹配，不传则批准第一个）。 */
-    approveTaskToolCall(taskId: string, callId?: string): boolean {
-        const task = this.tasks.get(taskId);
-        if (!task) {
-            return false;
-        }
-
-        return task.projection.approvePendingToolApproval(callId);
+    /**
+     * 批准任务中指定的工具调用（按 callId 匹配，不传则批准第一个）。
+     *
+     * 显式 callId 的决定必须携带捕获到的 `decisionId`：缺失或过期一律 fail closed。
+     * 无 callId 的即时动作（键盘快捷）才从当前快照捕获 `{callId, decisionId}`。
+     */
+    approveTaskToolCall(taskId: string, callId?: string, decisionId?: string): boolean {
+        return this.resolveTaskToolApproval(taskId, callId, decisionId, true);
     }
 
     /** 拒绝任务中指定的工具调用（按 callId 匹配，不传则拒绝第一个）。 */
-    rejectTaskToolCall(taskId: string, callId?: string): boolean {
-        const task = this.tasks.get(taskId);
-        if (!task) {
-            return false;
-        }
-
-        return task.projection.rejectPendingToolApproval(callId);
+    rejectTaskToolCall(taskId: string, callId?: string, decisionId?: string): boolean {
+        return this.resolveTaskToolApproval(taskId, callId, decisionId, false);
     }
 
     settleTaskUserQuestion(
         taskId: string,
         callId: string,
-        answers: import('../contracts/tooling').AskUserAnswer[] | null
+        answers: AskUserAnswer[] | null,
+        decisionId?: string
     ): boolean {
         const task = this.tasks.get(taskId);
         if (!task) {
             return false;
         }
 
-        return task.projection.settleUserQuestion(callId, answers);
+        // Fail closed: an explicit callId must carry the captured identity, never a
+        // freshly backfilled one.
+        return task.projection.settleInteractionQuestion(callId, answers, decisionId);
+    }
+
+    /**
+     * 登记一次审批等待并把卡片呈现出来。
+     *
+     * 登记与 Promise 生命周期归 `TaskInteractions`：即使当前没有可见的 assistant
+     * 消息，也会先登记 resolver 再发布，保证运行时等待不依赖 UI 是否就绪。
+     */
+    private requestTaskToolApproval(
+        task: MutableSessionTask,
+        payload: ToolApprovalDecisionRequest
+    ): Promise<boolean> {
+        // A late callback from a superseded/ended attempt must not register nor
+        // render a ghost card: bail out before formatting.
+        if (!task.interactions.acceptsRegistration(payload.attemptToken)) {
+            return Promise.resolve(false);
+        }
+
+        const display = task.projection.formatApproval(payload);
+        const promise = task.interactions.registerApproval(display, payload.attemptToken);
+        task.projection.renderApproval(display, payload);
+        return promise;
+    }
+
+    /** 登记一次结构化提问等待并发布展示状态。 */
+    private requestTaskUserQuestions(
+        task: MutableSessionTask,
+        callId: string,
+        questions: AskUserQuestion[],
+        attemptToken?: string
+    ): Promise<AskUserAnswer[] | null> {
+        if (!task.interactions.acceptsRegistration(attemptToken)) {
+            return Promise.resolve(null);
+        }
+
+        const record = {
+            callId,
+            sourceMessageId: task.projection.getActiveAssistantMessageId() ?? '',
+            questions,
+            createdAt: Date.now(),
+        };
+        const promise = task.interactions.registerQuestion(record, attemptToken);
+        task.projection.renderQuestion(record);
+        return promise;
+    }
+
+    private resolveTaskToolApproval(
+        taskId: string,
+        callId: string | undefined,
+        decisionId: string | undefined,
+        approved: boolean
+    ): boolean {
+        const task = this.tasks.get(taskId);
+        if (!task) {
+            return false;
+        }
+
+        // An explicit callId without a captured identity is refused: never backfill
+        // the current token onto a stale decision (e.g. an old OS notification).
+        if (callId !== undefined) {
+            if (!decisionId) {
+                return false;
+            }
+            return task.projection.settleInteractionApproval(callId, approved, { decisionId });
+        }
+
+        // No callId is the immediate keyboard action: capture the current wait's identity.
+        const current = task.interactions.pendingApproval;
+        if (!current?.decisionId) {
+            return false;
+        }
+        return task.projection.settleInteractionApproval(current.callId, approved, {
+            decisionId: current.decisionId,
+        });
     }
 
     /**
      * 将页面层绑定到指定会话的活跃任务，返回任务 ID 和当前快照的只读副本。
      * 若该会话没有活跃任务则返回 null。
      */
-    attachSessionView(sessionId: number): { taskId: string; snapshot: SessionTaskSnapshot } | null {
+    attachSessionView(sessionId: number): { taskId: string; snapshot: TaskViewSnapshot } | null {
         const taskId = this.sessionActiveTaskIndex.get(sessionId);
         if (!taskId) {
             return null;
@@ -408,7 +501,7 @@ export class SessionTaskCenter {
     }
 
     /** 获取指定任务当前快照的只读副本，任务不存在则返回 null。 */
-    getTaskSnapshot(taskId: string): SessionTaskSnapshot | null {
+    getTaskSnapshot(taskId: string): TaskViewSnapshot | null {
         const task = this.tasks.get(taskId);
         return task ? cloneTaskSnapshot(task.snapshot) : null;
     }
@@ -436,17 +529,34 @@ export class SessionTaskCenter {
     }
 
     /** 列出所有非终态的活跃任务快照。 */
-    listActiveTasks(): SessionTaskSnapshot[] {
+    listActiveTasks(): TaskViewSnapshot[] {
         return Array.from(this.tasks.values())
             .filter((task) => !isTerminalStatus(task.snapshot.status))
             .map((task) => cloneTaskSnapshot(task.snapshot));
     }
 
+    /**
+     * 释放进程级中心持有的定时器：合并通知、终态保留。仅用于测试或应用退出。
+     */
+    dispose(): void {
+        this.notificationCoalescer.dispose();
+        for (const task of this.tasks.values()) {
+            if (task.releaseTimer !== null) {
+                clearTimeout(task.releaseTimer);
+                task.releaseTimer = null;
+            }
+            // 走每个任务的取消路径，让运行中的请求停止、等待项被结算、信号中继断开，
+            // 而不是把仍持有 Promise 的任务直接从内存里抹掉。
+            task.abortController.abort();
+            task.detachAbortRelay();
+            task.interactions.cancelAll();
+        }
+        this.tasks.clear();
+        this.sessionActiveTaskIndex.clear();
+    }
+
     /** 执行任务运行时，处理完成/取消/失败的终态转换。 */
-    private async runTask(
-        taskId: string,
-        runtime: AiConversationRuntime
-    ): Promise<ExecuteRequestResult> {
+    private async runTask(taskId: string, runtime: AiConversationRuntime): Promise<TaskResult> {
         try {
             return await runtime.run();
         } catch (error) {
@@ -493,8 +603,9 @@ export class SessionTaskCenter {
     }
 
     /** 处理运行时发出的回合事件，同步会话绑定和终态生命周期。 */
-    private handleTaskEvent(taskId: string, event: TurnEvent): void {
-        if (!this.tasks.has(taskId)) {
+    private handleTaskEvent(taskId: string, event: RuntimeTurnEvent): void {
+        const task = this.tasks.get(taskId);
+        if (!task) {
             return;
         }
 
@@ -503,11 +614,38 @@ export class SessionTaskCenter {
             return;
         }
 
+        if (event.type === 'attempt_started') {
+            // 新 attempt 的交互 scope：释放上一代等待项，并用运行时给出的
+            // attempt token 关闭旧代登记入口（迟到的旧回调会被拒绝）。
+            task.projection.syncInteractionRelease(
+                task.interactions.beginAttempt(event.attemptToken),
+                tt('请求已取消')
+            );
+            return;
+        }
+
+        if (event.type === 'attempt_finished') {
+            // attempt 结束到下一次 attempt 开始之间（重试延迟/终态处理）不再
+            // 接受该 attempt 的迟到登记，同时把它的等待项同步释放到投影。
+            task.projection.syncInteractionRelease(
+                task.interactions.endAttempt(),
+                tt('请求已取消')
+            );
+            return;
+        }
+
+        if (event.type === 'retry_scheduled') {
+            // 状态同步由投影负责；交互释放统一走 attempt_started，避免把
+            // retry 计数当成 interaction generation。
+            return;
+        }
+
         if (
             event.type === 'task_completed' ||
             event.type === 'task_failed' ||
             event.type === 'task_cancelled'
         ) {
+            task.projection.syncInteractionRelease(task.interactions.cancelAll(), tt('请求已取消'));
             this.finalizeTaskLifecycle(taskId);
         }
     }
@@ -578,6 +716,9 @@ export class SessionTaskCenter {
             task.releaseTimer = null;
         }
 
+        // 释放任务时确保没有遗留的等待项悬挂。
+        task.interactions.cancelAll();
+        this.notificationCoalescer.cancel(taskId);
         task.detachAbortRelay();
         if (task.sessionId !== null) {
             const indexedTaskId = this.sessionActiveTaskIndex.get(task.sessionId);
@@ -591,6 +732,25 @@ export class SessionTaskCenter {
 
     /** 向所有订阅者推送任务快照的只读副本，并在需要时发布状态事件。 */
     private notifySubscribers(taskId: string): void {
+        const task = this.tasks.get(taskId);
+        if (!task) {
+            return;
+        }
+
+        // Streaming updates are coalesced to one notification per tick; approval,
+        // terminal and error states flush immediately so the UI never misses them.
+        if (task.snapshot.status !== 'running') {
+            this.notificationCoalescer.flushNow(taskId);
+            return;
+        }
+
+        this.notificationCoalescer.schedule(taskId);
+    }
+
+    /** 立即推送某个任务的快照，并清除它待合并的通知。 */
+    private flushTaskNotifications(taskId: string): void {
+        this.notificationCoalescer.cancel(taskId);
+
         const task = this.tasks.get(taskId);
         if (!task) {
             return;
@@ -629,13 +789,17 @@ export class SessionTaskCenter {
         task.lastPublishedStatus = task.snapshot.status;
         task.lastPublishedReminderKey = reminderKey;
 
-        void eventService.emit(AppEvent.SESSION_TASK_STATUS_CHANGED, {
-            sessionId: task.sessionId,
-            taskId: task.taskId,
-            status: task.snapshot.status,
-            previousStatus,
-            reminder,
-        });
+        // Fire-and-forget: EventService already logs the failure, so swallow the
+        // rejection here to avoid an unhandled rejection (e.g. no Tauri host).
+        void eventService
+            .emit(AppEvent.SESSION_TASK_STATUS_CHANGED, {
+                sessionId: task.sessionId,
+                taskId: task.taskId,
+                status: task.snapshot.status,
+                previousStatus,
+                reminder,
+            })
+            .catch(() => {});
     }
 }
 
