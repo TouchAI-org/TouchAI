@@ -1,24 +1,23 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import { getContextProfiles, getContextTurnPoints } from '@database/queries/usageContext';
-import type { InvokeArgs } from '@tauri-apps/api/core';
-import { interceptTauriInvoke } from '@tests/utils/tauri';
-import { describe, expect, it } from 'vitest';
+import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
+import { afterEach, describe, expect, it } from 'vitest';
 
 /**
  * The context page ends in a set of advisory tags ("leans light", "fills fast", "flaky") and a
  * 0-100 score. Each tag is a claim about the user's sessions, so each has to fire on the data
  * that actually justifies it and stay quiet otherwise.
  *
- * The system boundary replaced here is the Tauri SQL IPC: rows are handed to the query layer and
- * the scoring, aggregation and tagging above it run for real.
+ * The system boundary replaced here is the Tauri database command: rows are written to the real
+ * migrated schema and the aggregation and tagging run for real.
  */
 
 const FILTER = { from: '2026-01-01 00:00:00', to: '2026-12-31 23:59:59' };
-
-function request(payload: InvokeArgs | undefined) {
-    return (payload as { request: { sql: string } }).request;
-}
 
 interface SampleInput {
     turnId: number;
@@ -76,12 +75,59 @@ function sampleRow(input: SampleInput) {
 }
 
 function respondWith(rows: Array<Record<string, unknown>>) {
-    interceptTauriInvoke((call) => {
-        if (call.cmd !== 'database_query') return undefined;
-        if (!request(call.payload).sql.includes('session_turns')) return { rows: [] };
-        return { rows, rowsAffected: 0, lastInsertId: null };
-    });
+    const database = openMigratedDatabase();
+    database
+        .prepare(
+            `INSERT INTO providers (id, name, driver, api_endpoint, logo)
+             VALUES (7, 'Provider', 'openai', 'https://example.com', 'openai')`
+        )
+        .run();
+    const models = new Map<number, { name: string; window: number }>();
+    for (const row of rows) {
+        const modelId = Number(row.modelId);
+        if (!models.has(modelId)) {
+            models.set(modelId, {
+                name: String(row.modelName ?? ''),
+                window: Number(row.window ?? 0),
+            });
+        }
+    }
+    const insertModel = database.prepare(
+        `INSERT INTO models (id, provider_id, name, model_id, context_limit)
+         VALUES (?, 7, ?, ?, ?)`
+    );
+    for (const [modelId, model] of models) {
+        insertModel.run(modelId, model.name, `model-${modelId}`, model.window);
+    }
+    database
+        .prepare(
+            `INSERT INTO sessions (id, session_id, title, model, provider_id)
+             VALUES (1, 'session-1', 'Session', 'model-1', 7)`
+        )
+        .run();
+    const insertTurn = database.prepare(
+        `INSERT INTO session_turns (
+            id, session_id, model_id, task_id, prompt_snapshot_json,
+            prompt_breakdown_json, status, created_at, input_tokens,
+            cache_read_tokens, cache_write_tokens
+        ) VALUES (?, 1, ?, ?, '{}', ?, ?, ?, ?, ?, 0)`
+    );
+    for (const row of rows) {
+        insertTurn.run(
+            Number(row.turnId),
+            Number(row.modelId),
+            `task-${String(row.turnId)}`,
+            typeof row.breakdown === 'string' ? row.breakdown : null,
+            Number(row.failed) === 1 ? 'failed' : 'completed',
+            String(row.createdAt),
+            Number(row.inputTokens),
+            Number(row.cacheReadTokens)
+        );
+    }
+    routeQueriesTo(database);
 }
+
+afterEach(closeTestDatabases);
 
 function tagKeysOf(profile: { tags: Array<{ key: string }> } | null): string[] {
     return (profile?.tags ?? []).map((tag) => tag.key);

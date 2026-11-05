@@ -3,7 +3,6 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import type { DatabaseSync as SqliteDatabase, SQLInputValue } from 'node:sqlite';
 
-import { db } from '@database';
 import type { PersistedCall } from '@services/UsageService';
 import { sumUsage } from '@services/UsageService';
 import { insertLlmCallParts } from '@services/UsageService/insertLlmCallParts';
@@ -137,7 +136,7 @@ describe('when a model call stores its usage', () => {
         routeQueriesTo(database);
         seed(database);
 
-        await insertLlmCallParts(1, [call(120, 400)], db, 1);
+        await insertLlmCallParts(1, [call(120, 400)], 1);
 
         const row = database
             .prepare(
