@@ -618,11 +618,11 @@ mod tests {
 
     const LEGAL_FIXTURES: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../src/services/AnalyticsService/fixtures/analytics-events.v1.json"
+        "/../tests/fixtures/analytics/analytics-events.v1.json"
     ));
     const INVALID_FIXTURES: &str = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../src/services/AnalyticsService/fixtures/analytics-events.invalid.v1.json"
+        "/../tests/fixtures/analytics/analytics-events.invalid.v1.json"
     ));
 
     fn fixtures(json: &str) -> Vec<(String, JsonMap<String, JsonValue>)> {
@@ -688,7 +688,7 @@ mod tests {
     fn user_gets_only_real_days_in_years_1_through_9999_when_submitting_observation_dates() {
         let document: JsonValue = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../src/services/AnalyticsService/fixtures/analytics-days.v1.json"
+            "/../tests/fixtures/analytics/analytics-days.v1.json"
         )))
         .expect("shared day cases");
 

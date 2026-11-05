@@ -15,6 +15,7 @@
   <a href="https://github.com/TouchAI-org/TouchAI/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/TouchAI-org/TouchAI/ci.yml?style=flat-square&branch=main" /></a>
   <a href="https://github.com/TouchAI-org/TouchAI/blob/main/COPYING"><img alt="License" src="https://img.shields.io/badge/license-GPL--3.0--or--later-4b5563?style=flat-square" /></a>
   <a href="https://github.com/TouchAI-org/TouchAI/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/TouchAI-org/TouchAI?style=flat-square" /></a>
+  <a href="https://mimo.mi.com/docs/en-US/news/latest/v2.5-orbit"><img alt="Xiaomi MiMo Orbit Partner" src="https://img.shields.io/badge/Xiaomi_MiMo-Orbit_Ecosystem_Partner-4b5563?style=flat-square" /></a>
 </p>
 
 <p align="center">
@@ -48,6 +49,13 @@ If you want to contribute to TouchAI, read the [contributing docs](./CONTRIBUTIN
 
 For more details, browse the project docs and source code.
 
+### Partners
+
+<p align="left">
+  <a href="https://mimo.mi.com/docs/en-US/news/latest/v2.5-orbit"><img src="docs/images/partners/xiaomi-mimo-card.svg" alt="Xiaomi MiMo" height="30" align="absmiddle" /></a>
+  <a href="https://mimo.mi.com/docs/en-US/news/latest/v2.5-orbit"><strong>Xiaomi MiMo</strong> Ecosystem Partner</a>
+</p>
+
 ---
 
 ### Contributors
@@ -63,5 +71,4 @@ For more details, browse the project docs and source code.
 ### Friendly Links
 
 - [LINUX DO](https://linux.do/)
-- [Xiaomi MIMO](https://mimo.xiaomi.com/)
 - [ExoMind](https://exo-mind.ai/)
