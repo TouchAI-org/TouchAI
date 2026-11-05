@@ -18,6 +18,11 @@ use sqlx::SqlitePool;
 
 use self::operation::OperationSurface;
 
+/// The backup group is allowed from the main and settings windows only.
+pub(crate) fn backup_allows(window_label: &str) -> bool {
+    OperationSurface::new(OperationGroup::Backup).allows(window_label)
+}
+
 pub(crate) async fn execute(
     pool: &SqlitePool,
     window_label: &str,
