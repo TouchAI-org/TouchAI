@@ -33,7 +33,7 @@ TouchAI is a local-first desktop AI agent built with Tauri 2 + Vue 3 + Rust + SQ
 
 | Document | Read it when | Covers |
 | --- | --- | --- |
-| [docs/agents/architecture.md](docs/agents/architecture.md) | Any non-trivial change | Stack, layers, TS/Rust contract, RFC-first and high-risk areas, where things live |
+| [docs/agents/architecture.md](docs/agents/architecture.md) | Any non-trivial change | Stack, layers, TS/Rust contract, RFC-first and high-risk areas, where things live, architecture enforcement gates |
 | [docs/agents/development.md](docs/agents/development.md) | Starting a task | First principles, Occam's razor, libraries before hand-rolled code, issue and worktree, bug fixes, code style, comments, testing, when to ask |
 | [docs/agents/product-rules.md](docs/agents/product-rules.md) | Touching data, UI, or performance | Database approval rule, layout-first UI, performance budgets |
 | [docs/agents/design-system.md](docs/agents/design-system.md) | Touching styles, tokens, or `components/ui/` | Token layers, naming rules, primitive rules, visual-change scopes, drift guards |

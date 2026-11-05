@@ -14,6 +14,35 @@
 /apps/desktop/product.json @hiqiancheng
 /apps/desktop/scripts/ci/ @hiqiancheng
 
+# High-risk RFC #710 ownership surfaces require maintainer review.
+# Existing maintainer only; no teams are invented.
+/apps/desktop/src/services/AgentService/ @hiqiancheng
+/apps/desktop/src/services/BuiltInToolService/ @hiqiancheng
+/apps/desktop/src/services/SettingsService/ @hiqiancheng
+/apps/desktop/src/services/HttpService/ @hiqiancheng
+/apps/desktop/src/services/PopupService/ @hiqiancheng
+/apps/desktop/src/services/EventService/ @hiqiancheng
+/apps/desktop/src/services/NativeService/ @hiqiancheng
+/apps/desktop/src/domain/ @hiqiancheng
+/apps/desktop/src/database/ @hiqiancheng
+/apps/desktop/src-tauri/src/commands/ @hiqiancheng
+/apps/desktop/src-tauri/src/core/ @hiqiancheng
+
+# Architecture gate and its baselines: a baseline exception can only be widened
+# or re-hashed through maintainer review, never by an automatic re-green.
+/apps/desktop/scripts/ci/architecture/ @hiqiancheng
+
+# The enforcement rule itself and its documentation are gated too, so an entry
+# point cannot be loosened without maintainer review.
+/eslint.config.js @hiqiancheng
+/docs/agents/architecture.md @hiqiancheng
+/docs/plans/710-architecture-ownership.md @hiqiancheng
+
+# Owner composition entry points: settings bootstrap must be reviewed with the
+# SettingsService path instead of being reachable past the business directory.
+/apps/desktop/src/stores/settings.ts @hiqiancheng
+/apps/desktop/src/stores/setting/ @hiqiancheng
+
 # Design system surfaces require maintainer review.
 # Token changes move every screen at once, and primitive changes move every call site.
 /apps/desktop/src/styles/ @hiqiancheng

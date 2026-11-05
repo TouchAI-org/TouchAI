@@ -1,0 +1,6 @@
+{
+    "plugin:log|log": {
+        "source": "apps/desktop/src/services/NativeService/log.ts",
+        "reason": "Tauri log plugin command. The 'log' plugin is a registered Cargo dependency (tauri-plugin-log)."
+    }
+}
