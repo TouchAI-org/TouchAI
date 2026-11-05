@@ -10,7 +10,7 @@ use std::{
     cmp::Ordering,
     collections::BTreeMap,
     path::Path,
-    sync::{mpsc, Arc, Mutex, OnceLock},
+    sync::{mpsc, Arc, Mutex},
     time::Duration,
 };
 use tauri::{AppHandle, Emitter, Runtime};
@@ -21,6 +21,11 @@ use velopack::{
     VelopackAssetFeed,
 };
 
+#[cfg(test)]
+use crate::core::product_config::ProductConfig;
+use crate::core::product_config::{product_config, ProductUpdatePolicy};
+
+#[cfg(test)]
 const PRODUCT_CONFIG_JSON: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../product.json"));
 const UPDATE_SOURCE_OVERRIDE_ENV: &str = "TOUCHAI_UPDATE_SOURCE_OVERRIDE";
@@ -281,57 +286,6 @@ pub enum AppUpdateUnsupportedReason {
     NotInstalled,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProductConfig {
-    schema_version: u32,
-    product: String,
-    display_name: String,
-    identifier: String,
-    repository: ProductRepository,
-    packaging: ProductPackaging,
-    services: ProductServices,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProductRepository {
-    url: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProductPackaging {
-    main_exe: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProductServices {
-    updates: ProductUpdates,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProductUpdates {
-    base_url: String,
-    channels: BTreeMap<String, ProductUpdateChannelConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProductUpdateChannelConfig {
-    policy: ProductUpdatePolicy,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct ProductUpdatePolicy {
-    minimum_supported_version: Option<String>,
-    required_severity: Option<String>,
-    required_reason: Option<String>,
-}
-
 #[derive(Debug, Clone, Default)]
 struct ProductUpdateFeedMetadata {
     latest: Option<AppUpdateChannelLatest>,
@@ -356,75 +310,6 @@ struct ProductReleaseFeedDocument {
 struct ParsedProductReleaseFeed {
     feed: VelopackAssetFeed,
     metadata: ProductUpdateFeedMetadata,
-}
-
-static PRODUCT_CONFIG: OnceLock<Result<ProductConfig, String>> = OnceLock::new();
-
-fn product_config() -> Result<&'static ProductConfig, String> {
-    PRODUCT_CONFIG
-        .get_or_init(|| product_config_from_json(PRODUCT_CONFIG_JSON))
-        .as_ref()
-        .map_err(Clone::clone)
-}
-
-fn validate_https_url(value: &str, label: &str) -> Result<(), String> {
-    let url =
-        reqwest::Url::parse(value).map_err(|_| format!("{label} must be an absolute URL."))?;
-    if url.scheme() != "https" {
-        return Err(format!("{label} must use https."));
-    }
-    Ok(())
-}
-
-fn product_config_from_json(json: &str) -> Result<ProductConfig, String> {
-    let config: ProductConfig =
-        serde_json::from_str(json).map_err(|error| format!("解析 product.json 失败：{error}"))?;
-
-    if config.schema_version != 1 {
-        return Err("product.json schemaVersion must be 1.".to_string());
-    }
-
-    if config.product.trim().is_empty() {
-        return Err("product.json product must be a non-empty string.".to_string());
-    }
-
-    if config.display_name.trim().is_empty() {
-        return Err("product.json displayName must be a non-empty string.".to_string());
-    }
-
-    if config.identifier.trim().is_empty() {
-        return Err("product.json identifier must be a non-empty string.".to_string());
-    }
-
-    if config.repository.url.trim().is_empty() {
-        return Err("repository.url must be a non-empty string.".to_string());
-    }
-    validate_https_url(&config.repository.url, "repository.url")?;
-
-    if config.packaging.main_exe.trim().is_empty() {
-        return Err("packaging.mainExe must be a non-empty string.".to_string());
-    }
-
-    if config.services.updates.base_url.trim().is_empty() {
-        return Err("services.updates.baseUrl must be a non-empty string.".to_string());
-    }
-    validate_https_url(
-        &config.services.updates.base_url,
-        "services.updates.baseUrl",
-    )?;
-
-    if config.services.updates.channels.is_empty() {
-        return Err("services.updates.channels must include at least one channel.".to_string());
-    }
-
-    for (channel, channel_config) in &config.services.updates.channels {
-        if channel.trim().is_empty() {
-            return Err("services.updates.channels must not include an empty channel.".to_string());
-        }
-        let _ = &channel_config.policy;
-    }
-
-    Ok(config)
 }
 
 #[cfg(test)]
@@ -991,6 +876,7 @@ pub async fn install_update<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::product_config::product_config_from_json;
 
     fn candidate(channel: AppUpdateChannel, version: &str) -> PendingUpdate {
         let mut update = UpdateInfo::default();

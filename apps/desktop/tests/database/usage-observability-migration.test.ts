@@ -271,10 +271,9 @@ describe('when the app upgrades an existing database', () => {
     /**
      * The usage ledger landed while 0004 was still unreleased, so it lives in
      * that migration rather than in a separate one. A released migration must
-     * never be edited, so this guards against the merging going further than
-     * the last unreleased step.
+     * never be edited, so this guards the journal against a released step moving.
      */
-    it('user gets the usage ledger added by the latest migration only', () => {
+    it('user gets the released migrations applied in order', () => {
         expect(journal.entries.map((entry) => entry.tag)).toEqual([
             '0000_lyrical_toad',
             '0001_silent_reasoning',
@@ -282,6 +281,22 @@ describe('when the app upgrades an existing database', () => {
             '0003_tough_amazoness',
             '0004_ordinary_solo',
         ]);
+    });
+
+    it('user gets analytics state kept in settings without dedicated tables', () => {
+        const db = migrated();
+        try {
+            const tables = (
+                db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as {
+                    name: string;
+                }[]
+            ).map((table) => table.name);
+            expect(tables).toContain('settings');
+            expect(tables).not.toContain('analytics_state');
+            expect(tables).not.toContain('analytics_outbox');
+        } finally {
+            db.close();
+        }
     });
 
     it('user gets model calls stored as their own part type', () => {

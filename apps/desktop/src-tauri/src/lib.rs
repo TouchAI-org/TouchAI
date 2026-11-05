@@ -53,8 +53,33 @@ fn focus_single_instance_activation_window<R: tauri::Runtime>(
     Ok(())
 }
 
+/// A second-instance launch is a real foreground entry: it opens a new native
+/// activation before the window is raised, and completes it once the app actually
+/// reached the foreground. Everything stays native-owned; no WebView supplies
+/// the startup id, kind or duration.
+fn handle_single_instance_activation<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    let analytics = app
+        .try_state::<core::analytics::AnalyticsRuntime>()
+        .map(|runtime| runtime.inner().clone());
+    if let Some(analytics) = &analytics {
+        analytics.begin_foreground_activation();
+    }
+
+    if let Err(error) = focus_single_instance_activation_window(app) {
+        warn!("{error}");
+        return;
+    }
+
+    if let Some(analytics) = analytics {
+        tauri::async_runtime::spawn(async move {
+            analytics.complete_foreground_activation().await;
+        });
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    core::analytics::mark_process_start(std::time::Instant::now());
     velopack::VelopackApp::build().run();
 
     let builder = tauri::Builder::default().plugin(core::system::logging::build_plugin());
@@ -62,9 +87,7 @@ pub fn run() {
     let builder = if core::system::runtime::should_enable_single_instance() {
         builder.plugin(tauri_plugin_single_instance::init(
             |app, _args: Vec<String>, _cwd: String| {
-                if let Err(error) = focus_single_instance_activation_window(app) {
-                    warn!("{error}");
-                }
+                handle_single_instance_activation(app);
             },
         ))
     } else {
@@ -149,6 +172,21 @@ pub fn run() {
                         }
                     }
                     _ => {}
+                }
+            }
+
+            if matches!(event, WindowEvent::Focused(true)) && window.label() == "main" {
+                // The main search window reached the foreground: complete the
+                // pending native activation once. Focus on an already completed
+                // activation is deduplicated inside the runtime.
+                if let Some(analytics) = window
+                    .app_handle()
+                    .try_state::<core::analytics::AnalyticsRuntime>()
+                {
+                    let analytics = analytics.inner().clone();
+                    tauri::async_runtime::spawn(async move {
+                        analytics.complete_foreground_activation().await;
+                    });
                 }
             }
 

@@ -11,9 +11,12 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use super::bounds::{SearchWindowDefaults, SearchWindowState};
 
 /// 搜索窗口组显示来源。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchSurfaceShowSource {
     Shortcut,
     Notification,
+    Tray,
+    Main,
 }
 
 impl SearchSurfaceShowSource {
@@ -22,6 +25,19 @@ impl SearchSurfaceShowSource {
         match self {
             Self::Shortcut => "shortcut",
             Self::Notification => "notification",
+            Self::Tray => "tray",
+            Self::Main => "main",
+        }
+    }
+
+    /// Classifies a show requested by an app WebView. The tray menu is a tray
+    /// entry; every other app window is the main surface asking for the search
+    /// window. The label comes from native window state, never from the caller.
+    pub(crate) fn from_requesting_window(label: &str) -> Self {
+        if label == crate::core::window::tray::TRAY_MENU_WINDOW_LABEL {
+            Self::Tray
+        } else {
+            Self::Main
         }
     }
 }
@@ -319,6 +335,15 @@ pub fn show_surface<R: Runtime>(
         .get_webview_window("main")
         .ok_or_else(|| "Failed to get main window".to_string())?;
 
+    // Only a real hidden/unfocused -> foreground entry starts a new activation.
+    // Showing an already-focused surface is not a reactivation.
+    if !window.is_visible().unwrap_or(false) || !window.is_focused().unwrap_or(false) {
+        if let Some(analytics) = app_handle.try_state::<crate::core::analytics::AnalyticsRuntime>()
+        {
+            analytics.begin_foreground_activation();
+        }
+    }
+
     super::show_and_activate_search_window(&window)?;
     app_handle
         .emit(
@@ -432,8 +457,37 @@ impl Default for SearchWindowRuntime {
 #[cfg(test)]
 mod tests {
     use super::{
-        should_hide_on_focus_lost, FocusLostDecisionInput, PopupSurfaceSession, SearchWindowRuntime,
+        should_hide_on_focus_lost, FocusLostDecisionInput, PopupSurfaceSession,
+        SearchSurfaceShowSource, SearchWindowRuntime,
     };
+
+    #[test]
+    fn user_sees_which_entry_point_opened_the_search_window() {
+        let sources = [
+            (SearchSurfaceShowSource::Shortcut, "shortcut"),
+            (SearchSurfaceShowSource::Notification, "notification"),
+            (SearchSurfaceShowSource::Tray, "tray"),
+            (SearchSurfaceShowSource::Main, "main"),
+        ];
+
+        for (source, expected) in sources {
+            assert_eq!(source.as_str(), expected);
+        }
+    }
+
+    #[test]
+    fn user_gets_a_tray_entry_when_the_tray_menu_asks_for_the_search_window() {
+        assert_eq!(
+            SearchSurfaceShowSource::from_requesting_window(
+                crate::core::window::tray::TRAY_MENU_WINDOW_LABEL
+            ),
+            SearchSurfaceShowSource::Tray
+        );
+        assert_eq!(
+            SearchSurfaceShowSource::from_requesting_window("main"),
+            SearchSurfaceShowSource::Main
+        );
+    }
 
     fn decision_input(window_label: &'static str) -> FocusLostDecisionInput<'static> {
         FocusLostDecisionInput {

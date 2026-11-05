@@ -1004,6 +1004,10 @@ const zhCNMessages = {
     'agent.persistenceIssue.turnFailed': '保存会话失败状态失败，对话记录可能不完整。',
     'agent.mcp.toolDescriptionFallback': '工具：{toolName}',
     'settings.diagnostics.title': '诊断日志',
+    'settings.analytics.title': '产品使用统计',
+    'settings.analytics.share': '分享产品使用统计',
+    'settings.analytics.shareDescription':
+        '分享脱敏后的产品使用统计，帮助我们改进产品。关闭后不再收集或发送统计信息。',
     'settings.diagnostics.diagnosticMode': '调试日志',
     'settings.diagnostics.remaining': '剩余 {time}',
     'settings.diagnostics.exportBundle': '导出诊断包',
@@ -2116,6 +2120,10 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'Failed to save session failure state. Conversation records may be incomplete.',
     'agent.mcp.toolDescriptionFallback': 'Tool: {toolName}',
     'settings.diagnostics.title': 'Diagnostics',
+    'settings.analytics.title': 'Product analytics',
+    'settings.analytics.share': 'Share product usage statistics',
+    'settings.analytics.shareDescription':
+        'Share de-identified product usage statistics to help improve the product. When off, no analytics data is collected or sent.',
     'settings.diagnostics.diagnosticMode': 'Debug logging',
     'settings.diagnostics.remaining': '{time} remaining',
     'settings.diagnostics.exportBundle': 'Export diagnostics',

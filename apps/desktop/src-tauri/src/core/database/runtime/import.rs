@@ -6,6 +6,8 @@ use std::{fs, path::PathBuf};
 
 use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection, SqlitePool};
 
+use crate::core::analytics::{adopt_restored_consent, RestoredConsent};
+
 use super::super::{
     contract::{execute_sql_artifact_on_connection, migrate_database, DatabaseContractSource},
     protocol::types::{DatabaseImportMode, DatabaseImportRequest},
@@ -29,7 +31,7 @@ pub(crate) async fn run_import_backup(
         return Err("不能导入当前正在使用的数据库文件".to_string());
     }
 
-    let snapshot =
+    let (snapshot, restored_consent) =
         prepare_import_database(&source_path, &database_path, &database_contract).await?;
     let snapshot_path = snapshot.path().join("touchai.db");
     let mut connection = pool
@@ -82,6 +84,16 @@ pub(crate) async fn run_import_backup(
                 &["artifacts", "import", "chat_merge.sql"],
             )
             .await?;
+            // A full restore carries the consent decision the snapshot preserves,
+            // and applying it belongs to this transaction: a failed import must
+            // not leave a half-applied choice behind, and a restoring opt-out
+            // purges the queue in the same commit. A chat-only import keeps the
+            // local consent state untouched.
+            if matches!(request.mode, DatabaseImportMode::Full) {
+                if let Some(consent) = &restored_consent {
+                    adopt_restored_consent(&mut *connection, consent).await?;
+                }
+            }
             sqlx::query("COMMIT")
                 .execute(&mut *connection)
                 .await
@@ -112,7 +124,7 @@ async fn prepare_import_database(
     source_path: &std::path::Path,
     database_path: &std::path::Path,
     database_contract: &DatabaseContractSource,
-) -> Result<tempfile::TempDir, String> {
+) -> Result<(tempfile::TempDir, Option<RestoredConsent>), String> {
     let snapshot = tempfile::tempdir_in(database_path.parent().ok_or("数据库路径没有父目录")?)
         .map_err(|error| format!("Failed to create import workspace: {error}"))?;
     let snapshot_path = snapshot.path().join("touchai.db");
@@ -174,13 +186,20 @@ async fn prepare_import_database(
     let close_result = upgraded.close().await;
     upgrade_result?;
     close_result.map_err(|error| format!("Failed to close import snapshot: {error}"))?;
-    Ok(snapshot)
+    // The imported snapshot never carries another install's analytics identity,
+    // epoch or queued events into this database. Local analytics state is kept,
+    // but the consent decision travels with the user.
+    let restored_consent =
+        super::analytics_snapshot::sanitize_analytics_snapshot(&snapshot_path).await?;
+    Ok((snapshot, restored_consent))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::analytics::ANALYTICS_STATE_SETTING;
     use crate::core::database::contract::{create_sqlite_pool, migrate_database};
+    use serde_json::{json, Value};
 
     fn contract() -> DatabaseContractSource {
         DatabaseContractSource::from_root(
@@ -190,6 +209,47 @@ mod tests {
                 .join("src/database"),
         )
         .unwrap()
+    }
+
+    async fn seed_analytics_state(
+        pool: &SqlitePool,
+        status: &str,
+        explicit: bool,
+        installation: Option<&str>,
+        epoch: i64,
+        pending: Option<&str>,
+    ) {
+        let state = json!({
+            "policyVersion": 1,
+            "status": status,
+            "consentExplicit": if explicit { 1 } else { 0 },
+            "installationId": installation,
+            "consentEpoch": epoch,
+            "observationStartedDay": installation.map(|_| "2026-01-01"),
+            "firstSuccessDay": null,
+            "lastObservedAppVersion": null,
+            "pendingUpdateJson": pending,
+            "deploymentKey": "https://analytics.invalid/send|project",
+            "updatedAtMs": 1
+        });
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?, ?) \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(ANALYTICS_STATE_SETTING)
+        .bind(state.to_string())
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn load_analytics_state(pool: &SqlitePool) -> Value {
+        let value: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+            .bind(ANALYTICS_STATE_SETTING)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+        serde_json::from_str(&value).unwrap()
     }
 
     async fn backup(path: &std::path::Path, entry_count: usize) -> SqlitePool {
@@ -603,5 +663,340 @@ mod tests {
             .unwrap()
             .all(|entry| !entry.unwrap().path().is_dir()));
         source.close().await;
+    }
+    #[tokio::test]
+    async fn user_keeps_local_analytics_choice_and_imports_the_chat() {
+        let root = tempfile::tempdir().unwrap();
+        let source_path = root.path().join("source.db");
+        let source = backup(&source_path, 5).await;
+        seed_analytics_state(&source, "enabled", true, Some("remote-install"), 7, None).await;
+        sqlx::query(
+            "INSERT INTO sessions (id, session_id, title, model) \
+             VALUES (1, 'imported-chat', 'Imported', 'test')",
+        )
+        .execute(&source)
+        .await
+        .unwrap();
+
+        let target_path = root.path().join("target.db");
+        let target = create_sqlite_pool(&target_path).await.unwrap();
+        migrate_database(&mut *target.acquire().await.unwrap(), &contract())
+            .await
+            .unwrap();
+        seed_analytics_state(&target, "disabled", true, Some("local-install"), 5, None).await;
+
+        run_import_backup(
+            target.clone(),
+            target_path,
+            contract(),
+            DatabaseImportRequest {
+                source_path: source_path.to_string_lossy().into_owned(),
+                mode: DatabaseImportMode::Full,
+            },
+        )
+        .await
+        .unwrap();
+
+        let state = load_analytics_state(&target).await;
+        assert_eq!(state["status"], "disabled");
+        assert_eq!(state["consentExplicit"], 1);
+        assert_eq!(state["installationId"], "local-install");
+        assert_eq!(state["consentEpoch"], 5);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' \
+                 AND name IN ('analytics_state', 'analytics_outbox')"
+            )
+            .fetch_one(&target)
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM sessions WHERE session_id = 'imported-chat'"
+            )
+            .fetch_one(&target)
+            .await
+            .unwrap(),
+            1
+        );
+        source.close().await;
+        target.close().await;
+    }
+
+    #[tokio::test]
+    async fn user_keeps_an_explicit_opt_out_after_reinstalling_and_restoring_a_backup() {
+        let root = tempfile::tempdir().unwrap();
+        let source_path = root.path().join("source.db");
+        // The backup was exported from an install where sharing was explicitly
+        // turned off.
+        let source = backup(&source_path, 5).await;
+        seed_analytics_state(
+            &source,
+            "disabled",
+            true,
+            Some("exported-install"),
+            4,
+            Some("{\"toVersion\":\"1.0.0\"}"),
+        )
+        .await;
+
+        // The reinstall: a fresh database whose deployment default is enabled and
+        // that has already queued an event and pending update metadata before the
+        // restore happens.
+        let target_path = root.path().join("target.db");
+        let target = create_sqlite_pool(&target_path).await.unwrap();
+        migrate_database(&mut *target.acquire().await.unwrap(), &contract())
+            .await
+            .unwrap();
+        seed_analytics_state(
+            &target,
+            "enabled",
+            false,
+            Some("fresh-install"),
+            0,
+            Some("{\"toVersion\":\"2.0.0\"}"),
+        )
+        .await;
+
+        run_import_backup(
+            target.clone(),
+            target_path,
+            contract(),
+            DatabaseImportRequest {
+                source_path: source_path.to_string_lossy().into_owned(),
+                mode: DatabaseImportMode::Full,
+            },
+        )
+        .await
+        .unwrap();
+
+        let state = load_analytics_state(&target).await;
+        assert_eq!(
+            state["status"], "disabled",
+            "the restored opt-out must survive"
+        );
+        assert_eq!(state["consentExplicit"], 1);
+        assert_eq!(
+            state["installationId"], "fresh-install",
+            "the restored install keeps its own anonymous identity"
+        );
+        assert_eq!(
+            state["consentEpoch"], 1,
+            "the applied choice bumps the local epoch"
+        );
+        assert!(
+            state["pendingUpdateJson"].is_null(),
+            "a restored opt-out must clear pending update metadata"
+        );
+
+        source.close().await;
+        target.close().await;
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_restored_explicit_choice_created_where_no_state_row_exists() {
+        let root = tempfile::tempdir().unwrap();
+        let source_path = root.path().join("source.db");
+        let source = backup(&source_path, 5).await;
+        seed_analytics_state(&source, "disabled", true, Some("exported-install"), 4, None).await;
+
+        // A full import into a database with no local analytics choice.
+        let target_path = root.path().join("target.db");
+        let target = create_sqlite_pool(&target_path).await.unwrap();
+        migrate_database(&mut *target.acquire().await.unwrap(), &contract())
+            .await
+            .unwrap();
+
+        run_import_backup(
+            target.clone(),
+            target_path,
+            contract(),
+            DatabaseImportRequest {
+                source_path: source_path.to_string_lossy().into_owned(),
+                mode: DatabaseImportMode::Full,
+            },
+        )
+        .await
+        .unwrap();
+
+        let state = load_analytics_state(&target).await;
+        assert_eq!(
+            state["status"], "disabled",
+            "the restored opt-out must not be dropped"
+        );
+        assert_eq!(state["consentExplicit"], 1);
+        assert_eq!(
+            state["consentEpoch"], 0,
+            "a created state starts on the base consent epoch"
+        );
+        let installation = state["installationId"].as_str();
+        assert!(
+            installation.is_some(),
+            "a created state gets a fresh local installation identity"
+        );
+        assert_ne!(installation, Some("exported-install"));
+        assert!(
+            !state["observationStartedDay"].is_null(),
+            "a created state records its first day"
+        );
+        source.close().await;
+        target.close().await;
+    }
+
+    #[tokio::test]
+    async fn user_keeps_local_analytics_choice_on_a_chat_only_import() {
+        for restored_status in ["enabled", "disabled"] {
+            let root = tempfile::tempdir().unwrap();
+            let source_path = root.path().join("source.db");
+            let source = backup(&source_path, 5).await;
+            seed_analytics_state(
+                &source,
+                restored_status,
+                true,
+                Some("exported-install"),
+                4,
+                None,
+            )
+            .await;
+            sqlx::query(
+                "INSERT INTO sessions (id, session_id, title, model) \
+                 VALUES (1, 'imported-chat', 'Imported', 'test')",
+            )
+            .execute(&source)
+            .await
+            .unwrap();
+
+            let target_path = root.path().join("target.db");
+            let target = create_sqlite_pool(&target_path).await.unwrap();
+            migrate_database(&mut *target.acquire().await.unwrap(), &contract())
+                .await
+                .unwrap();
+            seed_analytics_state(
+                &target,
+                "enabled",
+                false,
+                Some("fresh-install"),
+                3,
+                Some("{\"toVersion\":\"2.0.0\"}"),
+            )
+            .await;
+
+            run_import_backup(
+                target.clone(),
+                target_path,
+                contract(),
+                DatabaseImportRequest {
+                    source_path: source_path.to_string_lossy().into_owned(),
+                    mode: DatabaseImportMode::ChatOnly,
+                },
+            )
+            .await
+            .unwrap();
+
+            let state = load_analytics_state(&target).await;
+            assert_eq!(
+                (
+                    state["status"].as_str(),
+                    state["consentExplicit"].as_i64(),
+                    state["installationId"].as_str(),
+                    state["consentEpoch"].as_i64()
+                ),
+                (Some("enabled"), Some(0), Some("fresh-install"), Some(3)),
+                "a chat-only import of a {restored_status} backup keeps local consent"
+            );
+            assert!(
+                !state["pendingUpdateJson"].is_null(),
+                "a chat-only import keeps the local pending update metadata"
+            );
+            // The chat itself was still merged.
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT COUNT(*) FROM sessions WHERE session_id = 'imported-chat'"
+                )
+                .fetch_one(&target)
+                .await
+                .unwrap(),
+                1
+            );
+            source.close().await;
+            target.close().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn user_keeps_analytics_choice_chat_and_settings_unchanged_when_restored_choice_adoption_fails(
+    ) {
+        let root = tempfile::tempdir().unwrap();
+        let source_path = root.path().join("source.db");
+        let source = backup(&source_path, 5).await;
+        seed_analytics_state(&source, "disabled", true, None, 0, None).await;
+        sqlx::raw_sql(
+            "INSERT INTO sessions (session_id, title, model) \
+             VALUES ('imported-chat', 'Imported', 'test');",
+        )
+        .execute(&source)
+        .await
+        .unwrap();
+        let target_path = root.path().join("target.db");
+        let target = create_sqlite_pool(&target_path).await.unwrap();
+        migrate_database(&mut *target.acquire().await.unwrap(), &contract())
+            .await
+            .unwrap();
+        seed_analytics_state(
+            &target,
+            "enabled",
+            false,
+            Some("local-install"),
+            0,
+            Some("{}"),
+        )
+        .await;
+        sqlx::raw_sql(
+            "INSERT INTO settings (key, value) VALUES ('keep', 'unchanged');
+             CREATE TRIGGER fail_analytics_adoption BEFORE UPDATE OF value ON settings
+             WHEN OLD.key = 'analytics.state.v1'
+             BEGIN SELECT RAISE(ABORT, 'cleanup refused'); END;",
+        )
+        .execute(&target)
+        .await
+        .unwrap();
+
+        let error = run_import_backup(
+            target.clone(),
+            target_path,
+            contract(),
+            DatabaseImportRequest {
+                source_path: source_path.to_string_lossy().into_owned(),
+                mode: DatabaseImportMode::Full,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(error.contains("cleanup refused"), "{error}");
+        let state = load_analytics_state(&target).await;
+        assert_eq!(state["status"], "enabled");
+        assert_eq!(state["consentExplicit"], 0);
+        assert_eq!(state["consentEpoch"], 0);
+        assert_eq!(state["installationId"], "local-install");
+        assert_eq!(state["pendingUpdateJson"], "{}");
+        assert_eq!(
+            sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'keep'")
+                .fetch_one(&target)
+                .await
+                .unwrap(),
+            "unchanged"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM sessions")
+                .fetch_one(&target)
+                .await
+                .unwrap(),
+            0
+        );
+        source.close().await;
+        target.close().await;
     }
 }

@@ -48,6 +48,18 @@ describe('user receives app events across windows', () => {
         expect(callback).toHaveBeenCalledTimes(1);
     });
 
+    it('user gets every search entry point accepted on the surface shown event', async () => {
+        const callback = vi.fn();
+        const unlisten = await eventService.on(AppEvent.SEARCH_SURFACE_SHOWN, callback);
+
+        await emit(AppEvent.SEARCH_SURFACE_SHOWN, { source: 'tray', sequence: 1 });
+        await emit(AppEvent.SEARCH_SURFACE_SHOWN, { source: 'main', sequence: 2 });
+
+        expect(callback).toHaveBeenNthCalledWith(1, { source: 'tray', sequence: 1 });
+        expect(callback).toHaveBeenNthCalledWith(2, { source: 'main', sequence: 2 });
+        await unlisten();
+    });
+
     it('user receives a one-shot event exactly once', async () => {
         const callback = vi.fn();
 

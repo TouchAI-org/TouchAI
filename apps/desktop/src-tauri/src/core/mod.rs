@@ -4,11 +4,13 @@
 //!
 //! 分为窗口域与系统能力域。
 
+pub mod analytics;
 pub mod browser;
 pub mod built_in_tools;
 pub mod database;
 pub mod mcp;
 pub mod observability;
+pub mod product_config;
 pub mod search;
 pub mod setup;
 pub mod system;

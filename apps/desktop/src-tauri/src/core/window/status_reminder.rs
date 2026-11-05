@@ -215,7 +215,10 @@ fn restore_search_window_from_status_reminder<R: Runtime>(
         let task_handle = app_handle.clone();
         if let Err(error) = app_handle.run_on_main_thread(move || {
             if should_restore_search_window_from_status_reminder(payload.as_ref()) {
-                if let Err(error) = crate::core::window::show_search_window(task_handle.clone()) {
+                if let Err(error) = crate::core::window::show_search_window(
+                    task_handle.clone(),
+                    crate::core::window::search::surface::SearchSurfaceShowSource::Notification,
+                ) {
                     log::warn!(
                         "Failed to restore search window from session status notification: {}",
                         error

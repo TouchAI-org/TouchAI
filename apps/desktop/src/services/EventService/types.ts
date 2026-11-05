@@ -117,8 +117,15 @@ export interface WindowResizeEvent {
     height: number;
 }
 
+/**
+ * How the search window group was brought to the foreground. Mirrors the native
+ * `SearchSurfaceShowSource`; a shortcut, a status notification, the tray, or the
+ * app's own main surface asking for it.
+ */
+export type SearchSurfaceShowSource = 'shortcut' | 'notification' | 'tray' | 'main';
+
 export interface SearchSurfaceShownEvent {
-    source: 'shortcut' | 'notification';
+    source: SearchSurfaceShowSource;
     sequence?: number;
 }
 
