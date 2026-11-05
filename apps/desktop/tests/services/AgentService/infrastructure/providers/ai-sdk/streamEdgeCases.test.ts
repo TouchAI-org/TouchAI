@@ -367,6 +367,32 @@ describe('user is told what a request cost', () => {
         });
     });
 
+    it('user is told when usage was not actually reported despite normalized zeros', () => {
+        const processor = createAiSdkStreamProcessor();
+
+        expect(processor.buildFinishChunk('stop', {} as never).usageReported).toBe(false);
+        expect(processor.buildFinishChunk('stop', undefined).usageReported).toBe(false);
+    });
+
+    it('user is told when the provider explicitly reported zero usage', () => {
+        const processor = createAiSdkStreamProcessor();
+        const finish = processor.buildFinishChunk('stop', {
+            inputTokens: 0,
+            outputTokens: 0,
+        } as never);
+
+        expect(finish.usage).toEqual({
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            reasoningTokens: 0,
+            servedModel: undefined,
+            raw: undefined,
+        });
+        expect(finish.usageReported).toBe(true);
+    });
+
     it('user gets the model that actually served the request named', () => {
         for (const key of ['model', 'model_name', 'modelId', 'model_id']) {
             expect(
