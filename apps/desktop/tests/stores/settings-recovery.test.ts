@@ -95,4 +95,35 @@ describe('user recovers settings after the first load fails', () => {
         await store.initialize();
         expect(store.initialized).toBe(true);
     });
+
+    it('user refreshes settings and releases the store when the window closes', async () => {
+        const owner = new SettingsService({ transport: bus.transport('main') });
+        setActiveSettingsService(owner);
+        await owner.initialize();
+
+        setActiveSettingsService(
+            new SettingsService({
+                transport: bus.transport('win-settings'),
+                requestTimeoutMs: 50,
+            })
+        );
+        const { useSettingsStore } = await import('@/stores/settings');
+        const store = useSettingsStore();
+        await store.initialize();
+
+        const values: Record<string, string | null> = {
+            output_scroll_behavior: 'jump_to_top',
+        };
+        getSettingValueMock.mockImplementation(
+            async ({ key }: { key: string }) => values[key] ?? null
+        );
+        bus.dropNotices = true;
+        await owner.refresh();
+        await store.refresh();
+        bus.dropNotices = false;
+        expect(store.settings.outputScrollBehavior).toBe('jump_to_top');
+
+        await store.dispose();
+        expect(store.initialized).toBe(false);
+    });
 });
