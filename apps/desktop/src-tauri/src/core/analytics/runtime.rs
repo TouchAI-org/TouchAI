@@ -411,7 +411,7 @@ impl AnalyticsRuntime {
         let Some(config) = &self.inner.config else {
             return self.inner.build_state().await;
         };
-        if !self.inner.build_eligible {
+        if enabled && (!self.inner.build_eligible || !self.inner.transport_ready) {
             return self.inner.build_state().await;
         }
         let _state = self.inner.state_lock.lock().await;
@@ -2726,6 +2726,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn user_can_withdraw_sharing_in_an_ineligible_build_without_enabling_it() {
+        let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
+        let (_root, database) = test_database().await;
+        let runtime = AnalyticsRuntime::initialize_with_sender_and_startup_for_tests(
+            database,
+            Some(probe),
+            true,
+            "foreground",
+            Instant::now(),
+            false,
+        )
+        .await
+        .expect("runtime");
+
+        let enabled = runtime.state().await.expect("enabled state");
+        assert_eq!(enabled.status, AnalyticsConsentStatus::Enabled);
+        assert!(!enabled.build_eligible);
+
+        let disabled = runtime
+            .set_enabled(false, enabled.consent_epoch)
+            .await
+            .expect("withdraw consent");
+        assert_eq!(disabled.status, AnalyticsConsentStatus::Disabled);
+        assert_eq!(disabled.consent_epoch, enabled.consent_epoch + 1);
+        assert!(!disabled.build_eligible);
+
+        let still_disabled = runtime
+            .set_enabled(true, disabled.consent_epoch)
+            .await
+            .expect("enable attempt");
+        assert_eq!(still_disabled.status, AnalyticsConsentStatus::Disabled);
+        assert_eq!(still_disabled.consent_epoch, disabled.consent_epoch);
+    }
+
+    #[tokio::test]
     async fn user_gets_no_app_started_when_transport_was_not_ready_at_start() {
         let (_root, database) = test_database().await;
         let runtime = AnalyticsRuntime::initialize_with_sender_for_tests(database, None, true)
@@ -2733,6 +2768,33 @@ mod tests {
             .expect("runtime");
 
         assert!(runtime.outbox_payloads_for_tests().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn user_can_withdraw_sharing_when_transport_is_not_ready_without_enabling_it() {
+        let (_root, database) = test_database().await;
+        let runtime = AnalyticsRuntime::initialize_with_sender_for_tests(database, None, true)
+            .await
+            .expect("runtime");
+
+        let enabled = runtime.state().await.expect("enabled state");
+        assert_eq!(enabled.status, AnalyticsConsentStatus::Enabled);
+        assert!(!enabled.transport_ready);
+
+        let disabled = runtime
+            .set_enabled(false, enabled.consent_epoch)
+            .await
+            .expect("withdraw consent");
+        assert_eq!(disabled.status, AnalyticsConsentStatus::Disabled);
+        assert_eq!(disabled.consent_epoch, enabled.consent_epoch + 1);
+        assert!(!disabled.transport_ready);
+
+        let still_disabled = runtime
+            .set_enabled(true, disabled.consent_epoch)
+            .await
+            .expect("enable attempt");
+        assert_eq!(still_disabled.status, AnalyticsConsentStatus::Disabled);
+        assert_eq!(still_disabled.consent_epoch, disabled.consent_epoch);
     }
 
     #[tokio::test]

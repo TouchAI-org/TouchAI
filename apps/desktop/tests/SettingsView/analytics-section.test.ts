@@ -58,19 +58,52 @@ describe('user configures product analytics', () => {
         expect(nativeAnalytics.setEnabled).toHaveBeenCalledWith(true, 2);
     });
 
-    it('user cannot enable analytics in a development build even when sharing is stored on', async () => {
+    it('user can turn sharing off in a development build with a stored enabled choice', async () => {
         nativeAnalytics.getState.mockResolvedValue(state({ buildEligible: false }));
+        nativeAnalytics.setEnabled.mockResolvedValue(
+            state({ status: 'disabled', consentEpoch: 2, buildEligible: false })
+        );
 
         const wrapper = mount(AnalyticsSection);
         await flushPromises();
 
-        expect(wrapper.get('[data-testid="settings-analytics-share"]').text()).toContain(
-            'Share product usage statistics linked to a random installation id. The receiver may associate your IP address and coarse location with events for abuse prevention and geographic usage analysis. When off, no analytics events are sent; existing pseudonymous installation and observation metadata stays on this device and may be included in later events after sharing is enabled.'
+        const toggle = wrapper.get('[data-testid="settings-analytics-toggle"]');
+        expect((toggle.element as HTMLButtonElement).disabled).toBe(false);
+        await toggle.trigger('click');
+        await flushPromises();
+
+        expect(nativeAnalytics.setEnabled).toHaveBeenCalledWith(false, 1);
+    });
+
+    it('user cannot turn sharing on in a development build', async () => {
+        nativeAnalytics.getState.mockResolvedValue(
+            state({ status: 'disabled', consentEpoch: 2, buildEligible: false })
         );
+
+        const wrapper = mount(AnalyticsSection);
+        await flushPromises();
+
         const toggle = wrapper.get('[data-testid="settings-analytics-toggle"]');
         expect((toggle.element as HTMLButtonElement).disabled).toBe(true);
         await toggle.trigger('click');
         expect(nativeAnalytics.setEnabled).not.toHaveBeenCalled();
+    });
+
+    it('user can turn sharing off when the transport is not ready', async () => {
+        nativeAnalytics.getState.mockResolvedValue(state({ transportReady: false }));
+        nativeAnalytics.setEnabled.mockResolvedValue(
+            state({ status: 'disabled', consentEpoch: 2, transportReady: false })
+        );
+
+        const wrapper = mount(AnalyticsSection);
+        await flushPromises();
+
+        const toggle = wrapper.get('[data-testid="settings-analytics-toggle"]');
+        expect((toggle.element as HTMLButtonElement).disabled).toBe(false);
+        await toggle.trigger('click');
+        await flushPromises();
+
+        expect(nativeAnalytics.setEnabled).toHaveBeenCalledWith(false, 1);
     });
 
     it('user gets the standard privacy disclosure when transport is unprovisioned', async () => {

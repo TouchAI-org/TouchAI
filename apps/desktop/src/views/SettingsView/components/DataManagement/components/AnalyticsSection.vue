@@ -69,8 +69,8 @@
                     data-testid="settings-analytics-toggle"
                     :disabled="
                         state.status === 'uninitialized' ||
-                        !state.buildEligible ||
-                        !state.transportReady
+                        (state.status !== 'enabled' &&
+                            (!state.buildEligible || !state.transportReady))
                     "
                     :model-value="state.status === 'enabled'"
                     @update:model-value="toggle"
