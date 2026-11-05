@@ -734,6 +734,40 @@ fn user_cannot_read_agent_sessions_from_settings_or_popup_windows() {
 }
 
 #[test]
+fn user_cannot_use_a_popup_window_for_database_groups_outside_search_and_config() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let popup = WebviewWindowBuilder::new(
+        &test_app.app,
+        "popup-database-permission-test",
+        WebviewUrl::default(),
+    )
+    .build()
+    .expect("popup window");
+
+    for request in [
+        json!({
+            "kind": "setting_get",
+            "key": "language"
+        }),
+        json!({
+            "kind": "tool_part_list",
+            "toolKind": "mcp",
+            "filter": { "kind": "id", "id": 1 }
+        }),
+        json!({
+            "kind": "usage_summary",
+            "filter": {
+                "from": "2026-01-01 00:00:00",
+                "to": "2026-12-31 23:59:59"
+            }
+        }),
+    ] {
+        let error = invoke_command_err(&popup, "database_operation", json!({ "request": request }));
+        assert_eq!(error["code"], "database-forbidden");
+    }
+}
+
+#[test]
 fn user_can_read_usage_but_cannot_write_usage_detail_from_the_settings_window() {
     let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
     let settings = WebviewWindowBuilder::new(&test_app.app, "settings", WebviewUrl::default())
