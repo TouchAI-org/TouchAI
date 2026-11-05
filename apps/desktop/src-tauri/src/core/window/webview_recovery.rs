@@ -225,14 +225,13 @@ impl WebviewRecoveryRuntime {
             .expect("webview recovery runtime poisoned");
         let state = windows.entry(window_label.to_string()).or_default();
 
+        let decision = state.policy.record(failure, now_ms);
         if matches!(
-            failure,
-            ProcessFailureKind::RendererExited | ProcessFailureKind::RendererUnresponsive
+            decision,
+            RecoveryDecision::Reload { .. } | RecoveryDecision::Exhausted
         ) {
             state.show_after_recovery |= was_visible;
         }
-
-        let decision = state.policy.record(failure, now_ms);
         match decision {
             RecoveryDecision::Reload { attempt } => {
                 state.phase = RecoveryPhase::Recovering;
@@ -886,8 +885,10 @@ fn show_recovered_window<R: Runtime>(window: &WebviewWindow<R>, intent: Option<S
         }
 
         if window_label == "main" {
-            if let Err(error) = crate::core::window::show_search_window(app_for_main_thread.clone())
-            {
+            if let Err(error) = crate::core::window::show_search_window(
+                app_for_main_thread.clone(),
+                SearchSurfaceShowSource::Main,
+            ) {
                 log::warn!("Failed to show recovered main window: {}", error);
             }
             return;
@@ -1302,6 +1303,49 @@ mod tests {
                 intent: None
             }
         );
+    }
+
+    #[test]
+    fn user_gets_a_hidden_window_left_hidden_after_an_ignored_unresponsive_notice() {
+        let runtime = WebviewRecoveryRuntime::new();
+        let decision =
+            runtime.record_failure_at("main", ProcessFailureKind::RendererUnresponsive, true, 0);
+        assert_eq!(decision, RecoveryAction::Ignore);
+        runtime.cancel_pending_show("main");
+
+        let _ = runtime.record_failure_at("main", ProcessFailureKind::RendererExited, false, 1_000);
+        runtime.note_navigation_started("main", 7);
+
+        assert_eq!(
+            runtime.complete_navigation("main", 7, true),
+            NavigationCompletion::Show {
+                show: false,
+                intent: None
+            }
+        );
+    }
+
+    #[test]
+    fn user_does_not_get_a_retry_dialog_for_a_hidden_window_after_an_ignored_unresponsive_notice() {
+        let runtime = WebviewRecoveryRuntime::new();
+        let decision =
+            runtime.record_failure_at("main", ProcessFailureKind::RendererUnresponsive, true, 0);
+        assert_eq!(decision, RecoveryAction::Ignore);
+        runtime.cancel_pending_show("main");
+
+        for now_ms in [1_000, 2_000, 3_000] {
+            let decision = runtime.record_failure_at(
+                "main",
+                ProcessFailureKind::RendererExited,
+                false,
+                now_ms,
+            );
+            assert!(matches!(decision, RecoveryAction::Reload { .. }));
+        }
+        let decision =
+            runtime.record_failure_at("main", ProcessFailureKind::RendererExited, false, 4_000);
+
+        assert_eq!(decision, RecoveryAction::Exhausted { notify_user: false });
     }
 
     #[test]
