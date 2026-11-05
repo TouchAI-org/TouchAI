@@ -33,7 +33,6 @@ import {
     windowForSurface,
     windowGeometry,
 } from './lib/capture.mjs';
-import { buildCropFilter, parseDisplaySize, startNativeRecording } from './lib/native-capture.mjs';
 import {
     isFixtureProviderError,
     MIN_COVERAGE,
@@ -41,6 +40,8 @@ import {
     MIN_VIDEO_FRAMES,
     MIN_VIDEO_SECONDS,
 } from './lib/evidence.mjs';
+import { provisionProductFont } from './lib/font.mjs';
+import { buildCropFilter, parseDisplaySize, startNativeRecording } from './lib/native-capture.mjs';
 import { ELEMENT_CENTER_SCRIPT, ELEMENT_ROW_RECT_SCRIPT } from './lib/overlay.mjs';
 import { captureMode, detectPlatform, isUsableDisplay, platformLabel } from './lib/platform.mjs';
 import {
@@ -842,6 +843,38 @@ function findLogErrors(appRoot) {
 }
 
 /**
+ * Confirms the visible document injected the product face and loaded it.
+ *
+ * The same verified file is provisioned into the app root before boot, so the
+ * remaining failures are a missing @font-face or a rejected asset URL. E2E
+ * proves the painted outline; this check exists so preview screenshots cannot
+ * silently record a fallback face while the run still reports success.
+ */
+async function productFontState(session) {
+    return session.execute(async () => {
+        const family = 'TouchAI Source Han Serif SC';
+        const style = document.querySelector('style[data-touchai-font-face]');
+        if (!style) {
+            return { ok: false, detail: 'the app did not inject its @font-face rule' };
+        }
+
+        const url = style.textContent?.match(/url\('([^']+)'\)/)?.[1] ?? '';
+        if (!url) {
+            return { ok: false, detail: 'the injected @font-face rule has no asset URL' };
+        }
+
+        try {
+            await document.fonts.load(`16px '${family}'`);
+            await document.fonts.ready;
+        } catch (error) {
+            return { ok: false, detail: `the product face did not load: ${error.message}` };
+        }
+
+        return { ok: document.fonts.check(`16px '${family}'`), detail: url };
+    });
+}
+
+/**
  * Boots the app and waits for its bridge, retrying once.
  *
  * A hosted macOS runner occasionally starts the app without ever registering
@@ -1001,6 +1034,18 @@ async function main() {
         detail: `${displaySize.width}x${displaySize.height} display, ${stageLabel(profile)} stage`,
     });
 
+    const font = await provisionProductFont({ appRoot });
+    manifest.checks.push({
+        name: 'Product font file',
+        status: font.ok ? 'pass' : 'fail',
+        detail: font.detail,
+    });
+    if (!font.ok) {
+        fail('font', font.detail);
+        persist();
+        return;
+    }
+
     if (platform === 'linux') {
         paintDesktop(display);
     }
@@ -1066,6 +1111,16 @@ async function main() {
         });
         await waitForPaint(session);
 
+        const searchFont = await productFontState(session);
+        manifest.checks.push({
+            name: 'Product font (search window)',
+            status: searchFont.ok ? 'pass' : 'fail',
+            detail: searchFont.detail,
+        });
+        if (!searchFont.ok) {
+            fail('font', `search window: ${searchFont.detail}`);
+        }
+
         // Open Settings before recording so its first frame is already painted.
         // A window that is created during the recording shows a blank webview
         // for several seconds, which looks like a still image.
@@ -1073,6 +1128,17 @@ async function main() {
         await session.waitForElement("[data-testid='settings-general-section']");
         await ensureOverlay(session);
         await waitForPaint(session);
+
+        const settingsFont = await productFontState(session);
+        manifest.checks.push({
+            name: 'Product font (settings window)',
+            status: settingsFont.ok ? 'pass' : 'fail',
+            detail: settingsFont.detail,
+        });
+        if (!settingsFont.ok) {
+            fail('font', `settings window: ${settingsFont.detail}`);
+        }
+
         await sleep(1200);
 
         await session.switchTo(mainHandle);
