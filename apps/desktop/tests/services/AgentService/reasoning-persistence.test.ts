@@ -5,6 +5,11 @@ import type { AttemptCheckpoint } from '@/services/AgentService/execution/execut
 import { PersistenceProjector } from '@/services/AgentService/outputs/persistence';
 import { log } from '@/services/ObservabilityService';
 
+import {
+    createPersistenceDatabaseOperation,
+    type PersistenceDatabaseTelemetry,
+} from '../../utils/persistenceDatabase';
+
 const provider = vi.hoisted(() => ({ stream: vi.fn() }));
 vi.mock('@/services/AgentService/catalog', () => ({
     createProviderForModel: vi.fn(() => provider),
@@ -14,6 +19,7 @@ vi.mock('@/services/AgentService/catalog', () => ({
 
 const queries = vi.hoisted(() => ({
     createMessage: vi.fn(),
+    createSession: vi.fn(),
     createMessageParts: vi.fn(),
     updateMessage: vi.fn(),
     syncOutputParts: vi.fn(),
@@ -22,12 +28,19 @@ const queries = vi.hoisted(() => ({
     updateSession: vi.fn(),
     updateSessionTurn: vi.fn(),
     updateSessionTurnAttempt: vi.fn(),
+    updateSessionTurnUsage: vi.fn(),
+    updateSessionTurnAttemptUsage: vi.fn(),
     refreshSessionMetadata: vi.fn(),
+    findAllMcpTools: vi.fn(),
+    findAllBuiltInTools: vi.fn(),
     appendMessagePart: vi.fn(),
     findToolCallPartByCallId: vi.fn(),
     mergeMessagePartData: vi.fn(),
     createMessageAttachment: vi.fn(),
+    insertLlmCallParts: vi.fn(),
 }));
+
+const database = vi.hoisted(() => ({ operation: vi.fn() }));
 
 vi.mock('@database', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@database')>()),
@@ -36,6 +49,9 @@ vi.mock('@database', async (importOriginal) => ({
 vi.mock('@database/queries', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@database/queries')>()),
     ...queries,
+}));
+vi.mock('@services/NativeService', () => ({
+    native: { database: { operation: database.operation } },
 }));
 
 function createProjector() {
@@ -99,6 +115,13 @@ describe('reasoning and the answer are saved as they stream', () => {
             ...draft,
             id: 3,
         }));
+        queries.findAllMcpTools.mockResolvedValue([]);
+        queries.findAllBuiltInTools.mockResolvedValue([]);
+        database.operation.mockImplementation(
+            createPersistenceDatabaseOperation({
+                ...queries,
+            } as unknown as PersistenceDatabaseTelemetry)
+        );
     });
     it('user sees no temporary attempt output written while streaming', async () => {
         queries.updateSessionTurnAttempt.mockClear();

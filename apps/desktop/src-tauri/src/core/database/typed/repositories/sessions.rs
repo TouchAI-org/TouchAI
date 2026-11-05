@@ -246,6 +246,14 @@ pub(super) async fn refresh_metadata(
     id: i64,
 ) -> Result<JsonValue, DatabaseOperationError> {
     let mut connection = pool.acquire().await.map_err(DatabaseOperationError::from)?;
+    refresh_metadata_on(&mut connection, id).await?;
+    Ok(JsonValue::Null)
+}
+
+pub(super) async fn refresh_metadata_on(
+    connection: &mut sqlx::SqliteConnection,
+    id: i64,
+) -> Result<(), DatabaseOperationError> {
     let assistant_text = message_text("assistant_messages");
     let tool_text = message_text("tool_call_messages");
     let user_text = message_text("user_messages");
@@ -350,8 +358,8 @@ pub(super) async fn refresh_metadata(
         JsonValue::Number(id.into()),
         JsonValue::Number(id.into()),
     ];
-    run(&mut connection, &sql, params).await?;
-    Ok(JsonValue::Null)
+    run(connection, &sql, params).await?;
+    Ok(())
 }
 
 pub(super) async fn count_sessions(pool: &SqlitePool) -> Result<JsonValue, DatabaseOperationError> {

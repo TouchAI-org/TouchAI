@@ -837,3 +837,417 @@ fn user_gets_a_parent_tool_message_when_the_typed_create_has_only_a_session() {
     );
     assert_eq!(parent["rows"], json!([{ "role": "tool_call" }]));
 }
+
+fn seed_task_model(webview: &tauri::WebviewWindow<tauri::test::MockRuntime>) {
+    execute_sql(
+        webview,
+        "INSERT INTO providers (id, name, driver, api_endpoint, logo)
+         VALUES (7101, 'Task provider', 'openai', 'https://task.example/v1', 'openai.png')",
+        json!([]),
+    );
+    execute_sql(
+        webview,
+        "INSERT INTO models (id, provider_id, name, model_id)
+         VALUES (7102, 7101, 'Task model', 'task-model')",
+        json!([]),
+    );
+}
+
+fn start_typed_task(webview: &tauri::WebviewWindow<tauri::test::MockRuntime>) -> serde_json::Value {
+    seed_task_model(webview);
+    database_operation(
+        webview,
+        json!({
+            "kind": "task_record_start",
+            "input": {
+                "sessionId": null,
+                "sessionTitle": "Typed task",
+                "modelId": 7102,
+                "modelName": "task-model",
+                "providerId": 7101,
+                "taskId": "task-typed-start",
+                "executionMode": "foreground",
+                "prompt": "Plan the release",
+                "promptSnapshotJson": "{\"version\":1}",
+                "promptBreakdownJson": "{\"prompt\":19}",
+                "checkpointJson": "{\"iteration\":1}",
+                "deliveryManifestJson": "{\"attachments\":[]}",
+                "startedAt": "2026-11-05 10:00:00",
+                "maxRetries": 2,
+                "existingUserMessageId": null,
+                "existingTurnId": null,
+                "existingAttemptId": null,
+                "attachments": []
+            }
+        }),
+    )
+}
+
+fn terminal_behavior() -> serde_json::Value {
+    json!({
+        "firstTextMs": 120,
+        "toolCallCount": 0,
+        "toolArgumentErrorCount": 0,
+        "modelSwitchCount": 0,
+        "hitIterationCeiling": false,
+        "errorCode": null,
+        "retryScope": null
+    })
+}
+
+fn usage_summary(input_tokens: i64, output_tokens: i64) -> serde_json::Value {
+    json!({
+        "inputTokens": input_tokens,
+        "outputTokens": output_tokens,
+        "cacheReadTokens": 0,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 0,
+        "totalCostMicros": 0,
+        "unpricedCalls": 0,
+        "ttftMs": 120,
+        "llmCallCount": 1
+    })
+}
+
+#[test]
+fn user_gets_a_session_prompt_turn_and_attempt_from_one_typed_start() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+
+    let started = start_typed_task(&test_app.main_webview);
+    let session_id = started["session_id"].as_i64().expect("session id");
+    let user_message_id = started["user_message_id"]
+        .as_i64()
+        .expect("user message id");
+    let turn_id = started["turn"]["id"].as_i64().expect("turn id");
+    let attempt_id = started["attempt"]["id"].as_i64().expect("attempt id");
+
+    assert_eq!(started["turn"]["task_id"], "task-typed-start");
+    assert_eq!(started["turn"]["prompt_message_id"], user_message_id);
+    assert_eq!(started["attempt"]["turn_id"], turn_id);
+    assert_eq!(started["attempt"]["attempt_index"], 1);
+
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT title, model, provider_id FROM sessions WHERE id = ?",
+            json!([session_id]),
+        )["rows"],
+        json!([{
+            "title": "Typed task",
+            "model": "task-model",
+            "provider_id": 7101
+        }])
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT content FROM message_parts WHERE message_id = ? ORDER BY sort_order",
+            json!([user_message_id]),
+        )["rows"],
+        json!([{ "content": "Plan the release" }])
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT status, prompt_breakdown_json FROM session_turns WHERE id = ?",
+            json!([turn_id]),
+        )["rows"],
+        json!([{
+            "status": "streaming",
+            "prompt_breakdown_json": "{\"prompt\":19}"
+        }])
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT status, max_retries, checkpoint_json FROM session_turn_attempts WHERE id = ?",
+            json!([attempt_id]),
+        )["rows"],
+        json!([{
+            "status": "streaming",
+            "max_retries": 2,
+            "checkpoint_json": "{\"iteration\":1}"
+        }])
+    );
+}
+
+#[test]
+fn user_gets_the_output_message_usage_attempt_and_turn_committed_together() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let started = start_typed_task(&test_app.main_webview);
+    let turn_id = started["turn"]["id"].as_i64().expect("turn id");
+    let attempt_id = started["attempt"]["id"].as_i64().expect("attempt id");
+
+    let finished = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "task_finish",
+            "input": {
+                "sessionId": started["session_id"],
+                "turnId": turn_id,
+                "attemptId": attempt_id,
+                "assistantMessageId": null,
+                "pendingMessageId": null,
+                "status": "completed",
+                "errorMessage": null,
+                "durationMs": 2500,
+                "tokensUsed": 30,
+                "finishedAt": "2026-11-05 10:00:03",
+                "parts": [{ "type": "text", "content": "Release ready" }],
+                "usage": {
+                    "calls": [{ "data": "{\"inputTokens\":12}" }],
+                    "summary": usage_summary(12, 8)
+                },
+                "behavior": terminal_behavior(),
+                "turnBootstrap": null
+            }
+        }),
+    );
+    let assistant_message_id = finished["assistant_message_id"]
+        .as_i64()
+        .expect("assistant message id");
+
+    assert_eq!(finished["turn"]["status"], "completed");
+    assert_eq!(finished["attempt"]["status"], "completed");
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT role FROM messages WHERE id = ?",
+            json!([assistant_message_id]),
+        )["rows"],
+        json!([{ "role": "assistant" }])
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT type, content FROM message_parts
+             WHERE message_id = ? ORDER BY sort_order",
+            json!([assistant_message_id]),
+        )["rows"],
+        json!([
+            { "type": "text", "content": "Release ready" },
+            { "type": "llm_call", "content": "" }
+        ])
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT status, input_tokens, output_tokens, llm_call_count, ttft_ms
+             FROM session_turn_attempts WHERE id = ?",
+            json!([attempt_id]),
+        )["rows"],
+        json!([{
+            "status": "completed",
+            "input_tokens": 12,
+            "output_tokens": 8,
+            "llm_call_count": 1,
+            "ttft_ms": 120
+        }])
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT status, tokens_used, response_message_id, input_tokens,
+                    output_tokens, llm_call_count, ttft_ms
+             FROM session_turns WHERE id = ?",
+            json!([turn_id]),
+        )["rows"],
+        json!([{
+            "status": "completed",
+            "tokens_used": 30,
+            "response_message_id": assistant_message_id,
+            "input_tokens": 12,
+            "output_tokens": 8,
+            "llm_call_count": 1,
+            "ttft_ms": 120
+        }])
+    );
+}
+
+#[test]
+fn user_keeps_task_state_unchanged_when_a_typed_finish_fails_mid_transaction() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let started = start_typed_task(&test_app.main_webview);
+    let turn_id = started["turn"]["id"].as_i64().expect("turn id");
+    let attempt_id = started["attempt"]["id"].as_i64().expect("attempt id");
+
+    let error = invoke_command_err(
+        &test_app.main_webview,
+        "database_operation",
+        json!({
+            "request": {
+                "kind": "task_finish",
+                "input": {
+                    "sessionId": started["session_id"],
+                    "turnId": turn_id,
+                    "attemptId": attempt_id,
+                    "assistantMessageId": null,
+                    "pendingMessageId": null,
+                    "status": "completed",
+                    "errorMessage": null,
+                    "durationMs": 2500,
+                    "tokensUsed": 30,
+                    "finishedAt": "2026-11-05 10:00:03",
+                    "parts": [{ "type": "text", "content": "Must roll back" }],
+                    "usage": {
+                        "calls": [{ "data": "not-json" }],
+                        "summary": usage_summary(12, 8)
+                    },
+                    "behavior": terminal_behavior(),
+                    "turnBootstrap": null
+                }
+            }
+        }),
+    );
+    assert_eq!(error["code"], "database-validation");
+
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT COUNT(*) AS count FROM messages WHERE role = 'assistant'",
+            json!([]),
+        )["rows"],
+        json!([{ "count": 0 }])
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT COUNT(*) AS count FROM message_parts",
+            json!([]),
+        )["rows"],
+        json!([{ "count": 1 }])
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT status, response_message_id FROM session_turns WHERE id = ?",
+            json!([turn_id]),
+        )["rows"],
+        json!([{ "status": "streaming", "response_message_id": null }])
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT status, input_tokens FROM session_turn_attempts WHERE id = ?",
+            json!([attempt_id]),
+        )["rows"],
+        json!([{ "status": "streaming", "input_tokens": 0 }])
+    );
+}
+
+#[test]
+fn user_gets_the_previous_attempt_closed_and_the_next_one_open_atomically() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let started = start_typed_task(&test_app.main_webview);
+    let turn_id = started["turn"]["id"].as_i64().expect("turn id");
+    let attempt_id = started["attempt"]["id"].as_i64().expect("attempt id");
+
+    let retried = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "task_begin_next_attempt",
+            "input": {
+                "turnId": turn_id,
+                "currentAttemptId": attempt_id,
+                "currentAttemptIndex": 1,
+                "errorMessage": "temporary failure",
+                "durationMs": 900,
+                "finishedAt": "2026-11-05 10:00:01",
+                "attemptIndex": 2,
+                "maxRetries": 2,
+                "checkpointJson": "{\"iteration\":2}",
+                "deliveryManifestJson": "{\"attachments\":[]}",
+                "startedAt": "2026-11-05 10:00:02",
+                "usage": {
+                    "calls": [],
+                    "summary": usage_summary(4, 2)
+                },
+                "behavior": terminal_behavior()
+            }
+        }),
+    );
+
+    assert_eq!(retried["attempt"]["attempt_index"], 2);
+    assert_eq!(retried["attempt"]["status"], "streaming");
+    assert_eq!(retried["turn"]["status"], "streaming");
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT attempt_index, status, error_message, input_tokens
+             FROM session_turn_attempts WHERE turn_id = ? ORDER BY attempt_index",
+            json!([turn_id]),
+        )["rows"],
+        json!([
+            {
+                "attempt_index": 1,
+                "status": "failed",
+                "error_message": "temporary failure",
+                "input_tokens": 4
+            },
+            {
+                "attempt_index": 2,
+                "status": "streaming",
+                "error_message": null,
+                "input_tokens": 0
+            }
+        ])
+    );
+}
+
+#[test]
+fn user_can_finish_a_legacy_task_without_a_turn_or_attempt() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    seed_task_model(&test_app.main_webview);
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO sessions (id, session_id, title, model)
+         VALUES (7201, 'legacy-task-session', 'Legacy task', 'task-model');
+         INSERT INTO messages (id, session_id, role)
+         VALUES (7202, 7201, 'user')",
+        json!([]),
+    );
+
+    let finished = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "task_finish",
+            "input": {
+                "sessionId": 7201,
+                "turnId": null,
+                "attemptId": null,
+                "assistantMessageId": null,
+                "pendingMessageId": null,
+                "status": "completed",
+                "errorMessage": null,
+                "durationMs": 1000,
+                "tokensUsed": 7,
+                "finishedAt": "2026-11-05 10:00:03",
+                "parts": null,
+                "usage": null,
+                "behavior": terminal_behavior(),
+                "turnBootstrap": {
+                    "modelId": 7102,
+                    "taskId": "legacy-task",
+                    "executionMode": "foreground",
+                    "promptSnapshotJson": "{}",
+                    "promptMessageId": 7202
+                }
+            }
+        }),
+    );
+
+    assert_eq!(finished["attempt"], serde_json::Value::Null);
+    assert_eq!(finished["assistant_message_id"], serde_json::Value::Null);
+    assert_eq!(finished["turn"]["task_id"], "legacy-task");
+    assert_eq!(finished["turn"]["prompt_message_id"], 7202);
+    assert_eq!(finished["turn"]["status"], "completed");
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT COUNT(*) AS count FROM session_turn_attempts
+             WHERE turn_id = ?",
+            json!([finished["turn"]["id"]]),
+        )["rows"],
+        json!([{ "count": 0 }])
+    );
+}
