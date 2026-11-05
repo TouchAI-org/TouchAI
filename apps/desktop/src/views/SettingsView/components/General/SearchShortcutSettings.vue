@@ -360,7 +360,16 @@
             return true;
         } catch (error) {
             log.error('Failed to save search shortcut:', error);
-            reportSearchShortcutError(actionId, 'settings.general.saveSettingsFailed');
+            searchShortcutErrorActionId.value = actionId;
+            captureDisplay.value = formatSearchShortcutForSettings(
+                settings.value.searchKeybindings[actionId]
+            );
+            alertMessage.value?.error(
+                error instanceof Error && error.message
+                    ? error.message
+                    : t('settings.general.saveSettingsFailed'),
+                3000
+            );
 
             return false;
         } finally {

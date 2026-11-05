@@ -1,5 +1,5 @@
 import { createPinia, setActivePinia } from 'pinia';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const settingsValues = new Map<string, string | null>();
 const setSettingMock = vi.hoisted(() =>
@@ -29,12 +29,24 @@ vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => ({ label: 'settings' }),
 }));
 
+import { createSettingsBus } from '@tests/utils/settingsTransport';
+
+import { setActiveSettingsService } from '@/services/SettingsService';
+import { SettingsService } from '@/services/SettingsService/service';
+
 describe('user edits the search settings', () => {
     beforeEach(() => {
         settingsValues.clear();
         setSettingMock.mockClear();
         getSettingValueMock.mockClear();
         setActivePinia(createPinia());
+        // The settings store now mirrors the single owner; provide it a bus-backed owner.
+        const bus = createSettingsBus();
+        setActiveSettingsService(new SettingsService({ transport: bus.transport('main') }));
+    });
+
+    afterEach(() => {
+        setActiveSettingsService(null);
     });
 
     it('user normalizes defaults and invalid json', async () => {

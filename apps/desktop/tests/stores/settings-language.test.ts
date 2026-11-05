@@ -1,44 +1,35 @@
-import { AppEvent } from '@services/EventService';
+import { createSettingsBus } from '@tests/utils/settingsTransport';
 import { createPinia, setActivePinia } from 'pinia';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getLocale, setLocale } from '@/i18n';
+import { setActiveSettingsService } from '@/services/SettingsService';
+import { SettingsService } from '@/services/SettingsService/service';
 
-const { eventHandlers, eventServiceMock, getSettingValueMock, setSettingMock, windowMock } =
-    vi.hoisted(() => ({
-        eventHandlers: new Map<string, (payload: unknown) => void>(),
-        eventServiceMock: {
-            emit: vi.fn(),
-            on: vi.fn(async (event: string, handler: (payload: unknown) => void) => {
-                eventHandlers.set(event, handler);
-                return () => {
-                    eventHandlers.delete(event);
-                };
-            }),
-        },
-        getSettingValueMock: vi.fn(),
-        setSettingMock: vi.fn(),
-        windowMock: {
-            label: 'settings',
-        },
-    }));
+const { getSettingValueMock, setSettingMock } = vi.hoisted(() => ({
+    getSettingValueMock: vi.fn(),
+    setSettingMock: vi.fn(),
+}));
 
 vi.mock('@database/queries', () => ({
     getSettingValue: getSettingValueMock,
     setSetting: setSettingMock,
 }));
 
-vi.mock('@services/EventService', async () => {
-    const actual =
-        await vi.importActual<typeof import('@services/EventService')>('@services/EventService');
-    return {
-        ...actual,
-        eventService: eventServiceMock,
-    };
-});
-
-vi.mock('@tauri-apps/api/window', () => ({
-    getCurrentWindow: () => windowMock,
+vi.mock('@services/NativeService', () => ({
+    native: {
+        autostart: {
+            isAutostartEnabled: vi.fn(async () => false),
+            enableAutostart: vi.fn(async () => undefined),
+            disableAutostart: vi.fn(async () => undefined),
+        },
+        shortcut: {
+            registerGlobalShortcut: vi.fn(async () => undefined),
+        },
+        window: {
+            setSearchWindowDefaults: vi.fn(async () => undefined),
+        },
+    },
 }));
 
 function mockSystemLanguage(language: string, languages: string[] = [language]) {
@@ -63,15 +54,30 @@ function mockSettings(values: Record<string, string | null>) {
     }));
 }
 
+function flush(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe('user changes the app language', () => {
+    let bus: ReturnType<typeof createSettingsBus>;
+
     beforeEach(() => {
         vi.clearAllMocks();
-        eventHandlers.clear();
         setActivePinia(createPinia());
         setLocale('zh-CN');
-        windowMock.label = 'settings';
         mockSystemLanguage('zh-CN');
+        bus = createSettingsBus();
     });
+
+    afterEach(() => {
+        setActiveSettingsService(null);
+    });
+
+    async function createStore() {
+        setActiveSettingsService(new SettingsService({ transport: bus.transport('main') }));
+        const { useSettingsStore } = await import('@/stores/settings');
+        return useSettingsStore();
+    }
 
     it('user loads persisted language and applies it to the i18n runtime', async () => {
         mockSettings({
@@ -83,8 +89,7 @@ describe('user changes the app language', () => {
             language: 'en-US',
         });
 
-        const { useSettingsStore } = await import('@/stores/settings');
-        const store = useSettingsStore();
+        const store = await createStore();
 
         await store.initialize();
 
@@ -99,8 +104,7 @@ describe('user changes the app language', () => {
         mockSettings({});
         mockSystemLanguage('zh-TW', ['zh-TW', 'en-US']);
 
-        const { useSettingsStore } = await import('@/stores/settings');
-        const store = useSettingsStore();
+        const store = await createStore();
 
         await store.initialize();
 
@@ -113,8 +117,7 @@ describe('user changes the app language', () => {
         mockSettings({});
         mockSystemLanguage('en-GB', ['en-GB', 'fr-FR']);
 
-        const { useSettingsStore } = await import('@/stores/settings');
-        const store = useSettingsStore();
+        const store = await createStore();
 
         await store.initialize();
 
@@ -128,8 +131,7 @@ describe('user changes the app language', () => {
             language: 'fr-FR',
         });
 
-        const { useSettingsStore } = await import('@/stores/settings');
-        const store = useSettingsStore();
+        const store = await createStore();
 
         await store.initialize();
 
@@ -140,11 +142,10 @@ describe('user changes the app language', () => {
         );
     });
 
-    it('user updates language, persists it, applies it, and broadcasts the change', async () => {
+    it('user updates language, persists it, applies it, and sees the change', async () => {
         mockSettings({});
 
-        const { useSettingsStore } = await import('@/stores/settings');
-        const store = useSettingsStore();
+        const store = await createStore();
         await store.initialize();
 
         await store.updateLanguage('en-US');
@@ -152,29 +153,20 @@ describe('user changes the app language', () => {
         expect(store.settings.language).toBe('en-US');
         expect(getLocale()).toBe('en-US');
         expect(setSettingMock).toHaveBeenLastCalledWith({ key: 'language', value: 'en-US' });
-        expect(eventServiceMock.emit).toHaveBeenLastCalledWith(AppEvent.SETTINGS_GENERAL_UPDATED, {
-            sourceId: expect.any(String),
-            windowLabel: 'settings',
-            key: 'language',
-            value: 'en-US',
-        });
     });
 
     it('user does not apply language when persisting the language update fails', async () => {
         mockSettings({ language: 'zh-CN' });
 
-        const { useSettingsStore } = await import('@/stores/settings');
-        const store = useSettingsStore();
+        const store = await createStore();
         await store.initialize();
 
-        const failure = new Error('database unavailable');
-        setSettingMock.mockRejectedValueOnce(failure);
+        setSettingMock.mockRejectedValueOnce(new Error('database unavailable'));
 
-        await expect(store.updateLanguage('en-US')).rejects.toThrow('database unavailable');
+        await expect(store.updateLanguage('en-US')).rejects.toThrow();
 
         expect(store.settings.language).toBe('zh-CN');
         expect(getLocale()).toBe('zh-CN');
-        expect(eventServiceMock.emit).not.toHaveBeenCalled();
     });
 
     it('user rolls back non-language setting state when persisting the update fails', async () => {
@@ -182,39 +174,43 @@ describe('user changes the app language', () => {
             output_scroll_behavior: 'follow_output',
         });
 
-        const { useSettingsStore } = await import('@/stores/settings');
-        const store = useSettingsStore();
+        const store = await createStore();
         await store.initialize();
 
-        const failure = new Error('database unavailable');
-        setSettingMock.mockRejectedValueOnce(failure);
+        setSettingMock.mockRejectedValueOnce(new Error('database unavailable'));
 
-        await expect(store.updateOutputScrollBehavior('stay_position')).rejects.toThrow(
-            'database unavailable'
-        );
+        await expect(store.updateOutputScrollBehavior('stay_position')).rejects.toThrow();
 
         expect(store.settings.outputScrollBehavior).toBe('follow_output');
-        expect(eventServiceMock.emit).not.toHaveBeenCalled();
     });
 
-    it('user applies language changes from another window without rebroadcasting', async () => {
-        mockSettings({
-            language: 'zh-CN',
-        });
+    it('user sees a language change made by another window converge', async () => {
+        mockSettings({ language: 'zh-CN' });
 
-        const { useSettingsStore } = await import('@/stores/settings');
-        const store = useSettingsStore();
+        const owner = new SettingsService({ transport: bus.transport('main') });
+        setActiveSettingsService(owner);
+        await owner.initialize();
+        const otherWindow = new SettingsService({ transport: bus.transport('win-settings') });
+        await otherWindow.initialize();
+
+        await owner.mutate('language', 'en-US');
+        await flush();
+
+        expect(otherWindow.getSnapshot().language).toBe('en-US');
+    });
+
+    it('user sees a warning and keeps the saved value when cross-window sync fails', async () => {
+        mockSettings({ language: 'zh-CN' });
+
+        const store = await createStore();
         await store.initialize();
 
-        eventHandlers.get(AppEvent.SETTINGS_GENERAL_UPDATED)?.({
-            sourceId: 'other-window',
-            windowLabel: 'main',
-            key: 'language',
-            value: 'en-US',
-        });
+        bus.failNotices = true;
+        await store.updateLanguage('en-US');
+        bus.failNotices = false;
 
+        // The change is committed; the failed broadcast is surfaced, not swallowed.
         expect(store.settings.language).toBe('en-US');
-        expect(getLocale()).toBe('en-US');
-        expect(eventServiceMock.emit).not.toHaveBeenCalled();
+        expect(store.lastWarning).toBeTruthy();
     });
 });

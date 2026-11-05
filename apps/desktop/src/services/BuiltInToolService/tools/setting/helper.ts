@@ -1,10 +1,10 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { native } from '@services/NativeService';
+import { formatShortcutRegistrationError } from '@services/SettingsService/messages';
 
 import { t, tt } from '@/i18n';
-import { type GeneralSettingsData, useSettingsStore } from '@/stores/settings';
 
+import { initializeSettingsService, type SettingsToolReader } from '../../settingsReader';
 import { parseToolArguments } from '../../utils/toolSchema';
 import {
     SETTING_DEFINITIONS,
@@ -12,12 +12,14 @@ import {
     settingArgsSchema,
     type SettingToolItem,
     settingValueSchemaByKey,
-    type StoreSettingKey,
     SUPPORTED_SETTING_KEYS,
     type SupportedSettingKey,
     type SupportedSettingValue,
-    TOOL_KEY_TO_STORE_KEY,
 } from './constants';
+
+export { formatShortcutRegistrationError };
+
+export type { SettingsToolReader };
 
 export type ParsedSettingRequest =
     | {
@@ -35,8 +37,6 @@ export type ParsedSettingRequest =
           value: SupportedSettingValue;
           reason: string;
       };
-
-export type SettingsStore = Awaited<ReturnType<typeof prepareSettingsStore>>;
 
 function normalizeUpdateValue(key: SupportedSettingKey, value: unknown): SupportedSettingValue {
     const result = settingValueSchemaByKey[key].safeParse(value);
@@ -82,49 +82,16 @@ export function parseSettingRequest(args: Record<string, unknown>): ParsedSettin
     }
 }
 
-export async function prepareSettingsStore() {
-    const settingsStore = useSettingsStore();
-    await settingsStore.initialize();
-    return settingsStore;
-}
-
-function toStoreSettingKey(key: SupportedSettingKey): StoreSettingKey {
-    return TOOL_KEY_TO_STORE_KEY[key];
-}
-
-function readSettingValueFromStoreState(
-    settingsStore: ReturnType<typeof useSettingsStore>,
-    key: SupportedSettingKey
-): SupportedSettingValue {
-    const storeKey = toStoreSettingKey(key);
-    return settingsStore.settings[storeKey] as GeneralSettingsData[typeof storeKey];
-}
-
-export async function readCurrentSettingValue(
-    settingsStore: ReturnType<typeof useSettingsStore>,
-    key: SupportedSettingKey
-): Promise<SupportedSettingValue> {
-    if (key === 'start_on_boot') {
-        try {
-            return await native.autostart.isAutostartEnabled();
-        } catch {
-            return readSettingValueFromStoreState(settingsStore, key);
-        }
-    }
-
-    return readSettingValueFromStoreState(settingsStore, key);
-}
-
-export function formatSettingValue(value: SupportedSettingValue): string {
-    return typeof value === 'string' ? value : String(value);
+export async function prepareSettingsService(): Promise<SettingsToolReader> {
+    return initializeSettingsService();
 }
 
 async function buildSettingItem(
-    settingsStore: SettingsStore,
+    settingsService: SettingsToolReader,
     key: SupportedSettingKey
 ): Promise<SettingToolItem> {
     const definition = SETTING_DEFINITIONS[key];
-    const value = await readCurrentSettingValue(settingsStore, key);
+    const value = (await settingsService.readEffectiveValue(key)) as SupportedSettingValue;
 
     return {
         key,
@@ -163,10 +130,10 @@ function formatSettingMetadata(item: SettingToolItem, index: number): string {
         .trimEnd();
 }
 
-export async function listSupportedSettings(settingsStore: SettingsStore): Promise<string> {
+export async function listSupportedSettings(settingsService: SettingsToolReader): Promise<string> {
     const items = await Promise.all(
         Object.keys(SETTING_DEFINITIONS).map((key) =>
-            buildSettingItem(settingsStore, key as SupportedSettingKey)
+            buildSettingItem(settingsService, key as SupportedSettingKey)
         )
     );
     const lines = items.map((item, index) => formatSettingMetadata(item, index));
@@ -175,10 +142,10 @@ export async function listSupportedSettings(settingsStore: SettingsStore): Promi
 }
 
 export async function getSettings(
-    settingsStore: SettingsStore,
+    settingsService: SettingsToolReader,
     keys: SupportedSettingKey[]
 ): Promise<string> {
-    const items = await Promise.all(keys.map((key) => buildSettingItem(settingsStore, key)));
+    const items = await Promise.all(keys.map((key) => buildSettingItem(settingsService, key)));
     const lines = items.map(
         (item, index) => `${index + 1}. ${formatSettingSummary(item.key, item.value)}`
     );
@@ -190,16 +157,6 @@ export function formatSingleUpdate(key: SupportedSettingKey, value: SupportedSet
     return `1. ${formatSettingSummary(key, value)}`;
 }
 
-export function formatShortcutRegistrationError(shortcut: string, error: unknown): string {
-    const errorText = String(error);
-    if (errorText.includes('already registered') || errorText.includes('已注册')) {
-        return tt('快捷键 {shortcut} 已被其他应用占用。', { shortcut });
-    }
-    if (errorText.includes('invalid') || errorText.includes('无效')) {
-        return tt('快捷键 {shortcut} 格式无效。', { shortcut });
-    }
-    if (errorText.includes('Unknown key')) {
-        return tt('快捷键包含不支持的按键。');
-    }
-    return tt('注册快捷键失败：{error}', { error: errorText });
+export function formatSettingValue(value: SupportedSettingValue): string {
+    return typeof value === 'string' ? value : String(value);
 }
