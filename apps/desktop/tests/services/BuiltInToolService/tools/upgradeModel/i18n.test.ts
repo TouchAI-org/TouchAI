@@ -12,12 +12,29 @@ import {
 } from '@/services/BuiltInToolService/tools/upgradeModel/chain';
 import type { BaseBuiltInToolExecutionContext } from '@/services/BuiltInToolService/types';
 
-const { findModelByProviderAndModelIdMock } = vi.hoisted(() => ({
+const {
+    findDefaultModelWithProviderMock,
+    findEffectiveModelRoleWithProviderMock,
+    findModelByIdWithProviderMock,
+    findModelByProviderAndModelIdMock,
+    findModelPreferenceByNameMock,
+    isModelRoutingEnabledMock,
+} = vi.hoisted(() => ({
+    findDefaultModelWithProviderMock: vi.fn(),
+    findEffectiveModelRoleWithProviderMock: vi.fn(),
+    findModelByIdWithProviderMock: vi.fn(),
     findModelByProviderAndModelIdMock: vi.fn(),
+    findModelPreferenceByNameMock: vi.fn(),
+    isModelRoutingEnabledMock: vi.fn(),
 }));
 
 vi.mock('@database/queries', () => ({
+    findDefaultModelWithProvider: findDefaultModelWithProviderMock,
+    findEffectiveModelRoleWithProvider: findEffectiveModelRoleWithProviderMock,
+    findModelByIdWithProvider: findModelByIdWithProviderMock,
     findModelByProviderAndModelId: findModelByProviderAndModelIdMock,
+    findModelPreferenceByName: findModelPreferenceByNameMock,
+    isModelRoutingEnabled: isModelRoutingEnabledMock,
 }));
 
 function createModel(overrides: Partial<ModelWithProvider>): ModelWithProvider {

@@ -63,6 +63,14 @@ describe('user searches the settings in another language', () => {
         );
     });
 
+    it('user finds model routing by its English name while reading Chinese', () => {
+        setLocale('zh-CN');
+
+        const results = searchSettings('routing');
+
+        expect(results.some((result) => result.section === 'model-preferences')).toBe(true);
+    });
+
     it('user gets no results for a word that appears in no translation', () => {
         setLocale('zh-CN');
 

@@ -10,6 +10,7 @@ export * from './mcpToolLogs';
 export * from './mcpTools';
 export * from './messageParts';
 export * from './messages';
+export * from './modelPreferences';
 export * from './models';
 export * from './providers';
 export * from './quickSearchClicks';

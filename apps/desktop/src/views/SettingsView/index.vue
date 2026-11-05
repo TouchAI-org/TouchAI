@@ -43,6 +43,9 @@
 
     const ShortcutsView = defineSectionView(() => import('./components/Shortcuts/index.vue'));
     const AiServicesView = defineSectionView(() => import('./components/AiServices/index.vue'));
+    const ModelPreferencesView = defineSectionView(
+        () => import('./components/ModelPreferences/index.vue')
+    );
     const UsageView = defineSectionView(() => import('./components/Usage/index.vue'));
     const BuiltInToolsView = defineSectionView(() => import('./components/BuiltInTools/index.vue'));
     const SearchView = defineSectionView(() => import('./components/Search/index.vue'));
@@ -74,6 +77,10 @@
         'ai-services': {
             component: AiServicesView,
         },
+        'model-preferences': {
+            component: ModelPreferencesView,
+            scrollable: true,
+        },
         usage: {
             component: UsageView,
             scrollable: true,
@@ -102,6 +109,7 @@
     const uncachedSections = [
         'SettingsGeneralSection',
         'SettingsShortcutsSection',
+        'SettingsModelPreferencesSection',
         'SettingsSearchSection',
         'SettingsBrowserSection',
         'SettingsMcpToolsSection',

@@ -87,6 +87,17 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
         { labelKey: 'settings.ai.modelListTitle', targetId: 'models' },
         { labelKey: 'settings.ai.setDefaultModel', targetId: 'models' },
     ],
+    'model-preferences': [
+        { labelKey: 'settings.modelRouting.enableRouting', targetId: 'model-routing-enabled' },
+        { labelKey: 'settings.modelRouting.entryModel', targetId: 'model-routing-entry' },
+        { labelKey: 'settings.modelRouting.fastModel', targetId: 'model-routing-fast' },
+        { labelKey: 'settings.modelRouting.generalModel', targetId: 'model-routing-general' },
+        {
+            labelKey: 'settings.modelRouting.scenarioTitle',
+            descriptionKey: 'settings.modelRouting.scenarioDescription',
+            targetId: 'model-routing-scenarios',
+        },
+    ],
     search: [
         { labelKey: 'settings.search.defaultProvider', targetId: 'search-default-provider' },
         { labelKey: 'settings.search.maxResults', targetId: 'search-max-results' },

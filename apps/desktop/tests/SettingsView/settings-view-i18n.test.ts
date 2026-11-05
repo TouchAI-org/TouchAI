@@ -83,6 +83,16 @@ vi.mock('@/views/SettingsView/components/AiServices/index.vue', () => ({
         },
     },
 }));
+vi.mock('@/views/SettingsView/components/ModelPreferences/index.vue', () => ({
+    __esModule: true,
+    default: {
+        name: 'ModelPreferencesViewStub',
+        async setup() {
+            await asyncViewControls.waitForResolve();
+            return () => null;
+        },
+    },
+}));
 vi.mock('@/views/SettingsView/components/BuiltInTools/index.vue', () => ({
     __esModule: true,
     default: {
@@ -171,6 +181,9 @@ describe('user waits for a settings section', () => {
         expect(wrapper.text()).not.toContain('Loading');
 
         await wrapper.get('[data-testid="settings-nav-ai-services"]').trigger('click');
+        expect(wrapper.text()).not.toContain('Loading');
+
+        await wrapper.get('[data-testid="settings-nav-model-preferences"]').trigger('click');
         expect(wrapper.text()).not.toContain('Loading');
 
         await wrapper.get('[data-testid="settings-nav-built-in-tools"]').trigger('click');

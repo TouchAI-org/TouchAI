@@ -127,6 +127,14 @@ vi.mock('@/views/SettingsView/components/AiServices/index.vue', () => ({
     },
 }));
 
+vi.mock('@/views/SettingsView/components/ModelPreferences/index.vue', () => ({
+    __esModule: true,
+    default: {
+        name: 'SettingsModelPreferencesSection',
+        template: '<section data-testid="model-preferences-view-stub" />',
+    },
+}));
+
 vi.mock('@/views/SettingsView/components/BuiltInTools/index.vue', () => ({
     __esModule: true,
     default: {
@@ -383,6 +391,10 @@ describe('user opens the settings window', () => {
         nav.vm.$emit('navigate', 'ai-services');
         await flushPromises();
         expect(wrapper.find('ai-services-view-stub').exists()).toBe(true);
+
+        nav.vm.$emit('navigate', 'model-preferences');
+        await flushPromises();
+        expect(wrapper.find('model-preferences-view-stub').exists()).toBe(true);
 
         nav.vm.$emit('navigate', 'built-in-tools');
         await flushPromises();

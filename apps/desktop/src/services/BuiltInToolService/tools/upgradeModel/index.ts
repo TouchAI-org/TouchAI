@@ -1,10 +1,18 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { findModelByProviderAndModelId } from '@database/queries';
+import {
+    findDefaultModelWithProvider,
+    findEffectiveModelRoleWithProvider,
+    findModelByIdWithProvider,
+    findModelByProviderAndModelId,
+    findModelPreferenceByName,
+    isModelRoutingEnabled,
+} from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
+import type { ModelRole } from '@database/types';
 import { log } from '@services/ObservabilityService';
 
-import { tt } from '@/i18n';
+import { t, tt } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 
 import {
@@ -25,11 +33,34 @@ import {
     type UpgradeModelToolConfig,
 } from './config';
 import { UPGRADE_MODEL_TOOL_DESCRIPTION, UPGRADE_MODEL_TOOL_INPUT_SCHEMA } from './constants';
-import { buildUpgradeSummary, formatCurrentModelLabel, parseUpgradeModelArgs } from './helper';
+import {
+    buildUpgradeSummary,
+    formatCurrentModelLabel,
+    hasUpgradeModelSelector,
+    parseUpgradeModelArgs,
+    type UpgradeModelArgs,
+} from './helper';
 
 interface ResolvedUpgradeTarget {
     chainEntry: UpgradeModelChainEntry;
     model: ModelWithProvider;
+}
+
+interface ResolvedModelSwitchTarget {
+    chainEntries: UpgradeModelChainEntry[];
+    target: ResolvedUpgradeTarget;
+    source: 'chain' | 'scenario' | 'restore' | 'role';
+    role?: ModelRole;
+    scenarioName?: string;
+}
+
+function isSameModel(
+    left: ModelWithProvider | undefined,
+    right: ModelWithProvider | undefined
+): boolean {
+    return Boolean(
+        left && right && left.provider_id === right.provider_id && left.model_id === right.model_id
+    );
 }
 
 async function resolveChainTargets(
@@ -124,11 +155,143 @@ async function resolveUpgradeTarget(
     };
 }
 
+function buildTargetFromModel(
+    model: ModelWithProvider,
+    source: ResolvedModelSwitchTarget['source']
+): ResolvedModelSwitchTarget {
+    return {
+        chainEntries: [],
+        target: {
+            chainEntry: {
+                providerId: model.provider_id,
+                modelId: model.model_id,
+            },
+            model,
+        },
+        source,
+    };
+}
+
+async function resolveScenarioTarget(scenarioName: string): Promise<ResolvedModelSwitchTarget> {
+    const preference = await findModelPreferenceByName(scenarioName);
+    if (!preference) {
+        throw new Error(
+            t('builtInTools.upgradeModel.scenarioNotFound', { scenario: scenarioName })
+        );
+    }
+    if (preference.model_id === null) {
+        throw new Error(
+            t('builtInTools.upgradeModel.scenarioModelMissing', { scenario: scenarioName })
+        );
+    }
+
+    const model = await findModelByIdWithProvider(preference.model_id);
+    if (!model || model.provider_enabled === 0) {
+        throw new Error(
+            t('builtInTools.upgradeModel.scenarioModelUnavailable', {
+                scenario: scenarioName,
+            })
+        );
+    }
+
+    return {
+        ...buildTargetFromModel(model, 'scenario'),
+        scenarioName: preference.name,
+    };
+}
+
+async function resolveRestoreTarget(): Promise<ResolvedModelSwitchTarget> {
+    const model = await findDefaultModelWithProvider();
+    if (!model) {
+        throw new Error(t('builtInTools.upgradeModel.defaultModelUnavailable'));
+    }
+    return buildTargetFromModel(model, 'restore');
+}
+
+async function resolveRoleTarget(role: ModelRole): Promise<ResolvedModelSwitchTarget> {
+    const model = await findEffectiveModelRoleWithProvider(role);
+    if (!model) {
+        throw new Error(t('builtInTools.upgradeModel.roleUnavailable', { role }));
+    }
+    return {
+        ...buildTargetFromModel(model, 'role'),
+        role,
+    };
+}
+
+async function resolveModelSwitchTarget(
+    parsedArgs: UpgradeModelArgs,
+    currentModel: ModelWithProvider | undefined,
+    config: UpgradeModelToolConfig
+): Promise<ResolvedModelSwitchTarget> {
+    const targetSelectorCount = [
+        parsedArgs.restore === true,
+        parsedArgs.role !== undefined,
+        parsedArgs.scenario !== undefined,
+    ].filter(Boolean).length;
+
+    if (targetSelectorCount > 1) {
+        throw new Error(t('builtInTools.upgradeModel.conflictingSelectors'));
+    }
+
+    if (targetSelectorCount === 0) {
+        return {
+            ...(await resolveUpgradeTarget(currentModel, config)),
+            source: 'chain',
+        };
+    }
+
+    if (!(await isModelRoutingEnabled())) {
+        throw new Error(t('builtInTools.upgradeModel.modelRoutingDisabled'));
+    }
+
+    if (parsedArgs.restore === true || parsedArgs.scenario === null) {
+        return resolveRestoreTarget();
+    }
+    if (parsedArgs.role) {
+        return resolveRoleTarget(parsedArgs.role);
+    }
+    return resolveScenarioTarget(parsedArgs.scenario!);
+}
+
 function buildUpgradeConversationSemantic(targetLabel: string): BuiltInToolConversationSemantic {
     return {
         action: 'switch',
         target: targetLabel,
     };
+}
+
+function buildSwitchSummary(options: {
+    currentModel?: ModelWithProvider;
+    targetModel: ModelWithProvider;
+    source: ResolvedModelSwitchTarget['source'];
+    role?: ModelRole;
+    scenarioName?: string;
+    chainEntries: UpgradeModelChainEntry[];
+}): string {
+    if (options.source === 'chain') {
+        return buildUpgradeSummary({
+            currentModel: options.currentModel,
+            targetModel: options.targetModel,
+            chainEntries: options.chainEntries,
+        });
+    }
+
+    const action =
+        options.source === 'restore'
+            ? t('builtInTools.upgradeModel.restoredEntry')
+            : options.source === 'role'
+              ? t('builtInTools.upgradeModel.switchedRole', { role: options.role ?? '' })
+              : t('builtInTools.upgradeModel.switchedScenario', {
+                    scenario: options.scenarioName ?? '',
+                });
+
+    return [
+        action,
+        `${t('builtInTools.upgradeModel.currentModel')}: ${formatCurrentModelLabel(options.currentModel)}`,
+        `${t('builtInTools.upgradeModel.targetModel')}: ${formatCurrentModelLabel(options.targetModel)}`,
+        t('builtInTools.upgradeModel.continueWithSelected'),
+    ].join('\n');
 }
 
 /**
@@ -148,7 +311,13 @@ export async function buildUpgradeModelApprovalRequest(
     void namespacedName;
 
     try {
-        parseUpgradeModelArgs(args);
+        const parsedArgs = parseUpgradeModelArgs(args);
+        if (hasUpgradeModelSelector(parsedArgs)) {
+            // Automatic routing is gated by the model-routing setting. The manual
+            // upgrade chain keeps its existing approval flow.
+            return null;
+        }
+
         const { target } = await resolveUpgradeTarget(context.currentModel, config);
 
         // 审批阶段只负责把即将发生的模型切换说清楚。
@@ -186,18 +355,36 @@ export async function executeUpgradeModelTool(
     config: UpgradeModelToolConfig,
     context: BaseBuiltInToolExecutionContext
 ): Promise<BuiltInToolExecutionResult> {
-    parseUpgradeModelArgs(args);
     void context.signal;
 
     try {
-        const { chainEntries, target } = await resolveUpgradeTarget(context.currentModel, config);
+        const parsedArgs = parseUpgradeModelArgs(args);
+        const { chainEntries, target, source, role, scenarioName } = await resolveModelSwitchTarget(
+            parsedArgs,
+            context.currentModel,
+            config
+        );
+
+        if (isSameModel(context.currentModel, target.model)) {
+            return {
+                result: [
+                    t('builtInTools.upgradeModel.alreadyTargetModel'),
+                    `${tt('当前模型')}: ${formatCurrentModelLabel(context.currentModel)}`,
+                ].join('\n'),
+                isError: false,
+                status: 'success',
+            };
+        }
 
         // 工具本身不直接修改前端状态，而是返回统一的控制信号。
         // 这样模型切换、日志记录和请求重启都能继续走网关已有的单一路径。
         return {
-            result: buildUpgradeSummary({
+            result: buildSwitchSummary({
                 currentModel: context.currentModel,
                 targetModel: target.model,
+                source,
+                role,
+                scenarioName,
                 chainEntries,
             }),
             isError: false,
@@ -248,8 +435,8 @@ class UpgradeModelTool extends BuiltInTool<UpgradeModelToolConfig> {
         config: UpgradeModelToolConfig,
         context: BaseBuiltInToolExecutionContext
     ) {
-        parseUpgradeModelArgs(args);
-        const { target } = await resolveUpgradeTarget(context.currentModel, config);
+        const parsedArgs = parseUpgradeModelArgs(args);
+        const { target } = await resolveModelSwitchTarget(parsedArgs, context.currentModel, config);
         return buildUpgradeConversationSemantic(formatCurrentModelLabel(target.model));
     }
 

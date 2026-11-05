@@ -205,6 +205,19 @@ export const findModelByProviderAndModelId = async ({
         .get()) as ModelWithProvider | undefined;
 
 /**
+ * 根据模型主键查找模型（包含服务商信息）。
+ */
+export const findModelByIdWithProvider = async (
+    id: number
+): Promise<ModelWithProvider | undefined> =>
+    (await db
+        .select(modelWithProviderSelection)
+        .from(models)
+        .innerJoin(providers, eq(providers.id, models.provider_id))
+        .where(eq(models.id, id))
+        .get()) as ModelWithProvider | undefined;
+
+/**
  * 记下上游 `/v1/models` 声明的能力，交给 `syncAllModelsMetadata` 按
  * 「上游 > models.dev > 已有值」统一重建模型列。
  *

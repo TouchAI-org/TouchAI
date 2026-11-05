@@ -39,6 +39,7 @@ import IconPin from '~icons/lucide/pin';
 import IconPlay from '~icons/lucide/play';
 import IconPlus from '~icons/lucide/plus';
 import IconRefresh from '~icons/lucide/refresh-cw';
+import IconRoute from '~icons/lucide/route';
 import IconSearch from '~icons/lucide/search';
 import IconCog from '~icons/lucide/settings';
 import IconStop from '~icons/lucide/square';
@@ -91,6 +92,7 @@ export const appIconMap = {
     play: IconPlay,
     plus: IconPlus,
     refresh: IconRefresh,
+    route: IconRoute,
     search: IconSearch,
     settings: IconCog,
     stop: IconStop,
