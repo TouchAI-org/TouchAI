@@ -3,6 +3,7 @@
 //! 数据库运行时状态与事务托管。
 
 mod executor;
+mod export;
 mod import;
 
 use std::{
@@ -20,6 +21,7 @@ use crate::core::system::paths::{app_directory_path, AppDirectory};
 
 use self::{
     executor::{execute_request, reject_top_level_transaction_sql},
+    export::run_export_backup,
     import::run_import_backup,
 };
 use super::{
@@ -226,18 +228,30 @@ impl DatabaseRuntime {
         }
     }
 
-    pub async fn export_backup(&self, target_path: &str) -> Result<(), String> {
-        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
-            .execute(&self.inner.pool)
-            .await
-            .map_err(|error| format!("Failed to checkpoint sqlite WAL: {error}"))?;
-        std::fs::copy(&self.inner.database_path, target_path)
-            .map_err(|error| format!("Failed to export database backup: {error}"))?;
-        Ok(())
+    pub async fn export_backup(&self, window_label: &str, target_path: &str) -> Result<(), String> {
+        if !crate::core::database::typed::backup_allows(window_label) {
+            return Err(format!(
+                "Database operation is not allowed for window '{}'",
+                window_label
+            ));
+        }
+
+        run_export_backup(&self.inner.pool, &self.inner.database_path, target_path).await
     }
 
     /// 导入备份前先确认没有活动事务，避免和前端写入并发冲突。
-    pub async fn import_backup(&self, request: DatabaseImportRequest) -> Result<(), String> {
+    pub async fn import_backup(
+        &self,
+        window_label: &str,
+        request: DatabaseImportRequest,
+    ) -> Result<(), String> {
+        if !crate::core::database::typed::backup_allows(window_label) {
+            return Err(format!(
+                "Database operation is not allowed for window '{}'",
+                window_label
+            ));
+        }
+
         if !self.inner.tx_registry.lock().await.is_empty() {
             return Err("当前仍有进行中的数据库事务，请稍后重试导入".to_string());
         }

@@ -7,8 +7,8 @@ use tauri::{Runtime, State, WebviewWindow};
 use crate::core::database::{
     typed::{DatabaseOperation, DatabaseOperationError},
     types::{
-        DatabaseImportRequest, DatabaseQueryRequest, DatabaseQueryResponse,
-        DatabaseTransactionBehavior,
+        DatabaseBackupExportRequest, DatabaseImportRequest, DatabaseQueryRequest,
+        DatabaseQueryResponse, DatabaseTransactionBehavior,
     },
     DatabaseRuntime,
 };
@@ -93,21 +93,22 @@ pub async fn database_tx_rollback(
 
 /// 导出数据库备份。
 #[tauri::command]
-pub async fn database_export_backup(
+pub async fn database_export_backup<R: Runtime>(
+    window: WebviewWindow<R>,
     runtime: State<'_, DatabaseRuntime>,
-    target_path: String,
+    request: DatabaseBackupExportRequest,
 ) -> Result<(), String> {
-    runtime.export_backup(&target_path).await
+    runtime
+        .export_backup(window.label(), &request.target_path)
+        .await
 }
 
 /// 导入数据库备份。
-///
-/// 这里保持同步命令签名，是为了与当前前端调用约定保持简单一致；
-/// 实际导入流程仍在异步运行时中执行。
 #[tauri::command]
-pub fn database_import_backup(
+pub async fn database_import_backup<R: Runtime>(
+    window: WebviewWindow<R>,
     runtime: State<'_, DatabaseRuntime>,
     request: DatabaseImportRequest,
 ) -> Result<(), String> {
-    tauri::async_runtime::block_on(runtime.import_backup(request))
+    runtime.import_backup(window.label(), request).await
 }

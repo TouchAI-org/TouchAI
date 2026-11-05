@@ -786,7 +786,7 @@ pub(crate) struct OperationSurface {
 }
 
 impl OperationSurface {
-    const fn new(group: OperationGroup) -> Self {
+    pub(crate) const fn new(group: OperationGroup) -> Self {
         Self { group }
     }
 }

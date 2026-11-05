@@ -2,6 +2,7 @@ mod common;
 
 use common::{build_test_app, invoke_command_err, invoke_command_ok, TestAppOptions};
 use serde_json::json;
+use sqlx::{sqlite::SqliteConnectOptions, Connection};
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 fn database_operation(
@@ -902,6 +903,117 @@ fn database_tx_query_reports_missing_transactions() {
     );
 
     assert_eq!(error, json!("Transaction 'tx_missing' was not found"));
+}
+
+#[test]
+fn user_exports_a_consistent_database_backup() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let target_dir = tempfile::tempdir().expect("backup destination");
+    let target = target_dir.path().join("touchai.db");
+
+    let response: () = invoke_command_ok(
+        &test_app.main_webview,
+        "database_export_backup",
+        json!({
+            "request": {
+                "targetPath": target.to_string_lossy()
+            }
+        }),
+    );
+    assert_eq!(response, ());
+
+    tauri::async_runtime::block_on(async {
+        let mut connection =
+            sqlx::SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(&target))
+                .await
+                .expect("open exported backup");
+        let app_id: String =
+            sqlx::query_scalar("SELECT value FROM touchai_meta WHERE key = 'app_id'")
+                .fetch_one(&mut connection)
+                .await
+                .expect("read exported metadata");
+        assert_eq!(app_id, "touchai");
+        let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
+            .fetch_one(&mut connection)
+            .await
+            .expect("check exported database");
+        assert_eq!(integrity, "ok");
+        connection.close().await.expect("close exported backup");
+    });
+}
+
+#[test]
+fn user_can_use_main_and_settings_windows_for_backup_operations() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let settings = WebviewWindowBuilder::new(&test_app.app, "settings", WebviewUrl::default())
+        .build()
+        .expect("settings window");
+    let target_dir = tempfile::tempdir().expect("backup destination");
+
+    for (index, webview) in [&test_app.main_webview, &settings].into_iter().enumerate() {
+        let target = target_dir.path().join(format!("backup-{index}.db"));
+        let response: () = invoke_command_ok(
+            webview,
+            "database_export_backup",
+            json!({
+                "request": {
+                    "targetPath": target.to_string_lossy()
+                }
+            }),
+        );
+        assert_eq!(response, ());
+        assert!(target.is_file());
+    }
+}
+
+#[test]
+fn user_cannot_use_popup_or_preview_windows_for_database_backups() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let popup = WebviewWindowBuilder::new(
+        &test_app.app,
+        "popup-backup-permission-test",
+        WebviewUrl::default(),
+    )
+    .build()
+    .expect("popup window");
+    let preview =
+        WebviewWindowBuilder::new(&test_app.app, "preview-backup-test", WebviewUrl::default())
+            .build()
+            .expect("preview window");
+    let target_dir = tempfile::tempdir().expect("backup destination");
+    let target = target_dir.path().join("forbidden.db");
+
+    for webview in [&popup, &preview] {
+        let export_error = invoke_command_err(
+            webview,
+            "database_export_backup",
+            json!({
+                "request": {
+                    "targetPath": target.to_string_lossy()
+                }
+            }),
+        );
+        assert!(export_error
+            .as_str()
+            .unwrap_or_default()
+            .contains("not allowed"));
+
+        let import_error = invoke_command_err(
+            webview,
+            "database_import_backup",
+            json!({
+                "request": {
+                    "sourcePath": "D:/non-existent.db",
+                    "mode": "full"
+                }
+            }),
+        );
+        assert!(import_error
+            .as_str()
+            .unwrap_or_default()
+            .contains("not allowed"));
+    }
+    assert!(!target.exists());
 }
 
 #[test]
