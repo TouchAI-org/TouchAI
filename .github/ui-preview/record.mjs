@@ -323,12 +323,13 @@ async function placeWebviewWindow(session, handle, profile) {
 
 async function setPreviewWindowFrame({ session, platform, display, handle, frame, scale }) {
     await session.switchTo(handle);
+    // `frame` describes the visible content, but window-manager APIs size the
+    // native window. The app reserves a transparent gutter for its CSS shadow,
+    // so every platform has to add that gutter back or the shell is squeezed
+    // into the content size and the corners and text are clipped.
+    const native = nativeWindowFrame(frame);
 
     if (platform === 'linux') {
-        // xdotool sizes the native X11 window, while `frame` describes the
-        // visible content. Add the transparent shadow gutter so the webview
-        // renders at the sizes the plan asserts and the rest of the app uses.
-        const native = nativeWindowFrame(frame);
         const id = windowForSurface(display, 'search', scale)?.id;
 
         if (!id) {
@@ -338,8 +339,7 @@ async function setPreviewWindowFrame({ session, platform, display, handle, frame
         resizeWindow(display, id, native.width, native.height);
         moveWindow(display, id, native.x, native.y);
     } else {
-        const { x, y, width, height } = frame;
-        await session.setWindowRect({ x, y, width, height });
+        await session.setWindowRect(native);
     }
 
     await session.focusWindow();
@@ -421,12 +421,11 @@ async function checkPreviewFrame(
     session,
     handle,
     frame,
-    platform,
     name = 'Search window frame stayed stable'
 ) {
     await session.switchTo(handle);
     const rect = await session.getWindowRect();
-    const expected = platform === 'linux' ? nativeWindowFrame(frame) : frame;
+    const expected = nativeWindowFrame(frame);
     const stable =
         Math.abs(rect.width - expected.width) <= PREVIEW_FRAME_TOLERANCE &&
         Math.abs(rect.height - expected.height) <= PREVIEW_FRAME_TOLERANCE;
@@ -435,9 +434,7 @@ async function checkPreviewFrame(
         name,
         status: stable ? 'pass' : 'fail',
         detail: stable
-            ? platform === 'linux'
-                ? `${rect.width}x${rect.height} native (${frame.width}x${frame.height} content)`
-                : `${rect.width}x${rect.height}`
+            ? `${rect.width}x${rect.height} native (${frame.width}x${frame.height} content)`
             : `${rect.width}x${rect.height}, expected ${expected.width}x${expected.height}`,
     };
 }
@@ -1193,7 +1190,6 @@ async function main() {
                             session,
                             handle,
                             state.previewFrame,
-                            platform,
                             state.searchFrame === 'expanded'
                                 ? 'Search window expanded for existing content'
                                 : 'Search window empty state stayed compact'
@@ -1319,7 +1315,6 @@ async function main() {
                                         session,
                                         handle,
                                         state.previewFrame,
-                                        platform,
                                         'Search window expanded once for results'
                                     )
                                 );
@@ -1396,7 +1391,6 @@ async function main() {
                                     session,
                                     handle,
                                     state.previewFrame,
-                                    platform,
                                     'Search window expanded once for results'
                                 )
                             );
@@ -1453,7 +1447,6 @@ async function main() {
                             session,
                             handle,
                             state.previewFrame,
-                            platform,
                             'Search window frame stayed stable'
                         )
                     );

@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { ffmpegBinary, ffprobeBinary } from './platform.mjs';
-import { contentWindowFrame } from './profile.mjs';
+import { contentWindowFrame, SEARCH_WINDOW_WIDTH, WINDOW_SHADOW_GUTTER } from './profile.mjs';
 
 // Keep this in sync with the workflow env and the platform display helpers.
 export const DESKTOP_COLOUR = '#d9d4c8';
@@ -143,8 +143,9 @@ export function windowGeometry(display, id) {
 /**
  * Picks the visible app window for a surface.
  *
- * The search window is 750 wide and the settings window is 1120x700, so the
- * surface decides by size. This does not depend on input focus, which is not
+ * The search window is 750 wide and the settings window is 1120x700 once the
+ * shadow gutter is removed. X11 geometry includes the gutter, so the surface
+ * decides by native size. This does not depend on input focus, which is not
  * reliable when the driver drives the app instead of a person.
  */
 export function windowForSurface(display, surface, scale = 1) {
@@ -162,12 +163,16 @@ export function windowForSurface(display, surface, scale = 1) {
         return null;
     }
 
+    const searchWidth = SEARCH_WINDOW_WIDTH + WINDOW_SHADOW_GUTTER * 2;
+    const settingsWidth = 1120 + WINDOW_SHADOW_GUTTER * 2;
+    const settingsHeight = 700 + WINDOW_SHADOW_GUTTER * 2;
     const score = (geometry) =>
         surface === 'settings'
             ? (geometry.width >= 900 * scale && geometry.height >= 500 * scale ? 0 : 10000) +
-              Math.abs(geometry.width - 1120 * scale) +
-              Math.abs(geometry.height - 700 * scale)
-            : (geometry.width <= 900 * scale ? 0 : 10000) + Math.abs(geometry.width - 750 * scale);
+              Math.abs(geometry.width - settingsWidth * scale) +
+              Math.abs(geometry.height - settingsHeight * scale)
+            : (geometry.width <= 900 * scale ? 0 : 10000) +
+              Math.abs(geometry.width - searchWidth * scale);
 
     return candidates.sort((left, right) => score(left) - score(right))[0];
 }
