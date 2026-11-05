@@ -8,6 +8,7 @@ const DEFAULT_MAX_OUTPUT_TAIL_BYTES = 128 * 1024;
 
 const TRANSIENT_RELEASE_DOWNLOAD_PATTERNS = [
     /\bhttp status:\s*50[234]\b/i,
+    /\bstatus code:?\s*50[234]\b/i,
     /\bStatus\(50[234]\b/i,
     /\b50[234]\s+Gateway\b/i,
     /\bGateway Time-out\b/i,
@@ -16,6 +17,11 @@ const TRANSIENT_RELEASE_DOWNLOAD_PATTERNS = [
     /\bEAI_AGAIN\b/i,
     /\bconnection timed out\b/i,
     /\bnetwork timeout\b/i,
+    /\btimed out reading response\b/i,
+    /\btls connection init failed\b/i,
+    /\bconnection failed\b/i,
+    /\bnetwork error\b/i,
+    /\bdns failed\b/i,
 ];
 
 function parsePositiveInteger(value, fallback, label) {
