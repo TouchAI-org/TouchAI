@@ -4,7 +4,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Mutex,
 };
 use std::time::{Duration, Instant};
@@ -187,6 +187,7 @@ enum NavigationCompletion {
 pub(crate) struct WebviewRecoveryRuntime {
     started_at: Instant,
     windows: Mutex<HashMap<String, WindowRecoveryState>>,
+    next_recovery_id: AtomicU64,
     restart_requested: AtomicBool,
 }
 
@@ -195,12 +196,17 @@ impl WebviewRecoveryRuntime {
         Self {
             started_at: Instant::now(),
             windows: Mutex::new(HashMap::new()),
+            next_recovery_id: AtomicU64::new(0),
             restart_requested: AtomicBool::new(false),
         }
     }
 
     fn now_ms(&self) -> u64 {
         self.started_at.elapsed().as_millis() as u64
+    }
+
+    fn allocate_recovery_id(&self) -> u64 {
+        self.next_recovery_id.fetch_add(1, Ordering::Relaxed) + 1
     }
 
     fn record_failure(
@@ -235,7 +241,7 @@ impl WebviewRecoveryRuntime {
         match decision {
             RecoveryDecision::Reload { attempt } => {
                 state.phase = RecoveryPhase::Recovering;
-                state.recovery_id += 1;
+                state.recovery_id = self.allocate_recovery_id();
                 state.navigation_id = None;
                 RecoveryAction::Reload {
                     attempt,
@@ -263,12 +269,12 @@ impl WebviewRecoveryRuntime {
             RecoveryPhase::Idle => ShowReadiness::Ready,
             RecoveryPhase::Recovering => {
                 state.show_after_recovery = true;
-                state.show_intent = Some(intent);
+                state.show_intent = Some(merge_show_intent(state.show_intent, intent));
                 ShowReadiness::Deferred
             }
             RecoveryPhase::Exhausted => {
                 state.show_after_recovery = true;
-                state.show_intent = Some(intent);
+                state.show_intent = Some(merge_show_intent(state.show_intent, intent));
                 ShowReadiness::AwaitingRetry
             }
         }
@@ -417,7 +423,7 @@ impl WebviewRecoveryRuntime {
 
         state.policy.reset();
         state.phase = RecoveryPhase::Recovering;
-        state.recovery_id += 1;
+        state.recovery_id = self.allocate_recovery_id();
         state.navigation_id = None;
         Some(state.recovery_id)
     }
@@ -432,6 +438,18 @@ impl WebviewRecoveryRuntime {
 
     fn claim_restart(&self) -> bool {
         !self.restart_requested.swap(true, Ordering::SeqCst)
+    }
+}
+
+fn merge_show_intent(pending: Option<ShowIntent>, incoming: ShowIntent) -> ShowIntent {
+    match (pending, incoming) {
+        (
+            Some(ShowIntent::Settings { show_updates: true }),
+            ShowIntent::Settings {
+                show_updates: false,
+            },
+        ) => ShowIntent::Settings { show_updates: true },
+        (_, incoming) => incoming,
     }
 }
 
@@ -1306,6 +1324,66 @@ mod tests {
     }
 
     #[test]
+    fn user_gets_pending_updates_preserved_when_settings_is_requested_again_during_recovery() {
+        let runtime = WebviewRecoveryRuntime::new();
+        start_recovery(&runtime, "settings", false, 0);
+        let _ = runtime.request_show("settings", ShowIntent::Settings { show_updates: true });
+
+        assert_eq!(
+            runtime.request_show(
+                "settings",
+                ShowIntent::Settings {
+                    show_updates: false
+                }
+            ),
+            ShowReadiness::Deferred
+        );
+        runtime.note_navigation_started("settings", 9);
+
+        assert_eq!(
+            runtime.complete_navigation("settings", 9, true),
+            NavigationCompletion::Show {
+                show: true,
+                intent: Some(ShowIntent::Settings { show_updates: true })
+            }
+        );
+    }
+
+    #[test]
+    fn user_gets_pending_updates_preserved_when_settings_is_requested_again_after_exhaustion() {
+        let runtime = WebviewRecoveryRuntime::new();
+        for now_ms in [0, 10_000, 20_000, 30_000] {
+            let _ = runtime.record_failure_at(
+                "settings",
+                ProcessFailureKind::RendererExited,
+                true,
+                now_ms,
+            );
+        }
+        let _ = runtime.request_show("settings", ShowIntent::Settings { show_updates: true });
+
+        assert_eq!(
+            runtime.request_show(
+                "settings",
+                ShowIntent::Settings {
+                    show_updates: false
+                }
+            ),
+            ShowReadiness::AwaitingRetry
+        );
+        assert!(runtime.retry_after_exhaustion("settings").is_some());
+        runtime.note_navigation_started("settings", 9);
+
+        assert_eq!(
+            runtime.complete_navigation("settings", 9, true),
+            NavigationCompletion::Show {
+                show: true,
+                intent: Some(ShowIntent::Settings { show_updates: true })
+            }
+        );
+    }
+
+    #[test]
     fn user_gets_a_hidden_window_left_hidden_after_an_ignored_unresponsive_notice() {
         let runtime = WebviewRecoveryRuntime::new();
         let decision =
@@ -1400,6 +1478,18 @@ mod tests {
 
         assert_eq!(runtime.expire_recovery("main", old_recovery_id), None);
         assert!(runtime.is_current_recovery("main", new_recovery_id));
+    }
+
+    #[test]
+    fn user_gets_an_old_timeout_ignored_after_the_window_is_recreated() {
+        let runtime = WebviewRecoveryRuntime::new();
+        let old_recovery_id = start_recovery(&runtime, "settings", true, 0);
+        runtime.forget_window("settings");
+        let new_recovery_id = start_recovery(&runtime, "settings", true, 1_000);
+
+        assert_ne!(old_recovery_id, new_recovery_id);
+        assert_eq!(runtime.expire_recovery("settings", old_recovery_id), None);
+        assert!(runtime.is_current_recovery("settings", new_recovery_id));
     }
 
     #[test]
