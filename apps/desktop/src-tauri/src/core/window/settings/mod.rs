@@ -22,21 +22,8 @@ async fn build_settings_window_at<R: Runtime>(
     app: &AppHandle<R>,
     updates: bool,
 ) -> Result<(), String> {
-    if let Some(settings_window) = app.get_webview_window("settings") {
-        settings_window.unminimize().map_err(|e| e.to_string())?;
-        crate::core::window::rounded_corners::sync_window_corner_style(&settings_window)?;
-        settings_window.show().map_err(|e| e.to_string())?;
-        crate::core::window::rounded_corners::sync_window_corner_style(&settings_window)?;
-        settings_window.set_focus().map_err(|e| e.to_string())?;
-        settings_window
-            .emit("settings-window-opened", ())
-            .map_err(|e| e.to_string())?;
-        if updates {
-            settings_window
-                .emit("settings-show-updates", ())
-                .map_err(|e| e.to_string())?;
-        }
-        return Ok(());
+    if app.get_webview_window("settings").is_some() {
+        return show_settings_window(app, updates);
     }
 
     let mut builder = WebviewWindowBuilder::new(
@@ -71,6 +58,36 @@ async fn build_settings_window_at<R: Runtime>(
     crate::core::window::webview_defaults::apply_webview_runtime_defaults(&window)?;
     crate::core::window::rounded_corners::apply_window_corner_style(&window)?;
 
+    Ok(())
+}
+
+pub(crate) fn show_settings_window<R: Runtime>(
+    app: &AppHandle<R>,
+    show_updates: bool,
+) -> Result<(), String> {
+    let settings_window = app
+        .get_webview_window("settings")
+        .ok_or_else(|| "Settings window is not available".to_string())?;
+    if crate::core::window::webview_recovery::defer_show_if_recovering(
+        &settings_window,
+        crate::core::window::webview_recovery::ShowIntent::Settings { show_updates },
+    ) {
+        return Ok(());
+    }
+
+    settings_window.unminimize().map_err(|e| e.to_string())?;
+    crate::core::window::rounded_corners::sync_window_corner_style(&settings_window)?;
+    settings_window.show().map_err(|e| e.to_string())?;
+    crate::core::window::rounded_corners::sync_window_corner_style(&settings_window)?;
+    settings_window.set_focus().map_err(|e| e.to_string())?;
+    settings_window
+        .emit("settings-window-opened", ())
+        .map_err(|e| e.to_string())?;
+    if show_updates {
+        settings_window
+            .emit("settings-show-updates", ())
+            .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 

@@ -21,7 +21,7 @@ pub enum SearchSurfaceShowSource {
 
 impl SearchSurfaceShowSource {
     /// 转成前端事件载荷字符串。
-    fn as_str(&self) -> &'static str {
+    pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::Shortcut => "shortcut",
             Self::Notification => "notification",
@@ -298,6 +298,10 @@ pub fn hide_popup_surface<R: Runtime>(
         if let Some(window) = app_handle.get_webview_window(&closed_session.window_label) {
             let _ = window.set_focusable(false);
             window.hide().map_err(|error| error.to_string())?;
+            crate::core::window::webview_recovery::cancel_pending_show(
+                app_handle,
+                &closed_session.window_label,
+            );
         }
         emit_registered_popup_closed(app_handle, vec![closed_session])?;
 
@@ -317,6 +321,7 @@ pub fn hide_popup_surface<R: Runtime>(
             if label.starts_with("popup-") {
                 let _ = window.set_focusable(false);
                 window.hide().map_err(|error| error.to_string())?;
+                crate::core::window::webview_recovery::cancel_pending_show(app_handle, &label);
             }
         }
         emit_registered_popup_closed(app_handle, runtime.take_popup_sessions())
@@ -328,12 +333,18 @@ pub fn show_surface<R: Runtime>(
     app_handle: &AppHandle<R>,
     source: SearchSurfaceShowSource,
 ) -> Result<(), String> {
-    let runtime = app_handle
-        .try_state::<SearchWindowRuntime>()
-        .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
     let window = app_handle
         .get_webview_window("main")
         .ok_or_else(|| "Failed to get main window".to_string())?;
+    if crate::core::window::webview_recovery::defer_show_if_recovering(
+        &window,
+        crate::core::window::webview_recovery::ShowIntent::SearchSurface(source),
+    ) {
+        return Ok(());
+    }
+    let runtime = app_handle
+        .try_state::<SearchWindowRuntime>()
+        .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
 
     // Only a real hidden/unfocused -> foreground entry starts a new activation.
     // Showing an already-focused surface is not a reactivation.
@@ -370,6 +381,7 @@ pub fn hide_surface<R: Runtime>(
 
     hide_popup_surface(app_handle, None)?;
     window.hide().map_err(|error| error.to_string())?;
+    crate::core::window::webview_recovery::cancel_pending_show(app_handle, "main");
     app_handle
         .emit(
             "search-surface-hidden",
