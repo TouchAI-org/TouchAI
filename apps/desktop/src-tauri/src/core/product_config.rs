@@ -14,6 +14,8 @@ use uuid::Uuid;
 const PRODUCT_CONFIG_JSON: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../product.json"));
 
+pub(crate) const ANALYTICS_PROTOCOL_VERSION: u32 = 2;
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProductConfig {
@@ -89,7 +91,8 @@ impl ProductAnalytics {
     /// A deployment is transport-ready only when its generated project id is a
     /// real UUID. The public placeholder must never become a fabricated target.
     pub(crate) fn is_transport_ready(&self) -> bool {
-        self.protocol_version == 2 && Uuid::parse_str(self.project_id.trim()).is_ok()
+        self.protocol_version == ANALYTICS_PROTOCOL_VERSION
+            && Uuid::parse_str(self.project_id.trim()).is_ok()
     }
 }
 
@@ -162,7 +165,7 @@ pub(crate) fn product_config_from_json(json: &str) -> Result<ProductConfig, Stri
                 "services.analytics.baseUrl must use the /touchai-app/v1 path.".to_string(),
             );
         }
-        if analytics.protocol_version != 2 {
+        if analytics.protocol_version != ANALYTICS_PROTOCOL_VERSION {
             return Err("services.analytics.protocolVersion must be 2.".to_string());
         }
         // An empty projectId is the unprovisioned public placeholder. A malformed
@@ -256,5 +259,15 @@ mod tests {
         .expect_err("malformed site id must fail config parsing");
 
         assert!(error.contains("projectId"));
+    }
+
+    #[test]
+    fn user_gets_an_unsupported_analytics_protocol_rejected() {
+        let error = product_config_from_json(
+            &VALID_ANALYTICS.replace("\"protocolVersion\": 2", "\"protocolVersion\": 1"),
+        )
+        .expect_err("unsupported analytics protocol must fail config parsing");
+
+        assert!(error.contains("protocolVersion must be 2"));
     }
 }

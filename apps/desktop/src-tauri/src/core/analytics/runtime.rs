@@ -21,7 +21,7 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use tokio::sync::{Mutex, Notify};
 
 use crate::core::database::DatabaseRuntime;
-use crate::core::product_config::product_config;
+use crate::core::product_config::{product_config, ProductAnalytics, ANALYTICS_PROTOCOL_VERSION};
 
 use super::events;
 use super::queue::{self, AnalyticsQueue, EnqueueOutcome, QueueInsert, QueuedEvent};
@@ -171,6 +171,7 @@ impl OperationRegistry {
 struct AnalyticsConfig {
     policy_version: i64,
     default_enabled: bool,
+    build_eligible: bool,
     transport: Option<Arc<dyn EventSender>>,
     /// The endpoint + project id this build delivers to.
     deployment_key: String,
@@ -192,6 +193,7 @@ struct AnalyticsRuntimeInner {
     config: Option<AnalyticsConfig>,
     enabled: AtomicBool,
     consent_epoch: AtomicI64,
+    build_eligible: bool,
     transport_ready: bool,
     session: Mutex<Option<NativeSession>>,
     operations: Mutex<OperationRegistry>,
@@ -235,6 +237,7 @@ impl AnalyticsRuntime {
             .as_ref()
             .map(|config| config.transport.is_some())
             .unwrap_or(false);
+        let build_eligible = config.as_ref().is_some_and(|config| config.build_eligible);
         let run_id = uuid::Uuid::new_v4().to_string();
         let startup_source = normalize_startup_source(&startup_source);
 
@@ -245,6 +248,7 @@ impl AnalyticsRuntime {
                 config,
                 enabled: AtomicBool::new(false),
                 consent_epoch: AtomicI64::new(0),
+                build_eligible,
                 transport_ready,
                 session: Mutex::new(None),
                 operations: Mutex::new(OperationRegistry::default()),
@@ -369,6 +373,9 @@ impl AnalyticsRuntime {
         let Some(config) = &self.inner.config else {
             return self.inner.build_state().await;
         };
+        if !self.inner.build_eligible {
+            return self.inner.build_state().await;
+        }
         let _state = self.inner.state_lock.lock().await;
         let updated = store::set_enabled(
             self.inner.database.pool(),
@@ -462,6 +469,13 @@ impl AnalyticsRuntime {
     /// on later events, so the WebView never supplies a session id.
     pub async fn begin_operation(&self) -> AnalyticsOperationHandle {
         let _state = self.inner.state_lock.lock().await;
+        if !self.inner.build_eligible || !self.inner.transport_ready {
+            return AnalyticsOperationHandle {
+                operation_id: String::new(),
+                enabled: false,
+                consent_epoch: self.inner.consent_epoch.load(Ordering::SeqCst),
+            };
+        }
         let session_id = self
             .inner
             .session
@@ -576,6 +590,12 @@ impl AnalyticsRuntime {
             return AnalyticsSubmitResult::with_reason(
                 AnalyticsSubmitStatus::Unavailable,
                 "not_configured",
+            );
+        }
+        if !self.inner.build_eligible {
+            return AnalyticsSubmitResult::with_reason(
+                AnalyticsSubmitStatus::Unavailable,
+                "development_build",
             );
         }
         // An unprovisioned or unreadable deployment fails closed: no event is
@@ -799,6 +819,12 @@ impl AnalyticsRuntime {
                 "not_configured",
             );
         }
+        if !self.inner.build_eligible {
+            return AnalyticsSubmitResult::with_reason(
+                AnalyticsSubmitStatus::Unavailable,
+                "development_build",
+            );
+        }
         if !self.inner.transport_ready {
             return AnalyticsSubmitResult::with_reason(
                 AnalyticsSubmitStatus::Unavailable,
@@ -847,6 +873,9 @@ impl AnalyticsRuntime {
     }
 
     async fn flush_impl(&self) -> Result<(), String> {
+        if !self.inner.build_eligible {
+            return Ok(());
+        }
         let Some(config) = &self.inner.config else {
             return Ok(());
         };
@@ -1213,7 +1242,7 @@ impl AnalyticsRuntimeInner {
     /// Emits `app.started` at most once for this process, and only when the
     /// stored state is enabled and the deployment was deliverable at init.
     async fn emit_app_started(&self, state: &AnalyticsStateRow) -> Result<(), String> {
-        if state.status != "enabled" || !self.transport_ready {
+        if state.status != "enabled" || !self.build_eligible || !self.transport_ready {
             return Ok(());
         }
         if self.app_started_emitted.swap(true, Ordering::SeqCst) {
@@ -1242,7 +1271,11 @@ impl AnalyticsRuntimeInner {
     /// depth. It never starts/refreshes a session and does not run while the
     /// user has disabled analytics.
     async fn emit_health_once(&self) -> Result<(), String> {
-        if self.config.is_none() || !self.transport_ready || !self.enabled.load(Ordering::SeqCst) {
+        if self.config.is_none()
+            || !self.build_eligible
+            || !self.transport_ready
+            || !self.enabled.load(Ordering::SeqCst)
+        {
             return Ok(());
         }
         let state = store::load_state(self.database.pool())
@@ -1514,6 +1547,7 @@ impl AnalyticsRuntimeInner {
             consent_epoch,
             queue_depth,
             pending_bytes,
+            build_eligible: self.build_eligible,
             transport_ready: self.transport_ready,
         })
     }
@@ -1817,36 +1851,37 @@ fn backoff_ms(attempt_count: i64) -> i64 {
     (capped + jitter).min(BACKOFF_MAX_MS + 1_000)
 }
 
-fn resolve_config() -> Option<AnalyticsConfig> {
-    let config = product_config().ok()?;
-    let analytics = config.services.analytics.as_ref()?;
-    if analytics.protocol_version != 1 {
+fn resolve_analytics_config(
+    analytics: &ProductAnalytics,
+    build_eligible: bool,
+) -> Option<AnalyticsConfig> {
+    if analytics.protocol_version != ANALYTICS_PROTOCOL_VERSION {
         return None;
     }
     // Release eligibility is a build property; the deployment default only
     // participates in an eligible build. Nothing here is a persisted user choice.
-    let transport: Option<Arc<dyn EventSender>> = if analytics.is_transport_ready() {
-        analytics
-            .batch_url()
-            .ok()
-            .and_then(|batch_url| {
-                AnalyticsTransport::new(batch_url, analytics.project_id.trim().to_string()).ok()
-            })
-            .map(|transport| Arc::new(transport) as Arc<dyn EventSender>)
-    } else {
-        None
-    };
+    let transport: Option<Arc<dyn EventSender>> =
+        if build_eligible && analytics.is_transport_ready() {
+            analytics
+                .batch_url()
+                .ok()
+                .and_then(|batch_url| {
+                    AnalyticsTransport::new(batch_url, analytics.project_id.trim().to_string()).ok()
+                })
+                .map(|transport| Arc::new(transport) as Arc<dyn EventSender>)
+        } else {
+            None
+        };
     // The derived default only turns collection on once this build can actually
     // deliver. It is a non-explicit value, so real provisioning re-derives it
     // later without overwriting an explicit user choice, and a community build
     // never queues events that a later official build would flush.
-    let default_enabled =
-        !cfg!(debug_assertions) && analytics.default_enabled && transport.is_some();
+    let default_enabled = build_eligible && analytics.default_enabled && transport.is_some();
     // Bind the queue to one deployment target. The same official build always
     // resolves the same key; a community/self build that points at its own
     // endpoint (or one with no project id) resolves a different key, so its
     // queued rows are cleared before they could flush through another target.
-    let deployment_key = if analytics.is_transport_ready() {
+    let deployment_key = if build_eligible && analytics.is_transport_ready() {
         analytics
             .batch_url()
             .map(|batch_url| format!("{batch_url}|{}", analytics.project_id.trim()))
@@ -1857,9 +1892,19 @@ fn resolve_config() -> Option<AnalyticsConfig> {
     Some(AnalyticsConfig {
         policy_version: POLICY_VERSION,
         default_enabled,
+        build_eligible,
         transport,
         deployment_key,
     })
+}
+
+fn resolve_config() -> Option<AnalyticsConfig> {
+    let config = product_config().ok()?;
+    config
+        .services
+        .analytics
+        .as_ref()
+        .and_then(|analytics| resolve_analytics_config(analytics, !cfg!(debug_assertions)))
 }
 
 async fn resolve_release_channel(database: &DatabaseRuntime) -> String {
@@ -1906,6 +1951,7 @@ impl AnalyticsRuntime {
             default_enabled,
             "foreground",
             Instant::now(),
+            true,
         )
         .await
     }
@@ -1916,10 +1962,12 @@ impl AnalyticsRuntime {
         default_enabled: bool,
         startup_source: &str,
         started_at: Instant,
+        build_eligible: bool,
     ) -> Result<Self, String> {
         let config = AnalyticsConfig {
             policy_version: POLICY_VERSION,
             default_enabled,
+            build_eligible,
             transport: sender,
             deployment_key: String::new(),
         };
@@ -1929,6 +1977,7 @@ impl AnalyticsRuntime {
             inner: Arc::new(AnalyticsRuntimeInner {
                 database,
                 transport_ready: config.transport.is_some(),
+                build_eligible: config.build_eligible,
                 config: Some(config),
                 enabled: AtomicBool::new(false),
                 consent_epoch: AtomicI64::new(0),
@@ -2165,6 +2214,29 @@ mod tests {
         ])
     }
 
+    #[test]
+    fn user_gets_protocol_two_analytics_transport_resolved_and_protocol_one_rejected() {
+        let mut analytics = ProductAnalytics {
+            base_url: "https://analytics.touch-ai.org/touchai-app/v1".to_string(),
+            protocol_version: ANALYTICS_PROTOCOL_VERSION,
+            project_id: "8b6c4a1e-2f5d-4c9a-9b7e-1d3f5a7c9e2b".to_string(),
+            default_enabled: true,
+        };
+
+        let config = resolve_analytics_config(&analytics, true).expect("protocol two transport");
+        assert!(config.transport.is_some());
+        assert!(!config.deployment_key.is_empty());
+        assert!(config.build_eligible);
+
+        let ineligible =
+            resolve_analytics_config(&analytics, false).expect("ineligible build config");
+        assert!(ineligible.transport.is_none());
+        assert!(!ineligible.build_eligible);
+
+        analytics.protocol_version = 1;
+        assert!(resolve_analytics_config(&analytics, true).is_none());
+    }
+
     struct Probe {
         active: AtomicI64,
         max_active: AtomicI64,
@@ -2304,6 +2376,7 @@ mod tests {
             true,
             "autostart",
             Instant::now(),
+            true,
         )
         .await
         .expect("runtime");
@@ -2346,6 +2419,41 @@ mod tests {
 
         runtime.set_enabled(true, 0).await.expect("enable");
 
+        assert!(runtime.outbox_payloads_for_tests().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn user_gets_no_collection_from_a_development_build_even_with_stored_consent() {
+        let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
+        let (_root, database) = test_database().await;
+        let runtime = AnalyticsRuntime::initialize_with_sender_and_startup_for_tests(
+            database,
+            Some(probe.clone()),
+            true,
+            "foreground",
+            Instant::now(),
+            false,
+        )
+        .await
+        .expect("runtime");
+
+        let state = runtime.state().await.expect("state");
+        assert_eq!(state.status, AnalyticsConsentStatus::Enabled);
+        assert!(!state.build_eligible);
+        assert!(runtime.outbox_payloads_for_tests().await.is_empty());
+
+        let operation = runtime.begin_operation().await;
+        assert!(!operation.enabled);
+        assert!(operation.operation_id.is_empty());
+
+        let result = runtime
+            .track(track_request("product.surface_opened", JsonMap::new()))
+            .await;
+        assert_eq!(result.status, AnalyticsSubmitStatus::Unavailable);
+        assert_eq!(result.reason.as_deref(), Some("development_build"));
+
+        runtime.flush().await.expect("flush");
+        assert_eq!(probe.sends.load(Ordering::SeqCst), 0);
         assert!(runtime.outbox_payloads_for_tests().await.is_empty());
     }
 
@@ -2393,6 +2501,7 @@ mod tests {
             true,
             "foreground",
             Instant::now() - Duration::from_secs(2),
+            true,
         )
         .await
         .expect("runtime");
@@ -2484,6 +2593,7 @@ mod tests {
             true,
             "autostart",
             Instant::now() - Duration::from_secs(5),
+            true,
         )
         .await
         .expect("runtime");

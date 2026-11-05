@@ -23,7 +23,7 @@ vi.mock('@services/NativeService', () => ({
     },
 }));
 
-describe('when the user exports or imports a settings backup', () => {
+describe('when the user exports or imports a data backup', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('zh-CN');
@@ -42,7 +42,7 @@ describe('when the user exports or imports a settings backup', () => {
 
         expect(saveMock).toHaveBeenCalledWith(
             expect.objectContaining({
-                title: 'Export settings backup',
+                title: 'Export data backup',
                 filters: [{ name: 'Database backup file', extensions: ['db'] }],
             })
         );
@@ -59,7 +59,7 @@ describe('when the user exports or imports a settings backup', () => {
 
         expect(openMock).toHaveBeenCalledWith(
             expect.objectContaining({
-                title: 'Import settings backup',
+                title: 'Import data backup',
                 filters: [{ name: 'Database backup file', extensions: ['db'] }],
                 multiple: false,
                 directory: false,

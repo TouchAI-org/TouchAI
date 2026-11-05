@@ -17,7 +17,7 @@ vi.mock('@services/ObservabilityService', () => ({
 }));
 
 import { setLocale } from '@/i18n';
-import AnalyticsSection from '@/views/SettingsView/components/General/AnalyticsSection.vue';
+import AnalyticsSection from '@/views/SettingsView/components/DataManagement/components/AnalyticsSection.vue';
 
 const nativeAnalytics = vi.mocked(native.analytics);
 
@@ -27,6 +27,7 @@ function state(partial: Partial<Awaited<ReturnType<typeof native.analytics.getSt
         consentEpoch: 1,
         queueDepth: 0,
         pendingBytes: 0,
+        buildEligible: true,
         transportReady: true,
         ...partial,
     };
@@ -45,11 +46,31 @@ describe('user configures product analytics', () => {
         const wrapper = mount(AnalyticsSection);
         await flushPromises();
 
-        expect(wrapper.text()).toContain('Product analytics');
-        await wrapper.get('[data-testid="settings-analytics-toggle"]').trigger('click');
+        expect(wrapper.text()).toContain('Privacy and product analytics');
+        expect(wrapper.get('[data-testid="settings-analytics-share"]').text()).toContain(
+            'Share de-identified product usage statistics to help improve the product. When off, no analytics data is collected or sent.'
+        );
+        const toggle = wrapper.get('[data-testid="settings-analytics-toggle"]');
+        expect((toggle.element as HTMLButtonElement).disabled).toBe(false);
+        await toggle.trigger('click');
         await flushPromises();
 
         expect(nativeAnalytics.setEnabled).toHaveBeenCalledWith(true, 2);
+    });
+
+    it('user is excluded from analytics in a development build even when sharing is stored on', async () => {
+        nativeAnalytics.getState.mockResolvedValue(state({ buildEligible: false }));
+
+        const wrapper = mount(AnalyticsSection);
+        await flushPromises();
+
+        expect(wrapper.get('[data-testid="settings-analytics-share"]').text()).toContain(
+            'Development builds do not contribute product analytics, so nothing is sent.'
+        );
+        const toggle = wrapper.get('[data-testid="settings-analytics-toggle"]');
+        expect((toggle.element as HTMLButtonElement).disabled).toBe(true);
+        await toggle.trigger('click');
+        expect(nativeAnalytics.setEnabled).not.toHaveBeenCalled();
     });
 
     it('user sees the no-send disclosure and a disabled toggle when the build is unprovisioned', async () => {
@@ -61,6 +82,9 @@ describe('user configures product analytics', () => {
         await flushPromises();
 
         expect(wrapper.text()).toContain('no analytics endpoint configured');
+        expect(wrapper.get('[data-testid="settings-analytics-share"]').text()).toContain(
+            'This build has no analytics endpoint configured, so nothing is sent.'
+        );
         const toggle = wrapper.get('[data-testid="settings-analytics-toggle"]');
         expect((toggle.element as HTMLButtonElement).disabled).toBe(true);
     });

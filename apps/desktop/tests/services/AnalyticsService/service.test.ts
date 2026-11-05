@@ -25,6 +25,7 @@ function state(partial: Partial<AnalyticsState> = {}): AnalyticsState {
         consentEpoch: 5,
         queueDepth: 0,
         pendingBytes: 0,
+        buildEligible: true,
         transportReady: true,
         ...partial,
     };

@@ -20,6 +20,7 @@
         consentEpoch: 0,
         queueDepth: 0,
         pendingBytes: 0,
+        buildEligible: false,
         transportReady: false,
     });
 
@@ -62,13 +63,25 @@
         <div class="settings-row-group divide-y divide-border-subtle">
             <SettingsRow
                 data-settings-search-target="analytics-share"
+                data-testid="settings-analytics-share"
                 control-width="auto"
                 :label="t('settings.analytics.share')"
+                :description="
+                    !state.buildEligible
+                        ? t('settings.analytics.developmentBuild')
+                        : state.transportReady
+                          ? t('settings.analytics.shareDescription')
+                          : t('settings.analytics.transportUnavailable')
+                "
             >
                 <Switch
                     size="lg"
                     data-testid="settings-analytics-toggle"
-                    :disabled="state.status === 'uninitialized' || !state.transportReady"
+                    :disabled="
+                        state.status === 'uninitialized' ||
+                        !state.buildEligible ||
+                        !state.transportReady
+                    "
                     :model-value="state.status === 'enabled'"
                     @update:model-value="toggle"
                 />
@@ -90,12 +103,5 @@
                 </Button>
             </SettingsRow>
         </div>
-
-        <p v-if="!state.transportReady" class="settings-section-description">
-            {{ t('settings.analytics.transportUnavailable') }}
-        </p>
-        <p v-else class="settings-section-description">
-            {{ t('settings.analytics.shareDescription') }}
-        </p>
     </section>
 </template>

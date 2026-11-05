@@ -18,12 +18,14 @@ describe('NativeService analytics bridge', () => {
             consentEpoch: 3,
             queueDepth: 0,
             pendingBytes: 0,
+            buildEligible: true,
             transportReady: true,
         });
 
         const state = await analytics.getState();
 
         expect(mockInvoke).toHaveBeenCalledWith('analytics_get_state');
+        expect(state.buildEligible).toBe(true);
         expect(state.transportReady).toBe(true);
         expect(state.consentEpoch).toBe(3);
     });
@@ -34,6 +36,7 @@ describe('NativeService analytics bridge', () => {
             consentEpoch: 4,
             queueDepth: 0,
             pendingBytes: 0,
+            buildEligible: true,
             transportReady: true,
         });
 
@@ -51,6 +54,7 @@ describe('NativeService analytics bridge', () => {
             consentEpoch: 4,
             queueDepth: 0,
             pendingBytes: 0,
+            buildEligible: true,
             transportReady: true,
         });
 
