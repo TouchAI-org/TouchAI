@@ -1,6 +1,6 @@
 import { enableAutoUnmount, flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { nextTick } from 'vue';
+import { nextTick, reactive } from 'vue';
 
 import {
     MessageScroller,
@@ -773,6 +773,31 @@ describe('user follows streamed output', () => {
 
         expect(wrapper.findAll('[data-slot="message-scroller-rail-item"]')).toHaveLength(
             items.length + 1
+        );
+    });
+
+    it('user sees an updated preview when streamed message text changes in place', async () => {
+        const liveItems = reactive(items.map((item) => ({ ...item })));
+        const wrapper = mountScroller({ scrollerItems: liveItems });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, { scrollHeight: 1_200, clientHeight: 400 });
+        triggerResize();
+        await settleLayout();
+
+        pointerEvent(
+            'pointerenter',
+            'mouse',
+            wrapper.findAll('[data-slot="message-scroller-rail-item"]')[0]!.element as HTMLElement
+        );
+        await nextTick();
+        expect(wrapper.get('[data-slot="message-scroller-preview"]').text()).toContain(
+            'How should the first release work?'
+        );
+
+        liveItems[0]!.label = 'How should the second release work?';
+        await nextTick();
+        expect(wrapper.get('[data-slot="message-scroller-preview"]').text()).toContain(
+            'How should the second release work?'
         );
     });
 
