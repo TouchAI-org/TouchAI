@@ -37,12 +37,6 @@ vi.mock('@components/AppIcon.vue', () => ({
     }),
 }));
 
-vi.mock('@database', () => ({
-    db: {
-        transaction: vi.fn(),
-    },
-}));
-
 vi.mock('@database/queries', () => ({
     createModel: vi.fn(),
     createModels: vi.fn(),

@@ -352,6 +352,9 @@ pub(crate) enum DatabaseOperation {
     TaskBeginNextAttempt {
         input: TaskBeginNextAttemptInput,
     },
+    TaskPersistContextSummary {
+        input: TaskPersistContextSummaryInput,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -526,6 +529,27 @@ pub(crate) struct TaskUpdateAttemptInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct ContextMessageFingerprintInput {
+    pub id: i64,
+    pub fingerprint: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TaskPersistContextSummaryInput {
+    pub session_id: i64,
+    pub turn_id: i64,
+    pub attempt_id: i64,
+    pub pending_message_id: Option<i64>,
+    pub summary_json: String,
+    pub text: String,
+    pub previous_summary_json: Option<String>,
+    pub source_messages: Vec<ContextMessageFingerprintInput>,
+    pub usage: Option<AttemptUsageWrite>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct TaskFinishInput {
     pub session_id: i64,
     pub turn_id: Option<i64>,
@@ -650,7 +674,10 @@ impl DatabaseOperation {
             | Self::TaskPersistToolResult { .. }
             | Self::TaskUpdateAttempt { .. }
             | Self::TaskFinish { .. }
-            | Self::TaskBeginNextAttempt { .. } => OperationSurface::new(OperationGroup::Agent),
+            | Self::TaskBeginNextAttempt { .. }
+            | Self::TaskPersistContextSummary { .. } => {
+                OperationSurface::new(OperationGroup::Agent)
+            }
             Self::ProviderList
             | Self::ProviderFind { .. }
             | Self::ProviderCreate { .. }

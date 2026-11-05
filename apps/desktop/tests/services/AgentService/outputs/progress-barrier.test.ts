@@ -46,10 +46,6 @@ const queries = vi.hoisted(() => ({
 
 const database = vi.hoisted(() => ({ operation: vi.fn() }));
 
-vi.mock('@database', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('@database')>()),
-    db: { transaction: (callback: (tx: unknown) => Promise<unknown>) => callback({}) },
-}));
 vi.mock('@database/queries', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@database/queries')>()),
     ...queries,

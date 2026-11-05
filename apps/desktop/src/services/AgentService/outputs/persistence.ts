@@ -1,26 +1,13 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { type DatabaseExecutor, db } from '@database';
+import type { MessageRow } from '@database/queries/messages';
 import type {
     AttachmentEntity,
+    MessagePartEntity,
     SessionTurnAttemptEntity,
     SessionTurnEntity,
-    SessionTurnUsagePatch,
 } from '@database/types';
-import {
-    appendMessagePart,
-    createMessage,
-    findLatestContextCompaction,
-    findContextMessageRows,
-    findMessagePartById,
-    getToolCallName,
-    readToolCallData,
-    updateMessage,
-    updateSessionTurn,
-    updateSessionTurnAttemptUsage,
-    updateSessionTurnUsage,
-} from '@database/queries';
-import { sessionTurnAttempts } from '@database/schema';
+import { getToolCallName, readToolCallData } from '@database/queries/toolParts';
 import { native } from '@services/NativeService';
 import type {
     DatabaseAttachmentInput,
@@ -41,7 +28,6 @@ import {
 import {
     buildLlmCallPartData,
     countUnpriced,
-    insertLlmCallParts,
     resolveCalls,
     sumCost,
     sumUsage,
@@ -51,12 +37,10 @@ import {
     type PromptBreakdownJson,
 } from '@/services/UsageService/contextBreakdown';
 import { toDbTimestamp } from '@/utils/date';
-import { type AnyColumn, type SQL, sql } from 'drizzle-orm';
 
 import {
     type ContextMessageSource,
     contextMessageSource,
-    type ContextSummary,
     type ContextSummaryRecord,
     type ContextSummarySource,
     readContextSummary,
@@ -154,6 +138,11 @@ interface TaskAttemptResult {
 
 interface TaskToolResult {
     part: Record<string, unknown> | null;
+}
+
+interface SessionContext {
+    messages: MessageRow[];
+    summaryPart?: MessagePartEntity | null;
 }
 
 interface ResolvedUsage {
@@ -334,11 +323,13 @@ export class PersistenceProjector {
         if (!hadTurn) {
             this.turnStartedAtMs = now;
         }
-        const sourceRow = (
-            await findContextMessageRows(result.session_id, {
-                ids: [result.user_message_id],
-            })
-        )[0];
+        const context = await native.database.operation<SessionContext>({
+            kind: 'session_context',
+            sessionId: result.session_id,
+        });
+        const sourceRow = context.messages.find(
+            (message) => message.id === result.user_message_id
+        );
         if (sourceRow) {
             const source = await contextMessageSource(sourceRow);
             const lastIndex = initialCheckpoint.messages.length - 1;
@@ -622,78 +613,6 @@ export class PersistenceProjector {
         };
     }
 
-    /**
-     * Transitional context-compaction path while the remaining task writes move
-     * behind the typed Rust boundary. It keeps the validation and append in one
-     * local transaction until context compaction gets its own typed operation.
-     */
-    private buildTurnUsageSumPatch(turnId: number): SessionTurnUsagePatch {
-        const sumAttempts = (column: AnyColumn | SQL) =>
-            sql`(SELECT coalesce(sum(${column}), 0) FROM ${sessionTurnAttempts} WHERE ${sessionTurnAttempts.turn_id} = ${turnId})`;
-
-        return {
-            input_tokens: sumAttempts(sessionTurnAttempts.input_tokens),
-            output_tokens: sumAttempts(sessionTurnAttempts.output_tokens),
-            cache_read_tokens: sumAttempts(sessionTurnAttempts.cache_read_tokens),
-            cache_write_tokens: sumAttempts(sessionTurnAttempts.cache_write_tokens),
-            reasoning_tokens: sumAttempts(sessionTurnAttempts.reasoning_tokens),
-            total_cost_micros: sumAttempts(sessionTurnAttempts.total_cost_micros),
-            unpriced_calls: sumAttempts(sessionTurnAttempts.unpriced_calls),
-            llm_call_count: sumAttempts(sessionTurnAttempts.llm_call_count),
-            ttft_ms: sql`(SELECT ${sessionTurnAttempts.ttft_ms} FROM ${sessionTurnAttempts} WHERE ${sessionTurnAttempts.turn_id} = ${turnId} AND ${sessionTurnAttempts.ttft_ms} IS NOT NULL ORDER BY ${sessionTurnAttempts.attempt_index} LIMIT 1)`,
-        };
-    }
-
-    private async persistUsage({
-        messageId,
-        calls,
-        database,
-    }: {
-        messageId: number | null;
-        calls?: AiCallRecord[];
-        database: DatabaseExecutor;
-    }): Promise<SessionTurnUsagePatch> {
-        if (!calls?.length) return {};
-
-        const resolved = await resolveCalls(calls);
-        const usage = sumUsage(resolved);
-        const cost = sumCost(resolved);
-        const unpriced = countUnpriced(resolved);
-        const turnId = this.turn?.id ?? 0;
-
-        if (messageId !== null && resolved.length > 0) {
-            await insertLlmCallParts(messageId, resolved, database, turnId === 0 ? null : turnId);
-        }
-        if (this.attemptState) {
-            await updateSessionTurnAttemptUsage({
-                id: this.attemptState.entity.id,
-                usagePatch: {
-                    input_tokens: usage.inputTokens,
-                    output_tokens: usage.outputTokens,
-                    cache_read_tokens: usage.cacheReadTokens,
-                    cache_write_tokens: usage.cacheWriteTokens,
-                    reasoning_tokens: usage.reasoningTokens,
-                    total_cost_micros: cost.totalCostMicros,
-                    unpriced_calls: unpriced,
-                    ttft_ms: null,
-                    llm_call_count: resolved.length,
-                },
-                database,
-            });
-        }
-
-        return {
-            ...this.buildTurnUsageSumPatch(turnId),
-            first_text_ms: null,
-            tool_call_count: calls.reduce((sum, call) => sum + call.toolCallsInStep, 0),
-            tool_argument_error_count: 0,
-            model_switch_count: 0,
-            hit_iteration_ceiling: 0,
-            error_code: null,
-            retry_scope: null,
-        };
-    }
-
     private applyFinishResult(result: TaskFinishResult): void {
         this.assistantMessageId = result.assistant_message_id;
         this.turn = result.turn;
@@ -766,7 +685,11 @@ export class PersistenceProjector {
         }
     ): Promise<ContextMessageSource | undefined> {
         if (this.sessionId === null) return undefined;
-        const row = (await findContextMessageRows(this.sessionId, { ids: [messageId] }))[0];
+        const context = await native.database.operation<SessionContext>({
+            kind: 'session_context',
+            sessionId: this.sessionId,
+        });
+        const row = context.messages.find((message) => message.id === messageId);
         if (!row || row.role !== 'tool_call') return undefined;
         const output = row.parts.filter(
             (part) => part.type === 'text' || part.type === 'reasoning'
@@ -829,10 +752,15 @@ export class PersistenceProjector {
     /** A concurrent import must stop the next model step from using an invalidated summary. */
     async validateContextSummary(message: AiMessage): Promise<void> {
         if (!message.contextSummary) return;
+        const context = await native.database.operation<SessionContext>({
+            kind: 'session_context',
+            sessionId: this.getSessionId(),
+        });
         const part =
-            message.contextSummaryPartId === undefined
+            message.contextSummaryPartId === undefined ||
+            context.summaryPart?.id !== message.contextSummaryPartId
                 ? undefined
-                : await findMessagePartById(message.contextSummaryPartId);
+                : context.summaryPart;
         const saved = part ? readContextSummary(part) : undefined;
         if (
             !saved ||
@@ -843,74 +771,6 @@ export class PersistenceProjector {
         }
     }
 
-    private async validateSummarySource(
-        summary: ContextSummary,
-        source: ContextSummarySource,
-        database: DatabaseExecutor
-    ): Promise<void> {
-        const fail = () => {
-            throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
-        };
-        if (this.sessionId === null) return fail();
-        if (source.previous) {
-            const previous = await findLatestContextCompaction(this.sessionId, database);
-            const saved = previous ? readContextSummary(previous) : undefined;
-            if (
-                !saved ||
-                saved.invalidatedAt !== undefined ||
-                canonicalJson(saved) !== canonicalJson(source.previous)
-            ) {
-                return fail();
-            }
-        }
-        const boundary = await findContextMessageRows(
-            this.sessionId,
-            { ids: [summary.firstKeptMessageId] },
-            database
-        );
-        if (boundary.length !== 1) return fail();
-        const sources = new Map(
-            source.messages.map((message) => [message.id, message.fingerprint])
-        );
-        if (source.messages.some((message) => sources.get(message.id) !== message.fingerprint)) {
-            return fail();
-        }
-        const range = await findContextMessageRows(
-            this.sessionId,
-            { firstId: source.previous?.firstKeptMessageId, beforeId: summary.firstKeptMessageId },
-            database
-        );
-        const retained = source.previous
-            ? await findContextMessageRows(
-                  this.sessionId,
-                  {
-                      ids: [...sources.keys()].filter(
-                          (id) => id < source.previous!.firstKeptMessageId
-                      ),
-                  },
-                  database
-              )
-            : [];
-        const rows = [...retained, ...range];
-        const byId = new Map(rows.map((row) => [row.id, row]));
-        if (summary.systemMessageIds.some((id) => byId.get(id)?.role !== 'system')) return fail();
-        for (const row of rows) {
-            const expected = sources.get(row.id);
-            if (
-                !expected &&
-                row.role === 'assistant' &&
-                !row.parts.some(
-                    (part) => ['text', 'reasoning'].includes(part.type) && part.content.trim()
-                )
-            ) {
-                continue;
-            }
-            if (expected !== (await contextMessageSource(row)).fingerprint) return fail();
-            sources.delete(row.id);
-        }
-        if (sources.size) return fail();
-    }
-
     /** Commit summary, timeline position and already-reported usage as one checkpoint. */
     async persistContextSummary(
         summary: ContextSummaryRecord,
@@ -919,48 +779,33 @@ export class PersistenceProjector {
     ): Promise<number> {
         if (!this.turn || !this.attemptState) throw new Error('Compaction requires an active turn');
         const turnId = this.turn.id;
+        const attemptId = this.attemptState.entity.id;
         const { text, ...metadata } = summary;
-        const result = await db.transaction(async (tx) => {
-            await this.validateSummarySource(summary, source, tx);
-            const existingMessageId = this.pendingOutputMessageId;
-            const messageId =
-                existingMessageId ??
-                (
-                    await createMessage(
-                        {
-                            session_id: this.getSessionId(),
-                            role: 'assistant',
-                        },
-                        tx
-                    )
-                ).id;
-            if (existingMessageId !== null) {
-                await updateMessage(existingMessageId, { role: 'assistant' }, tx);
-            }
-            const part = await appendMessagePart(
-                messageId,
-                {
-                    type: 'context_compaction',
-                    content: text,
-                    data: JSON.stringify(metadata),
-                    started_at: summary.createdAt,
-                    ended_at: summary.createdAt,
+        const resolvedUsage = await this.resolveUsage(calls, undefined);
+        let result: { messageId: number; partId: number };
+        try {
+            result = await native.database.operation<{ messageId: number; partId: number }>({
+                kind: 'task_persist_context_summary',
+                input: {
+                    sessionId: this.getSessionId(),
+                    turnId,
+                    attemptId,
+                    pendingMessageId: this.pendingOutputMessageId,
+                    summaryJson: JSON.stringify(metadata),
+                    text,
+                    previousSummaryJson: source.previous
+                        ? JSON.stringify(source.previous)
+                        : null,
+                    sourceMessages: source.messages,
+                    usage: resolvedUsage.usage,
                 },
-                tx
-            );
-            await updateSessionTurn({
-                id: turnId,
-                turnPatch: { response_message_id: messageId },
-                database: tx,
             });
-            const usagePatch = await this.persistUsage({
-                messageId: null,
-                calls,
-                database: tx,
-            });
-            await updateSessionTurnUsage({ id: turnId, usagePatch, database: tx });
-            return { messageId, partId: part.id };
-        });
+        } catch (error) {
+            if ((error as { code?: string }).code === 'validation') {
+                throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
+            }
+            throw error;
+        }
         this.pendingOutputMessageId = result.messageId;
         this.turn = { ...this.turn, response_message_id: result.messageId };
         return result.partId;

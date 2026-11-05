@@ -3,12 +3,13 @@
 use std::collections::HashMap;
 
 use serde_json::{Map as JsonMap, Value as JsonValue};
+use sha2::{Digest, Sha256};
 use sqlx::{SqliteConnection, SqlitePool};
 
 use super::super::operation::{
     AttemptUsageWrite, DatabaseOperationError, OutputPartInput, TaskBeginNextAttemptInput,
-    TaskFinishInput, TaskPersistOutputMessageInput, TaskPersistToolResultInput,
-    TaskRecordStartInput, TaskUpdateAttemptInput, TurnBehaviorSignals,
+    TaskFinishInput, TaskPersistContextSummaryInput, TaskPersistOutputMessageInput,
+    TaskPersistToolResultInput, TaskRecordStartInput, TaskUpdateAttemptInput, TurnBehaviorSignals,
 };
 use super::super::repository::{begin_immediate, fetch_one, fetch_rows, run};
 use super::super::row::insert_one;
@@ -1225,5 +1226,407 @@ pub(super) async fn begin_next_attempt(
     Ok(object([
         ("turn", JsonValue::Object(turn)),
         ("attempt", JsonValue::Object(attempt)),
+    ]))
+}
+
+fn message_fingerprint(
+    message: &JsonMap<String, JsonValue>,
+    parts: &[JsonMap<String, JsonValue>],
+) -> Result<String, DatabaseOperationError> {
+    let role = message
+        .get("role")
+        .and_then(JsonValue::as_str)
+        .ok_or_else(|| DatabaseOperationError::unavailable("Message role is missing"))?;
+    let semantic_parts = parts
+        .iter()
+        .filter(|part| {
+            !matches!(
+                part.get("type").and_then(JsonValue::as_str),
+                Some("context_compaction" | "llm_call")
+            )
+        })
+        .map(|part| {
+            Ok(JsonValue::Array(vec![
+                part.get("type")
+                    .cloned()
+                    .ok_or_else(|| DatabaseOperationError::unavailable("Part type is missing"))?,
+                part.get("content").cloned().ok_or_else(|| {
+                    DatabaseOperationError::unavailable("Part content is missing")
+                })?,
+                part.get("data")
+                    .cloned()
+                    .ok_or_else(|| DatabaseOperationError::unavailable("Part data is missing"))?,
+                part.get("sort_order").cloned().ok_or_else(|| {
+                    DatabaseOperationError::unavailable("Part sort order is missing")
+                })?,
+            ]))
+        })
+        .collect::<Result<Vec<_>, DatabaseOperationError>>()?;
+    let value = JsonValue::Array(vec![
+        JsonValue::String(role.to_string()),
+        JsonValue::Array(semantic_parts),
+    ]);
+    let bytes = serde_json::to_vec(&value)
+        .map_err(|error| DatabaseOperationError::unavailable(error.to_string()))?;
+    Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
+fn validate_context_summary_json(
+    input: &TaskPersistContextSummaryInput,
+) -> Result<JsonMap<String, JsonValue>, DatabaseOperationError> {
+    let metadata = serde_json::from_str::<JsonMap<String, JsonValue>>(&input.summary_json)
+        .map_err(|error| {
+            DatabaseOperationError::validation(format!(
+                "Context summary metadata must be a JSON object: {error}"
+            ))
+        })?;
+    if metadata.get("version").and_then(JsonValue::as_u64) != Some(2)
+        || metadata
+            .get("invalidatedAt")
+            .is_some_and(|value| !value.is_null())
+        || metadata
+            .get("id")
+            .and_then(JsonValue::as_str)
+            .map_or(true, |id| uuid::Uuid::parse_str(id).is_err())
+    {
+        return Err(DatabaseOperationError::validation(
+            "Context summary metadata is invalid",
+        ));
+    }
+    if input.text.trim().is_empty() || input.text.chars().count() > 32_000 {
+        return Err(DatabaseOperationError::validation(
+            "Context summary text is invalid",
+        ));
+    }
+    let first_kept = metadata
+        .get("firstKeptMessageId")
+        .and_then(JsonValue::as_i64)
+        .filter(|value| *value > 0)
+        .ok_or_else(|| {
+            DatabaseOperationError::validation("Context summary boundary is invalid")
+        })?;
+    let system_ids = metadata
+        .get("systemMessageIds")
+        .and_then(JsonValue::as_array)
+        .ok_or_else(|| {
+            DatabaseOperationError::validation("Context summary system ids are invalid")
+        })?;
+    let mut unique = std::collections::HashSet::new();
+    for id in system_ids {
+        let id = id.as_i64().filter(|id| *id > 0 && *id < first_kept).ok_or_else(|| {
+            DatabaseOperationError::validation("Context summary system ids are invalid")
+        })?;
+        if !unique.insert(id) {
+            return Err(DatabaseOperationError::validation(
+                "Context summary system ids must be unique",
+            ));
+        }
+    }
+    Ok(metadata)
+}
+
+async fn update_turn_usage_totals(
+    connection: &mut SqliteConnection,
+    turn_id: i64,
+) -> Result<(), DatabaseOperationError> {
+    run(
+        connection,
+        "UPDATE session_turns
+         SET input_tokens = (SELECT COALESCE(SUM(input_tokens), 0) FROM session_turn_attempts WHERE turn_id = ?),
+             output_tokens = (SELECT COALESCE(SUM(output_tokens), 0) FROM session_turn_attempts WHERE turn_id = ?),
+             cache_read_tokens = (SELECT COALESCE(SUM(cache_read_tokens), 0) FROM session_turn_attempts WHERE turn_id = ?),
+             cache_write_tokens = (SELECT COALESCE(SUM(cache_write_tokens), 0) FROM session_turn_attempts WHERE turn_id = ?),
+             reasoning_tokens = (SELECT COALESCE(SUM(reasoning_tokens), 0) FROM session_turn_attempts WHERE turn_id = ?),
+             total_cost_micros = (SELECT COALESCE(SUM(total_cost_micros), 0) FROM session_turn_attempts WHERE turn_id = ?),
+             unpriced_calls = (SELECT COALESCE(SUM(unpriced_calls), 0) FROM session_turn_attempts WHERE turn_id = ?),
+             llm_call_count = (SELECT COALESCE(SUM(llm_call_count), 0) FROM session_turn_attempts WHERE turn_id = ?),
+             ttft_ms = (
+                 SELECT ttft_ms FROM session_turn_attempts
+                 WHERE turn_id = ? AND ttft_ms IS NOT NULL
+                 ORDER BY attempt_index LIMIT 1
+             ),
+             updated_at = datetime('now')
+         WHERE id = ?",
+        (0..10)
+            .map(|_| JsonValue::Number(turn_id.into()))
+            .collect(),
+    )
+    .await?;
+    Ok(())
+}
+
+pub(super) async fn persist_context_summary(
+    pool: &SqlitePool,
+    input: TaskPersistContextSummaryInput,
+) -> Result<JsonValue, DatabaseOperationError> {
+    let metadata = validate_context_summary_json(&input)?;
+    let first_kept = metadata
+        .get("firstKeptMessageId")
+        .and_then(JsonValue::as_i64)
+        .ok_or_else(|| DatabaseOperationError::validation("Context boundary is missing"))?;
+    let system_ids = metadata
+        .get("systemMessageIds")
+        .and_then(JsonValue::as_array)
+        .ok_or_else(|| DatabaseOperationError::validation("Context system ids are missing"))?
+        .iter()
+        .filter_map(JsonValue::as_i64)
+        .collect::<std::collections::HashSet<_>>();
+    let previous = input
+        .previous_summary_json
+        .as_deref()
+        .map(serde_json::from_str::<JsonMap<String, JsonValue>>)
+        .transpose()
+        .map_err(|error| {
+            DatabaseOperationError::validation(format!(
+                "Previous context summary must be a JSON object: {error}"
+            ))
+        })?;
+    let previous_boundary = previous
+        .as_ref()
+        .and_then(|summary| summary.get("firstKeptMessageId"))
+        .and_then(JsonValue::as_i64);
+    let mut transaction = begin_immediate(pool).await?;
+
+    let boundary = fetch_one(
+        &mut *transaction,
+        "SELECT id, role FROM messages WHERE id = ? AND session_id = ?",
+        vec![
+            JsonValue::Number(first_kept.into()),
+            JsonValue::Number(input.session_id.into()),
+        ],
+    )
+    .await?;
+    if boundary.is_none() {
+        return Err(DatabaseOperationError::validation(
+            "Context summary boundary message was not found",
+        ));
+    }
+
+    if let Some(previous) = &previous {
+        let previous_part = fetch_one(
+            &mut *transaction,
+            "SELECT message_parts.*
+             FROM messages
+             INNER JOIN message_parts ON message_parts.message_id = messages.id
+             WHERE messages.session_id = ? AND message_parts.type = 'context_compaction'
+             ORDER BY message_parts.id DESC
+             LIMIT 1",
+            vec![JsonValue::Number(input.session_id.into())],
+        )
+        .await?;
+        let mut saved = previous_part
+            .as_ref()
+            .and_then(|part| {
+                let data = part.get("data")?.as_str()?;
+                serde_json::from_str::<JsonMap<String, JsonValue>>(data).ok()
+            })
+            .ok_or_else(|| {
+                DatabaseOperationError::validation("Previous context summary was not found")
+            })?;
+        let text = previous_part
+            .as_ref()
+            .and_then(|part| part.get("content"))
+            .cloned()
+            .unwrap_or(JsonValue::Null);
+        saved.insert("text".to_string(), text);
+        if JsonValue::Object(saved) != JsonValue::Object(previous.clone()) {
+            return Err(DatabaseOperationError::validation(
+                "Previous context summary changed",
+            ));
+        }
+    }
+
+    let message_rows = fetch_rows(
+        &mut *transaction,
+        "SELECT * FROM messages WHERE session_id = ? ORDER BY id",
+        vec![JsonValue::Number(input.session_id.into())],
+    )
+    .await?;
+    let part_rows = fetch_rows(
+        &mut *transaction,
+        "SELECT message_parts.*
+         FROM message_parts
+         INNER JOIN messages ON messages.id = message_parts.message_id
+         WHERE messages.session_id = ?
+         ORDER BY message_parts.message_id, message_parts.sort_order, message_parts.id",
+        vec![JsonValue::Number(input.session_id.into())],
+    )
+    .await?;
+    let mut parts_by_message: HashMap<i64, Vec<JsonMap<String, JsonValue>>> = HashMap::new();
+    for part in part_rows {
+        let message_id = part.get("message_id").and_then(JsonValue::as_i64).ok_or_else(|| {
+            DatabaseOperationError::unavailable("Context message part has no message id")
+        })?;
+        parts_by_message.entry(message_id).or_default().push(part);
+    }
+    let mut sources = input
+        .source_messages
+        .iter()
+        .map(|source| (source.id, source.fingerprint.clone()))
+        .collect::<HashMap<_, _>>();
+    if sources.len() != input.source_messages.len() {
+        return Err(DatabaseOperationError::validation(
+            "Context source message ids must be unique",
+        ));
+    }
+
+    let rows = message_rows
+        .into_iter()
+        .filter(|message| {
+            let id = message.get("id").and_then(JsonValue::as_i64).unwrap_or_default();
+            let retained = previous_boundary.is_some_and(|boundary| {
+                id < boundary && sources.contains_key(&id)
+            });
+            let in_range = previous_boundary
+                .map(|boundary| id >= boundary && id < first_kept)
+                .unwrap_or(id < first_kept);
+            retained || in_range
+        })
+        .collect::<Vec<_>>();
+
+    for message in &rows {
+        let message_id = message
+            .get("id")
+            .and_then(JsonValue::as_i64)
+            .ok_or_else(|| DatabaseOperationError::unavailable("Context message id is missing"))?;
+        if system_ids.contains(&message_id)
+            && message.get("role").and_then(JsonValue::as_str) != Some("system")
+        {
+            return Err(DatabaseOperationError::validation(
+                "Context system message changed role",
+            ));
+        }
+        let expected = sources.remove(&message_id);
+        let has_visible_text = parts_by_message
+            .get(&message_id)
+            .is_some_and(|parts| {
+                parts.iter().any(|part| {
+                    matches!(
+                        part.get("type").and_then(JsonValue::as_str),
+                        Some("text" | "reasoning")
+                    ) && part
+                        .get("content")
+                        .and_then(JsonValue::as_str)
+                        .is_some_and(|content| !content.trim().is_empty())
+                })
+            });
+        if expected.is_none()
+            && message.get("role").and_then(JsonValue::as_str) == Some("assistant")
+            && !has_visible_text
+        {
+            continue;
+        }
+        let actual = message_fingerprint(
+            message,
+            parts_by_message.get(&message_id).map(Vec::as_slice).unwrap_or(&[]),
+        )?;
+        if expected.as_deref() != Some(actual.as_str()) {
+            return Err(DatabaseOperationError::validation(
+                "Context source message changed",
+            ));
+        }
+    }
+    if !sources.is_empty() {
+        return Err(DatabaseOperationError::validation(
+            "Context source messages are incomplete",
+        ));
+    }
+
+    let message_id = if let Some(message_id) = input.pending_message_id {
+        run(
+            &mut *transaction,
+            "UPDATE messages SET role = 'assistant', updated_at = datetime('now') WHERE id = ?",
+            vec![JsonValue::Number(message_id.into())],
+        )
+        .await?;
+        message_id
+    } else {
+        let mut message = JsonMap::new();
+        message.insert(
+            "session_id".to_string(),
+            JsonValue::Number(input.session_id.into()),
+        );
+        message.insert(
+            "role".to_string(),
+            JsonValue::String("assistant".to_string()),
+        );
+        insert_one(&mut *transaction, "messages", &message, MESSAGE_COLUMNS)
+            .await?
+            .get("id")
+            .and_then(JsonValue::as_i64)
+            .ok_or_else(|| DatabaseOperationError::unavailable("Message id is missing"))?
+    };
+    let maximum = fetch_one(
+        &mut *transaction,
+        "SELECT COALESCE(MAX(sort_order), -1) AS value
+         FROM message_parts WHERE message_id = ?",
+        vec![JsonValue::Number(message_id.into())],
+    )
+    .await?
+    .and_then(|row| row.get("value").and_then(JsonValue::as_i64))
+    .unwrap_or(-1);
+    let created_at = metadata
+        .get("createdAt")
+        .and_then(JsonValue::as_i64)
+        .ok_or_else(|| DatabaseOperationError::validation("Context summary time is missing"))?;
+    let mut part = JsonMap::new();
+    part.insert(
+        "message_id".to_string(),
+        JsonValue::Number(message_id.into()),
+    );
+    part.insert(
+        "type".to_string(),
+        JsonValue::String("context_compaction".to_string()),
+    );
+    part.insert("content".to_string(), JsonValue::String(input.text.clone()));
+    part.insert(
+        "data".to_string(),
+        JsonValue::String(input.summary_json.clone()),
+    );
+    part.insert(
+        "started_at".to_string(),
+        JsonValue::Number(created_at.into()),
+    );
+    part.insert(
+        "ended_at".to_string(),
+        JsonValue::Number(created_at.into()),
+    );
+    part.insert(
+        "sort_order".to_string(),
+        JsonValue::Number((maximum + 1).into()),
+    );
+    let part = insert_one(
+        &mut *transaction,
+        "message_parts",
+        &part,
+        MESSAGE_PART_COLUMNS,
+    )
+    .await?;
+    run(
+        &mut *transaction,
+        "UPDATE session_turns
+         SET response_message_id = ?, updated_at = datetime('now')
+         WHERE id = ?",
+        vec![
+            JsonValue::Number(message_id.into()),
+            JsonValue::Number(input.turn_id.into()),
+        ],
+    )
+    .await?;
+    if let Some(usage) = &input.usage {
+        update_attempt_usage(&mut transaction, input.attempt_id, usage).await?;
+        update_turn_usage_totals(&mut transaction, input.turn_id).await?;
+    }
+
+    transaction
+        .commit()
+        .await
+        .map_err(DatabaseOperationError::from)?;
+    Ok(object([
+        ("messageId", JsonValue::Number(message_id.into())),
+        (
+            "partId",
+            part.get("id").cloned().unwrap_or(JsonValue::Null),
+        ),
     ]))
 }

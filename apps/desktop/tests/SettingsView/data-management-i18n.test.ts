@@ -2,7 +2,7 @@ import { mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { MetaKey } from '@/database/schema';
+import { MetaKey } from '@/database/keys';
 import { setLocale } from '@/i18n';
 import BadgedLogo from '@/views/SettingsView/components/AiServices/components/BadgedLogo.vue';
 import ImportModeDialog from '@/views/SettingsView/components/DataManagement/components/ImportModeDialog.vue';

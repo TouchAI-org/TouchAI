@@ -12,7 +12,6 @@ const { callToolMock, findEnabledMcpServersMock, findEnabledMcpToolsByServerIdMo
     })
 );
 
-vi.mock('@database', () => ({ db: {} }));
 vi.mock('@database/queries', () => ({
     findEnabledMcpServers: findEnabledMcpServersMock,
     findEnabledMcpToolsByServerId: findEnabledMcpToolsByServerIdMock,

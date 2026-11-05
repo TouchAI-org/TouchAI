@@ -1,6 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { StatisticKey } from '@database/schema';
+import { StatisticKey } from '@database/keys';
 import { native } from '@services/NativeService';
 import { log } from '@services/ObservabilityService';
 

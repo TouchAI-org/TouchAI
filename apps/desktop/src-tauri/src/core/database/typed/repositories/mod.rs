@@ -261,5 +261,8 @@ pub(super) async fn execute(
         DatabaseOperation::TaskBeginNextAttempt { input } => {
             tasks::begin_next_attempt(pool, input).await
         }
+        DatabaseOperation::TaskPersistContextSummary { input } => {
+            tasks::persist_context_summary(pool, input).await
+        }
     }
 }

@@ -1,7 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
 use serde_json::{Map as JsonMap, Value as JsonValue};
-use sqlx::{Sqlite, SqliteConnection, SqlitePool, Transaction};
+use sqlx::{sqlite::SqliteArguments, Sqlite, SqliteConnection, SqlitePool, Transaction};
 
 use super::operation::DatabaseOperationError;
 
@@ -24,7 +24,7 @@ pub(crate) async fn fetch_rows(
     sql: &str,
     params: Vec<JsonValue>,
 ) -> Result<Vec<JsonMap<String, JsonValue>>, DatabaseOperationError> {
-    let query = crate::core::database::runtime::build_query(sql, params)?;
+    let query = build_query(sql, params)?;
     let rows = query
         .fetch_all(&mut *connection)
         .await
@@ -51,7 +51,7 @@ pub(crate) async fn run(
     sql: &str,
     params: Vec<JsonValue>,
 ) -> Result<u64, DatabaseOperationError> {
-    let query = crate::core::database::runtime::build_query(sql, params)?;
+    let query = build_query(sql, params)?;
     let result = query
         .execute(&mut *connection)
         .await
@@ -65,6 +65,55 @@ pub(crate) fn json_object(rows: Vec<JsonMap<String, JsonValue>>) -> JsonValue {
 
 pub(crate) fn json_row(row: Option<JsonMap<String, JsonValue>>) -> JsonValue {
     row.map(JsonValue::Object).unwrap_or(JsonValue::Null)
+}
+
+fn build_query<'q>(
+    sql: &'q str,
+    params: Vec<JsonValue>,
+) -> Result<sqlx::query::Query<'q, Sqlite, SqliteArguments>, DatabaseOperationError> {
+    let mut query = sqlx::query(sqlx::AssertSqlSafe(sql));
+
+    for param in params {
+        query = match param {
+            JsonValue::Null => query.bind(Option::<String>::None),
+            JsonValue::Bool(value) => query.bind(value),
+            JsonValue::Number(value) => {
+                if let Some(integer) = value.as_i64() {
+                    query.bind(integer)
+                } else if let Some(float) = value.as_f64() {
+                    query.bind(float)
+                } else {
+                    return Err(DatabaseOperationError::validation(
+                        "Unsupported JSON number for sqlite bind",
+                    ));
+                }
+            }
+            JsonValue::String(value) => query.bind(value),
+            JsonValue::Array(values) => {
+                let bytes = values
+                    .into_iter()
+                    .map(|value| {
+                        value
+                            .as_u64()
+                            .and_then(|number| u8::try_from(number).ok())
+                            .ok_or_else(|| {
+                                DatabaseOperationError::validation(
+                                    "BLOB bind only supports byte arrays",
+                                )
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                query.bind(bytes)
+            }
+            JsonValue::Object(_) => {
+                return Err(DatabaseOperationError::validation(
+                    "Object bind is not supported for sqlite runtime",
+                ));
+            }
+        };
+    }
+
+    Ok(query)
 }
 
 #[cfg(test)]
