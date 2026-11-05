@@ -1,4 +1,5 @@
 import { native } from '@services/NativeService';
+import { log } from '@services/ObservabilityService';
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -7,7 +8,6 @@ vi.mock('@services/NativeService', () => ({
         analytics: {
             getState: vi.fn(),
             setEnabled: vi.fn(),
-            clearPending: vi.fn(),
         },
     },
 }));
@@ -46,13 +46,17 @@ describe('user configures product analytics', () => {
         await flushPromises();
 
         expect(wrapper.text()).toContain('Product analytics');
-        await wrapper.get('[data-testid="settings-analytics-toggle"]').trigger('click');
+        expect(wrapper.get('[data-testid="settings-analytics-share"]').text()).toContain(
+            'Share de-identified product usage statistics to help improve the product. When off, no analytics data is collected or sent.'
+        );
+        const toggle = wrapper.get('[data-testid="settings-analytics-toggle"]');
+        await toggle.trigger('click');
         await flushPromises();
 
         expect(nativeAnalytics.setEnabled).toHaveBeenCalledWith(true, 2);
     });
 
-    it('user sees the no-send disclosure and a disabled toggle when the build is unprovisioned', async () => {
+    it('user gets the standard privacy disclosure when transport is unprovisioned', async () => {
         nativeAnalytics.getState.mockResolvedValue(
             state({ status: 'uninitialized', consentEpoch: 0, transportReady: false })
         );
@@ -60,36 +64,24 @@ describe('user configures product analytics', () => {
         const wrapper = mount(AnalyticsSection);
         await flushPromises();
 
-        expect(wrapper.text()).toContain('no analytics endpoint configured');
+        expect(wrapper.get('[data-testid="settings-analytics-share"]').text()).toContain(
+            'Share de-identified product usage statistics to help improve the product. When off, no analytics data is collected or sent.'
+        );
+        expect(wrapper.text()).not.toContain('analytics endpoint');
         const toggle = wrapper.get('[data-testid="settings-analytics-toggle"]');
         expect((toggle.element as HTMLButtonElement).disabled).toBe(true);
     });
 
-    it('user clears pending data and the queue row disappears', async () => {
+    it('user does not see internal queue controls when pending data exists', async () => {
         nativeAnalytics.getState.mockResolvedValue(state({ queueDepth: 3, pendingBytes: 500 }));
-        nativeAnalytics.clearPending.mockResolvedValue(state({ consentEpoch: 1, queueDepth: 0 }));
 
         const wrapper = mount(AnalyticsSection);
         await flushPromises();
 
-        await wrapper.get('[data-testid="settings-analytics-clear"]').trigger('click');
-        await flushPromises();
-
-        expect(nativeAnalytics.clearPending).toHaveBeenCalledWith(1);
         expect(wrapper.find('[data-testid="settings-analytics-clear"]').exists()).toBe(false);
-    });
-
-    it('user is told when a clear loses a consent race instead of a false success', async () => {
-        nativeAnalytics.getState.mockResolvedValue(state({ queueDepth: 3, consentEpoch: 1 }));
-        nativeAnalytics.clearPending.mockRejectedValue(new Error('stale_consent_epoch'));
-
-        const wrapper = mount(AnalyticsSection);
-        await flushPromises();
-
-        await wrapper.get('[data-testid="settings-analytics-clear"]').trigger('click');
-        await flushPromises();
-
-        expect(wrapper.find('[data-testid="settings-analytics-clear"]').exists()).toBe(true);
-        expect(nativeAnalytics.getState).toHaveBeenCalledTimes(2);
+        expect(log.debug).toHaveBeenCalledWith(
+            '[Analytics] State',
+            expect.objectContaining({ queueDepth: 3, pendingBytes: 500 })
+        );
     });
 });

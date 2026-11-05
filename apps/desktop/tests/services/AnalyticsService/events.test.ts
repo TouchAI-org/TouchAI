@@ -14,7 +14,7 @@ interface FixtureEvent {
 }
 
 function loadFixtures(file: string): FixtureEvent[] {
-    const path = resolve('src/services/AnalyticsService/fixtures', file);
+    const path = resolve('tests/fixtures/analytics', file);
     const document = JSON.parse(readFileSync(path, 'utf8')) as { events: FixtureEvent[] };
     return document.events;
 }
@@ -52,7 +52,7 @@ describe('given a product event is submitted for validation', () => {
     });
 
     it('user gets only real days in years 1 through 9999 accepted when submitting observation dates', () => {
-        const path = resolve('src/services/AnalyticsService/fixtures/analytics-days.v1.json');
+        const path = resolve('tests/fixtures/analytics/analytics-days.v1.json');
         const { cases } = JSON.parse(readFileSync(path, 'utf8')) as {
             cases: { day: string; accepted: boolean }[];
         };

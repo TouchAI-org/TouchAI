@@ -1,6 +1,5 @@
 {
-    "protocolVersion": 1,
-    "schemaVersion": 1,
+    "fixtureVersion": 1,
     "events": [
         {
             "name": "analytics.session_started",
