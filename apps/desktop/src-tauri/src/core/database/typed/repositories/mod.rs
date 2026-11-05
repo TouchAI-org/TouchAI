@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
+mod attachments;
 mod builtins;
 mod llm_metadata;
 mod mcp;
@@ -7,6 +8,7 @@ mod models;
 mod providers;
 mod sessions;
 mod settings;
+mod tasks;
 mod tool_parts;
 
 use serde_json::Value as JsonValue;
@@ -168,5 +170,20 @@ pub(super) async fn execute(
             last_used_at,
         } => builtins::touch(pool, tool_id, last_used_at).await,
         DatabaseOperation::BuiltInToolCountEnabled => builtins::count_enabled(pool).await,
+        DatabaseOperation::AttachmentEnsure { input } => {
+            attachments::ensure_operation(pool, input).await
+        }
+        DatabaseOperation::TaskRecordStart { input } => tasks::record_start(pool, input).await,
+        DatabaseOperation::TaskPersistOutputMessage { input } => {
+            tasks::persist_output_message(pool, input).await
+        }
+        DatabaseOperation::TaskPersistToolResult { input } => {
+            tasks::persist_tool_result(pool, input).await
+        }
+        DatabaseOperation::TaskUpdateAttempt { input } => tasks::update_attempt(pool, input).await,
+        DatabaseOperation::TaskFinish { input } => tasks::finish(pool, input).await,
+        DatabaseOperation::TaskBeginNextAttempt { input } => {
+            tasks::begin_next_attempt(pool, input).await
+        }
     }
 }

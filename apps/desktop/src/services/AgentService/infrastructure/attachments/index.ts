@@ -29,6 +29,7 @@ export {
     planAttachmentDeliveryForMessages,
     resolveDeliveredInlineTransportMode,
 } from './planner';
+export type { PreparedAttachmentForPersistence } from './storage';
 export {
     createAttachment,
     createPersistedAttachmentFromData,

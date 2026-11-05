@@ -20,123 +20,62 @@ vi.mock('@services/HttpService', () => ({
     cancelResponseBody: vi.fn(async () => {}),
 }));
 
-function getRequest(payload: InvokeArgs | undefined) {
-    return (payload as { request?: { sql: string; params?: unknown[]; method: string } })?.request;
-}
-
 /** 记录 statistics 表里写入的值，供断言 ETag 与检查时间。 */
 const statistics = new Map<string, string>();
 
-interface MockSyncRows {
-    models?: unknown[];
-    aliases?: unknown[];
-    metadata?: unknown[];
+interface MockDatabaseOperation {
+    kind: string;
+    key?: string;
+    checkedAt?: string;
+    etag?: string | null;
+    sourceEtag?: string | null;
+    markUpdatedAt?: boolean;
+    metadata?: Array<Record<string, unknown>>;
+    aliases?: Array<Record<string, unknown>>;
 }
 
-/** 按表返回 sync 读取的行；未声明的表返回空集。 */
-function resolveSyncRows(sql: string, syncRows: MockSyncRows) {
-    if (sql.includes('"llm_metadata_aliases"')) {
-        return syncRows.aliases ?? [];
-    }
-
-    if (sql.includes('"llm_metadata"')) {
-        return syncRows.metadata ?? [];
-    }
-
-    if (sql.includes('from "models"')) {
-        return syncRows.models ?? [];
-    }
-
-    return [];
+function getDatabaseOperation(payload: InvokeArgs | undefined): MockDatabaseOperation | undefined {
+    return (payload as { request?: MockDatabaseOperation })?.request;
 }
 
-function mockMetadataTransaction(syncRows: MockSyncRows = {}) {
+function mockMetadataDatabase() {
     interceptTauriInvoke((call) => {
-        if (call.cmd === 'database_tx_begin') {
-            return 'tx_model_metadata';
-        }
-
-        if (call.cmd === 'database_tx_commit' || call.cmd === 'database_tx_rollback') {
+        if (call.cmd !== 'database_operation') {
             return undefined;
         }
 
-        if (call.cmd === 'database_tx_query') {
-            const request = getRequest(call.payload);
-
-            if (request?.sql.includes('insert into "statistics"')) {
-                const [key, value] = request.params ?? [];
-                statistics.set(String(key), String(value));
-
-                return {
-                    rows: [{ key }],
-                    rowsAffected: 1,
-                    lastInsertId: 1,
-                };
-            }
-
-            if (request?.method === 'all') {
-                return {
-                    rows: resolveSyncRows(request.sql, syncRows),
-                    rowsAffected: 0,
-                    lastInsertId: null,
-                };
-            }
-
-            return { rows: [], rowsAffected: 1, lastInsertId: null };
+        const operation = getDatabaseOperation(call.payload);
+        switch (operation?.kind) {
+            case 'statistic_get':
+                return statistics.get(String(operation.key)) ?? null;
+            case 'llm_metadata_replace':
+                if (operation.markUpdatedAt) {
+                    const now = new Date().toISOString();
+                    statistics.set('model_metadata_last_updated_at', now);
+                    statistics.set('model_metadata_last_checked_at', now);
+                    if (operation.sourceEtag) {
+                        statistics.set('model_metadata_source_etag', operation.sourceEtag);
+                    }
+                }
+                return null;
+            case 'llm_metadata_mark_checked':
+                if (operation.checkedAt) {
+                    statistics.set('model_metadata_last_checked_at', operation.checkedAt);
+                }
+                if (operation.etag) {
+                    statistics.set('model_metadata_source_etag', operation.etag);
+                }
+                return null;
+            default:
+                return null;
         }
-
-        if (call.cmd === 'database_query') {
-            const request = getRequest(call.payload);
-
-            // 命中 304 时只推进检查时间，这条写入不经过事务。
-            if (request?.sql.includes('insert into "statistics"')) {
-                const [key, value] = request.params ?? [];
-                statistics.set(String(key), String(value));
-
-                return {
-                    rows: [{ key }],
-                    rowsAffected: 1,
-                    lastInsertId: 1,
-                };
-            }
-
-            const key = String(request?.params?.[0] ?? '');
-            const value = statistics.get(key);
-
-            return {
-                rows: value ? [{ id: 1, key, value, created_at: '', updated_at: '' }] : [],
-                rowsAffected: 0,
-                lastInsertId: null,
-            };
-        }
-
-        return undefined;
     });
 }
 
-function executedTransactionSql(): string[] {
-    return getTauriInvokeCalls('database_tx_query').map(
-        (call) => getRequest(call.payload)?.sql ?? ''
-    );
-}
-
-function findInsertRequest(table: string) {
-    return getTauriInvokeCalls('database_tx_query')
-        .map((call) => getRequest(call.payload))
-        .find((request) => request?.sql.includes(`insert into "${table}"`));
-}
-
-/**
- * 收集某张表所有 insert 语句的参数。
- *
- * 批量写入会按参数个数上限分批（见 `replaceModelMetadata`），
- * 所以断言“某个值被写入”时必须跨批次收集，而不是只看第一条。
- */
-function collectInsertParams(table: string): unknown[] {
-    return getTauriInvokeCalls('database_tx_query')
-        .map((call) => getRequest(call.payload))
-        .filter((request) => request?.sql.includes(`insert into "${table}"`))
-        .flatMap((request) => request?.params ?? []);
+function findOperation(kind: string): MockDatabaseOperation | undefined {
+    return getTauriInvokeCalls('database_operation')
+        .map((call) => getDatabaseOperation(call.payload))
+        .find((operation) => operation?.kind === kind);
 }
 
 function catalog(
@@ -194,11 +133,11 @@ describe('user sees model metadata refreshed from the catalog', () => {
             )
         );
 
-        mockMetadataTransaction();
+        mockMetadataDatabase();
 
         await expect(updateModelMetadata()).resolves.toEqual({ status: 'updated' });
 
-        expect(findInsertRequest('llm_metadata')?.params).toEqual(
+        expect(findOperation('llm_metadata_replace')?.metadata?.map((row) => row.model_id)).toEqual(
             expect.arrayContaining(['gpt-4', 'gpt-4o'])
         );
     });
@@ -226,22 +165,22 @@ describe('user sees model metadata refreshed from the catalog', () => {
             )
         );
 
-        mockMetadataTransaction();
+        mockMetadataDatabase();
 
         await expect(updateModelMetadata()).resolves.toEqual({ status: 'updated' });
 
-        const aliasInsert = findInsertRequest('llm_metadata_aliases');
-        expect(aliasInsert?.params).toEqual(
-            expect.arrayContaining(['deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash'])
+        const replace = findOperation('llm_metadata_replace');
+        expect(replace?.aliases).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    alias: 'deepseek-v4.1-flash',
+                    model_id: 'deepseek/deepseek-v4.1-flash',
+                }),
+            ])
         );
-
-        const sql = executedTransactionSql();
-        expect(
-            sql.some((statement) => statement.includes('delete from "llm_metadata_aliases"'))
-        ).toBe(true);
     });
 
-    it('user sees refreshed metadata applied to runtime model rows in the same update', async () => {
+    it('user sees model refresh and runtime row synchronization submitted as one replace', async () => {
         metadataFetchMock.mockResolvedValue(
             jsonResponse(
                 catalog(
@@ -258,6 +197,10 @@ describe('user sees model metadata refreshed from the catalog', () => {
                                 input: ['text', 'image'],
                                 output: ['text'],
                             },
+                            limit: {
+                                context: 1000000,
+                                output: 65536,
+                            },
                         },
                     },
                     { 'mimo-v2.5-pro': 'xiaomi/mimo-v2.5-pro' }
@@ -265,52 +208,19 @@ describe('user sees model metadata refreshed from the catalog', () => {
             )
         );
 
-        mockMetadataTransaction({
-            models: [{ id: 7, model_id: 'mimo-v2.5-pro' }],
-            aliases: [{ alias: 'mimo-v2.5-pro', model_id: 'xiaomi/mimo-v2.5-pro' }],
-            metadata: [
-                {
-                    model_id: 'xiaomi/mimo-v2.5-pro',
-                    attachment: 1,
-                    modalities: '{"input":["text","image"],"output":["text"]}',
-                    open_weights: 0,
-                    reasoning: 1,
-                    reasoning_options: null,
-                    release_date: null,
-                    temperature: 1,
-                    tool_call: 1,
-                    knowledge: null,
-                    limit: '{"context":1000000,"output":65536}',
-                },
-            ],
-        });
+        mockMetadataDatabase();
 
         await expect(updateModelMetadata()).resolves.toEqual({ status: 'updated' });
 
-        const requests = getTauriInvokeCalls('database_tx_query').map((call) =>
-            getRequest(call.payload)
-        );
-
-        // 候选只用于批量读取；匹配在应用层完成后只剩一条 UPDATE。
-        expect(
-            requests.some(
-                (request) => request?.method === 'all' && request.sql.includes('json_each(')
-            )
-        ).toBe(true);
-
-        const updateRequest = requests.find((request) => request?.sql.includes('UPDATE models'));
-        expect(updateRequest?.sql).toContain('selected_model_metadata');
-        expect(updateRequest?.sql).not.toContain('llm_metadata_aliases');
-
-        const payload = JSON.parse(String(updateRequest?.params?.[0]));
-        expect(payload).toHaveLength(1);
-        expect(payload[0]).toMatchObject({
-            id: 7,
+        const replace = findOperation('llm_metadata_replace');
+        expect(replace?.metadata).toHaveLength(1);
+        expect(replace?.metadata?.[0]).toMatchObject({
+            model_id: 'xiaomi/mimo-v2.5-pro',
             attachment: 1,
             reasoning: 1,
-            context_limit: 1000000,
-            output_limit: 65536,
+            limit: '{"context":1000000,"output":65536}',
         });
+        expect(replace?.markUpdatedAt).toBe(true);
     });
 
     it('user sees no rewrite when the catalog has not changed', async () => {
@@ -322,7 +232,7 @@ describe('user sees model metadata refreshed from the catalog', () => {
             headers: { get: () => null },
         } as unknown as Response);
 
-        mockMetadataTransaction();
+        mockMetadataDatabase();
 
         await expect(updateModelMetadata()).resolves.toEqual({ status: 'unchanged' });
 
@@ -333,10 +243,8 @@ describe('user sees model metadata refreshed from the catalog', () => {
             })
         );
 
-        const sql = executedTransactionSql();
-        expect(sql.some((statement) => statement.includes('delete from "llm_metadata"'))).toBe(
-            false
-        );
+        expect(findOperation('llm_metadata_replace')).toBeUndefined();
+        expect(findOperation('llm_metadata_mark_checked')?.etag).toBe('W/"v1"');
         expect(statistics.get('model_metadata_last_checked_at')).toBeTruthy();
     });
 
@@ -354,7 +262,7 @@ describe('user sees model metadata refreshed from the catalog', () => {
             )
         );
 
-        mockMetadataTransaction();
+        mockMetadataDatabase();
 
         await expect(updateModelMetadata()).resolves.toEqual({ status: 'updated' });
 
@@ -365,43 +273,35 @@ describe('user sees model metadata refreshed from the catalog', () => {
         const consoleSpy = vi.spyOn(log, 'error').mockImplementation(() => {});
         metadataFetchMock.mockResolvedValue(jsonResponse(catalog({})));
 
-        mockMetadataTransaction();
+        mockMetadataDatabase();
 
         await expect(updateModelMetadata()).rejects.toThrow(
             'Refusing to replace model metadata with an empty catalog'
         );
 
-        const sql = executedTransactionSql();
-        expect(sql.some((statement) => statement.includes('delete from "llm_metadata"'))).toBe(
-            false
-        );
-        expect(sql.some((statement) => statement.includes('insert into "llm_metadata"'))).toBe(
-            false
-        );
+        expect(findOperation('llm_metadata_replace')).toBeUndefined();
+        expect(findOperation('llm_metadata_mark_checked')).toBeUndefined();
         consoleSpy.mockRestore();
     });
 
     it('user sees the bundled snapshot seeded without marking it as remotely refreshed', async () => {
-        mockMetadataTransaction();
+        mockMetadataDatabase();
 
         await expect(seedModelMetadataFromSnapshot()).resolves.toBeUndefined();
 
-        expect(collectInsertParams('llm_metadata')).toEqual(
+        const replace = findOperation('llm_metadata_replace');
+        expect(replace?.metadata?.map((row) => row.model_id)).toEqual(
             expect.arrayContaining(['deepseek/deepseek-v4.1-flash'])
         );
-        expect(collectInsertParams('llm_metadata_aliases')).toEqual(
+        expect(replace?.aliases?.map((row) => row.alias)).toEqual(
             expect.arrayContaining(['deepseek-v4.1-flash'])
         );
-
-        const sql = executedTransactionSql();
-        expect(sql.some((statement) => statement.includes('delete from "llm_metadata"'))).toBe(
-            true
-        );
-        expect(sql.some((statement) => statement.includes('insert into "statistics"'))).toBe(false);
+        expect(replace?.markUpdatedAt).toBe(false);
+        expect(findOperation('llm_metadata_mark_checked')).toBeUndefined();
     });
 
     it('user sees concurrent refreshes share a single catalog request', async () => {
-        mockMetadataTransaction();
+        mockMetadataDatabase();
         metadataFetchMock.mockResolvedValue(
             jsonResponse(
                 catalog({
@@ -422,7 +322,7 @@ describe('user sees model metadata refreshed from the catalog', () => {
 
     it('user sees a later refresh allowed after a failed one', async () => {
         const consoleSpy = vi.spyOn(log, 'error').mockImplementation(() => {});
-        mockMetadataTransaction();
+        mockMetadataDatabase();
         metadataFetchMock.mockRejectedValueOnce(new Error('network down'));
         metadataFetchMock.mockResolvedValueOnce(
             jsonResponse(
@@ -439,7 +339,7 @@ describe('user sees model metadata refreshed from the catalog', () => {
     });
 
     it('user sees a missing or unreadable refresh timestamp treated as stale', async () => {
-        mockMetadataTransaction();
+        mockMetadataDatabase();
 
         await expect(shouldCheckModelMetadata()).resolves.toBe(true);
 
@@ -450,7 +350,7 @@ describe('user sees model metadata refreshed from the catalog', () => {
     it('user sees no catalog request while the last refresh is fresh', async () => {
         statistics.set('model_metadata_last_checked_at', new Date().toISOString());
 
-        mockMetadataTransaction();
+        mockMetadataDatabase();
 
         await expect(shouldCheckModelMetadata()).resolves.toBe(false);
 
@@ -470,7 +370,7 @@ describe('user sees model metadata refreshed from the catalog', () => {
             )
         );
 
-        mockMetadataTransaction();
+        mockMetadataDatabase();
 
         await expect(refreshModelMetadataIfStale()).resolves.toEqual({ status: 'updated' });
         expect(metadataFetchMock).toHaveBeenCalledTimes(1);

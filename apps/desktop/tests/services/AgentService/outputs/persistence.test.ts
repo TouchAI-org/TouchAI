@@ -8,6 +8,13 @@ import type { AiCallRecord } from '@/services/AgentService/contracts/protocol';
 import type { AttemptCheckpoint } from '@/services/AgentService/execution/executor';
 import { PersistenceProjector } from '@/services/AgentService/outputs/persistence';
 
+import {
+    createPersistenceDatabaseOperation,
+    type PersistenceDatabaseTelemetry,
+} from '../../../utils/persistenceDatabase';
+
+const database = vi.hoisted(() => ({ operation: vi.fn() }));
+
 const queries = vi.hoisted(() => ({
     createMessage: vi.fn(),
     createMessageParts: vi.fn(),
@@ -48,6 +55,10 @@ vi.mock('@database/queries', async (importOriginal) => ({
     ...queries,
 }));
 
+vi.mock('@services/NativeService', () => ({
+    native: { database: { operation: database.operation } },
+}));
+
 vi.mock('@/services/UsageService', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@/services/UsageService')>()),
     ...usage,
@@ -62,13 +73,34 @@ vi.mock('@/services/AgentService/infrastructure/attachments', async (importOrigi
     ...(await importOriginal<
         typeof import('@/services/AgentService/infrastructure/attachments')
     >()),
-    prepareAttachmentForPersistence: vi.fn(async () => undefined),
+    prepareAttachmentForPersistence: vi.fn(async () => ({
+        hash: 'prepared-hash',
+        name: 'prepared.txt',
+        mimeType: null,
+        size: null,
+    })),
     persistPreparedAttachment: vi.fn(async () => ({
         id: 7,
         origin_path: 'D:/origin/seven.txt',
     })),
     ensurePersistedAttachmentIndex: vi.fn(async () => ({ id: 8 })),
 }));
+
+database.operation.mockImplementation(
+    createPersistenceDatabaseOperation({
+        ...queries,
+        insertLlmCallParts: usage.insertLlmCallParts,
+    } as unknown as PersistenceDatabaseTelemetry)
+);
+
+beforeEach(() => {
+    database.operation.mockImplementation(
+        createPersistenceDatabaseOperation({
+            ...queries,
+            insertLlmCallParts: usage.insertLlmCallParts,
+        } as unknown as PersistenceDatabaseTelemetry)
+    );
+});
 
 function createSnapshot() {
     return {
@@ -137,6 +169,24 @@ function createCall(overrides: Partial<AiCallRecord> = {}): AiCallRecord {
     };
 }
 
+function createPersistedCall(record: AiCallRecord) {
+    return {
+        record,
+        cost: {
+            inputCostMicros: 0,
+            outputCostMicros: 0,
+            cacheReadCostMicros: 0,
+            cacheWriteCostMicros: 0,
+            reasoningCostMicros: 0,
+            totalCostMicros: 1234,
+            currency: 'USD',
+            pricingModel: null,
+            appliedTierAbove: null,
+            priced: true,
+        },
+    };
+}
+
 describe('user waits for the answer while its turn is recorded', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -156,7 +206,7 @@ describe('user waits for the answer while its turn is recorded', () => {
         queries.refreshSessionMetadata.mockResolvedValue(undefined);
         queries.findAllMcpTools.mockResolvedValue([]);
         queries.findAllBuiltInTools.mockResolvedValue([]);
-        usage.resolveCalls.mockImplementation(async (calls) => calls);
+        usage.resolveCalls.mockImplementation(async (calls) => calls.map(createPersistedCall));
         usage.sumUsage.mockReturnValue({
             inputTokens: 10,
             outputTokens: 20,
@@ -263,7 +313,7 @@ describe('user sees usage counted once the answer is done', () => {
         queries.refreshSessionMetadata.mockResolvedValue(undefined);
         queries.findAllMcpTools.mockResolvedValue([]);
         queries.findAllBuiltInTools.mockResolvedValue([]);
-        usage.resolveCalls.mockImplementation(async (calls) => calls);
+        usage.resolveCalls.mockImplementation(async (calls) => calls.map(createPersistedCall));
         usage.sumUsage.mockReturnValue({
             inputTokens: 10,
             outputTokens: 20,
@@ -440,7 +490,7 @@ describe('user sees a failed turn recorded with its usage', () => {
         queries.refreshSessionMetadata.mockResolvedValue(undefined);
         queries.findAllMcpTools.mockResolvedValue([]);
         queries.findAllBuiltInTools.mockResolvedValue([]);
-        usage.resolveCalls.mockImplementation(async (calls) => calls);
+        usage.resolveCalls.mockImplementation(async (calls) => calls.map(createPersistedCall));
         usage.sumUsage.mockReturnValue({
             inputTokens: 10,
             outputTokens: 20,
@@ -510,7 +560,7 @@ describe('user cancels a turn that is being recorded', () => {
         queries.refreshSessionMetadata.mockResolvedValue(undefined);
         queries.findAllMcpTools.mockResolvedValue([]);
         queries.findAllBuiltInTools.mockResolvedValue([]);
-        usage.resolveCalls.mockImplementation(async (calls) => calls);
+        usage.resolveCalls.mockImplementation(async (calls) => calls.map(createPersistedCall));
         usage.sumUsage.mockReturnValue({
             inputTokens: 10,
             outputTokens: 20,
@@ -569,7 +619,7 @@ describe('user waits through a retry of the same turn', () => {
         queries.refreshSessionMetadata.mockResolvedValue(undefined);
         queries.findAllMcpTools.mockResolvedValue([]);
         queries.findAllBuiltInTools.mockResolvedValue([]);
-        usage.resolveCalls.mockImplementation(async (calls) => calls);
+        usage.resolveCalls.mockImplementation(async (calls) => calls.map(createPersistedCall));
         usage.sumUsage.mockReturnValue({
             inputTokens: 10,
             outputTokens: 20,
@@ -705,7 +755,7 @@ describe('user sends attachments with the prompt and through tools', () => {
         });
         queries.findAllMcpTools.mockResolvedValue([]);
         queries.findAllBuiltInTools.mockResolvedValue([]);
-        usage.resolveCalls.mockImplementation(async (calls) => calls);
+        usage.resolveCalls.mockImplementation(async (calls) => calls.map(createPersistedCall));
         usage.sumUsage.mockReturnValue({
             inputTokens: 0,
             outputTokens: 0,
@@ -819,7 +869,7 @@ describe('user reopens a turn whose bookkeeping was interrupted', () => {
         queries.refreshSessionMetadata.mockResolvedValue(undefined);
         queries.findAllMcpTools.mockResolvedValue([]);
         queries.findAllBuiltInTools.mockResolvedValue([]);
-        usage.resolveCalls.mockImplementation(async (calls) => calls);
+        usage.resolveCalls.mockImplementation(async (calls) => calls.map(createPersistedCall));
         usage.sumUsage.mockReturnValue({
             inputTokens: 0,
             outputTokens: 0,

@@ -240,6 +240,27 @@ pub(crate) enum DatabaseOperation {
         last_used_at: String,
     },
     BuiltInToolCountEnabled,
+    AttachmentEnsure {
+        input: AttachmentPersistInput,
+    },
+    TaskRecordStart {
+        input: TaskRecordStartInput,
+    },
+    TaskPersistOutputMessage {
+        input: TaskPersistOutputMessageInput,
+    },
+    TaskPersistToolResult {
+        input: TaskPersistToolResultInput,
+    },
+    TaskUpdateAttempt {
+        input: TaskUpdateAttemptInput,
+    },
+    TaskFinish {
+        input: TaskFinishInput,
+    },
+    TaskBeginNextAttempt {
+        input: TaskBeginNextAttemptInput,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -252,6 +273,170 @@ pub(crate) struct UpstreamMetadataEntry {
 pub(crate) struct CatalogModel {
     pub model_id: String,
     pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AttachmentPersistInput {
+    pub attachment_id: Option<i64>,
+    pub hash: Option<String>,
+    #[serde(rename = "type")]
+    pub attachment_type: String,
+    pub original_name: String,
+    pub origin_path: String,
+    pub mime_type: Option<String>,
+    pub size: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OutputPartInput {
+    #[serde(rename = "type")]
+    pub part_type: String,
+    pub content: String,
+    pub data: Option<String>,
+    pub started_at: Option<i64>,
+    pub ended_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LlmCallPartInput {
+    pub data: String,
+    pub started_at: Option<i64>,
+    pub ended_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct UsageSummary {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+    pub reasoning_tokens: i64,
+    pub total_cost_micros: i64,
+    pub unpriced_calls: i64,
+    pub ttft_ms: Option<i64>,
+    pub llm_call_count: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AttemptUsageWrite {
+    pub calls: Vec<LlmCallPartInput>,
+    pub summary: UsageSummary,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TurnBehaviorSignals {
+    pub first_text_ms: Option<i64>,
+    pub tool_call_count: i64,
+    pub tool_argument_error_count: i64,
+    pub model_switch_count: i64,
+    pub hit_iteration_ceiling: bool,
+    pub error_code: Option<String>,
+    pub retry_scope: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TaskRecordStartInput {
+    pub session_id: Option<i64>,
+    pub session_title: String,
+    pub model_id: i64,
+    pub model_name: String,
+    pub provider_id: i64,
+    pub task_id: String,
+    pub execution_mode: String,
+    pub prompt: String,
+    pub prompt_snapshot_json: String,
+    pub prompt_breakdown_json: Option<String>,
+    pub checkpoint_json: String,
+    pub delivery_manifest_json: String,
+    pub started_at: String,
+    pub max_retries: i64,
+    pub existing_user_message_id: Option<i64>,
+    pub existing_turn_id: Option<i64>,
+    pub existing_attempt_id: Option<i64>,
+    pub attachments: Vec<AttachmentPersistInput>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TaskPersistOutputMessageInput {
+    pub session_id: i64,
+    pub turn_id: Option<i64>,
+    pub message_id: Option<i64>,
+    pub role: String,
+    pub link_turn: bool,
+    pub parts: Vec<OutputPartInput>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TaskPersistToolResultInput {
+    pub tool_call_part_id: Option<i64>,
+    pub tool_call_id: Option<String>,
+    pub tool_call_message_id: Option<i64>,
+    pub result: String,
+    pub attachments: Vec<AttachmentPersistInput>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TaskUpdateAttemptInput {
+    pub attempt_id: i64,
+    pub checkpoint_json: Option<String>,
+    pub delivery_manifest_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TaskFinishInput {
+    pub session_id: i64,
+    pub turn_id: Option<i64>,
+    pub attempt_id: Option<i64>,
+    pub assistant_message_id: Option<i64>,
+    pub pending_message_id: Option<i64>,
+    pub status: String,
+    pub error_message: Option<String>,
+    pub duration_ms: Option<i64>,
+    pub tokens_used: Option<i64>,
+    pub finished_at: String,
+    pub parts: Option<Vec<OutputPartInput>>,
+    pub usage: Option<AttemptUsageWrite>,
+    pub behavior: TurnBehaviorSignals,
+    pub turn_bootstrap: Option<TaskTurnBootstrap>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TaskTurnBootstrap {
+    pub model_id: i64,
+    pub task_id: String,
+    pub execution_mode: String,
+    pub prompt_snapshot_json: String,
+    pub prompt_message_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TaskBeginNextAttemptInput {
+    pub turn_id: i64,
+    pub current_attempt_id: i64,
+    pub current_attempt_index: i64,
+    pub error_message: String,
+    pub duration_ms: Option<i64>,
+    pub finished_at: String,
+    pub attempt_index: i64,
+    pub max_retries: i64,
+    pub checkpoint_json: String,
+    pub delivery_manifest_json: String,
+    pub started_at: String,
+    pub usage: Option<AttemptUsageWrite>,
+    pub behavior: TurnBehaviorSignals,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -321,6 +506,12 @@ impl DatabaseOperation {
             Self::ToolPartList { .. } | Self::ToolPartSummaries { .. } => {
                 OperationSurface::new(OperationGroup::ToolHistory)
             }
+            Self::TaskRecordStart { .. }
+            | Self::TaskPersistOutputMessage { .. }
+            | Self::TaskPersistToolResult { .. }
+            | Self::TaskUpdateAttempt { .. }
+            | Self::TaskFinish { .. }
+            | Self::TaskBeginNextAttempt { .. } => OperationSurface::new(OperationGroup::Agent),
             Self::ProviderList
             | Self::ProviderFind { .. }
             | Self::ProviderCreate { .. }
@@ -370,6 +561,7 @@ impl DatabaseOperation {
             | Self::BuiltInToolUpdateMany { .. }
             | Self::BuiltInToolTouch { .. }
             | Self::BuiltInToolCountEnabled => OperationSurface::new(OperationGroup::Config),
+            Self::AttachmentEnsure { .. } => OperationSurface::new(OperationGroup::Agent),
         }
     }
 }
