@@ -107,24 +107,27 @@ final database state where applicable.
 | --- | --- |
 | Empty/latest database and runtime seed | Existing migration/seed contract tests plus SQLite runtime tests |
 | Migration stages `0000` through `0004` | Existing unified-parts and usage-observability migration tests; every stage applies the byte-identical SQL |
-| v1.0, v1.2, v1.3 released databases | Open: frozen released-version fixtures must be run before release |
+| v1.0, v1.2, v1.3 released databases | Frozen fixtures under `apps/desktop/tests/fixtures/database/released/` are copied to an isolated data directory, opened in place, migrated to `0004`, and exercised through typed reads and FTS |
 | WAL and committed-WAL import | Import/export use `VACUUM INTO`; runtime import tests keep the source WAL open |
 | FTS write, update, delete | `database_search_index_supports_contentless_delete_on_bundled_sqlite` |
-| ID gaps and pagination | Existing session/usage query tests; verify against frozen fixtures before release |
+| ID gaps and pagination | Existing session/usage query tests plus the released fixtures preserve `sqlite_sequence.sessions = 30` and return the latest session through limit 1 |
 | Old full and chat-only backups | Rust import tests cover 4-entry upgrade, repeated import, malformed history, and rollback |
 | Invalid/ambiguous imports | Rust tests verify no target change, no attached temp database, and no leftover snapshot directory |
 | Export failure cleanup | Rust export test verifies the pool remains usable and the temporary snapshot is removed |
 | Same call ID across messages | Rust test verifies a tool result update is scoped by `(tool_call_id, message_id)` and is idempotent |
 | Two attempts with reasoning/cost | Rust test verifies per-attempt values, turn sums, pricing data, and LLM-call part ordering |
 | Import versus Agent write | Rust test runs a full import concurrently with `task_record_start`; both operations complete with no partial rows |
-| Multi-window permissions | Rust tests cover main/settings allowed backup and popup/preview/settings restrictions |
+| Multi-window permissions | Real-window Rust tests cover main/settings allowed operations plus settings Agent/usage-write denials, popup Agent/settings/tool-history/usage/backup denials, and preview settings/backup denials |
 | Default model uniqueness | Rust typed-operation test verifies one default after a switch |
 
 Schema comparison must still compare order-independent rows from
 `sqlite_master`, `PRAGMA table_info`, `PRAGMA index_list`/`index_info`,
 `PRAGMA foreign_key_list`, `sqlite_sequence`, triggers, views, and representative
 FTS content. Migration bytes and snapshots are checked separately from the
-semantic fingerprint.
+semantic fingerprint. `released_database_fixtures.rs` compares the upgraded
+fixture schema against a fresh current database and separately asserts the WAL
+journal mode, foreign keys, preserved ID sequence, FTS search, and migrated
+message/tool/attachment content.
 
 ## Rollout and rollback
 
@@ -144,10 +147,6 @@ These are release gates, not claims:
 
 - Re-run the full Rust suite, frontend tests, typecheck, architecture checks,
   E2E, and required GitHub Actions checks.
-- Run frozen v1.0/v1.2/v1.3 databases and every migration-stage fixture through
-  the semantic schema fingerprint.
-- Verify real-window negative permissions for settings, popup, and preview
-  windows on the desktop build.
 - Run the performance acceptance workflow on GitHub Actions. Daytona is not a
   dependency and must not be left running.
 - Confirm P50/P95 latency and memory are within the 5% budget; an unexplained
