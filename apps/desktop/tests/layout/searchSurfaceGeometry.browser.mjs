@@ -24,8 +24,9 @@ export const native={window:{getSearchWindowState:async()=>state,setSearchWindow
 size={width:(to.width+96)*scale,height:96+(to.height+48)*scale};
 position={...position,y:Math.min(position.y,1080*scale-size.height)};
 moved({payload:position});
+await new Promise(resolve=>setTimeout(resolve,24));
 state={...state,currentWidth:to.width,currentHeight:to.height};return state;}}};
-export const getCurrentWindow=()=>({outerPosition:async()=>position,outerSize:async()=>size,onMoved:async cb=>{moved=cb;return()=>{}},onResized:async()=>()=>{},onScaleChanged:async()=>()=>{},isMaximized:async()=>false,setPosition:async p=>{position={x:p.x,y:p.y};moved({payload:position})}});
+export const getCurrentWindow=()=>({outerPosition:async()=>position,outerSize:async()=>size,onMoved:async cb=>{moved=cb;return()=>{}},onResized:async()=>()=>{},onScaleChanged:async()=>()=>{},isMaximized:async()=>false,setPosition:async p=>{position={x:p.x,y:p.y};moved({payload:position});await new Promise(resolve=>setTimeout(resolve,24))}});
 export const currentMonitor=async()=>({workArea:{position:{x:0,y:0},size:{width:1920*scale,height:1080*scale}}});`;
 const fixture = `<script setup>
 import {computed,nextTick,onMounted,ref} from 'vue';
@@ -140,7 +141,7 @@ try {
 await writeFile(`${outputDirectory}/geometry-results.json`, JSON.stringify(reports, null, 2));
 for (const report of reports) {
     assert.ok(
-        report.maxCenterDrift <= 6,
+        report.maxCenterDrift <= 1,
         `Conversation centre moved ${report.maxCenterDrift}px at width ${report.width}`
     );
     for (const bounds of [report.menu, report.reopened]) {

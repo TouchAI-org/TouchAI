@@ -34,7 +34,7 @@ fixtures is the fixed-height test row labeled `Input`.
 
 [Geometry results](geometry-regression.json) record eight real-browser cases at
 420px/750px, 100%/150% scale, with normal and interrupted expansion. A simulated
-native boundary moves the host before acknowledging its new dimensions. The test
+native boundary moves the host 24ms before acknowledging its new dimensions. The test
 measures the card's screen-space center each frame and checks picker alignment,
 editor clearance, hard viewport bounds, and reopening. Maximum center drift in
 this run was below 0.02 physical pixels; this is a layout assertion, not a latency

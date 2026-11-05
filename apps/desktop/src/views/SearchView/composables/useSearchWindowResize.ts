@@ -160,6 +160,8 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     /** Frame position when a popup took the layout over; the frame holds it until it closes. */
     let frozenOriginY: number | null = null;
     let nativeGeometryInFlight = false;
+    let heldCardPosition: { element: HTMLElement; originY: number; transform: string } | null =
+        null;
 
     /** Placements outside the drift invalidate both its reference and its starting point. */
     function invalidateHostAnchor() {
@@ -704,6 +706,13 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             let revealContinues = false;
             let nativeCommitted = false;
             const previousOrigin = hostAnchor;
+            if (!shrinks && animatesCard && visibleCard && previousOrigin) {
+                heldCardPosition = {
+                    element: visibleCard,
+                    originY: previousOrigin.y + interruptedOffsetY * scaleFactor(),
+                    transform: visibleCard.style.transform,
+                };
+            }
             try {
                 if (shrinks) {
                     animation = await startCardAnimation(
@@ -808,6 +817,10 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                     }
                 }
             } finally {
+                if (heldCardPosition) {
+                    heldCardPosition.element.style.transform = heldCardPosition.transform;
+                    heldCardPosition = null;
+                }
                 nativeGeometryInFlight = false;
                 if (change && !revealContinues) {
                     finishCardTransition(change, generation, animation, nativeCommitted);
@@ -1417,9 +1430,18 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
 
     currentWindow
         .onMoved(({ payload }) => {
+            // Preserve the visible start frame while the host acknowledges its new envelope.
+            if (heldCardPosition) {
+                heldCardPosition.element.style.transform = `translateY(${(heldCardPosition.originY - payload.y) / scaleFactor()}px)`;
+            }
             // Only track the frame when no drift owns it: the drift writes its own position
             // every frame and its echo must not become the next anchor.
-            if (!nativeGeometryInFlight && hostShiftFrame === null && hostPositionWrite === null) {
+            if (
+                !nativeGeometryInFlight &&
+                !cardAnimation.value &&
+                hostShiftFrame === null &&
+                hostPositionWrite === null
+            ) {
                 recordIdleOrigin(payload);
                 viewportSyncScheduler.schedule();
             }
