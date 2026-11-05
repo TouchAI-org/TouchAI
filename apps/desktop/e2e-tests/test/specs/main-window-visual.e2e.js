@@ -133,9 +133,12 @@ describe('user works in the main window with a conversation', () => {
     });
 
     it('user sees the ask-user panel when a tool needs a decision', async () => {
+        // Resize before the panel exists for the same reason as the conversation
+        // case: a resize after mount becomes a manual override and races the
+        // content-driven expansion the screenshot is meant to capture.
+        await browser.setWindowSize(...searchWindowSize(750, 520));
         await callE2eBridge('setAskUserRequest', APPROVAL_REQUEST);
 
-        await browser.setWindowSize(...searchWindowSize(750, 520));
         const panel = await waitForTestIdDisplayed('ask-user-panel');
         await browser.pause(800);
 
