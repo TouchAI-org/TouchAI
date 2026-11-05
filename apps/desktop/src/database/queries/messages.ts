@@ -2,6 +2,8 @@
 
 import { and, asc, count, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 
+import { native } from '@services/NativeService';
+
 import { type DatabaseExecutor, db } from '../index';
 import { messages } from '../schema';
 import type { MessageCreateData, MessageEntity, MessagePartEntity } from '../types';
@@ -44,17 +46,12 @@ async function hydrateMessageRows(
 }
 
 export async function findMessagesBySessionId(
-    sessionId: number,
-    database: DatabaseExecutor = db
+    sessionId: number
 ): Promise<MessageRow[]> {
-    const rows = await database
-        .select()
-        .from(messages)
-        .where(eq(messages.session_id, sessionId))
-        .orderBy(asc(messages.id))
-        .all();
-
-    return hydrateMessageRows(rows, database);
+    return native.database.operation<MessageRow[]>({
+        kind: 'session_messages',
+        sessionId,
+    });
 }
 
 /** Separate range and point reads keep the session/id index usable for long archives. */

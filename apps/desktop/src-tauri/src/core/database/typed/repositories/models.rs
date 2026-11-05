@@ -35,7 +35,7 @@ const MODEL_COLUMNS: &[&str] = &[
     "updated_at",
 ];
 
-const MODEL_WITH_PROVIDER_SELECT: &str = "
+pub(super) const MODEL_WITH_PROVIDER_SELECT: &str = "
     SELECT
         models.id,
         models.created_at,

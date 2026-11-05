@@ -1,9 +1,6 @@
-﻿import {
-    closeTestDatabases,
-    openMigratedDatabase,
-    routeQueriesTo,
-} from '@tests/database/sqliteHarness';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { MessageRow } from '@database/queries/messages';
+import type { MessagePartEntity } from '@database/types';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createSessionReadModel } from '@/services/AgentService/session/readModel';
 import {
@@ -11,54 +8,101 @@ import {
     loadSessionTransportMessages,
 } from '@/services/AgentService/session/transport';
 
-describe('given a conversation being read for a new request', () => {
-    let database: ReturnType<typeof openMigratedDatabase>;
-    beforeEach(() => {
-        database = openMigratedDatabase();
-        routeQueriesTo(database);
-        database.exec(`
-            INSERT INTO sessions(id, session_id, title, model) VALUES (7, 'seven', 'Seven', 'test'), (8, 'eight', 'Eight', 'test');
-            INSERT INTO messages(id, session_id, role) VALUES (1, 7, 'user'), (2, 8, 'user');
-            INSERT INTO message_parts(message_id, type, content, sort_order) VALUES (1, 'text', 'Original', 0), (2, 'text', 'Other session', 0);
-        `);
-    });
-    afterEach(closeTestDatabases);
+const { loadSessionContext } = vi.hoisted(() => ({ loadSessionContext: vi.fn() }));
 
-    it('user gets the same history snapshot for capability checking and sending despite a later edit', async () => {
+vi.mock('@services/NativeService', () => ({
+    native: { database: { operation: loadSessionContext } },
+}));
+
+const ATTACHMENT_CAPABILITIES = { supportsImages: false, supportsFiles: false };
+
+function createRows(sessionId = 7): MessageRow[] {
+    return [
+        {
+            id: 1,
+            session_id: sessionId,
+            role: 'user',
+            created_at: '2026-01-01T00:00:00.000Z',
+            updated_at: '2026-01-01T00:00:00.000Z',
+            attachments: [],
+            parts: [],
+        },
+    ] as unknown as MessageRow[];
+}
+
+function resolveContext(
+    rows: MessageRow[],
+    summaryPart: MessagePartEntity | null = null
+): { messages: MessageRow[]; summaryPart: MessagePartEntity | null } {
+    return { messages: rows, summaryPart };
+}
+
+describe('createSessionReadModel', () => {
+    beforeEach(() => {
+        loadSessionContext.mockReset();
+        loadSessionContext.mockImplementation(async ({ sessionId }: { sessionId: number }) =>
+            resolveContext(createRows(sessionId))
+        );
+    });
+
+    it('user gets one session snapshot for attachment checks and transport rebuild', async () => {
         const readModel = createSessionReadModel();
+
         await findUnsupportedSessionAttachmentTypes({
             sessionId: 7,
-            capabilities: { supportsImages: false, supportsFiles: false },
+            capabilities: ATTACHMENT_CAPABILITIES,
             readModel,
         });
-        database.exec("UPDATE message_parts SET content='Edited' WHERE message_id=1");
-        expect(await loadSessionTransportMessages({ sessionId: 7, readModel })).toEqual([
-            expect.objectContaining({ content: 'Original' }),
-        ]);
-        expect(await loadSessionTransportMessages({ sessionId: 7 })).toEqual([
-            expect.objectContaining({ content: 'Edited' }),
-        ]);
+        await loadSessionTransportMessages({
+            sessionId: 7,
+            attachmentCapabilities: ATTACHMENT_CAPABILITIES,
+            readModel,
+        });
+
+        expect(loadSessionContext).toHaveBeenCalledTimes(1);
+        expect(loadSessionContext).toHaveBeenCalledWith({
+            kind: 'session_context',
+            sessionId: 7,
+        });
     });
 
-    it('user reads concurrently and gets one consistent snapshot isolated from other sessions', async () => {
+    it('user gets a fresh session read for each consumer without a read model', async () => {
+        await findUnsupportedSessionAttachmentTypes({
+            sessionId: 7,
+            capabilities: ATTACHMENT_CAPABILITIES,
+        });
+        await loadSessionTransportMessages({
+            sessionId: 7,
+            attachmentCapabilities: ATTACHMENT_CAPABILITIES,
+        });
+
+        expect(loadSessionContext).toHaveBeenCalledTimes(2);
+    });
+
+    it('user shares one in-flight read per session and isolates other sessions', async () => {
         const readModel = createSessionReadModel();
         const [first, second] = await Promise.all([
             readModel.getContext(7),
             readModel.getContext(7),
         ]);
+
         expect(first).toBe(second);
-        expect((await readModel.getMessages(8))[0]?.parts[0]?.content).toBe('Other session');
+        expect(loadSessionContext).toHaveBeenCalledTimes(1);
+
+        await readModel.getMessages(8);
+        expect(loadSessionContext).toHaveBeenCalledTimes(2);
     });
 
-    it('user retries after a failed read and can recover the conversation', async () => {
+    it('user retries a failed read instead of caching the failure', async () => {
         const readModel = createSessionReadModel();
-        routeQueriesTo(database, {
-            beforeCommit: () => {
-                throw new Error('Read interrupted');
-            },
-        });
-        await expect(readModel.getContext(7)).rejects.toThrow('Read interrupted');
-        routeQueriesTo(database);
-        expect((await readModel.getMessages(7))[0]?.parts[0]?.content).toBe('Original');
+        loadSessionContext
+            .mockRejectedValueOnce(new Error('read interrupted'))
+            .mockImplementationOnce(async ({ sessionId }: { sessionId: number }) =>
+                resolveContext(createRows(sessionId))
+            );
+
+        await expect(readModel.getContext(7)).rejects.toThrow('read interrupted');
+        await expect(readModel.getMessages(7)).resolves.toHaveLength(1);
+        expect(loadSessionContext).toHaveBeenCalledTimes(2);
     });
 });

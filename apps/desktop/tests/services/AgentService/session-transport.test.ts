@@ -1,29 +1,18 @@
 import type { MessageRow } from '@database/queries/messages';
-import {
-    closeTestDatabases,
-    openMigratedDatabase,
-    routeQueriesTo,
-} from '@tests/database/sqliteHarness';
 import { createMessagePart, createMessageRow } from '@tests/utils/messages';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { loadSessionTransportMessages } from '@/services/AgentService/session/transport';
 
-let database: ReturnType<typeof openMigratedDatabase>;
+const mocks = vi.hoisted(() => ({
+    loadSessionMessages: vi.fn<() => Promise<{ messages: MessageRow[]; summaryPart: null }>>(),
+}));
+vi.mock('@services/NativeService', () => ({
+    native: { database: { operation: mocks.loadSessionMessages } },
+}));
 
-function storeRows(rows: MessageRow[]): void {
-    for (const row of rows) {
-        database
-            .prepare('INSERT INTO messages(id, session_id, role) VALUES (?, 1, ?)')
-            .run(row.id, row.role);
-        for (const part of row.parts) {
-            database
-                .prepare(
-                    'INSERT INTO message_parts(message_id, type, content, data, sort_order) VALUES (?, ?, ?, ?, ?)'
-                )
-                .run(row.id, part.type, part.content, part.data, part.sort_order);
-        }
-    }
+function setSessionRows(rows: MessageRow[]): void {
+    mocks.loadSessionMessages.mockResolvedValue({ messages: rows, summaryPart: null });
 }
 
 function callPart(id: number, kind: 'builtin' | 'mcp', callId: string, result?: string) {
@@ -46,17 +35,11 @@ function callPart(id: number, kind: 'builtin' | 'mcp', callId: string, result?: 
 
 describe('a saved conversation is replayed to the model', () => {
     beforeEach(() => {
-        database = openMigratedDatabase();
-        routeQueriesTo(database);
-        database.exec(
-            "INSERT INTO sessions(id, session_id, title, model) VALUES (1, 'transport', 'Transport', 'test')"
-        );
+        mocks.loadSessionMessages.mockReset();
     });
 
-    afterEach(closeTestDatabases);
-
     it('user sees multiple tool calls from one message with each result after its call', async () => {
-        storeRows([
+        setSessionRows([
             createMessageRow({ id: 10, content: 'run both' }),
             createMessageRow({
                 id: 11,
@@ -90,10 +73,14 @@ describe('a saved conversation is replayed to the model', () => {
                 content: 'mcp result',
             },
         ]);
+        expect(mocks.loadSessionMessages).toHaveBeenCalledExactlyOnceWith({
+            kind: 'session_context',
+            sessionId: 1,
+        });
     });
 
     it('user sees a placeholder result for an interrupted call with no saved result', async () => {
-        storeRows([
+        setSessionRows([
             createMessageRow({ id: 10, content: 'run a tool' }),
             createMessageRow({
                 id: 11,
@@ -120,7 +107,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user sees reasoning and text kept on a tool-call message beside its call parts', async () => {
-        storeRows([
+        setSessionRows([
             createMessageRow({
                 id: 11,
                 role: 'tool_call',
@@ -163,7 +150,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user sees text and reasoning replayed in their original order', async () => {
-        storeRows([
+        setSessionRows([
             createMessageRow({
                 role: 'assistant',
                 parts: [
@@ -193,7 +180,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user sees reasoning provider options restored from the saved part', async () => {
-        storeRows([
+        setSessionRows([
             createMessageRow({
                 role: 'assistant',
                 parts: [
@@ -228,9 +215,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user sees malformed reasoning part data ignored', async () => {
-        // Simulate a damaged record that bypassed the write constraint.
-        database.exec('PRAGMA ignore_check_constraints = ON');
-        storeRows([
+        setSessionRows([
             createMessageRow({
                 role: 'assistant',
                 parts: [
@@ -250,7 +235,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user does not see blank text and reasoning parts sent to the model', async () => {
-        storeRows([
+        setSessionRows([
             createMessageRow({
                 role: 'assistant',
                 parts: [
@@ -279,9 +264,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user does not see assistant rows with no renderable content sent', async () => {
-        database.exec(`INSERT INTO attachments(id, hash, type, original_name, origin_path, mime_type, size)
-            VALUES (1, 'hash', 'image', 'image.png', '/image.png', 'image/png', 1)`);
-        storeRows([
+        setSessionRows([
             createMessageRow({ id: 10, content: 'Question' }),
             createMessageRow({
                 id: 11,
@@ -306,6 +289,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user sees no history queried when there is no session', async () => {
-        expect(await loadSessionTransportMessages({})).toEqual([]);
+        expect(await loadSessionTransportMessages({})).toMatchObject([]);
+        expect(mocks.loadSessionMessages).not.toHaveBeenCalled();
     });
 });
