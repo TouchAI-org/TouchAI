@@ -1,17 +1,8 @@
-﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
+// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { native } from '@services/NativeService';
-import { asc, desc, eq } from 'drizzle-orm';
 
-import { type DatabaseExecutor, db } from '../index';
-import { models, providers, sessionTurns } from '../schema';
-import type {
-    SessionTurnCreateData,
-    SessionTurnEntity,
-    SessionTurnUpdateData,
-    SessionTurnUsagePatch,
-} from '../types';
-import { type ModelWithProvider, modelWithProviderSelection } from './models';
+import type { SessionTurnEntity } from '../types';
 
 export interface SessionTurnHistoryRow {
     id: number;
@@ -27,124 +18,9 @@ export interface SessionTurnHistoryRow {
     updated_at: string;
 }
 
-/**
- * 创建会话轮次。
- */
-export const createSessionTurn = async (
-    turnDraft: SessionTurnCreateData,
-    database: DatabaseExecutor = db
-): Promise<SessionTurnEntity> => {
-    const createdTurn = await database.insert(sessionTurns).values(turnDraft).returning().get();
+export const countSessionTurns = async (): Promise<number> =>
+    native.database.operation<number>({ kind: 'session_turn_count' });
 
-    if (!createdTurn || createdTurn.id === undefined) {
-        throw new Error('Failed to create session turn');
-    }
-
-    return createdTurn;
-};
-
-/**
- * 更新会话轮次。
- */
-export const updateSessionTurn = async ({
-    id,
-    turnPatch,
-    database = db,
-}: {
-    id: number;
-    turnPatch: SessionTurnUpdateData;
-    database?: DatabaseExecutor;
-}): Promise<void> => {
-    await database.update(sessionTurns).set(turnPatch).where(eq(sessionTurns.id, id)).run();
-};
-
-/**
- * 写回轮次的用量与行为信号聚合列。
- *
- * 与 `updateSessionTurn` 分开是因为这里的值可以是 SQL 表达式
- * （从 attempts 汇总），不能套用手写的 `SessionTurnUpdateData`。
- */
-export const updateSessionTurnUsage = async ({
-    id,
-    usagePatch,
-    database = db,
-}: {
-    id: number;
-    usagePatch: SessionTurnUsagePatch;
-    database?: DatabaseExecutor;
-}): Promise<void> => {
-    if (Object.keys(usagePatch).length === 0) {
-        return;
-    }
-    await database
-        .update(sessionTurns)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .set(usagePatch as any)
-        .where(eq(sessionTurns.id, id))
-        .run();
-};
-
-/**
- * 查找会话最近一次轮次所使用的模型与服务商。
- */
-export const findLatestModelBySessionId = async ({
-    sessionId,
-}: {
-    sessionId: number;
-}): Promise<ModelWithProvider | null> => {
-    const result = await db
-        .select(modelWithProviderSelection)
-        .from(sessionTurns)
-        .innerJoin(models, eq(models.id, sessionTurns.model_id))
-        .innerJoin(providers, eq(providers.id, models.provider_id))
-        .where(eq(sessionTurns.session_id, sessionId))
-        .orderBy(desc(sessionTurns.created_at), desc(sessionTurns.id))
-        .limit(1)
-        .get();
-
-    if (!result || result.id === undefined) {
-        return null;
-    }
-
-    return result as ModelWithProvider;
-};
-
-/**
- * 查询会话内所有轮次元数据，供历史回放还原 turn 级状态使用。
- */
-export const findSessionTurnsBySessionId = async (
-    sessionId: number
-): Promise<SessionTurnHistoryRow[]> => {
-    return db
-        .select({
-            id: sessionTurns.id,
-            session_id: sessionTurns.session_id,
-            task_id: sessionTurns.task_id,
-            execution_mode: sessionTurns.execution_mode,
-            prompt_snapshot_json: sessionTurns.prompt_snapshot_json,
-            prompt_message_id: sessionTurns.prompt_message_id,
-            response_message_id: sessionTurns.response_message_id,
-            status: sessionTurns.status,
-            error_message: sessionTurns.error_message,
-            created_at: sessionTurns.created_at,
-            updated_at: sessionTurns.updated_at,
-        })
-        .from(sessionTurns)
-        .where(eq(sessionTurns.session_id, sessionId))
-        .orderBy(asc(sessionTurns.created_at), asc(sessionTurns.id))
-        .all();
-};
-
-/**
- * 统计会话轮次数量。
- */
-export const countSessionTurns = async (): Promise<number> => {
-    return native.database.operation<number>({ kind: 'session_turn_count' });
-};
-
-/**
- * 删除所有会话轮次。
- */
 export const deleteAllSessionTurns = async (): Promise<void> => {
     await native.database.operation({ kind: 'session_turn_delete_all' });
 };

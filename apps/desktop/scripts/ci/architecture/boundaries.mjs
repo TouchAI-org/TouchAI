@@ -94,6 +94,9 @@ export const RUNTIME_UI_PACKAGES = ['vue', 'pinia', 'vue-router', '@vue/*'];
 /** Bare Tauri runtime packages a neutral domain module must not depend on. */
 export const RUNTIME_HOST_PACKAGES = ['@tauri-apps/*'];
 
+/** Drizzle is an offline schema/audit tool, not production runtime code. */
+export const DRIZZLE_RUNTIME_PACKAGES = ['drizzle-orm', 'drizzle-orm/*'];
+
 const RULE_GUIDANCE = {
     'services-runtime-ui':
         'Service core must not runtime-import Vue UI (views/components/composables/stores) or a .vue file. Keep the logic pure, expose a neutral contract, or move the host wiring to a store facade/host adapter. Type-only imports are allowed.',
@@ -105,6 +108,10 @@ const RULE_GUIDANCE = {
         'The database layer must not depend on business services (only the NativeService host bridge). Keep shared policy in a neutral domain module instead of reaching up into services.',
     'domain-neutral-no-host':
         'A neutral domain module must not depend on the host runtime or on upper layers (Vue/Pinia/Tauri, views/components/composables/stores, services). It stays a pure, dependency-direction-safe policy module. Type-only imports are allowed.',
+    'database-runtime-schema':
+        'Production TypeScript must not runtime-import the offline Drizzle schema. Rust owns the database runtime; keep schema.ts and drizzle-kit out of the application runtime.',
+    'database-runtime-drizzle':
+        'Production TypeScript must not runtime-import drizzle-orm. Drizzle is limited to offline schema/audit tooling; use typed NativeService operations instead.',
 };
 
 /**
@@ -165,6 +172,12 @@ export const IMPORT_BOUNDARY_RULES = [
         importer: (srcRel) => srcRel.startsWith('database/'),
         forbidden: (target) =>
             isUnder(target.srcRel, 'services') && !isUnder(target.srcRel, 'services/NativeService'),
+        kinds: ['value', 'dynamic'],
+    },
+    {
+        id: 'database-runtime-schema',
+        importer: (srcRel) => srcRel !== 'database/schema',
+        forbidden: (target) => target.srcRel === 'database/schema',
         kinds: ['value', 'dynamic'],
     },
     {
@@ -431,6 +444,13 @@ function isBannedPackage(specifier, packages) {
     );
 }
 
+function isDrizzleRuntimeSpecifier(specifier) {
+    return (
+        specifier === DRIZZLE_RUNTIME_PACKAGES[0] ||
+        specifier.startsWith(`${DRIZZLE_RUNTIME_PACKAGES[0]}/`)
+    );
+}
+
 function reportMessage(rule, importer, target, kind, specifier) {
     return `${RULE_GUIDANCE[rule.id]} [${rule.id}] ${kind} import "${specifier}" from ${importer.srcRel} -> ${target.srcRel}`;
 }
@@ -520,6 +540,22 @@ const importBoundariesRule = {
 
             const candidate = resolveToAbsolute(specifier, filename, aliases);
             if (candidate === null) {
+                if (
+                    kind !== 'type' &&
+                    importerSrcRel !== 'database/schema' &&
+                    isDrizzleRuntimeSpecifier(specifier)
+                ) {
+                    context.report({
+                        node: reportNode,
+                        messageId: 'boundary',
+                        data: {
+                            message:
+                                `${RULE_GUIDANCE['database-runtime-drizzle']} ` +
+                                `[database-runtime-drizzle] ${kind} import "${specifier}" from ${importerSrcRel}`,
+                        },
+                    });
+                    return;
+                }
                 if (kind === 'dynamic') {
                     const area = PACKAGE_BAN_AREAS.find((entry) =>
                         importerSrcRel.startsWith(`${entry.name}/`)

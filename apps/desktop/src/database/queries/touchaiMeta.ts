@@ -2,7 +2,7 @@
 
 import { native } from '@services/NativeService';
 
-import { MetaKey } from '../schema';
+import { MetaKey } from '../keys';
 
 /**
  * 获取元数据值

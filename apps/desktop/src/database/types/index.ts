@@ -2,6 +2,7 @@
 
 import type { SQL } from 'drizzle-orm';
 
+import type { StatisticKey } from '../keys';
 import type {
     BuiltInToolApprovalState as DbBuiltInToolApprovalState,
     BuiltInToolLogStatus as DbBuiltInToolLogStatus,
@@ -10,7 +11,6 @@ import type {
     MessageRole,
     NewMessagePart as DbNewMessagePart,
     ProviderDriver,
-    StatisticKey,
     ToolLogKind,
     ToolLogStatus,
     TransportType,

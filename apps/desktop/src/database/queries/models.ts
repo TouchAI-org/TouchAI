@@ -1,11 +1,9 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { native } from '@services/NativeService';
-import { sql } from 'drizzle-orm';
 
 import { tt } from '@/i18n';
 
-import { models, providers } from '../schema';
 import type {
     FindModelsWithProviderPayload,
     ModelCreateData,
@@ -17,39 +15,6 @@ import type {
 } from '../types';
 
 export type { ModelWithProvider } from '../types';
-
-export const modelWithProviderSelection = {
-    id: models.id,
-    created_at: models.created_at,
-    updated_at: models.updated_at,
-    provider_id: models.provider_id,
-    model_id: models.model_id,
-    name: models.name,
-    is_default: models.is_default,
-    last_used_at: models.last_used_at,
-    attachment: models.attachment,
-    modalities: models.modalities,
-    open_weights: models.open_weights,
-    reasoning: models.reasoning,
-    reasoning_options: models.reasoning_options,
-    release_date: models.release_date,
-    temperature: models.temperature,
-    tool_call: models.tool_call,
-    knowledge: models.knowledge,
-    context_limit: models.context_limit,
-    output_limit: models.output_limit,
-    is_custom_metadata: models.is_custom_metadata,
-    upstream_metadata: models.upstream_metadata,
-    provider_name: sql<string>`${providers.name}`.as('provider_name'),
-    provider_driver: sql<ModelWithProvider['provider_driver']>`${providers.driver}`.as(
-        'provider_driver'
-    ),
-    api_endpoint: sql<string>`${providers.api_endpoint}`.as('api_endpoint'),
-    api_key: sql<string | null>`${providers.api_key}`.as('api_key'),
-    provider_config_json: sql<string | null>`${providers.config_json}`.as('provider_config_json'),
-    provider_enabled: sql<number>`${providers.enabled}`.as('provider_enabled'),
-    provider_logo: sql<string>`${providers.logo}`.as('provider_logo'),
-};
 
 /**
  * 查找全局默认模型。

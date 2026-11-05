@@ -1,0 +1,3 @@
+import type { schema } from '@database/schema';
+
+export type Value = typeof schema;

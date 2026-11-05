@@ -1,6 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import type { McpServerEntity } from '@database/types';
+import { native } from '@services/NativeService';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { McpManager } from '@/services/AgentService/infrastructure/mcp/McpManager';
@@ -26,17 +27,6 @@ const mocks = vi.hoisted(() => ({
     getAllServerStatuses: vi.fn(),
     emit: vi.fn(),
     extractMcpToolAttachments: vi.fn(),
-}));
-
-vi.mock('@database', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('@database')>()),
-    db: {
-        transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
-            callback({
-                delete: () => ({ where: () => ({ run: async () => undefined }) }),
-                insert: () => ({ values: () => ({ run: async () => undefined }) }),
-            }),
-    },
 }));
 
 vi.mock('@database/queries', async (importOriginal) => ({
@@ -389,8 +379,7 @@ describe('user keeps working when mcp bookkeeping fails', () => {
     });
 
     it('user gets a connected server when its tool list cannot be saved', async () => {
-        const { db } = await import('@database');
-        vi.spyOn(db, 'transaction').mockRejectedValueOnce(new Error('disk full'));
+        vi.spyOn(native.database, 'operation').mockRejectedValueOnce(new Error('disk full'));
         const manager = new McpManager();
 
         await manager.connectServer(server());

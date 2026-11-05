@@ -24,7 +24,6 @@ export const setStatistic = async ({
 }: {
     key: StatisticIdentifier;
     value: string;
-    database?: unknown;
 }): Promise<boolean> => {
     const updated = await native.database.operation<boolean>({
         kind: 'statistic_set',

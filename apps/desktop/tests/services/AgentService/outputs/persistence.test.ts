@@ -45,11 +45,6 @@ const usage = vi.hoisted(() => ({
     insertLlmCallParts: vi.fn(),
 }));
 
-vi.mock('@database', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('@database')>()),
-    db: { transaction: (callback: (tx: unknown) => Promise<unknown>) => callback({}) },
-}));
-
 vi.mock('@database/queries', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@database/queries')>()),
     ...queries,
