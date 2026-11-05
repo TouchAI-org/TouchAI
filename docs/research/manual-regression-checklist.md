@@ -2,12 +2,12 @@
 
 ## 环境
 
-- dev 应用：`cd apps/desktop && pnpm tauri dev`（窗口已在运行）
-- **数据隔离**：dev 使用 `apps/desktop/data/touchai.db`，与正式安装版（`%LOCALAPPDATA%\com.qiancheng.touchai` / `org.touch-ai.app`）完全隔离；已确认正式库未被改动
-- 预置数据：会话「性能回归 / 长会话 70 条」（用于窗口化与分页）
-- 重置：关闭应用，删除 `apps/desktop/data/touchai.db*`，重新 `pnpm tauri dev`
+- dev 应用：使用独立 identifier `org.touch-ai.app.perfdev` 和端口 `1430`；Vite 端口与 Tauri `build.devUrl` 必须一致，以免与已有实例冲突。本清单不代表应用当前正在运行。
+- **数据隔离**：仅使用本 worktree 的测试数据；若设置 `TOUCHAI_APP_ROOT`，指向测试副本，不要指向已安装版的数据目录。
+- 预置数据：会话「性能回归 / 长会话 70 条」与包含长回答、工具和 widget 的 exa 会话；前者不能代替后者的验收。
+- 需要空库时创建新的隔离测试目录；保留已有数据副本，不直接删除用于复现问题的数据库。
 - DevTools：窗口内 `Ctrl+Shift+I`
-- 性能采样：控制台执行 `window.__TOUCHAI_PERF__`
+- 性能采样：控制台执行 `window.__TOUCHAI_PERF__.getSamples()`；开发构建默认开启，生产构建默认关闭。
 
 ## 前置
 
@@ -31,15 +31,17 @@ Settings → AI 服务：选一个已有 provider 填入 API Key 并保存，确
 | B3 | 让它输出含多段 `$$...$$` 公式和标题的回答 | 标题不被吞进公式块；公式渲染完整 | N01 N02 |
 | B4 | 展开/收起「思考过程」，流式中途切到其它窗口再回来 | 收起时不渲染完整 Markdown；耗时/提示不跳变 | 11 17 |
 
-## C. 长会话（窗口化 / 分页）
+## C. 长会话（全量读取 / 消息虚拟化）
 
 | 编号 | 步骤 | 预期 | 对应改动 |
 | --- | --- | --- | --- |
 | C1 | 打开「性能回归 / 长会话 70 条」 | 首屏直接在底部（不先闪顶部）；控制台 `document.querySelectorAll('[data-message-id]').length` 明显小于 70 | 10 |
 | C2 | 向上滚到顶部 | 无加载提示行、阅读位置不跳、不因加载而回到底部 | 10 22 |
-| C3 | 用左下时间轴跳到很早的消息 | 一次到位停在那个用户消息顶部；不反复滚动、不落到第一条 | 10 |
+| C3 | 用右侧定位条跳到很早的消息，稳定后再点同一个位置 | 目标可见并稳定；第二次点击不再漂移，不反复跳回第一条 | 10 |
 | C4 | 在长会话底部发新消息 | 输出增长时自动跟随；手动上滚**任意距离**后停止跟随并出现「跳到底部」 | 13 |
-| C5 | 打开一个短会话（<40 条） | 全部消息直接挂载，无虚拟滚动间隙 | 10 |
+| C5 | 分别打开 11 条和 12 条以上的会话 | <12 条直接挂载；≥12 条使用虚拟列表，滚动与定位都可用 | 10 |
+| C6 | 打开 exa 重消息会话，等待代码块、图片和 widget 布局稳定 | 保持在底部；不会自行上漂并冒出「跳到底部」按钮；无持续 ResizeObserver 循环错误 | 10 13 |
+| C7 | 将窗口缩小，点击定位条第一项；滚动经过一条长回答 | 所有定位项在窗口内、首项不被顶部拖动区挡住；高亮覆盖提问和整个回答区间 | 10 |
 
 ## D. 工具 / Widget / Bash
 
@@ -52,6 +54,8 @@ Settings → AI 服务：选一个已有 provider 填入 API Key 并保存，确
 | D4 | 触发需要审批的工具，点批准/拒绝 | 审批卡即时响应，状态立即刷新 | 07 |
 | D5 | 用 `web_fetch` 抓一个网页；再发一个后立刻取消 | 正常返回标题/正文；取消后不把结果写回 | 36 |
 | D6 | 复制一段文本/图片后按全局快捷键 | 文本先出现，图片随后；同一内容不重复粘贴 | 34 |
+| D7 | 回车发送后遇到空问题请求，再触发一条正常问题 | 空请求不产生边框空卡、不挂住队列；正常问题仍显示并可回答/跳过 | 回归修复 |
+| D8 | 打开含定时器的 widget 后切换会话 | 卸载后定时器、监听器和动画不再运行，包括字符串形式的延迟回调 | 15 |
 
 ## E. 历史与搜索
 
@@ -75,25 +79,22 @@ Settings → AI 服务：选一个已有 provider 填入 API Key 并保存，确
 
 | 编号 | 步骤 | 预期 | 对应改动 |
 | --- | --- | --- | --- |
-| G1 | 控制台执行 `window.__TOUCHAI_PERF__` | 能看到 `task.publish` / `quickSearch.query` / `history.list` 采样 | 40 |
+| G1 | 控制台执行 `window.__TOUCHAI_PERF__.getSamples()` | 能看到 `task.publish` / `quickSearch.query` / `history.list` 采样，最多保留 200 条 | 40 |
 | G2 | 设置里查看日志 | 日志正常写入；无大量 `dropped N log records` | 39 |
 
 ## 数据库迁移（需要时单独验证）
 
-以正式库副本启动 dev（不碰正式库）：
-
-```powershell
-$src = "$env:LOCALAPPDATA\com.qiancheng.touchai"
-$dst = "$env:TEMP\touchai-migration-probe"
-New-Item -ItemType Directory -Force $dst | Out-Null
-Copy-Item "$src\data\touchai.db*" "$dst\data\" -Force
-$env:TOUCHAI_APP_ROOT = $dst
-cd apps/desktop; pnpm tauri dev
-```
+先关闭数据库写入方或通过 SQLite 备份取得一致副本，再把副本放进非系统盘的独立测试目录；设置 `TOUCHAI_APP_ROOT` 指向这个目录，用上述独立 dev 实例启动。保留原副本用于比较与恢复，不对正式库操作。
 
 预期：`_journal.json` 只有 `0000–0004`；`migrations` 表补齐 0000–0004，会话/消息/工具日志/附件条数不变，应用可正常浏览历史。
 
 > 0004 已并入 0005–0008 的内容（生成列、索引、触发器收窄）。**任何已应用过旧版 0004 的 pre-release 库都需要重建**，因为迁移表按 tag 记录，不会重跑 0004。
+
+## 自动化证据与人工验收边界
+
+`conversation-scroll.e2e.js` 覆盖长会话打开贴底、离底后保持阅读位置、回到底部后恢复跟随、定位条跳转及有界挂载。它使用合成文本；exa 重消息、重复点击、迟到的图片/代码块布局与跨虚拟项选区仍需按 C3/C6/C7 手工验证。
+
+2026-11-06 的接续验证没有启动新的 dev 实例，也没有完成新的手工验收。性能基线和优化前后对比仍按约定等用户确认后再做。
 
 ## 反馈模板
 

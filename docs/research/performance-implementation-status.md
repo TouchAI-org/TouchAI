@@ -1,13 +1,16 @@
 # TouchAI 性能优化实施状态
 
-- 基线：`origin/main@34b3ce93`（桌面 1.2.2 + DeepSeek 搜索 provider）
+- 当前合并基点：`origin/main@84312564`（2026-11-06 同步；不是性能测量基线）
 - 分支：`codex/perf-raycast-plan`（worktree：`.worktrees/perf-raycast-plan`）
-- 方案来源：`docs/research/performance-improvement-plan-main.md`（52 项）
-- 最近验证：`vitest` 437 文件 / 5414 用例全过、`vue-tsc --noEmit` 通过、改动文件 ESLint 0 error
-- **Rust 侧验证**：`cargo check --all-targets` 全部通过；按约定 `cargo test` 交由 CI 执行
+- 跟踪：[RFC #413](https://github.com/TouchAI-org/TouchAI/issues/413)、[PR #692](https://github.com/TouchAI-org/TouchAI/pull/692)
+- 方案来源：原性能审查会话中的 52 项方案；原方案文件不在当前已跟踪文件中，本页保留实施记录。
+- 本次类型检查、ESLint、格式检查和 CI 配置测试已通过；桌面测试与覆盖率由云端 CI 验证，见下方复核记录。
+- **Rust 与原生 E2E**：本次没有本地重跑；本机非系统盘剩余空间不足以构建，按已有约定交由当前 PR 的 CI 验证。旧提交的绿灯不代表本次提交通过。
 - 未做性能基线/前后对比（按约定，待用户验收后另行补基线）
 
-## 已完成（44 项）
+## 已落地的优化
+
+同一编号可能还有下文列出的细项，不能把本表行数当作完整验收数。提交号记录首次落地时的历史提交，后续 rebase 会改写提交号。
 
 | 编号 | 内容 | 关键提交 |
 | --- | --- | --- |
@@ -17,7 +20,7 @@
 | 06 | 字体成功路径不重复 fetch | `d90cf0ac` |
 | 07 | 发布合并（微任务）+ 未变消息跨发布复用对象身份，一次发布只构建一份快照 | `bd1260ac` |
 | 08 | 发布给 UI 的展示快照剔除 runtime checkpoint / prompt 快照 | `3a500549` |
-| 10 | 消息级有界挂载、高度缓存、spacer 占位、跳转消息按累计高度定位 | `828ae276` |
+| 10 | ≥12 条消息启用 `virtua`，接入共享 `MessageScroller`；跳转先估算挂载，再按实测几何收敛 | `828ae276` / `273deedc` |
 | 09 | Markdown 流式解析合并窗口 + 静态/流式 parser 分离 | `e9c8afc9` |
 | 11 | 收起 reasoning 卸载 Markdown + bounded preview | `bb9659d6` |
 | 12 | 长代码块在流式阶段降级为纯文本 pre，终态恢复增强渲染 | `b9a3757e` |
@@ -28,6 +31,7 @@
 | 19 | `messages(session_id, id)` 索引 | `05106850` |
 | 20 | sessions 活动时间表达式索引 + 轮次复合索引 | `9f9a701a` |
 | 21 | 历史搜索 120ms 防抖 | `465cb164` |
+| 22 | 会话历史一次读全量，前端控制挂载范围；移除分页 API、加载提示和滚动加载 | `da5ad33b` |
 | 25 | 未变化边界不重写 parts / 不重算会话摘要 | `ed50d9ea` |
 | 26 | 工具日志轻量投影 + 展开时取详情 | `5f5e6cf0` |
 | 28 | 快搜翻页 generation 校验 | `321e022d` |
@@ -57,29 +61,30 @@
 | 05 | popup show 冷/热启动耗时埋点（保温预算的测量输入） | `85db60fc` |
 | 04 | 启动契约维护 | 无新增任务；Settings 不重同步已由启动测试覆盖 |
 
-## 部分完成（5 项）
+## 待补充的细项与验收
 
 | 编号 | 已完成 | 未完成 |
 | --- | --- | --- |
 | 14 | 缩略图生成（可见时才解码、按显示宽度×DPR 缩小、WebP、40 张 LRU、失败回退原图）+ `decoding="async"` / `loading="lazy"`（`53cd07b1`） | Rust 端按 hash/尺寸的磁盘级缩略图缓存；原图缓存隔离（需真实附件场景） |
-| 18 | 光标三个标记共享一次文档查询；自动换行布局测量按帧合并（`bdfe3a2b`） | docChanged/selectionChanged 分类更新；宽度变化触发重算 |
-| 22 | 会话历史改为**一次读全量**（`loadCompleteSessionHistory`）+ 高度估算/首次测量补偿；移除了数据层分页、滚动触底加载、加载提示行（`ab41d9a6` 之后） | — |
-| 23 | turn 内 `SessionReadModel`：附件预检与 transport 重建共享一次查询（`815071ab`） | 展示 bootstrap/分页与 transport 跨阶段复用 |
+| 18 | 光标三个标记共享一次文档查询；自动换行仍同步更新，以保留上游行为 | docChanged/selectionChanged 分类更新；宽度变化触发重算 |
+| 23 | turn 内 `SessionReadModel`：附件预检与 transport 重建共享一次查询（`815071ab`） | 展示 bootstrap 与 transport 跨阶段复用 |
 | 27 | 点击统计并行预取（`567f3d4c`） | 后续排序/写回合并 |
-| 34 | auto-paste 先原子预留授权/新鲜度/去重，再做重任务；外链图片解析 3 并发 + 10s 总预算；结果按 snapshotId 校验（`3498b760`） | 两阶段 API（文本先回、附件 placeholder 补齐）与草稿 generation 缓存 |
-| 10 | 消息级窗口化（消息 > 40 启用）+ 高度估/测量/补偿 + 跳转钉住 + 用户意图驱动的跟随（`828ae276`、`749401b1`、`ab41d9a6`） | part 级有界挂载、图片后加载/回滚回归、跨虚拟项选区策略需真机验收 |
+| 34 | auto-paste 先原子预留授权/新鲜度/去重，再做重任务；外链图片解析 3 并发 + 10s 总预算；结果按 snapshotId 校验（`3498b760`） | 两阶段 API 与草稿 generation 缓存未实现；用户已要求删除附件 placeholder，不再把占位 UI 列为待办 |
+| 10 | 消息级窗口化（≥12 条启用）+ 实测跳转收敛 + 用户输入控制跟随 | part 级有界挂载未实现；重消息、图片后加载、时间轴重复跳转、跨虚拟项选区仍需真机验收 |
+| 35 | 同一批附件按源路径共享读取/base64 结果 | Rust 侧物化未实现 |
 
-## 待实施（1 项）
+## 等待测量后决定
 
 | 编号 | 摘要 | 备注 |
 | --- | --- | --- |
+| 05 | popup 保温 TTL | 已有冷/热展示耗时采样；保温策略等待实测数据 |
 | 29 | 快捷项网格虚拟化 | 已做高亮缓存；网格为 flex-wrap 88px 固定项、上限 60 条，虚拟化收益需实测后再决定 |
 
 ### 需真机/真实数据验收
 
 - `10` 剩余：part 级有界挂载、图片后加载/回滚/时间轴与键盘翻页回归、跨虚拟项选区策略。
 - `22`：已改为全量读 + 前端窗口化渲染（分页会造成滚动条失真与位置跳动），无需再验证分页合并语义。
-- `34` 剩余：两阶段 API（文本先回、附件 placeholder 补齐）与草稿 generation 缓存。
+- `34` 剩余：两阶段 API 与草稿 generation 缓存；不恢复用户已否决的占位 UI。
 - `14` 剩余：Rust 侧磁盘级缩略图缓存与 hash/尺寸键（当前为内存 LRU + WebP）。
 - `05`：已提供 popup 冷/热展示耗时埋点，TTL 需基于实测数据决定。
 - `29`：已提高亮分段缓存；网格虚拟化需实测收益。
@@ -92,31 +97,35 @@
 
 ```powershell
 cd D:\Project\TouchAI\.worktrees\perf-raycast-plan\apps\desktop
-pnpm exec vitest run --configLoader runner --passWithNoTests --reporter=dot
+pnpm exec vitest run --configLoader runner --maxWorkers=1 --testTimeout=20000 --reporter=dot
 pnpm type:check
-node scripts/run-rust-command.mjs check   # 需要 cargo 在 PATH，且先把 rtk 缓存放入 rust-target/check/rtk-cache/0.40.0/<triple>/
 ```
+
+临时目录和覆盖率报告应放在仓库外的非系统盘。Rust 构建还需足够空间的独立 target；本次按约定使用 CI。
 
 ## 事故与约束记录
 
 - 07 未做线级 delta 协议：`SessionTaskCenter` 与订阅者同处一个 JS 上下文，真正成本是深拷贝与重渲染；已改为「一次发布一份只读快照 + 未变消息对象身份复用」，语义上等价且无 stale 风险。
-- 迁移 `0008` 使用 SQLite `ALTER TABLE ADD COLUMN ... GENERATED ... VIRTUAL`，`meta/0008_snapshot.json` 与 journal 已同步。
+- 用户于 2026-10-27 明确要求把未正式发布的 `0005–0008` 合入 `0004`；当前 journal 仅 `0000–0004`，不存在独立的 `0008` 文件。
 - `message_parts` 新增 `tool_id` / `server_id` 生成列，`data` 仍是唯一写入源。
 - 旧库升级路径有 1 万消息级回归夹具（`tests/database/legacy-0004-migration.test.ts`），记录迁移耗时。
 - 未改变 `message_parts` 为正文唯一真相源的契约；FTS 子串语义、审批/取消即时有序均保留。
-- Rust 编译缓存（`apps/desktop/rust-target/`，约 4.3GB）在磁盘紧张时可直接删除，重新编译即可恢复。
+- 本 worktree 不再保留旧 Rust 编译缓存；不要清理其它会话正在使用的 target。
 - 主编排目录 `D:\Project\TouchAI` 的脏工作区未被改动。
 - 全量测试在并发下会让个别「首次 import 大模块」的用例超时，已在对应测试里显式放宽超时，不把资源竞争当成真实回归。
 - 本 worktree 的 `node_modules` 曾被误删导致 `type:check`/`vitest` 失效过一段时间；已用 `pnpm install --frozen-lockfile` 恢复，`package.json` / `pnpm-lock.yaml` 哈希未变。
 
 ## Rebase 复核记录（最新一次）
 
-- 已 rebase 到 `origin/main@34b3ce93`（含 33 个上游提交：DeepSeek 搜索、用量统计、UAT 测试重构等）。
-- 最终验证：`vitest` 437 文件 / 5414 用例全过、`vue-tsc --noEmit` 通过、`eslint src tests` 0 error（33 个既有 warning）。
-- Rust：`cargo check` 本轮无法本地执行（build.rs 需要从 GitHub 下载 bundled rtk，网络超时）；按约定由 CI 验证。冲突仅发生在 `client_manager.rs`，已按「短锁取快照 + 锁外 RPC」合并。
-- 复核方式：对 52 项逐条做「文件 + 语义锚点」检查，全部在位。
+- 2026-11-06：从 `4140ab5f` 同步到 `84312564`，吸收 CI 拆分、依赖更新和产品分析等 6 个上游提交。
+- `git range-diff` 对照 rebase 前备份：110 个原提交均保留，106 个补丁一致；其余 4 个差异来自 Bash 测试 UTF-16 转 UTF-8、executor 上游上下文和依赖版本变化。
+- Bash 测试合并保留了上游滚动回归，同时恢复上游 `user` 测试命名。
+- 新增的上游 CI 清单校验遗漏本分支 `conversation-scroll.e2e.js`：先观察到失败，再补齐预期清单；串行复测 12 文件 / 366 用例通过。
+- 应用和测试类型检查、CI 测试类型检查、完整 ESLint、完整格式检查通过。
+- 全量覆盖率首次 4-worker 运行遇到系统内存耗尽；单 worker 运行尚未完成时，用户要求改到云端，已停止本地运行。本次不宣称桌面全量测试或覆盖率通过。
+- 原生构建、Rust 测试和原生 E2E 本次依赖 CI。人工复测与 release 性能比较尚未完成。
 
-### rebase 中发现并修复的真实冲突/覆盖
+### 早期 rebase 中修复的冲突/覆盖
 
 | 区域 | 现象 | 处理 |
 | --- | --- | --- |
