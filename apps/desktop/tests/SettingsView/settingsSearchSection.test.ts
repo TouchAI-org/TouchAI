@@ -9,7 +9,7 @@ const findBuiltInToolByToolIdMock = vi.hoisted(() => vi.fn());
 const updateBuiltInToolMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@/stores/settings', async () => {
-    const { DEFAULT_SEARCH_SETTINGS } = await import('@/stores/setting/sections/search');
+    const { DEFAULT_SEARCH_SETTINGS } = await import('@services/SettingsService/domain');
     const { ref } = await import('vue');
     const settingsRef = ref({
         searchSettings: {

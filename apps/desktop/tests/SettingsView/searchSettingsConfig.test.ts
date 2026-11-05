@@ -60,7 +60,7 @@ describe('user edits the search settings', () => {
             DEFAULT_SEARCH_SETTINGS,
             parseSearchSettingsConfig,
             serializeSearchSettingsConfig,
-        } = await import('@/stores/setting/sections/search');
+        } = await import('@services/SettingsService/domain');
 
         expect(DEFAULT_SEARCH_SETTINGS.version).toBe(1);
         expect(DEFAULT_SEARCH_SETTINGS.defaultProvider).toBe('anysearch');
@@ -78,7 +78,7 @@ describe('user edits the search settings', () => {
     });
 
     it('user trims provider keys and preserves intent routing', async () => {
-        const { parseSearchSettingsConfig } = await import('@/stores/setting/sections/search');
+        const { parseSearchSettingsConfig } = await import('@services/SettingsService/domain');
 
         expect(
             parseSearchSettingsConfig(
@@ -124,7 +124,7 @@ describe('user edits the search settings', () => {
     });
 
     it('user does not enable required-key providers without API keys', async () => {
-        const { parseSearchSettingsConfig } = await import('@/stores/setting/sections/search');
+        const { parseSearchSettingsConfig } = await import('@services/SettingsService/domain');
 
         expect(
             parseSearchSettingsConfig(
@@ -155,7 +155,7 @@ describe('user edits the search settings', () => {
 
     it('user trims the DeepSeek key and keeps provider configs minimal', async () => {
         const { parseSearchSettingsConfig, serializeSearchSettingsConfig } =
-            await import('@/stores/setting/sections/search');
+            await import('@services/SettingsService/domain');
 
         const parsed = parseSearchSettingsConfig(
             JSON.stringify({
@@ -180,7 +180,7 @@ describe('user edits the search settings', () => {
     });
 
     it('user does not enable the DeepSeek provider without an API key', async () => {
-        const { parseSearchSettingsConfig } = await import('@/stores/setting/sections/search');
+        const { parseSearchSettingsConfig } = await import('@services/SettingsService/domain');
 
         expect(
             parseSearchSettingsConfig(
