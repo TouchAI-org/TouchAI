@@ -1,6 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
 //! 命令入口模块。
+pub mod analytics;
 pub mod autostart;
 pub mod browser;
 pub mod built_in_tools;
@@ -58,6 +59,14 @@ pub fn invoke_handler<R: tauri::Runtime>(
         database::database_tx_rollback,
         database::database_export_backup,
         database::database_import_backup,
+        analytics::analytics_get_state,
+        analytics::analytics_set_enabled,
+        analytics::analytics_clear_pending,
+        analytics::analytics_track,
+        analytics::analytics_flush,
+        analytics::analytics_get_lifecycle_context,
+        analytics::analytics_begin_operation,
+        analytics::analytics_complete_operation,
         observability::obs_ingest,
         observability::obs_run_id,
         observability::obs_set_diagnostic_mode,

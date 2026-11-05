@@ -22,6 +22,17 @@ use crate::core::window::search_host::{PhysicalHostFrame, PreparedSearchHost};
 
 pub use super::protocol::SearchSurfaceSource as SearchSurfaceShowSource;
 
+impl SearchSurfaceShowSource {
+    /// Classify the native requesting window, never a caller-provided label.
+    pub(crate) fn from_requesting_window(label: &str) -> Self {
+        if label == crate::core::window::tray::TRAY_MENU_WINDOW_LABEL {
+            Self::Tray
+        } else {
+            Self::Main
+        }
+    }
+}
+
 /// 搜索窗口组隐藏原因。
 pub enum SearchSurfaceHideReason {
     AppBlurHide,
@@ -959,6 +970,15 @@ fn activate_main_window<R: Runtime>(
     runtime: &SearchWindowRuntime,
     window: &tauri::WebviewWindow<R>,
 ) -> Result<(), String> {
+    // Host preparation may be deferred; count activation at the actual foreground transition.
+    if !window.is_visible().unwrap_or(false) || !window.is_focused().unwrap_or(false) {
+        if let Some(analytics) = window
+            .app_handle()
+            .try_state::<crate::core::analytics::AnalyticsRuntime>()
+        {
+            analytics.begin_foreground_activation();
+        }
+    }
     if runtime.native_enabled {
         return super::show_and_activate_search_window(window);
     }
@@ -1074,6 +1094,32 @@ mod tests {
         SearchSurfacePreparationState, SearchSurfaceState, SearchWindowRuntime,
     };
     use crate::core::window::search_host::{PhysicalHostFrame, PreparedSearchHost};
+
+    #[test]
+    fn user_sees_which_entry_point_opened_the_search_window() {
+        for (source, expected) in [
+            (SearchSurfaceSource::Shortcut, "shortcut"),
+            (SearchSurfaceSource::Notification, "notification"),
+            (SearchSurfaceSource::Tray, "tray"),
+            (SearchSurfaceSource::Main, "main"),
+        ] {
+            assert_eq!(source.as_str(), expected);
+        }
+    }
+
+    #[test]
+    fn user_gets_a_tray_entry_when_the_tray_menu_asks_for_the_search_window() {
+        assert_eq!(
+            SearchSurfaceSource::from_requesting_window(
+                crate::core::window::tray::TRAY_MENU_WINDOW_LABEL
+            ),
+            SearchSurfaceSource::Tray
+        );
+        assert_eq!(
+            SearchSurfaceSource::from_requesting_window("main"),
+            SearchSurfaceSource::Main
+        );
+    }
 
     #[test]
     fn runtime_protocol_snapshot_starts_hidden_and_not_ready() {

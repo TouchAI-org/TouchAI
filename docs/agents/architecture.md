@@ -56,3 +56,11 @@ Window labels, event ordering, and session identity are cross-window contracts. 
 `SearchOverlayHost` owns anchored placement and scrollable overlay bounds inside the same WebView. Rust's `search_host` accepts bounded host geometry, and `search_region` applies the union of visible panel and overlay regions on Windows. The renderer reconciles the accepted native snapshot instead of assuming a requested size was applied. Native updates occur at transition boundaries, not on every animation frame.
 
 `apps/desktop/tests/layout/README.md` describes the browser layout regression and its native-boundary mocks. Physical monitor/DPI changes, cross-application click-through, and release latency/memory budgets still require native acceptance.
+
+## Subsystems
+
+Owner pages for areas with their own invariants and contracts:
+
+| Area | Page | Read it when |
+| --- | --- | --- |
+| Product analytics | [analytics.md](analytics.md) | Touching the event registry, consent, the delivery queue, the sender, or export/import scrubbing |

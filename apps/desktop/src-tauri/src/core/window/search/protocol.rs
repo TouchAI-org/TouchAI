@@ -29,6 +29,8 @@ impl SearchSurfacePhase {
 pub enum SearchSurfaceSource {
     Shortcut,
     Notification,
+    Tray,
+    Main,
 }
 
 impl SearchSurfaceSource {
@@ -36,6 +38,8 @@ impl SearchSurfaceSource {
         match self {
             Self::Shortcut => "shortcut",
             Self::Notification => "notification",
+            Self::Tray => "tray",
+            Self::Main => "main",
         }
     }
 }

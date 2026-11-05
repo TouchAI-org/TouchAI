@@ -31,8 +31,11 @@ pub fn hide_search_window_on_main_thread<R: Runtime>(app: &AppHandle<R>) -> Resu
 }
 
 /// 显示主搜索窗口并广播搜索窗口组已显示事件。
-pub fn show_search_window_on_main_thread<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    surface::show_surface_on_main_thread(app, surface::SearchSurfaceShowSource::Notification)
+pub fn show_search_window_on_main_thread<R: Runtime>(
+    app: &AppHandle<R>,
+    source: surface::SearchSurfaceShowSource,
+) -> Result<(), String> {
+    surface::show_surface_on_main_thread(app, source)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

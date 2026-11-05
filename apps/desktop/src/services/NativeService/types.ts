@@ -3,6 +3,15 @@ import type { SearchWindowDefaultSize, SearchWindowHeightMode } from '@/config/s
 import type { SessionStatusReminderKind } from '@/utils/session';
 
 export type { AppUpdateChannel } from '@/config/appUpdate';
+export type {
+    AnalyticsConsentStatus,
+    AnalyticsLifecycleContext,
+    AnalyticsOperationHandle,
+    AnalyticsState,
+    AnalyticsSubmitResult,
+    AnalyticsSubmitStatus,
+    AnalyticsTrackRequest,
+} from '@services/AnalyticsService/types';
 export type { SearchWindowDefaultSize, SearchWindowHeightMode };
 
 export interface DiagnosticModeStatus {
@@ -118,7 +127,7 @@ export interface SearchSurfacePreparation {
     rendererEpoch: number;
     showEpoch: number;
     hostEpoch: number;
-    source: 'shortcut' | 'notification';
+    source: 'shortcut' | 'notification' | 'tray' | 'main';
     physicalViewport: SearchSurfacePhysicalViewport;
     scaleFactor: number;
 }

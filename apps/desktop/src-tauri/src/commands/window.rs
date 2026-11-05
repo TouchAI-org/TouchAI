@@ -133,8 +133,16 @@ pub fn hide_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn show_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    crate::core::window::show_search_window_on_main_thread(&app)
+pub fn show_search_window<R: Runtime>(
+    app: AppHandle<R>,
+    window: WebviewWindow<R>,
+) -> Result<(), String> {
+    crate::core::window::show_search_window_on_main_thread(
+        &app,
+        crate::core::window::search::surface::SearchSurfaceShowSource::from_requesting_window(
+            window.label(),
+        ),
+    )
 }
 
 #[tauri::command]

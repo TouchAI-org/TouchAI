@@ -13,6 +13,7 @@ import type {
     SearchSurfaceCommandEvent,
     SearchSurfaceHiddenEvent,
     SearchSurfaceShownEvent,
+    SearchSurfaceShowSource,
     SessionStatusReminderActionEvent,
 } from '@services/EventService/types';
 import { native } from '@services/NativeService';
@@ -498,7 +499,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     }
 
     async function restoreSearchWindowAfterActivation(
-        surfaceSource: 'shortcut' | 'notification',
+        surfaceSource: SearchSurfaceShowSource,
         isCurrent: () => boolean
     ) {
         await nextTick();
@@ -526,7 +527,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
     }
 
     async function handleSearchWindowActivated(
-        surfaceSource: 'shortcut' | 'notification',
+        surfaceSource: SearchSurfaceShowSource,
         isCurrent: () => boolean
     ) {
         if (!isCurrent()) return;

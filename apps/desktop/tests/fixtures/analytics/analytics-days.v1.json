@@ -1,0 +1,33 @@
+{
+    "cases": [
+        { "day": "0001-01-01", "accepted": true },
+        { "day": "0004-02-29", "accepted": true },
+        { "day": "0099-12-31", "accepted": true },
+        { "day": "0400-02-29", "accepted": true },
+        { "day": "2000-02-29", "accepted": true },
+        { "day": "2024-02-29", "accepted": true },
+        { "day": "9999-12-31", "accepted": true },
+        { "day": "0000-01-01", "accepted": false },
+        { "day": "0000-02-29", "accepted": false },
+        { "day": "00-01-01", "accepted": false },
+        { "day": "99-12-31", "accepted": false },
+        { "day": "0100-02-29", "accepted": false },
+        { "day": "1900-02-29", "accepted": false },
+        { "day": "2026-02-29", "accepted": false },
+        { "day": "2026-04-31", "accepted": false },
+        { "day": "2026-00-01", "accepted": false },
+        { "day": "2026-13-01", "accepted": false },
+        { "day": "2026-01-00", "accepted": false },
+        { "day": "2026-01-32", "accepted": false },
+        { "day": "10000-01-01", "accepted": false },
+        { "day": "-001-01-01", "accepted": false },
+        { "day": "2026-1-01", "accepted": false },
+        { "day": "2026-01-1", "accepted": false },
+        { "day": "2026-01-01 ", "accepted": false },
+        { "day": "2026-01-01\n", "accepted": false },
+        { "day": "2026-01-01\r\n", "accepted": false },
+        { "day": "2026-01-01\u2028", "accepted": false },
+        { "day": "2026-01-01T00:00:00Z", "accepted": false },
+        { "day": "\u0662\u0660\u0662\u0666-01-01", "accepted": false }
+    ]
+}
