@@ -3,12 +3,16 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::{Cursor, Read},
+    io::{Cursor, Read, Write},
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use quote::ToTokens;
 use tauri_codegen::embedded_assets::{AssetOptions, EmbeddedAssets};
+
+/// Points the shared bundled-binary cache at a specific directory.
+const BUNDLED_BINARY_CACHE_ENV: &str = "TOUCHAI_BUNDLED_BINARY_CACHE";
 
 #[derive(Debug, Deserialize)]
 struct BundledManifest {
@@ -39,8 +43,16 @@ fn main() {
     // Compile Everything SDK C source on Windows
     #[cfg(target_os = "windows")]
     {
+        // MSVC writes diagnostics in the console code page, so on a zh-CN host its
+        // warnings reach this script's stdout as GBK bytes. Cargo passes that stdout
+        // through unchanged, which makes the build-script output invalid UTF-8 and
+        // keeps a compiler cache from storing it. Everything.c is vendored and emits
+        // exactly these two warnings, so silencing them for this file keeps the log
+        // ASCII without hiding errors or warnings from code we own.
         cc::Build::new()
             .file("vendor/everything/Everything.c")
+            .flag_if_supported("-wd4100")
+            .flag_if_supported("-wd4133")
             .compile("everything_sdk");
     }
 
@@ -160,6 +172,7 @@ fn emit_rerun_if_changed(path: &Path) -> Result<(), Box<dyn std::error::Error>> 
 /// `name` 同时决定：
 /// - manifest 路径：`resources/{name}/manifest.json`
 /// - 缓存目录：`target/{name}-cache/{version}/{triple}`
+/// - 共享缓存：`<user cache>/touchai/bundled-binaries/{name}/{version}/{triple}`
 /// - 生成产物：`{OUT_DIR}/{name}-binary.rs`
 ///   其中常量名为 `BUNDLED_{NAME_UPPER}_FILENAME` / `_SHA256` / `_BYTES`
 fn prepare_bundled(name: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -175,13 +188,18 @@ fn prepare_bundled(name: &str) -> Result<(), Box<dyn std::error::Error>> {
         .join(&target_triple);
 
     if let Some(target) = manifest.targets.get(&target_triple) {
-        let binary_path = materialize_binary(name, target, &cache_dir)?;
-        let binary_hash = if !target.binary_digest.is_empty() {
-            target.binary_digest.clone()
-        } else {
-            sha256_file(&binary_path)?
-        };
-        generate_asset_module(name, &out_dir, &binary_path, &binary_hash)?;
+        // The manifest is the only source of truth for what may be embedded. A
+        // target without an extracted-binary digest cannot be verified from the
+        // cache, and the empty module keeps the build honest instead of shipping
+        // bytes nothing can check.
+        if target.binary_digest.is_empty() {
+            generate_empty_asset_module(name, &out_dir)?;
+            return Ok(());
+        }
+
+        let binary_path =
+            materialize_binary(name, &manifest.version, &target_triple, target, &cache_dir)?;
+        generate_asset_module(name, &out_dir, &binary_path, &target.binary_digest)?;
     } else {
         generate_empty_asset_module(name, &out_dir)?;
     }
@@ -214,6 +232,8 @@ fn cargo_target_dir(out_dir: &Path) -> Result<PathBuf, Box<dyn std::error::Error
 
 fn materialize_binary(
     name: &str,
+    version: &str,
+    target_triple: &str,
     target: &BundledTarget,
     cache_dir: &Path,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
@@ -223,20 +243,20 @@ fn materialize_binary(
         .ok_or(format!("{name}: missing archive file name"))?;
     let binary_path = cache_dir.join(file_name);
 
-    if binary_path.exists() {
-        let existing_hash = sha256_file(&binary_path)?;
-        if existing_hash == target.digest
-            || (!target.binary_digest.is_empty() && existing_hash == target.binary_digest)
-        {
+    if verified_binary(&binary_path, target)? {
+        return Ok(binary_path);
+    }
+
+    // A fresh worktree or target directory would otherwise download the same
+    // release again, and an unreachable host would fail it. Reuse the copy this
+    // machine already verified instead.
+    if let Some(shared) = shared_binary_path(name, version, target_triple, file_name) {
+        if copy_shared_binary(&shared, &binary_path, target) {
             return Ok(binary_path);
         }
     }
 
-    let response = ureq::get(&target.url).call()?;
-    let bytes = response
-        .into_reader()
-        .bytes()
-        .collect::<Result<Vec<_>, _>>()?;
+    let bytes = download_archive(&target.url)?;
     if bytes.len() as u64 != target.size {
         return Err(format!("{name}: download size mismatch for {}", target.url).into());
     }
@@ -247,8 +267,185 @@ fn materialize_binary(
     }
 
     let extracted = extract_target_binary(name, &bytes, &target.format, &target.archive_path)?;
-    fs::write(&binary_path, extracted)?;
+    let extracted_digest = sha256_hex(&extracted);
+    if extracted_digest != target.binary_digest {
+        return Err(format!(
+            "{name}: extracted binary digest mismatch for {}: expected {}, got {extracted_digest}",
+            target.url, target.binary_digest
+        )
+        .into());
+    }
+
+    fs::write(&binary_path, &extracted)?;
+    store_shared_binary(name, version, target_triple, file_name, &extracted);
     Ok(binary_path)
+}
+
+fn verified_binary(
+    path: &Path,
+    target: &BundledTarget,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    if !path.exists() || target.binary_digest.is_empty() {
+        return Ok(false);
+    }
+
+    // Only the extracted binary may live at this path. Accepting the archive
+    // digest here would let an archive that was dropped there pass as an
+    // executable and be embedded without ever being extracted.
+    Ok(sha256_file(path)? == target.binary_digest)
+}
+
+/// Copy the machine-wide release into this target, or report a miss.
+///
+/// The shared cache is an optimisation, so an unreadable, missing or partially
+/// written file is a miss and the caller downloads instead. The copy is verified
+/// as well, because the shared file can change between the check and the copy;
+/// embedding bytes that never matched the manifest would be a silent corruption.
+fn copy_shared_binary(shared: &Path, destination: &Path, target: &BundledTarget) -> bool {
+    if !verified_binary(shared, target).unwrap_or(false) {
+        return false;
+    }
+
+    if fs::copy(shared, destination).is_err() {
+        return false;
+    }
+
+    verified_binary(destination, target).unwrap_or(false)
+}
+
+/// Path of the machine-wide copy, keyed by name, release version and target.
+///
+/// `TOUCHAI_BUNDLED_BINARY_CACHE` overrides the location, which also lets CI and
+/// offline machines pre-seed one directory instead of reaching the host.
+fn shared_binary_path(
+    name: &str,
+    version: &str,
+    target_triple: &str,
+    file_name: &std::ffi::OsStr,
+) -> Option<PathBuf> {
+    let root = match std::env::var_os(BUNDLED_BINARY_CACHE_ENV) {
+        Some(root) if !root.is_empty() => PathBuf::from(root),
+        _ => dirs::cache_dir()?.join("touchai").join("bundled-binaries"),
+    };
+
+    Some(
+        root.join(name)
+            .join(version)
+            .join(target_triple)
+            .join(file_name),
+    )
+}
+
+/// Best effort: a read-only or missing home directory must not fail the build.
+///
+/// The write is atomic so a concurrent build never copies a half-written file.
+fn store_shared_binary(
+    name: &str,
+    version: &str,
+    target_triple: &str,
+    file_name: &std::ffi::OsStr,
+    bytes: &[u8],
+) {
+    let Some(path) = shared_binary_path(name, version, target_triple, file_name) else {
+        return;
+    };
+    let Some(parent) = path.parent() else {
+        return;
+    };
+
+    if fs::create_dir_all(parent).is_err() {
+        return;
+    }
+
+    let Ok(mut temporary) = tempfile::NamedTempFile::new_in(parent) else {
+        return;
+    };
+
+    if temporary.write_all(bytes).is_ok() {
+        let _ = temporary.persist(&path);
+    }
+}
+
+/// Fetch an archive with a bounded wait and a few retries.
+///
+/// The binary host is reached over the public internet, so one dropped
+/// connection must not fail the build and a stalled one must not hang it. Each
+/// attempt is capped, transient failures are retried, and the final error keeps
+/// the underlying `ureq` text so the release retry wrapper can classify it.
+///
+/// The timeouts are per operation, not for the whole transfer: a download that
+/// keeps making progress on a slow link is allowed to finish, while a connection
+/// that stops sending data fails one attempt and moves on to the next.
+fn download_archive(url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    const ATTEMPTS: u32 = 3;
+    const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+    const READ_TIMEOUT: Duration = Duration::from_secs(30);
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(CONNECT_TIMEOUT)
+        .timeout_read(READ_TIMEOUT)
+        .timeout_write(READ_TIMEOUT)
+        .build();
+
+    let mut last_reason = String::new();
+
+    for attempt in 1..=ATTEMPTS {
+        match fetch_archive(&agent, url) {
+            Ok(bytes) => return Ok(bytes),
+            Err(DownloadFailure::Permanent(error)) => return Err(error),
+            Err(DownloadFailure::Transient(reason)) => {
+                last_reason = reason;
+                if attempt < ATTEMPTS {
+                    std::thread::sleep(Duration::from_secs(u64::from(attempt)));
+                }
+            }
+        }
+    }
+
+    Err(format!("download failed after {ATTEMPTS} attempts: {last_reason}").into())
+}
+
+/// One attempt, body included.
+///
+/// Reading the body is part of the attempt so a reset or stall in the middle of
+/// the transfer is retried like a connection failure, and the error names the
+/// URL the way the release wrapper expects.
+enum DownloadFailure {
+    /// A later attempt can succeed.
+    Transient(String),
+    /// Retrying cannot change the answer.
+    Permanent(Box<dyn std::error::Error>),
+}
+
+fn fetch_archive(agent: &ureq::Agent, url: &str) -> Result<Vec<u8>, DownloadFailure> {
+    let response = agent.get(url).call().map_err(|error| {
+        if is_transient_download_error(&error) {
+            DownloadFailure::Transient(error.to_string())
+        } else {
+            DownloadFailure::Permanent(error.into())
+        }
+    })?;
+
+    let mut bytes = Vec::new();
+    response
+        .into_reader()
+        .read_to_end(&mut bytes)
+        .map_err(|error| DownloadFailure::Transient(format!("{url}: {error}")))?;
+
+    Ok(bytes)
+}
+
+/// Whether another attempt can succeed where this one failed.
+///
+/// A transport error is worth retrying; a server error or a throttle is worth
+/// retrying; a 404 or a digest mismatch is not.
+fn is_transient_download_error(error: &ureq::Error) -> bool {
+    match error {
+        ureq::Error::Status(status, _) => {
+            matches!(*status, 408 | 429) || (500..600).contains(status)
+        }
+        ureq::Error::Transport(_) => true,
+    }
 }
 
 fn generate_asset_module(

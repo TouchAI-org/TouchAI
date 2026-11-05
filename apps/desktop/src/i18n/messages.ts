@@ -1009,12 +1009,6 @@ const zhCNMessages = {
     'settings.analytics.share': '分享产品使用统计',
     'settings.analytics.shareDescription':
         '分享脱敏后的产品使用统计，帮助我们改进产品。关闭后不再收集或发送统计信息。',
-    'settings.analytics.developmentBuild': '开发构建不参与产品统计，不会发送任何数据。',
-    'settings.analytics.transportUnavailable': '当前构建未配置统计接收端点，不会发送任何数据。',
-    'settings.analytics.queue': '待发 {count} 条',
-    'settings.analytics.clearPending': '清除待发数据',
-    'settings.analytics.cleared': '已清除待发数据',
-    'settings.analytics.saveFailed': '保存产品使用统计设置失败',
     'settings.diagnostics.diagnosticMode': '调试日志',
     'settings.diagnostics.remaining': '剩余 {time}',
     'settings.diagnostics.exportBundle': '导出诊断包',
@@ -2132,14 +2126,6 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.analytics.share': 'Share product usage statistics',
     'settings.analytics.shareDescription':
         'Share de-identified product usage statistics to help improve the product. When off, no analytics data is collected or sent.',
-    'settings.analytics.developmentBuild':
-        'Development builds do not contribute product analytics, so nothing is sent.',
-    'settings.analytics.transportUnavailable':
-        'This build has no analytics endpoint configured, so nothing is sent.',
-    'settings.analytics.queue': '{count} pending',
-    'settings.analytics.clearPending': 'Clear pending data',
-    'settings.analytics.cleared': 'Pending data cleared',
-    'settings.analytics.saveFailed': 'Failed to save product analytics setting',
     'settings.diagnostics.diagnosticMode': 'Debug logging',
     'settings.diagnostics.remaining': '{time} remaining',
     'settings.diagnostics.exportBundle': 'Export diagnostics',

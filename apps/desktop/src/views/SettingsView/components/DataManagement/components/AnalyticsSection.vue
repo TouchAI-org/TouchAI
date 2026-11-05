@@ -1,8 +1,6 @@
 <script setup lang="ts">
     import SettingsRow from '@components/SettingsRow.vue';
-    import { Button } from '@components/ui/button';
     import { Switch } from '@components/ui/switch';
-    import { useAlert } from '@composables/useAlert';
     import { native } from '@services/NativeService';
     import type { AnalyticsState } from '@services/NativeService/types';
     import { log } from '@services/ObservabilityService';
@@ -14,7 +12,6 @@
         name: 'SettingsAnalyticsSection',
     });
 
-    const alert = useAlert();
     const state = ref<AnalyticsState>({
         status: 'uninitialized',
         consentEpoch: 0,
@@ -24,9 +21,19 @@
         transportReady: false,
     });
 
+    function logState() {
+        log.debug('[Analytics] State', {
+            status: state.value.status,
+            transportReady: state.value.transportReady,
+            queueDepth: state.value.queueDepth,
+            pendingBytes: state.value.pendingBytes,
+        });
+    }
+
     async function load() {
         try {
             state.value = await native.analytics.getState();
+            logState();
         } catch (error) {
             log.error('[Analytics] Failed to load analytics state:', error);
         }
@@ -35,20 +42,9 @@
     async function toggle(nextEnabled: boolean) {
         try {
             state.value = await native.analytics.setEnabled(nextEnabled, state.value.consentEpoch);
+            logState();
         } catch (error) {
             log.error('[Analytics] Failed to change analytics consent:', error);
-            alert.error(t('settings.analytics.saveFailed'));
-            await load();
-        }
-    }
-
-    async function clearPending() {
-        try {
-            state.value = await native.analytics.clearPending(state.value.consentEpoch);
-            alert.success(t('settings.analytics.cleared'), 2000);
-        } catch (error) {
-            log.error('[Analytics] Failed to clear pending analytics data:', error);
-            alert.error(t('settings.analytics.saveFailed'));
             await load();
         }
     }
@@ -66,13 +62,7 @@
                 data-testid="settings-analytics-share"
                 control-width="auto"
                 :label="t('settings.analytics.share')"
-                :description="
-                    !state.buildEligible
-                        ? t('settings.analytics.developmentBuild')
-                        : state.transportReady
-                          ? t('settings.analytics.shareDescription')
-                          : t('settings.analytics.transportUnavailable')
-                "
+                :description="t('settings.analytics.shareDescription')"
             >
                 <Switch
                     size="lg"
@@ -85,22 +75,6 @@
                     :model-value="state.status === 'enabled'"
                     @update:model-value="toggle"
                 />
-            </SettingsRow>
-
-            <SettingsRow
-                v-if="state.queueDepth > 0"
-                data-settings-search-target="analytics-clear"
-                control-width="auto"
-                :label="t('settings.analytics.queue', { count: state.queueDepth })"
-            >
-                <Button
-                    variant="outline-neutral"
-                    class="ml-auto"
-                    data-testid="settings-analytics-clear"
-                    @click="clearPending"
-                >
-                    {{ t('settings.analytics.clearPending') }}
-                </Button>
             </SettingsRow>
         </div>
     </section>

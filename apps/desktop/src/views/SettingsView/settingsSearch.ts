@@ -139,10 +139,6 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
             descriptionKey: 'settings.analytics.shareDescription',
             targetId: 'analytics-share',
         },
-        {
-            labelKey: 'settings.analytics.clearPending',
-            targetId: 'analytics-clear',
-        },
     ],
 };
 

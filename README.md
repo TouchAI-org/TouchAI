@@ -15,6 +15,7 @@
   <a href="https://github.com/TouchAI-org/TouchAI/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/TouchAI-org/TouchAI/ci.yml?style=flat-square&branch=main" /></a>
   <a href="https://github.com/TouchAI-org/TouchAI/blob/main/COPYING"><img alt="License" src="https://img.shields.io/badge/license-GPL--3.0--or--later-4b5563?style=flat-square" /></a>
   <a href="https://github.com/TouchAI-org/TouchAI/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/TouchAI-org/TouchAI?style=flat-square" /></a>
+  <a href="https://mimo.mi.com/docs/zh-CN/news/latest/v2.5-orbit"><img alt="Xiaomi MiMo Orbit Partner" src="https://img.shields.io/badge/Xiaomi_MiMo-Orbit_Ecosystem_Partner-4b5563?style=flat-square" /></a>
 </p>
 
 <p align="center">
@@ -47,6 +48,13 @@
 
 更多说明请查看项目文档和仓库代码。
 
+### 生态伙伴
+
+<p align="left">
+  <a href="https://mimo.mi.com/docs/zh-CN/news/latest/v2.5-orbit"><img src="docs/images/partners/xiaomi-mimo-card.svg" alt="Xiaomi MiMo" height="30" align="absmiddle" /></a>
+  <a href="https://mimo.mi.com/docs/zh-CN/news/latest/v2.5-orbit"><strong>Xiaomi MiMo</strong> 生态合作伙伴</a>
+</p>
+
 ---
 
 ### 贡献者
@@ -62,5 +70,4 @@
 ### 友情链接
 
 - [LINUX DO](https://linux.do/)
-- [Xiaomi MIMO](https://mimo.xiaomi.com/)
 - [ExoMind](https://exo-mind.ai/)
