@@ -2,9 +2,15 @@
 
 Related issue: #743. Related RFC: #710.
 
-This plan records the database contract that must stay stable while production
-data access moves from TypeScript/Drizzle to Rust. It is an implementation
-guard, not a schema proposal.
+This document records the implemented ownership boundary and the evidence
+required before release. It is not a schema proposal.
+
+## Status
+
+Implementation is in progress on `stack/710-09-database-rust-ownership`. The
+production TypeScript Drizzle runtime and the generic SQL/transaction IPC are
+removed in the worktree. Final project-wide and CI acceptance is not claimed
+until the checks listed under "Open evidence" pass.
 
 ## Hard constraints
 
@@ -13,20 +19,26 @@ guard, not a schema proposal.
 - Migration files `0000` through `0004`, `_journal.json`, and every committed
   snapshot remain byte-identical.
 - The existing migration ledger and ordering remain authoritative. No second
-  migration ledger is introduced.
+  `sqlx migrate` ledger is introduced.
 - Existing SQLite files are opened in place. No database path, file name, WAL
   mode, or rebuild step changes.
 - TypeScript may keep view models and request/response types. It may not build
   SQL, own a transaction span, or write through a second production path.
 - Rust owns the connection pool, private repositories, validation, complete
-  business transactions, stable error mapping, and post-commit notifications.
+  business transactions, stable error mapping, and backup/import.
 - A dual run is allowed only in an isolated test database for equivalence
   evidence. It is never a production fallback.
 
-## Current contract
+## Runtime ownership
 
-The runtime contract is defined by the committed migration chain plus these
-runtime artifacts:
+The only production Tauri database commands are:
+
+- `database_operation` with a named, typed operation; no SQL text crosses IPC.
+- `database_export_backup` and `database_import_backup`, restricted to the main
+  and settings windows.
+
+The committed migration chain and runtime artifacts remain the database
+contract:
 
 - `src/database/drizzle/0000_lyrical_toad.sql` through
   `0004_ordinary_solo.sql`
@@ -38,115 +50,105 @@ runtime artifacts:
 - `src/database/artifacts/import/chat_merge.sql`
 
 The reviewed SHA-256 values live in
-`scripts/ci/architecture/db-artifacts-baseline.json`. A contract test must fail
-when any committed artifact changes without an explicit review.
+`scripts/ci/architecture/db-artifacts-baseline.json`. `drizzle-orm` and
+`schema.ts` are offline development/audit inputs. Production runtime imports of
+`drizzle-orm` or `@database/schema` are rejected by the architecture gate;
+type-only schema imports are allowed and erased.
 
-## Production writer map before migration
+## Production writer map
 
-The initial inventory is intentionally complete at module granularity. The
-implementation commits replace each entry with one Rust transaction or one
-Rust read operation.
+Every entry below is a named Rust operation or a Rust-owned composition of
+operations. The TypeScript query modules are typed callers only.
 
-| Area | Current production writer | Required Rust boundary |
-| --- | --- | --- |
-| Settings | `queries/settings.ts` | `setting_upsert` / `setting_get` |
-| Statistics | `queries/statistics.ts` | `statistic_upsert` / `statistic_get` |
-| App metadata | `queries/touchaiMeta.ts` | `meta_get`, `meta_upsert`, `meta_delete` |
-| Providers | `queries/providers.ts` | provider CRUD operations |
-| Models and default model | `queries/models.ts` | model CRUD plus `model_set_default` transaction |
-| LLM catalog metadata | `queries/llmMetadata.ts`, `modelMetadata/store.ts`, `modelMetadata/sync.ts` | metadata replace/upsert transactions |
-| MCP servers | `queries/mcpServers.ts` | server CRUD operations |
-| MCP tools | `queries/mcpTools.ts`, `McpManager.ts` | tool CRUD and server tool replacement transaction |
-| Built-in tools | `queries/builtInTools.ts` | tool CRUD plus multi-update transaction |
-| Tool logs | `queries/toolParts.ts`, `toolParts` callers | atomic tool-part create/update operations |
-| Sessions | `queries/sessions.ts` | session create/update/list/delete operations |
-| Messages | `queries/messages.ts`, `outputs/persistence.ts` | message create/update and turn persistence bundles |
-| Message parts and attachments | `queries/messageParts.ts`, `queries/attachments.ts`, `outputs/persistence.ts` | atomic part/attachment bundles |
-| Turns | `queries/sessionTurns.ts`, `outputs/persistence.ts` | complete turn lifecycle transactions |
-| Turn attempts | `queries/sessionTurnAttempts.ts`, `outputs/persistence.ts` | attempt lifecycle and usage transactions |
-| Usage rollups | `queries/usageStats.ts`, `UsageService/*` | high-level usage write operations |
-| Quick-search clicks | `queries/quickSearchClicks.ts` | click upsert operation |
-| Backup/import | `database/backup.ts` plus Rust import runtime | Rust export/import with UI progress only |
+| Area | Production entry point |
+| --- | --- |
+| Settings, statistics, app metadata | `setting_*`, `statistic_*`, `meta_*` |
+| Quick-search clicks | `quick_search_upsert` |
+| Providers and models | `provider_*`, `model_*` |
+| LLM catalog metadata | `llm_metadata_*` including `llm_metadata_replace` |
+| MCP servers and tools | `mcp_server_*`, `mcp_tool_*` including `mcp_tool_sync` |
+| Built-in tools | `built_in_tool_*` including `built_in_tool_update_many` |
+| Sessions and messages | `session_*`, `message_*` |
+| Output steps and turn state | `task_record_start`, `task_persist_output_message`, `task_finish`, `task_begin_next_attempt` |
+| Tool history | `tool_part_*`, `task_persist_tool_result` |
+| Attachments | `attachment_ensure`, `attachment_remote_ref_*` |
+| Usage queries and detail writes | `usage_*` including `usage_append_llm_call_parts` |
+| Backup/import | `database_export_backup`, `database_import_backup` |
+
+`BEGIN IMMEDIATE` is the standard typed-write transaction entry. Import uses
+`BEGIN EXCLUSIVE` after preparing and migrating an isolated source snapshot, so
+an Agent write and a full import serialize instead of interleaving.
 
 ## Business transaction map
 
-These spans must not be split across IPC calls once the Rust owner is active.
+These spans are atomic in Rust and are not split across IPC calls:
 
-| Business action | Current TS span | Rust operation |
-| --- | --- | --- |
-| Set default model | clear old default and set new default | `model_set_default` |
-| Update many built-in tools | update every requested row or none | `built_in_tools_update_many` |
-| Create tool part | choose `max(sort_order) + 1`, insert part, return parent session | `tool_part_create` |
-| Update tool part | find matching parts, merge JSON, return first result | `tool_part_update` |
-| Replace MCP tools after connect | delete server tools and insert discovered tools | `mcp_tools_replace_for_server` |
-| Replace LLM catalog | delete aliases and metadata, then insert catalog | `llm_metadata_replace` |
-| Refresh model catalog | delete/recreate provider models and preserve defaults | `models_replace_catalog` |
-| Persist one assistant output step | validate attempt/step, write parts/messages/turn state atomically | `task_persist_output_step` |
-| Create a turn attempt | create turn/attempt bookkeeping and linked rows | `task_begin_attempt` |
-| Finish a turn attempt | update status, usage, and linked turn state atomically | `task_finish_attempt` |
-| Import backup | run import in one Rust-owned serialized operation | `database_import_backup` |
+| Business action | Rust boundary |
+| --- | --- |
+| Set default model | validate provider/model, clear old default, set new default |
+| Update many built-in tools | update every requested row or none |
+| Create tool part | choose `max(sort_order) + 1`, insert part, return parent session |
+| Update tool part | find matching rows, merge JSON, return first result |
+| Replace MCP tools after connect | delete server tools and insert discovered tools |
+| Replace LLM catalog | delete aliases/metadata then insert the catalog |
+| Refresh model catalog | update provider models and preserve defaults |
+| Persist one assistant output step | validate attempt/step, write parts/messages/turn state |
+| Create a turn attempt | create turn/attempt bookkeeping and linked rows |
+| Finish a turn attempt | status, usage, LLM-call parts, and turn aggregate update together |
+| Persist a tool result | locate by part id or `(call id, message id)`, update data, link attachments |
+| Import backup | snapshot, migrate, validate, merge, commit, detach, and remove temp files |
 
 ## Compatibility matrix
 
-Every row must be exercised on a frozen database fixture. The comparison
-includes business results, error category, event order, and a final database
-snapshot.
+The comparison includes business results, error category, event order, and the
+final database state where applicable.
 
-| Fixture | Required evidence |
+| Fixture or behavior | Evidence |
 | --- | --- |
-| Empty database | latest migrations, guards, seed, and first-write behavior |
-| Migration stage `0000` | upgrade to `0004`, preserving rows and generated columns |
-| Migration stage `0001` | upgrade from the legacy message shape |
-| Migration stage `0002` | deduplication result and unique click-stat index |
-| Migration stage `0003` | legacy built-in tool log upgrade |
-| Migration stage `0004` | current latest schema and FTS behavior |
-| v1.0 database | read, write, and import compatibility |
-| v1.2 database | read, write, and import compatibility |
-| v1.3 database | read, write, and import compatibility |
-| WAL database | checkpoint, concurrent read, crash recovery, and restart |
-| FTS database | write, update, delete, and search after every migration |
-| ID gaps | ordering and pagination do not depend on contiguous IDs |
-| Old backup | `full` and `chat_only` imports preserve the documented merge shape |
-| Multi-window settings | concurrent mutation is serialized and stale epochs are rejected |
-| Same call ID | duplicate tool updates are idempotent and ordered |
-| Default model | exactly zero or one default model at every commit boundary |
-| Import versus Agent write | one complete operation wins; no partial rows remain |
+| Empty/latest database and runtime seed | Existing migration/seed contract tests plus SQLite runtime tests |
+| Migration stages `0000` through `0004` | Existing unified-parts and usage-observability migration tests; every stage applies the byte-identical SQL |
+| v1.0, v1.2, v1.3 released databases | Open: frozen released-version fixtures must be run before release |
+| WAL and committed-WAL import | Import/export use `VACUUM INTO`; runtime import tests keep the source WAL open |
+| FTS write, update, delete | `database_search_index_supports_contentless_delete_on_bundled_sqlite` |
+| ID gaps and pagination | Existing session/usage query tests; verify against frozen fixtures before release |
+| Old full and chat-only backups | Rust import tests cover 4-entry upgrade, repeated import, malformed history, and rollback |
+| Invalid/ambiguous imports | Rust tests verify no target change, no attached temp database, and no leftover snapshot directory |
+| Export failure cleanup | Rust export test verifies the pool remains usable and the temporary snapshot is removed |
+| Same call ID across messages | Rust test verifies a tool result update is scoped by `(tool_call_id, message_id)` and is idempotent |
+| Two attempts with reasoning/cost | Rust test verifies per-attempt values, turn sums, pricing data, and LLM-call part ordering |
+| Import versus Agent write | Rust test runs a full import concurrently with `task_record_start`; both operations complete with no partial rows |
+| Multi-window permissions | Rust tests cover main/settings allowed backup and popup/preview/settings restrictions |
+| Default model uniqueness | Rust typed-operation test verifies one default after a switch |
 
-## Schema comparison
-
-The contract fingerprint compares ordered, canonicalized rows from:
-
-- `sqlite_master` for tables, indexes, triggers, views, and SQL
-- `PRAGMA table_info`
-- `PRAGMA index_list` and `PRAGMA index_info`
-- `PRAGMA foreign_key_list`
-- `sqlite_sequence`
-- FTS virtual-table metadata and representative content
-
-The fingerprint is stored as test data, not generated as a production schema.
-Migration bytes and snapshots are checked separately from the semantic
-fingerprint so an editor cannot hide a byte change by changing the fixture.
+Schema comparison must still compare order-independent rows from
+`sqlite_master`, `PRAGMA table_info`, `PRAGMA index_list`/`index_info`,
+`PRAGMA foreign_key_list`, `sqlite_sequence`, triggers, views, and representative
+FTS content. Migration bytes and snapshots are checked separately from the
+semantic fingerprint.
 
 ## Rollout and rollback
 
-- Rollout is one PR: typed Rust operations first, domain switches second,
-  removal of generic SQL/transaction IPC last.
-- No release is made from this PR. The existing database file is opened in
-  place and is never rewritten or rebuilt.
-- Rollback before release is a revert of this PR. After release, a rollback
-  must keep the same SQLite file readable by the previous version.
-- Errors are mapped to stable categories: validation, not found, conflict,
-  busy/locked, unavailable, and unknown. User-facing text remains in the
-  existing localization layer.
+- Rollout is one PR: typed operations and domain switches, then removal of the
+  generic SQL/transaction IPC and Drizzle runtime.
+- No release is made from this PR. Existing database files are opened in place
+  and are never rewritten or rebuilt.
+- Rollback before release is a revert of this PR. After release, a rollback must
+  keep the same SQLite file readable by the previous version.
+- Errors map to stable categories: validation, not found, conflict, busy/locked,
+  unavailable, and unknown. User-facing text remains in the existing
+  localization layer.
 
-## Stop conditions
+## Open evidence
 
-Stop and ask before implementing if:
+These are release gates, not claims:
 
-- a table, column, index, constraint, trigger, view, migration byte, or
-  migration ledger change is required;
-- a production TypeScript writer must remain alongside Rust;
-- an older version cannot read data written by the new version;
-- an unexplained business, ordering, retry, cancellation, or event difference
-  appears;
-- a P50/P95 latency or steady-state memory result exceeds the 5% budget.
+- Re-run the full Rust suite, frontend tests, typecheck, architecture checks,
+  E2E, and required GitHub Actions checks.
+- Run frozen v1.0/v1.2/v1.3 databases and every migration-stage fixture through
+  the semantic schema fingerprint.
+- Verify real-window negative permissions for settings, popup, and preview
+  windows on the desktop build.
+- Run the performance acceptance workflow on GitHub Actions. Daytona is not a
+  dependency and must not be left running.
+- Confirm P50/P95 latency and memory are within the 5% budget; an unexplained
+  regression stops the rollout.
