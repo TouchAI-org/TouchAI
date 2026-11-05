@@ -843,58 +843,150 @@ function findLogErrors(appRoot) {
 }
 
 /**
- * Confirms the visible document injected the product face and loaded it.
+ * Confirms the visible document paints Han glyphs with the product face.
  *
  * The same verified file is provisioned into the app root before boot, so the
- * remaining failures are a missing @font-face or a rejected asset URL. E2E
- * proves the painted outline; this check exists so preview screenshots cannot
- * silently record a fallback face while the run still reports success.
+ * remaining failures are a missing @font-face or a rejected asset URL. A face
+ * can report `loaded` while the engine silently paints a fallback, so compare
+ * a Han outline against a second face built from the same bytes. E2E uses the
+ * same proof; this check keeps preview screenshots honest as well.
  */
 async function productFontState(session) {
-    // `execute` is the synchronous WebDriver endpoint, so an async function
-    // there returns an unserialisable promise and the call fails. The document
-    // also injects its @font-face from an async loader, so poll briefly rather
-    // than sampling one frame before the rule exists.
-    return session.executeAsync(String.raw`
-        const done = arguments[arguments.length - 1];
-        (async () => {
+    const deadline = Date.now() + 8000;
+    let state = { ok: false, detail: 'the product face did not load within 8s' };
+
+    // Polling from Node keeps the WebDriver transport synchronous. On Windows
+    // the async endpoint posts through WebView2, which Tauri's IPC handler also
+    // sees and reports as a JSON parse error (see waitForPaint above).
+    while (Date.now() < deadline) {
+        state = await session.execute(String.raw`
             const family = 'TouchAI Source Han Serif SC';
-            const findStyle = () => document.querySelector('style[data-touchai-font-face]');
-            let style = findStyle();
-
-            for (let attempt = 0; !style && attempt < 40; attempt += 1) {
-                await new Promise((resolve) => setTimeout(resolve, 100));
-                style = findStyle();
-            }
-
+            const referenceFamily = 'TouchAI Preview Reference 9x8z';
+            const sample = '\u901a\u7528\u542f\u52a8';
+            const style = document.querySelector('style[data-touchai-font-face]');
             if (!style) {
-                done({ ok: false, detail: 'the app did not inject its @font-face rule' });
-                return;
+                return {
+                    ok: false,
+                    retry: true,
+                    detail: 'waiting for the app to inject its @font-face rule',
+                };
             }
 
             const match = (style.textContent || '').match(/url\('([^']+)'\)/);
             if (!match) {
-                done({ ok: false, detail: 'the injected @font-face rule has no asset URL' });
-                return;
+                return { ok: false, detail: 'the injected @font-face rule has no asset URL' };
             }
 
-            try {
-                await document.fonts.load('16px "' + family + '"');
-                await document.fonts.ready;
-            } catch (error) {
-                done({
+            const fontUrl = match[1];
+            let referenceStyle = document.querySelector(
+                'style[data-touchai-preview-font-reference]'
+            );
+            if (!referenceStyle || referenceStyle.dataset.fontUrl !== fontUrl) {
+                referenceStyle?.remove();
+                referenceStyle = document.createElement('style');
+                referenceStyle.setAttribute('data-touchai-preview-font-reference', '');
+                referenceStyle.dataset.fontUrl = fontUrl;
+                referenceStyle.textContent =
+                    '@font-face {' +
+                    "font-family: '" + referenceFamily + "';" +
+                    "src: url('" + fontUrl + "') format('woff2-variations');" +
+                    'font-weight: 250 900;' +
+                    'font-style: normal;' +
+                    'font-display: block;' +
+                    '}';
+                document.head.appendChild(referenceStyle);
+            }
+
+            const facesFor = (name) =>
+                [...document.fonts].filter((face) => face.family === name);
+            const productProbe = '500 52px "' + family + '"';
+            const referenceProbe = '500 52px "' + referenceFamily + '"';
+            void document.fonts.load(productProbe, sample).catch(() => {});
+            void document.fonts.load(referenceProbe, sample).catch(() => {});
+
+            const productFaces = facesFor(family);
+            const referenceFaces = facesFor(referenceFamily);
+            if (productFaces.length === 0 || referenceFaces.length === 0) {
+                return {
                     ok: false,
-                    detail: 'the product face did not load: ' +
-                        (error && error.message ? error.message : error),
-                });
-                return;
+                    retry: true,
+                    detail: 'waiting for the product and reference faces to register',
+                };
             }
 
-            done({ ok: document.fonts.check('16px "' + family + '"'), detail: match[1] });
-        })().catch((error) => {
-            done({ ok: false, detail: String(error && error.message ? error.message : error) });
-        });
-    `);
+            const productStatuses = productFaces.map((face) => face.status);
+            const referenceStatuses = referenceFaces.map((face) => face.status);
+            if ([...productStatuses, ...referenceStatuses].includes('error')) {
+                return { ok: false, detail: 'the product or reference face failed to load' };
+            }
+            if (
+                document.fonts.status !== 'loaded' ||
+                [...productStatuses, ...referenceStatuses].some((status) => status !== 'loaded')
+            ) {
+                return {
+                    ok: false,
+                    retry: true,
+                    detail: 'the product and reference faces are still loading',
+                };
+            }
+
+            function rasterize(target) {
+                const canvas = document.createElement('canvas');
+                canvas.width = 400;
+                canvas.height = 110;
+                const context = canvas.getContext('2d');
+                if (!context) {
+                    throw new Error('the document could not create a 2D canvas');
+                }
+                context.fillStyle = '#ffffff';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                context.fillStyle = '#000000';
+                context.font = '500 52px "' + target + '"';
+                context.textBaseline = 'top';
+                context.fillText(sample, 4, 6);
+                return context.getImageData(0, 0, canvas.width, canvas.height).data;
+            }
+
+            const product = rasterize(family);
+            const reference = rasterize(referenceFamily);
+            let differingPixels = 0;
+            for (let index = 0; index < product.length; index += 4) {
+                if (product[index] !== reference[index]) {
+                    differingPixels += 1;
+                }
+            }
+
+            if (differingPixels > 500) {
+                return {
+                    ok: false,
+                    detail:
+                        'the interface painted a fallback instead of the product face (' +
+                        differingPixels +
+                        ' Han pixels differ from the reference face)',
+                };
+            }
+
+            return {
+                ok: true,
+                detail:
+                    fontUrl +
+                    ' (Han outline matched the reference face: ' +
+                    differingPixels +
+                    ' px)',
+            };
+        `);
+
+        if (state.ok || state.retry !== true) {
+            return state;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+
+    if (state.retry === true) {
+        state.detail = `the product face did not load within 8s (${state.detail})`;
+    }
+
+    return state;
 }
 
 /**
