@@ -32,12 +32,12 @@ function createToolCall(overrides: Partial<ToolCallInfo> = {}): ToolCallInfo {
     };
 }
 
-describe('BuiltInBashToolCallItem', () => {
+describe('user reviews a bash command in the conversation', () => {
     afterEach(() => {
         vi.useRealTimers();
     });
 
-    it('auto-expands and shows live output while the bash tool is executing', async () => {
+    it('user auto-expands and shows live output while the bash tool is executing', async () => {
         const wrapper = mount(BuiltInBashToolCallItem, {
             props: {
                 toolCall: createToolCall({
@@ -56,7 +56,7 @@ describe('BuiltInBashToolCallItem', () => {
         expect(wrapper.find('.tool-call-bash-output').text()).toContain('stream-1');
     });
 
-    it('updates the displayed duration every second while the bash tool is running', async () => {
+    it('user updates the displayed duration every second while the bash tool is running', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-05-29T00:00:00.000Z'));
 
@@ -83,7 +83,7 @@ describe('BuiltInBashToolCallItem', () => {
         expect(wrapper.find('.tool-call-bash-panel-header-duration').text()).toBe('3s');
     });
 
-    it('does not run the duration timer while the document is hidden', async () => {
+    it('user resumes the duration timer when returning to a hidden command', async () => {
         const intervalSpy = vi.spyOn(window, 'setInterval');
         Object.defineProperty(document, 'visibilityState', {
             configurable: true,
@@ -119,7 +119,7 @@ describe('BuiltInBashToolCallItem', () => {
         delete (document as { visibilityState?: string }).visibilityState;
     });
 
-    it('auto-expands and keeps a live timer while awaiting approval', async () => {
+    it('user auto-expands and keeps a live timer while awaiting approval', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-05-29T00:00:00.000Z'));
 
@@ -147,7 +147,7 @@ describe('BuiltInBashToolCallItem', () => {
         expect(wrapper.find('.tool-call-log-duration').text()).toContain('2s');
     });
 
-    it('formats settled durations with day precision', async () => {
+    it('user formats settled durations with day precision', async () => {
         const durationMs = (((10 * 24 + 20) * 60 + 30) * 60 + 20) * 1000;
         const wrapper = mount(BuiltInBashToolCallItem, {
             props: {
@@ -172,7 +172,7 @@ describe('BuiltInBashToolCallItem', () => {
         );
     });
 
-    it('auto-collapses after execution finishes when the user has not overridden the state', async () => {
+    it('user auto-collapses after execution finishes when the user has not overridden the state', async () => {
         const wrapper = mount(BuiltInBashToolCallItem, {
             props: {
                 toolCall: createToolCall({
@@ -199,7 +199,7 @@ describe('BuiltInBashToolCallItem', () => {
         expect(wrapper.find('.tool-call-log-button').attributes('aria-expanded')).toBe('false');
     });
 
-    it('auto-collapses after execution fails when the user has not overridden the state', async () => {
+    it('user auto-collapses after execution fails when the user has not overridden the state', async () => {
         const wrapper = mount(BuiltInBashToolCallItem, {
             props: {
                 toolCall: createToolCall({
@@ -226,7 +226,7 @@ describe('BuiltInBashToolCallItem', () => {
         expect(wrapper.find('.tool-call-log-button').attributes('aria-expanded')).toBe('false');
     });
 
-    it('auto-collapses after execution is cancelled when the user has not overridden the state', async () => {
+    it('user auto-collapses after execution is cancelled when the user has not overridden the state', async () => {
         const wrapper = mount(BuiltInBashToolCallItem, {
             props: {
                 toolCall: createToolCall({
@@ -253,7 +253,7 @@ describe('BuiltInBashToolCallItem', () => {
         expect(wrapper.find('.tool-call-log-button').attributes('aria-expanded')).toBe('false');
     });
 
-    it('auto-collapses after execution is rejected when the user has not overridden the state', async () => {
+    it('user auto-collapses after execution is rejected when the user has not overridden the state', async () => {
         const wrapper = mount(BuiltInBashToolCallItem, {
             props: {
                 toolCall: createToolCall({
@@ -280,7 +280,7 @@ describe('BuiltInBashToolCallItem', () => {
         expect(wrapper.find('.tool-call-log-button').attributes('aria-expanded')).toBe('false');
     });
 
-    it('keeps the manual expanded state after execution finishes', async () => {
+    it('user keeps the manual expanded state after execution finishes', async () => {
         const wrapper = mount(BuiltInBashToolCallItem, {
             props: {
                 toolCall: createToolCall({
@@ -315,7 +315,7 @@ describe('BuiltInBashToolCallItem', () => {
         expect(wrapper.find('.tool-call-log-button').attributes('aria-expanded')).toBe('true');
     });
 
-    it('keeps the manual collapsed state when execution status changes again', async () => {
+    it('user keeps the manual collapsed state when execution status changes again', async () => {
         const wrapper = mount(BuiltInBashToolCallItem, {
             props: {
                 toolCall: createToolCall({
@@ -354,7 +354,7 @@ describe('BuiltInBashToolCallItem', () => {
         expect(wrapper.find('.tool-call-log-button').attributes('aria-expanded')).toBe('false');
     });
 
-    it('follows growing output to the bottom while the user has not scrolled up', async () => {
+    it('user follows growing output to the bottom while the user has not scrolled up', async () => {
         const wrapper = mount(BuiltInBashToolCallItem, {
             props: {
                 toolCall: createToolCall({
@@ -400,7 +400,7 @@ describe('BuiltInBashToolCallItem', () => {
         expect(scrollTop).toBe(480);
     });
 
-    it('stops following growing output after the user scrolls up', async () => {
+    it('user stops following growing output after the user scrolls up', async () => {
         const wrapper = mount(BuiltInBashToolCallItem, {
             props: {
                 toolCall: createToolCall({
@@ -457,7 +457,7 @@ describe('BuiltInBashToolCallItem', () => {
         expect(scrollTop).toBe(120);
     });
 
-    it('resumes following output when the user scrolls back to the bottom', async () => {
+    it('user resumes following output when the user scrolls back to the bottom', async () => {
         const wrapper = mount(BuiltInBashToolCallItem, {
             props: {
                 toolCall: createToolCall({
