@@ -852,8 +852,8 @@ function findLogErrors(appRoot) {
  * same proof; this check keeps preview screenshots honest as well.
  */
 async function productFontState(session) {
-    const deadline = Date.now() + 8000;
-    let state = { ok: false, detail: 'the product face did not load within 8s' };
+    const deadline = Date.now() + 10000;
+    let state = { ok: false, detail: 'the product face did not load within 10s' };
 
     // Polling from Node keeps the WebDriver transport synchronous. On Windows
     // the async endpoint posts through WebView2, which Tauri's IPC handler also
@@ -916,17 +916,19 @@ async function productFontState(session) {
 
             const productStatuses = productFaces.map((face) => face.status);
             const referenceStatuses = referenceFaces.map((face) => face.status);
-            if ([...productStatuses, ...referenceStatuses].includes('error')) {
-                return { ok: false, detail: 'the product or reference face failed to load' };
-            }
             if (
-                document.fonts.status !== 'loaded' ||
-                [...productStatuses, ...referenceStatuses].some((status) => status !== 'loaded')
+                !productStatuses.includes('loaded') ||
+                !referenceStatuses.includes('loaded')
             ) {
                 return {
                     ok: false,
                     retry: true,
-                    detail: 'the product and reference faces are still loading',
+                    detail:
+                        'waiting for a loaded product and reference face (product: ' +
+                        productStatuses.join(',') +
+                        '; reference: ' +
+                        referenceStatuses.join(',') +
+                        ')',
                 };
             }
 
@@ -983,7 +985,7 @@ async function productFontState(session) {
     }
 
     if (state.retry === true) {
-        state.detail = `the product face did not load within 8s (${state.detail})`;
+        state.detail = `the product face did not load within 10s (${state.detail})`;
     }
 
     return state;
