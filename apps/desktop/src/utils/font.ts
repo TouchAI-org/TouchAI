@@ -125,7 +125,10 @@ async function verifyInjectedFontFace(fontUrl: string): Promise<void> {
     }
 }
 
-async function injectFontFace(options: LoadFontFaceOptions = {}): Promise<boolean> {
+async function injectFontFace(
+    options: LoadFontFaceOptions = {},
+    recoverRemovedStyle = true
+): Promise<boolean> {
     const { refresh = false, requireExistingFile = false } = options;
 
     if (!refresh && hasInjectedFontFace()) {
@@ -191,6 +194,11 @@ async function injectFontFace(options: LoadFontFaceOptions = {}): Promise<boolea
     document.head.appendChild(style);
 
     await verifyInjectedFontFace(fontUrl);
+
+    if (recoverRemovedStyle && !hasInjectedFontFace()) {
+        return injectFontFace(options, false);
+    }
+
     return true;
 }
 

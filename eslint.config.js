@@ -51,6 +51,7 @@ const PROJECT_COMPONENT_CLASS_PATTERNS = [
     '^markdown-.*',
     '^touchai-.*',
     '^no-scrollbar$',
+    '^window-.*',
 ]
 
 /** Palette utilities that bypass the semantic roles. */

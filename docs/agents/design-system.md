@@ -238,12 +238,12 @@ generic `serif` do not work for the same reason: on a machine with a CJK serif i
 it resolves to a near-identical design, and on a bare runner it resolves to a font with
 no Han glyphs, so in both cases a double fallback reads as a match.
 
-**Window size.** The settings baselines capture the product's own default window
-(`SETTINGS_WINDOW_DEFAULT_SIZE`, mirroring
-`SETTINGS_WINDOW_WIDTH`/`SETTINGS_WINDOW_HEIGHT` in
-`src-tauri/src/core/window/settings/mod.rs`). A GitHub-hosted runner only has a
-1024x768 desktop, but Windows does not clamp a window to the desktop and WebDriver
-captures the window rather than the screen, so the real size works there.
+**Window size.** The settings baselines capture the product's own 1120x700 visible
+surface. `SETTINGS_WINDOW_DEFAULT_SIZE` is the native window size and therefore also
+includes the transparent 24 px shadow gutter on each side. Both mirror the content and
+native constants in `src-tauri/src/core/window/settings/mod.rs`. A GitHub-hosted runner
+only has a 1024x768 desktop, but Windows does not clamp a window to the desktop and
+WebDriver captures the window rather than the screen, so the real size works there.
 
 #### Text, language, and tolerance
 

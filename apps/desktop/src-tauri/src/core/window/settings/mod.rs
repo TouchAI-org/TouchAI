@@ -4,10 +4,19 @@
 
 use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 
-pub const SETTINGS_WINDOW_WIDTH: f64 = 1120.0;
-pub const SETTINGS_WINDOW_HEIGHT: f64 = 700.0;
-pub const SETTINGS_WINDOW_MIN_WIDTH: f64 = 920.0;
-pub const SETTINGS_WINDOW_MIN_HEIGHT: f64 = 560.0;
+pub const SETTINGS_WINDOW_SHADOW_GUTTER: f64 = crate::core::window::WINDOW_SHADOW_GUTTER;
+pub const SETTINGS_WINDOW_CONTENT_WIDTH: f64 = 1120.0;
+pub const SETTINGS_WINDOW_CONTENT_HEIGHT: f64 = 700.0;
+pub const SETTINGS_WINDOW_MIN_CONTENT_WIDTH: f64 = 920.0;
+pub const SETTINGS_WINDOW_MIN_CONTENT_HEIGHT: f64 = 560.0;
+pub const SETTINGS_WINDOW_WIDTH: f64 =
+    SETTINGS_WINDOW_CONTENT_WIDTH + SETTINGS_WINDOW_SHADOW_GUTTER * 2.0;
+pub const SETTINGS_WINDOW_HEIGHT: f64 =
+    SETTINGS_WINDOW_CONTENT_HEIGHT + SETTINGS_WINDOW_SHADOW_GUTTER * 2.0;
+pub const SETTINGS_WINDOW_MIN_WIDTH: f64 =
+    SETTINGS_WINDOW_MIN_CONTENT_WIDTH + SETTINGS_WINDOW_SHADOW_GUTTER * 2.0;
+pub const SETTINGS_WINDOW_MIN_HEIGHT: f64 =
+    SETTINGS_WINDOW_MIN_CONTENT_HEIGHT + SETTINGS_WINDOW_SHADOW_GUTTER * 2.0;
 const SETTINGS_WINDOW_ROUTE: &str = "#/settings";
 
 pub async fn build_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
@@ -44,8 +53,8 @@ async fn build_settings_window_at<R: Runtime>(
     .min_inner_size(SETTINGS_WINDOW_MIN_WIDTH, SETTINGS_WINDOW_MIN_HEIGHT)
     .resizable(true)
     .decorations(false)
-    // Linux 没有 DWM 那样的窗口级圆角，改由透明窗口 + CSS 外壳裁剪。
-    .transparent(cfg!(target_os = "linux"))
+    .shadow(false)
+    .transparent(true)
     .center();
 
     if let Some(browser_args) = crate::core::system::runtime::e2e_webview_additional_browser_args()
@@ -56,7 +65,6 @@ async fn build_settings_window_at<R: Runtime>(
     let window = builder.build().map_err(|e| e.to_string())?;
 
     crate::core::window::webview_defaults::apply_webview_runtime_defaults(&window)?;
-    crate::core::window::rounded_corners::apply_window_corner_style(&window)?;
 
     Ok(())
 }
@@ -94,21 +102,39 @@ pub(crate) fn show_settings_window<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::{
-        SETTINGS_WINDOW_HEIGHT, SETTINGS_WINDOW_MIN_HEIGHT, SETTINGS_WINDOW_MIN_WIDTH,
-        SETTINGS_WINDOW_ROUTE, SETTINGS_WINDOW_WIDTH,
+        SETTINGS_WINDOW_CONTENT_HEIGHT, SETTINGS_WINDOW_CONTENT_WIDTH, SETTINGS_WINDOW_HEIGHT,
+        SETTINGS_WINDOW_MIN_CONTENT_HEIGHT, SETTINGS_WINDOW_MIN_CONTENT_WIDTH,
+        SETTINGS_WINDOW_MIN_HEIGHT, SETTINGS_WINDOW_MIN_WIDTH, SETTINGS_WINDOW_ROUTE,
+        SETTINGS_WINDOW_SHADOW_GUTTER, SETTINGS_WINDOW_WIDTH,
     };
 
     #[test]
     fn settings_window_opens_with_room_for_the_system_settings_layout() {
-        assert!((1100.0..=1140.0).contains(&SETTINGS_WINDOW_WIDTH));
-        assert!((680.0..=720.0).contains(&SETTINGS_WINDOW_HEIGHT));
+        assert_eq!(SETTINGS_WINDOW_CONTENT_WIDTH, 1120.0);
+        assert_eq!(SETTINGS_WINDOW_CONTENT_HEIGHT, 700.0);
+        assert_eq!(
+            SETTINGS_WINDOW_WIDTH,
+            SETTINGS_WINDOW_CONTENT_WIDTH + SETTINGS_WINDOW_SHADOW_GUTTER * 2.0
+        );
+        assert_eq!(
+            SETTINGS_WINDOW_HEIGHT,
+            SETTINGS_WINDOW_CONTENT_HEIGHT + SETTINGS_WINDOW_SHADOW_GUTTER * 2.0
+        );
     }
 
     #[test]
     fn settings_window_min_size_allows_resizing_without_cramping_the_content() {
-        assert!((900.0..=940.0).contains(&SETTINGS_WINDOW_MIN_WIDTH));
+        assert_eq!(SETTINGS_WINDOW_MIN_CONTENT_WIDTH, 920.0);
+        assert_eq!(SETTINGS_WINDOW_MIN_CONTENT_HEIGHT, 560.0);
+        assert_eq!(
+            SETTINGS_WINDOW_MIN_WIDTH,
+            SETTINGS_WINDOW_MIN_CONTENT_WIDTH + SETTINGS_WINDOW_SHADOW_GUTTER * 2.0
+        );
+        assert_eq!(
+            SETTINGS_WINDOW_MIN_HEIGHT,
+            SETTINGS_WINDOW_MIN_CONTENT_HEIGHT + SETTINGS_WINDOW_SHADOW_GUTTER * 2.0
+        );
         assert!(SETTINGS_WINDOW_MIN_WIDTH < SETTINGS_WINDOW_WIDTH);
-        assert!((544.0..=576.0).contains(&SETTINGS_WINDOW_MIN_HEIGHT));
         assert!(SETTINGS_WINDOW_MIN_HEIGHT < SETTINGS_WINDOW_HEIGHT);
     }
 

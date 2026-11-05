@@ -1,5 +1,6 @@
 import { AppEvent } from '@services/EventService';
 import { createPopupManager } from '@services/PopupService/manager';
+import { POPUP_WINDOW_GUTTER } from '@services/PopupService/types';
 import { emit } from '@tauri-apps/api/event';
 import {
     getTauriInvokeCalls,
@@ -168,6 +169,24 @@ describe('user opens a popup next to the search bar', () => {
                     searchQuery: 'updated-before-ready',
                 }),
             },
+        });
+    });
+
+    it('user gets transparent room around the popup panel for its CSS shadow', async () => {
+        const popupManager = createPopupManager();
+        const anchor = buildAnchor();
+
+        await popupManager.show('session-history-popup', anchor, createSessionHistoryData());
+
+        const showCalls = getTauriInvokeCalls('show_popup_window');
+        const showCall = showCalls[showCalls.length - 1];
+        expect(showCall?.payload).toEqual({
+            params: expect.objectContaining({
+                x: 40 - POPUP_WINDOW_GUTTER,
+                y: 120 - POPUP_WINDOW_GUTTER,
+                width: 320 + POPUP_WINDOW_GUTTER * 2,
+                height: 384 + POPUP_WINDOW_GUTTER * 2,
+            }),
         });
     });
 

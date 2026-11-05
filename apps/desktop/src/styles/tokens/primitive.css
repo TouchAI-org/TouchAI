@@ -22,14 +22,20 @@
     /* ── Typography families ─────────────────────────────────────────────── */
 
     --font-sans:
-        -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-    --font-serif: 'TouchAI Source Han Serif SC', 'Noto Serif SC', serif;
+        'Segoe UI Variable Text', 'Segoe UI', -apple-system, BlinkMacSystemFont,
+        'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB',
+        'Noto Sans CJK SC', 'Noto Sans SC', 'WenQuanYi Micro Hei', system-ui, sans-serif;
+    --font-serif:
+        'TouchAI Source Han Serif SC', 'Source Han Serif SC', 'Noto Serif CJK SC', 'Noto Serif SC',
+        'Songti SC', 'STSong', 'SimSun', 'NSimSun', serif;
     /*
      * Previously absent, which meant the 28 `font-mono` usages fell back to
      * Tailwind's default stack while 6 places hard-coded JetBrains Mono by hand.
      * Declaring it here is what makes those two agree.
      */
-    --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
+    --font-mono:
+        'JetBrains Mono', 'Fira Code', 'Cascadia Mono', 'SFMono-Regular', Menlo, Consolas, Monaco,
+        'Noto Sans Mono CJK SC', 'DejaVu Sans Mono', monospace;
 
     /*
      * ── Type scale ────────────────────────────────────────────────────────
@@ -115,6 +121,11 @@
     --radius-action: 0.5625rem;
     --radius-card: 0.75rem;
     --radius-panel: 1rem;
+
+    --shadow-window-key: 0 0 0 1px rgb(15 23 42 / 0.1);
+    --shadow-window-halo: 0 0 8px rgb(15 23 42 / 0.16);
+    --shadow-window-mid: 0 6px 18px -4px rgb(15 23 42 / 0.38);
+    --shadow-window-far: 0 10px 24px -10px rgb(15 23 42 / 0.48);
 
     /* ── Brand ramp (warm brown) ─────────────────────────────────────────── */
 

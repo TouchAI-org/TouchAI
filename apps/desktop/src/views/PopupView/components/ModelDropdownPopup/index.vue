@@ -4,7 +4,7 @@
     <div
         data-model-dropdown-popover="true"
         :class="[
-            'model-dropdown-popover max-h-96 overflow-hidden rounded-lg border border-stone-200/90 bg-white shadow-lg backdrop-blur',
+            'model-dropdown-popover max-h-96 overflow-hidden rounded-lg border border-stone-200/90 bg-white shadow-lg',
             isInPopup ? 'w-full' : 'absolute top-full left-0 z-[9999] mt-2 w-80',
         ]"
     >

@@ -25,3 +25,4 @@ export type {
     SessionHistorySessionItem,
     WindowInfo,
 } from './types';
+export { POPUP_WINDOW_GUTTER } from './types';

@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const onResized = vi.fn();
 const currentMonitor = vi.fn();
 const scaleFactor = vi.fn();
+const isMaximized = vi.fn();
+const isFullscreen = vi.fn();
 
 vi.mock('@tauri-apps/api/window', () => ({
-    getCurrentWindow: () => ({ scaleFactor, onResized }),
+    getCurrentWindow: () => ({ scaleFactor, onResized, isMaximized, isFullscreen }),
     currentMonitor: () => currentMonitor(),
 }));
 
@@ -41,7 +43,11 @@ function resetShellState() {
     onResized.mockReset();
     currentMonitor.mockReset();
     scaleFactor.mockReset();
+    isMaximized.mockReset();
+    isFullscreen.mockReset();
     scaleFactor.mockResolvedValue(1);
+    isMaximized.mockResolvedValue(false);
+    isFullscreen.mockResolvedValue(false);
     currentMonitor.mockResolvedValue(monitorOf(1400, 900));
     stubViewport(750, 60);
 }
@@ -49,12 +55,12 @@ function resetShellState() {
 describe('detectDesktopPlatform', () => {
     beforeEach(resetShellState);
 
-    it('detects Linux from the WebKitGTK user agent', () => {
+    it('user sees Linux detected from the WebKitGTK user agent', () => {
         stubUserAgent(LINUX_UA);
         expect(detectDesktopPlatform()).toBe('linux');
     });
 
-    it('detects Windows and macOS', () => {
+    it('user sees Windows and macOS detected', () => {
         stubUserAgent(WINDOWS_UA);
         expect(detectDesktopPlatform()).toBe('windows');
 
@@ -62,12 +68,12 @@ describe('detectDesktopPlatform', () => {
         expect(detectDesktopPlatform()).toBe('macos');
     });
 
-    it('reports unknown for an unrecognised user agent', () => {
+    it('user sees an unrecognised user agent reported as unknown', () => {
         stubUserAgent('SomeOtherAgent/1.0');
         expect(detectDesktopPlatform()).toBe('unknown');
     });
 
-    it('marks the document root so the Linux-only shell CSS can apply', () => {
+    it('user gets a document marker so the shared shell CSS can apply', () => {
         stubUserAgent(LINUX_UA);
         applyDesktopPlatformClass();
 
@@ -78,17 +84,20 @@ describe('detectDesktopPlatform', () => {
 describe('initializeDesktopShell', () => {
     beforeEach(resetShellState);
 
-    it('does not touch the shell state on platforms with native rounded corners', () => {
+    it('user gets the shared shell state tracked on Windows too', async () => {
         stubUserAgent(WINDOWS_UA);
 
         initializeDesktopShell();
 
         expect(document.documentElement.dataset.platform).toBe('windows');
-        expect(onResized).not.toHaveBeenCalled();
-        expect(currentMonitor).not.toHaveBeenCalled();
+        await vi.waitFor(() => {
+            expect(document.documentElement.dataset.windowMaximized).toBe('false');
+        });
+        expect(onResized).toHaveBeenCalled();
+        expect(currentMonitor).toHaveBeenCalled();
     });
 
-    it('keeps the radius for a normal floating window', async () => {
+    it('user keeps the radius for a normal floating window', async () => {
         stubUserAgent(LINUX_UA);
 
         initializeDesktopShell();
@@ -98,7 +107,7 @@ describe('initializeDesktopShell', () => {
         });
     });
 
-    it('drops the radius when the window fills the monitor', async () => {
+    it('user loses the radius when the window fills the monitor', async () => {
         stubUserAgent(LINUX_UA);
         stubViewport(1400, 900);
 
@@ -109,9 +118,7 @@ describe('initializeDesktopShell', () => {
         });
     });
 
-    it('drops the radius for a fullscreen window that reports no maximize state', async () => {
-        // sway 在 Wayland 下全屏时 isMaximized()/isFullscreen() 都是 false，
-        // 只有窗口尺寸等于显示器尺寸这一个可靠信号。
+    it('user loses the radius for a fullscreen window that fills the monitor', async () => {
         stubUserAgent(LINUX_UA);
         stubViewport(1400, 900);
 
@@ -122,7 +129,29 @@ describe('initializeDesktopShell', () => {
         });
     });
 
-    it('compares against logical monitor size on a scaled display', async () => {
+    it('user loses the radius when the platform reports a maximized window', async () => {
+        stubUserAgent(WINDOWS_UA);
+        isMaximized.mockResolvedValue(true);
+
+        initializeDesktopShell();
+
+        await vi.waitFor(() => {
+            expect(document.documentElement.dataset.windowMaximized).toBe('true');
+        });
+    });
+
+    it('user loses the radius when the platform reports a fullscreen window', async () => {
+        stubUserAgent(LINUX_UA);
+        isFullscreen.mockResolvedValue(true);
+
+        initializeDesktopShell();
+
+        await vi.waitFor(() => {
+            expect(document.documentElement.dataset.windowMaximized).toBe('true');
+        });
+    });
+
+    it('user gets monitor bounds compared in logical pixels on a scaled display', async () => {
         stubUserAgent(LINUX_UA);
         scaleFactor.mockResolvedValue(2);
         currentMonitor.mockResolvedValue(monitorOf(2800, 1800));
@@ -135,7 +164,7 @@ describe('initializeDesktopShell', () => {
         });
     });
 
-    it('re-reads the state after the window is resized', async () => {
+    it('user gets the shell state re-read after the window is resized', async () => {
         stubUserAgent(LINUX_UA);
 
         initializeDesktopShell();
@@ -152,7 +181,7 @@ describe('initializeDesktopShell', () => {
         });
     });
 
-    it('keeps the radius when the monitor cannot be resolved', async () => {
+    it('user keeps the radius when the monitor cannot be resolved', async () => {
         stubUserAgent(LINUX_UA);
         currentMonitor.mockResolvedValue(null);
         stubViewport(1400, 900);

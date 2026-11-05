@@ -120,7 +120,6 @@ windows = { version = "0.62", features = [
     "Foundation",
     "Foundation_Collections",
     "UI_Notifications",
-    "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_Foundation",
     "Win32_Storage_FileSystem",

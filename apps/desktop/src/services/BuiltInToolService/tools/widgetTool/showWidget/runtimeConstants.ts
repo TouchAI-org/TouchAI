@@ -91,9 +91,11 @@ export const SHOW_WIDGET_THEME_FALLBACKS: Record<ShowWidgetThemeVarName, string>
     '--color-scrollbar-thumb': 'rgba(156, 163, 175, 0.4)',
     '--color-scrollbar-thumb-hover': 'rgba(156, 163, 175, 0.6)',
     '--font-sans':
-        "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif",
-    '--font-serif': "'TouchAI Source Han Serif SC', 'Noto Serif SC', serif",
-    '--font-mono': "'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace",
+        "'Segoe UI Variable Text', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', 'Noto Sans SC', 'WenQuanYi Micro Hei', system-ui, sans-serif",
+    '--font-serif':
+        "'TouchAI Source Han Serif SC', 'Source Han Serif SC', 'Noto Serif CJK SC', 'Noto Serif SC', 'Songti SC', 'STSong', 'SimSun', 'NSimSun', serif",
+    '--font-mono':
+        "'JetBrains Mono', 'Fira Code', 'Cascadia Mono', 'SFMono-Regular', Menlo, Consolas, Monaco, 'Noto Sans Mono CJK SC', 'DejaVu Sans Mono', monospace",
     '--border-radius-md': '10px',
     '--border-radius-lg': '12px',
     '--border-radius-xl': '16px',

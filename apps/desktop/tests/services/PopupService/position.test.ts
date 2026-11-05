@@ -1,5 +1,9 @@
 import { createPopupPositionCalculator } from '@services/PopupService/position';
-import type { PopupConfig, WindowInfo } from '@services/PopupService/types';
+import {
+    POPUP_WINDOW_GUTTER,
+    type PopupConfig,
+    type WindowInfo,
+} from '@services/PopupService/types';
 import { describe, expect, it, vi } from 'vitest';
 
 function createWindowInfo(): WindowInfo {
@@ -33,10 +37,10 @@ describe('user opens a popup anchored to the search bar', () => {
         await expect(
             calculator.calculate('session-history-popup', triggerElement)
         ).resolves.toEqual({
-            x: 180,
-            y: 260,
-            width: 320,
-            height: 384,
+            x: 180 - POPUP_WINDOW_GUTTER,
+            y: 260 - POPUP_WINDOW_GUTTER,
+            width: 320 + POPUP_WINDOW_GUTTER * 2,
+            height: 384 + POPUP_WINDOW_GUTTER * 2,
         });
     });
 

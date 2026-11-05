@@ -1,5 +1,5 @@
 import type { popupRegistry } from './registry';
-import type { PopupPosition, PopupType, WindowInfo } from './types';
+import { POPUP_WINDOW_GUTTER, type PopupPosition, type PopupType, type WindowInfo } from './types';
 
 interface PopupPositionCalculatorOptions {
     getPopupConfig: typeof popupRegistry.get;
@@ -20,10 +20,10 @@ export function createPopupPositionCalculator(options: PopupPositionCalculatorOp
         const position = config.calculatePosition(triggerElement, windowInfo, dimensions);
 
         return {
-            x: position.x,
-            y: position.y,
-            width: config.width,
-            height: config.height,
+            x: position.x - POPUP_WINDOW_GUTTER,
+            y: position.y - POPUP_WINDOW_GUTTER,
+            width: config.width + POPUP_WINDOW_GUTTER * 2,
+            height: config.height + POPUP_WINDOW_GUTTER * 2,
         };
     }
 

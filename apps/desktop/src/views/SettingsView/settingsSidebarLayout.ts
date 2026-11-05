@@ -12,6 +12,19 @@ export const SETTINGS_DETAIL_PANEL_MIN_WIDTH = 360;
 export const SETTINGS_RESIZE_KEYBOARD_STEP = 16;
 export const SETTINGS_PRIMARY_SIDEBAR_RESIZE_EVENT = 'settings-primary-sidebar-resize';
 export const SETTINGS_SECONDARY_PANEL_RESIZE_EVENT = 'settings-secondary-panel-resize';
+const SETTINGS_WINDOW_SHELL_SELECTOR = '[data-testid="settings-window-shell"]';
+
+export function readSettingsWindowContentWidth(): number {
+    const shell = document.querySelector(SETTINGS_WINDOW_SHELL_SELECTOR);
+    if (shell instanceof HTMLElement) {
+        const rectWidth = shell.getBoundingClientRect().width;
+        if (Number.isFinite(rectWidth) && rectWidth > 0) {
+            return rectWidth;
+        }
+    }
+
+    return window.innerWidth;
+}
 
 interface SettingsSidebarClampOptions {
     availableWidth?: number;

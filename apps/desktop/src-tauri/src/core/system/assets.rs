@@ -31,15 +31,17 @@ const FONT_EXPECTED_SHA256: &str =
 
 /// CDN 地址列表（按优先级排序）
 const FONT_CDN_URLS: &[&str] = &[
-    "https://jsd.onmicrosoft.cn/npm/@fontpkg/source-han-serif-sc-vf@2.3.2/SourceHanSerifSC-VF.ttf.woff2",
     "https://s4.zstatic.net/npm/@fontpkg/source-han-serif-sc-vf@2.3.2/SourceHanSerifSC-VF.ttf.woff2",
+    "https://cdn.jsdelivr.net/npm/@fontpkg/source-han-serif-sc-vf@2.3.2/SourceHanSerifSC-VF.ttf.woff2",
+    "https://jsd.onmicrosoft.cn/npm/@fontpkg/source-han-serif-sc-vf@2.3.2/SourceHanSerifSC-VF.ttf.woff2",
 ];
 
-/// 下载超时时间（秒）
-const DOWNLOAD_TIMEOUT_SECS: u64 = 30;
+/// 下载超时要覆盖完整的 21.6 MB 响应体读取，而不只是建立连接。
+const DOWNLOAD_TIMEOUT_SECS: u64 = 120;
+const DOWNLOAD_CONNECT_TIMEOUT_SECS: u64 = 15;
 
 /// 最大重试轮次（每轮会尝试所有 CDN）
-const MAX_RETRY_ROUNDS: usize = 5;
+const MAX_RETRY_ROUNDS: usize = 2;
 
 /// 获取字体文件路径
 fn get_font_path() -> Result<PathBuf, String> {
@@ -165,12 +167,20 @@ async fn download_from_url(url: &str) -> Result<Vec<u8>, String> {
     info!("Attempting to download font from: {}", url);
 
     let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(
+            DOWNLOAD_CONNECT_TIMEOUT_SECS,
+        ))
         .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
+        .no_zstd()
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
     let response = client
         .get(url)
+        .header(reqwest::header::ACCEPT_ENCODING, "identity")
         .send()
         .await
         .map_err(|e| format!("Failed to send request: {}", e))?;
@@ -321,8 +331,8 @@ mod tests {
     use super::sha256_hex;
     use super::{
         is_valid_font_file, is_valid_font_file_with, replace_font_file,
-        try_download_from_cdns_with, validate_font_data, FONT_CDN_URLS, FONT_FILENAME,
-        MAX_RETRY_ROUNDS,
+        try_download_from_cdns_with, validate_font_data, DOWNLOAD_CONNECT_TIMEOUT_SECS,
+        DOWNLOAD_TIMEOUT_SECS, FONT_CDN_URLS, FONT_FILENAME, MAX_RETRY_ROUNDS,
     };
     use tempfile::tempdir;
     use tokio::fs;
@@ -407,14 +417,46 @@ mod tests {
     /// stat -c%s /tmp/package/SourceHanSerifSC-VF.ttf.woff2
     /// ```
     #[test]
-    fn font_download_retry_budget_covers_multiple_cdn_rounds() {
+    fn user_gets_a_download_window_long_enough_for_the_full_font_body() {
         assert!(
-            MAX_RETRY_ROUNDS >= 5,
-            "font download should retry each CDN at least 5 rounds"
+            DOWNLOAD_TIMEOUT_SECS >= 90,
+            "the 21.6 MB font can take over a minute on a slow CDN"
         );
         assert!(
-            MAX_RETRY_ROUNDS * FONT_CDN_URLS.len() >= 10,
-            "font download should have at least 10 total CDN attempts"
+            DOWNLOAD_CONNECT_TIMEOUT_SECS < DOWNLOAD_TIMEOUT_SECS,
+            "connection setup must fail before the whole-body deadline"
+        );
+    }
+
+    #[test]
+    fn user_does_not_wait_through_unbounded_retry_rounds() {
+        assert!(
+            (2..=3).contains(&MAX_RETRY_ROUNDS),
+            "retries should survive a transient failure without blocking startup for many minutes"
+        );
+        assert!(
+            MAX_RETRY_ROUNDS * FONT_CDN_URLS.len() >= 6,
+            "the app should still try every CDN fallback in each round"
+        );
+    }
+
+    #[test]
+    fn user_gets_a_reachable_cdn_after_the_expired_certificate_mirror() {
+        assert!(
+            FONT_CDN_URLS
+                .iter()
+                .any(|url| url.starts_with("https://s4.zstatic.net/")),
+            "the directly reachable Chinese mirror must stay in the fallback list"
+        );
+        assert!(
+            FONT_CDN_URLS
+                .iter()
+                .any(|url| url.starts_with("https://cdn.jsdelivr.net/")),
+            "jsDelivr is the secondary fallback when the Chinese mirrors fail"
+        );
+        assert!(
+            FONT_CDN_URLS.iter().all(|url| url.starts_with("https://")),
+            "font downloads must use TLS"
         );
     }
 

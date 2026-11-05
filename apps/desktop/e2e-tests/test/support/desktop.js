@@ -15,7 +15,8 @@ import { SEARCH_FIXTURE_QUERY, SEARCH_FIXTURE_RESULTS } from './fixtures.js';
 const DEFAULT_TIMEOUT_MS = 15000;
 
 /**
- * The settings window size the app opens with.
+ * The native settings window size the app opens with. It includes the 24 px
+ * transparent shadow gutter on each side; the visible surface remains 1120x700.
  *
  * Mirrors `SETTINGS_WINDOW_WIDTH`/`SETTINGS_WINDOW_HEIGHT` in
  * `src-tauri/src/core/window/settings/mod.rs`. Visual baselines use it so they
@@ -23,7 +24,19 @@ const DEFAULT_TIMEOUT_MS = 15000;
  * Rust file asserts those constants stay in a sane range, and
  * `tests/ci/e2e-visual-coverage.test.ts` asserts this copy matches them.
  */
-export const SETTINGS_WINDOW_DEFAULT_SIZE = [1120, 700];
+export const SETTINGS_WINDOW_DEFAULT_SIZE = [1168, 748];
+
+/**
+ * Transparent room on each side of the main search window for its CSS shadow.
+ *
+ * Mirrors `WINDOW_SHADOW_GUTTER` in
+ * `src-tauri/src/core/window/mod.rs`; the visible search surface stays 750x60.
+ */
+export const SEARCH_WINDOW_SHADOW_GUTTER = 24;
+
+export function searchWindowSize(width, height) {
+    return [width + SEARCH_WINDOW_SHADOW_GUTTER * 2, height + SEARCH_WINDOW_SHADOW_GUTTER * 2];
+}
 
 export function assertVisible(condition, message) {
     if (!condition) {
@@ -112,14 +125,16 @@ export async function useSearchFixture(
  * Baselines are rendered at 1x by the CI runner, which is the environment that
  * gates a PR, so that is where the strict 2% applies. A scaled display (125% or
  * 150%) captures more pixels and the comparison resamples them back down; that
- * alone costs a couple of percent on text-heavy screens, so a local run gets a
- * wider budget instead of failing on its own DPI. Returning the same 2% there
- * would make the suite unusable on a laptop; returning a wide budget everywhere
- * would weaken the gate.
+ * alone costs a couple of percent on text-heavy screens, and the compact 750x60
+ * search bar concentrates every antialiased glyph and corner into that budget
+ * (measured at 6.9% on a 150% display). A local run therefore gets a wider budget
+ * instead of failing on its own DPI. Returning the same 2% there would make the
+ * suite unusable on a laptop; returning a wide budget everywhere would weaken the
+ * gate.
  */
 export async function visualMismatchTolerance() {
     const devicePixelRatio = await browser.execute(() => window.devicePixelRatio);
-    return devicePixelRatio === 1 ? 2 : 5;
+    return devicePixelRatio === 1 ? 2 : 8;
 }
 
 /**

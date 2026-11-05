@@ -20,10 +20,37 @@ use windows::Win32::{
 };
 
 use super::search::bounds::{clamp_height, clamp_width, HeightMode, SearchWindowFrame};
+use super::WINDOW_SHADOW_GUTTER;
 
 const DEFAULT_ANIMATION_DURATION_MS: u64 = 180;
 const ANIMATION_FRAME_INTERVAL_MS: u64 = 16;
 const HEIGHT_TOLERANCE: f64 = 1.0;
+
+fn window_shadow_inset_for_label(label: &str) -> f64 {
+    if label == "main" {
+        WINDOW_SHADOW_GUTTER
+    } else {
+        0.0
+    }
+}
+
+fn window_shadow_inset<R: Runtime>(window: &WebviewWindow<R>) -> f64 {
+    window_shadow_inset_for_label(window.label())
+}
+
+fn native_window_size(content_width: f64, content_height: f64, shadow_inset: f64) -> (f64, f64) {
+    (
+        content_width + shadow_inset * 2.0,
+        content_height + shadow_inset * 2.0,
+    )
+}
+
+fn content_window_size(native_width: f64, native_height: f64, shadow_inset: f64) -> (f64, f64) {
+    (
+        (native_width - shadow_inset * 2.0).max(0.0),
+        (native_height - shadow_inset * 2.0).max(0.0),
+    )
+}
 
 /// 最大化窗口跳过内容驱动的 resize，避免撑满屏幕时被自动高度覆盖。
 fn is_content_driven_resize_allowed<R: Runtime>(window: &WebviewWindow<R>) -> Result<bool, String> {
@@ -165,17 +192,22 @@ fn apply_centered_window_frame_atomically<R: Runtime>(
 /// 应用窗口尺寸，并在需要时同步调整中心位置。
 fn apply_window_size<R: Runtime>(
     window: &WebviewWindow<R>,
-    logical_width: f64,
-    logical_height: f64,
+    content_width: f64,
+    content_height: f64,
     center: bool,
     logical_x: Option<f64>,
     base_logical_y: Option<f64>,
-    base_logical_height: f64,
+    base_content_height: f64,
     monitor: &Option<Monitor>,
     scale_factor: f64,
 ) -> Result<(), String> {
+    let shadow_inset = window_shadow_inset(window);
+    let (logical_width, logical_height) =
+        native_window_size(content_width, content_height, shadow_inset);
     let centered_position = if center {
         if let (Some(logical_x), Some(base_logical_y)) = (logical_x, base_logical_y) {
+            let (_, base_logical_height) =
+                native_window_size(content_width, base_content_height, shadow_inset);
             let adjusted_y = centered_window_y(
                 base_logical_y,
                 base_logical_height,
@@ -200,7 +232,6 @@ fn apply_window_size<R: Runtime>(
             logical_height,
             scale_factor,
         )? {
-            crate::core::window::rounded_corners::sync_window_corner_style(window)?;
             return Ok(());
         }
     }
@@ -211,7 +242,6 @@ fn apply_window_size<R: Runtime>(
             height: logical_height,
         }))
         .map_err(|e| e.to_string())?;
-    crate::core::window::rounded_corners::sync_window_corner_style(window)?;
 
     if let Some((logical_x, adjusted_y)) = centered_position {
         window
@@ -220,7 +250,6 @@ fn apply_window_size<R: Runtime>(
                 y: adjusted_y,
             }))
             .map_err(|e| e.to_string())?;
-        crate::core::window::rounded_corners::sync_window_corner_style(window)?;
     }
 
     Ok(())
@@ -228,7 +257,10 @@ fn apply_window_size<R: Runtime>(
 
 #[cfg(test)]
 mod tests {
-    use super::{centered_window_y, clamp_window_y, WindowAnimationState};
+    use super::{
+        centered_window_y, clamp_window_y, content_window_size, native_window_size,
+        window_shadow_inset_for_label, WindowAnimationState,
+    };
 
     #[cfg(target_os = "windows")]
     use super::logical_to_physical_i32;
@@ -238,6 +270,23 @@ mod tests {
         let next_y = centered_window_y(300.0, 60.0, 180.0, &None, 1.0);
 
         assert_eq!(next_y, 240.0);
+    }
+
+    #[test]
+    fn user_gets_a_search_window_with_transparent_shadow_room_on_every_side() {
+        let inset = window_shadow_inset_for_label("main");
+
+        assert_eq!(inset, 24.0);
+        assert_eq!(native_window_size(750.0, 60.0, inset), (798.0, 108.0));
+        assert_eq!(content_window_size(798.0, 108.0, inset), (750.0, 60.0));
+    }
+
+    #[test]
+    fn user_gets_only_the_visible_content_size_from_a_search_window() {
+        let inset = window_shadow_inset_for_label("main");
+
+        assert_eq!(content_window_size(798.0, 108.0, inset), (750.0, 60.0));
+        assert_eq!(content_window_size(798.0, 128.0, inset), (750.0, 80.0));
     }
 
     // Two resizes can overlap: the renderer asks for a new height while an earlier animation is
@@ -333,9 +382,14 @@ mod tests {
 /// 设置窗口最小尺寸（逻辑像素）。
 fn apply_window_min_size<R: Runtime>(
     window: &WebviewWindow<R>,
-    logical_width: f64,
-    logical_height: f64,
+    content_width: f64,
+    content_height: f64,
 ) -> Result<(), String> {
+    let (logical_width, logical_height) = native_window_size(
+        clamp_width(content_width),
+        clamp_height(content_height),
+        window_shadow_inset(window),
+    );
     window
         .set_min_size(Some(tauri::Size::Logical(tauri::LogicalSize {
             width: clamp_width(logical_width),
@@ -351,21 +405,28 @@ const DEFAULT_MAX_HEIGHT_UNCONSTRAINED: f64 = 2000.0;
 /// 设置窗口尺寸约束（最小宽高 + 可选最大高度）。
 fn apply_window_resize_constraints<R: Runtime>(
     window: &WebviewWindow<R>,
-    min_width: f64,
-    min_height: f64,
-    max_height: Option<f64>,
+    min_content_width: f64,
+    min_content_height: f64,
+    max_content_height: Option<f64>,
 ) -> Result<(), String> {
+    let shadow_inset = window_shadow_inset(window);
+    let (min_width, min_height) = native_window_size(
+        clamp_width(min_content_width),
+        clamp_height(min_content_height),
+        shadow_inset,
+    );
+    let (_, max_height) = native_window_size(
+        min_content_width,
+        clamp_height(max_content_height.unwrap_or(DEFAULT_MAX_HEIGHT_UNCONSTRAINED)),
+        shadow_inset,
+    );
+
     window
         .set_size_constraints(WindowSizeConstraints {
-            min_width: Some(LogicalUnit::new(clamp_width(min_width)).into()),
-            min_height: Some(LogicalUnit::new(clamp_height(min_height)).into()),
+            min_width: Some(LogicalUnit::new(min_width).into()),
+            min_height: Some(LogicalUnit::new(min_height).into()),
             max_width: None,
-            max_height: Some(
-                LogicalUnit::new(clamp_height(
-                    max_height.unwrap_or(DEFAULT_MAX_HEIGHT_UNCONSTRAINED),
-                ))
-                .into(),
-            ),
+            max_height: Some(LogicalUnit::new(max_height).into()),
         })
         .map_err(|error| format!("Failed to set search window size constraints: {}", error))
 }
@@ -375,12 +436,18 @@ fn logical_frame_from_physical(
     position: PhysicalPosition<i32>,
     size: PhysicalSize<u32>,
     scale_factor: f64,
+    shadow_inset: f64,
 ) -> SearchWindowFrame {
+    let (width, height) = content_window_size(
+        f64::from(size.width) / scale_factor,
+        f64::from(size.height) / scale_factor,
+        shadow_inset,
+    );
     SearchWindowFrame {
         x: f64::from(position.x) / scale_factor,
         y: f64::from(position.y) / scale_factor,
-        width: f64::from(size.width) / scale_factor,
-        height: f64::from(size.height) / scale_factor,
+        width,
+        height,
     }
 }
 
@@ -400,7 +467,12 @@ pub fn record_search_window_runtime_resize<R: Runtime>(
     let position = window.outer_position().map_err(|e| e.to_string())?;
     let size = window.outer_size().map_err(|e| e.to_string())?;
     Ok(runtime.window_state().record_runtime_resize(
-        logical_frame_from_physical(position, size, scale_factor),
+        logical_frame_from_physical(
+            position,
+            size,
+            scale_factor,
+            window_shadow_inset_for_label(window.label()),
+        ),
         runtime.should_allow_height_override(),
         false,
     ))
@@ -463,6 +535,7 @@ pub fn reset_search_window_to_defaults<R: Runtime>(
             position,
             window.outer_size().map_err(|e| e.to_string())?,
             scale_factor,
+            window_shadow_inset(window),
         );
         runtime.window_state().begin_programmatic_resize();
         runtime.window_state().note_programmatic_resize_target(
@@ -487,7 +560,6 @@ pub fn reset_search_window_to_defaults<R: Runtime>(
         window
             .center()
             .map_err(|e| format!("Failed to center search window: {}", e))?;
-        crate::core::window::rounded_corners::sync_window_corner_style(window)?;
         runtime.window_state().apply_programmatic_size(
             Some(snapshot.current_width),
             Some(snapshot.current_height),
@@ -558,8 +630,12 @@ pub async fn resize_window_height<R: Runtime>(
 
     let scale_factor = window.scale_factor().map_err(|e| e.to_string())?;
     let size = window.inner_size().map_err(|e| e.to_string())?;
-    let logical_width = f64::from(size.width) / scale_factor;
-    let start_height = f64::from(size.height) / scale_factor;
+    let shadow_inset = window_shadow_inset(&window);
+    let (logical_width, start_height) = content_window_size(
+        f64::from(size.width) / scale_factor,
+        f64::from(size.height) / scale_factor,
+        shadow_inset,
+    );
     if search_window_runtime.is_some() {
         apply_window_min_size(&window, logical_width, clamped_height)?;
     }

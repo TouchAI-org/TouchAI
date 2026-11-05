@@ -14,6 +14,7 @@
 import {
     assertVisible,
     callE2eBridge,
+    searchWindowSize,
     useInterfaceLanguage,
     useProductFont,
     useSearchFixture,
@@ -85,12 +86,12 @@ describe('user works in the main window with a conversation', () => {
         await callE2eBridge('setConversation', []);
         await callE2eBridge('clearAskUser');
         await browser.execute(() => window.__TOUCHAI_E2E__?.setSearchQuery?.(''));
-        await browser.setWindowSize(750, 60);
+        await browser.setWindowSize(...searchWindowSize(750, 60));
         await browser.pause(500);
     });
 
     it('user sees the search results panel keep its layout while typing', async () => {
-        await browser.setWindowSize(750, 80);
+        await browser.setWindowSize(...searchWindowSize(750, 80));
         // A query no real file matches: the bridge answers for it from the fixture this
         // spec registered, so the pixels do not depend on what happens to be on this
         // machine's disk.
@@ -113,12 +114,15 @@ describe('user works in the main window with a conversation', () => {
     });
 
     it('user sees the conversation panel with a finished answer', async () => {
+        // Resize before the conversation exists. Resizing afterwards counts as a
+        // manual height override, and the app intentionally stops content-driven
+        // resizing once the user has chosen a height.
+        await browser.setWindowSize(...searchWindowSize(750, 620));
+
         await callE2eBridge('setConversation', CONVERSATION_FIXTURE);
 
-        // The window grows to fit the conversation, so it is resized first and the
-        // element is queried afterwards: a handle taken before the reflow goes stale
-        // and `getBoundingClientRect` fails.
-        await browser.setWindowSize(750, 620);
+        // The window grows to fit the conversation, so the element is queried after
+        // the reflow: a handle taken earlier can go stale and fail on its geometry.
         await waitForTestIdDisplayed('conversation-panel-host');
         await browser.pause(1200);
 
@@ -131,7 +135,7 @@ describe('user works in the main window with a conversation', () => {
     it('user sees the ask-user panel when a tool needs a decision', async () => {
         await callE2eBridge('setAskUserRequest', APPROVAL_REQUEST);
 
-        await browser.setWindowSize(750, 520);
+        await browser.setWindowSize(...searchWindowSize(750, 520));
         const panel = await waitForTestIdDisplayed('ask-user-panel');
         await browser.pause(800);
 

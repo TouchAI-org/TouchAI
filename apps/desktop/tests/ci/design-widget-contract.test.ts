@@ -94,7 +94,7 @@ function resolveTokenValue(name: string, seen = new Set<string>()): string | nul
  * unchanged.
  */
 function normalizeCssValue(value: string): string {
-    const trimmed = value.trim().toLowerCase();
+    const trimmed = value.trim().replace(/\s+/g, ' ').toLowerCase();
     const length = trimmed.match(/^(-?\d+(?:\.\d+)?)(px|rem|em)?$/);
 
     if (!length) {

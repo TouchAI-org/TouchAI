@@ -64,8 +64,8 @@ describe('user opens a built-in popup', () => {
         expect(popupRegistry.has('model-dropdown-popup')).toBe(true);
         expect(popupRegistry.has('session-history-popup')).toBe(true);
         expect(popupRegistry.getSerializableConfig()).toEqual([
-            { id: 'model-dropdown-popup', width: 320, height: 384 },
-            { id: 'session-history-popup', width: 320, height: 384 },
+            { id: 'model-dropdown-popup', width: 368, height: 432 },
+            { id: 'session-history-popup', width: 368, height: 432 },
         ]);
     });
 
@@ -93,7 +93,7 @@ describe('user opens a built-in popup', () => {
         });
 
         expect(position).toEqual({
-            x: 493,
+            x: 500,
             y: 235,
         });
     });
@@ -118,7 +118,7 @@ describe('user opens a built-in popup', () => {
         });
 
         expect(position).toEqual({
-            x: 493,
+            x: 500,
             y: 205,
         });
     });
@@ -151,6 +151,38 @@ describe('user opens a built-in popup', () => {
 
         expect(position).toEqual({
             x: 400,
+            y: 255,
+        });
+    });
+
+    it('user sees the popup move inward when its shadow would cross the screen edge', async () => {
+        const { initializeBuiltInPopups, popupRegistry } = await loadRegistryModule();
+        initializeBuiltInPopups();
+
+        const trigger = document.createElement('button');
+        defineRect(trigger, { top: 320, right: 1000, bottom: 350, left: 960 });
+        document.body.appendChild(trigger);
+
+        const config = popupRegistry.get('session-history-popup');
+        expect(config).toBeDefined();
+        if (!config) {
+            throw new Error('Expected session history popup config');
+        }
+        const position = config.calculatePosition(
+            trigger,
+            createWindowInfo({
+                position: { x: 800, y: 100 },
+                screenPosition: { x: 0, y: 0 },
+                screenSize: { width: 1800, height: 520 },
+            }),
+            {
+                width: config.width,
+                height: 160,
+            }
+        );
+
+        expect(position).toEqual({
+            x: 1456,
             y: 255,
         });
     });

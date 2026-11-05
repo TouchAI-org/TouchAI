@@ -4,7 +4,7 @@
     <div
         data-search-history-popover="true"
         :class="[
-            'history-popover max-h-96 overflow-hidden rounded-lg border border-stone-200/90 bg-white shadow-lg backdrop-blur',
+            'history-popover max-h-96 overflow-hidden rounded-lg border border-stone-200/90 bg-white shadow-lg',
             isInPopup ? 'w-full' : 'absolute top-full right-0 z-40 mt-2 w-80',
         ]"
     >
