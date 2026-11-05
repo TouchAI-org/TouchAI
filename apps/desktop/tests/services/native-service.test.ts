@@ -532,6 +532,57 @@ describe('user data is read and written through typed database operations', () =
             code: 'database-busy',
         });
     });
+
+    it.each([
+        {
+            name: 'user sees a structured native error object as an Error',
+            backendError: { message: 'database locked', code: 'database-locked' },
+            message: 'database locked',
+            code: 'database-locked',
+        },
+        {
+            name: 'user sees a structured native error without a code',
+            backendError: { message: 'database closed' },
+            message: 'database closed',
+            code: undefined,
+        },
+        {
+            name: 'user sees an object without a message as a stable Error',
+            backendError: { code: 'database-unknown' },
+            message: '[object Object]',
+            code: undefined,
+        },
+        {
+            name: 'user sees a primitive native error as an Error',
+            backendError: 'database offline',
+            message: 'database offline',
+            code: undefined,
+        },
+        {
+            name: 'user sees a missing native error as a stable Error',
+            backendError: null,
+            message: 'null',
+            code: undefined,
+        },
+    ])('$name', async ({ backendError, message, code }) => {
+        interceptTauriInvoke((call, next) => {
+            if (call.cmd === 'database_operation') {
+                throw backendError;
+            }
+
+            return next();
+        });
+
+        const error = await database
+            .operation({ kind: 'setting_get', key: 'language' })
+            .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(Error);
+        expect(error).toMatchObject({ message });
+        if (code) {
+            expect(error).toMatchObject({ code });
+        }
+    });
 });
 
 describe('user uses MCP tools', () => {
