@@ -189,6 +189,26 @@ describe('SearchOverlayHost', () => {
         wrapper.unmount();
     });
 
+    it('user sees the picker aligned to the surface with the reported position matching its visible bounds', async () => {
+        const anchor = document.createElement('button');
+        const surface = document.createElement('main');
+        vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue(rect(64, 400, 32, 32));
+        vi.spyOn(surface, 'getBoundingClientRect').mockReturnValue(rect(48, 64, 750, 400));
+        const wrapper = mount(SearchOverlayHost, {
+            props: { open: true, anchor, leftAlignElement: surface },
+            slots: { default: '<div>models</div>' },
+        });
+        await nextTick();
+        await (wrapper.vm as unknown as { refreshPosition: () => Promise<void> }).refreshPosition();
+        const positions = wrapper.emitted('positioned')!;
+        const positioned = positions[positions.length - 1]![0] as { left: number };
+        expect(positioned.left).toBe(48);
+        expect(wrapper.get('[data-search-overlay-host=true]').attributes('style')).toContain(
+            'left: 48px'
+        );
+        wrapper.unmount();
+    });
+
     it('keeps the region envelope outside the transformed motion layer', async () => {
         const anchor = document.createElement('button');
         vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue(rect(20, 20));

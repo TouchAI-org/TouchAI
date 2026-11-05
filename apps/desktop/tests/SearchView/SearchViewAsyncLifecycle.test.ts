@@ -14,6 +14,7 @@ const {
     lifecycleState,
     requestFlowState,
     resizeState,
+    regionState,
     runtimeModeState,
     startupState,
     surfacePreparationState,
@@ -64,6 +65,7 @@ const {
         collapseSessionToIdle: vi.fn(),
         resetSearchWindowBounds: vi.fn(),
     },
+    regionState: { flush: vi.fn<() => Promise<boolean>>() },
     runtimeModeState: {
         isE2eTestMode: vi.fn(),
     },
@@ -357,7 +359,7 @@ vi.mock('@/views/SearchView/composables/useSearchWindowResize', async () => {
 vi.mock('@/views/SearchView/searchWindowRegions', () => ({
     createSearchWindowRegionReporter: () => ({
         schedule: vi.fn(),
-        flush: vi.fn().mockResolvedValue(true),
+        flush: regionState.flush,
         dispose: vi.fn(),
     }),
     createSearchWindowRegionSignature: vi.fn(() => ''),
@@ -441,6 +443,7 @@ describe('SearchView async overlay and listener lifecycle', () => {
         resizeState.collapseSessionToIdle.mockResolvedValue(true);
         resizeState.resetSearchWindowBounds.mockResolvedValue(undefined);
         resizeState.options = null;
+        regionState.flush.mockResolvedValue(true);
         surfacePreparationState.start.mockResolvedValue(true);
         delete (window as Window & { __TOUCHAI_E2E__?: unknown }).__TOUCHAI_E2E__;
 
@@ -471,6 +474,7 @@ describe('SearchView async overlay and listener lifecycle', () => {
         document.body.innerHTML = '';
         delete (window as Window & { __TOUCHAI_E2E__?: unknown }).__TOUCHAI_E2E__;
         vi.useRealTimers();
+        vi.restoreAllMocks();
     });
 
     function mountSearchView() {
@@ -541,6 +545,56 @@ describe('SearchView async overlay and listener lifecycle', () => {
         expect(currentOverlayRevealed).toBe(true);
         expect(setup.activeOverlay).toBe('session-history');
         expect(setup.overlayPositionReady).toBe(true);
+    });
+
+    it('user sees the reopened picker only after the viewport and native clipping region contain it', async () => {
+        vi.useFakeTimers();
+        let viewportHeight = 180;
+        vi.spyOn(document.documentElement, 'clientHeight', 'get').mockImplementation(
+            () => viewportHeight
+        );
+        const setup = getSetupState(mountSearchView());
+        await setup.handleToggleModelDropdownRequest();
+        const position = {
+            left: 48,
+            top: 161,
+            side: 'bottom' as const,
+            requiredViewportHeight: 553,
+        };
+        setup.handleOverlayPositioned(position);
+        await vi.advanceTimersByTimeAsync(500);
+        expect(setup.overlayPositionReady).toBe(false);
+
+        const regionAccepted = deferred<boolean>();
+        regionState.flush.mockReturnValueOnce(regionAccepted.promise);
+        viewportHeight = 601;
+        setup.handleOverlayPositioned(position);
+        await vi.advanceTimersByTimeAsync(500);
+        expect(setup.overlayPositionReady).toBe(false);
+
+        regionAccepted.resolve(true);
+        await vi.advanceTimersByTimeAsync(50);
+        expect(setup.overlayPositionReady).toBe(true);
+    });
+
+    it('user can dismiss the picker while its native clipping region is still being prepared', async () => {
+        vi.useFakeTimers();
+        const regionAccepted = deferred<boolean>();
+        regionState.flush.mockReturnValueOnce(regionAccepted.promise);
+        const setup = getSetupState(mountSearchView());
+        await setup.handleToggleModelDropdownRequest();
+        setup.handleOverlayPositioned({
+            left: 48,
+            top: 161,
+            side: 'bottom',
+            requiredViewportHeight: null,
+        });
+        await vi.advanceTimersByTimeAsync(100);
+        await setup.hideAllOverlays();
+        regionAccepted.resolve(true);
+        await vi.advanceTimersByTimeAsync(100);
+        expect(setup.activeOverlay).toBe('none');
+        expect(setup.overlayPositionReady).toBe(false);
     });
 
     it.each(['fillConversationAvailableHeight', 'effectiveWindowMaximized'] as const)(

@@ -977,8 +977,8 @@ describe('useSearchWindowResize', () => {
                     };
                 })
         );
-        await mounted.result.playSessionExpandAnimation(290);
-        await vi.advanceTimersByTimeAsync(20);
+        const expansion = mounted.result.playSessionExpandAnimation(290);
+        await flushLifecycle();
         nativeMock.window.commitSearchPanelResize.mockImplementationOnce(
             async ({ to, physicalOrigin }) => {
                 origin = physicalOrigin;
@@ -993,7 +993,7 @@ describe('useSearchWindowResize', () => {
         const manualResize = mounted.result.commitLogicalPanelResize();
         await flushLifecycle();
         acknowledgePosition();
-        await Promise.all([preview, manualResize]);
+        await Promise.all([expansion, preview, manualResize]);
         await vi.advanceTimersByTimeAsync(500);
 
         expect(origin).toEqual({ x: 200, y: 300 });
@@ -1017,6 +1017,30 @@ describe('useSearchWindowResize', () => {
         await vi.advanceTimersByTimeAsync(400);
 
         expect(origin).toEqual({ x: 200, y: 570 });
+        mounted.unmount();
+    });
+
+    it('user keeps the conversation centre when native growth moves the host before acknowledging its size', async () => {
+        let origin = { x: 0, y: 438 };
+        currentWindowMock.outerPosition.mockImplementation(async () => origin);
+        currentWindowMock.setPosition.mockImplementation(async (position) => {
+            origin = { x: position.x, y: position.y };
+        });
+        currentMonitorMock.mockResolvedValue({
+            workArea: { position: { x: 0, y: 0 }, size: { width: 1920, height: 1080 } },
+        });
+        const { mounted } = await mount();
+        await flushLifecycle();
+        nativeMock.window.commitSearchPanelResize.mockImplementationOnce(async ({ to }) => {
+            origin = { x: 0, y: 276 };
+            windowMoveMock.emit(origin.x, origin.y);
+            currentWindowMock.outerSize.mockResolvedValue({ width: 846, height: 804 });
+            return createWindowState({ currentHeight: to.height });
+        });
+        await mounted.result.playSessionExpandAnimation(660);
+        await vi.advanceTimersByTimeAsync(500);
+
+        expect(origin.y + 96 + 660 / 2).toBe(438 + 96 + 60 / 2);
         mounted.unmount();
     });
 

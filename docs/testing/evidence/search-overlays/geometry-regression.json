@@ -1,0 +1,86 @@
+{
+    "runner": "apps/desktop/tests/layout/searchSurfaceGeometry.browser.mjs",
+    "scope": "Real browser WAAPI and overlay layout with simulated native window moves; not native desktop E2E or release performance evidence.",
+    "cases": [
+        {
+            "panelWidth": 420,
+            "displayScale": 1,
+            "interrupted": false,
+            "maximumCenterDriftPhysicalPixels": 0.00768280029296875,
+            "pickerLeft": 48,
+            "cardLeft": 48,
+            "pickerBottom": 691,
+            "viewportLimit": 900
+        },
+        {
+            "panelWidth": 420,
+            "displayScale": 1,
+            "interrupted": true,
+            "maximumCenterDriftPhysicalPixels": 0.00830078125,
+            "pickerLeft": 48,
+            "cardLeft": 48,
+            "pickerBottom": 631,
+            "viewportLimit": 900
+        },
+        {
+            "panelWidth": 420,
+            "displayScale": 1.5,
+            "interrupted": false,
+            "maximumCenterDriftPhysicalPixels": 0.01153564453125,
+            "pickerLeft": 48,
+            "cardLeft": 48,
+            "pickerBottom": 659,
+            "viewportLimit": 900
+        },
+        {
+            "panelWidth": 420,
+            "displayScale": 1.5,
+            "interrupted": true,
+            "maximumCenterDriftPhysicalPixels": 0.019603729248046875,
+            "pickerLeft": 48,
+            "cardLeft": 48,
+            "pickerBottom": 599,
+            "viewportLimit": 900
+        },
+        {
+            "panelWidth": 750,
+            "displayScale": 1,
+            "interrupted": false,
+            "maximumCenterDriftPhysicalPixels": 0.00775146484375,
+            "pickerLeft": 48,
+            "cardLeft": 48,
+            "pickerBottom": 691,
+            "viewportLimit": 900
+        },
+        {
+            "panelWidth": 750,
+            "displayScale": 1,
+            "interrupted": true,
+            "maximumCenterDriftPhysicalPixels": 0.00830078125,
+            "pickerLeft": 48,
+            "cardLeft": 48,
+            "pickerBottom": 631,
+            "viewportLimit": 900
+        },
+        {
+            "panelWidth": 750,
+            "displayScale": 1.5,
+            "interrupted": false,
+            "maximumCenterDriftPhysicalPixels": 0.0116729736328125,
+            "pickerLeft": 48,
+            "cardLeft": 48,
+            "pickerBottom": 659,
+            "viewportLimit": 900
+        },
+        {
+            "panelWidth": 750,
+            "displayScale": 1.5,
+            "interrupted": true,
+            "maximumCenterDriftPhysicalPixels": 0.012462615966796875,
+            "pickerLeft": 48,
+            "cardLeft": 48,
+            "pickerBottom": 599,
+            "viewportLimit": 900
+        }
+    ]
+}

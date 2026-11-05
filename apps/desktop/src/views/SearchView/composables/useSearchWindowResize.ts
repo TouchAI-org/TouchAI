@@ -116,17 +116,24 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     function animateCardHeight(
         fromHeight: number,
         toHeight: number,
-        duration: number
+        duration: number,
+        startOffsetY = 0
     ): Animation | null {
         const card = options.card?.value ?? null;
         if (!card || typeof card.animate !== 'function') return null;
         if (duration <= 0 || Math.abs(fromHeight - toHeight) < 1) return null;
 
-        return card.animate([{ height: `${fromHeight}px` }, { height: `${toHeight}px` }], {
-            duration,
-            easing: SEARCH_SURFACE_EASING,
-            fill: 'both',
-        });
+        return card.animate(
+            [
+                { height: `${fromHeight}px`, transform: `translateY(${startOffsetY}px)` },
+                { height: `${toHeight}px`, transform: 'translateY(0)' },
+            ],
+            {
+                duration,
+                easing: SEARCH_SURFACE_EASING,
+                fill: 'both',
+            }
+        );
     }
     /**
      * Held while a QuickSearch list is folding into a conversation.
@@ -152,6 +159,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     let geometryMode: SurfaceGeometryMode = 'idle';
     /** Frame position when a popup took the layout over; the frame holds it until it closes. */
     let frozenOriginY: number | null = null;
+    let nativeGeometryInFlight = false;
 
     /** Placements outside the drift invalidate both its reference and its starting point. */
     function invalidateHostAnchor() {
@@ -264,7 +272,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             frame.x,
             frame.fromY,
             frame.toY,
-            motionDuration(SEARCH_SURFACE_MOTION.durationMs - SEARCH_SURFACE_MOTION.hostLeadMs),
+            motionDuration(SEARCH_SURFACE_MOTION.durationMs),
             generation
         );
     }
@@ -278,12 +286,18 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     ) {
         const token = hostShiftToken;
         const startedAt = performance.now();
+        const animation = cardAnimation.value;
         let applied: number | null = null;
         const step = async () => {
             if (!isCurrentGeometry(generation) || token !== hostShiftToken) return;
-            const progress = reducedMotion.value
-                ? 1
-                : Math.min(1, (performance.now() - startedAt) / duration);
+            // WAAPI can start after this task; both tracks must use its actual clock.
+            const elapsed =
+                animation && 'currentTime' in animation
+                    ? animation.playState === 'idle' || animation.playState === 'finished'
+                        ? duration
+                        : Number(animation.currentTime ?? 0)
+                    : performance.now() - startedAt;
+            const progress = reducedMotion.value ? 1 : Math.min(1, elapsed / duration);
             const y = Math.round(fromY + (toY - fromY) * easeHostShift(progress));
             if (y !== applied) {
                 applied = y;
@@ -373,7 +387,9 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         toHeight: number,
         generation: number,
         animateFrame: boolean,
-        frameMode: SurfaceGeometryMode
+        frameMode: SurfaceGeometryMode,
+        previousOriginY?: number,
+        interruptedOffsetY = 0
     ) {
         const frame = await readSurfaceFrame(
             resolveSurfaceFrameY({
@@ -387,12 +403,28 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             generation
         );
         if (!isCurrentGeometry(generation)) return null;
+        let startOffsetY =
+            frame && previousOriginY !== undefined
+                ? (previousOriginY - frame.fromY) / scaleFactor() + interruptedOffsetY
+                : interruptedOffsetY;
+        const growsFromCenter = frame && animateFrame && toHeight > fromHeight;
+        if (growsFromCenter) {
+            // A single native placement reserves the final envelope. The browser owns both
+            // visible tracks, so IPC latency cannot pull the card away from its centre.
+            cancelHostShift();
+            await writeHostPosition(frame.x, frame.toY, generation, hostShiftToken);
+            if (!isCurrentGeometry(generation)) return null;
+            startOffsetY =
+                ((previousOriginY ?? frame.fromY) - (hostAnchor?.y ?? frame.toY)) / scaleFactor() +
+                interruptedOffsetY;
+        }
         cardAnimation.value = animateCardHeight(
             fromHeight,
             toHeight,
-            motionDuration(SEARCH_SURFACE_MOTION.durationMs)
+            motionDuration(SEARCH_SURFACE_MOTION.durationMs),
+            startOffsetY
         );
-        applySurfaceFrame(frame, animateFrame, generation);
+        if (!growsFromCenter) applySurfaceFrame(frame, animateFrame, generation);
         return cardAnimation.value;
     }
     const isCardGrowing = computed(() => cardAnimation.value !== null);
@@ -619,6 +651,15 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                 ? currentCardHeight()
                 : (activeHeightChange.value?.fromHeight ?? currentCardHeight())
         );
+        const visibleCard = options.card?.value;
+        const interruptedTransform =
+            !envelopeOnly && cardAnimation.value && visibleCard
+                ? getComputedStyle(visibleCard).transform
+                : '';
+        const interruptedOffsetY =
+            interruptedTransform && interruptedTransform !== 'none'
+                ? new DOMMatrixReadOnly(interruptedTransform).m42
+                : 0;
         const generation = envelopeOnly ? commitGeneration : claimGeometry();
         const wasMaximized = desiredMaximized.value;
         if (commitOptions.reset) desiredMaximized.value = false;
@@ -658,6 +699,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         const shrinks = animatesCard && revealFrom > target;
 
         await enqueueGeometry(generation, async () => {
+            nativeGeometryInFlight = true;
             let animation: Animation | null = null;
             let revealContinues = false;
             let nativeCommitted = false;
@@ -669,7 +711,9 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                         target,
                         generation,
                         centreFrame,
-                        frameMode
+                        frameMode,
+                        undefined,
+                        interruptedOffsetY
                     );
                     await animation?.finished.catch(() => undefined);
                     if (!isCurrentGeometry(generation)) return;
@@ -704,7 +748,9 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                             state.currentHeight,
                             generation,
                             centreFrame,
-                            frameMode
+                            frameMode,
+                            previousOrigin?.y,
+                            interruptedOffsetY
                         );
                     }
                 } else {
@@ -762,6 +808,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                     }
                 }
             } finally {
+                nativeGeometryInFlight = false;
                 if (change && !revealContinues) {
                     finishCardTransition(change, generation, animation, nativeCommitted);
                     if (isCurrentGeometry(generation)) snapHostToHeight(currentHeight.value);
@@ -1372,7 +1419,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         .onMoved(({ payload }) => {
             // Only track the frame when no drift owns it: the drift writes its own position
             // every frame and its echo must not become the next anchor.
-            if (hostShiftFrame === null && hostPositionWrite === null) {
+            if (!nativeGeometryInFlight && hostShiftFrame === null && hostPositionWrite === null) {
                 recordIdleOrigin(payload);
                 viewportSyncScheduler.schedule();
             }
