@@ -84,3 +84,52 @@ async fn validate_snapshot(path: &Path) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::database::contract::create_sqlite_pool;
+
+    #[tokio::test]
+    async fn user_keeps_the_database_usable_and_no_snapshot_after_a_failed_export() {
+        let root = tempfile::tempdir().unwrap();
+        let database_path = root.path().join("touchai.db");
+        let pool = create_sqlite_pool(&database_path).await.unwrap();
+        sqlx::query("CREATE TABLE export_probe (id INTEGER PRIMARY KEY, value TEXT NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO export_probe (value) VALUES ('still-usable')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let blocked_target = root.path().join("blocked.db");
+        fs::create_dir(&blocked_target).unwrap();
+        let error = run_export_backup(
+            &pool,
+            &database_path,
+            blocked_target.to_string_lossy().as_ref(),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(error.contains("Failed to write database backup"), "{error}");
+        let value: String = sqlx::query_scalar("SELECT value FROM export_probe WHERE id = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(value, "still-usable");
+
+        let temporary_directories = fs::read_dir(root.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.is_dir() && path != &blocked_target)
+            .collect::<Vec<_>>();
+        assert!(
+            temporary_directories.is_empty(),
+            "{temporary_directories:?}"
+        );
+        pool.close().await;
+    }
+}

@@ -1,9 +1,10 @@
 mod common;
 
 use common::{build_test_app, invoke_command_err, invoke_command_ok, TestAppOptions};
-use serde_json::json;
-use sqlx::{sqlite::SqliteConnectOptions, Connection};
+use serde_json::{json, Value};
+use sqlx::{sqlite::SqliteConnectOptions, Connection, SqliteConnection};
 use tauri::{WebviewUrl, WebviewWindowBuilder};
+use touchai_lib::testing::{database_path_for_tests, decode_row};
 
 fn database_operation(
     webview: &tauri::WebviewWindow<tauri::test::MockRuntime>,
@@ -17,12 +18,15 @@ fn execute_sql(
     sql: &str,
     params: serde_json::Value,
 ) {
-    let response: serde_json::Value = invoke_command_ok(
-        webview,
-        "database_query",
-        json!({ "request": { "sql": sql, "params": params, "method": "run" } }),
-    );
-    assert!(response["rowsAffected"].as_u64().is_some());
+    tauri::async_runtime::block_on(async {
+        let mut connection = connect_test_database(webview).await;
+        let query = bind_test_values(sqlx::query(sqlx::AssertSqlSafe(sql.to_owned())), &params);
+        query
+            .execute(&mut connection)
+            .await
+            .expect("execute test SQL");
+        connection.close().await.expect("close test database");
+    });
 }
 
 fn query_sql(
@@ -30,38 +34,54 @@ fn query_sql(
     sql: &str,
     params: serde_json::Value,
 ) -> serde_json::Value {
-    invoke_command_ok(
-        webview,
-        "database_query",
-        json!({ "request": { "sql": sql, "params": params, "method": "all" } }),
-    )
-}
-
-#[test]
-fn database_query_returns_rows_from_sqlite_runtime() {
-    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
-
-    let response: serde_json::Value = invoke_command_ok(
-        &test_app.main_webview,
-        "database_query",
+    tauri::async_runtime::block_on(async {
+        let mut connection = connect_test_database(webview).await;
+        let query = bind_test_values(sqlx::query(sqlx::AssertSqlSafe(sql.to_owned())), &params);
+        let rows = query
+            .fetch_all(&mut connection)
+            .await
+            .expect("query test SQL")
+            .iter()
+            .map(|row| Value::Object(decode_row(row).expect("decode test SQL row")))
+            .collect::<Vec<_>>();
+        connection.close().await.expect("close test database");
         json!({
-            "request": {
-                "sql": "SELECT 1 AS value",
-                "method": "get"
-            }
-        }),
-    );
-
-    assert_eq!(
-        response,
-        json!({
-            "rows": [
-                { "value": 1 }
-            ],
+            "rows": rows,
             "rowsAffected": 0,
             "lastInsertId": null
         })
-    );
+    })
+}
+
+async fn connect_test_database(
+    webview: &tauri::WebviewWindow<tauri::test::MockRuntime>,
+) -> SqliteConnection {
+    let path = database_path_for_tests(webview);
+    SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(path))
+        .await
+        .expect("open test database")
+}
+
+fn bind_test_values<'q>(
+    mut query: sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments>,
+    params: &Value,
+) -> sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments> {
+    for value in params.as_array().into_iter().flatten() {
+        query = match value {
+            Value::Null => query.bind(Option::<String>::None),
+            Value::Bool(value) => query.bind(*value),
+            Value::Number(value) => {
+                if let Some(integer) = value.as_i64() {
+                    query.bind(integer)
+                } else {
+                    query.bind(value.as_f64().expect("number is finite"))
+                }
+            }
+            Value::String(value) => query.bind(value.clone()),
+            value => query.bind(value.to_string()),
+        };
+    }
+    query
 }
 
 #[test]
@@ -766,124 +786,27 @@ fn user_cannot_use_a_preview_window_to_read_settings() {
 }
 
 #[test]
-fn database_query_rejects_top_level_transaction_sql() {
+fn user_gets_quick_search_click_stats_through_the_typed_upsert() {
     let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
-
-    let error = invoke_command_err(
-        &test_app.main_webview,
-        "database_query",
-        json!({
-            "request": {
-                "sql": "BEGIN IMMEDIATE",
-                "method": "run"
-            }
-        }),
-    );
-
-    assert_eq!(
-        error,
-        json!("Top-level database_query 不允许直接发送事务控制 SQL")
-    );
-}
-
-#[test]
-fn database_transaction_commands_persist_changes_after_commit() {
-    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
-
-    let tx_id: String = invoke_command_ok(
-        &test_app.main_webview,
-        "database_tx_begin",
-        json!({
-            "behavior": "immediate"
-        }),
-    );
-
-    let insert_response: serde_json::Value = invoke_command_ok(
-        &test_app.main_webview,
-        "database_tx_query",
-        json!({
-            "txId": tx_id,
-            "request": {
-                "sql": "INSERT INTO sessions (id, session_id, title, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                "params": [1001, "session_rust_test_1001", "rust-test-session", "gpt-test", "2026-05-16 00:00:00", "2026-05-16 00:00:00"],
-                "method": "run"
-            }
-        }),
-    );
-
-    assert_eq!(insert_response["rowsAffected"], 1);
-
-    let commit_response: () = invoke_command_ok(
-        &test_app.main_webview,
-        "database_tx_commit",
-        json!({
-            "txId": tx_id
-        }),
-    );
-    assert_eq!(commit_response, ());
-
-    let persisted: serde_json::Value = invoke_command_ok(
-        &test_app.main_webview,
-        "database_query",
-        json!({
-            "request": {
-                "sql": "SELECT title FROM sessions WHERE id = ?",
-                "params": [1001],
-                "method": "get"
-            }
-        }),
-    );
-
-    assert_eq!(
-        persisted,
-        json!({
-            "rows": [
-                { "title": "rust-test-session" }
-            ],
-            "rowsAffected": 0,
-            "lastInsertId": null
-        })
-    );
-}
-
-#[test]
-fn quick_search_click_stats_upsert_uses_declared_conflict_target() {
-    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
-    let upsert_sql = "INSERT INTO quick_search_click_stats (query_norm, path_norm, click_count) \
-        VALUES (?, ?, 1) \
-        ON CONFLICT(query_norm, path_norm) DO UPDATE SET \
-        click_count = quick_search_click_stats.click_count + 1";
 
     for _ in 0..2 {
-        let response: serde_json::Value = invoke_command_ok(
+        database_operation(
             &test_app.main_webview,
-            "database_query",
             json!({
-                "request": {
-                    "sql": upsert_sql,
-                    "params": ["touch ai", "d:\\tool.lnk"],
-                    "method": "run"
-                }
+                "kind": "quick_search_upsert",
+                "queryNorm": "touch ai",
+                "pathNorm": "d:\\tool.lnk",
+                "maxClickCount": 100
             }),
         );
-
-        assert_eq!(response["rowsAffected"], 1);
     }
 
-    let row: serde_json::Value = invoke_command_ok(
-        &test_app.main_webview,
-        "database_query",
-        json!({
-            "request": {
-                "sql": "SELECT query_norm, path_norm, click_count FROM quick_search_click_stats WHERE query_norm = ? AND path_norm = ?",
-                "params": ["touch ai", "d:\\tool.lnk"],
-                "method": "get"
-            }
-        }),
-    );
-
     assert_eq!(
-        row,
+        query_sql(
+            &test_app.main_webview,
+            "SELECT query_norm, path_norm, click_count FROM quick_search_click_stats WHERE query_norm = ? AND path_norm = ?",
+            json!(["touch ai", "d:\\tool.lnk"]),
+        ),
         json!({
             "rows": [
                 {
@@ -896,25 +819,6 @@ fn quick_search_click_stats_upsert_uses_declared_conflict_target() {
             "lastInsertId": null
         })
     );
-}
-
-#[test]
-fn database_tx_query_reports_missing_transactions() {
-    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
-
-    let error = invoke_command_err(
-        &test_app.main_webview,
-        "database_tx_query",
-        json!({
-            "txId": "tx_missing",
-            "request": {
-                "sql": "SELECT 1",
-                "method": "get"
-            }
-        }),
-    );
-
-    assert_eq!(error, json!("Transaction 'tx_missing' was not found"));
 }
 
 #[test]
@@ -1029,76 +933,34 @@ fn user_cannot_use_popup_or_preview_windows_for_database_backups() {
 }
 
 #[test]
-fn database_import_backup_rejects_requests_while_a_transaction_is_open() {
-    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
-
-    let tx_id: String = invoke_command_ok(
-        &test_app.main_webview,
-        "database_tx_begin",
-        json!({
-            "behavior": "deferred"
-        }),
-    );
-
-    let error = invoke_command_err(
-        &test_app.main_webview,
-        "database_import_backup",
-        json!({
-            "request": {
-                "sourcePath": "D:/non-existent.db",
-                "mode": "full"
-            }
-        }),
-    );
-
-    assert_eq!(error, json!("当前仍有进行中的数据库事务，请稍后重试导入"));
-
-    let rollback_response: () = invoke_command_ok(
-        &test_app.main_webview,
-        "database_tx_rollback",
-        json!({
-            "txId": tx_id
-        }),
-    );
-    assert_eq!(rollback_response, ());
-}
-
-#[test]
 fn database_search_index_supports_contentless_delete_on_bundled_sqlite() {
     let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
-    let query = |sql: &str, params: serde_json::Value, method: &str| -> serde_json::Value {
-        invoke_command_ok(
-            &test_app.main_webview,
-            "database_query",
-            json!({ "request": { "sql": sql, "params": params, "method": method } }),
-        )
-    };
-    query(
+    execute_sql(
+        &test_app.main_webview,
         "INSERT INTO sessions (id, session_id, title, model) VALUES (1001, 'fts-test', 'Search', 'test')",
         json!([]),
-        "run",
     );
-    query(
+    execute_sql(
+        &test_app.main_webview,
         "INSERT INTO messages (id, session_id, role) VALUES (1001, 1001, 'assistant')",
         json!([]),
-        "run",
     );
     for (kind, content, order) in [
         ("text", "中文", 0),
         ("reasoning", "Hidden thought", 1),
         ("text", "搜索", 2),
     ] {
-        query(
+        execute_sql(
+            &test_app.main_webview,
             "INSERT INTO message_parts (message_id, type, content, sort_order) VALUES (1001, ?, ?, ?)",
             json!([kind, content, order]),
-            "run",
         );
     }
     let search = || {
-        query(
+        query_sql(
+            &test_app.main_webview,
             "SELECT rowid, content FROM message_search_fts WHERE message_search_fts MATCH ?",
             json!(["\"中文搜\""]),
-            "all",
         )
     };
     assert_eq!(
@@ -1106,22 +968,30 @@ fn database_search_index_supports_contentless_delete_on_bundled_sqlite() {
         json!([{ "rowid": 1001, "content": null }])
     );
     assert_eq!(
-        query(
+        query_sql(
+            &test_app.main_webview,
             "SELECT rowid FROM message_search_fts WHERE message_search_fts MATCH ?",
             json!(["\"Hid\""]),
-            "all",
         )["rows"],
         json!([])
     );
-    query(
+    execute_sql(
+        &test_app.main_webview,
         "UPDATE message_parts SET content = '答案' WHERE message_id = 1001 AND sort_order = 2",
         json!([]),
-        "run",
     );
     assert_eq!(search()["rows"], json!([]));
-    query("DELETE FROM sessions WHERE id = 1001", json!([]), "run");
+    execute_sql(
+        &test_app.main_webview,
+        "DELETE FROM sessions WHERE id = 1001",
+        json!([]),
+    );
     assert_eq!(
-        query("SELECT rowid FROM message_search_fts", json!([]), "all")["rows"],
+        query_sql(
+            &test_app.main_webview,
+            "SELECT rowid FROM message_search_fts",
+            json!([]),
+        )["rows"],
         json!([])
     );
 }
@@ -1239,6 +1109,91 @@ fn user_gets_a_parent_tool_message_when_the_typed_create_has_only_a_session() {
     assert_eq!(parent["rows"], json!([{ "role": "tool_call" }]));
 }
 
+#[test]
+fn user_updates_a_tool_result_only_in_the_message_that_owns_the_call_id() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO sessions (id, session_id, title, model)
+         VALUES (1001, 'typed-tool-scope', 'Tool scope', 'gpt-test');
+         INSERT INTO messages (id, session_id, role)
+         VALUES (1101, 1001, 'tool_call'), (1102, 1001, 'tool_call')",
+        json!([]),
+    );
+
+    let first = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "tool_part_create",
+            "toolKind": "builtin",
+            "data": {
+                "message_id": 1101,
+                "tool_call_id": "shared-call",
+                "tool_id": "shell",
+                "input": "{}",
+                "status": "streaming"
+            }
+        }),
+    );
+    let second = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "tool_part_create",
+            "toolKind": "builtin",
+            "data": {
+                "message_id": 1102,
+                "tool_call_id": "shared-call",
+                "tool_id": "shell",
+                "input": "{}",
+                "status": "streaming"
+            }
+        }),
+    );
+
+    let first_result = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "task_persist_tool_result",
+            "input": {
+                "toolCallPartId": null,
+                "toolCallId": "shared-call",
+                "toolCallMessageId": 1101,
+                "result": "first result",
+                "attachments": []
+            }
+        }),
+    );
+    assert_eq!(first_result["part"]["id"], first["id"]);
+
+    let second_result = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "task_persist_tool_result",
+            "input": {
+                "toolCallPartId": null,
+                "toolCallId": "shared-call",
+                "toolCallMessageId": 1101,
+                "result": "replacement result",
+                "attachments": []
+            }
+        }),
+    );
+    assert_eq!(second_result["part"]["id"], first["id"]);
+
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT id, message_id, json_extract(data, '$.output') AS output
+             FROM message_parts WHERE tool_call_id = 'shared-call' ORDER BY message_id",
+            json!([]),
+        )["rows"],
+        json!([
+            { "id": first["id"], "message_id": 1101, "output": "replacement result" },
+            { "id": second["id"], "message_id": 1102, "output": null }
+        ])
+    );
+}
+
 fn seed_task_model(webview: &tauri::WebviewWindow<tauri::test::MockRuntime>) {
     execute_sql(
         webview,
@@ -1297,14 +1252,24 @@ fn terminal_behavior() -> serde_json::Value {
 }
 
 fn usage_summary(input_tokens: i64, output_tokens: i64) -> serde_json::Value {
+    usage_summary_with(input_tokens, output_tokens, 0, 0, 0)
+}
+
+fn usage_summary_with(
+    input_tokens: i64,
+    output_tokens: i64,
+    reasoning_tokens: i64,
+    total_cost_micros: i64,
+    unpriced_calls: i64,
+) -> serde_json::Value {
     json!({
         "inputTokens": input_tokens,
         "outputTokens": output_tokens,
         "cacheReadTokens": 0,
         "cacheWriteTokens": 0,
-        "reasoningTokens": 0,
-        "totalCostMicros": 0,
-        "unpricedCalls": 0,
+        "reasoningTokens": reasoning_tokens,
+        "totalCostMicros": total_cost_micros,
+        "unpricedCalls": unpriced_calls,
         "ttftMs": 120,
         "llmCallCount": 1
     })
@@ -1462,6 +1427,152 @@ fn user_gets_the_output_message_usage_attempt_and_turn_committed_together() {
             "llm_call_count": 1,
             "ttft_ms": 120
         }])
+    );
+}
+
+#[test]
+fn user_gets_reasoning_cost_and_llm_call_order_preserved_across_retries() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let started = start_typed_task(&test_app.main_webview);
+    let turn_id = started["turn"]["id"].as_i64().expect("turn id");
+    let first_attempt_id = started["attempt"]["id"].as_i64().expect("first attempt id");
+
+    let retried = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "task_begin_next_attempt",
+            "input": {
+                "turnId": turn_id,
+                "currentAttemptId": first_attempt_id,
+                "currentAttemptIndex": 1,
+                "errorMessage": "temporary failure",
+                "durationMs": 900,
+                "finishedAt": "2026-11-05 10:00:01",
+                "attemptIndex": 2,
+                "maxRetries": 2,
+                "checkpointJson": "{\"iteration\":2}",
+                "deliveryManifestJson": "{\"attachments\":[]}",
+                "startedAt": "2026-11-05 10:00:02",
+                "usage": {
+                    "calls": [{ "data": "{\"call\":\"first\",\"costMicros\":123}" }],
+                    "summary": usage_summary_with(10, 20, 5, 123, 0)
+                },
+                "behavior": terminal_behavior()
+            }
+        }),
+    );
+    let second_attempt_id = retried["attempt"]["id"]
+        .as_i64()
+        .expect("second attempt id");
+    assert_ne!(second_attempt_id, first_attempt_id);
+
+    let finished = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "task_finish",
+            "input": {
+                "sessionId": started["session_id"],
+                "turnId": turn_id,
+                "attemptId": second_attempt_id,
+                "assistantMessageId": null,
+                "pendingMessageId": null,
+                "status": "completed",
+                "errorMessage": null,
+                "durationMs": 2500,
+                "tokensUsed": 67,
+                "finishedAt": "2026-11-05 10:00:04",
+                "parts": [
+                    { "type": "reasoning", "content": "Retry plan" },
+                    { "type": "text", "content": "Release ready" }
+                ],
+                "usage": {
+                    "calls": [
+                        { "data": "{\"call\":\"second-a\",\"costMicros\":40}" },
+                        { "data": "{\"call\":\"second-b\",\"costMicros\":37}" }
+                    ],
+                    "summary": usage_summary_with(30, 40, 7, 77, 1)
+                },
+                "behavior": terminal_behavior(),
+                "turnBootstrap": null
+            }
+        }),
+    );
+    let assistant_message_id = finished["assistant_message_id"]
+        .as_i64()
+        .expect("assistant message id");
+
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT attempt_index, reasoning_tokens, total_cost_micros, unpriced_calls
+             FROM session_turn_attempts WHERE turn_id = ? ORDER BY attempt_index",
+            json!([turn_id]),
+        )["rows"],
+        json!([
+            {
+                "attempt_index": 1,
+                "reasoning_tokens": 5,
+                "total_cost_micros": 123,
+                "unpriced_calls": 0
+            },
+            {
+                "attempt_index": 2,
+                "reasoning_tokens": 7,
+                "total_cost_micros": 77,
+                "unpriced_calls": 1
+            }
+        ])
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT reasoning_tokens, total_cost_micros, unpriced_calls,
+                    llm_call_count
+             FROM session_turns WHERE id = ?",
+            json!([turn_id]),
+        )["rows"],
+        json!([{
+            "reasoning_tokens": 12,
+            "total_cost_micros": 200,
+            "unpriced_calls": 1,
+            "llm_call_count": 2
+        }])
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT type, sort_order, json_extract(data, '$.call') AS call,
+                    json_extract(data, '$.costMicros') AS cost_micros
+             FROM message_parts
+             WHERE message_id = ? ORDER BY sort_order",
+            json!([assistant_message_id]),
+        )["rows"],
+        json!([
+            {
+                "type": "reasoning",
+                "sort_order": 0,
+                "call": null,
+                "cost_micros": null
+            },
+            {
+                "type": "text",
+                "sort_order": 1,
+                "call": null,
+                "cost_micros": null
+            },
+            {
+                "type": "llm_call",
+                "sort_order": 2,
+                "call": "second-a",
+                "cost_micros": 40
+            },
+            {
+                "type": "llm_call",
+                "sort_order": 3,
+                "call": "second-b",
+                "cost_micros": 37
+            }
+        ])
     );
 }
 
