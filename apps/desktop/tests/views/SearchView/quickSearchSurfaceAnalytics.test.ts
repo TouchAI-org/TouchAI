@@ -158,6 +158,7 @@ describe('user hides the search surface while quick search is open', () => {
         expect(quickSearchOperationId).toBeDefined();
         expect(telemetry.released).toContain(quickSearchOperationId);
         expect(telemetry.active.has(quickSearchOperationId!)).toBe(false);
+        expect(telemetry.active.size).toBe(0);
         expect(wrapper.find('[data-testid="quick-search-panel"]').exists()).toBe(true);
         expect(wrapper.get('[data-testid="quick-search-panel"]').text()).toContain('TouchAI');
         expect(wrapper.get('.search-bar-editor-content').text()).toContain('touchai');
@@ -169,6 +170,7 @@ describe('user hides the search surface while quick search is open', () => {
         await flushPromises();
 
         expect(telemetry.active.has(quickSearchOperationId!)).toBe(false);
+        expect(telemetry.active.size).toBe(0);
         expect(
             telemetry.events.filter((event) => event.eventName === 'search.completed')
         ).toHaveLength(1);

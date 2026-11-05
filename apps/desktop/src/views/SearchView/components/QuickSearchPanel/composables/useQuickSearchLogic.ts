@@ -195,8 +195,13 @@ function useQuickSearchFlow(
     }
 
     function captureSearchSelection() {
+        panelSessionActive = false;
+        if (!interactionReady && results.value.length > 0) {
+            beginSearchInteractionSession();
+        }
         const ready = interactionReady;
         interactionReady = null;
+        panelSessionActive = false;
         return ready ? { ready, resultCount: results.value.length } : null;
     }
 
