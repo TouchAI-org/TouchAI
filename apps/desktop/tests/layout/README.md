@@ -28,5 +28,5 @@ native-boundary requests; desktop E2E and release performance remain separate ch
 `node tests/layout/searchSurfaceGeometry.browser.mjs` additionally exercises centered
 conversation expansion, interruption by another session, and model-picker alignment
 at both widths. It runs the real WAAPI and overlay component, with a native boundary
-that moves the host before acknowledging its size. It records per-frame screen-space
+that moves the host 24ms before acknowledging its size. It records per-frame screen-space
 centers and checks that the picker stays outside the editor and inside its hard bounds.
