@@ -1,7 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { t, tt } from '@/i18n';
-import { createTauriFetch } from '@/services/AgentService/infrastructure/providers';
+import { cancelResponseBody, createTauriFetch } from '@/services/HttpService';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
 import {
@@ -120,14 +120,6 @@ function resolveRedirectUrl(location: string, baseUrl: URL): URL {
     }
 }
 
-async function cancelRedirectBody(response: Response): Promise<void> {
-    try {
-        await response.body?.cancel('WebFetch redirect');
-    } catch {
-        // Redirect bodies are discarded; cancellation failures should not mask fetch results.
-    }
-}
-
 async function fetchWithSafeRedirects(
     request: WebFetchRequest,
     signal: AbortSignal
@@ -150,7 +142,7 @@ async function fetchWithSafeRedirects(
         }
 
         if (redirectCount >= MAX_WEB_FETCH_REDIRECTS) {
-            await cancelRedirectBody(response);
+            await cancelResponseBody(response, 'WebFetch redirect');
             throw new WebFetchControlError(
                 t('builtInTools.webFetch.error.tooManyRedirects', {
                     maxRedirections: MAX_WEB_FETCH_REDIRECTS,
@@ -158,13 +150,17 @@ async function fetchWithSafeRedirects(
             );
         }
 
+        // Following the redirect: release the discarded redirect body before its
+        // target is validated, so an invalid or disallowed Location still frees
+        // the native reader instead of leaking it until GC.
+        await cancelResponseBody(response, 'WebFetch redirect');
+
         const nextUrl = resolveRedirectUrl(location, currentUrl);
         try {
             validateWebFetchUrl(nextUrl);
         } catch (error) {
             throw webFetchControlError(error);
         }
-        await cancelRedirectBody(response);
         currentUrl = nextUrl;
     }
 }
@@ -194,12 +190,14 @@ export async function executeWebFetchTool(
         ) {
             const fallbackResult = await executeJinaReaderFallback(request, signal);
             if (fallbackResult.status === 'success') {
+                await cancelResponseBody(response, 'WebFetch response discarded');
                 return fallbackResult;
             }
         }
         const contentType = getContentType(response);
 
         if (!isTextualContentType(contentType)) {
+            await cancelResponseBody(response, 'WebFetch response discarded');
             return {
                 result: formatUnsupportedResponse(request, response, contentType),
                 isError: true,
@@ -287,6 +285,7 @@ async function executeJinaReaderFallback(
         });
         const contentType = getContentType(response);
         if (!response.ok || !isTextualContentType(contentType)) {
+            await cancelResponseBody(response, 'WebFetch response discarded');
             return {
                 result: `Fallback: Jina Reader\nHTTP ${response.status} ${response.statusText}`.trim(),
                 isError: true,

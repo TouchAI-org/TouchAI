@@ -1,14 +1,6 @@
 import type { WindowInfo } from '@services/PopupService/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/views/PopupView/components/ModelDropdownPopup/index.vue', () => ({
-    default: { name: 'ModelDropdownPopupStub' },
-}));
-
-vi.mock('@/views/PopupView/components/SessionHistoryPopover/index.vue', () => ({
-    default: { name: 'SessionHistoryPopoverStub' },
-}));
-
 function defineRect(
     element: HTMLElement,
     rect: Partial<DOMRect> & Pick<DOMRect, 'top' | 'right' | 'bottom'>

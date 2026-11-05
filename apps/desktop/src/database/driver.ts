@@ -1,7 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 import { native } from '@services/NativeService';
 import type { DatabaseQueryMethod } from '@services/NativeService/database';
-import { log } from '@services/ObservabilityService';
 import { DefaultLogger } from 'drizzle-orm/logger';
 import { createTableRelationsHelpers, extractTablesRelationalConfig } from 'drizzle-orm/relations';
 import { SQLiteAsyncDialect } from 'drizzle-orm/sqlite-core/dialect';
@@ -395,7 +394,20 @@ export function createDrizzleDb(): DrizzleDb {
             try {
                 await native.database.txRollback(txId);
             } catch (rollbackError) {
-                log.error('[Database] Failed to rollback transaction:', rollbackError);
+                void native.observability
+                    .ingest([
+                        {
+                            level: 5,
+                            event: 'database.transaction.rollback_failed',
+                            attrs: {
+                                'error.type':
+                                    rollbackError instanceof Error
+                                        ? rollbackError.name
+                                        : typeof rollbackError,
+                            },
+                        },
+                    ])
+                    .catch(() => undefined);
             }
             throw error;
         }

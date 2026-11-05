@@ -1,8 +1,5 @@
 ﻿// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import ModelDropdownPopup from '@/views/PopupView/components/ModelDropdownPopup/index.vue';
-import SessionHistoryPopover from '@/views/PopupView/components/SessionHistoryPopover/index.vue';
-
 import type { PopupConfig, PopupType, SerializablePopupConfig, WindowInfo } from './types';
 
 const GAP = 5;
@@ -172,7 +169,6 @@ export function initializeBuiltInPopups(): void {
         id: 'model-dropdown-popup',
         width: 320,
         height: 384,
-        component: ModelDropdownPopup,
         calculatePosition: (triggerElement, mainWindow, dimensions) => {
             const x = mainWindow.position.x - SHADOW_WIDTH;
             const y = calculateWindowEdgePopupY(triggerElement, mainWindow, dimensions.height);
@@ -184,7 +180,6 @@ export function initializeBuiltInPopups(): void {
         id: 'session-history-popup',
         width: 320,
         height: 384,
-        component: SessionHistoryPopover,
         calculatePosition: (triggerElement, mainWindow, dimensions) => {
             // 判断是否是搜索框状态
             const isSearchViewContainer =

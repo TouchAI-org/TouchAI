@@ -1,4 +1,7 @@
-import { SEARCH_PROVIDER_METADATA, type SearchProviderId } from '@/stores/setting/sections/search';
+import {
+    SEARCH_PROVIDER_METADATA,
+    type SearchProviderId,
+} from '@services/SettingsService/domain/sections/search';
 
 import type { WebSearchProviderAdapter } from './types';
 
