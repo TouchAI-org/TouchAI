@@ -242,6 +242,117 @@ describe('user changes a setting through the single owner', () => {
         expect(owner.getSnapshot().outputScrollBehavior).toBe('stay_position');
     });
 
+    it('user still sees refreshed settings when other windows cannot be notified', async () => {
+        const owner = createOwner(createEffects());
+        await owner.initialize();
+        const subscriber = vi.fn();
+        owner.subscribe(subscriber);
+        dbMock.values.set('output_scroll_behavior', 'stay_position');
+        bus.failNotices = true;
+
+        await owner.refresh();
+        bus.failNotices = false;
+
+        expect(owner.getSnapshot().outputScrollBehavior).toBe('stay_position');
+        expect(subscriber).toHaveBeenCalledWith(
+            expect.objectContaining({
+                revision: owner.getRevision(),
+                changedKeys: [],
+            })
+        );
+    });
+
+    it('user gets an unsupported-key rejection without changing anything', async () => {
+        const effects = createEffects();
+        const owner = createOwner(effects);
+        await owner.initialize();
+        dbMock.setCalls.length = 0;
+
+        const ghost = bus.transport('win-x');
+        await ghost.send('main', {
+            kind: 'mutate-request',
+            requestId: 'req-unknown-key',
+            from: 'win-x',
+            hostEpoch: owner.getHostEpoch(),
+            key: 'not_a_setting' as never,
+            value: true,
+        });
+        await flush();
+
+        const reply = bus.sent
+            .filter((record) => record.message.kind === 'reply')
+            .map(
+                (record) =>
+                    record.message as {
+                        requestId: string;
+                        ok: boolean;
+                        message?: string;
+                        result?: { status: string; code?: string; message?: string };
+                    }
+            )
+            .find((message) => message.requestId === 'req-unknown-key');
+        expect(reply).toMatchObject({
+            ok: true,
+            result: {
+                status: 'rejected',
+                code: SettingsErrorCode.UnknownKey,
+            },
+        });
+        expect(reply?.result?.message).toContain('not_a_setting');
+        expect(dbMock.setCalls).toHaveLength(0);
+        expect(effects.setAutostart).not.toHaveBeenCalled();
+    });
+
+    it('user sees a full-queue rejection instead of a concurrent write', async () => {
+        const effects = createEffects();
+        const owner = new SettingsService({
+            transport: bus.transport('main'),
+            effects,
+            maxOwnerQueue: 1,
+        });
+        await owner.initialize();
+        dbMock.setCalls.length = 0;
+
+        const first = owner.mutate('start_minimized', false);
+        const second = owner.mutate('output_scroll_behavior', 'stay_position');
+
+        await expect(second).rejects.toMatchObject({
+            code: SettingsErrorCode.TooManyPending,
+        });
+        await expect(first).resolves.toMatchObject({ status: 'committed' });
+        expect(dbMock.setCalls).toEqual([{ key: 'start_minimized', value: 'false' }]);
+    });
+
+    it('user gets the persisted autostart value when the OS cannot be queried', async () => {
+        dbMock.values.set('start_on_boot', 'true');
+        const effects = createEffects();
+        const owner = createOwner(effects);
+        await owner.initialize();
+        vi.mocked(effects.isAutostartEnabled).mockRejectedValueOnce(new Error('OS unavailable'));
+
+        await expect(owner.readEffectiveValue('start_on_boot')).resolves.toBe(true);
+    });
+
+    it('user sees the previous window size restored when its preset cannot be saved', async () => {
+        const effects = createEffects();
+        const owner = createOwner(effects);
+        await owner.initialize();
+        vi.mocked(effects.setSearchWindowDefaults).mockClear();
+        dbMock.failNextSet = true;
+
+        const result = await owner.mutate('search_window_size_preset', 'large');
+
+        expect(result.status).toBe('restored');
+        expect(effects.setSearchWindowDefaults).toHaveBeenNthCalledWith(1, {
+            width: 938,
+            height: 72,
+        });
+        expect(effects.setSearchWindowDefaults).toHaveBeenNthCalledWith(2, {
+            width: 750,
+            height: 60,
+        });
+    });
+
     it('user sees writes from two windows serialize against the latest cross-key state', async () => {
         const effects = createEffects();
         const owner = createOwner(effects);

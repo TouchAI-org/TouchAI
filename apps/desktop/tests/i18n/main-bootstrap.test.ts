@@ -26,6 +26,7 @@ import { initializeFontLoader } from '@/utils/font';
 
 const settingsStoreMock = vi.hoisted(() => ({
     initialize: vi.fn(),
+    dispose: vi.fn(),
     usageDetailRetentionDays: 0,
 }));
 
@@ -236,6 +237,15 @@ describe('user opens the main window', () => {
         await startApp();
 
         expect(initializeFontLoader).toHaveBeenCalledTimes(1);
+    });
+
+    it('user releases settings listeners when the window leaves', async () => {
+        mainWindowAt();
+        await startApp();
+
+        window.dispatchEvent(new Event('pagehide'));
+
+        expect(settingsStoreMock.dispose).toHaveBeenCalled();
     });
 
     it('user still gets a window when the built-in tool warm-up fails', async () => {
