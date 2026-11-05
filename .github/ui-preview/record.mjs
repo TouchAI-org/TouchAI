@@ -851,27 +851,50 @@ function findLogErrors(appRoot) {
  * silently record a fallback face while the run still reports success.
  */
 async function productFontState(session) {
-    return session.execute(async () => {
-        const family = 'TouchAI Source Han Serif SC';
-        const style = document.querySelector('style[data-touchai-font-face]');
-        if (!style) {
-            return { ok: false, detail: 'the app did not inject its @font-face rule' };
-        }
+    // `execute` is the synchronous WebDriver endpoint, so an async function
+    // there returns an unserialisable promise and the call fails. The document
+    // also injects its @font-face from an async loader, so poll briefly rather
+    // than sampling one frame before the rule exists.
+    return session.executeAsync(String.raw`
+        const done = arguments[arguments.length - 1];
+        (async () => {
+            const family = 'TouchAI Source Han Serif SC';
+            const findStyle = () => document.querySelector('style[data-touchai-font-face]');
+            let style = findStyle();
 
-        const url = style.textContent?.match(/url\('([^']+)'\)/)?.[1] ?? '';
-        if (!url) {
-            return { ok: false, detail: 'the injected @font-face rule has no asset URL' };
-        }
+            for (let attempt = 0; !style && attempt < 40; attempt += 1) {
+                await new Promise((resolve) => setTimeout(resolve, 100));
+                style = findStyle();
+            }
 
-        try {
-            await document.fonts.load(`16px '${family}'`);
-            await document.fonts.ready;
-        } catch (error) {
-            return { ok: false, detail: `the product face did not load: ${error.message}` };
-        }
+            if (!style) {
+                done({ ok: false, detail: 'the app did not inject its @font-face rule' });
+                return;
+            }
 
-        return { ok: document.fonts.check(`16px '${family}'`), detail: url };
-    });
+            const match = (style.textContent || '').match(/url\('([^']+)'\)/);
+            if (!match) {
+                done({ ok: false, detail: 'the injected @font-face rule has no asset URL' });
+                return;
+            }
+
+            try {
+                await document.fonts.load('16px "' + family + '"');
+                await document.fonts.ready;
+            } catch (error) {
+                done({
+                    ok: false,
+                    detail: 'the product face did not load: ' +
+                        (error && error.message ? error.message : error),
+                });
+                return;
+            }
+
+            done({ ok: document.fonts.check('16px "' + family + '"'), detail: match[1] });
+        })().catch((error) => {
+            done({ ok: false, detail: String(error && error.message ? error.message : error) });
+        });
+    `);
 }
 
 /**
