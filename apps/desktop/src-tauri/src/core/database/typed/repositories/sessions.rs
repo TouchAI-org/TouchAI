@@ -1,13 +1,16 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
+use std::collections::HashMap;
+
 use serde_json::{Map as JsonMap, Value as JsonValue};
-use sqlx::SqlitePool;
+use sqlx::{SqliteConnection, SqlitePool};
 
 use super::super::operation::DatabaseOperationError;
 use super::super::repository::{
     begin_immediate, fetch_one, fetch_rows, json_object, json_row, run,
 };
 use super::super::row::{count, insert_one};
+use super::models::MODEL_WITH_PROVIDER_SELECT;
 
 const SESSION_COLUMNS: &[&str] = &[
     "session_id",
@@ -104,13 +107,209 @@ pub(super) async fn find_by_id(
     id: i64,
 ) -> Result<JsonValue, DatabaseOperationError> {
     let mut connection = pool.acquire().await.map_err(DatabaseOperationError::from)?;
-    let row = fetch_one(
-        &mut connection,
+    Ok(json_row(find_by_id_on(&mut connection, id).await?))
+}
+
+async fn find_by_id_on(
+    connection: &mut SqliteConnection,
+    id: i64,
+) -> Result<Option<JsonMap<String, JsonValue>>, DatabaseOperationError> {
+    fetch_one(
+        connection,
         &format!("{SESSION_SELECT} WHERE sessions.id = ?"),
         vec![JsonValue::Number(id.into())],
     )
+    .await
+}
+
+async fn load_messages_on(
+    connection: &mut SqliteConnection,
+    session_id: i64,
+) -> Result<Vec<JsonValue>, DatabaseOperationError> {
+    let message_rows = fetch_rows(
+        connection,
+        "SELECT * FROM messages WHERE session_id = ? ORDER BY id",
+        vec![JsonValue::Number(session_id.into())],
+    )
     .await?;
-    Ok(json_row(row))
+    let part_rows = fetch_rows(
+        connection,
+        "SELECT message_parts.*
+         FROM message_parts
+         INNER JOIN messages ON messages.id = message_parts.message_id
+         WHERE messages.session_id = ?
+         ORDER BY message_parts.message_id, message_parts.sort_order, message_parts.id",
+        vec![JsonValue::Number(session_id.into())],
+    )
+    .await?;
+    let attachment_rows = fetch_rows(
+        connection,
+        "SELECT
+             message_parts.message_id,
+             message_parts.sort_order,
+             attachments.id,
+             attachments.hash,
+             attachments.type,
+             attachments.original_name,
+             json_extract(message_parts.data, '$.originPath') AS origin_path,
+             json_extract(message_parts.data, '$.toolCallId') AS tool_call_id,
+             json_extract(message_parts.data, '$.toolKind') AS tool_kind,
+             attachments.mime_type,
+             attachments.size,
+             attachments.created_at
+         FROM message_parts
+         INNER JOIN messages ON messages.id = message_parts.message_id
+         INNER JOIN attachments ON attachments.id = message_parts.attachment_id
+         WHERE messages.session_id = ? AND message_parts.type = 'attachment'
+         ORDER BY message_parts.message_id, message_parts.sort_order, message_parts.id",
+        vec![JsonValue::Number(session_id.into())],
+    )
+    .await?;
+
+    let mut parts_by_message: HashMap<i64, Vec<JsonValue>> = HashMap::new();
+    for row in part_rows {
+        let message_id = row
+            .get("message_id")
+            .and_then(JsonValue::as_i64)
+            .ok_or_else(|| DatabaseOperationError::unavailable("Message part has no message id"))?;
+        parts_by_message
+            .entry(message_id)
+            .or_default()
+            .push(JsonValue::Object(row));
+    }
+    let mut attachments_by_message: HashMap<i64, Vec<JsonValue>> = HashMap::new();
+    for row in attachment_rows {
+        let message_id = row
+            .get("message_id")
+            .and_then(JsonValue::as_i64)
+            .ok_or_else(|| {
+                DatabaseOperationError::unavailable("Message attachment has no message id")
+            })?;
+        attachments_by_message
+            .entry(message_id)
+            .or_default()
+            .push(JsonValue::Object(row));
+    }
+
+    message_rows
+        .into_iter()
+        .map(|mut row| {
+            let message_id = row
+                .get("id")
+                .and_then(JsonValue::as_i64)
+                .ok_or_else(|| DatabaseOperationError::unavailable("Message has no id"))?;
+            row.insert(
+                "parts".to_string(),
+                JsonValue::Array(parts_by_message.remove(&message_id).unwrap_or_default()),
+            );
+            row.insert(
+                "attachments".to_string(),
+                JsonValue::Array(
+                    attachments_by_message
+                        .remove(&message_id)
+                        .unwrap_or_default(),
+                ),
+            );
+            Ok(JsonValue::Object(row))
+        })
+        .collect()
+}
+
+pub(super) async fn find_messages(
+    pool: &SqlitePool,
+    session_id: i64,
+) -> Result<JsonValue, DatabaseOperationError> {
+    let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
+    let messages = load_messages_on(&mut *transaction, session_id).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(DatabaseOperationError::from)?;
+    Ok(JsonValue::Array(messages))
+}
+
+pub(super) async fn find_history(
+    pool: &SqlitePool,
+    session_id: i64,
+) -> Result<JsonValue, DatabaseOperationError> {
+    let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
+    let session = find_by_id_on(&mut *transaction, session_id)
+        .await?
+        .ok_or_else(|| {
+            DatabaseOperationError::not_found(format!("Session {session_id} not found"))
+        })?;
+    let messages = load_messages_on(&mut *transaction, session_id).await?;
+    let turn_rows = fetch_rows(
+        &mut *transaction,
+        "SELECT
+             id,
+             session_id,
+             task_id,
+             execution_mode,
+             prompt_snapshot_json,
+             prompt_message_id,
+             response_message_id,
+             status,
+             error_message,
+             created_at,
+             updated_at
+         FROM session_turns
+         WHERE session_id = ?
+         ORDER BY created_at, id",
+        vec![JsonValue::Number(session_id.into())],
+    )
+    .await?;
+    let attempt_rows = fetch_rows(
+        &mut *transaction,
+        "SELECT
+             session_turn_attempts.id,
+             session_turn_attempts.turn_id,
+             session_turn_attempts.attempt_index,
+             session_turn_attempts.max_retries,
+             session_turn_attempts.status,
+             session_turn_attempts.checkpoint_json,
+             session_turn_attempts.delivery_manifest_json,
+             session_turn_attempts.error_message,
+             session_turn_attempts.started_at,
+             session_turn_attempts.finished_at,
+             session_turn_attempts.created_at,
+             session_turn_attempts.updated_at
+         FROM session_turn_attempts
+         INNER JOIN session_turns ON session_turns.id = session_turn_attempts.turn_id
+         WHERE session_turns.session_id = ?
+         ORDER BY session_turn_attempts.turn_id,
+                  session_turn_attempts.attempt_index,
+                  session_turn_attempts.id",
+        vec![JsonValue::Number(session_id.into())],
+    )
+    .await?;
+    let model = fetch_one(
+        &mut *transaction,
+        &format!(
+            "{MODEL_WITH_PROVIDER_SELECT}
+             INNER JOIN session_turns ON session_turns.model_id = models.id
+             WHERE session_turns.session_id = ?
+             ORDER BY session_turns.created_at DESC, session_turns.id DESC
+             LIMIT 1"
+        ),
+        vec![JsonValue::Number(session_id.into())],
+    )
+    .await?;
+    transaction
+        .commit()
+        .await
+        .map_err(DatabaseOperationError::from)?;
+
+    let mut result = JsonMap::new();
+    result.insert("session".to_string(), JsonValue::Object(session));
+    result.insert("messages".to_string(), JsonValue::Array(messages));
+    result.insert("turns".to_string(), json_object(turn_rows));
+    result.insert("attempts".to_string(), json_object(attempt_rows));
+    result.insert(
+        "model".to_string(),
+        model.map(JsonValue::Object).unwrap_or(JsonValue::Null),
+    );
+    Ok(JsonValue::Object(result))
 }
 
 pub(super) async fn list(
@@ -364,10 +563,27 @@ pub(super) async fn refresh_metadata_on(
 
 pub(super) async fn count_sessions(pool: &SqlitePool) -> Result<JsonValue, DatabaseOperationError> {
     let mut connection = pool.acquire().await.map_err(DatabaseOperationError::from)?;
+    count_rows(&mut connection, "sessions").await
+}
+
+pub(super) async fn delete_all(pool: &SqlitePool) -> Result<JsonValue, DatabaseOperationError> {
+    let mut transaction = begin_immediate(pool).await?;
+    run(&mut *transaction, "DELETE FROM sessions", Vec::new()).await?;
+    transaction
+        .commit()
+        .await
+        .map_err(DatabaseOperationError::from)?;
+    Ok(JsonValue::Null)
+}
+
+async fn count_rows(
+    connection: &mut SqliteConnection,
+    table: &'static str,
+) -> Result<JsonValue, DatabaseOperationError> {
     Ok(JsonValue::Number(
         count(
-            &mut connection,
-            "SELECT count(*) AS count FROM sessions",
+            connection,
+            &format!("SELECT count(*) AS count FROM {table}"),
             Vec::new(),
         )
         .await?
@@ -375,8 +591,44 @@ pub(super) async fn count_sessions(pool: &SqlitePool) -> Result<JsonValue, Datab
     ))
 }
 
-pub(super) async fn delete_all(pool: &SqlitePool) -> Result<JsonValue, DatabaseOperationError> {
-    let mut connection = pool.acquire().await.map_err(DatabaseOperationError::from)?;
-    run(&mut connection, "DELETE FROM sessions", Vec::new()).await?;
+async fn delete_all_rows(
+    pool: &SqlitePool,
+    table: &'static str,
+) -> Result<JsonValue, DatabaseOperationError> {
+    let mut transaction = begin_immediate(pool).await?;
+    run(
+        &mut *transaction,
+        &format!("DELETE FROM {table}"),
+        Vec::new(),
+    )
+    .await?;
+    transaction
+        .commit()
+        .await
+        .map_err(DatabaseOperationError::from)?;
     Ok(JsonValue::Null)
+}
+
+pub(super) async fn count_messages(pool: &SqlitePool) -> Result<JsonValue, DatabaseOperationError> {
+    let mut connection = pool.acquire().await.map_err(DatabaseOperationError::from)?;
+    count_rows(&mut connection, "messages").await
+}
+
+pub(super) async fn delete_all_messages(
+    pool: &SqlitePool,
+) -> Result<JsonValue, DatabaseOperationError> {
+    delete_all_rows(pool, "messages").await
+}
+
+pub(super) async fn count_session_turns(
+    pool: &SqlitePool,
+) -> Result<JsonValue, DatabaseOperationError> {
+    let mut connection = pool.acquire().await.map_err(DatabaseOperationError::from)?;
+    count_rows(&mut connection, "session_turns").await
+}
+
+pub(super) async fn delete_all_session_turns(
+    pool: &SqlitePool,
+) -> Result<JsonValue, DatabaseOperationError> {
+    delete_all_rows(pool, "session_turns").await
 }

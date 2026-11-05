@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
+mod attachment_remote_refs;
 mod attachments;
 mod builtins;
 mod llm_metadata;
@@ -49,6 +50,12 @@ pub(super) async fn execute(
         DatabaseOperation::SessionCreate { data } => sessions::create(pool, data).await,
         DatabaseOperation::SessionFindById { id } => sessions::find_by_id(pool, id).await,
         DatabaseOperation::SessionList { query, limit } => sessions::list(pool, query, limit).await,
+        DatabaseOperation::SessionMessages { session_id } => {
+            sessions::find_messages(pool, session_id).await
+        }
+        DatabaseOperation::SessionHistory { session_id } => {
+            sessions::find_history(pool, session_id).await
+        }
         DatabaseOperation::SessionUpdate { id, data } => sessions::update(pool, id, data).await,
         DatabaseOperation::SessionDismissTerminalStatus { id } => {
             sessions::dismiss_terminal_status(pool, id).await
@@ -58,6 +65,10 @@ pub(super) async fn execute(
         }
         DatabaseOperation::SessionCount => sessions::count_sessions(pool).await,
         DatabaseOperation::SessionDeleteAll => sessions::delete_all(pool).await,
+        DatabaseOperation::MessageCount => sessions::count_messages(pool).await,
+        DatabaseOperation::MessageDeleteAll => sessions::delete_all_messages(pool).await,
+        DatabaseOperation::SessionTurnCount => sessions::count_session_turns(pool).await,
+        DatabaseOperation::SessionTurnDeleteAll => sessions::delete_all_session_turns(pool).await,
         DatabaseOperation::ToolPartCreate { tool_kind, data } => {
             tool_parts::create(pool, tool_kind, data).await
         }
@@ -165,6 +176,17 @@ pub(super) async fn execute(
         DatabaseOperation::BuiltInToolCountEnabled => builtins::count_enabled(pool).await,
         DatabaseOperation::AttachmentEnsure { input } => {
             attachments::ensure_operation(pool, input).await
+        }
+        DatabaseOperation::AttachmentRemoteRefFind {
+            attachment_id,
+            provider_id,
+            transport_kind,
+        } => attachment_remote_refs::find(pool, attachment_id, provider_id, transport_kind).await,
+        DatabaseOperation::AttachmentRemoteRefUpsert { data } => {
+            attachment_remote_refs::upsert(pool, data).await
+        }
+        DatabaseOperation::AttachmentRemoteRefTouch { id, last_used_at } => {
+            attachment_remote_refs::touch(pool, id, last_used_at).await
         }
         DatabaseOperation::TaskRecordStart { input } => tasks::record_start(pool, input).await,
         DatabaseOperation::TaskPersistOutputMessage { input } => {

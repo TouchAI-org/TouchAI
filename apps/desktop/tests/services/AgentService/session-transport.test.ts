@@ -5,10 +5,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadSessionTransportMessages } from '@/services/AgentService/session/transport';
 
 const mocks = vi.hoisted(() => ({
-    findMessagesBySessionId: vi.fn<() => Promise<MessageRow[]>>(),
+    loadSessionMessages: vi.fn<() => Promise<MessageRow[]>>(),
 }));
-vi.mock('@database/queries/messages', () => ({
-    findMessagesBySessionId: mocks.findMessagesBySessionId,
+vi.mock('@services/NativeService', () => ({
+    native: { database: { operation: mocks.loadSessionMessages } },
 }));
 
 function callPart(id: number, kind: 'builtin' | 'mcp', callId: string, result?: string) {
@@ -31,11 +31,11 @@ function callPart(id: number, kind: 'builtin' | 'mcp', callId: string, result?: 
 
 describe('a saved conversation is replayed to the model', () => {
     beforeEach(() => {
-        mocks.findMessagesBySessionId.mockReset();
+        mocks.loadSessionMessages.mockReset();
     });
 
     it('user sees multiple tool calls from one message with each result after its call', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        mocks.loadSessionMessages.mockResolvedValue([
             createMessageRow({ id: 10, content: 'run both' }),
             createMessageRow({
                 id: 11,
@@ -69,11 +69,14 @@ describe('a saved conversation is replayed to the model', () => {
                 content: 'mcp result',
             },
         ]);
-        expect(mocks.findMessagesBySessionId).toHaveBeenCalledExactlyOnceWith(1);
+        expect(mocks.loadSessionMessages).toHaveBeenCalledExactlyOnceWith({
+            kind: 'session_messages',
+            sessionId: 1,
+        });
     });
 
     it('user sees a placeholder result for an interrupted call with no saved result', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        mocks.loadSessionMessages.mockResolvedValue([
             createMessageRow({ id: 10, content: 'run a tool' }),
             createMessageRow({
                 id: 11,
@@ -100,7 +103,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user sees reasoning and text kept on a tool-call message beside its call parts', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        mocks.loadSessionMessages.mockResolvedValue([
             createMessageRow({
                 id: 11,
                 role: 'tool_call',
@@ -143,7 +146,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user sees text and reasoning replayed in their original order', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        mocks.loadSessionMessages.mockResolvedValue([
             createMessageRow({
                 role: 'assistant',
                 parts: [
@@ -173,7 +176,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user sees reasoning provider options restored from the saved part', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        mocks.loadSessionMessages.mockResolvedValue([
             createMessageRow({
                 role: 'assistant',
                 parts: [
@@ -208,7 +211,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user sees malformed reasoning part data ignored', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        mocks.loadSessionMessages.mockResolvedValue([
             createMessageRow({
                 role: 'assistant',
                 parts: [
@@ -228,7 +231,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user does not see blank text and reasoning parts sent to the model', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        mocks.loadSessionMessages.mockResolvedValue([
             createMessageRow({
                 role: 'assistant',
                 parts: [
@@ -257,7 +260,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user does not see assistant rows with no renderable content sent', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        mocks.loadSessionMessages.mockResolvedValue([
             createMessageRow({ id: 10, content: 'Question' }),
             createMessageRow({
                 id: 11,
@@ -283,6 +286,6 @@ describe('a saved conversation is replayed to the model', () => {
 
     it('user sees no history queried when there is no session', async () => {
         expect(await loadSessionTransportMessages({})).toEqual([]);
-        expect(mocks.findMessagesBySessionId).not.toHaveBeenCalled();
+        expect(mocks.loadSessionMessages).not.toHaveBeenCalled();
     });
 });

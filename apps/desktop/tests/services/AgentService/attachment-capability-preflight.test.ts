@@ -16,17 +16,12 @@ import { findUnsupportedSessionAttachmentTypes } from '@/services/AgentService/s
 const BASE_TIME = '2026-06-03T10:00:00.000Z';
 
 const mocks = vi.hoisted(() => ({
-    findMessagesBySessionId: vi.fn<() => Promise<MessageRow[]>>(),
+    loadSessionMessages: vi.fn<() => Promise<MessageRow[]>>(),
 }));
 
-vi.mock('@database/queries/messages', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('@database/queries/messages')>();
-
-    return {
-        ...actual,
-        findMessagesBySessionId: mocks.findMessagesBySessionId,
-    };
-});
+vi.mock('@services/NativeService', () => ({
+    native: { database: { operation: mocks.loadSessionMessages } },
+}));
 
 function createAttachment(overrides: Partial<AttachmentIndex> = {}): AttachmentIndex {
     const type = overrides.type ?? 'image';
@@ -97,7 +92,7 @@ function createModel(overrides: Partial<ModelWithProvider> = {}): ModelWithProvi
 
 describe('user sends attachments to a model that may not read them', () => {
     beforeEach(() => {
-        mocks.findMessagesBySessionId.mockReset();
+        mocks.loadSessionMessages.mockReset();
     });
 
     it('user sees image and file support decided separately from model metadata', () => {
@@ -126,7 +121,7 @@ describe('user sends attachments to a model that may not read them', () => {
     });
 
     it('user is warned about unsupported attachments already in the conversation', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        mocks.loadSessionMessages.mockResolvedValue([
             createMessageRow({
                 id: 10,
                 role: 'user',
@@ -162,7 +157,7 @@ describe('user sends attachments to a model that may not read them', () => {
     });
 
     it('user is told which attachments are unsupported before the first model attempt', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        mocks.loadSessionMessages.mockResolvedValue([
             createMessageRow({
                 id: 10,
                 role: 'user',

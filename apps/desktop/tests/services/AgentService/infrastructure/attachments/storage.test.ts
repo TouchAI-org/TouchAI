@@ -18,8 +18,7 @@ import type { AttachmentIndex } from '@/services/AgentService/infrastructure/att
  * path that no longer exists.
  */
 const mocks = vi.hoisted(() => ({
-    createAttachmentRecord: vi.fn(),
-    findAttachmentByHash: vi.fn(),
+    databaseOperation: vi.fn(),
     getAppDirectoryPath: vi.fn(),
     convertFileSrc: vi.fn(),
     join: vi.fn(),
@@ -32,19 +31,11 @@ const mocks = vi.hoisted(() => ({
     getFileSize: vi.fn(),
 }));
 
-vi.mock('@database', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('@database')>()),
-    db: { __tag: 'db' },
-}));
-
-vi.mock('@database/queries', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('@database/queries')>()),
-    createAttachmentRecord: mocks.createAttachmentRecord,
-    findAttachmentByHash: mocks.findAttachmentByHash,
-}));
-
 vi.mock('@services/NativeService', () => ({
-    native: { paths: { getAppDirectoryPath: mocks.getAppDirectoryPath } },
+    native: {
+        database: { operation: mocks.databaseOperation },
+        paths: { getAppDirectoryPath: mocks.getAppDirectoryPath },
+    },
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc: mocks.convertFileSrc }));
@@ -88,12 +79,27 @@ beforeEach(() => {
     mocks.getFileName.mockResolvedValue('report.pdf');
     mocks.getFileIcon.mockResolvedValue('/icons/pdf.png');
     mocks.getFileSize.mockResolvedValue(2048);
-    mocks.findAttachmentByHash.mockResolvedValue(null);
-    mocks.createAttachmentRecord.mockImplementation(async (record: { hash: string }) => ({
-        id: 11,
-        ...record,
-        created_at: '2026-01-01T00:00:00Z',
-    }));
+    mocks.databaseOperation.mockImplementation(
+        async (request: {
+            input: {
+                hash: string;
+                type: 'image' | 'file';
+                originalName: string;
+                originPath: string;
+                mimeType: string | null;
+                size: number | null;
+            };
+        }) => ({
+            id: 11,
+            hash: request.input.hash,
+            type: request.input.type,
+            original_name: request.input.originalName,
+            origin_path: request.input.originPath,
+            mime_type: request.input.mimeType,
+            size: request.input.size,
+            created_at: '2026-01-01T00:00:00Z',
+        })
+    );
 });
 
 function attachment(overrides: Partial<AttachmentIndex> = {}): AttachmentIndex {
@@ -169,23 +175,32 @@ describe('user sends a message with attachments', () => {
             '/downloads/report.pdf',
             expect.stringContaining('/cache/attachments/files/')
         );
-        expect(mocks.createAttachmentRecord).toHaveBeenCalledWith(
-            expect.objectContaining({
-                original_name: 'report.pdf',
-                origin_path: '/downloads/report.pdf',
+        expect(mocks.databaseOperation).toHaveBeenCalledWith({
+            kind: 'attachment_ensure',
+            input: expect.objectContaining({
+                originalName: 'report.pdf',
+                originPath: '/downloads/report.pdf',
             }),
-            expect.anything()
-        );
+        });
     });
 
     it('user gets the same bytes stored only once', async () => {
-        mocks.findAttachmentByHash.mockResolvedValue({ id: 5, hash: 'abc', type: 'file' });
+        mocks.databaseOperation.mockResolvedValue({
+            id: 5,
+            hash: 'abc',
+            type: 'file',
+            original_name: 'report.pdf',
+            origin_path: '/downloads/report.pdf',
+            mime_type: 'application/pdf',
+            size: 2048,
+            created_at: '2026-01-01T00:00:00Z',
+        });
 
         const index = attachment();
         await persistPreparedAttachment(index);
 
         // A second row for the same bytes would duplicate every re-sent file.
-        expect(mocks.createAttachmentRecord).not.toHaveBeenCalled();
+        expect(mocks.databaseOperation).toHaveBeenCalledTimes(1);
         expect(index.attachmentId).toBe(5);
     });
 
@@ -210,21 +225,27 @@ describe('user sends a message with attachments', () => {
         expect(index.preview).toContain('asset://');
     });
 
-    it('user gets the record found again when another writer wins the insert race', async () => {
-        mocks.createAttachmentRecord.mockRejectedValue(new Error('UNIQUE constraint failed'));
-        mocks.findAttachmentByHash
-            .mockResolvedValueOnce(null)
-            .mockResolvedValueOnce({ id: 77, hash: 'race', type: 'file' });
+    it('user gets the deduplicated record without a second database round trip', async () => {
+        mocks.databaseOperation.mockResolvedValue({
+            id: 77,
+            hash: 'race',
+            type: 'file',
+            original_name: 'report.pdf',
+            origin_path: '/downloads/report.pdf',
+            mime_type: 'application/pdf',
+            size: 2048,
+            created_at: '2026-01-01T00:00:00Z',
+        });
 
         const index = attachment();
         await persistPreparedAttachment(index);
 
-        // Two sends of the same file can race; the loser must adopt the winner's row.
+        expect(mocks.databaseOperation).toHaveBeenCalledTimes(1);
         expect(index.attachmentId).toBe(77);
     });
 
     it('user gets the original error when the insert fails for another reason', async () => {
-        mocks.createAttachmentRecord.mockRejectedValue(new Error('disk full'));
+        mocks.databaseOperation.mockRejectedValue(new Error('disk full'));
 
         await expect(persistPreparedAttachment(attachment())).rejects.toThrow('disk full');
     });
@@ -263,7 +284,7 @@ describe('user attaches a tool result as a file', () => {
     });
 
     it('user gets this send origin kept even when the bytes are a duplicate', async () => {
-        mocks.findAttachmentByHash.mockResolvedValue({
+        mocks.databaseOperation.mockResolvedValue({
             id: 3,
             hash: 'old',
             type: 'image',

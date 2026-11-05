@@ -1,6 +1,7 @@
 ﻿// Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { asc, count, desc, eq } from 'drizzle-orm';
+import { native } from '@services/NativeService';
+import { asc, desc, eq } from 'drizzle-orm';
 
 import { type DatabaseExecutor, db } from '../index';
 import { models, providers, sessionTurns } from '../schema';
@@ -138,13 +139,12 @@ export const findSessionTurnsBySessionId = async (
  * 统计会话轮次数量。
  */
 export const countSessionTurns = async (): Promise<number> => {
-    const result = await db.select({ count: count() }).from(sessionTurns).get();
-    return result?.count || 0;
+    return native.database.operation<number>({ kind: 'session_turn_count' });
 };
 
 /**
  * 删除所有会话轮次。
  */
 export const deleteAllSessionTurns = async (): Promise<void> => {
-    await db.delete(sessionTurns).run();
+    await native.database.operation({ kind: 'session_turn_delete_all' });
 };
