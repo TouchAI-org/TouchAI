@@ -1,6 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { asc, count, eq, sql } from 'drizzle-orm';
+import { native } from '@services/NativeService';
+import { asc, eq, sql } from 'drizzle-orm';
 
 import { type DatabaseExecutor, db } from '../index';
 import { messages } from '../schema';
@@ -89,9 +90,7 @@ export const updateMessage = async (
  * @returns 当前数据库中的消息总数。
  */
 export const countMessages = async (): Promise<number> => {
-    const result = await db.select({ count: count() }).from(messages).get();
-
-    return result?.count || 0;
+    return native.database.operation<number>({ kind: 'message_count' });
 };
 
 /**
@@ -100,5 +99,5 @@ export const countMessages = async (): Promise<number> => {
  * @returns 无。
  */
 export const deleteAllMessages = async (): Promise<void> => {
-    await db.delete(messages).run();
+    await native.database.operation({ kind: 'message_delete_all' });
 };

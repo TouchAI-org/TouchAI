@@ -2,12 +2,7 @@
  * Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
  */
 
-import { type DatabaseExecutor, db } from '@database';
-import {
-    createAttachmentRecord,
-    findAttachmentByHash,
-    type MessageAttachmentRow,
-} from '@database/queries';
+import type { MessageAttachmentRow } from '@database/queries';
 import type { AttachmentEntity } from '@database/types';
 import { native } from '@services/NativeService';
 import { convertFileSrc } from '@tauri-apps/api/core';
@@ -153,49 +148,31 @@ async function ensureAttachmentRecord(
     type: AttachmentIndex['type'],
     path: string,
     originPath: string,
-    database: DatabaseExecutor = db,
     prepared?: PreparedAttachmentForPersistence
 ): Promise<AttachmentEntity> {
     const { hash, name, mimeType, size } = prepared ?? (await prepareAttachment(type, path));
 
-    const existing = await findAttachmentByHash(hash, database);
-    if (existing) {
-        return existing;
-    }
-
-    try {
-        return await createAttachmentRecord(
-            {
-                hash,
-                type,
-                original_name: name,
-                origin_path: originPath,
-                mime_type: mimeType,
-                size,
-            },
-            database
-        );
-    } catch (error) {
-        const duplicated = await findAttachmentByHash(hash, database);
-        if (duplicated) {
-            return duplicated;
-        }
-
-        throw error;
-    }
+    return native.database.operation<AttachmentEntity>({
+        kind: 'attachment_ensure',
+        input: {
+            hash,
+            type,
+            originalName: name,
+            originPath,
+            mimeType,
+            size,
+        },
+    });
 }
 
-async function ensureAttachmentRecordFromBytes(
-    options: {
-        type: AttachmentIndex['type'];
-        name: string;
-        originPath: string;
-        mimeType?: string;
-        size?: number;
-        data: Uint8Array;
-    },
-    database: DatabaseExecutor = db
-): Promise<AttachmentEntity> {
+async function ensureAttachmentRecordFromBytes(options: {
+    type: AttachmentIndex['type'];
+    name: string;
+    originPath: string;
+    mimeType?: string;
+    size?: number;
+    data: Uint8Array;
+}): Promise<AttachmentEntity> {
     const hash = await computeAttachmentHashFromBytes(options.data);
     const targetPath = await buildAttachmentStoragePath(options.type, hash);
 
@@ -203,31 +180,17 @@ async function ensureAttachmentRecordFromBytes(
         await writeFile(targetPath, options.data);
     }
 
-    const existing = await findAttachmentByHash(hash, database);
-    if (existing) {
-        return existing;
-    }
-
-    try {
-        return await createAttachmentRecord(
-            {
-                hash,
-                type: options.type,
-                original_name: options.name,
-                origin_path: options.originPath,
-                mime_type: options.mimeType ?? null,
-                size: options.size ?? options.data.byteLength,
-            },
-            database
-        );
-    } catch (error) {
-        const duplicated = await findAttachmentByHash(hash, database);
-        if (duplicated) {
-            return duplicated;
-        }
-
-        throw error;
-    }
+    return native.database.operation<AttachmentEntity>({
+        kind: 'attachment_ensure',
+        input: {
+            hash,
+            type: options.type,
+            originalName: options.name,
+            originPath: options.originPath,
+            mimeType: options.mimeType ?? null,
+            size: options.size ?? options.data.byteLength,
+        },
+    });
 }
 
 async function toAttachmentIndex(
@@ -295,18 +258,15 @@ export async function createAttachment(
  * 主要用于工具结果里的媒体内容：它们没有“原始本地文件”，
  * 但仍应复用统一附件缓存、去重和后续 transport 逻辑。
  */
-export async function createPersistedAttachmentFromData(
-    options: {
-        type: 'image' | 'file';
-        name: string;
-        originPath: string;
-        mimeType?: string;
-        size?: number;
-        data: Uint8Array;
-    },
-    database: DatabaseExecutor = db
-): Promise<AttachmentIndex> {
-    const persisted = await ensureAttachmentRecordFromBytes(options, database);
+export async function createPersistedAttachmentFromData(options: {
+    type: 'image' | 'file';
+    name: string;
+    originPath: string;
+    mimeType?: string;
+    size?: number;
+    data: Uint8Array;
+}): Promise<AttachmentIndex> {
+    const persisted = await ensureAttachmentRecordFromBytes(options);
     return toAttachmentIndex(persisted, {
         // 字节型附件可能命中去重记录，但当前调用方的来源路径/名称
         // 仍然属于这一次消息语义，不能被旧记录回灌覆盖。
@@ -353,10 +313,9 @@ export async function hydratePersistedAttachments(
  * @returns 可写入附件缓存表的附件记录。
  */
 export async function ensurePersistedAttachmentIndex(
-    attachment: AttachmentIndex,
-    database: DatabaseExecutor = db
+    attachment: AttachmentIndex
 ): Promise<AttachmentEntity> {
-    return persistPreparedAttachment(attachment, database);
+    return persistPreparedAttachment(attachment);
 }
 
 /**
@@ -386,8 +345,7 @@ const preparedAttachments = new WeakMap<AttachmentIndex, PreparedAttachmentForPe
 
 /** 写入附件记录；若未预计算则退化为就地计算。 */
 export async function persistPreparedAttachment(
-    attachment: AttachmentIndex,
-    database: DatabaseExecutor = db
+    attachment: AttachmentIndex
 ): Promise<AttachmentEntity> {
     if (attachment.attachmentId && attachment.hash) {
         return {
@@ -406,7 +364,6 @@ export async function persistPreparedAttachment(
         attachment.type,
         attachment.path,
         attachment.originPath,
-        database,
         preparedAttachments.get(attachment)
     );
     preparedAttachments.delete(attachment);

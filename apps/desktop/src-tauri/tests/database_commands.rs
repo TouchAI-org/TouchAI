@@ -351,6 +351,252 @@ fn user_finds_a_conversation_by_its_ordered_message_parts() {
 }
 
 #[test]
+fn user_reopens_a_conversation_from_one_consistent_history_snapshot() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO providers (id, name, driver, api_endpoint, logo, enabled)
+         VALUES (7004, 'History Provider', 'openai', 'https://history.example/v1', 'openai.png', 1);
+         INSERT INTO models (id, provider_id, name, model_id)
+         VALUES (1004, 7004, 'History Model', 'history-model');
+         INSERT INTO sessions (id, session_id, title, model, provider_id)
+         VALUES (3004, 'typed-session-history', 'History', 'history-model', 7004);
+         INSERT INTO messages (id, session_id, role)
+         VALUES (3104, 3004, 'user'), (3105, 3004, 'assistant');
+         INSERT INTO attachments (id, hash, type, original_name, origin_path, mime_type, size)
+         VALUES (3304, 'history-hash', 'file', 'notes.txt', '/tmp/notes.txt', 'text/plain', 12);
+         INSERT INTO message_parts (id, message_id, type, content, data, sort_order)
+         VALUES (3501, 3104, 'text', 'Read the file', '{}', 0),
+                (3502, 3104, 'attachment', '', '{\"attachmentId\":3304,\"originPath\":\"/tmp/notes.txt\"}', 1),
+                (3503, 3105, 'text', 'The file is short', '{}', 0);
+         INSERT INTO session_turns (
+             id, session_id, model_id, task_id, prompt_snapshot_json,
+             prompt_message_id, response_message_id, status
+         )
+         VALUES (3204, 3004, 1004, 'history-task', '{\"prompt\":\"Read\"}', 3104, 3105, 'completed');
+         INSERT INTO session_turn_attempts (
+             id, turn_id, attempt_index, max_retries, status,
+             checkpoint_json, delivery_manifest_json, started_at
+         )
+         VALUES (3404, 3204, 1, 2, 'completed', '{\"step\":1}', '{\"mode\":\"full\"}', '2026-01-01T00:00:00Z')",
+        json!([]),
+    );
+
+    let history = database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "session_history", "sessionId": 3004 }),
+    );
+
+    assert_eq!(history["session"]["id"], 3004);
+    assert_eq!(history["messages"].as_array().expect("messages").len(), 2);
+    assert_eq!(
+        history["messages"][0]["parts"][0]["content"],
+        "Read the file"
+    );
+    assert_eq!(history["messages"][0]["parts"][1]["type"], "attachment");
+    assert_eq!(history["messages"][0]["attachments"][0]["id"], 3304);
+    assert_eq!(
+        history["messages"][0]["attachments"][0]["origin_path"],
+        "/tmp/notes.txt"
+    );
+    assert_eq!(history["turns"][0]["task_id"], "history-task");
+    assert_eq!(
+        history["attempts"][0]["delivery_manifest_json"],
+        "{\"mode\":\"full\"}"
+    );
+    assert_eq!(history["model"]["id"], 1004);
+    assert_eq!(history["model"]["provider_name"], "History Provider");
+
+    let messages = database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "session_messages", "sessionId": 3004 }),
+    );
+    assert_eq!(messages.as_array().expect("message array").len(), 2);
+    assert_eq!(messages[1]["parts"][0]["content"], "The file is short");
+}
+
+#[test]
+fn user_gets_one_attachment_row_when_the_same_bytes_are_sent_twice() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let request = json!({
+        "kind": "attachment_ensure",
+        "input": {
+            "hash": "same-content-hash",
+            "type": "file",
+            "originalName": "report.pdf",
+            "originPath": "/downloads/report.pdf",
+            "mimeType": "application/pdf",
+            "size": 2048
+        }
+    });
+
+    let first = database_operation(&test_app.main_webview, request.clone());
+    let second = database_operation(&test_app.main_webview, request);
+
+    assert_eq!(first["id"], second["id"]);
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT COUNT(*) AS count FROM attachments WHERE hash = 'same-content-hash'",
+            json!([]),
+        )["rows"],
+        json!([{ "count": 1 }])
+    );
+}
+
+#[test]
+fn user_clears_conversation_data_in_dependency_safe_typed_transactions() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO providers (id, name, driver, api_endpoint, logo)
+         VALUES (7005, 'Cleanup Provider', 'openai', 'https://cleanup.example/v1', 'openai.png');
+         INSERT INTO models (id, provider_id, name, model_id)
+         VALUES (1005, 7005, 'Cleanup Model', 'cleanup-model');
+         INSERT INTO sessions (id, session_id, title, model)
+         VALUES (3005, 'typed-session-cleanup', 'Cleanup', 'cleanup-model');
+         INSERT INTO messages (id, session_id, role)
+         VALUES (3106, 3005, 'user'), (3107, 3005, 'assistant');
+         INSERT INTO message_parts (message_id, type, content, sort_order)
+         VALUES (3106, 'text', 'Question', 0), (3107, 'text', 'Answer', 0);
+         INSERT INTO session_turns (
+             id, session_id, model_id, task_id, prompt_snapshot_json,
+             prompt_message_id, response_message_id, status
+         )
+         VALUES (3205, 3005, 1005, 'cleanup-task', '{}', 3106, 3107, 'completed');
+         INSERT INTO session_turn_attempts (
+             id, turn_id, attempt_index, checkpoint_json, delivery_manifest_json
+         )
+         VALUES (3405, 3205, 1, '{}', '{}')",
+        json!([]),
+    );
+
+    assert_eq!(
+        database_operation(&test_app.main_webview, json!({ "kind": "message_count" })),
+        json!(2)
+    );
+    assert_eq!(
+        database_operation(
+            &test_app.main_webview,
+            json!({ "kind": "session_turn_count" })
+        ),
+        json!(1)
+    );
+
+    database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "message_delete_all" }),
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT
+                 (SELECT COUNT(*) FROM messages) AS messages,
+                 (SELECT COUNT(*) FROM message_parts) AS parts,
+                 (SELECT COUNT(*) FROM session_turns) AS turns",
+            json!([]),
+        )["rows"],
+        json!([{ "messages": 0, "parts": 0, "turns": 1 }])
+    );
+
+    database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "session_turn_delete_all" }),
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT
+                 (SELECT COUNT(*) FROM session_turns) AS turns,
+                 (SELECT COUNT(*) FROM session_turn_attempts) AS attempts,
+                 (SELECT COUNT(*) FROM sessions) AS sessions",
+            json!([]),
+        )["rows"],
+        json!([{ "turns": 0, "attempts": 0, "sessions": 1 }])
+    );
+}
+
+#[test]
+fn user_reuses_one_attachment_reference_per_provider_transport() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO providers (id, name, driver, api_endpoint, logo)
+         VALUES (7006, 'Remote Ref Provider', 'openai', 'https://remote.example/v1', 'openai.png');
+         INSERT INTO attachments (id, hash, type, original_name, origin_path)
+         VALUES (3306, 'remote-ref-hash', 'file', 'remote.pdf', '/tmp/remote.pdf')",
+        json!([]),
+    );
+
+    let first = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "attachment_remote_ref_upsert",
+            "data": {
+                "attachment_id": 3306,
+                "provider_id": 7006,
+                "transport_kind": "openai-file-id",
+                "remote_ref": "file-old",
+                "mime_type": "application/pdf",
+                "expires_at": null,
+                "last_used_at": "2026-01-01T00:00:00.000Z",
+                "created_at": "2026-01-01T00:00:00.000Z",
+                "updated_at": "2026-01-01T00:00:00.000Z"
+            }
+        }),
+    );
+    let second = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "attachment_remote_ref_upsert",
+            "data": {
+                "attachment_id": 3306,
+                "provider_id": 7006,
+                "transport_kind": "openai-file-id",
+                "remote_ref": "file-new",
+                "mime_type": "application/pdf",
+                "expires_at": "2027-01-01T00:00:00.000Z",
+                "last_used_at": "2026-02-01T00:00:00.000Z",
+                "updated_at": "2026-02-01T00:00:00.000Z"
+            }
+        }),
+    );
+
+    assert_eq!(first["id"], second["id"]);
+    assert_eq!(second["remote_ref"], "file-new");
+    assert_eq!(second["created_at"], "2026-01-01T00:00:00.000Z");
+    assert_eq!(second["updated_at"], "2026-02-01T00:00:00.000Z");
+    let found = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "attachment_remote_ref_find",
+            "attachmentId": 3306,
+            "providerId": 7006,
+            "transportKind": "openai-file-id"
+        }),
+    );
+    assert_eq!(found["remote_ref"], "file-new");
+
+    database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "attachment_remote_ref_touch",
+            "id": second["id"],
+            "lastUsedAt": "2026-03-01T00:00:00.000Z"
+        }),
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT COUNT(*) AS count, MAX(last_used_at) AS last_used_at
+             FROM attachment_remote_refs",
+            json!([]),
+        )["rows"],
+        json!([{ "count": 1, "last_used_at": "2026-03-01T00:00:00.000Z" }])
+    );
+}
+
+#[test]
 fn user_sees_and_dismisses_the_latest_terminal_badge() {
     let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
     execute_sql(

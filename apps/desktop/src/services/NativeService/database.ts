@@ -82,11 +82,17 @@ export type DatabaseOperation =
     | { kind: 'session_create'; data: Record<string, unknown> }
     | { kind: 'session_find_by_id'; id: number }
     | { kind: 'session_list'; query?: string; limit?: number }
+    | { kind: 'session_messages'; sessionId: number }
+    | { kind: 'session_history'; sessionId: number }
     | { kind: 'session_update'; id: number; data: Record<string, unknown> }
     | { kind: 'session_dismiss_terminal_status'; id: number }
     | { kind: 'session_refresh_metadata'; id: number }
     | { kind: 'session_count' }
     | { kind: 'session_delete_all' }
+    | { kind: 'message_count' }
+    | { kind: 'message_delete_all' }
+    | { kind: 'session_turn_count' }
+    | { kind: 'session_turn_delete_all' }
     | { kind: 'tool_part_create'; toolKind: ToolPartKind; data: Record<string, unknown> }
     | {
           kind: 'tool_part_list';
@@ -181,6 +187,31 @@ export type DatabaseOperation =
     | { kind: 'built_in_tool_touch'; toolId: string; lastUsedAt: string }
     | { kind: 'built_in_tool_count_enabled' }
     | { kind: 'attachment_ensure'; input: DatabaseAttachmentInput }
+    | {
+          kind: 'attachment_remote_ref_find';
+          attachmentId: number;
+          providerId: number;
+          transportKind: string;
+      }
+    | {
+          kind: 'attachment_remote_ref_upsert';
+          data: {
+              attachment_id: number;
+              provider_id: number;
+              transport_kind: string;
+              remote_ref: string;
+              mime_type?: string | null;
+              expires_at?: string | null;
+              last_used_at?: string | null;
+              created_at?: string | null;
+              updated_at?: string | null;
+          };
+      }
+    | {
+          kind: 'attachment_remote_ref_touch';
+          id: number;
+          lastUsedAt?: string | null;
+      }
     | {
           kind: 'task_record_start';
           input: {

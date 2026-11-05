@@ -4,11 +4,12 @@
  * 请求级会话只读模型。
  *
  * 同一个 turn 的准备阶段会多次需要同一会话的消息行（附件能力预检、transport 重建等）。
- * 读模型在**单次请求内**缓存首个 `findMessagesBySessionId` 结果，跨消费者复用同一次查询；
+ * 读模型在**单次请求内**缓存首个 `session_messages` 读取结果，跨消费者复用同一次查询；
  * 它不是长期缓存，因此不存在写后读到旧数据的问题。
  */
 
-import { findMessagesBySessionId, type MessageRow } from '@database/queries/messages';
+import type { MessageRow } from '@database/queries/messages';
+import { native } from '@services/NativeService';
 
 export interface SessionReadModel {
     /** 读取会话消息行；同一会话在本次请求内只查一次。 */
@@ -26,7 +27,10 @@ export function createSessionReadModel(): SessionReadModel {
             }
 
             // 缓存 Promise 而非结果：并发消费者共享同一次查询。
-            const pending = findMessagesBySessionId(sessionId);
+            const pending = native.database.operation<MessageRow[]>({
+                kind: 'session_messages',
+                sessionId,
+            });
             pendingBySession.set(sessionId, pending);
             return pending;
         },

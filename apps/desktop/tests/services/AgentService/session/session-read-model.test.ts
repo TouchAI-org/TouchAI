@@ -7,10 +7,10 @@ import {
     loadSessionTransportMessages,
 } from '@/services/AgentService/session/transport';
 
-const { findMessagesMock } = vi.hoisted(() => ({ findMessagesMock: vi.fn() }));
+const { loadSessionMessages } = vi.hoisted(() => ({ loadSessionMessages: vi.fn() }));
 
-vi.mock('@database/queries/messages', () => ({
-    findMessagesBySessionId: findMessagesMock,
+vi.mock('@services/NativeService', () => ({
+    native: { database: { operation: loadSessionMessages } },
 }));
 
 const ATTACHMENT_CAPABILITIES = { supportsImages: false, supportsFiles: false };
@@ -31,8 +31,8 @@ function createRows(): MessageRow[] {
 
 describe('createSessionReadModel', () => {
     beforeEach(() => {
-        findMessagesMock.mockReset();
-        findMessagesMock.mockResolvedValue(createRows());
+        loadSessionMessages.mockReset();
+        loadSessionMessages.mockResolvedValue(createRows());
     });
 
     it('reuses one messages read across attachment precheck and transport rebuild', async () => {
@@ -49,8 +49,11 @@ describe('createSessionReadModel', () => {
             readModel,
         });
 
-        expect(findMessagesMock).toHaveBeenCalledTimes(1);
-        expect(findMessagesMock).toHaveBeenCalledWith(7);
+        expect(loadSessionMessages).toHaveBeenCalledTimes(1);
+        expect(loadSessionMessages).toHaveBeenCalledWith({
+            kind: 'session_messages',
+            sessionId: 7,
+        });
     });
 
     it('falls back to a fresh read for each consumer without a read model', async () => {
@@ -63,7 +66,7 @@ describe('createSessionReadModel', () => {
             attachmentCapabilities: ATTACHMENT_CAPABILITIES,
         });
 
-        expect(findMessagesMock).toHaveBeenCalledTimes(2);
+        expect(loadSessionMessages).toHaveBeenCalledTimes(2);
     });
 
     it('caches per session id and shares the in-flight promise', async () => {
@@ -74,9 +77,9 @@ describe('createSessionReadModel', () => {
             readModel.getMessages(7),
         ]);
         expect(first).toBe(second);
-        expect(findMessagesMock).toHaveBeenCalledTimes(1);
+        expect(loadSessionMessages).toHaveBeenCalledTimes(1);
 
         await readModel.getMessages(8);
-        expect(findMessagesMock).toHaveBeenCalledTimes(2);
+        expect(loadSessionMessages).toHaveBeenCalledTimes(2);
     });
 });

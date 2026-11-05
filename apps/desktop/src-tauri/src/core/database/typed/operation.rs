@@ -62,6 +62,12 @@ pub(crate) enum DatabaseOperation {
         query: Option<String>,
         limit: Option<u32>,
     },
+    SessionMessages {
+        session_id: i64,
+    },
+    SessionHistory {
+        session_id: i64,
+    },
     SessionUpdate {
         id: i64,
         data: JsonMap<String, JsonValue>,
@@ -74,6 +80,10 @@ pub(crate) enum DatabaseOperation {
     },
     SessionCount,
     SessionDeleteAll,
+    MessageCount,
+    MessageDeleteAll,
+    SessionTurnCount,
+    SessionTurnDeleteAll,
     ToolPartCreate {
         tool_kind: ToolPartKind,
         data: JsonMap<String, JsonValue>,
@@ -243,6 +253,18 @@ pub(crate) enum DatabaseOperation {
     AttachmentEnsure {
         input: AttachmentPersistInput,
     },
+    AttachmentRemoteRefFind {
+        attachment_id: i64,
+        provider_id: i64,
+        transport_kind: String,
+    },
+    AttachmentRemoteRefUpsert {
+        data: AttachmentRemoteRefInput,
+    },
+    AttachmentRemoteRefTouch {
+        id: i64,
+        last_used_at: Option<String>,
+    },
     TaskRecordStart {
         input: TaskRecordStartInput,
     },
@@ -286,6 +308,19 @@ pub(crate) struct AttachmentPersistInput {
     pub origin_path: String,
     pub mime_type: Option<String>,
     pub size: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct AttachmentRemoteRefInput {
+    pub attachment_id: i64,
+    pub provider_id: i64,
+    pub transport_kind: String,
+    pub remote_ref: String,
+    pub mime_type: Option<String>,
+    pub expires_at: Option<String>,
+    pub last_used_at: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -495,11 +530,17 @@ impl DatabaseOperation {
             Self::SessionCreate { .. }
             | Self::SessionFindById { .. }
             | Self::SessionList { .. }
+            | Self::SessionMessages { .. }
+            | Self::SessionHistory { .. }
             | Self::SessionUpdate { .. }
             | Self::SessionDismissTerminalStatus { .. }
             | Self::SessionRefreshMetadata { .. }
             | Self::SessionCount
-            | Self::SessionDeleteAll => OperationSurface::new(OperationGroup::Agent),
+            | Self::SessionDeleteAll
+            | Self::MessageCount
+            | Self::MessageDeleteAll
+            | Self::SessionTurnCount
+            | Self::SessionTurnDeleteAll => OperationSurface::new(OperationGroup::Agent),
             Self::ToolPartCreate { .. } | Self::ToolPartUpdate { .. } => {
                 OperationSurface::new(OperationGroup::Agent)
             }
@@ -561,7 +602,10 @@ impl DatabaseOperation {
             | Self::BuiltInToolUpdateMany { .. }
             | Self::BuiltInToolTouch { .. }
             | Self::BuiltInToolCountEnabled => OperationSurface::new(OperationGroup::Config),
-            Self::AttachmentEnsure { .. } => OperationSurface::new(OperationGroup::Agent),
+            Self::AttachmentEnsure { .. }
+            | Self::AttachmentRemoteRefFind { .. }
+            | Self::AttachmentRemoteRefUpsert { .. }
+            | Self::AttachmentRemoteRefTouch { .. } => OperationSurface::new(OperationGroup::Agent),
         }
     }
 }
