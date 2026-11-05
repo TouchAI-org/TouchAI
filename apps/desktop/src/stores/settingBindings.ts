@@ -1,21 +1,18 @@
-// Store-facing barrel. Pure settings policy/DTO/default/serialization is owned by
-// services/SettingsService/domain and re-exported here for existing call sites; only the
-// Vue-flavoured computed binding helper lives on the store side.
+// Copyright (c) 2026. 千诚. Licensed under GPL v3
+
 import {
+    type BrowserSettingsConfig,
     GENERAL_SETTING_COMPUTED_BINDINGS,
     type GeneralSettingsData,
     type OutputScrollBehavior,
-} from '@services/SettingsService/domain/definitions';
-import type { BrowserSettingsConfig } from '@services/SettingsService/domain/sections/browser';
-import type { SearchSettingsConfig } from '@services/SettingsService/domain/sections/search';
+    type SearchSettingsConfig,
+} from '@services/SettingsService/domain';
 import { computed, type ComputedRef, type Ref } from 'vue';
 
 import type { AppUpdateChannel } from '@/config/appUpdate';
 import type { SearchKeybindings } from '@/config/searchKeybindings';
 import type { SearchWindowDefaultSize, SearchWindowSizePreset } from '@/config/searchWindow';
 import type { AppLocale } from '@/i18n/locales';
-
-export * from '@services/SettingsService/domain';
 
 export interface GeneralSettingsComputedRefs {
     outputScrollBehavior: ComputedRef<OutputScrollBehavior>;

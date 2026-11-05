@@ -131,14 +131,14 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import MotionCollapse from '@components/MotionCollapse.vue';
+    import {
+        SEARCH_PROVIDER_METADATA,
+        type SearchProviderId,
+    } from '@services/SettingsService/domain';
     import type { Component } from 'vue';
     import { computed, ref } from 'vue';
 
     import { t } from '@/i18n';
-    import {
-        SEARCH_PROVIDER_METADATA,
-        type SearchProviderId,
-    } from '@/stores/setting/sections/search';
     import type { ToolCallInfo } from '@/types/session';
 
     import BuiltInBashToolCallItem from './BuiltInBashToolCallItem.vue';

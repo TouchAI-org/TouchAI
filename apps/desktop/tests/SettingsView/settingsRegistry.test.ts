@@ -1,5 +1,4 @@
-import { describe, expect, it } from 'vitest';
-
+import type { SearchSettingsConfig } from '@services/SettingsService/domain';
 import {
     cloneJsonSettingsDefault,
     findJsonSettingsSection,
@@ -7,8 +6,8 @@ import {
     parseJsonSettingsValue,
     serializeJsonSettingsValue,
     validateJsonSettingsValue,
-} from '@/stores/setting/sections/registry';
-import type { SearchSettingsConfig } from '@/stores/setting/sections/search';
+} from '@services/SettingsService/domain';
+import { describe, expect, it } from 'vitest';
 
 describe('user changes a persisted setting', () => {
     it('user registers json-backed settings sections by persistent key', () => {
