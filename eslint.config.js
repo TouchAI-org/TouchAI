@@ -8,6 +8,7 @@ import globals from 'globals'
 import * as eslint_ts from 'typescript-eslint'
 import vue_parser from 'vue-eslint-parser'
 
+import { architectureConfig } from './apps/desktop/scripts/ci/architecture/boundaries.mjs'
 /*
  * Design-system guards.
  *
@@ -192,6 +193,8 @@ export default defineConfig([
         '.worktrees',
         '.tmp',
         '.codex',
+        'apps/desktop/tests/ci/architecture/fixtures',
+        'apps/desktop/tests/ci/architecture/fixtures/**',
     ]),
     // 推荐配置
     eslint_js.configs.recommended,
@@ -286,4 +289,6 @@ export default defineConfig([
             'no-restricted-syntax': ['error', ...SCRIPT_DESIGN_SYSTEM_SELECTORS],
         },
     },
+    // Architecture ownership boundaries (RFC #710).
+    ...architectureConfig,
 ])

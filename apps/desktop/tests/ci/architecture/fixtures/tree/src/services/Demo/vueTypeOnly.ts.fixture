@@ -1,0 +1,2 @@
+import type { Component } from 'vue';
+export type X = Component;
