@@ -124,18 +124,18 @@ async function buildAttachmentStoragePath(
  * 必须先于写事务完成：放在事务内会把持锁时长抬到秒级，
  * 并发写库时直接撞满 5s 的 busy_timeout。
  */
-type PreparedAttachment = {
+export interface PreparedAttachmentForPersistence {
     hash: string;
     name: string;
     mimeType: string | null;
     size: number | null;
-};
+}
 
 /** 只做文件 I/O，不碰数据库：供事务外预计算。 */
 async function prepareAttachment(
     type: AttachmentIndex['type'],
     path: string
-): Promise<PreparedAttachment> {
+): Promise<PreparedAttachmentForPersistence> {
     const [hash, name, mimeType, size] = await Promise.all([
         computeAttachmentHash(path),
         getFileName(path),
@@ -154,7 +154,7 @@ async function ensureAttachmentRecord(
     path: string,
     originPath: string,
     database: DatabaseExecutor = db,
-    prepared?: PreparedAttachment
+    prepared?: PreparedAttachmentForPersistence
 ): Promise<AttachmentEntity> {
     const { hash, name, mimeType, size } = prepared ?? (await prepareAttachment(type, path));
 
@@ -364,16 +364,25 @@ export async function ensurePersistedAttachmentIndex(
  *
  * 调用方在开启写事务前先跑这一步，事务内就只剩几条 SQL。
  */
-export async function prepareAttachmentForPersistence(attachment: AttachmentIndex): Promise<void> {
+export async function prepareAttachmentForPersistence(
+    attachment: AttachmentIndex
+): Promise<PreparedAttachmentForPersistence> {
     if (attachment.attachmentId && attachment.hash) {
-        return;
+        return {
+            hash: attachment.hash,
+            name: attachment.name,
+            mimeType: attachment.mimeType ?? null,
+            size: attachment.size ?? null,
+        };
     }
 
-    preparedAttachments.set(attachment, await prepareAttachment(attachment.type, attachment.path));
+    const prepared = await prepareAttachment(attachment.type, attachment.path);
+    preparedAttachments.set(attachment, prepared);
+    return prepared;
 }
 
 /** 事务外预计算结果，按附件实例缓存。 */
-const preparedAttachments = new WeakMap<AttachmentIndex, PreparedAttachment>();
+const preparedAttachments = new WeakMap<AttachmentIndex, PreparedAttachmentForPersistence>();
 
 /** 写入附件记录；若未预计算则退化为就地计算。 */
 export async function persistPreparedAttachment(

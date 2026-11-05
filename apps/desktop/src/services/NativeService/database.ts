@@ -11,6 +11,57 @@ export type ToolPartFilter =
     | { kind: 'server_id'; serverId: number }
     | { kind: 'tool_id'; toolId: string };
 
+export interface DatabaseAttachmentInput {
+    attachmentId?: number | null;
+    hash?: string | null;
+    type: 'image' | 'file';
+    originalName: string;
+    originPath: string;
+    mimeType?: string | null;
+    size?: number | null;
+}
+
+export interface DatabaseOutputPartInput {
+    type: 'text' | 'reasoning';
+    content: string;
+    data?: string;
+    startedAt?: number | null;
+    endedAt?: number | null;
+}
+
+export interface DatabaseLlmCallPartInput {
+    data: string;
+    startedAt?: number | null;
+    endedAt?: number | null;
+}
+
+export interface DatabaseUsageSummary {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    reasoningTokens: number;
+    totalCostMicros: number;
+    unpricedCalls: number;
+    ttftMs?: number | null;
+    llmCallCount: number;
+}
+
+export interface DatabaseAttemptUsageWrite {
+    calls: DatabaseLlmCallPartInput[];
+    summary: DatabaseUsageSummary;
+}
+
+export interface DatabaseTurnBehaviorSignals {
+    firstTextMs?: number | null;
+    toolCallCount: number;
+    toolArgumentErrorCount: number;
+    modelSwitchCount: number;
+    hitIterationCeiling: boolean;
+    errorCode?: string | null;
+    retryScope?: string | null;
+}
+
 export type DatabaseOperation =
     | { kind: 'setting_find'; key: string }
     | { kind: 'setting_get'; key: string }
@@ -129,7 +180,103 @@ export type DatabaseOperation =
     | { kind: 'built_in_tool_update'; id: number; data: Record<string, unknown> }
     | { kind: 'built_in_tool_update_many'; ids: number[]; data: Record<string, unknown> }
     | { kind: 'built_in_tool_touch'; toolId: string; lastUsedAt: string }
-    | { kind: 'built_in_tool_count_enabled' };
+    | { kind: 'built_in_tool_count_enabled' }
+    | { kind: 'attachment_ensure'; input: DatabaseAttachmentInput }
+    | {
+          kind: 'task_record_start';
+          input: {
+              sessionId?: number | null;
+              sessionTitle: string;
+              modelId: number;
+              modelName: string;
+              providerId: number;
+              taskId: string;
+              executionMode: 'foreground' | 'background';
+              prompt: string;
+              promptSnapshotJson: string;
+              promptBreakdownJson?: string | null;
+              checkpointJson: string;
+              deliveryManifestJson: string;
+              startedAt: string;
+              maxRetries: number;
+              existingUserMessageId?: number | null;
+              existingTurnId?: number | null;
+              existingAttemptId?: number | null;
+              attachments: DatabaseAttachmentInput[];
+          };
+      }
+    | {
+          kind: 'task_persist_output_message';
+          input: {
+              sessionId: number;
+              turnId?: number | null;
+              messageId?: number | null;
+              role: 'assistant' | 'tool_call';
+              linkTurn: boolean;
+              parts: DatabaseOutputPartInput[];
+          };
+      }
+    | {
+          kind: 'task_persist_tool_result';
+          input: {
+              toolCallPartId?: number | null;
+              toolCallId?: string | null;
+              toolCallMessageId?: number | null;
+              result: string;
+              attachments: DatabaseAttachmentInput[];
+          };
+      }
+    | {
+          kind: 'task_update_attempt';
+          input: {
+              attemptId: number;
+              checkpointJson?: string | null;
+              deliveryManifestJson?: string | null;
+          };
+      }
+    | {
+          kind: 'task_finish';
+          input: {
+              sessionId: number;
+              turnId?: number | null;
+              attemptId?: number | null;
+              assistantMessageId?: number | null;
+              pendingMessageId?: number | null;
+              status: 'completed' | 'failed' | 'cancelled';
+              errorMessage?: string | null;
+              durationMs?: number | null;
+              tokensUsed?: number | null;
+              finishedAt: string;
+              parts?: DatabaseOutputPartInput[] | null;
+              usage?: DatabaseAttemptUsageWrite | null;
+              behavior: DatabaseTurnBehaviorSignals;
+              turnBootstrap?: {
+                  modelId: number;
+                  taskId: string;
+                  executionMode: 'foreground' | 'background';
+                  promptSnapshotJson: string;
+                  promptMessageId?: number | null;
+              } | null;
+          };
+      }
+    | {
+          kind: 'task_begin_next_attempt';
+          input: {
+              turnId: number;
+              currentAttemptId: number;
+              currentAttemptIndex: number;
+              errorMessage: string;
+              durationMs?: number | null;
+              finishedAt: string;
+              attemptIndex: number;
+              maxRetries: number;
+              checkpointJson: string;
+              deliveryManifestJson: string;
+              startedAt: string;
+              usage?: DatabaseAttemptUsageWrite | null;
+              behavior: DatabaseTurnBehaviorSignals;
+          };
+      };
 
 export interface DatabaseOperationError {
     code: string;
