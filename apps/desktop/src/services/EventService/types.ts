@@ -4,13 +4,13 @@ import type {
     AppUpdateCheckResult,
     AppUpdateNotificationAction,
 } from '@services/NativeService/types';
+import type { GeneralSettingKey, GeneralSettingValue } from '@services/SettingsService/domain';
 
 import type { SearchKeybindingActionId } from '@/config/searchKeybindings';
-import type { GeneralSettingKey, GeneralSettingValue } from '@/stores/setting';
 import type { SessionStatusReminderKind } from '@/utils/session';
 
-export type { GeneralSettingKey, GeneralSettingValue } from '@/stores/setting';
 export type { SessionStatusReminderKind } from '@/utils/session';
+export type { GeneralSettingKey, GeneralSettingValue } from '@services/SettingsService/domain';
 
 /**
  * 事件类型定义

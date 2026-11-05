@@ -2,6 +2,14 @@
 
 import { getSettingsService, type SettingsService } from '@services/SettingsService';
 import {
+    applyGeneralSettingValue,
+    createDefaultGeneralSettings,
+    createGeneralSettingUpdaters,
+    type GeneralSettingKey,
+    type GeneralSettingsData,
+    type GeneralSettingValue,
+} from '@services/SettingsService/domain';
+import {
     SettingsErrorCode,
     type SettingsMutationResult,
     SettingsServiceError,
@@ -10,17 +18,9 @@ import { defineStore } from 'pinia';
 import { useStateMachine } from 'reka-ui';
 import { computed, onScopeDispose, ref, shallowRef } from 'vue';
 
-import {
-    applyGeneralSettingValue,
-    createDefaultGeneralSettings,
-    createGeneralSettingsComputedRefs,
-    createGeneralSettingUpdaters,
-    type GeneralSettingKey,
-    type GeneralSettingsData,
-    type GeneralSettingValue,
-} from './setting';
+import { createGeneralSettingsComputedRefs } from './settingBindings';
 
-export type { GeneralSettingsData, OutputScrollBehavior } from './setting';
+export type { GeneralSettingsData, OutputScrollBehavior } from '@services/SettingsService/domain';
 
 const SETTINGS_LIFECYCLE = {
     pending: { ready: 'ready', dispose: 'disposed' },

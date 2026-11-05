@@ -1,12 +1,11 @@
-import { describe, expect, it } from 'vitest';
-
-import { DEFAULT_BROWSER_SETTINGS } from '@/stores/setting/sections/browser';
+import { DEFAULT_BROWSER_SETTINGS } from '@services/SettingsService/domain';
 import {
     evaluateBrowserPermission,
     fixedBrowserDescription,
     normalizeBrowserDescription,
     requiresBrowserDescription,
-} from '@/stores/setting/sections/browserPolicy';
+} from '@services/SettingsService/domain';
+import { describe, expect, it } from 'vitest';
 
 describe('user reviews what the browser may do', () => {
     it('user uses fixed descriptions for passive status operations only', () => {
