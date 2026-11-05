@@ -848,8 +848,9 @@ function findLogErrors(appRoot) {
  * The same verified file is provisioned into the app root before boot, so the
  * remaining failures are a missing @font-face or a rejected asset URL. A face
  * can report `loaded` while the engine silently paints a fallback, so compare
- * a Han outline against a second face built from the same bytes. E2E uses the
- * same proof; this check keeps preview screenshots honest as well.
+ * a Han outline against a guaranteed-missing family. Equal outlines mean the
+ * product face did not paint. E2E uses the same proof; this keeps preview
+ * screenshots honest as well.
  */
 async function productFontState(session) {
     const deadline = Date.now() + 10000;
@@ -861,7 +862,7 @@ async function productFontState(session) {
     while (Date.now() < deadline) {
         state = await session.execute(String.raw`
             const family = 'TouchAI Source Han Serif SC';
-            const referenceFamily = 'TouchAI Preview Reference 9x8z';
+            const fallbackFamily = 'TouchAI Preview Missing 9x8z';
             const sample = '\u901a\u7528\u542f\u52a8';
             const style = document.querySelector('style[data-touchai-font-face]');
             if (!style) {
@@ -878,56 +879,28 @@ async function productFontState(session) {
             }
 
             const fontUrl = match[1];
-            let referenceStyle = document.querySelector(
-                'style[data-touchai-preview-font-reference]'
-            );
-            if (!referenceStyle || referenceStyle.dataset.fontUrl !== fontUrl) {
-                referenceStyle?.remove();
-                referenceStyle = document.createElement('style');
-                referenceStyle.setAttribute('data-touchai-preview-font-reference', '');
-                referenceStyle.dataset.fontUrl = fontUrl;
-                referenceStyle.textContent =
-                    '@font-face {' +
-                    "font-family: '" + referenceFamily + "';" +
-                    "src: url('" + fontUrl + "') format('woff2-variations');" +
-                    'font-weight: 250 900;' +
-                    'font-style: normal;' +
-                    'font-display: block;' +
-                    '}';
-                document.head.appendChild(referenceStyle);
-            }
-
             const facesFor = (name) =>
                 [...document.fonts].filter((face) => face.family === name);
             const productProbe = '500 52px "' + family + '"';
-            const referenceProbe = '500 52px "' + referenceFamily + '"';
             void document.fonts.load(productProbe, sample).catch(() => {});
-            void document.fonts.load(referenceProbe, sample).catch(() => {});
 
             const productFaces = facesFor(family);
-            const referenceFaces = facesFor(referenceFamily);
-            if (productFaces.length === 0 || referenceFaces.length === 0) {
+            if (productFaces.length === 0) {
                 return {
                     ok: false,
                     retry: true,
-                    detail: 'waiting for the product and reference faces to register',
+                    detail: 'waiting for the product face to register',
                 };
             }
 
             const productStatuses = productFaces.map((face) => face.status);
-            const referenceStatuses = referenceFaces.map((face) => face.status);
-            if (
-                !productStatuses.includes('loaded') ||
-                !referenceStatuses.includes('loaded')
-            ) {
+            if (!productStatuses.includes('loaded')) {
                 return {
                     ok: false,
                     retry: true,
                     detail:
-                        'waiting for a loaded product and reference face (product: ' +
+                        'waiting for a loaded product face (status: ' +
                         productStatuses.join(',') +
-                        '; reference: ' +
-                        referenceStatuses.join(',') +
                         ')',
                 };
             }
@@ -950,21 +923,21 @@ async function productFontState(session) {
             }
 
             const product = rasterize(family);
-            const reference = rasterize(referenceFamily);
+            const fallback = rasterize(fallbackFamily);
             let differingPixels = 0;
             for (let index = 0; index < product.length; index += 4) {
-                if (product[index] !== reference[index]) {
+                if (product[index] !== fallback[index]) {
                     differingPixels += 1;
                 }
             }
 
-            if (differingPixels > 500) {
+            if (differingPixels <= 500) {
                 return {
                     ok: false,
                     detail:
-                        'the interface painted a fallback instead of the product face (' +
+                        'the product face did not paint Han glyphs (only ' +
                         differingPixels +
-                        ' Han pixels differ from the reference face)',
+                        ' pixels differ from the fallback)',
                 };
             }
 
@@ -972,7 +945,7 @@ async function productFontState(session) {
                 ok: true,
                 detail:
                     fontUrl +
-                    ' (Han outline matched the reference face: ' +
+                    ' (Han outline differs from the fallback by ' +
                     differingPixels +
                     ' px)',
             };
