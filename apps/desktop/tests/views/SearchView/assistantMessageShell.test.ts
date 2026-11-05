@@ -191,13 +191,13 @@ describe('user waits for a streaming answer', () => {
     it('user sees the typing indicator while the answer streams', () => {
         const wrapper = render({ isStreaming: true });
 
-        expect(wrapper.find('.streaming-indicator').exists()).toBe(true);
+        expect(wrapper.findAll('[data-request-status] .dot')).toHaveLength(3);
     });
 
     it('user sees no typing indicator once the answer finishes', () => {
         const wrapper = render({ isStreaming: false });
 
-        expect(wrapper.find('.streaming-indicator').exists()).toBe(false);
+        expect(wrapper.find('[data-request-status] .dot').exists()).toBe(false);
     });
 
     it('user sees no typing indicator while a question panel owns the turn', () => {
@@ -205,7 +205,7 @@ describe('user waits for a streaming answer', () => {
 
         const wrapper = render({ isStreaming: true });
 
-        expect(wrapper.find('.streaming-indicator').exists()).toBe(false);
+        expect(wrapper.find('[data-request-status] .dot').exists()).toBe(false);
     });
 
     it('user sees a rotating hint after a long wait, then it repeats', async () => {

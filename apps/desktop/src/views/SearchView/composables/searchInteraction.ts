@@ -3,9 +3,9 @@
  * 收口页面交互状态、QuickSearch / overlay 策略与键盘语义解释，
  * 避免页面编排层和输入层同时承载交互规则。
  */
-import { AppEvent, eventService, type SearchSurfaceCommandEvent } from '@services/EventService';
-import type { PopupKeydownPayload } from '@services/PopupService';
-import { computed, type ComputedRef, reactive, type Ref, ref, watch } from 'vue';
+import type { SearchSurfaceCommandEvent } from '@services/EventService/types';
+import { log } from '@services/ObservabilityService';
+import { computed, type ComputedRef, reactive, type Ref, watch } from 'vue';
 
 import type { SearchKeybindingActionId, SearchKeybindings } from '@/config/searchKeybindings';
 import { useAskUserStore } from '@/stores/askUser';
@@ -17,36 +17,21 @@ import {
     type PendingToolApproval,
     type SessionMessage,
 } from '@/types/session';
+import { matchShortcut, normalizeLocalShortcutString } from '@/utils/shortcuts';
 
 import type {
+    PendingRequest,
     SearchCursorContext,
     SearchModelDropdownState,
     SearchModelOverride,
-    SearchOverlayState,
     SearchPageController,
 } from '../types';
-import type {
-    SearchPopupSurfaceType,
-    SessionInputHistoryDirection,
-    SessionInputHistoryNavigationResult,
-} from './interaction/useSearchKeyboardRouter';
-import { createSearchKeyboardRouter as createConfigurableSearchKeyboardRouter } from './interaction/useSearchKeyboardRouter';
 
 export type SearchActivationSource = 'shortcut' | 'manual' | 'unknown';
 
 export type SearchHideReason = 'app-blur-hide' | 'manual-dismiss' | 'policy-toggle-hide';
 
-export type SearchOverlayCommand =
-    | 'noop'
-    | 'close-quick-search'
-    | 'wait-layout-stable'
-    | 'open-model-dropdown';
-
-export interface SearchPopupSessionIdentity {
-    popupId: string;
-    windowLabel: string;
-    popupSessionVersion: number;
-}
+export type SearchOverlaySurfaceType = 'model-dropdown-surface' | 'session-history-surface';
 
 export interface SearchActivationContextState {
     activationEpoch: number;
@@ -63,10 +48,7 @@ export interface SearchActivationContextState {
     isPinned: boolean;
 }
 
-export interface SearchInteractionContextState extends SearchActivationContextState {
-    activePopupType: SearchPopupSurfaceType | null;
-    activePopupIdentity: SearchPopupSessionIdentity | null;
-}
+export type SearchInteractionContextState = SearchActivationContextState;
 
 interface MarkWindowHiddenInput {
     hideReason: SearchHideReason;
@@ -87,29 +69,82 @@ interface UseQuickSearchCoordinatorOptions {
     cursorContext: Ref<SearchCursorContext>;
     modelOverride: Ref<SearchModelOverride>;
     modelDropdownState: Ref<SearchModelDropdownState>;
+    activeOverlay: Ref<'none' | 'model-dropdown' | 'session-history'>;
     quickSearchOpen: Ref<boolean>;
+    /** Keep QuickSearch mounted while its surface hands off to the session panel. */
+    quickSearchHandoff?: Readonly<Ref<boolean>>;
     controller: SearchPageController;
     suppressNextAutoOpen?: Ref<boolean>;
 }
 
-interface UseSearchOverlayMachineOptions {
-    isQuickSearchOpen: ComputedRef<boolean>;
-    modelDropdownState: Ref<SearchModelDropdownState>;
+type SearchKeyboardSurface = 'search-surface' | SearchOverlaySurfaceType;
+type SearchQuickSearchDirection = 'up' | 'down' | 'left' | 'right';
+type SearchPrimaryShortcutKey = '.' | 'backspace';
+export type SessionInputHistoryDirection = 'older' | 'newer';
+export type SessionInputHistoryNavigationResult = 'navigated' | 'blocked' | 'ignored';
+
+interface PendingApprovalState {
+    callId?: string;
+    keyboardApproveAt: number;
 }
 
-interface SyncOverlayStateOptions {
-    force?: boolean;
+interface SearchKeyboardRouteInput {
+    key: string;
+    keyCode?: number;
+    isComposing?: boolean;
+    shiftKey?: boolean;
+    ctrlKey?: boolean;
+    metaKey?: boolean;
+    altKey?: boolean;
 }
 
-export type {
-    SearchPopupSurfaceType,
-    SessionInputHistoryDirection,
-    SessionInputHistoryNavigationResult,
-} from './interaction/useSearchKeyboardRouter';
+interface CreateSearchKeyboardRouterOptions {
+    cancelActivePanelInteraction?: () => boolean;
+    getSearchKeybindings?: () => SearchKeybindings;
+    getPendingApproval: () => PendingApprovalState | null;
+    getActiveSurface: () => SearchKeyboardSurface;
+    getQueryText: () => string;
+    hasAttachments: () => boolean;
+    isQuickSearchOpen: () => boolean;
+    hasQuickSearchHighlight: () => boolean;
+    shouldTriggerQuickSearch: (query: string) => boolean;
+    isMultiLineCursor: () => boolean;
+    isCursorAtTextStart: () => boolean;
+    isCursorAtEnd: () => boolean;
+    hasModelOverride: () => boolean;
+    getSessionHistoryCount: () => number;
+    isLoading: () => boolean;
+    onPromptApprovalAttention: () => void;
+    onRejectApproval: (callId?: string) => void;
+    onApproveApproval: (callId?: string) => void;
+    onForwardToOverlay: (key: string) => void;
+    onSubmit: () => void | Promise<void>;
+    onOpenQuickSearch: () => void;
+    onMoveQuickSearchSelection: (direction: SearchQuickSearchDirection) => void;
+    onOpenHighlightedQuickSearchItem: () => void | Promise<void>;
+    onCloseQuickSearch: () => void;
+    onQuickSearchPageUp: () => void;
+    onQuickSearchPageDown: () => void;
+    onQuickSearchContextMenu: () => void;
+    onQuickSearchToggleView: () => void;
+    onQuickSearchCollapse: () => void;
+    onNavigateInputHistory: (
+        direction: SessionInputHistoryDirection
+    ) => SessionInputHistoryNavigationResult;
+    onHideAllOverlays: () => void | Promise<void>;
+    onCancelRequest: () => void;
+    onClearModelOverride: () => void;
+    onHideWindow: () => void | Promise<void>;
+    onClearSession: () => void;
+    onClearDraft: () => void;
+    onPrimaryShortcut: (key: SearchPrimaryShortcutKey) => void | Promise<void>;
+    onSearchKeybindingAction?: (actionId: SearchKeybindingActionId) => void | Promise<void>;
+}
 
 export interface UseSearchKeyboardOptions {
+    cancelActivePanelInteraction?: () => boolean;
+    searchKeybindings?: Readonly<Ref<SearchKeybindings>>;
     viewReady: Ref<boolean>;
-    searchKeybindings: Readonly<Ref<SearchKeybindings>>;
     queryText: Ref<string>;
     attachments: Ref<unknown[]>;
     cursorContext: Ref<SearchCursorContext>;
@@ -117,27 +152,29 @@ export interface UseSearchKeyboardOptions {
     modelDropdownState: Ref<SearchModelDropdownState>;
     controller: SearchPageController;
     sessionHistory: Ref<SessionMessage[]>;
-    hasPendingRequest: () => boolean;
+    pendingRequest: Ref<PendingRequest | null>;
+    isWaitingForCompletion: Ref<boolean>;
     isLoading: Ref<boolean>;
     pendingToolApproval: Ref<PendingToolApproval | null>;
     approvePendingToolApproval: (callId?: string) => boolean;
     rejectPendingToolApproval: (callId?: string) => boolean;
     promptPendingToolApprovalAttention: () => void;
-    getActivePopupType: () => SearchPopupSurfaceType | null;
-    hasActivePopupWindowFocus: () => boolean;
+    getActiveOverlaySurface: () => SearchOverlaySurfaceType | null;
+    forwardOverlayKeydown?: (key: string) => void;
     isQuickSearchOpen: ComputedRef<boolean>;
     shouldTriggerQuickSearch: (query: string) => boolean;
-    sessionHistoryPopupOpen: Ref<boolean>;
-    hideAllPopups: () => Promise<void>;
+    sessionHistoryOverlayOpen: Ref<boolean>;
+    hideAllOverlays: () => Promise<void>;
     hideSearchWindow: () => Promise<void>;
     navigateInputHistory: (
         direction: SessionInputHistoryDirection
     ) => SessionInputHistoryNavigationResult;
     closeModelDropdown: () => Promise<void>;
-    handleSearchKeybindingAction: (actionId: SearchKeybindingActionId) => void | Promise<void>;
+    toggleWindowMaximize: () => Promise<void>;
     handleSubmit: (query: string) => Promise<void>;
+    handleSearchKeybindingAction?: (actionId: SearchKeybindingActionId) => void | Promise<void>;
+    clearAll: () => void;
     cancelRequest: () => void;
-    cancelPendingRequest: () => boolean;
     clearSession: () => void;
 }
 
@@ -323,8 +360,6 @@ export function createSearchInteractionContext() {
         timeoutClearArmedVisibilityEpoch: null,
         lastHideAt: null,
         isPinned: false,
-        activePopupType: null,
-        activePopupIdentity: null,
     });
 
     function recordActivation(activationSource: SearchActivationSource) {
@@ -377,19 +412,6 @@ export function createSearchInteractionContext() {
         return shouldRun;
     }
 
-    function setActivePopupSession(input: {
-        popupType: SearchPopupSurfaceType;
-        identity: SearchPopupSessionIdentity;
-    }) {
-        state.activePopupType = input.popupType;
-        state.activePopupIdentity = input.identity;
-    }
-
-    function clearActivePopupSession() {
-        state.activePopupType = null;
-        state.activePopupIdentity = null;
-    }
-
     return {
         state,
         recordActivation,
@@ -399,8 +421,6 @@ export function createSearchInteractionContext() {
         setAppFocused,
         markEntryChecked,
         shouldRunTimeoutClearOnFocus,
-        setActivePopupSession,
-        clearActivePopupSession,
     };
 }
 
@@ -443,57 +463,6 @@ export function createSearchEntryPolicy() {
 }
 
 /**
- * popup surface 协调器。
- */
-export function createPopupSurfaceCoordinator(
-    interactionContext: Pick<
-        ReturnType<typeof createSearchInteractionContext>,
-        'state' | 'setActivePopupSession' | 'clearActivePopupSession'
-    >
-) {
-    const state = interactionContext.state;
-
-    function activatePopup(input: {
-        popupId: string;
-        popupType: SearchPopupSurfaceType;
-        windowLabel: string;
-        popupSessionVersion: number;
-    }) {
-        interactionContext.setActivePopupSession({
-            popupType: input.popupType,
-            identity: {
-                popupId: input.popupId,
-                windowLabel: input.windowLabel,
-                popupSessionVersion: input.popupSessionVersion,
-            },
-        });
-    }
-
-    function clearActivePopup() {
-        interactionContext.clearActivePopupSession();
-    }
-
-    function isCurrentPopupEvent(input: SearchPopupSessionIdentity) {
-        if (!state.activePopupIdentity) {
-            return false;
-        }
-
-        return (
-            state.activePopupIdentity.popupId === input.popupId &&
-            state.activePopupIdentity.windowLabel === input.windowLabel &&
-            state.activePopupIdentity.popupSessionVersion === input.popupSessionVersion
-        );
-    }
-
-    return {
-        state,
-        activatePopup,
-        clearActivePopup,
-        isCurrentPopupEvent,
-    };
-}
-
-/**
  * SearchView 中的 QuickSearch 协调层。
  * 负责集中判断何时允许展示 QuickSearch，并通过页面 controller
  * 统一驱动面板打开、关闭和结果刷新。
@@ -506,6 +475,7 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
         cursorContext,
         modelOverride,
         modelDropdownState,
+        activeOverlay,
         quickSearchOpen,
         controller,
         suppressNextAutoOpen,
@@ -515,10 +485,16 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
         return quickSearchOpen.value;
     });
 
-    function shouldTriggerQuickSearch(query: string) {
+    /**
+     * Whether the results list has anything to show for this query.
+     *
+     * This is about the query alone. Whether a popup is open belongs to the auto-open gate below:
+     * the two were one predicate, so opening a popup also *closed* a list that was already showing
+     * the user's results.
+     */
+    function shouldShowQuickSearch(query: string) {
         return (
             sessionHistory.value.length === 0 &&
-            !modelDropdownState.value.isOpen &&
             !!query.trim() &&
             !cursorContext.value.isMultiLine &&
             !modelOverride.value.modelId &&
@@ -526,19 +502,38 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
         );
     }
 
+    /** Auto-opening is what a popup suppresses; a list that is already open stays. */
+    function shouldTriggerQuickSearch(query: string) {
+        return (
+            shouldShowQuickSearch(query) &&
+            activeOverlay.value === 'none' &&
+            !modelDropdownState.value.isOpen
+        );
+    }
+
     function syncQuickSearchPanel(query = queryText.value) {
+        if (options.quickSearchHandoff?.value) {
+            return;
+        }
+
         if (suppressNextAutoOpen?.value) {
             suppressNextAutoOpen.value = false;
             controller.closeQuickSearch();
             return;
         }
 
-        if (shouldTriggerQuickSearch(query)) {
-            controller.triggerQuickSearch(query);
+        if (!shouldShowQuickSearch(query)) {
+            controller.closeQuickSearch();
             return;
         }
 
-        controller.closeQuickSearch();
+        if (quickSearchOpen.value) {
+            return;
+        }
+
+        if (shouldTriggerQuickSearch(query)) {
+            controller.triggerQuickSearch(query);
+        }
     }
 
     watch(
@@ -549,8 +544,11 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
             isMultiLine: cursorContext.value.isMultiLine,
             selectedModelId: modelOverride.value.modelId,
             isModelDropdownOpen: modelDropdownState.value.isOpen,
+            activeOverlay: activeOverlay.value,
+            quickSearchHandoff: options.quickSearchHandoff?.value ?? false,
         }),
-        ({ query }) => {
+        ({ query, quickSearchHandoff }) => {
+            if (quickSearchHandoff) return;
             syncQuickSearchPanel(query);
         },
         { flush: 'post' }
@@ -564,84 +562,350 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
 }
 
 /**
- * 搜索页浮层状态机。
- * 负责 QuickSearch 与模型下拉等各类模块状态切换过程。
+ * 在同步键盘路由中启动可能异步的副作用。
  */
-export function useSearchOverlayMachine(options: UseSearchOverlayMachineOptions) {
-    const { isQuickSearchOpen, modelDropdownState } = options;
-    const overlayState = ref<SearchOverlayState>('idle');
+function runKeyboardEffect(effect: () => void | Promise<void>) {
+    void Promise.resolve(effect()).catch((error) => {
+        log.error('[SearchKeyboardRouter] Failed to handle keyboard effect:', error);
+    });
+}
 
-    function syncOverlayState(options: SyncOverlayStateOptions = {}) {
+/**
+ * 判断审批态下是否属于“误输入”。
+ */
+function isTypingAttemptDuringApproval(input: SearchKeyboardRouteInput) {
+    if (input.ctrlKey || input.metaKey || input.altKey) {
+        return false;
+    }
+
+    return input.key.length === 1 || input.key === 'Backspace' || input.key === 'Delete';
+}
+
+function resolveSearchKeybindingAction(
+    input: SearchKeyboardRouteInput,
+    keybindings: SearchKeybindings
+): SearchKeybindingActionId | null {
+    for (const [actionId, shortcut] of Object.entries(keybindings) as Array<
+        [SearchKeybindingActionId, string | null]
+    >) {
+        if (matchShortcut(shortcut, input)) {
+            return actionId;
+        }
+    }
+
+    return null;
+}
+
+function matchesSearchKeybindingCommand(
+    actionId: SearchKeybindingActionId,
+    shortcut: string,
+    keybindings: SearchKeybindings
+): boolean {
+    const normalizedShortcut = normalizeLocalShortcutString(shortcut);
+    if (!normalizedShortcut) {
+        return false;
+    }
+
+    return normalizeLocalShortcutString(keybindings[actionId]) === normalizedShortcut;
+}
+
+/**
+ * 判断是否命中 Ctrl/Cmd 主修饰键快捷键。
+ */
+function resolvePrimaryShortcutKey(
+    input: SearchKeyboardRouteInput,
+    queryText: string,
+    isLoading: boolean
+): SearchPrimaryShortcutKey | null {
+    const hasPrimaryModifier = input.ctrlKey || input.metaKey;
+    if (!hasPrimaryModifier || input.altKey || input.shiftKey) {
+        return null;
+    }
+
+    const normalizedKey = input.key.toLowerCase();
+    if (normalizedKey === '.') {
+        return isLoading ? '.' : null;
+    }
+
+    if (normalizedKey === 'backspace') {
+        return queryText.trim() ? 'backspace' : null;
+    }
+
+    return null;
+}
+
+/**
+ * 纯键盘语义路由器。
+ */
+export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOptions) {
+    const {
+        cancelActivePanelInteraction,
+        getSearchKeybindings,
+        getPendingApproval,
+        getActiveSurface,
+        getQueryText,
+        hasAttachments,
+        isQuickSearchOpen,
+        hasQuickSearchHighlight,
+        shouldTriggerQuickSearch,
+        isMultiLineCursor,
+        isCursorAtTextStart,
+        isCursorAtEnd,
+        hasModelOverride,
+        getSessionHistoryCount,
+        isLoading,
+        onPromptApprovalAttention,
+        onRejectApproval,
+        onApproveApproval,
+        onForwardToOverlay,
+        onSubmit,
+        onOpenQuickSearch,
+        onMoveQuickSearchSelection,
+        onOpenHighlightedQuickSearchItem,
+        onCloseQuickSearch,
+        onQuickSearchPageUp,
+        onQuickSearchPageDown,
+        onQuickSearchContextMenu,
+        onQuickSearchToggleView,
+        onQuickSearchCollapse,
+        onNavigateInputHistory,
+        onHideAllOverlays,
+        onCancelRequest,
+        onClearModelOverride,
+        onHideWindow,
+        onClearSession,
+        onClearDraft,
+        onPrimaryShortcut,
+        onSearchKeybindingAction,
+    } = options;
+
+    function routeSearchKeybindingAction(actionId: SearchKeybindingActionId) {
+        if (!onSearchKeybindingAction) {
+            return false;
+        }
+
+        if (actionId === 'search.quickSearch.toggleView' && !isQuickSearchOpen()) {
+            return false;
+        }
+
+        runKeyboardEffect(() => onSearchKeybindingAction(actionId));
+        return true;
+    }
+
+    function routeCommand(actionId: SearchKeybindingActionId, shortcut: string) {
+        if (getPendingApproval()) {
+            return true;
+        }
+
+        const keybindings = getSearchKeybindings?.();
+        if (!keybindings || !matchesSearchKeybindingCommand(actionId, shortcut, keybindings)) {
+            return false;
+        }
+
+        return routeSearchKeybindingAction(actionId);
+    }
+
+    function route(input: SearchKeyboardRouteInput) {
+        if (input.isComposing || input.keyCode === 229) {
+            return false;
+        }
+
+        if ((input.key === 'Escape' || input.key === 'Esc') && cancelActivePanelInteraction?.()) {
+            return true;
+        }
+
+        const queryText = getQueryText();
+        const pendingApproval = getPendingApproval();
+        if (pendingApproval) {
+            if (input.key === 'Escape' || input.key === 'Esc') {
+                onRejectApproval(pendingApproval.callId);
+                return true;
+            }
+
+            if (input.key === 'Enter') {
+                if (!input.shiftKey && Date.now() >= pendingApproval.keyboardApproveAt) {
+                    onApproveApproval(pendingApproval.callId);
+                } else {
+                    onPromptApprovalAttention();
+                }
+                return true;
+            }
+
+            if (isTypingAttemptDuringApproval(input)) {
+                onPromptApprovalAttention();
+                return true;
+            }
+        }
+
+        const keybindings = getSearchKeybindings?.();
+        if (keybindings && onSearchKeybindingAction) {
+            const actionId = resolveSearchKeybindingAction(input, keybindings);
+            if (actionId) {
+                return routeSearchKeybindingAction(actionId);
+            }
+        }
+
+        const primaryShortcut = resolvePrimaryShortcutKey(input, queryText, isLoading());
+        if (primaryShortcut) {
+            runKeyboardEffect(() => onPrimaryShortcut(primaryShortcut));
+            return true;
+        }
+
+        if (input.key === 'Escape' || input.key === 'Esc') {
+            if (getActiveSurface() !== 'search-surface') {
+                runKeyboardEffect(onHideAllOverlays);
+                return true;
+            }
+
+            // 快速搜索有高亮时，Escape 只收缩面板、清除高亮，不走清空输入链路。
+            if (isQuickSearchOpen() && hasQuickSearchHighlight()) {
+                onQuickSearchCollapse();
+                return true;
+            }
+
+            if (isLoading()) {
+                onCancelRequest();
+                return true;
+            }
+
+            // Step 1: Clear input text first without exiting the current conversation
+            if (queryText.trim()) {
+                onClearDraft();
+                return true;
+            }
+
+            // Step 2: Clear model selection
+            if (hasModelOverride()) {
+                onClearModelOverride();
+                return true;
+            }
+
+            // Step 3: Exit conversation if session exists
+            if (getSessionHistoryCount() > 0) {
+                onClearSession();
+                return true;
+            }
+
+            // Step 4: Hide window if no session
+            runKeyboardEffect(onHideWindow);
+            return true;
+        }
+
         if (
-            !options.force &&
-            (overlayState.value === 'model-dropdown-preparing' ||
-                overlayState.value === 'waiting-layout-stable')
+            (getActiveSurface() === 'model-dropdown-surface' ||
+                getActiveSurface() === 'session-history-surface') &&
+            ['ArrowUp', 'ArrowDown', 'Enter'].includes(input.key)
         ) {
-            return;
+            onForwardToOverlay(input.key);
+            return true;
         }
 
-        if (modelDropdownState.value.isOpen) {
-            overlayState.value = 'model-dropdown-open';
-            return;
+        if (isQuickSearchOpen()) {
+            // PageUp/PageDown 翻页
+            if (input.key === 'PageUp') {
+                onQuickSearchPageUp();
+                return true;
+            }
+            if (input.key === 'PageDown') {
+                onQuickSearchPageDown();
+                return true;
+            }
+
+            // Menu 键或 Shift+F10 打开右键菜单
+            if (input.key === 'ContextMenu' || (input.key === 'F10' && input.shiftKey)) {
+                onQuickSearchContextMenu();
+                return true;
+            }
+
+            // Ctrl+G 切换网格/列表视图
+            if (input.key === 'g' && (input.ctrlKey || input.metaKey)) {
+                onQuickSearchToggleView();
+                return true;
+            }
+
+            if (hasQuickSearchHighlight()) {
+                const directionMap: Partial<Record<string, SearchQuickSearchDirection>> = {
+                    ArrowUp: 'up',
+                    ArrowDown: 'down',
+                    ArrowLeft: 'left',
+                    ArrowRight: 'right',
+                };
+                const direction = directionMap[input.key];
+                if (direction) {
+                    onMoveQuickSearchSelection(direction);
+                    return true;
+                }
+
+                if (input.key === 'Enter') {
+                    runKeyboardEffect(onOpenHighlightedQuickSearchItem);
+                    return true;
+                }
+            } else {
+                if (input.key === 'ArrowDown') {
+                    onMoveQuickSearchSelection('down');
+                    return true;
+                }
+
+                if (input.key === 'Enter' && !input.shiftKey) {
+                    // Start submission before closing the panel. The submit path
+                    // claims the native resize transaction synchronously; closing
+                    // first lets ResizeObserver enqueue a stale shrink and causes
+                    // the host to jump back to the compact height.
+                    if (queryText.trim()) {
+                        runKeyboardEffect(onSubmit);
+                    } else {
+                        onCloseQuickSearch();
+                    }
+                    return true;
+                }
+            }
         }
 
-        overlayState.value = isQuickSearchOpen.value ? 'quick-search-open' : 'idle';
-    }
+        if (getActiveSurface() === 'search-surface' && !isQuickSearchOpen()) {
+            if (input.key === 'ArrowUp') {
+                if (isMultiLineCursor() && !isCursorAtTextStart()) {
+                    return false;
+                }
 
-    function requestModelDropdownOpen(): SearchOverlayCommand {
-        if (
-            modelDropdownState.value.isOpen ||
-            overlayState.value === 'model-dropdown-preparing' ||
-            overlayState.value === 'waiting-layout-stable'
-        ) {
-            return 'noop';
+                return onNavigateInputHistory('older') !== 'ignored';
+            }
+
+            if (input.key === 'ArrowDown') {
+                if (isMultiLineCursor() && !isCursorAtEnd()) {
+                    return false;
+                }
+
+                if (onNavigateInputHistory('newer') === 'navigated') {
+                    return true;
+                }
+
+                if (!shouldTriggerQuickSearch(queryText)) {
+                    return false;
+                }
+
+                if (queryText.trim() || hasAttachments()) {
+                    runKeyboardEffect(onSubmit);
+                    return true;
+                }
+
+                onOpenQuickSearch();
+                return true;
+            }
         }
 
-        overlayState.value = 'model-dropdown-preparing';
-        return isQuickSearchOpen.value ? 'close-quick-search' : 'open-model-dropdown';
-    }
-
-    function handleQuickSearchClosedForModelDropdown(): SearchOverlayCommand {
-        if (overlayState.value !== 'model-dropdown-preparing') {
-            return 'noop';
+        if (getActiveSurface() === 'search-surface' && input.key === 'Enter' && !input.shiftKey) {
+            if (queryText.trim() || hasAttachments()) {
+                runKeyboardEffect(onSubmit);
+            }
+            return true;
         }
 
-        overlayState.value = 'waiting-layout-stable';
-        return 'wait-layout-stable';
+        return false;
     }
-
-    function handleLayoutStableForModelDropdown(): SearchOverlayCommand {
-        if (overlayState.value !== 'waiting-layout-stable') {
-            return 'noop';
-        }
-
-        return 'open-model-dropdown';
-    }
-
-    function handleModelDropdownOpened() {
-        overlayState.value = 'model-dropdown-open';
-    }
-
-    function handleModelDropdownClosed() {
-        syncOverlayState({ force: true });
-    }
-
-    watch(
-        () => [isQuickSearchOpen.value, modelDropdownState.value.isOpen],
-        () => {
-            syncOverlayState();
-        },
-        { immediate: true, flush: 'sync' }
-    );
 
     return {
-        overlayState,
-        requestModelDropdownOpen,
-        handleQuickSearchClosedForModelDropdown,
-        handleLayoutStableForModelDropdown,
-        handleModelDropdownOpened,
-        handleModelDropdownClosed,
-        syncOverlayState,
+        route,
+        routeCommand,
     };
 }
 
@@ -652,6 +916,7 @@ export function createSearchKeydownHandler(
     options: UseSearchKeyboardOptions
 ): SearchKeydownHandler {
     const {
+        cancelActivePanelInteraction,
         viewReady,
         searchKeybindings,
         queryText,
@@ -661,31 +926,34 @@ export function createSearchKeydownHandler(
         modelDropdownState,
         controller,
         sessionHistory,
-        hasPendingRequest,
+        pendingRequest,
+        isWaitingForCompletion,
         isLoading,
         pendingToolApproval,
         approvePendingToolApproval,
         rejectPendingToolApproval,
         promptPendingToolApprovalAttention,
-        getActivePopupType,
-        hasActivePopupWindowFocus,
+        getActiveOverlaySurface,
+        forwardOverlayKeydown,
         isQuickSearchOpen,
         shouldTriggerQuickSearch,
-        sessionHistoryPopupOpen,
-        hideAllPopups,
+        sessionHistoryOverlayOpen,
+        hideAllOverlays,
         hideSearchWindow,
         navigateInputHistory,
         closeModelDropdown,
-        handleSearchKeybindingAction,
+        toggleWindowMaximize,
         handleSubmit,
+        handleSearchKeybindingAction,
+        clearAll,
         cancelRequest,
-        cancelPendingRequest,
         clearSession,
     } = options;
 
     let lastBackspaceTime = 0;
-    const keyboardRouter = createConfigurableSearchKeyboardRouter({
-        getSearchKeybindings: () => searchKeybindings.value,
+    const keyboardRouter = createSearchKeyboardRouter({
+        cancelActivePanelInteraction,
+        getSearchKeybindings: searchKeybindings ? () => searchKeybindings.value : undefined,
         getPendingApproval: () =>
             pendingToolApproval.value
                 ? {
@@ -694,11 +962,11 @@ export function createSearchKeydownHandler(
                   }
                 : null,
         getActiveSurface: () => {
-            const activePopupType = getActivePopupType();
-            if (activePopupType) {
-                return activePopupType;
+            const activeOverlaySurface = getActiveOverlaySurface();
+            if (activeOverlaySurface) {
+                return activeOverlaySurface;
             }
-            if (sessionHistoryPopupOpen.value) {
+            if (sessionHistoryOverlayOpen.value) {
                 return 'session-history-surface';
             }
             if (modelDropdownState.value.isOpen) {
@@ -706,7 +974,6 @@ export function createSearchKeydownHandler(
             }
             return 'search-surface';
         },
-        hasActivePopupWindowFocus,
         getQueryText: () => queryText.value,
         hasAttachments: () => attachments.value.length > 0,
         isQuickSearchOpen: () => isQuickSearchOpen.value,
@@ -721,12 +988,8 @@ export function createSearchKeydownHandler(
         onPromptApprovalAttention: promptPendingToolApprovalAttention,
         onRejectApproval: rejectPendingToolApproval,
         onApproveApproval: approvePendingToolApproval,
-        onForwardToPopup: (key) => {
-            const payload: PopupKeydownPayload = {
-                key,
-                targetType: 'model-dropdown-popup',
-            };
-            void eventService.emit(AppEvent.POPUP_KEYDOWN, payload);
+        onForwardToOverlay: (key) => {
+            forwardOverlayKeydown?.(key);
         },
         onSubmit: async () => {
             await handleSubmit(queryText.value);
@@ -752,14 +1015,17 @@ export function createSearchKeydownHandler(
         onQuickSearchContextMenu: () => {
             controller.openQuickSearchContextMenu();
         },
+        onQuickSearchToggleView: () => {
+            controller.toggleQuickSearchView();
+        },
         onQuickSearchCollapse: () => {
             controller.collapseQuickSearch();
         },
         onNavigateInputHistory: (direction) => {
             return navigateInputHistory(direction);
         },
-        onHideAllPopups: async () => {
-            await hideAllPopups();
+        onHideAllOverlays: async () => {
+            await hideAllOverlays();
         },
         onCancelRequest: () => {
             cancelRequest();
@@ -775,6 +1041,14 @@ export function createSearchKeydownHandler(
         },
         onClearDraft: () => {
             queryText.value = '';
+        },
+        onPrimaryShortcut: (key) => {
+            if (key === '.') {
+                cancelRequest();
+                return;
+            }
+
+            clearAll();
         },
         onSearchKeybindingAction: handleSearchKeybindingAction,
     });
@@ -826,9 +1100,17 @@ export function createSearchKeydownHandler(
             return;
         }
 
+        if (event.key === 'F11' && !searchKeybindings) {
+            event.preventDefault();
+            event.stopPropagation();
+            await toggleWindowMaximize();
+            return;
+        }
+
         const handledByRouter = keyboardRouter.route({
             key: event.key,
-            code: event.code,
+            keyCode: event.keyCode,
+            isComposing: event.isComposing,
             shiftKey: event.shiftKey,
             ctrlKey: event.ctrlKey,
             metaKey: event.metaKey,
@@ -837,6 +1119,16 @@ export function createSearchKeydownHandler(
         if (handledByRouter) {
             event.preventDefault();
             event.stopPropagation();
+            return;
+        }
+
+        const eventTarget = event.target;
+        const isInlineOverlayInput =
+            (eventTarget instanceof HTMLInputElement ||
+                eventTarget instanceof HTMLTextAreaElement) &&
+            eventTarget.closest('[data-search-overlay-host="true"]') !== null;
+
+        if (isInlineOverlayInput) {
             return;
         }
 
@@ -852,19 +1144,19 @@ export function createSearchKeydownHandler(
                 return;
             }
 
-            if (hasPendingRequest()) {
+            if (pendingRequest.value) {
                 const now = Date.now();
                 const timeSinceLastBackspace = now - lastBackspaceTime;
                 lastBackspaceTime = now;
 
-                if (timeSinceLastBackspace < DOUBLE_BACKSPACE_INTERVAL && cancelPendingRequest()) {
+                if (timeSinceLastBackspace < DOUBLE_BACKSPACE_INTERVAL) {
                     event.preventDefault();
+                    pendingRequest.value = null;
+                    isWaitingForCompletion.value = false;
                     lastBackspaceTime = 0;
                 }
                 return;
             }
-
-            lastBackspaceTime = 0;
 
             if (modelOverride.value.modelId && cursorContext.value.cursorAtStart) {
                 event.preventDefault();

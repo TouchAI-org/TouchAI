@@ -34,11 +34,9 @@ export function isSearchTagDomTarget(target: Element | null) {
     return Boolean(target?.closest(SEARCH_TAG_INTERACTIVE_SELECTOR));
 }
 
-/** 判断目标是否为编辑器空白区域（editor host 或 tiptap 根元素）。 */
+/** 判断目标是否落在编辑器表面（包括有文本时段落后的空白区域）。 */
 export function isBlankEditorAreaTarget(target: HTMLElement) {
-    return (
-        target.classList.contains('search-bar-editor-host') || target.classList.contains('tiptap')
-    );
+    return Boolean(target.closest('.search-bar-editor-host, .tiptap'));
 }
 
 /** 从鼠标事件中解析目标 HTMLElement（兼容 Text 节点）。 */

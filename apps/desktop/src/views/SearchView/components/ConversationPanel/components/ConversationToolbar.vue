@@ -17,11 +17,13 @@
         historyOpen: boolean;
         canPin?: boolean;
         disabled?: boolean;
+        startDragging?: (event: MouseEvent) => Promise<void>;
     }
 
     const props = withDefaults(defineProps<Props>(), {
         canPin: true,
         disabled: false,
+        startDragging: undefined,
     });
 
     const emit = defineEmits<{
@@ -88,11 +90,19 @@
 
         emit('dragStart');
         try {
-            await getCurrentWindow().startDragging();
+            if (props.startDragging) {
+                await props.startDragging(event);
+            } else {
+                await getCurrentWindow().startDragging();
+            }
         } finally {
-            setTimeout(() => {
+            if (props.startDragging) {
                 emit('dragEnd');
-            }, 100);
+            } else {
+                setTimeout(() => {
+                    emit('dragEnd');
+                }, 100);
+            }
         }
     }
 
@@ -107,7 +117,7 @@
 
 <template>
     <div
-        class="toolbar-fade-overlay absolute top-0 right-0 left-0 z-30 flex h-[4.5rem] cursor-grab items-start px-10 pt-3 active:cursor-grabbing"
+        class="toolbar-fade-overlay pointer-events-auto absolute top-0 right-0 left-0 z-100 flex h-18 cursor-grab items-start px-10 pt-3 active:cursor-grabbing"
         @mousedown="handleToolbarDragMouseDown"
         @wheel.passive="emit('wheel', $event.deltaY)"
     >

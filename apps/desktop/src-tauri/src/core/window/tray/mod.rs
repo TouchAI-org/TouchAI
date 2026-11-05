@@ -259,7 +259,7 @@ fn apply_tray_status<R: Runtime>(
 }
 
 fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
-    if let Err(e) = crate::core::window::show_search_window(app.clone()) {
+    if let Err(e) = crate::core::window::show_search_window_on_main_thread(app) {
         warn!("Failed to show main window from tray icon: {}", e);
     }
 }

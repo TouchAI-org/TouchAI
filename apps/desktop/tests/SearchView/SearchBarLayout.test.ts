@@ -41,7 +41,7 @@ const { isMultiLine, useSearchInputMock } = vi.hoisted(() => {
     };
 });
 
-vi.mock('@assets/logo.svg', () => ({ default: 'logo.svg' }));
+vi.mock('@assets/logos/models/deepseek.png', () => ({ default: 'deepseek.png' }));
 
 vi.mock('@components/ModelLogo.vue', () => ({
     default: {
@@ -65,7 +65,7 @@ vi.mock('@/views/SearchView/components/SearchBar/composables/useSearchLogic', ()
 
 import SearchBar from '@/views/SearchView/components/SearchBar/index.vue';
 
-describe('when the user types into the search bar', () => {
+describe('SearchBar layout', () => {
     beforeEach(() => {
         isMultiLine.value = false;
         useSearchInputMock.mockClear();
@@ -84,7 +84,7 @@ describe('when the user types into the search bar', () => {
         });
     }
 
-    it('user sees a single-line draft vertically centred in the window', () => {
+    it('centers the search bar row vertically while the editor is single-line', () => {
         const wrapper = mountSearchBar();
 
         const searchBar = wrapper.get('[data-testid="search-bar"]');
@@ -93,7 +93,16 @@ describe('when the user types into the search bar', () => {
         expect(searchBar.classes()).not.toContain('items-start');
     });
 
-    it('user sees the draft top-aligned once it wraps to several lines', async () => {
+    it('keeps the search bar content-sized instead of inheriting the panel height', () => {
+        const wrapper = mountSearchBar();
+
+        const searchBar = wrapper.get('[data-testid="search-bar"]');
+
+        expect(searchBar.classes()).not.toContain('h-full');
+        expect(searchBar.classes()).toContain('min-h-14');
+    });
+
+    it('top-aligns the search bar row when the editor becomes multiline', async () => {
         const wrapper = mountSearchBar();
 
         isMultiLine.value = true;
@@ -106,7 +115,7 @@ describe('when the user types into the search bar', () => {
         expect(searchBar.classes()).not.toContain('items-center');
     });
 
-    it('user gets at most seven visible lines before the draft scrolls', () => {
+    it('allows the input editor to grow up to seven text lines', () => {
         const wrapper = mountSearchBar();
 
         const editorHost = wrapper.get('[data-testid="search-editor-host"]');

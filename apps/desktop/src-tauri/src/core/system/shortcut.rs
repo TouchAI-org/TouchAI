@@ -37,31 +37,17 @@ pub struct SearchSurfaceCommand {
     pub source: &'static str,
 }
 
-/// 先异步跳出 WM_HOTKEY 回调栈，再把搜索窗口切换投递回 Tauri 主事件循环。
-fn schedule_search_window_toggle<R: Runtime>(app_handle: AppHandle<R>) {
-    tauri::async_runtime::spawn(async move {
-        let task_handle = app_handle.clone();
-        if let Err(error) = app_handle.run_on_main_thread(move || {
-            if let Err(error) = crate::core::window::show_search_window_from_shortcut(&task_handle)
+pub fn create_shortcut_handler<R: Runtime>() -> impl Fn(&AppHandle<R>, &Shortcut, ShortcutEvent) {
+    move |app_handle, _shortcut, event| {
+        if event.state == ShortcutState::Pressed {
+            if let Err(error) =
+                crate::core::window::show_search_window_from_shortcut_on_main_thread(app_handle)
             {
                 warn!(
                     "Failed to toggle search window from global shortcut: {}",
                     error
                 );
             }
-        }) {
-            warn!(
-                "Failed to queue global shortcut task on main thread: {}",
-                error
-            );
-        }
-    });
-}
-
-pub fn create_shortcut_handler<R: Runtime>() -> impl Fn(&AppHandle<R>, &Shortcut, ShortcutEvent) {
-    move |app_handle, _shortcut, event| {
-        if event.state == ShortcutState::Pressed {
-            schedule_search_window_toggle(app_handle.clone());
         }
     }
 }

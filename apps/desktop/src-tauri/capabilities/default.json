@@ -2,7 +2,7 @@
     "$schema": "../gen/schemas/desktop-schema.json",
     "identifier": "default",
     "description": "Capability for the window",
-    "windows": ["main", "settings", "tray-menu", "preview*", "popup-*"],
+    "windows": ["main", "settings", "tray-menu", "preview*"],
     "permissions": [
         "core:default",
         "opener:default",

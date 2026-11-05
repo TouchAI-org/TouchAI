@@ -39,7 +39,6 @@ function createQuickSearchPanelStub() {
     return {
         open: vi.fn(),
         close: vi.fn(),
-        syncClosedState: vi.fn(),
         moveSelection: vi.fn(),
         getHighlightedItem: vi.fn(() => null as unknown),
         openHighlightedItem: vi.fn().mockResolvedValue(undefined),
@@ -457,7 +456,7 @@ describe('when the user clicks around the search window', () => {
             isQuickSearchContextMenuOpen: vi.fn(() => false),
             closeQuickSearchContextMenu: vi.fn(),
         };
-        const hideAllPopups = vi.fn().mockResolvedValue(undefined);
+        const hideAllOverlays = vi.fn().mockResolvedValue(undefined);
         const hideSearchWindow = vi.fn().mockResolvedValue(undefined);
 
         return mountComposable(() =>
@@ -486,29 +485,30 @@ describe('when the user clicks around the search window', () => {
                 modelDropdownState: ref({ isOpen: false }),
                 controller: controller as never,
                 sessionHistory: ref([]),
-                hasPendingRequest: () => false,
+                pendingRequest: ref(null),
+                isWaitingForCompletion: ref(false),
                 isLoading: ref(false),
                 pendingToolApproval: ref(null),
                 approvePendingToolApproval: vi.fn(() => false),
                 rejectPendingToolApproval: vi.fn(() => false),
                 promptPendingToolApprovalAttention: vi.fn(),
-                getActivePopupType: () => null,
-                hasActivePopupWindowFocus: () => false,
+                getActiveOverlaySurface: () => null,
                 isQuickSearchOpen: ref(false) as never,
                 shouldTriggerQuickSearch: () => false,
-                sessionHistoryPopupOpen: ref(false),
-                hideAllPopups,
+                sessionHistoryOverlayOpen: ref(false),
+                hideAllOverlays,
                 hideSearchWindow,
                 navigateInputHistory: vi.fn(() => 'ignored' as const),
                 closeModelDropdown: vi.fn().mockResolvedValue(undefined),
+                toggleWindowMaximize: vi.fn().mockResolvedValue(undefined),
                 handleSearchKeybindingAction: vi.fn().mockResolvedValue(undefined),
                 handleSubmit: vi.fn().mockResolvedValue(undefined),
+                clearAll: vi.fn(),
                 cancelRequest: vi.fn(),
-                cancelPendingRequest: vi.fn(() => false),
                 clearSession: vi.fn(),
                 ...overrides,
             })
-        ).then((mounted) => ({ ...mounted, controller, hideAllPopups, hideSearchWindow }));
+        ).then((mounted) => ({ ...mounted, controller, hideAllOverlays, hideSearchWindow }));
     }
 
     it('user gets the window hidden when clicking the empty area outside the search bar', async () => {
@@ -523,7 +523,7 @@ describe('when the user clicks around the search window', () => {
     });
 
     it('user gets popups dismissed when clicking elsewhere in the window', async () => {
-        const { hideAllPopups, unmount } = await mountKeyboard({
+        const { hideAllOverlays, unmount } = await mountKeyboard({
             modelDropdownState: ref({ isOpen: true }),
         });
 
@@ -531,13 +531,13 @@ describe('when the user clicks around the search window', () => {
         document.body.appendChild(inner);
         inner.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
 
-        expect(hideAllPopups).toHaveBeenCalled();
+        expect(hideAllOverlays).toHaveBeenCalled();
 
         unmount();
     });
 
     it('user keeps the popup open when clicking the logo or the history trigger', async () => {
-        const { hideAllPopups, unmount } = await mountKeyboard({
+        const { hideAllOverlays, unmount } = await mountKeyboard({
             modelDropdownState: ref({ isOpen: true }),
         });
 
@@ -546,7 +546,7 @@ describe('when the user clicks around the search window', () => {
         document.body.appendChild(logo);
         logo.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
 
-        expect(hideAllPopups).not.toHaveBeenCalled();
+        expect(hideAllOverlays).not.toHaveBeenCalled();
 
         unmount();
     });

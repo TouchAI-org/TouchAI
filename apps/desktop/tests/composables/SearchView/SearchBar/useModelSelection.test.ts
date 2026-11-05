@@ -47,7 +47,7 @@ async function flushAsyncWork() {
     await Promise.resolve();
 }
 
-describe('when the search bar picks the model for the next request', () => {
+describe('useModelSelection', () => {
     beforeEach(() => {
         vi.clearAllMocks();
     });
@@ -56,7 +56,7 @@ describe('when the search bar picks the model for the next request', () => {
         document.body.innerHTML = '';
     });
 
-    it('user sees the active model capabilities and dropdown context without asking again', async () => {
+    it('loads the active model on mount and derives its capabilities and dropdown context', async () => {
         const activeModel = createModel(1, {
             model_id: 'gpt-5-vision',
             provider_id: 10,
@@ -110,7 +110,7 @@ describe('when the search bar picks the model for the next request', () => {
         mounted.unmount();
     });
 
-    it('user gets one model list request even when the dropdown asks twice at once', async () => {
+    it('deduplicates concurrent dropdown-model loads and re-fetches only after cache invalidation', async () => {
         const models = [createModel(2), createModel(3)];
         const deps = {
             findModels: vi.fn().mockResolvedValue(models),
@@ -133,25 +133,25 @@ describe('when the search bar picks the model for the next request', () => {
         );
 
         const [firstResult, secondResult] = await Promise.all([
-            mounted.result.loadPopupModels(),
-            mounted.result.loadPopupModels(),
+            mounted.result.loadDropdownModels(),
+            mounted.result.loadDropdownModels(),
         ]);
 
         expect(firstResult).toEqual(models);
         expect(secondResult).toEqual(models);
         expect(deps.findModels).toHaveBeenCalledTimes(1);
 
-        await mounted.result.loadPopupModels();
+        await mounted.result.loadDropdownModels();
         expect(deps.findModels).toHaveBeenCalledTimes(1);
 
-        mounted.result.invalidatePopupModels();
-        await mounted.result.loadPopupModels();
+        mounted.result.invalidateDropdownModels();
+        await mounted.result.loadDropdownModels();
         expect(deps.findModels).toHaveBeenCalledTimes(2);
 
         mounted.unmount();
     });
 
-    it('user gets the picked model remembered as the override for this draft', async () => {
+    it('resolves explicit overrides and maps model selection back to page-level override state', async () => {
         const activeModel = createModel(10, {
             model_id: 'default-model',
             provider_id: 1,
@@ -210,7 +210,7 @@ describe('when the search bar picks the model for the next request', () => {
             supportsFiles: true,
         });
 
-        await mounted.result.loadPopupModels();
+        await mounted.result.loadDropdownModels();
 
         await expect(mounted.result.handleModelSelect(activeModel.id)).resolves.toEqual({
             modelId: null,

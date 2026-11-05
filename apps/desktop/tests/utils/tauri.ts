@@ -35,7 +35,7 @@ interface InstallTauriMocksOptions {
     additionalWindows?: string[];
 }
 
-const DEFAULT_WINDOWS = ['settings', 'popup-model-dropdown-popup', 'popup-session-history-popup'];
+const DEFAULT_WINDOWS = ['settings'];
 
 const tauriInvokeCalls: TauriInvokeCall[] = [];
 const tauriCommandResponders = new Map<string, TauriCommandResponder>();

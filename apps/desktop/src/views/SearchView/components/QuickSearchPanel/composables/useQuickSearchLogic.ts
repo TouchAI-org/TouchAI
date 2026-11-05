@@ -5,6 +5,7 @@ import { log } from '@services/ObservabilityService';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { computed, nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
+import { SEARCH_SURFACE_MOTION } from '@/config/searchWindow';
 import { t } from '@/i18n';
 
 import {
@@ -39,6 +40,7 @@ interface UseQuickSearchFlowOptions {
     enabled: Ref<boolean>;
     emitOpenUpdate: (value: boolean) => void;
     isOpen: Ref<boolean>;
+    handoff?: Readonly<Ref<boolean>>;
     results: Ref<QuickShortcutItem[]>;
     highlightedIndex: Ref<number>;
     itemRefs: Ref<HTMLElement[]>;
@@ -96,6 +98,7 @@ interface UseQuickSearchLogicOptions {
     searchQuery: Ref<string>;
     enabled: Ref<boolean>;
     emitOpenUpdate: (value: boolean) => void;
+    handoff?: Readonly<Ref<boolean>>;
 }
 
 /**
@@ -136,6 +139,9 @@ function useQuickSearchFlow(
 
     // 1. 搜索流程状态
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    let resultResetTimer: ReturnType<typeof setTimeout> | null = null;
+    const closeRetentionMs =
+        Math.max(SEARCH_SURFACE_MOTION.durationMs, SEARCH_SURFACE_MOTION.revealDurationMs) + 40;
     let lastSearchedQuery = '';
     const clickStats = useQuickSearchClickStats();
 
@@ -204,6 +210,7 @@ function useQuickSearchFlow(
     async function executeSearch(query: string) {
         const trimmedQuery = query.trim();
         if (!trimmedQuery) {
+            if (options.handoff?.value) return;
             close();
             return;
         }
@@ -232,13 +239,21 @@ function useQuickSearchFlow(
             if (mergedResults.length === 0) {
                 mergedResults = resolveE2eQuickSearchFallbackResults(trimmedQuery);
                 if (mergedResults.length === 0) {
+                    if (options.handoff?.value) return;
                     close();
                     return;
                 }
             }
 
-            emitOpenUpdate(true);
+            // Mount and measure the result DOM before asking the parent to
+            // reveal it. Emitting first exposes an empty shell to the native host,
+            // which can paint a large white panel before the result list exists.
+            if (resultResetTimer !== null) {
+                clearTimeout(resultResetTimer);
+                resultResetTimer = null;
+            }
             results.value = mergedResults;
+            emitOpenUpdate(true);
             lastSearchedQuery = trimmedQuery;
             totalFiles.value =
                 searchResult.total_files > 0
@@ -257,7 +272,7 @@ function useQuickSearchFlow(
             scheduleImageLoad(reqId, false);
         } catch (error) {
             log.error('[QuickSearchPanel] Failed to search shortcuts:', error);
-            if (reqId === requestId.value) {
+            if (reqId === requestId.value && !options.handoff?.value) {
                 close();
             }
         }
@@ -284,7 +299,7 @@ function useQuickSearchFlow(
     async function runSearchLoop(query: string) {
         let currentQuery = query.trim();
         if (!currentQuery) {
-            close();
+            if (!options.handoff?.value) close();
             return;
         }
 
@@ -316,6 +331,7 @@ function useQuickSearchFlow(
      * @returns void
      */
     function scheduleSearch(query: string) {
+        if (options.handoff?.value) return;
         clearDebounceTimer();
         debounceTimer = setTimeout(() => {
             void runSearchLoop(query);
@@ -353,7 +369,17 @@ function useQuickSearchFlow(
         pruneIconMaps(true);
         resetLoadingState();
         emitOpenUpdate(false);
-        resetResultState();
+
+        // Keep the old result DOM alive for the reverse grid-row/card transition.
+        // Clearing it in the same tick leaves a one-frame ghost or drops the
+        // panel straight to the compact bar before CSS can animate.
+        if (resultResetTimer !== null) {
+            clearTimeout(resultResetTimer);
+        }
+        resultResetTimer = setTimeout(() => {
+            resultResetTimer = null;
+            resetResultState();
+        }, closeRetentionMs);
     }
 
     /**
@@ -370,7 +396,9 @@ function useQuickSearchFlow(
             return;
         }
 
-        emitOpenUpdate(true);
+        // Keep the surface out of the layout while results are pending. The parent
+        // uses the open state to switch to intrinsic sizing, so opening here would
+        // resize the host before the result panel exists (and shrink it again on no hits).
         scheduleSearch(query);
     }
 
@@ -478,6 +506,13 @@ function useQuickSearchFlow(
             log.error('[QuickSearchPanel] Failed to open path:', error);
         }
     }
+
+    onUnmounted(() => {
+        if (resultResetTimer !== null) {
+            clearTimeout(resultResetTimer);
+            resultResetTimer = null;
+        }
+    });
 
     return {
         prepareIndex,
@@ -592,7 +627,7 @@ export function useQuickSearchLogic(
     options: UseQuickSearchLogicOptions,
     deps: UseQuickSearchDeps = DEFAULT_DEPS
 ) {
-    const { open, searchQuery, enabled, emitOpenUpdate } = options;
+    const { open, searchQuery, enabled, emitOpenUpdate, handoff } = options;
 
     const {
         state: {
@@ -626,6 +661,7 @@ export function useQuickSearchLogic(
             enabled,
             emitOpenUpdate,
             isOpen: open,
+            handoff,
             results,
             highlightedIndex,
             itemRefs,
@@ -726,7 +762,7 @@ export function useQuickSearchLogic(
     watch(
         [searchQuery, enabled],
         ([query, isEnabled]) => {
-            if (!isEnabled || !open.value) return;
+            if (!isEnabled || !open.value || handoff?.value) return;
             quickSearch.scheduleSearch(query);
         },
         { flush: 'post' }
@@ -800,7 +836,6 @@ export function useQuickSearchLogic(
         openContextMenuForHighlightedItem: quickSearch.openContextMenuForHighlightedItem,
         open: quickSearch.open,
         close: requestCloseFromPanel,
-        syncClosedState: () => {},
         getHighlightedItem: quickSearch.getHighlightedItem,
         openHighlightedItem: quickSearch.openHighlightedItem,
         triggerSearch: quickSearch.triggerSearch,

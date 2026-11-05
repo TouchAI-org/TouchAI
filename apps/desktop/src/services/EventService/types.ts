@@ -4,16 +4,6 @@ import type {
     AppUpdateCheckResult,
     AppUpdateNotificationAction,
 } from '@services/NativeService/types';
-import type {
-    PopupClosedPayload,
-    PopupDataPayload,
-    PopupKeydownPayload,
-    PopupModelSearchQueryChangePayload,
-    PopupModelSelectPayload,
-    PopupReadyPayload,
-    PopupSessionOpenPayload,
-    PopupSessionSearchQueryChangePayload,
-} from '@services/PopupService/types';
 
 import type { SearchKeybindingActionId } from '@/config/searchKeybindings';
 import type { GeneralSettingKey, GeneralSettingValue } from '@/stores/setting';
@@ -53,17 +43,9 @@ export enum AppEvent {
     // 资源事件
     FONT_READY = 'font:ready',
 
-    // Popup 事件
-    POPUP_READY = 'popup-ready',
-    POPUP_DATA = 'popup-data',
-    POPUP_CLOSED = 'popup-closed',
-    POPUP_KEYDOWN = 'popup-keydown',
-    POPUP_MODEL_SELECT = 'popup-model-select',
-    POPUP_MODEL_SEARCH_QUERY_CHANGE = 'popup-model-search-query-change',
-    POPUP_SESSION_OPEN = 'popup-session-history-open-session',
-    POPUP_SESSION_SEARCH_QUERY_CHANGE = 'popup-session-history-search-query-change',
     SEARCH_SURFACE_SHOWN = 'search-surface-shown',
     SEARCH_SURFACE_HIDDEN = 'search-surface-hidden',
+    SEARCH_SURFACE_PREPARE = 'search-surface-prepare',
     SEARCH_SURFACE_COMMAND = 'search-surface-command',
     SESSION_TASK_STATUS_CHANGED = 'session:task:status-changed',
     /** 流式响应过程中的用量进度（节流发送，仅供实时面板使用） */
@@ -119,12 +101,16 @@ export interface WindowResizeEvent {
 
 export interface SearchSurfaceShownEvent {
     source: 'shortcut' | 'notification';
-    sequence?: number;
+    sequence: number;
+    rendererEpoch: number;
+    showEpoch: number;
+    hostEpoch: number;
+    generation: number;
 }
 
 export interface SearchSurfaceHiddenEvent {
     reason: 'app-blur-hide' | 'manual-dismiss' | 'policy-toggle-hide';
-    sequence?: number;
+    sequence: number;
 }
 
 export interface SearchSurfaceCommandEvent {
@@ -242,17 +228,9 @@ export interface AppEventMap {
     // 资源事件
     [AppEvent.FONT_READY]: FontReadyEvent;
 
-    // Popup 事件
-    [AppEvent.POPUP_READY]: PopupReadyPayload;
-    [AppEvent.POPUP_DATA]: PopupDataPayload;
-    [AppEvent.POPUP_CLOSED]: PopupClosedPayload;
-    [AppEvent.POPUP_KEYDOWN]: PopupKeydownPayload;
-    [AppEvent.POPUP_MODEL_SELECT]: PopupModelSelectPayload;
-    [AppEvent.POPUP_MODEL_SEARCH_QUERY_CHANGE]: PopupModelSearchQueryChangePayload;
-    [AppEvent.POPUP_SESSION_OPEN]: PopupSessionOpenPayload;
-    [AppEvent.POPUP_SESSION_SEARCH_QUERY_CHANGE]: PopupSessionSearchQueryChangePayload;
     [AppEvent.SEARCH_SURFACE_SHOWN]: SearchSurfaceShownEvent;
     [AppEvent.SEARCH_SURFACE_HIDDEN]: SearchSurfaceHiddenEvent;
+    [AppEvent.SEARCH_SURFACE_PREPARE]: import('@services/NativeService/types').SearchSurfacePreparation;
     [AppEvent.SEARCH_SURFACE_COMMAND]: SearchSurfaceCommandEvent;
     [AppEvent.SESSION_TASK_STATUS_CHANGED]: SessionTaskStatusChangedEvent;
     [AppEvent.SESSION_TASK_USAGE_PROGRESS]: SessionTaskUsageProgressEvent;

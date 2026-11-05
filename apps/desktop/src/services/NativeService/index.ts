@@ -57,7 +57,14 @@ export type {
     QuickSearchStatus,
     QuickShortcutItem,
     ResizeWindowHeightParams,
-    ShowPopupWindowParams,
+    SearchHostPlacement,
+    SearchPanelResizeCommit,
+    SearchPanelSize,
+    SearchSurfacePhysicalViewport,
+    SearchSurfacePreparation,
+    SearchSurfaceShowStatus,
+    SearchWindowRegion,
+    SearchWindowRegionUpdate,
     TauriLogPayload,
 } from './types';
 

@@ -32,7 +32,7 @@ mod win {
     const FALLBACK_CORNER_RADIUS_PX: i32 = 12;
 
     fn should_manage_window(window: &WebviewWindow<impl Runtime>) -> bool {
-        matches!(window.label(), "main" | "settings")
+        window.label() == "settings"
     }
 
     pub(super) fn fallback_region_dimensions(

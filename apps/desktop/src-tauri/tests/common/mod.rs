@@ -42,9 +42,12 @@ pub fn build_test_app(options: TestAppOptions) -> Result<TestApp, String> {
         .build(mock_context(noop_assets()))
         .map_err(|error| format!("Failed to build test app: {error}"))?;
     let main_webview = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default())
+        .visible(false)
         .build()
         .map_err(|error| format!("Failed to build main test webview: {error}"))?;
-
+    main_webview
+        .hide()
+        .map_err(|error| format!("Failed to hide main test webview: {error}"))?;
     Ok(TestApp {
         app,
         main_webview,

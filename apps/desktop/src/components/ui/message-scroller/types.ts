@@ -27,6 +27,7 @@ export interface MessageScrollerScrollOptions {
 export interface MessageScrollerHandle {
     focus: () => void;
     getState: () => MessageScrollerState;
+    getContentHeight: () => number;
     isAtEnd: () => boolean;
     recalculate: () => void;
     scrollBy: (deltaY: number) => void;

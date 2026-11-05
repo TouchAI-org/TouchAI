@@ -9,7 +9,6 @@ use core::built_in_tools::BuiltInProcessExecutionRegistry;
 use core::database::DatabaseRuntime;
 use core::mcp::McpClientManager;
 use core::setup;
-use core::window::popup::PopupRegistry;
 use log::{error, warn};
 use tauri::{Manager, WindowEvent};
 
@@ -43,6 +42,10 @@ fn focus_single_instance_activation_window<R: tauri::Runtime>(
     .ok_or_else(|| {
         "No activation window found while handling second-instance activation".to_string()
     })?;
+
+    if label == "main" {
+        return core::window::show_search_window_on_main_thread(app);
+    }
 
     let window = app
         .get_webview_window(label)
@@ -92,15 +95,29 @@ pub fn run() {
                 .with_handler(core::system::shortcut::create_shortcut_handler())
                 .build(),
         )
-        .manage(PopupRegistry::new())
         .manage(core::window::search::surface::SearchSurfaceRuntime::new())
+        .manage(core::window::search_host::SearchHostRefreshRuntime::new())
+        .manage(core::window::search_region::SearchRegionRuntime::new())
         .manage(core::window::status_reminder::SessionStatusReminderNotificationRuntime::new())
         .manage(core::window::tray::TrayStatusRuntime::new())
         .manage(BuiltInProcessExecutionRegistry::new())
         .manage(core::browser::BrowserRuntime::new())
         .manage(McpClientManager::new())
         .manage(core::updater::AppUpdaterState::default())
-        .manage(core::updater::notification::AppUpdateNotificationRuntime::default());
+        .manage(core::updater::notification::AppUpdateNotificationRuntime::default())
+        .on_page_load(|webview, payload| {
+            if webview.label() == "main"
+                && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
+            {
+                if let Err(error) =
+                    core::window::search::surface::register_renderer_load_on_main_thread(
+                        webview.app_handle(),
+                    )
+                {
+                    warn!("Failed to reset search renderer session on page load: {error}");
+                }
+            }
+        });
 
     #[cfg(feature = "ui-preview-webdriver")]
     let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
@@ -129,6 +146,21 @@ pub fn run() {
                 }
             }
 
+            if window.label() == "main"
+                && matches!(
+                    event,
+                    WindowEvent::Resized(_)
+                        | WindowEvent::Moved(_)
+                        | WindowEvent::ScaleFactorChanged { .. }
+                )
+            {
+                if let Err(error) = core::window::search_host::schedule_main_search_host_refresh(
+                    window.app_handle(),
+                ) {
+                    warn!("Failed to schedule search host refresh: {error}");
+                }
+            }
+
             // 主窗口尺寸/位置变化时，记录到状态机用于区分程序化 resize 和用户操作。
             if window.label() == "main" {
                 match event {
@@ -153,16 +185,22 @@ pub fn run() {
             }
 
             if matches!(event, WindowEvent::Focused(false)) {
-                let app_handle = window.app_handle().clone();
-                let window_label = window.label().to_string();
-                core::window::search::surface::handle_window_blur(&app_handle, &window_label);
+                core::window::search::surface::handle_window_blur_on_main_thread(
+                    window.app_handle(),
+                    window.label(),
+                );
+            }
+
+            if window.label() == "main" && matches!(event, WindowEvent::Focused(true)) {
+                if let Err(error) = core::window::search_host::schedule_main_search_host_refresh(
+                    window.app_handle(),
+                ) {
+                    warn!("Failed to schedule focused search host refresh: {error}");
+                }
             }
 
             if matches!(event, WindowEvent::Destroyed) {
-                let app_handle = window.app_handle().clone();
                 let window_label = window.label().to_string();
-                core::window::search::surface::handle_window_destroyed(&app_handle, &window_label);
-
                 if let Some(runtime) = window.app_handle().try_state::<DatabaseRuntime>() {
                     let runtime = runtime.inner().clone();
                     tauri::async_runtime::spawn(async move {
@@ -188,6 +226,7 @@ pub fn run() {
                 return Err(Box::new(std::io::Error::other(err)));
             }
             core::observability::log_header(&version);
+            core::window::search_host::start_main_search_host_reconciliation(app.handle().clone());
             Ok(())
         })
         .build(context);
