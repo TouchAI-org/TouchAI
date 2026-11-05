@@ -3,6 +3,10 @@
  * 集中管理页面 controller、生命周期编排、popup 打开时序与 DOM 事件挂载。
  */
 import { useAlert } from '@composables/useAlert';
+import {
+    mapSearchSurfaceSource,
+    trackSurfaceOpened,
+} from '@services/AnalyticsService/productInteractions';
 import { AppEvent, eventService } from '@services/EventService';
 import type {
     SearchSurfaceCommandEvent,
@@ -299,6 +303,10 @@ export function useSearchPageController(options: {
         quickSearchOpen.value = false;
     }
 
+    function settleQuickSearchInteraction() {
+        quickSearchPanel.value?.settleInteraction();
+    }
+
     function moveQuickSearchSelection(direction: 'up' | 'down' | 'left' | 'right') {
         quickSearchPanel.value?.moveSelection(direction);
     }
@@ -359,6 +367,7 @@ export function useSearchPageController(options: {
         isQuickSearchItemHighlighted,
         openQuickSearch,
         closeQuickSearch,
+        settleQuickSearchInteraction,
         moveQuickSearchSelection,
         openHighlightedQuickSearchItem,
         triggerQuickSearch,
@@ -716,6 +725,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
 
                 latestSurfaceSequence = Math.max(latestSurfaceSequence, sequence);
                 interactionContext.markWindowVisible();
+                void trackSurfaceOpened(mapSearchSurfaceSource(payload.source));
                 handleReminderSurfaceVisible();
                 await handleSearchWindowActivated(payload.source ?? 'shortcut');
             }
@@ -729,6 +739,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                     return;
                 }
                 latestSurfaceSequence = Math.max(latestSurfaceSequence, sequence);
+                controller.settleQuickSearchInteraction();
                 interactionContext.clearActivePopupSession();
                 interactionContext.markWindowHidden({
                     hideReason: payload.reason,

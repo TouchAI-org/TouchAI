@@ -20,6 +20,7 @@ import type { McpServerEntity } from '@database/types';
 import { AppEvent, eventService, type McpServerStatus } from '@services/EventService';
 import {
     mcp,
+    type McpConnectionOrigin,
     type McpToolCallResponse,
     type McpToolDefinition,
     type McpTransportType,
@@ -76,7 +77,7 @@ export class McpManager {
             // 并行连接会导致并发写入数据库（更新状态、同步工具），SQLite 无法安全处理
             for (const server of enabledServers) {
                 try {
-                    await this.connectServer(server);
+                    await this.connectServer(server, 'background');
                 } catch (error) {
                     log.error(`[McpManager] Failed to connect server ${server.name}:`, error);
                 }
@@ -90,7 +91,10 @@ export class McpManager {
     /**
      * 连接到指定服务器
      */
-    async connectServer(server: McpServerEntity): Promise<void> {
+    async connectServer(
+        server: McpServerEntity,
+        origin: McpConnectionOrigin = 'user'
+    ): Promise<void> {
         log.debug(`[McpManager] Connecting to server: ${server.name} (${server.transport_type})`);
 
         try {
@@ -98,19 +102,22 @@ export class McpManager {
             this.updateStatus(server.id, 'connecting');
 
             // 调用 Rust 后端连接
-            await mcp.connectServer({
-                id: server.id,
-                name: server.name,
-                transport_type: server.transport_type as McpTransportType,
-                command: server.command || undefined,
-                args: readOptionalMcpArgs(server.args),
-                env: readOptionalMcpRecord(server.env),
-                cwd: server.cwd || undefined,
-                url: server.url || undefined,
-                headers: readOptionalMcpRecord(server.headers),
-                enabled: Boolean(server.enabled), // 转换为布尔值
-                tool_timeout: server.tool_timeout,
-            });
+            await mcp.connectServer(
+                {
+                    id: server.id,
+                    name: server.name,
+                    transport_type: server.transport_type as McpTransportType,
+                    command: server.command || undefined,
+                    args: readOptionalMcpArgs(server.args),
+                    env: readOptionalMcpRecord(server.env),
+                    cwd: server.cwd || undefined,
+                    url: server.url || undefined,
+                    headers: readOptionalMcpRecord(server.headers),
+                    enabled: Boolean(server.enabled), // 转换为布尔值
+                    tool_timeout: server.tool_timeout,
+                },
+                origin
+            );
 
             // 更新状态为已连接
             this.updateStatus(server.id, 'connected', null);

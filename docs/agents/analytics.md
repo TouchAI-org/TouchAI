@@ -48,6 +48,13 @@ integers, and booleans. Free-form text is forbidden. Unknown events, unknown
 keys, out-of-range values, and incoherent field combinations are rejected before
 queueing.
 
+A release version must match `^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$`. The native
+install-handoff path derives versions from the running package and the validated
+updater command, not from the WebView. A value outside the 64-character wire
+shape is omitted from the emitted attribute. Pending restart metadata may retain
+the exact shaped value up to 200 characters so a long valid SemVer can still be
+confirmed after restart; that local value is never emitted as an attribute.
+
 ### Add an Event
 
 1. Add the event to the private receiver contract.
@@ -102,6 +109,18 @@ status is not enough.
 Delivery must re-check the live queue, consent state, epoch, and expiry before
 sending. Work purged by opt-out, restore, or test cleanup must never be sent from
 a stale batch.
+
+An `install_handoff` stores at most 640 bytes of pending restart metadata when
+the native target version has the 1-200 character version shape. The next start
+emits `restart_confirmed` and clears that metadata in one transaction only when
+the running target version, local consent epoch, and valid operation id match.
+The transaction compares the expected pending blob so a repeated resolution
+cannot confirm twice or consume a newer handoff. Matching metadata is retained
+when consent is disabled, delivery is unavailable, or queue capacity rejects the
+event.
+
+`analytics_track` validates before it queues, so an invalid event is reported as
+rejected rather than disabled.
 
 ## Privacy
 

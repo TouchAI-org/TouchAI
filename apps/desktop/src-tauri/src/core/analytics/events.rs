@@ -529,6 +529,18 @@ fn validate_value(kind: &AttrKind, value: &JsonValue) -> Result<(), String> {
 /// `gpt-4o` from a release version; a vendor-qualified model id (`vendor/model`)
 /// or a tagged one (`model:latest`) is rejected.
 pub(crate) fn is_version_shaped(value: &str) -> bool {
+    is_version_shaped_with_limit(value, 64)
+}
+
+/// Pending update metadata is local-only and may need to preserve a release
+/// version that is valid SemVer but too long for the wire attribute schema.
+/// Keep that copy bounded too; the exact value is required to confirm a later
+/// restart, but it is never sent as an event attribute.
+pub(crate) fn is_pending_version_shaped(value: &str) -> bool {
+    is_version_shaped_with_limit(value, 200)
+}
+
+fn is_version_shaped_with_limit(value: &str, max_length: usize) -> bool {
     let mut bytes = value.bytes();
     let Some(first) = bytes.next() else {
         return false;
@@ -542,7 +554,7 @@ pub(crate) fn is_version_shaped(value: &str) -> bool {
             return false;
         }
         length += 1;
-        if length > 64 {
+        if length > max_length {
             return false;
         }
     }

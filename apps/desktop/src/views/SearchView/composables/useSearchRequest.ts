@@ -4,6 +4,15 @@
  */
 import { useAgent } from '@composables/agent';
 import type { SessionEntity } from '@database/types';
+import {
+    beginSearchInteraction,
+    finishSearchInteraction,
+    type SearchInteraction,
+    selectSearchResult,
+    settleSearchInteraction,
+    trackSearchFeatureExposed,
+    trackSurfaceOpened,
+} from '@services/AnalyticsService/productInteractions';
 import { notify } from '@services/NotificationService';
 import { log } from '@services/ObservabilityService';
 import { onUnmounted, type Ref, ref } from 'vue';
@@ -33,6 +42,11 @@ interface UseSearchRequestFlowOptions {
 }
 
 const SESSION_LIST_LIMIT = 40;
+
+export interface HistorySelection {
+    readonly interaction: Promise<SearchInteraction>;
+    readonly resultCount: number;
+}
 
 /**
  * regenerate 需要能从“正常回复”或“尾随错误项”回溯到对应用户消息，
@@ -81,6 +95,103 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     let sessionListResolvedKey: string | null = null;
     let stopSessionStatusListener: (() => void) | null = null;
     let sessionStatusListenerDisposed = false;
+
+    // One history-search interaction settles once per popup session, using the
+    // stable result count rather than any intermediate query. Selecting a
+    // conversation closes the popup before the session opens, so close keeps the
+    // marked interaction alive until the selection path has emitted its event.
+    let historyInteraction: Promise<SearchInteraction> | null = null;
+    const historySelections = new Set<HistorySelection>();
+    let historyResultCount = 0;
+
+    function beginHistoryInteraction() {
+        const previous = historyInteraction;
+        // A pending selection may still be resolving while the popup reopened;
+        // it owns its own interaction and must not be finished by this reopen.
+        if (previous) {
+            void previous
+                .then((interaction) => finishSearchInteraction(interaction))
+                .catch(() => {});
+        }
+        historyInteraction = beginSearchInteraction('history');
+        // Prefetched/cached rows are already visible to the user, so the initial
+        // count must reflect the real displayed list rather than zero.
+        historyResultCount = sessionList.value.length;
+    }
+
+    /**
+     * Marks the interaction that the current history-popup open is selecting
+     * from. Storing the promise itself prevents a reopened popup from attaching
+     * the selection to a newer interaction.
+     */
+    function markHistorySelectionPending(): HistorySelection | null {
+        if (!historyInteraction) {
+            return null;
+        }
+        const selection = {
+            interaction: historyInteraction,
+            resultCount: historyResultCount,
+        };
+        historyInteraction = null;
+        historySelections.add(selection);
+        return selection;
+    }
+
+    function settleHistoryInteraction() {
+        const ready = historyInteraction;
+        if (!ready) {
+            return;
+        }
+        historyInteraction = null;
+        const resultCount = historyResultCount;
+        void ready
+            .then(async (interaction) => {
+                await settleSearchInteraction(interaction, {
+                    hasResults: resultCount > 0,
+                    resultCount,
+                });
+                await finishSearchInteraction(interaction);
+            })
+            .catch(() => {});
+    }
+
+    function abandonHistorySelection(selection: HistorySelection | null) {
+        reportHistorySelection(selection);
+    }
+
+    function reportHistorySelection(selection: HistorySelection | null, opened?: boolean) {
+        if (!selection || !historySelections.delete(selection)) {
+            return;
+        }
+        const { interaction: ready, resultCount } = selection;
+        void ready
+            .then(async (interaction) => {
+                await settleSearchInteraction(interaction, {
+                    hasResults: resultCount > 0,
+                    resultCount,
+                });
+                if (opened !== undefined) {
+                    await selectSearchResult(interaction, { category: 'conversation', opened });
+                }
+                await finishSearchInteraction(interaction);
+            })
+            .catch(() => {});
+    }
+
+    /**
+     * Emits the history surface/feature exposure only after the native popup has
+     * really opened. A failed open settles/releases without either event.
+     */
+    function reportHistoryInteractionOpened() {
+        const ready = historyInteraction;
+        if (!ready) {
+            return;
+        }
+        void trackSurfaceOpened('history');
+        void ready
+            .then((interaction) => trackSearchFeatureExposed(interaction, 'history'))
+            .catch(() => {});
+    }
 
     function buildSessionListRequestKey(): string {
         return JSON.stringify({
@@ -237,6 +348,17 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         sessionStatusListenerDisposed = true;
         stopSessionStatusListener?.();
         stopSessionStatusListener = null;
+        const ready = historyInteraction;
+        historyInteraction = null;
+        for (const selection of historySelections) {
+            void selection.interaction
+                .then((interaction) => finishSearchInteraction(interaction))
+                .catch(() => {});
+        }
+        historySelections.clear();
+        if (ready) {
+            void ready.then((interaction) => finishSearchInteraction(interaction)).catch(() => {});
+        }
     });
 
     function clearSessionState() {
@@ -273,11 +395,13 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                 }
 
                 sessionList.value = sessions;
+                historyResultCount = sessions.length;
                 sessionListResolvedKey = requestKey;
             } catch (loadError) {
                 log.error('[SearchView] Failed to load session history:', loadError);
                 if (requestId === sessionListRequestId) {
                     sessionList.value = [];
+                    historyResultCount = 0;
                     sessionListResolvedKey = null;
                 }
             } finally {
@@ -320,6 +444,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             return;
         }
 
+        settleHistoryInteraction();
         const canReuseDefaultList = sessionListResolvedKey === buildDefaultSessionListRequestKey();
 
         // 关闭弹窗后要立刻作废当前筛选条件对应的请求，避免迟到响应覆盖默认列表。
@@ -429,8 +554,17 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         }
     }
 
-    async function openSession(sessionId: number): Promise<LoadedSessionInfo> {
+    async function openSession(
+        sessionId: number,
+        origin: 'history' | 'other' = 'other',
+        selection: HistorySelection | null = null
+    ): Promise<LoadedSessionInfo> {
         if (sessionId === currentSessionId.value) {
+            // The clicked conversation is already open; only a history-popup
+            // selection is attributed to the pending interaction.
+            if (origin === 'history') {
+                reportHistorySelection(selection, true);
+            }
             return {
                 sessionId,
                 title: '',
@@ -439,7 +573,15 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             };
         }
 
-        const loadedSession = await openStoredSession(sessionId);
+        let loadedSession: LoadedSessionInfo;
+        try {
+            loadedSession = await openStoredSession(sessionId);
+        } catch (error) {
+            if (origin === 'history') {
+                reportHistorySelection(selection, false);
+            }
+            throw error;
+        }
         // 切换会话成功后必须丢弃当前页面暂存的排队请求，
         // 否则新会话会错误继承旧会话的“等待发送”锁态。
         clearPendingRequestState();
@@ -456,6 +598,9 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             log.error('[SearchView] Failed to dismiss session terminal status:', error);
         }
 
+        if (origin === 'history') {
+            reportHistorySelection(selection, true);
+        }
         return loadedSession;
     }
 
@@ -502,6 +647,10 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         isSessionListLoading,
         clearSession: clearSessionState,
         setSessionHistoryPopupOpen,
+        beginHistoryInteraction,
+        markHistorySelectionPending,
+        abandonHistorySelection,
+        reportHistoryInteractionOpened,
         updateSessionSearchQuery,
         refreshSessionList,
         ensureSessionListLoaded,

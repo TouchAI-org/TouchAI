@@ -619,6 +619,7 @@ describe('user uses MCP tools', () => {
     it('user connects an MCP server with its declared transport', async () => {
         await callAndExpectInvoke(() => mcp.connectServer(serverConfig), 'mcp_connect_server', {
             config: serverConfig,
+            connectionOrigin: 'user',
         });
     });
 
@@ -892,12 +893,20 @@ describe('user uses clipboard, shortcuts, autostart, and updates', () => {
 
         await expect(
             callAndExpectInvoke(
-                () => updater.installUpdate('beta', update.version, update.fileName),
+                () =>
+                    updater.installUpdate('beta', update.version, update.fileName, {
+                        updateOperationId: '11111111-1111-4111-8111-111111111111',
+                        source: 'user',
+                    }),
                 'updater_install_update',
                 {
                     channel: 'beta',
                     version: update.version,
                     fileName: update.fileName,
+                    analytics: {
+                        updateOperationId: '11111111-1111-4111-8111-111111111111',
+                        source: 'user',
+                    },
                 }
             )
         ).resolves.toBe(true);
