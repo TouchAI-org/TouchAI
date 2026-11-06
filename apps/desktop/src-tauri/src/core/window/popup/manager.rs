@@ -92,7 +92,7 @@ pub fn build_popup_window<R: Runtime>(
         .skip_taskbar(true)
         .resizable(false)
         .visible(false)
-        .shadow(true)
+        .shadow(false)
         .focused(false)
         .focusable(false)
     };

@@ -13,6 +13,7 @@
         calculateSettingsSidebarWidth,
         clampSettingsSidebarWidth,
         getSettingsSidebarMaxWidth,
+        readSettingsWindowContentWidth,
         SETTINGS_PRIMARY_SIDEBAR_RESIZE_EVENT,
         SETTINGS_RESIZE_KEYBOARD_STEP,
         SETTINGS_SECONDARY_PANEL_RESIZE_EVENT,
@@ -45,7 +46,6 @@
 
     const searchQuery = ref('');
     const expandedSidebarWidth = ref(SETTINGS_SIDEBAR_DEFAULT_WIDTH);
-    const windowWidth = ref(window.innerWidth);
     const layoutRevision = ref(0);
     const dragStartClientX = ref(0);
     const dragStartWidth = ref(SETTINGS_SIDEBAR_DEFAULT_WIDTH);
@@ -86,6 +86,8 @@
 
     const readSecondaryPanelWidth = (): number | undefined =>
         readElementWidth('[data-settings-secondary-panel="true"]');
+
+    const windowWidth = ref(readSettingsWindowContentWidth());
 
     const getSidebarClampOptions = () => ({
         availableWidth: windowWidth.value,
@@ -154,7 +156,7 @@
     };
 
     const handleLayoutResize = () => {
-        windowWidth.value = window.innerWidth;
+        windowWidth.value = readSettingsWindowContentWidth();
         reconcileSidebarWidth();
     };
 

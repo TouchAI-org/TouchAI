@@ -203,15 +203,10 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
             if let Err(error) =
                 crate::core::system::assets::initialize_font(app_handle.clone()).await
             {
-                error!("Failed to initialize font: {}", error);
-                let _ = app_handle
-                    .dialog()
-                    .message(
-                        "Font initialization failed. Some parts of the interface may not render correctly.",
-                    )
-                    .title("TouchAI")
-                    .kind(MessageDialogKind::Warning)
-                    .show(|_| {});
+                warn!(
+                    "Failed to initialize font; continuing with platform fallbacks: {}",
+                    error
+                );
             } else {
                 info!("Font initialized successfully.");
             }
@@ -223,11 +218,6 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
             crate::core::window::webview_defaults::apply_webview_runtime_defaults(&window)
         {
             warn!("Failed to apply webview runtime defaults: {}", error);
-        }
-
-        if let Err(error) = crate::core::window::rounded_corners::apply_window_corner_style(&window)
-        {
-            warn!("Failed to set rounded corners: {}", error);
         }
 
         if crate::core::system::runtime::is_e2e_test_mode() {

@@ -1,3 +1,4 @@
+import { POPUP_WINDOW_GUTTER } from '@services/PopupService/types';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -110,6 +111,16 @@ describe('user opens a popup window', () => {
         expect(eventEmitMock).toHaveBeenCalledWith('popup-ready', {
             windowLabel: 'popup-session-history-popup',
         });
+    });
+
+    it('user gets transparent space around the popup panel for its shadow', async () => {
+        const { default: PopupView } = await import('@/views/PopupView/index.vue');
+
+        const wrapper = mount(PopupView);
+
+        expect(wrapper.get('.popup-container').attributes('style')).toContain(
+            `padding: ${POPUP_WINDOW_GUTTER}px;`
+        );
     });
 
     it('user does not wait for persisted settings before announcing popup readiness', async () => {

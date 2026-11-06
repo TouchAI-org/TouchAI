@@ -15,7 +15,7 @@ const { closeHandlers, windowMock, ingestMock, flushDoneMock, flushListener } = 
                 closeHandlers.push(handler);
                 return () => {};
             }),
-            destroy: vi.fn(async () => undefined),
+            close: vi.fn(async () => undefined),
         },
         ingestMock: vi.fn(async (): Promise<void> => {}),
         flushDoneMock: vi.fn(async (): Promise<void> => {}),
@@ -48,7 +48,7 @@ afterEach(() => {
 });
 
 describe('user closes a window with logs still queued', () => {
-    it('user gets the queued logs written before the window is destroyed', async () => {
+    it('user gets the queued logs written before the window is closed', async () => {
         initObservability();
         log.info('last line before close');
 
@@ -59,7 +59,7 @@ describe('user closes a window with logs still queued', () => {
 
         expect(closeEvent.preventDefault).toHaveBeenCalled();
         expect(ingestMock).toHaveBeenCalled();
-        expect(windowMock.destroy).toHaveBeenCalled();
+        expect(windowMock.close).toHaveBeenCalled();
     });
 
     it('user still gets the window closed when the log backend never answers', async () => {
@@ -71,7 +71,7 @@ describe('user closes a window with logs still queued', () => {
 
         await handleClose?.({ preventDefault: vi.fn() });
 
-        expect(windowMock.destroy).toHaveBeenCalled();
+        expect(windowMock.close).toHaveBeenCalled();
     });
 
     it('user gets queued logs written when the app quits from the tray', async () => {

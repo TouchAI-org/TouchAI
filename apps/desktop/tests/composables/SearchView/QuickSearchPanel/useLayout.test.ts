@@ -77,6 +77,34 @@ describe('when the quick search panel lays out its results', () => {
         });
     });
 
+    it('user keeps columns inside the visible shell when the native window has shadow gutters', () => {
+        const isOpen = ref(true);
+        const results = ref(Array.from({ length: 10 }, (_, i) => createShortcut(i)));
+        const highlightedIndex = ref(-1);
+        const shell = document.createElement('div');
+        const panelElement = document.createElement('div');
+        const scrollElement = document.createElement('div');
+        shell.className = 'window-shell';
+        shell.getBoundingClientRect = () => new DOMRect(24, 24, 280, 160);
+        panelElement.appendChild(scrollElement);
+        shell.appendChild(panelElement);
+        document.body.appendChild(shell);
+
+        setReadonlyNumber(document.documentElement, 'clientWidth', 328);
+        setReadonlyNumber(window, 'innerWidth', 328);
+
+        const layout = useLayout({
+            isOpen,
+            results,
+            highlightedIndex,
+            scrollRef: ref(scrollElement),
+        });
+
+        layout.updateLayout();
+
+        expect(layout.gridColumns.value).toBe(2);
+    });
+
     it('user sees the panel grow when moving the highlight below the collapsed rows', async () => {
         const isOpen = ref(true);
         const results = ref([

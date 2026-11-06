@@ -7,6 +7,7 @@
     import { log } from '@services/ObservabilityService';
     import type { PopupDataPayload, PopupKeydownPayload, PopupType } from '@services/PopupService';
     import { initializeBuiltInPopups, popupRegistry } from '@services/PopupService';
+    import { POPUP_WINDOW_GUTTER } from '@services/PopupService/types';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue';
 
@@ -161,8 +162,10 @@
     const config = type ? popupRegistry.get(type) : null;
     const { requestResize, resetMeasuredHeight } = useWindowResize({
         target: popupContent,
-        maxHeight: config?.height,
-        minHeight: config?.minHeight,
+        maxHeight: config ? config.height + POPUP_WINDOW_GUTTER * 2 : undefined,
+        minHeight: config?.minHeight
+            ? config.minHeight + POPUP_WINDOW_GUTTER * 2
+            : POPUP_WINDOW_GUTTER * 2,
     });
 
     onMounted(async () => {
@@ -286,8 +289,12 @@
 </script>
 
 <template>
-    <div class="popup-container w-screen bg-transparent">
-        <div v-if="popupComponent" ref="popupContent" class="popup-content w-screen">
+    <div
+        ref="popupContent"
+        class="popup-container w-screen bg-transparent"
+        :style="{ padding: `${POPUP_WINDOW_GUTTER}px` }"
+    >
+        <div v-if="popupComponent" class="popup-content w-full">
             <component :is="popupComponent" ref="componentRef" v-bind="popupProps" @close="close" />
         </div>
     </div>
@@ -298,7 +305,5 @@
         display: flex;
         align-items: flex-start;
         justify-content: center;
-        overflow: hidden;
-        border-radius: 0.5rem;
     }
 </style>

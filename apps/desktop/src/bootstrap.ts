@@ -264,7 +264,7 @@ export async function initializeApp() {
         return;
     }
 
-    initializeFontLoader();
+    void initializeFontLoader();
     const settingsWindow = isSettingsWindow();
     if (!settingsWindow) {
         await Promise.all([syncBuiltInTools(), prewarmBuiltInBash()]);

@@ -3,10 +3,15 @@
 import ModelDropdownPopup from '@/views/PopupView/components/ModelDropdownPopup/index.vue';
 import SessionHistoryPopover from '@/views/PopupView/components/SessionHistoryPopover/index.vue';
 
-import type { PopupConfig, PopupType, SerializablePopupConfig, WindowInfo } from './types';
+import {
+    POPUP_WINDOW_GUTTER,
+    type PopupConfig,
+    type PopupType,
+    type SerializablePopupConfig,
+    type WindowInfo,
+} from './types';
 
 const GAP = 5;
-const SHADOW_WIDTH = 7;
 
 /**
  * 在优先位置与回退位置之间选择一个可见的 Y 坐标，并在必要时钳制到屏幕内。
@@ -30,11 +35,11 @@ function calculatePopupY(
     const screenTop = mainWindow.screenPosition.y;
     const screenHeight = mainWindow.screenSize.height;
     const screenBottom = screenTop + screenHeight;
-    const minY = screenTop;
-    const maxY = screenTop + Math.max(0, screenHeight - popupHeight);
+    const minPanelY = screenTop + POPUP_WINDOW_GUTTER;
+    const maxPanelY = Math.max(screenTop, screenBottom - popupHeight - POPUP_WINDOW_GUTTER);
 
     const isFullyVisible = (candidateY: number) => {
-        return candidateY >= minY && candidateY + popupHeight <= screenBottom;
+        return candidateY >= minPanelY && candidateY <= maxPanelY;
     };
 
     if (isFullyVisible(preferredY)) {
@@ -45,7 +50,7 @@ function calculatePopupY(
         return fallbackY;
     }
 
-    return clamp(preferredY, minY, maxY);
+    return clamp(preferredY, minPanelY, maxPanelY);
 }
 
 /**
@@ -61,7 +66,11 @@ function calculateWindowEdgePopupY(
     mainWindow: WindowInfo,
     popupHeight: number
 ): number {
-    const preferredY = mainWindow.position.y + mainWindow.size.height + GAP;
+    // The native window includes the transparent shadow gutter, while the
+    // popup panel is positioned against the visible shell. Drop only the
+    // bottom gutter so the panel keeps the designed 5px gap.
+    const shellBottom = mainWindow.position.y + mainWindow.size.height - POPUP_WINDOW_GUTTER;
+    const preferredY = shellBottom + GAP;
     const searchBarContainer = triggerElement.closest('.search-bar-container');
     const refElement = searchBarContainer || triggerElement;
     const refRect = refElement.getBoundingClientRect();
@@ -100,13 +109,21 @@ function calculateRightAlignedPopupX(
     popupWidth: number
 ): number {
     const triggerRect = triggerElement.getBoundingClientRect();
-    let x = mainWindow.position.x + triggerRect.right - popupWidth - SHADOW_WIDTH;
+    let x = mainWindow.position.x + triggerRect.right - popupWidth;
 
     if (mainWindow.screenSize && mainWindow.screenPosition) {
         const minX = mainWindow.screenPosition.x;
-        const maxX =
-            mainWindow.screenPosition.x + Math.max(0, mainWindow.screenSize.width - popupWidth);
-        x = clamp(x, minX, maxX);
+        const screenWidth = mainWindow.screenSize.width;
+        const nativeWidth = popupWidth + POPUP_WINDOW_GUTTER * 2;
+
+        if (screenWidth <= nativeWidth) {
+            const maxX = minX + Math.max(0, screenWidth - popupWidth);
+            x = clamp(x, minX, maxX);
+        } else {
+            const maxNativeX = minX + screenWidth - nativeWidth;
+            const nativeX = clamp(x - POPUP_WINDOW_GUTTER, minX, maxNativeX);
+            x = nativeX + POPUP_WINDOW_GUTTER;
+        }
     }
 
     return x;
@@ -145,8 +162,8 @@ class PopupRegistry {
     getSerializableConfig(): SerializablePopupConfig[] {
         return this.getAll().map((config) => ({
             id: config.id,
-            width: config.width,
-            height: config.height,
+            width: config.width + POPUP_WINDOW_GUTTER * 2,
+            height: config.height + POPUP_WINDOW_GUTTER * 2,
         }));
     }
 
@@ -174,7 +191,7 @@ export function initializeBuiltInPopups(): void {
         height: 384,
         component: ModelDropdownPopup,
         calculatePosition: (triggerElement, mainWindow, dimensions) => {
-            const x = mainWindow.position.x - SHADOW_WIDTH;
+            const x = mainWindow.position.x + POPUP_WINDOW_GUTTER;
             const y = calculateWindowEdgePopupY(triggerElement, mainWindow, dimensions.height);
             return { x, y };
         },
@@ -195,7 +212,7 @@ export function initializeBuiltInPopups(): void {
 
             if (isSearchViewContainer) {
                 // 搜索框状态：左对齐，贴窗口边缘
-                x = mainWindow.position.x - SHADOW_WIDTH;
+                x = mainWindow.position.x + POPUP_WINDOW_GUTTER;
                 y = calculateWindowEdgePopupY(triggerElement, mainWindow, dimensions.height);
             } else {
                 // 会话面板状态：右对齐，锚定在触发元素

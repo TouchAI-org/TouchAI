@@ -120,7 +120,6 @@ windows = { version = "0.62", features = [
     "Foundation",
     "Foundation_Collections",
     "UI_Notifications",
-    "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_Foundation",
     "Win32_Storage_FileSystem",
@@ -146,3 +145,5 @@ objc2-user-notifications = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 notify-rust = "4.11"
+webkit2gtk = "2.0"
+wuff = { version = "0.2.10", default-features = false, features = ["brotli"] }

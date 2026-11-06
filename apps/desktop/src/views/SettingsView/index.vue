@@ -334,56 +334,64 @@
 
 <template>
     <div
-        class="relative h-screen w-screen overflow-hidden bg-canvas-sunken font-serif text-compact"
+        class="window-frame relative h-screen w-screen overflow-hidden bg-transparent"
         data-testid="settings-view"
     >
-        <div class="flex h-full w-full flex-col overflow-hidden" data-testid="settings-shell-frame">
-            <SettingsWindowTitleBar />
+        <div
+            class="window-shell window-shell-floating h-full w-full bg-canvas-sunken font-serif text-compact"
+            data-testid="settings-window-shell"
+        >
+            <div
+                class="flex h-full w-full flex-col overflow-hidden"
+                data-testid="settings-shell-frame"
+            >
+                <SettingsWindowTitleBar />
 
-            <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-                <NavigationSidebar
-                    :active-section="activeSection"
-                    @navigate="handleNavigate"
-                    @search-select="handleSearchSelect"
-                    @show-update-settings="scrollGeneralUpdateSectionIntoView"
-                />
+                <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                    <NavigationSidebar
+                        :active-section="activeSection"
+                        @navigate="handleNavigate"
+                        @search-select="handleSearchSelect"
+                        @show-update-settings="scrollGeneralUpdateSectionIntoView"
+                    />
 
-                <main
-                    class="relative my-2 mr-2 min-h-0 min-w-0 flex-1 overflow-hidden rounded-card border border-neutral-200/70 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.03)]"
-                    data-testid="settings-content-shell"
-                >
-                    <div
-                        :ref="setContentScrollElement"
-                        :class="[
-                            't-page h-full w-full',
-                            activeContentSection.scrollable
-                                ? 'settings-scrollbar settings-scroll-fade overflow-y-auto'
-                                : '',
-                        ]"
-                        :style="scrollFadeStyle"
+                    <main
+                        class="relative my-2 mr-2 min-h-0 min-w-0 flex-1 overflow-hidden rounded-card border border-neutral-200/70 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.03)]"
+                        data-testid="settings-content-shell"
                     >
-                        <KeepAlive :exclude="uncachedSections">
-                            <Suspense :timeout="0" @resolve="handleContentResolved">
-                                <component
-                                    :is="activeContentSection.component"
-                                    :key="activeSection"
-                                    ref="activeViewRef"
-                                    v-on="
-                                        activeSection === 'general'
-                                            ? {
-                                                  'show-update-settings':
-                                                      scrollGeneralUpdateSectionIntoView,
-                                              }
-                                            : {}
-                                    "
-                                />
-                                <template #fallback>
-                                    <LoadingState variant="brand" fill="min" />
-                                </template>
-                            </Suspense>
-                        </KeepAlive>
-                    </div>
-                </main>
+                        <div
+                            :ref="setContentScrollElement"
+                            :class="[
+                                't-page h-full w-full',
+                                activeContentSection.scrollable
+                                    ? 'settings-scrollbar settings-scroll-fade overflow-y-auto'
+                                    : '',
+                            ]"
+                            :style="scrollFadeStyle"
+                        >
+                            <KeepAlive :exclude="uncachedSections">
+                                <Suspense :timeout="0" @resolve="handleContentResolved">
+                                    <component
+                                        :is="activeContentSection.component"
+                                        :key="activeSection"
+                                        ref="activeViewRef"
+                                        v-on="
+                                            activeSection === 'general'
+                                                ? {
+                                                      'show-update-settings':
+                                                          scrollGeneralUpdateSectionIntoView,
+                                                  }
+                                                : {}
+                                        "
+                                    />
+                                    <template #fallback>
+                                        <LoadingState variant="brand" fill="min" />
+                                    </template>
+                                </Suspense>
+                            </KeepAlive>
+                        </div>
+                    </main>
+                </div>
             </div>
         </div>
     </div>

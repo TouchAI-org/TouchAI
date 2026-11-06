@@ -17,6 +17,7 @@ import path from 'node:path';
 import {
     captureScreenshot,
     countDistinctStates,
+    cropToContentFrame,
     cropToElement,
     ensureDir,
     finalizeRecording,
@@ -33,7 +34,6 @@ import {
     windowForSurface,
     windowGeometry,
 } from './lib/capture.mjs';
-import { buildCropFilter, parseDisplaySize, startNativeRecording } from './lib/native-capture.mjs';
 import {
     isFixtureProviderError,
     MIN_COVERAGE,
@@ -41,9 +41,17 @@ import {
     MIN_VIDEO_FRAMES,
     MIN_VIDEO_SECONDS,
 } from './lib/evidence.mjs';
+import { provisionProductFont } from './lib/font.mjs';
+import { buildCropFilter, parseDisplaySize, startNativeRecording } from './lib/native-capture.mjs';
 import { ELEMENT_CENTER_SCRIPT, ELEMENT_ROW_RECT_SCRIPT } from './lib/overlay.mjs';
 import { captureMode, detectPlatform, isUsableDisplay, platformLabel } from './lib/platform.mjs';
-import { resolveCaptureProfile, searchWindowFrame, stageLabel } from './lib/profile.mjs';
+import {
+    nativeWindowFrame,
+    resolveCaptureProfile,
+    searchWindowFrame,
+    stageLabel,
+    WINDOW_SHADOW_GUTTER,
+} from './lib/profile.mjs';
 import {
     boot,
     bridge,
@@ -316,27 +324,24 @@ async function placeWebviewWindow(session, handle, profile) {
 }
 
 async function setPreviewWindowFrame({ session, platform, display, handle, frame, scale }) {
-    const { x, y, width, height } = frame;
-
     await session.switchTo(handle);
+    // `frame` describes the visible content, but window-manager APIs size the
+    // native window. The app reserves a transparent gutter for its CSS shadow,
+    // so every platform has to add that gutter back or the shell is squeezed
+    // into the content size and the corners and text are clipped.
+    const native = nativeWindowFrame(frame);
 
-    try {
-        await session.setWindowRect({ x, y, width, height });
-    } catch (error) {
-        if (platform !== 'linux') {
-            throw error;
-        }
-
-        // WebKitWebDriver on Xvfb does not always implement setWindowRect;
-        // xdotool drives the same window manager the rest of the recorder uses.
+    if (platform === 'linux') {
         const id = windowForSurface(display, 'search', scale)?.id;
 
         if (!id) {
-            throw error;
+            throw new Error('no visible search window to resize');
         }
 
-        resizeWindow(display, id, width, height);
-        moveWindow(display, id, x, y);
+        resizeWindow(display, id, native.width, native.height);
+        moveWindow(display, id, native.x, native.y);
+    } else {
+        await session.setWindowRect(native);
     }
 
     await session.focusWindow();
@@ -422,16 +427,17 @@ async function checkPreviewFrame(
 ) {
     await session.switchTo(handle);
     const rect = await session.getWindowRect();
+    const expected = nativeWindowFrame(frame);
     const stable =
-        Math.abs(rect.width - frame.width) <= PREVIEW_FRAME_TOLERANCE &&
-        Math.abs(rect.height - frame.height) <= PREVIEW_FRAME_TOLERANCE;
+        Math.abs(rect.width - expected.width) <= PREVIEW_FRAME_TOLERANCE &&
+        Math.abs(rect.height - expected.height) <= PREVIEW_FRAME_TOLERANCE;
 
     return {
         name,
         status: stable ? 'pass' : 'fail',
         detail: stable
-            ? `${rect.width}x${rect.height}`
-            : `${rect.width}x${rect.height}, expected ${frame.width}x${frame.height}`,
+            ? `${rect.width}x${rect.height} native (${frame.width}x${frame.height} content)`
+            : `${rect.width}x${rect.height}, expected ${expected.width}x${expected.height}`,
     };
 }
 
@@ -543,7 +549,12 @@ async function captureStill({ session, platform, display, surface, state, file }
             await sleep(220);
 
             if (isPaintedWindowFrame(file)) {
-                return pngSize(file);
+                return (
+                    cropToContentFrame({
+                        file,
+                        gutter: Math.round(WINDOW_SHADOW_GUTTER * state.profile.scale),
+                    }) ?? pngSize(file)
+                );
             }
 
             await waitForPaint(session);
@@ -564,7 +575,12 @@ async function captureStill({ session, platform, display, surface, state, file }
         let size = null;
 
         for (const id of candidates) {
-            size = captureScreenshot({ display, file, id });
+            size = captureScreenshot({
+                display,
+                file,
+                id,
+                inset: WINDOW_SHADOW_GUTTER,
+            });
 
             if (isPaintedWindowFrame(file)) {
                 break;
@@ -833,6 +849,125 @@ function findLogErrors(appRoot) {
 }
 
 /**
+ * Confirms the visible document paints Han glyphs with the product face.
+ *
+ * The same verified file is provisioned into the app root before boot, so the
+ * remaining failures are a missing @font-face or a rejected asset URL. A face
+ * can report `loaded` while the engine silently paints a fallback, so compare
+ * a Han outline against a guaranteed-missing family. Equal outlines mean the
+ * product face did not paint. The app may also register the face from a cached
+ * plain TTF or from the file bytes when WebKitGTK cannot decode the WOFF2, so a
+ * missing WOFF2 style rule is not a failure by itself. E2E uses the same proof;
+ * this keeps preview screenshots honest as well.
+ */
+async function productFontState(session) {
+    const deadline = Date.now() + 10000;
+    let state = { ok: false, detail: 'the product face did not load within 10s' };
+
+    // Polling from Node keeps the WebDriver transport synchronous. On Windows
+    // the async endpoint posts through WebView2, which Tauri's IPC handler also
+    // sees and reports as a JSON parse error (see waitForPaint above).
+    while (Date.now() < deadline) {
+        state = await session.execute(String.raw`
+            const family = 'TouchAI Source Han Serif SC';
+            const fallbackFamily = 'TouchAI Preview Missing 9x8z';
+            const sample = '\u901a\u7528\u542f\u52a8';
+            const style = document.querySelector('style[data-touchai-font-face]');
+            const match = (style?.textContent || '').match(/url\('([^']+)'\)/);
+            const fontUrl = match ? match[1] : null;
+            const facesFor = (name) =>
+                [...document.fonts].filter((face) => face.family === name);
+            const productProbe = '500 52px "' + family + '"';
+            void document.fonts.load(productProbe, sample).catch(() => {});
+
+            const productFaces = facesFor(family);
+            if (productFaces.length === 0) {
+                return {
+                    ok: false,
+                    retry: true,
+                    detail: 'waiting for the product face to register',
+                };
+            }
+
+            const productStatuses = productFaces.map((face) => face.status);
+            const productCheck = document.fonts.check(productProbe, sample);
+            if (!productStatuses.includes('loaded')) {
+                return {
+                    ok: false,
+                    retry: true,
+                    detail:
+                        'waiting for a usable product face (status: ' +
+                        productStatuses.join(',') +
+                        ', check: ' +
+                        productCheck +
+                        ')',
+                };
+            }
+
+            function rasterize(target) {
+                const canvas = document.createElement('canvas');
+                canvas.width = 400;
+                canvas.height = 110;
+                const context = canvas.getContext('2d');
+                if (!context) {
+                    throw new Error('the document could not create a 2D canvas');
+                }
+                context.fillStyle = '#ffffff';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                context.fillStyle = '#000000';
+                context.font = '500 52px "' + target + '"';
+                context.textBaseline = 'top';
+                context.fillText(sample, 4, 6);
+                return context.getImageData(0, 0, canvas.width, canvas.height).data;
+            }
+
+            const product = rasterize(family);
+            const fallback = rasterize(fallbackFamily);
+            let differingPixels = 0;
+            for (let index = 0; index < product.length; index += 4) {
+                if (product[index] !== fallback[index]) {
+                    differingPixels += 1;
+                }
+            }
+
+            if (differingPixels <= 500) {
+                return {
+                    ok: false,
+                    detail:
+                        'the product face did not paint Han glyphs (only ' +
+                        differingPixels +
+                        ' pixels differ from the fallback; status: ' +
+                        productStatuses.join(',') +
+                        ', check: ' +
+                        productCheck +
+                        ')',
+                };
+            }
+
+            return {
+                ok: true,
+                detail:
+                    (fontUrl || 'registered in-memory face') +
+                    ' (Han outline differs from the fallback by ' +
+                    differingPixels +
+                    ' px)',
+            };
+        `);
+
+        if (state.ok || state.retry !== true) {
+            return state;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+
+    if (state.retry === true) {
+        state.detail = `the product face did not load within 10s (${state.detail})`;
+    }
+
+    return state;
+}
+
+/**
  * Boots the app and waits for its bridge, retrying once.
  *
  * A hosted macOS runner occasionally starts the app without ever registering
@@ -992,6 +1127,18 @@ async function main() {
         detail: `${displaySize.width}x${displaySize.height} display, ${stageLabel(profile)} stage`,
     });
 
+    const font = await provisionProductFont({ appRoot });
+    manifest.checks.push({
+        name: 'Product font file',
+        status: font.ok ? 'pass' : 'fail',
+        detail: font.detail,
+    });
+    if (!font.ok) {
+        fail('font', font.detail);
+        persist();
+        return;
+    }
+
     if (platform === 'linux') {
         paintDesktop(display);
     }
@@ -1057,6 +1204,16 @@ async function main() {
         });
         await waitForPaint(session);
 
+        const searchFont = await productFontState(session);
+        manifest.checks.push({
+            name: 'Product font (search window)',
+            status: searchFont.ok ? 'pass' : 'fail',
+            detail: searchFont.detail,
+        });
+        if (!searchFont.ok) {
+            fail('font', `search window: ${searchFont.detail}`);
+        }
+
         // Open Settings before recording so its first frame is already painted.
         // A window that is created during the recording shows a blank webview
         // for several seconds, which looks like a still image.
@@ -1064,6 +1221,17 @@ async function main() {
         await session.waitForElement("[data-testid='settings-general-section']");
         await ensureOverlay(session);
         await waitForPaint(session);
+
+        const settingsFont = await productFontState(session);
+        manifest.checks.push({
+            name: 'Product font (settings window)',
+            status: settingsFont.ok ? 'pass' : 'fail',
+            detail: settingsFont.detail,
+        });
+        if (!settingsFont.ok) {
+            fail('font', `settings window: ${settingsFont.detail}`);
+        }
+
         await sleep(1200);
 
         await session.switchTo(mainHandle);

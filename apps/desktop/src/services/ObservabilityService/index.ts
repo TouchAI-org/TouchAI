@@ -93,17 +93,8 @@ function installShutdownFlush(): void {
 
     try {
         const currentWindow = getCurrentWindow();
-        void currentWindow
-            .onCloseRequested(async (event) => {
-                event.preventDefault();
-                await flushBeforeExit();
-                try {
-                    await currentWindow.destroy();
-                } catch (error) {
-                    reportLoggingFailure(error);
-                }
-            })
-            .catch(reportLoggingFailure);
+        const handleCloseRequested = createWindowCloseHandler(() => currentWindow.close());
+        void currentWindow.onCloseRequested(handleCloseRequested).catch(reportLoggingFailure);
 
         void listen(QUIT_FLUSH_EVENT, async () => {
             await flushBeforeExit();
@@ -122,6 +113,36 @@ function installShutdownFlush(): void {
     } catch {
         // 非 Tauri 环境（测试、浏览器预览）没有关闭钩子。
     }
+}
+
+type WindowCloseEvent = {
+    preventDefault: () => void;
+};
+
+/**
+ * Flush once, then close the window again. The close-requested listener
+ * prevents the first close, and the approved second call lets the native close
+ * proceed without a destructive window-destroy permission.
+ */
+export function createWindowCloseHandler(
+    closeWindow: () => Promise<void>,
+    flush: () => Promise<void> = flushBeforeExit
+): (event: WindowCloseEvent) => Promise<void> {
+    let closeApproved = false;
+
+    return async (event) => {
+        if (closeApproved) return;
+
+        event.preventDefault();
+        await flush();
+        closeApproved = true;
+        try {
+            await closeWindow();
+        } catch (error) {
+            closeApproved = false;
+            reportLoggingFailure(error);
+        }
+    };
 }
 
 /** 有上限地刷一次队列；后端卡住时也要让退出继续。 */

@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    contentWindowFrame,
+    nativeWindowFrame,
     SEARCH_WINDOW_IDLE_HEIGHT,
     SEARCH_WINDOW_RESULTS_HEIGHT,
     SEARCH_WINDOW_WIDTH,
     searchWindowFrame,
+    WINDOW_SHADOW_GUTTER,
 } from '../../../.github/ui-preview/lib/profile.mjs';
 
 const stage = { width: 1920, height: 1080 };
@@ -18,6 +21,31 @@ describe('user reviews an empty search window', () => {
             height: SEARCH_WINDOW_IDLE_HEIGHT,
             x: 585,
             y: 510,
+        });
+    });
+
+    it('user sees the recorder reserve the same shadow room as the app', () => {
+        const frame = searchWindowFrame(stage);
+        const native = nativeWindowFrame(frame);
+
+        expect(WINDOW_SHADOW_GUTTER).toBe(24);
+        expect(native).toEqual({
+            width: SEARCH_WINDOW_WIDTH + WINDOW_SHADOW_GUTTER * 2,
+            height: SEARCH_WINDOW_IDLE_HEIGHT + WINDOW_SHADOW_GUTTER * 2,
+            x: frame.x - WINDOW_SHADOW_GUTTER,
+            y: frame.y - WINDOW_SHADOW_GUTTER,
+        });
+    });
+
+    it('user gets the visible content back when a native capture is cropped', () => {
+        const frame = searchWindowFrame(stage);
+        const native = nativeWindowFrame(frame);
+
+        expect(contentWindowFrame(native)).toEqual({
+            width: frame.width,
+            height: frame.height,
+            x: frame.x,
+            y: frame.y,
         });
     });
 });

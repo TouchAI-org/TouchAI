@@ -6,6 +6,12 @@ import type { Component } from 'vue';
 import type { SessionTaskStatus } from '@/services/AgentService/task/types';
 
 /**
+ * Transparent margin around a popup panel. It belongs to the native window, so
+ * the panel keeps its configured size while its CSS shadow has room to render.
+ */
+export const POPUP_WINDOW_GUTTER = 24;
+
+/**
  * 弹窗窗口内容类型
  */
 export type PopupType = 'model-dropdown-popup' | 'session-history-popup';
@@ -37,9 +43,9 @@ export type PositionCalculator = (
 export interface PopupConfig<TData = unknown> {
     /** 唯一标识符 */
     id: PopupType;
-    /** 窗口宽度（逻辑像素） */
+    /** 弹窗面板宽度（逻辑像素）；原生窗口会另加两侧透明 gutter。 */
     width: number;
-    /** 窗口高度（逻辑像素） */
+    /** 弹窗面板高度（逻辑像素）；原生窗口会另加两侧透明 gutter。 */
     height: number;
     /** 窗口最小高度（逻辑像素），用于内容不足时保持最低高度 */
     minHeight?: number;
@@ -56,7 +62,9 @@ export interface PopupConfig<TData = unknown> {
  */
 export interface SerializablePopupConfig {
     id: string;
+    /** 原生窗口宽度，已包含两侧透明 gutter。 */
     width: number;
+    /** 原生窗口高度，已包含两侧透明 gutter。 */
     height: number;
 }
 

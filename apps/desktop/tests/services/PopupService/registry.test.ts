@@ -1,4 +1,5 @@
-import type { WindowInfo } from '@services/PopupService/types';
+import { createPopupPositionCalculator } from '@services/PopupService/position';
+import type { PopupType, WindowInfo } from '@services/PopupService/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/views/PopupView/components/ModelDropdownPopup/index.vue', () => ({
@@ -64,8 +65,8 @@ describe('user opens a built-in popup', () => {
         expect(popupRegistry.has('model-dropdown-popup')).toBe(true);
         expect(popupRegistry.has('session-history-popup')).toBe(true);
         expect(popupRegistry.getSerializableConfig()).toEqual([
-            { id: 'model-dropdown-popup', width: 320, height: 384 },
-            { id: 'session-history-popup', width: 320, height: 384 },
+            { id: 'model-dropdown-popup', width: 368, height: 432 },
+            { id: 'session-history-popup', width: 368, height: 432 },
         ]);
     });
 
@@ -93,8 +94,72 @@ describe('user opens a built-in popup', () => {
         });
 
         expect(position).toEqual({
-            x: 493,
+            x: 524,
             y: 235,
+        });
+    });
+
+    it('user sees the popup 5px below the visible shell when it fits on screen', async () => {
+        const { initializeBuiltInPopups, popupRegistry } = await loadRegistryModule();
+        initializeBuiltInPopups();
+
+        const trigger = document.createElement('button');
+        defineRect(trigger, { top: 24, right: 410, bottom: 60, left: 260 });
+        document.body.appendChild(trigger);
+
+        const config = popupRegistry.get('model-dropdown-popup');
+        expect(config).toBeDefined();
+        if (!config) {
+            throw new Error('Expected model dropdown popup config');
+        }
+        const windowInfo = createWindowInfo({
+            position: { x: 500, y: 300 },
+            size: { width: 798, height: 108 },
+            screenSize: { width: 1800, height: 900 },
+        });
+        const calculator = createPopupPositionCalculator({
+            getPopupConfig: (type: PopupType) => popupRegistry.get(type),
+            getWindowInfo: vi.fn().mockResolvedValue(windowInfo),
+        });
+        const position = await calculator.calculate('model-dropdown-popup', trigger);
+
+        expect(position).toEqual({
+            x: 500,
+            y: 365,
+            width: 368,
+            height: 432,
+        });
+    });
+
+    it('user sees the model dropdown above the shell when only its shadow would cross the screen edge', async () => {
+        const { initializeBuiltInPopups, popupRegistry } = await loadRegistryModule();
+        initializeBuiltInPopups();
+
+        const searchBarContainer = document.createElement('div');
+        searchBarContainer.className = 'search-bar-container';
+        defineRect(searchBarContainer, { top: 24, right: 420, bottom: 84, left: 40 });
+
+        const trigger = document.createElement('button');
+        defineRect(trigger, { top: 30, right: 410, bottom: 60, left: 260 });
+        searchBarContainer.appendChild(trigger);
+        document.body.appendChild(searchBarContainer);
+
+        const windowInfo = createWindowInfo({
+            position: { x: 500, y: 600 },
+            size: { width: 798, height: 108 },
+            screenSize: { width: 1800, height: 1080 },
+        });
+        const calculator = createPopupPositionCalculator({
+            getPopupConfig: (type: PopupType) => popupRegistry.get(type),
+            getWindowInfo: vi.fn().mockResolvedValue(windowInfo),
+        });
+        const position = await calculator.calculate('model-dropdown-popup', trigger);
+
+        expect(position).toEqual({
+            x: 500,
+            y: 211,
+            width: 368,
+            height: 432,
         });
     });
 
@@ -118,7 +183,7 @@ describe('user opens a built-in popup', () => {
         });
 
         expect(position).toEqual({
-            x: 493,
+            x: 524,
             y: 205,
         });
     });
@@ -151,6 +216,38 @@ describe('user opens a built-in popup', () => {
 
         expect(position).toEqual({
             x: 400,
+            y: 255,
+        });
+    });
+
+    it('user sees the popup move inward when its shadow would cross the screen edge', async () => {
+        const { initializeBuiltInPopups, popupRegistry } = await loadRegistryModule();
+        initializeBuiltInPopups();
+
+        const trigger = document.createElement('button');
+        defineRect(trigger, { top: 320, right: 1000, bottom: 350, left: 960 });
+        document.body.appendChild(trigger);
+
+        const config = popupRegistry.get('session-history-popup');
+        expect(config).toBeDefined();
+        if (!config) {
+            throw new Error('Expected session history popup config');
+        }
+        const position = config.calculatePosition(
+            trigger,
+            createWindowInfo({
+                position: { x: 800, y: 100 },
+                screenPosition: { x: 0, y: 0 },
+                screenSize: { width: 1800, height: 520 },
+            }),
+            {
+                width: config.width,
+                height: 160,
+            }
+        );
+
+        expect(position).toEqual({
+            x: 1456,
             y: 255,
         });
     });

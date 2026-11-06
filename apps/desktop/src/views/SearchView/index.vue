@@ -1530,84 +1530,93 @@
 </script>
 
 <template>
-    <div
-        ref="pageContainer"
-        tabindex="-1"
-        data-testid="search-view"
-        :class="[
-            'search-view-container relative flex min-h-0 w-full flex-col items-center justify-start overflow-hidden bg-background-primary backdrop-blur-xl focus:outline-none',
-            fillConversationAvailableHeight || effectiveWindowMaximized ? 'h-full' : '',
-            isLoading && !askUserStore.current ? 'loading' : '',
-        ]"
-        @paste.capture="handlePagePaste"
-    >
+    <div class="window-frame relative h-screen w-screen overflow-hidden bg-transparent">
         <div
-            v-if="searchViewContentReady && sessionHistory.length > 0"
-            data-testid="conversation-panel-host"
-            :class="[
-                'w-full overflow-hidden',
-                fillConversationAvailableHeight ? 'min-h-0 flex-1' : '',
-            ]"
+            class="window-shell window-shell-floating h-full w-full"
+            data-testid="search-window-shell"
         >
-            <ConversationPanel
-                ref="conversationPanel"
-                :messages="sessionHistory"
-                :is-loading="isLoading"
-                :error="error"
-                :is-pinned="isPinned"
-                :is-maximized="isMaximized"
-                :fill-available-height="fillConversationAvailableHeight"
-                :history-open="sessionHistoryPopupOpen"
-                @pin-change="handlePinChange"
-                @maximize-toggle="handleToggleMaximize"
-                @new-session="handleStartNewSession"
-                @history-open-change="handleHistoryOpenChange"
-                @history-prefetch="handleHistoryPrefetch"
-                @drag-start="isDragging = true"
-                @drag-end="isDragging = false"
-                @regenerate-message="handleRegenerateMessage"
-                @latest-content-visibility-change="handleLatestContentVisibilityChange"
-            />
-        </div>
-        <div
-            v-if="searchViewContentReady && sessionHistory.length > 0 && !askUserStore.current"
-            class="w-full border-t-[0.5px] border-gray-300/80"
-        ></div>
-        <div
-            v-if="searchViewContentReady"
-            aria-hidden="true"
-            class="ask-user-divider relative z-10 w-full"
-        ></div>
-        <AskUserPanel v-if="searchViewContentReady && askUserStore.current" />
-        <div v-if="viewReady && !askUserStore.current" class="relative w-full">
-            <SearchBar
-                ref="searchBar"
-                :disabled="isWaitingForCompletion || Boolean(pendingToolApproval)"
-                :query-text="queryText"
-                :attachments="attachments"
-                :model-override="modelOverride"
-                @update:query-text="handleQueryTextChange"
-                @attachment-remove-request="handleAttachmentRemoveRequest"
-                @model-change="handleModelChange"
-                @cursor-context-change="handleCursorContextChange"
-                @model-override-change="handleModelOverrideChange"
-                @request-prefetch-model-dropdown="handleModelDropdownPrefetch"
-                @request-toggle-model-dropdown="handleToggleModelDropdownRequest"
-                @drag-start="isDragging = true"
-                @drag-end="isDragging = false"
-            />
             <div
-                v-if="searchViewContentReady && sessionHistory.length === 0"
-                v-show="quickSearchOpen"
+                ref="pageContainer"
+                tabindex="-1"
+                data-testid="search-view"
+                :class="[
+                    'search-view-container relative flex min-h-0 w-full flex-col items-center justify-start overflow-hidden bg-background-primary focus:outline-none',
+                    fillConversationAvailableHeight || effectiveWindowMaximized ? 'h-full' : '',
+                    isLoading && !askUserStore.current ? 'loading' : '',
+                ]"
+                @paste.capture="handlePagePaste"
             >
-                <QuickSearchPanel
-                    ref="quickSearchPanel"
-                    :open="quickSearchOpen"
-                    :search-query="queryText"
-                    :enabled="true"
-                    @blank-click="handleQuickSearchBlankClick"
-                    @update:open="handleQuickSearchOpenChange"
-                />
+                <div
+                    v-if="searchViewContentReady && sessionHistory.length > 0"
+                    data-testid="conversation-panel-host"
+                    :class="[
+                        'w-full overflow-hidden',
+                        fillConversationAvailableHeight ? 'min-h-0 flex-1' : '',
+                    ]"
+                >
+                    <ConversationPanel
+                        ref="conversationPanel"
+                        :messages="sessionHistory"
+                        :is-loading="isLoading"
+                        :error="error"
+                        :is-pinned="isPinned"
+                        :is-maximized="isMaximized"
+                        :fill-available-height="fillConversationAvailableHeight"
+                        :history-open="sessionHistoryPopupOpen"
+                        @pin-change="handlePinChange"
+                        @maximize-toggle="handleToggleMaximize"
+                        @new-session="handleStartNewSession"
+                        @history-open-change="handleHistoryOpenChange"
+                        @history-prefetch="handleHistoryPrefetch"
+                        @drag-start="isDragging = true"
+                        @drag-end="isDragging = false"
+                        @regenerate-message="handleRegenerateMessage"
+                        @latest-content-visibility-change="handleLatestContentVisibilityChange"
+                    />
+                </div>
+                <div
+                    v-if="
+                        searchViewContentReady && sessionHistory.length > 0 && !askUserStore.current
+                    "
+                    class="w-full border-t-[0.5px] border-gray-300/80"
+                ></div>
+                <div
+                    v-if="searchViewContentReady"
+                    aria-hidden="true"
+                    class="ask-user-divider relative z-10 w-full"
+                ></div>
+                <AskUserPanel v-if="searchViewContentReady && askUserStore.current" />
+                <div v-if="viewReady && !askUserStore.current" class="relative w-full">
+                    <SearchBar
+                        ref="searchBar"
+                        :disabled="isWaitingForCompletion || Boolean(pendingToolApproval)"
+                        :query-text="queryText"
+                        :attachments="attachments"
+                        :model-override="modelOverride"
+                        @update:query-text="handleQueryTextChange"
+                        @attachment-remove-request="handleAttachmentRemoveRequest"
+                        @model-change="handleModelChange"
+                        @cursor-context-change="handleCursorContextChange"
+                        @model-override-change="handleModelOverrideChange"
+                        @request-prefetch-model-dropdown="handleModelDropdownPrefetch"
+                        @request-toggle-model-dropdown="handleToggleModelDropdownRequest"
+                        @drag-start="isDragging = true"
+                        @drag-end="isDragging = false"
+                    />
+                    <div
+                        v-if="searchViewContentReady && sessionHistory.length === 0"
+                        v-show="quickSearchOpen"
+                    >
+                        <QuickSearchPanel
+                            ref="quickSearchPanel"
+                            :open="quickSearchOpen"
+                            :search-query="queryText"
+                            :enabled="true"
+                            @blank-click="handleQuickSearchBlankClick"
+                            @update:open="handleQuickSearchOpenChange"
+                        />
+                    </div>
+                </div>
             </div>
         </div>
     </div>

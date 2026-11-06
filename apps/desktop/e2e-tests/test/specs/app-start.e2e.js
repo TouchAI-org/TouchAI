@@ -37,13 +37,46 @@ describe('user launches the desktop app', () => {
         // is meant to be compared. The search window is the app's first screen, so
         // a regression here is visible before any feature is used.
         //
-        // The baseline is the window at CSS size (750x60). A machine that renders at
-        // 150% DPI captures a larger image, which the comparison resizes back down;
+        // The baseline is the native window (798x108): a 750x60 search surface plus
+        // the transparent shadow gutter. A machine that renders at 150% DPI captures
+        // a larger image, which the comparison resizes back down;
         // `visualMismatchTolerance()` widens the budget for exactly that case.
         await browser.pause(500);
         await expect(browser).toMatchScreenSnapshot(
             'search-window-empty',
             await visualMismatchTolerance()
+        );
+    });
+
+    it('user sees the search window as a rounded floating surface with a shadow', async () => {
+        const styles = await browser.execute(() => {
+            const shell = document.querySelector('[data-testid="search-window-shell"]');
+            const view = document.querySelector('[data-testid="search-view"]');
+            const shellStyle = getComputedStyle(shell);
+            const frameStyle = getComputedStyle(shell.parentElement);
+            return {
+                radius: shellStyle.borderRadius,
+                shadow: shellStyle.boxShadow,
+                padding: frameStyle.paddingTop,
+                backdropFilter: getComputedStyle(view).backdropFilter,
+            };
+        });
+
+        assertVisible(
+            styles.radius !== '0px',
+            `The search window lost its rounded shell: ${styles.radius}.`
+        );
+        assertVisible(
+            styles.shadow !== 'none' && !styles.shadow.includes('rgba(0, 0, 0, 0) 0px 0px'),
+            `The search window lost its drop shadow: ${styles.shadow}.`
+        );
+        assertVisible(
+            styles.padding === '24px',
+            `The search window has no room for its shadow: ${styles.padding}.`
+        );
+        assertVisible(
+            styles.backdropFilter === 'none',
+            `The search window still paints an opaque backdrop layer: ${styles.backdropFilter}.`
         );
     });
 

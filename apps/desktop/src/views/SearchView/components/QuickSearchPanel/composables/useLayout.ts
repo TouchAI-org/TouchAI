@@ -1,6 +1,8 @@
 import type { QuickShortcutItem } from '@services/NativeService';
 import { computed, nextTick, type Ref, ref } from 'vue';
 
+import { readWindowViewportBounds } from '@/utils/windowChrome';
+
 export type ViewMode = 'grid' | 'list';
 
 export const BASE_GAP_PX = 8; // 网格默认间距（px）
@@ -170,13 +172,11 @@ export function useLayout(options: UseLayoutOptions) {
 
         const scrollWidth = scrollRef.value?.clientWidth ?? 0;
         const panelWidth = scrollRef.value?.parentElement?.clientWidth ?? 0;
-        const viewportWidth = scrollRef.value?.ownerDocument?.documentElement?.clientWidth ?? 0;
-        const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 0;
+        const viewportWidth = readWindowViewportBounds(scrollRef.value).width;
         const availableWidth = Math.max(
             scrollWidth,
             panelWidth,
-            viewportWidth > 0 ? viewportWidth - 32 : 0,
-            windowWidth > 0 ? windowWidth - 32 : 0
+            viewportWidth > 0 ? viewportWidth - 32 : 0
         );
         if (availableWidth <= 0) return;
 
