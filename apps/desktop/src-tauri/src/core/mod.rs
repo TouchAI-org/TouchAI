@@ -7,6 +7,7 @@
 pub mod analytics;
 pub mod browser;
 pub mod built_in_tools;
+pub mod computer_use;
 pub mod database;
 pub mod mcp;
 pub mod observability;

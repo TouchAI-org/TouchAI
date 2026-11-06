@@ -32,7 +32,8 @@ export type BuiltInToolId =
     | 'browser'
     | 'browser_session'
     | 'browser_observe'
-    | 'browser_act';
+    | 'browser_act'
+    | 'computer_use';
 
 /**
  * 所有内置工具共享的最小运行时上下文。

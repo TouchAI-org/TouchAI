@@ -3,6 +3,7 @@
 import { builtInTools as askUserTools } from './tools/askUser';
 import { builtInTools as bashTools } from './tools/bash';
 import { builtInTools as browserTools } from './tools/browser';
+import { builtInTools as computerUseTools } from './tools/computerUse';
 import { builtInTools as fileSearchTools } from './tools/fileSearch';
 import { builtInTools as readTools } from './tools/read';
 import { builtInTools as settingTools } from './tools/setting';
@@ -58,6 +59,7 @@ export const builtInToolRegistry = new BuiltInToolRegistry();
 builtInToolRegistry.register(askUserTools);
 builtInToolRegistry.register(bashTools);
 builtInToolRegistry.register(browserTools);
+builtInToolRegistry.register(computerUseTools);
 builtInToolRegistry.register(fileSearchTools);
 builtInToolRegistry.register(readTools);
 builtInToolRegistry.register(settingTools);

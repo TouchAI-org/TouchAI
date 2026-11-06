@@ -142,12 +142,14 @@
     import type { ToolCallInfo } from '@/types/session';
 
     import BuiltInBashToolCallItem from './BuiltInBashToolCallItem.vue';
+    import ComputerUseToolCallItem from './ComputerUseToolCallItem.vue';
     import WebSearchSourcesCard from './WebSearchSourcesCard.vue';
 
     const BUILTIN_ROOT_CLASS =
         'tool-call-log-wrapper paragraph-node touchai-markdown touchai-markdown--default';
     const BUILTIN_CARD_COMPONENTS: Record<string, Component> = {
         bash: BuiltInBashToolCallItem,
+        computer_use: ComputerUseToolCallItem,
     };
     const WEB_SEARCH_TOOL_TOKEN = 'websearch';
 

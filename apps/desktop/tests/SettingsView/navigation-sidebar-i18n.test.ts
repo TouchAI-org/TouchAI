@@ -70,6 +70,7 @@ describe('user navigates the settings sections', () => {
             'Built-in tools',
             'Search',
             'Browser Control',
+            'Computer use',
             'MCP tools',
             'Data & privacy',
         ]);
