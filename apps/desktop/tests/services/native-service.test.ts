@@ -150,6 +150,18 @@ describe('NativeService browser boundary', () => {
 describe('NativeService window boundary', () => {
     it.each([
         {
+            name: 'user ends native dragging before its completion is acknowledged',
+            call: () => windowCommands.dragSearchWindow(),
+            cmd: 'drag_search_window',
+            payload: undefined,
+        },
+        {
+            name: 'user dismisses a blurred window only if native focus and pin state permit it',
+            call: () => windowCommands.reconcileSearchWindowBlur(),
+            cmd: 'hide_search_window',
+            payload: { ifUnfocused: true },
+        },
+        {
             name: 'hides the search window',
             call: () => windowCommands.hideSearchWindow(),
             cmd: 'hide_search_window',
@@ -348,7 +360,6 @@ describe('NativeService window boundary', () => {
             currentWidth: 900,
             currentHeight: 420,
             heightMode: 'manual_override',
-            hostContentHeight: 580,
             monitorHost: true,
         };
         mockTauriCommand('get_search_window_state', response);
@@ -367,7 +378,6 @@ describe('NativeService window boundary', () => {
             currentWidth: 900,
             currentHeight: 420,
             heightMode: 'manual_override',
-            hostContentHeight: 580,
             monitorHost: true,
         };
         mockTauriCommand('commit_search_panel_resize', response);
@@ -378,7 +388,6 @@ describe('NativeService window boundary', () => {
                     windowCommands.commitSearchPanelResize({
                         from: { width: 750, height: 300 },
                         to: { width: 900, height: 420 },
-                        hostContentHeight: 580,
                         placement: 'preserve-origin',
                         physicalOrigin: { x: -1200, y: 40 },
                     }),
@@ -387,7 +396,6 @@ describe('NativeService window boundary', () => {
                     resize: {
                         from: { width: 750, height: 300 },
                         to: { width: 900, height: 420 },
-                        hostContentHeight: 580,
                         placement: 'preserve-origin',
                         physicalOrigin: { x: -1200, y: 40 },
                     },

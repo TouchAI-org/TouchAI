@@ -140,7 +140,7 @@ describe('user resizes a bounded search host', () => {
             allowHeightOverride: true,
         });
 
-        expect(resized.physicalOrigin).toEqual({ x: -1920, y: 40 });
+        expect(resized.physicalOrigin).toEqual({ x: -1920, y: -56 });
         expect(resized.physicalOrigin.x + resized.width * 1.5).toBe(-1500 + 750 * 1.5);
         expect(resized.physicalOrigin.y + resized.height * 1.5).toBe(180 + 290 * 1.5);
     });

@@ -31,6 +31,32 @@ describe('when the quick search panel lays out its results', () => {
 
     afterEach(() => {
         document.body.innerHTML = '';
+        vi.unstubAllGlobals();
+    });
+
+    it('settles result layout without blocking the next query on a suspended animation frame', async () => {
+        vi.stubGlobal(
+            'requestAnimationFrame',
+            vi.fn(() => 1)
+        );
+        const scrollElement = document.createElement('div');
+        setReadonlyNumber(scrollElement, 'clientWidth', 400);
+        setReadonlyNumber(document.documentElement, 'clientWidth', 400);
+        setReadonlyNumber(window, 'innerWidth', 400);
+        const layout = useLayout({
+            isOpen: ref(true),
+            results: ref([createShortcut(1)]),
+            highlightedIndex: ref(-1),
+            scrollRef: ref(scrollElement),
+        });
+        let settled = false;
+        void layout.syncLayout().then(() => {
+            settled = true;
+        });
+        await flushAsyncWork();
+        await flushAsyncWork();
+        expect(settled).toBe(true);
+        expect(layout.gridColumns.value).toBe(4);
     });
 
     it('user sees more columns as the panel gets wider', () => {
@@ -75,6 +101,26 @@ describe('when the quick search panel lays out its results', () => {
             gridTemplateColumns: 'repeat(4, 88px)',
             gap: '8px',
         });
+    });
+
+    it('user sees every grid column inside the card when the host includes transparent margins', () => {
+        const scrollElement = document.createElement('div');
+        const panelElement = document.createElement('div');
+        panelElement.append(scrollElement);
+        setReadonlyNumber(scrollElement, 'clientWidth', 420);
+        setReadonlyNumber(panelElement, 'clientWidth', 440);
+        setReadonlyNumber(document.documentElement, 'clientWidth', 536);
+        setReadonlyNumber(window, 'innerWidth', 536);
+        const layout = useLayout({
+            isOpen: ref(true),
+            results: ref(Array.from({ length: 12 }, (_, index) => createShortcut(index))),
+            highlightedIndex: ref(-1),
+            scrollRef: ref(scrollElement),
+        });
+        layout.updateLayout();
+        expect(
+            layout.gridColumns.value * 88 + (layout.gridColumns.value + 1) * layout.gridGap.value
+        ).toBeLessThanOrEqual(420);
     });
 
     it('user sees the panel grow when moving the highlight below the collapsed rows', async () => {

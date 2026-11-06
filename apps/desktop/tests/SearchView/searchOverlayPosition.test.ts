@@ -12,6 +12,19 @@ const anchor = {
 };
 
 describe('calculateSearchOverlayPosition', () => {
+    it('uses the visible work-area top when the native host extends above the display', () => {
+        const position = calculateSearchOverlayPosition({
+            anchor: { left: 48, top: 450, right: 400, bottom: 492, width: 352, height: 42 },
+            overlay: { width: 320, height: 300 },
+            viewport: { width: 846, height: 1080 },
+            minViewportTop: 300,
+            maxViewportHeight: 1032,
+            preferredSide: 'top',
+        });
+        expect(position.side).toBe('bottom');
+        expect(position.top).toBe(500);
+        expect(position.top).toBeGreaterThanOrEqual(308);
+    });
     it('user can reach the model list above the editor when the host cannot grow further', () => {
         const position = calculateSearchOverlayPosition({
             anchor: { left: 48, top: 600, right: 400, bottom: 642, width: 352, height: 42 },

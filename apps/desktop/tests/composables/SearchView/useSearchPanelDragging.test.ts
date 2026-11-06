@@ -1,3 +1,4 @@
+import { flushPromises } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
@@ -7,6 +8,10 @@ const { startDraggingMock } = vi.hoisted(() => ({ startDraggingMock: vi.fn() }))
 vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => ({ startDragging: startDraggingMock }),
 }));
+const { completedNativeDrag } = vi.hoisted(() => ({ completedNativeDrag: vi.fn() }));
+vi.mock('@services/NativeService', () => ({
+    native: { window: { dragSearchWindow: completedNativeDrag } },
+}));
 
 const mouse = () => new MouseEvent('mousedown', { button: 0 });
 
@@ -14,6 +19,7 @@ describe('given a movable search window', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         startDraggingMock.mockResolvedValue(undefined);
+        completedNativeDrag.mockResolvedValue(undefined);
     });
 
     it('user starts native dragging after the interrupted animation has settled', async () => {
@@ -81,5 +87,30 @@ describe('given a movable search window', () => {
         finishPreparation(true);
         await started;
         expect(startDraggingMock).not.toHaveBeenCalled();
+    });
+
+    it('user keeps edge recovery suspended until the native move loop has actually ended', async () => {
+        let complete!: () => void;
+        completedNativeDrag.mockReturnValueOnce(
+            new Promise<void>((resolve) => {
+                complete = resolve;
+            })
+        );
+        const finishNativeDrag = vi.fn().mockResolvedValue(undefined);
+        const dragging = useSearchPanelDragging({
+            maximized: ref(false),
+            monitorHost: ref(true),
+            finishNativeDrag,
+        });
+        let finished = false;
+        const operation = dragging.startDragging(mouse()).then(() => {
+            finished = true;
+        });
+        await flushPromises();
+        expect(finished).toBe(false);
+        expect(finishNativeDrag).not.toHaveBeenCalled();
+        complete();
+        await operation;
+        expect(finishNativeDrag).toHaveBeenCalledOnce();
     });
 });

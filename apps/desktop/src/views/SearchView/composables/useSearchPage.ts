@@ -792,7 +792,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                             !isMaximized?.value &&
                             !isSurfaceTransitioning?.value
                         ) {
-                            return hideSearchWindow();
+                            return native.window.reconcileSearchWindowBlur();
                         }
                     });
                 })
@@ -857,7 +857,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
                                 (!interactionContext.state.windowFocused ||
                                     !interactionContext.state.appFocused)
                             ) {
-                                return hideSearchWindow();
+                                return native.window.reconcileSearchWindowBlur();
                             }
                         })
                         .catch((error) => {

@@ -94,7 +94,12 @@ describe('user recovers motion without reopening a surface', () => {
                         });
                 },
             });
-            const Screen = defineComponent({ setup: () => () => (shown.value ? h(Child) : null) });
+            const Screen = defineComponent({
+                setup: () => {
+                    useMotion().setWindowVisible(true);
+                    return () => (shown.value ? h(Child) : null);
+                },
+            });
             wrapper = mount(App, {
                 attachTo: document.body,
                 global: { plugins: [pinia], stubs: { 'router-view': Screen } },

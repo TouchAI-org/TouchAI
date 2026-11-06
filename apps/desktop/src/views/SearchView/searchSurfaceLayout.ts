@@ -9,22 +9,30 @@
  */
 
 import { SEARCH_WINDOW_VISUAL_OUTSET } from './searchWindowRegions';
-import { SEARCH_WINDOW_TOP_INSET } from './windowSizing';
 
 export const SEARCH_PANEL_MIN_HEIGHT = 60;
 export const SEARCH_PANEL_HEIGHT_TOLERANCE = 0.5;
 
-/** Whole logical pixels that fit after reserving the native shadow envelope. */
-export function resolveSurfaceWorkAreaHeight(physicalHeight: number, scaleFactor: number): number {
-    return Math.max(
-        1,
-        Math.floor(
-            (physicalHeight -
-                SEARCH_WINDOW_TOP_INSET -
-                Math.ceil(SEARCH_WINDOW_VISUAL_OUTSET * scaleFactor)) /
-                scaleFactor
+/** The work area intersected with the host, in client CSS coordinates. */
+export function resolveVisibleSearchViewport(input: {
+    viewportHeight: number;
+    hostY: number;
+    workAreaTop: number;
+    workAreaHeight: number;
+    scaleFactor: number;
+}) {
+    const top = Math.min(
+        input.viewportHeight,
+        Math.max(0, (input.workAreaTop - input.hostY) / input.scaleFactor)
+    );
+    const bottom = Math.max(
+        top,
+        Math.min(
+            input.viewportHeight,
+            (input.workAreaTop + input.workAreaHeight - input.hostY) / input.scaleFactor
         )
     );
+    return { top, bottom };
 }
 
 export interface ContentPanelHeightInput {
@@ -62,15 +70,18 @@ export function resolveContentPanelHeight(input: ContentPanelHeightInput): numbe
 export interface SurfacePanelStyleInput {
     scaleFactor: number;
     maximized: boolean;
+    panelHeight?: number;
+    viewportHeight?: number;
+    centerY?: number | null;
+    minTop?: number;
+    maxBottom?: number;
 }
 
 /**
  * Resolve the panel box inside the bounded native host.
  *
- * The panel always fills the host interior: the host owns the animated height and
- * the card must be exactly what the user sees, so the box is expressed as fixed
- * insets instead of a JS height. `--search-surface-border-width` keeps a one
- * physical pixel border at any display scale.
+ * The host reserves vertical space once. Panel size and position share the same
+ * renderer, so native movement notifications cannot split an animation frame.
  */
 export function resolveSurfacePanelStyle(input: SurfacePanelStyleInput) {
     const scaleFactor =
@@ -90,13 +101,21 @@ export function resolveSurfacePanelStyle(input: SurfacePanelStyleInput) {
         };
     }
 
+    const height = input.panelHeight ?? 0;
+    const top = Math.max(
+        input.minTop ?? 0,
+        Math.min(
+            (input.centerY ?? (input.viewportHeight ?? 0) / 2) - height / 2,
+            (input.maxBottom ?? input.viewportHeight ?? height) - height
+        )
+    );
     return {
         left: `${SEARCH_WINDOW_VISUAL_OUTSET}px`,
         right: `${SEARCH_WINDOW_VISUAL_OUTSET}px`,
-        top: `${SEARCH_WINDOW_TOP_INSET / scaleFactor}px`,
-        bottom: `${SEARCH_WINDOW_VISUAL_OUTSET}px`,
+        top: `${top}px`,
+        bottom: 'auto',
         width: 'auto',
-        height: 'auto',
+        height: `${height}px`,
         maxHeight: 'none',
         minHeight: '0px',
         transform: 'none',
@@ -118,29 +137,4 @@ export function shouldCommitPanelHeight(input: PanelHeightCommitInput): boolean 
     }
 
     return Math.abs(input.next - input.current) > tolerance;
-}
-
-export interface SurfaceHostContentHeightInput {
-    panelHeight: number;
-    overlayBottom: number | null;
-    overlayRequiredViewportHeight: number | null;
-    scaleFactor: number;
-}
-
-/**
- * Logical client-space extent the native host must reserve.
- *
- * The panel starts below the top inset, and fixed overlays may extend past its
- * bottom edge; the host reserves whichever is larger.
- */
-export function resolveSurfaceHostContentHeight(input: SurfaceHostContentHeightInput): number {
-    const scaleFactor =
-        Number.isFinite(input.scaleFactor) && input.scaleFactor > 0 ? input.scaleFactor : 1;
-    const panelHeight = Number.isFinite(input.panelHeight) ? input.panelHeight : 0;
-    const panelBottom = SEARCH_WINDOW_TOP_INSET / scaleFactor + panelHeight;
-    const overlays = [input.overlayBottom, input.overlayRequiredViewportHeight].filter(
-        (value): value is number => value !== null && Number.isFinite(value)
-    );
-
-    return Math.max(panelBottom, ...overlays);
 }

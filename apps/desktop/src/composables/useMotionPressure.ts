@@ -5,7 +5,10 @@ const SAMPLE_INTERVAL_MS = 1000;
 const LATE_SAMPLE_MS = 100;
 
 /** Detect sustained contention in a visible renderer without a frame loop or native polling. */
-export function useMotionPressure(enabled: Readonly<Ref<boolean>>) {
+export function useMotionPressure(
+    enabled: Readonly<Ref<boolean>>,
+    visible: Readonly<Ref<boolean>> = ref(true)
+) {
     const pressured = ref(false);
     let timer: ReturnType<typeof setTimeout> | undefined;
     let lateSamples = 0;
@@ -21,7 +24,7 @@ export function useMotionPressure(enabled: Readonly<Ref<boolean>>) {
     function schedule() {
         const expected = performance.now() + SAMPLE_INTERVAL_MS;
         timer = setTimeout(() => {
-            if (!enabled.value || document.hidden) {
+            if (!enabled.value || !visible.value || document.hidden) {
                 stop();
                 return;
             }
@@ -38,10 +41,10 @@ export function useMotionPressure(enabled: Readonly<Ref<boolean>>) {
 
     function restart() {
         stop();
-        if (enabled.value && !document.hidden) schedule();
+        if (enabled.value && visible.value && !document.hidden) schedule();
     }
 
-    watch(enabled, restart, { immediate: true, flush: 'sync' });
+    watch([enabled, visible], restart, { immediate: true, flush: 'sync' });
     document.addEventListener('visibilitychange', restart);
     onScopeDispose(() => {
         stop();

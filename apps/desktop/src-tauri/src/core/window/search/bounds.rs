@@ -75,7 +75,6 @@ pub struct SearchWindowStateSnapshot {
     pub current_height: f64,
     pub height_mode: HeightMode,
     pub last_known_frame: Option<SearchWindowFrame>,
-    pub host_content_height: Option<f64>,
 }
 
 /// 搜索窗口状态内部数据（非线程安全，由外层 Mutex 保护）。
@@ -86,8 +85,6 @@ struct SearchWindowStateInner {
     current_height: f64,
     height_mode: HeightMode,
     last_known_frame: Option<SearchWindowFrame>,
-    /// Additional logical client-space height required by fixed overlays.
-    host_content_height: Option<f64>,
     /// 程序化 resize 引用计数，>0 时表示正处于动画或系统 resize 中。
     programmatic_resize_depth: usize,
     /// 程序化 resize 的起始尺寸，用于识别动画中间帧。
@@ -105,7 +102,6 @@ impl Default for SearchWindowStateInner {
             current_height: defaults.height,
             height_mode: HeightMode::Auto,
             last_known_frame: None,
-            host_content_height: None,
             programmatic_resize_depth: 0,
             programmatic_resize_origin: None,
             expected_programmatic_size: None,
@@ -126,7 +122,6 @@ fn snapshot_of(inner: &SearchWindowStateInner) -> SearchWindowStateSnapshot {
         current_height: inner.current_height,
         height_mode: inner.height_mode,
         last_known_frame: inner.last_known_frame,
-        host_content_height: inner.host_content_height,
     }
 }
 
@@ -153,22 +148,12 @@ impl SearchWindowState {
         snapshot_of(&inner)
     }
 
-    /// Retain the latest renderer-measured client extent for native host reconciliation.
-    pub fn set_host_content_height(&self, height: Option<f64>) -> SearchWindowStateSnapshot {
-        let mut inner = self.inner.lock().expect("search window state poisoned");
-        inner.host_content_height = height;
-        snapshot_of(&inner)
-    }
-
     /// Physical work-area bounds take precedence over preferred/minimum sizes.
     /// Preserve manual sizing policy while publishing only dimensions that fit.
-    pub fn constrain_to_work_area(&self, max_width: f64, max_height: f64, max_content_height: f64) {
+    pub fn constrain_to_work_area(&self, max_width: f64, max_height: f64) {
         let mut inner = self.inner.lock().expect("search window state poisoned");
         inner.current_width = inner.current_width.min(max_width);
         inner.current_height = inner.current_height.min(max_height);
-        inner.host_content_height = inner
-            .host_content_height
-            .map(|height| height.min(max_content_height));
         if let Some(mut frame) = inner.last_known_frame {
             frame.width = inner.current_width;
             frame.height = inner.current_height;
@@ -191,7 +176,6 @@ impl SearchWindowState {
         inner.current_height = previous.current_height;
         inner.height_mode = previous.height_mode;
         inner.last_known_frame = previous.last_known_frame;
-        inner.host_content_height = previous.host_content_height;
         true
     }
 
@@ -386,7 +370,6 @@ impl SearchWindowState {
         inner.current_height = inner.defaults.height;
         inner.height_mode = HeightMode::Auto;
         inner.last_known_frame = None;
-        inner.host_content_height = None;
         inner.programmatic_resize_origin = None;
         inner.expected_programmatic_size = None;
 
@@ -443,12 +426,10 @@ mod tests {
     #[test]
     fn user_keeps_manual_policy_when_a_smaller_work_area_limits_the_panel() {
         let state = state_with_manual_override();
-        state.set_host_content_height(Some(1200.0));
-        state.constrain_to_work_area(800.0, 480.0, 544.0);
+        state.constrain_to_work_area(800.0, 480.0);
         let snapshot = state.snapshot();
         assert_eq!(snapshot.current_width, 800.0);
         assert_eq!(snapshot.current_height, 480.0);
-        assert_eq!(snapshot.host_content_height, Some(544.0));
         assert_eq!(snapshot.height_mode, HeightMode::ManualOverride);
         assert_eq!(snapshot.last_known_frame.unwrap().height, 480.0);
     }
@@ -754,26 +735,13 @@ mod tests {
     }
 
     #[test]
-    fn host_content_height_is_retained_until_cleared() {
-        let state = state_with_defaults(750.0, 60.0);
-
-        assert_eq!(state.snapshot().host_content_height, None);
-
-        let expanded = state.set_host_content_height(Some(520.0));
-        assert_eq!(expanded.host_content_height, Some(520.0));
-
-        let collapsed = state.set_host_content_height(None);
-        assert_eq!(collapsed.host_content_height, None);
-    }
-
-    #[test]
     fn user_recovers_the_previous_size_mode_and_frame_when_a_native_resize_fails() {
         for original_mode in [HeightMode::Auto, HeightMode::ManualOverride] {
             let state = state_with_manual_override();
             state.apply_programmatic_size(None, None, Some(original_mode));
-            let previous = state.set_host_content_height(Some(640.0));
+            let previous = state.snapshot();
             state.commit_user_resize(frame(920.0, 540.0), frame(1000.0, 600.0), true);
-            let attempted = state.set_host_content_height(None);
+            let attempted = state.snapshot();
 
             assert!(state.rollback_failed_resize(previous, attempted));
             assert_eq!(state.snapshot(), previous);

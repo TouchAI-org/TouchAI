@@ -38,6 +38,7 @@ export interface SearchOverlayPositionOptions {
     allowFlip?: boolean;
     /** Hard native work-area limit, independent of the host's current compact size. */
     maxViewportHeight?: number;
+    minViewportTop?: number;
 }
 
 export interface SearchOverlayPosition {
@@ -79,7 +80,8 @@ export function calculateSearchOverlayPosition(
     const align = options.align ?? 'start';
     const gap = options.gap ?? 8;
     const viewportPadding = options.viewportPadding ?? 8;
-    const spaceAbove = options.anchor.top - viewportPadding - gap;
+    const minimumTop = (options.minViewportTop ?? 0) + viewportPadding;
+    const spaceAbove = options.anchor.top - minimumTop - gap;
     const viewportHeight = options.maxViewportHeight ?? options.viewport.height;
     const spaceBelow = viewportHeight - viewportPadding - options.anchor.bottom - gap;
     const preferredSpace = preferredSide === 'bottom' ? spaceBelow : spaceAbove;
@@ -114,9 +116,9 @@ export function calculateSearchOverlayPosition(
         // that resize is in flight; clamping it to the temporary compact
         // viewport makes the overlay visibly jump down from the top edge.
         top:
-            side === 'bottom' && requiredViewportHeight !== null
-                ? Math.max(naturalTop, viewportPadding)
-                : clamp(naturalTop, viewportPadding, maximumTop),
+            !hardLimit && side === 'bottom' && requiredViewportHeight !== null
+                ? Math.max(naturalTop, minimumTop)
+                : clamp(naturalTop, minimumTop, maximumTop),
         side,
         requiredViewportHeight,
         ...(maxHeight === undefined ? {} : { maxHeight }),

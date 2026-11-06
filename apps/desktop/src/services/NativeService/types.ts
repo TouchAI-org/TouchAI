@@ -173,8 +173,6 @@ export type SearchHostPlacement =
 export interface SearchPanelResizeCommit {
     from: SearchPanelSize;
     to: SearchPanelSize;
-    /** Logical client-space extent required by the bounded host, including overlays. */
-    hostContentHeight?: number;
     /** Renderer-owned content/viewport resize; keep native height mode Auto. */
     auto?: boolean;
     /** One-shot session-open measurement may clear a stale native manual override. */
@@ -189,8 +187,6 @@ export interface SearchWindowState {
     currentWidth: number;
     currentHeight: number;
     heightMode: SearchWindowHeightMode;
-    /** Logical client-space height currently reserved by the native host for overlays. */
-    hostContentHeight: number | null;
     monitorHost: boolean;
 }
 

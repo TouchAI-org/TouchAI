@@ -2,7 +2,10 @@ import { mountComposable } from '@tests/utils/composables';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
-import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
+import {
+    createDefaultSearchKeybindings,
+    SEARCH_KEYBINDING_DEFINITIONS,
+} from '@/config/searchKeybindings';
 import { createInputHistorySnapshot, type SessionMessage } from '@/types/session';
 import {
     createSearchEntryPolicy,
@@ -390,7 +393,6 @@ describe('createSearchKeyboardRouter', () => {
             onQuickSearchPageUp: vi.fn(),
             onQuickSearchPageDown: vi.fn(),
             onQuickSearchContextMenu: vi.fn(),
-            onQuickSearchToggleView: vi.fn(),
             onQuickSearchCollapse: vi.fn(),
             onNavigateInputHistory: vi.fn(() => 'ignored' as const),
             onHideAllOverlays: vi.fn(),
@@ -551,7 +553,6 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith(
             'search.quickSearch.toggleView'
         );
-        expect(callbacks.onQuickSearchToggleView).not.toHaveBeenCalled();
         expect(callbacks.onNavigateInputHistory).not.toHaveBeenCalled();
     });
 
@@ -571,6 +572,19 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onClearSession).not.toHaveBeenCalled();
     });
 
+    it.each([false, true])(
+        'user keeps Shift+Enter editing when the key repeat flag is %s',
+        (repeat) => {
+            const { router, callbacks } = createKeyboardRouter({
+                isQuickSearchOpen: () => true,
+                hasQuickSearchHighlight: () => true,
+            });
+            expect(router.route({ key: 'Enter', shiftKey: true, repeat })).toBe(false);
+            expect(callbacks.onSubmit).not.toHaveBeenCalled();
+            expect(callbacks.onOpenHighlightedQuickSearchItem).not.toHaveBeenCalled();
+        }
+    );
+
     it('routes configured Ctrl+M and Ctrl+H actions', async () => {
         const { router, callbacks } = createKeyboardRouter();
 
@@ -587,6 +601,63 @@ describe('createSearchKeyboardRouter', () => {
             'search.history.open'
         );
         expect(callbacks.onPrimaryShortcut).not.toHaveBeenCalled();
+    });
+
+    it.each(SEARCH_KEYBINDING_DEFINITIONS)(
+        'user invokes $id once per press through both shortcut paths',
+        ({ id, defaultShortcut }) => {
+            const { router, callbacks } = createKeyboardRouter({ isQuickSearchOpen: () => true });
+            const tokens = defaultShortcut!.split('+');
+            const key = tokens[tokens.length - 1]!;
+            const input = {
+                key: key === 'F11' ? key : key.toLowerCase(),
+                ctrlKey: tokens.includes('Mod'),
+                shiftKey: tokens.includes('Shift'),
+            };
+            expect(router.route(input)).toBe(true);
+            expect(callbacks.onSearchKeybindingAction).toHaveBeenLastCalledWith(id);
+            expect(router.route({ ...input, repeat: true })).toBe(true);
+            expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledTimes(1);
+            expect(router.routeCommand(id, defaultShortcut!)).toBe(true);
+            expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledTimes(2);
+            expect(callbacks.onHideWindow).not.toHaveBeenCalled();
+        }
+    );
+
+    it.each([null, 'Mod+Shift+G'])(
+        'user disables the old QuickSearch binding when it is changed to %s',
+        (binding) => {
+            const bindings = createDefaultSearchKeybindings();
+            bindings['search.quickSearch.toggleView'] = binding;
+            const { router, callbacks } = createKeyboardRouter({
+                getSearchKeybindings: () => bindings,
+                isQuickSearchOpen: () => true,
+            });
+            expect(router.route({ key: 'g', ctrlKey: true })).toBe(false);
+            expect(callbacks.onSearchKeybindingAction).not.toHaveBeenCalled();
+        }
+    );
+
+    it('user cannot bypass a pending approval through a configured DOM shortcut', () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getPendingApproval: () => ({ callId: 'pending', keyboardApproveAt: 0 }),
+        });
+        expect(router.route({ key: 'n', ctrlKey: true })).toBe(true);
+        expect(router.routeCommand('search.session.new', 'Mod+N')).toBe(true);
+        expect(callbacks.onSearchKeybindingAction).not.toHaveBeenCalled();
+    });
+
+    it('user holding Escape does not cascade from draft clearing into window dismissal', () => {
+        let draft = 'keep session';
+        const { router, callbacks } = createKeyboardRouter({
+            getQueryText: () => draft,
+            onClearDraft: () => {
+                draft = '';
+            },
+        });
+        expect(router.route({ key: 'Escape' })).toBe(true);
+        expect(router.route({ key: 'Escape', repeat: true })).toBe(true);
+        expect(callbacks.onHideWindow).not.toHaveBeenCalled();
     });
 
     it('rejects a stale accelerator command after the shortcut is rebound', () => {

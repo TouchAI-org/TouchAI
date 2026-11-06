@@ -53,7 +53,6 @@ const nativeState = {
     currentHeight: 60,
     heightMode: 'auto',
     monitorHost: true,
-    hostContentHeight: null,
 };
 await writeFile(
     `${base}/probe-entry.ts`,
@@ -66,7 +65,7 @@ const modules = {
     'probe:quicksearch': `import{h}from'vue';export default {render:()=>h('div',{style:{height:'520px'}},'Search results')};`,
     'probe:searchbar': `import{defineComponent,h}from'vue';export default defineComponent({setup(){return()=>h('div',{'data-testid':'search-bar',style:{height:'60px',background:'var(--color-background-primary)'}},'Input');}})`,
     'probe:native': `let s=${JSON.stringify(nativeState)};window.commits=[];const noop=async()=>{};export const native={window:{getSearchWindowState:async()=>s,setSearchWindowDefaults:noop,setSearchWindowMinSize:noop,setSearchWindowAllowHeightOverride:noop,resetSearchWindowBounds:async()=>{s.currentHeight=60},commitSearchPanelResize:async p=>{window.commits.push({t:performance.now(),height:p.to.height});if(window.rejectResizes)throw new Error('resize unavailable');await new Promise(r=>setTimeout(r,24));if(p.auto&&p.respectManualOverride!==false&&s.heightMode==='manual_override')return s;return s={...s,currentWidth:p.to.width,currentHeight:p.to.height,heightMode:p.auto?'auto':'manual_override'}},resizeWindowHeight:noop}};`,
-    'probe:window': `const noop=async()=>()=>{};const w={outerPosition:async()=>({x:0,y:300}),outerSize:async()=>({width:846,height:800}),setPosition:async()=>{},onMoved:noop,onResized:noop,onScaleChanged:noop,isMaximized:async()=>false};export const getCurrentWindow=()=>w;export const currentMonitor=async()=>({workArea:{position:{x:0,y:0},size:{width:1920,height:2000}}});`,
+    'probe:window': `const noop=async()=>()=>{};const w={outerPosition:async()=>({x:0,y:0}),outerSize:async()=>({width:846,height:1000}),setPosition:async()=>{},onMoved:noop,onResized:noop,onScaleChanged:noop,isMaximized:async()=>false};export const getCurrentWindow=()=>w;export const currentMonitor=async()=>({workArea:{position:{x:0,y:0},size:{width:1920,height:1000}}});`,
     'probe:settings': `import{ref}from'vue';const state={outputScrollBehavior:ref('follow_output'),initialize:async()=>{}};export const useSettingsStore=()=>state;`,
     'probe:ask': `export const useAskUserStore=()=>({current:null});`,
     'probe:log': `export const log=console;`,

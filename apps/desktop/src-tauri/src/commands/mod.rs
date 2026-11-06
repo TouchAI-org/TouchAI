@@ -24,6 +24,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
     tauri::generate_handler![
         window::hide_search_window,
         window::show_search_window,
+        window::drag_search_window,
         window::get_search_window_renderer_epoch,
         window::mark_search_window_ready,
         window::set_tray_status_indicator,

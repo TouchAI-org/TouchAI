@@ -79,4 +79,28 @@ describe('user enables automatic motion reduction', () => {
         expect(vi.getTimerCount()).toBe(0);
         scope.stop();
     });
+
+    it('user regains normal motion when the native window returns even if the document stayed visible', async () => {
+        vi.useFakeTimers();
+        let clock = 0;
+        vi.spyOn(performance, 'now').mockImplementation(() => clock);
+        vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+        const visible = ref(true);
+        const scope = effectScope();
+        const pressure = scope.run(() => useMotionPressure(ref(true), visible))!;
+        for (let index = 0; index < 2; index += 1) {
+            clock += 1200;
+            await vi.advanceTimersByTimeAsync(1000);
+        }
+        expect(pressure.value).toBe(true);
+        visible.value = false;
+        expect(pressure.value).toBe(false);
+        expect(vi.getTimerCount()).toBe(0);
+        clock += 300000;
+        visible.value = true;
+        clock += 1000;
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(pressure.value).toBe(false);
+        scope.stop();
+    });
 });

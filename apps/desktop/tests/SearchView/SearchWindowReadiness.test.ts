@@ -361,35 +361,33 @@ describe('search surface preparation controller', () => {
         controller.dispose();
     });
 
-    it('commits through the bounded timer when requestAnimationFrame never calls back', async () => {
-        vi.useFakeTimers();
-        const requestFrame = vi.fn(() => 1);
-        vi.stubGlobal('requestAnimationFrame', requestFrame);
-        const initial = preparation(7);
-        const harness = createHarness({
-            markRendererReady: vi.fn(async () => initial),
-            settle: settleSearchSurfaceViewport,
-        });
-        const controller = createSearchSurfacePreparationController(harness.options);
-
-        try {
-            const starting = controller.start();
-            for (let index = 0; index < 12; index += 1) await Promise.resolve();
-
-            expect(requestFrame).toHaveBeenCalledOnce();
-            await vi.advanceTimersByTimeAsync(47);
-            expect(harness.options.flush).not.toHaveBeenCalled();
-
-            await vi.advanceTimersByTimeAsync(1);
-            await expect(starting).resolves.toBe(true);
-            expect(harness.options.flush).toHaveBeenCalledOnce();
-            expect(harness.options.flush).toHaveBeenCalledWith(initial);
-        } finally {
-            controller.dispose();
-            vi.useRealTimers();
-            vi.unstubAllGlobals();
+    it.each(['hidden', 'visible'] as const)(
+        'can recall an occluded native window while document visibility is %s and rendering is suspended',
+        async (state) => {
+            vi.useFakeTimers();
+            const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue(state);
+            vi.stubGlobal(
+                'requestAnimationFrame',
+                vi.fn(() => 1)
+            );
+            const initial = preparation(7);
+            const harness = createHarness({
+                markRendererReady: vi.fn(async () => initial),
+                settle: settleSearchSurfaceViewport,
+            });
+            const controller = createSearchSurfacePreparationController(harness.options);
+            try {
+                void controller.start();
+                for (let index = 0; index < 30; index += 1) await Promise.resolve();
+                expect(harness.options.flush).toHaveBeenCalledWith(initial);
+            } finally {
+                controller.dispose();
+                visibility.mockRestore();
+                vi.useRealTimers();
+                vi.unstubAllGlobals();
+            }
         }
-    });
+    );
 
     it('keeps startup pending when a newer preparation supersedes the returned one', async () => {
         const initial = preparation(7);

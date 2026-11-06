@@ -13,8 +13,17 @@ import type {
 } from './types';
 
 export const window = {
+    /** Resolves after the native move loop ends, including cancellation. */
+    dragSearchWindow(): Promise<void> {
+        return invoke('drag_search_window');
+    },
+
     hideSearchWindow(): Promise<void> {
         return invoke('hide_search_window');
+    },
+
+    reconcileSearchWindowBlur(): Promise<void> {
+        return invoke('hide_search_window', { ifUnfocused: true });
     },
 
     showSearchWindow(): Promise<void> {

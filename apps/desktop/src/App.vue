@@ -1,5 +1,6 @@
 <script setup lang="ts">
     import AppUpdateRequiredGate from '@components/AppUpdateRequiredGate.vue';
+    import { getCurrentWindow } from '@tauri-apps/api/window';
     import { MotionConfig } from 'motion-v';
     import { storeToRefs } from 'pinia';
     import { computed } from 'vue';
@@ -11,7 +12,9 @@
         storeToRefs(useSettingsStore());
     provideMotionPreferences(
         animationSpeed,
-        computed(() => initialized.value && automaticallyReduceMotion.value)
+        computed(() => initialized.value && automaticallyReduceMotion.value),
+        // The main renderer prepares while hidden; its lifecycle reports the first native show.
+        getCurrentWindow().label !== 'main'
     );
 </script>
 

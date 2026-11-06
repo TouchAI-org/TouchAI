@@ -4,10 +4,13 @@ import { type Ref, watch } from 'vue';
 
 import type { SearchPanelGeometry, SearchPanelResizeDirection } from '../panelResizeGeometry';
 import { resizeSearchHostFrame } from '../panelResizeGeometry';
+import { SEARCH_WINDOW_VISUAL_OUTSET } from '../searchWindowRegions';
+import { SEARCH_WINDOW_TOP_INSET } from '../windowSizing';
 import type { LogicalSearchPanelSize } from './useSearchWindowResize';
 
 interface UseSearchPanelResizingOptions {
     panel: Ref<HTMLElement | null>;
+    panelBounds: Readonly<Ref<{ top: number; bottom: number }>>;
     enabled: Readonly<Ref<boolean>>;
     allowHeightOverride: Readonly<Ref<boolean>>;
     minimumSize: Readonly<Ref<LogicalSearchPanelSize>>;
@@ -115,11 +118,28 @@ export function useSearchPanelResizing(options: UseSearchPanelResizingOptions) {
                     currentWindow.scaleFactor(),
                     currentMonitor(),
                 ]);
-                physicalOrigin = origin;
                 if (!monitor || !Number.isFinite(scaleFactor) || scaleFactor <= 0) {
                     throw new Error('Search window display geometry is unavailable');
                 }
+                const panel = options.panel.value!.getBoundingClientRect();
+                physicalOrigin = {
+                    x: Math.round(
+                        origin.x + (panel.left - SEARCH_WINDOW_VISUAL_OUTSET) * scaleFactor
+                    ),
+                    y: Math.round(origin.y + panel.top * scaleFactor - SEARCH_WINDOW_TOP_INSET),
+                };
                 const start = { ...startSize, physicalOrigin };
+                const visible = options.panelBounds.value;
+                const workArea = {
+                    position: {
+                        ...monitor.workArea.position,
+                        y: origin.y + visible.top * scaleFactor,
+                    },
+                    size: {
+                        ...monitor.workArea.size,
+                        height: (visible.bottom - visible.top) * scaleFactor,
+                    },
+                };
                 let applied = start;
                 while (outcome !== 'cancel') {
                     if (!pendingPointer) {
@@ -137,7 +157,7 @@ export function useSearchPanelResizing(options: UseSearchPanelResizingOptions) {
                         direction,
                         deltaX: point.x - startX,
                         deltaY: point.y - startY,
-                        workArea: monitor.workArea,
+                        workArea,
                         scaleFactor,
                         minWidth: options.minimumSize.value.width,
                         minHeight: options.minimumSize.value.height,

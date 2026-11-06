@@ -473,7 +473,6 @@ pub fn reset_search_window_to_defaults<R: Runtime>(
                     window,
                     snapshot.current_width,
                     snapshot.current_height,
-                    None,
                     crate::core::window::search_host::SearchHostPlacement::Idle,
                 )
             }) {

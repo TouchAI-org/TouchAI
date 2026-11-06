@@ -113,6 +113,7 @@ struct SearchSurfaceHiddenPayload {
 /// 搜索窗口组原生运行时状态。
 pub struct SearchWindowRuntime {
     hide_on_app_blur: AtomicBool,
+    native_drag_active: AtomicBool,
     allow_height_override: AtomicBool,
     visibility_transaction: Mutex<()>,
     surface: Mutex<SearchSurfaceState>,
@@ -188,6 +189,7 @@ impl SearchWindowRuntime {
     fn with_native_enabled(native_enabled: bool) -> Self {
         Self {
             hide_on_app_blur: AtomicBool::new(true),
+            native_drag_active: AtomicBool::new(false),
             allow_height_override: AtomicBool::new(false),
             visibility_transaction: Mutex::new(()),
             surface: Mutex::new(SearchSurfaceState {
@@ -214,6 +216,19 @@ impl SearchWindowRuntime {
     /// 读取应用失焦自动隐藏策略。
     pub fn should_hide_on_app_blur(&self) -> bool {
         self.hide_on_app_blur.load(Ordering::Relaxed)
+            && !self.native_drag_active.load(Ordering::Relaxed)
+    }
+
+    pub(super) fn with_native_drag<T>(
+        &self,
+        operation: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        if self.native_drag_active.swap(true, Ordering::Relaxed) {
+            return Err("Search window drag is already active".to_string());
+        }
+        let result = operation();
+        self.native_drag_active.store(false, Ordering::Relaxed);
+        result
     }
 
     /// 设置当前是否允许用户通过手动 resize 覆盖窗口高度。
@@ -259,6 +274,9 @@ impl SearchWindowRuntime {
     }
 
     fn try_begin_host_refresh(&self) -> Option<MutexGuard<'_, ()>> {
+        if self.native_drag_active.load(Ordering::Relaxed) {
+            return None;
+        }
         match self.visibility_transaction.try_lock() {
             Ok(guard) => Some(guard),
             Err(TryLockError::Poisoned(error)) => Some(error.into_inner()),
@@ -751,7 +769,6 @@ pub(in crate::core::window) fn refresh_visible_host_on_main_thread<R: Runtime>(
         &window,
         snapshot.current_width,
         snapshot.current_height,
-        snapshot.host_content_height,
     )?;
     let (request, target_frame) = {
         let mut state = runtime
@@ -931,7 +948,6 @@ fn prepare_host<R: Runtime>(
                     window,
                     snapshot.current_width,
                     snapshot.current_height,
-                    snapshot.host_content_height,
                 )
             }
         };
@@ -960,7 +976,6 @@ fn inspect_host<R: Runtime>(
             window,
             snapshot.current_width,
             snapshot.current_height,
-            snapshot.host_content_height,
         );
     }
     prepare_host(runtime, window, None)
@@ -1008,7 +1023,9 @@ fn emit_shown<R: Runtime>(
 }
 
 /// 在原生窗口失焦时判断是否离开搜索窗口组，必要时隐藏完整 surface。
-fn handle_focus_lost_on_main_thread<R: Runtime>(app_handle: &AppHandle<R>) -> Result<(), String> {
+pub(crate) fn handle_focus_lost_on_main_thread<R: Runtime>(
+    app_handle: &AppHandle<R>,
+) -> Result<(), String> {
     let runtime = app_handle
         .try_state::<SearchWindowRuntime>()
         .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
@@ -1078,6 +1095,36 @@ impl Default for SearchWindowRuntime {
     /// 创建默认搜索窗口组运行时。
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod drag_tests {
+    use super::SearchWindowRuntime;
+
+    #[test]
+    fn user_keeps_a_native_drag_visible_without_host_refresh_until_the_move_loop_ends() {
+        let runtime = SearchWindowRuntime::new();
+        runtime
+            .with_native_drag(|| {
+                assert!(!runtime.should_hide_on_app_blur());
+                assert!(runtime.try_begin_host_refresh().is_none());
+                assert!(runtime.with_native_drag(|| Ok(())).is_err());
+                Ok(())
+            })
+            .unwrap();
+        assert!(runtime.should_hide_on_app_blur());
+        assert!(runtime.try_begin_host_refresh().is_some());
+    }
+
+    #[test]
+    fn user_recovers_blur_and_refresh_policy_after_native_drag_failure() {
+        let runtime = SearchWindowRuntime::new();
+        assert!(runtime
+            .with_native_drag(|| Err::<(), _>("failed".to_string()))
+            .is_err());
+        assert!(runtime.should_hide_on_app_blur());
+        assert!(runtime.try_begin_host_refresh().is_some());
     }
 }
 

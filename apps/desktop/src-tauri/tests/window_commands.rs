@@ -116,7 +116,6 @@ fn get_search_window_state_returns_default_snapshot() {
             "currentWidth": 750.0,
             "currentHeight": 60.0,
             "heightMode": "auto",
-            "hostContentHeight": null,
             "monitorHost": cfg!(target_os = "windows")
         })
     );
@@ -143,7 +142,6 @@ fn set_search_window_defaults_clamps_and_updates_runtime_state() {
             "currentWidth": 420.0,
             "currentHeight": 60.0,
             "heightMode": "auto",
-            "hostContentHeight": null,
             "monitorHost": cfg!(target_os = "windows")
         })
     );
@@ -238,31 +236,6 @@ fn commit_search_panel_resize_auto_keeps_content_height_in_auto_mode() {
     assert_eq!(response["currentWidth"], 750.0);
     assert_eq!(response["currentHeight"], 210.0);
     assert_eq!(response["heightMode"], "auto");
-    assert_eq!(response["hostContentHeight"], serde_json::Value::Null);
-}
-
-#[test]
-fn commit_search_panel_resize_returns_retained_host_content_height() {
-    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
-
-    let response: serde_json::Value = invoke_command_ok(
-        &test_app.main_webview,
-        "commit_search_panel_resize",
-        json!({
-            "resize": {
-                "from": { "width": 750.0, "height": 60.0 },
-                "to": { "width": 750.0, "height": 60.0 },
-                "hostContentHeight": 373.0,
-                "auto": true
-            }
-        }),
-    );
-
-    assert_eq!(response["hostContentHeight"], 373.0);
-
-    let state: serde_json::Value =
-        invoke_command_ok(&test_app.main_webview, "get_search_window_state", json!({}));
-    assert_eq!(state["hostContentHeight"], 373.0);
 }
 
 #[test]
@@ -454,4 +427,31 @@ fn hide_invalidates_a_pending_preparation_before_a_late_region_ack() {
     assert_eq!(snapshot.phase, "hidden");
     assert!(!snapshot.desired_visible);
     assert!(snapshot.last_shown.is_none());
+}
+
+#[test]
+fn user_keeps_a_pending_show_when_an_obsolete_blur_reconciliation_arrives() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("hidden test app");
+    request_pending_preparation(&test_app);
+    let _: () = invoke_command_ok(
+        &test_app.main_webview,
+        "hide_search_window",
+        json!({ "ifUnfocused": true }),
+    );
+    let snapshot = testing::search_surface_protocol(&test_app.app);
+    assert_eq!(snapshot.phase, "preparing");
+    assert!(snapshot.desired_visible);
+}
+
+#[test]
+fn user_cannot_drag_the_main_window_from_a_secondary_renderer() {
+    let test_app = build_test_app(TestAppOptions::default()).expect("test app");
+    let secondary =
+        tauri::WebviewWindowBuilder::new(&test_app.app, "drag-other", tauri::WebviewUrl::default())
+            .build()
+            .expect("secondary");
+    let error = invoke_command_err(&secondary, "drag_search_window", json!({}));
+    assert!(error
+        .to_string()
+        .contains("Only the main renderer can drag"));
 }

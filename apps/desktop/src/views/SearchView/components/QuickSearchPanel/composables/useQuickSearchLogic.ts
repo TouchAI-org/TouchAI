@@ -1,12 +1,10 @@
 import { type ContextMenuItem, useContextMenu } from '@composables/useContextMenu';
-import { useMotion } from '@composables/useMotion';
 import { clipboardService } from '@services/ClipboardService';
 import { native, type QuickShortcutItem } from '@services/NativeService';
 import { log } from '@services/ObservabilityService';
 import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { computed, nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
-import { SEARCH_SURFACE_MOTION } from '@/config/searchWindow';
 import { t } from '@/i18n';
 
 import {
@@ -140,8 +138,6 @@ function useQuickSearchFlow(
 
     // 1. 搜索流程状态
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    let resultResetTimer: ReturnType<typeof setTimeout> | null = null;
-    const { duration } = useMotion();
     let lastSearchedQuery = '';
     const clickStats = useQuickSearchClickStats();
 
@@ -248,10 +244,6 @@ function useQuickSearchFlow(
             // Mount and measure the result DOM before asking the parent to
             // reveal it. Emitting first exposes an empty shell to the native host,
             // which can paint a large white panel before the result list exists.
-            if (resultResetTimer !== null) {
-                clearTimeout(resultResetTimer);
-                resultResetTimer = null;
-            }
             results.value = mergedResults;
             emitOpenUpdate(true);
             lastSearchedQuery = trimmedQuery;
@@ -366,25 +358,9 @@ function useQuickSearchFlow(
         lastSearchedQuery = '';
         requestId.value += 1;
         pendingQuery.value = null;
-        pruneIconMaps(true);
         resetLoadingState();
         emitOpenUpdate(false);
-
-        // Keep the old result DOM alive for the reverse grid-row/card transition.
-        // Clearing it in the same tick leaves a one-frame ghost or drops the
-        // panel straight to the compact bar before CSS can animate.
-        if (resultResetTimer !== null) {
-            clearTimeout(resultResetTimer);
-        }
-        resultResetTimer = setTimeout(
-            () => {
-                resultResetTimer = null;
-                resetResultState();
-            },
-            duration(
-                Math.max(SEARCH_SURFACE_MOTION.durationMs, SEARCH_SURFACE_MOTION.revealDurationMs)
-            ) + 40
-        );
+        if (!options.isOpen.value) resetResultState();
     }
 
     /**
@@ -511,13 +487,6 @@ function useQuickSearchFlow(
             log.error('[QuickSearchPanel] Failed to open path:', error);
         }
     }
-
-    onUnmounted(() => {
-        if (resultResetTimer !== null) {
-            clearTimeout(resultResetTimer);
-            resultResetTimer = null;
-        }
-    });
 
     return {
         prepareIndex,
@@ -753,14 +722,12 @@ export function useQuickSearchLogic(
             assets.scheduleIconLoad(requestId.value, false);
             assets.scheduleImageLoad(requestId.value, false);
         } else {
-            if (results.value.length === 0) {
-                highlightedIndex.value = -1;
-                void nextTick(() => {
-                    if (scrollRef.value) {
-                        scrollRef.value.scrollTop = 0;
-                    }
-                });
-            }
+            // The parent closes this prop only after the card/handoff transition settles.
+            resetResultState();
+            pruneIconMaps(true);
+            void nextTick(() => {
+                if (scrollRef.value) scrollRef.value.scrollTop = 0;
+            });
         }
     });
 

@@ -18,6 +18,7 @@ import { useMotionPressure } from './useMotionPressure';
 interface MotionPolicy {
     reducedMotion: Readonly<Ref<boolean>>;
     duration: (milliseconds: number) => number;
+    setWindowVisible: (visible: boolean) => void;
 }
 
 const motionPolicyKey: InjectionKey<MotionPolicy> = Symbol('motion-policy');
@@ -47,17 +48,23 @@ function useSystemReducedMotion() {
 /** One policy per application window; all consumers share its preference and pressure signal. */
 export function provideMotionPreferences(
     speed: Readonly<Ref<AnimationSpeed>>,
-    automaticallyReduce: Readonly<Ref<boolean>>
+    automaticallyReduce: Readonly<Ref<boolean>>,
+    initiallyVisible = true
 ) {
     const systemReduced = useSystemReducedMotion();
+    const windowVisible = ref(initiallyVisible);
     const pressure = useMotionPressure(
-        computed(() => automaticallyReduce.value && !systemReduced.value)
+        computed(() => automaticallyReduce.value && !systemReduced.value),
+        windowVisible
     );
     const reducedMotion = computed(() => systemReduced.value || pressure.value);
     const policy: MotionPolicy = {
         reducedMotion,
         duration: (milliseconds) =>
             resolveMotionDuration(milliseconds, speed.value, reducedMotion.value),
+        setWindowVisible: (visible) => {
+            windowVisible.value = visible;
+        },
     };
     provide(motionPolicyKey, policy);
 
@@ -114,5 +121,10 @@ export function useMotion() {
             slow: preset('--duration-slow'),
         };
     });
-    return { reducedMotion, duration, transitions };
+    return {
+        reducedMotion,
+        duration,
+        transitions,
+        setWindowVisible: (visible: boolean) => policy?.setWindowVisible(visible),
+    };
 }

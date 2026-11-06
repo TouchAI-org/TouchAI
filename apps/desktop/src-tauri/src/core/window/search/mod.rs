@@ -25,6 +25,47 @@ use windows::Win32::{
     },
 };
 
+/// Complete the Windows move loop before acknowledging a renderer drag.
+pub fn drag_search_window_on_main_thread<R: Runtime>(
+    window: &WebviewWindow<R>,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::{
+            Foundation::{LPARAM, WPARAM},
+            UI::{
+                Input::KeyboardAndMouse::{
+                    GetAsyncKeyState, GetCapture, ReleaseCapture, VK_LBUTTON,
+                },
+                WindowsAndMessaging::{SendMessageW, HTCAPTION, WM_NCLBUTTONDOWN},
+            },
+        };
+        let hwnd = get_window_hwnd(window)?;
+        let runtime = window.app_handle().state::<surface::SearchWindowRuntime>();
+        runtime.with_native_drag(|| unsafe {
+            // IPC preparation may finish after the pointer has already been released.
+            if GetAsyncKeyState(i32::from(VK_LBUTTON.0)) >= 0 {
+                return Ok(());
+            }
+            if !GetCapture().0.is_null() {
+                ReleaseCapture()
+                    .map_err(|error| format!("Failed to release pointer capture: {error}"))?;
+            }
+            // Tao's start_dragging posts this message and returns before the move loop.
+            // Send synchronously on the UI thread so the command acknowledges its end.
+            SendMessageW(
+                hwnd,
+                WM_NCLBUTTONDOWN,
+                Some(WPARAM(HTCAPTION as usize)),
+                Some(LPARAM(0)),
+            );
+            Ok(())
+        })
+    }
+    #[cfg(not(target_os = "windows"))]
+    window.start_dragging().map_err(|error| error.to_string())
+}
+
 /// 隐藏主搜索窗口。
 pub fn hide_search_window_on_main_thread<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     surface::hide_surface_on_main_thread(app, surface::SearchSurfaceHideReason::ManualDismiss)
@@ -134,100 +175,33 @@ pub(super) fn show_and_activate_search_window<R: Runtime>(
     let _ = window.unminimize();
     crate::core::window::rounded_corners::sync_window_corner_style(window)?;
     #[cfg(target_os = "windows")]
-    show_search_window_without_animation(window)?;
-    #[cfg(not(target_os = "windows"))]
-    window.show().map_err(|e| e.to_string())?;
+    {
+        use windows::Win32::{
+            Foundation::TRUE,
+            Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED},
+        };
+        let hwnd = get_window_hwnd(window)?;
+        unsafe {
+            if let Err(error) = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_TRANSITIONS_FORCEDISABLED,
+                &TRUE as *const _ as *const _,
+                std::mem::size_of_val(&TRUE) as u32,
+            ) {
+                log::warn!("Failed to disable search host transitions: {error}");
+            }
+        }
+    }
+    // Tao reapplies visibility when pinning. Its flags must agree with the HWND.
+    window.show().map_err(|error| error.to_string())?;
     crate::core::window::rounded_corners::sync_window_corner_style(window)?;
     reactivate_search_window_input(window)
 }
 
-/// Hide the prepared host with Win32 directly so Windows does not animate the
-/// transparent search surface during a shortcut toggle or app-blur dismiss.
 pub(super) fn hide_search_window_without_animation<R: Runtime>(
     window: &WebviewWindow<R>,
 ) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowPos, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
-            SWP_NOSIZE, SWP_NOZORDER,
-        };
-
-        let hwnd = match get_window_hwnd(window) {
-            Ok(hwnd) => hwnd,
-            Err(_) => return window.hide().map_err(|error| error.to_string()),
-        };
-        let result = unsafe {
-            SetWindowPos(
-                hwnd,
-                None,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE
-                    | SWP_NOSIZE
-                    | SWP_NOZORDER
-                    | SWP_NOOWNERZORDER
-                    | SWP_NOACTIVATE
-                    | SWP_HIDEWINDOW,
-            )
-        };
-        return match result {
-            Ok(()) => Ok(()),
-            Err(_) => window.hide().map_err(|error| error.to_string()),
-        };
-    }
-
-    #[cfg(not(target_os = "windows"))]
     window.hide().map_err(|error| error.to_string())
-}
-
-#[cfg(target_os = "windows")]
-/// Show the already-prepared host with SetWindowPos instead of Tauri's
-/// ShowWindow wrapper. The latter lets Windows apply the user-level show
-/// animation, which makes the transparent search surface appear to slide in.
-fn show_search_window_without_animation<R: Runtime>(
-    window: &WebviewWindow<R>,
-) -> Result<(), String> {
-    use windows::Win32::UI::WindowsAndMessaging::{
-        SetForegroundWindow, SetWindowPos, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOOWNERZORDER,
-        SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW,
-    };
-
-    let hwnd = match get_window_hwnd(window) {
-        Ok(hwnd) => hwnd,
-        Err(_) => return window.show().map_err(|error| error.to_string()),
-    };
-    let result = unsafe {
-        SetWindowPos(
-            hwnd,
-            None,
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE
-                | SWP_NOSIZE
-                | SWP_NOZORDER
-                | SWP_NOOWNERZORDER
-                | SWP_NOACTIVATE
-                | SWP_SHOWWINDOW,
-        )
-    };
-    match result {
-        Ok(()) => {
-            // SWP_NOACTIVATE is required to suppress the Windows show
-            // animation, but it also prevents the hidden surface from
-            // becoming the foreground window. Restore foreground activation
-            // explicitly before the WebView focus handoff below.
-            unsafe {
-                let _ = SetForegroundWindow(hwnd);
-            }
-            Ok(())
-        }
-        Err(_) => window.show().map_err(|error| error.to_string()),
-    }
 }
 
 /// 让主搜索窗口重新成为键盘输入目标，并唤醒 WebView2 accelerator 管线。

@@ -12,6 +12,33 @@ afterEach(() => {
 });
 
 describe('user receives one effective motion policy across components', () => {
+    it('user gets normal motion on the first show after an initially hidden window', async () => {
+        vi.useFakeTimers();
+        let clock = 0;
+        vi.spyOn(performance, 'now').mockImplementation(() => clock);
+        vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+        let policy!: ReturnType<typeof provideMotionPreferences>;
+        const wrapper = mount(
+            defineComponent({
+                setup() {
+                    policy = provideMotionPreferences(ref('standard'), ref(true), false);
+                    return () => h('div');
+                },
+            })
+        );
+        for (let index = 0; index < 2; index += 1) {
+            clock += 1200;
+            await vi.advanceTimersByTimeAsync(1000);
+        }
+        expect(policy.reducedMotion.value).toBe(false);
+        expect(vi.getTimerCount()).toBe(0);
+        policy.setWindowVisible(true);
+        clock += 1000;
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(policy.duration(320)).toBe(320);
+        wrapper.unmount();
+    });
+
     it('user changes speed live while the system preference always takes precedence', async () => {
         let mediaListener: (event: { matches: boolean }) => void;
         const add = vi.fn((_, listener) => {

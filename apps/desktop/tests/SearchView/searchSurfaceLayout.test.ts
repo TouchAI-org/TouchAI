@@ -4,12 +4,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
     resolveContentPanelHeight,
-    resolveSurfaceHostContentHeight,
     resolveSurfacePanelStyle,
     shouldCommitPanelHeight,
 } from '@/views/SearchView/searchSurfaceLayout';
 import { SEARCH_WINDOW_VISUAL_OUTSET } from '@/views/SearchView/searchWindowRegions';
-import { SEARCH_WINDOW_TOP_INSET } from '@/views/SearchView/windowSizing';
 
 describe('search surface layout', () => {
     it('clamps a measured content height between the compact floor and the conversation cap', () => {
@@ -40,14 +38,21 @@ describe('search surface layout', () => {
         ).toBe(60);
     });
 
-    it('lets the panel fill the host interior through fixed insets', () => {
-        expect(resolveSurfacePanelStyle({ scaleFactor: 1.5, maximized: false })).toMatchObject({
+    it('user sees the panel centered without resizing the viewport', () => {
+        expect(
+            resolveSurfacePanelStyle({
+                scaleFactor: 1.5,
+                maximized: false,
+                panelHeight: 300,
+                viewportHeight: 800,
+            })
+        ).toMatchObject({
             left: `${SEARCH_WINDOW_VISUAL_OUTSET}px`,
             right: `${SEARCH_WINDOW_VISUAL_OUTSET}px`,
-            top: `${SEARCH_WINDOW_TOP_INSET / 1.5}px`,
-            bottom: `${SEARCH_WINDOW_VISUAL_OUTSET}px`,
+            top: '250px',
+            bottom: 'auto',
             width: 'auto',
-            height: 'auto',
+            height: '300px',
             transform: 'none',
         });
     });
@@ -81,32 +86,20 @@ describe('search surface layout', () => {
         expect(shouldCommitPanelHeight({ current: 200, next: 120 })).toBe(true);
     });
 
-    it('reserves the top inset plus the panel, or the overlay extent when larger', () => {
+    it.each([
+        { centerY: 50, top: '64px' },
+        { centerY: 780, top: '452px' },
+    ])('user keeps the panel inside usable screen bounds at $centerY', ({ centerY, top }) => {
         expect(
-            resolveSurfaceHostContentHeight({
-                panelHeight: 300,
-                overlayBottom: null,
-                overlayRequiredViewportHeight: null,
+            resolveSurfacePanelStyle({
                 scaleFactor: 1.5,
-            })
-        ).toBe(SEARCH_WINDOW_TOP_INSET / 1.5 + 300);
-
-        expect(
-            resolveSurfaceHostContentHeight({
+                maximized: false,
                 panelHeight: 300,
-                overlayBottom: 420,
-                overlayRequiredViewportHeight: null,
-                scaleFactor: 1.5,
-            })
-        ).toBe(420);
-
-        expect(
-            resolveSurfaceHostContentHeight({
-                panelHeight: 300,
-                overlayBottom: null,
-                overlayRequiredViewportHeight: 500,
-                scaleFactor: 1.5,
-            })
-        ).toBe(500);
+                viewportHeight: 800,
+                minTop: 64,
+                maxBottom: 752,
+                centerY,
+            }).top
+        ).toBe(top);
     });
 });

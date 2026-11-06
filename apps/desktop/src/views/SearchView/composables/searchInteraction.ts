@@ -90,6 +90,9 @@ interface PendingApprovalState {
 
 interface SearchKeyboardRouteInput {
     key: string;
+    code?: string;
+    repeat?: boolean;
+    inlineOverlayInput?: boolean;
     keyCode?: number;
     isComposing?: boolean;
     shiftKey?: boolean;
@@ -126,7 +129,6 @@ interface CreateSearchKeyboardRouterOptions {
     onQuickSearchPageUp: () => void;
     onQuickSearchPageDown: () => void;
     onQuickSearchContextMenu: () => void;
-    onQuickSearchToggleView: () => void;
     onQuickSearchCollapse: () => void;
     onNavigateInputHistory: (
         direction: SessionInputHistoryDirection
@@ -666,7 +668,6 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         onQuickSearchPageUp,
         onQuickSearchPageDown,
         onQuickSearchContextMenu,
-        onQuickSearchToggleView,
         onQuickSearchCollapse,
         onNavigateInputHistory,
         onHideAllOverlays,
@@ -710,6 +711,13 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
             return false;
         }
 
+        if (
+            input.repeat &&
+            (['Escape', 'Esc'].includes(input.key) ||
+                (input.key === 'Enter' && !input.shiftKey && !input.altKey))
+        )
+            return true;
+
         if ((input.key === 'Escape' || input.key === 'Esc') && cancelActivePanelInteraction?.()) {
             return true;
         }
@@ -741,12 +749,13 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
         if (keybindings && onSearchKeybindingAction) {
             const actionId = resolveSearchKeybindingAction(input, keybindings);
             if (actionId) {
+                if (pendingApproval || input.repeat) return true;
                 return routeSearchKeybindingAction(actionId);
             }
         }
 
         const primaryShortcut = resolvePrimaryShortcutKey(input, queryText, isLoading());
-        if (primaryShortcut) {
+        if (primaryShortcut && !(primaryShortcut === 'backspace' && input.inlineOverlayInput)) {
             runKeyboardEffect(() => onPrimaryShortcut(primaryShortcut));
             return true;
         }
@@ -791,14 +800,18 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
             return true;
         }
 
-        if (
-            (getActiveSurface() === 'model-dropdown-surface' ||
-                getActiveSurface() === 'session-history-surface') &&
-            ['ArrowUp', 'ArrowDown', 'Enter'].includes(input.key)
-        ) {
-            onForwardToOverlay(input.key);
-            return true;
+        const modified = input.ctrlKey || input.metaKey || input.altKey || input.shiftKey;
+        if (getActiveSurface() !== 'search-surface') {
+            if (!modified && ['ArrowUp', 'ArrowDown', 'Enter'].includes(input.key)) {
+                onForwardToOverlay(input.key);
+                return true;
+            }
+            return false;
         }
+
+        if (modified && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(input.key))
+            return false;
+        if (input.key === 'Enter' && (input.shiftKey || input.altKey)) return false;
 
         if (isQuickSearchOpen()) {
             // PageUp/PageDown 翻页
@@ -814,12 +827,6 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
             // Menu 键或 Shift+F10 打开右键菜单
             if (input.key === 'ContextMenu' || (input.key === 'F10' && input.shiftKey)) {
                 onQuickSearchContextMenu();
-                return true;
-            }
-
-            // Ctrl+G 切换网格/列表视图
-            if (input.key === 'g' && (input.ctrlKey || input.metaKey)) {
-                onQuickSearchToggleView();
                 return true;
             }
 
@@ -1015,9 +1022,6 @@ export function createSearchKeydownHandler(
         onQuickSearchContextMenu: () => {
             controller.openQuickSearchContextMenu();
         },
-        onQuickSearchToggleView: () => {
-            controller.toggleQuickSearchView();
-        },
         onQuickSearchCollapse: () => {
             controller.collapseQuickSearch();
         },
@@ -1107,8 +1111,16 @@ export function createSearchKeydownHandler(
             return;
         }
 
+        const eventTarget = event.target;
+        const isInlineOverlayInput =
+            (eventTarget instanceof HTMLInputElement ||
+                eventTarget instanceof HTMLTextAreaElement) &&
+            eventTarget.closest('[data-search-overlay-host="true"]') !== null;
         const handledByRouter = keyboardRouter.route({
             key: event.key,
+            code: event.code,
+            repeat: event.repeat,
+            inlineOverlayInput: isInlineOverlayInput,
             keyCode: event.keyCode,
             isComposing: event.isComposing,
             shiftKey: event.shiftKey,
@@ -1121,12 +1133,6 @@ export function createSearchKeydownHandler(
             event.stopPropagation();
             return;
         }
-
-        const eventTarget = event.target;
-        const isInlineOverlayInput =
-            (eventTarget instanceof HTMLInputElement ||
-                eventTarget instanceof HTMLTextAreaElement) &&
-            eventTarget.closest('[data-search-overlay-host="true"]') !== null;
 
         if (isInlineOverlayInput) {
             return;
