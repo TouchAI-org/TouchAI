@@ -1,3 +1,4 @@
+import { resetAnalyticsAdmissionForTests } from '@services/AnalyticsService/admission';
 import {
     beginUpdateOperation,
     boundedVersion,
@@ -6,7 +7,7 @@ import {
 } from '@services/AnalyticsService/lifecycle';
 import type { AnalyticsState } from '@services/AnalyticsService/types';
 import { native } from '@services/NativeService';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@services/NativeService', () => ({
     native: {
@@ -24,12 +25,18 @@ vi.mock('@services/NativeService', () => ({
 
 const nativeAnalytics = vi.mocked(native.analytics);
 
+afterEach(() => {
+    vi.useRealTimers();
+    resetAnalyticsAdmissionForTests();
+});
+
 function state(partial: Partial<AnalyticsState> = {}): AnalyticsState {
     return {
         status: 'enabled',
         consentEpoch: 5,
         queueDepth: 0,
         pendingBytes: 0,
+        buildEligible: true,
         transportReady: true,
         ...partial,
     };
@@ -223,6 +230,23 @@ describe('user updates the app', () => {
                 }),
             })
         );
+    });
+
+    it('user gets a bounded update chain when 300 phases start while tracking hangs', async () => {
+        vi.useFakeTimers();
+        const update = await beginUpdateOperation();
+        nativeAnalytics.track.mockReturnValue(new Promise(() => undefined));
+
+        const transitions = Array.from({ length: 300 }, (_, index) =>
+            trackUpdateTransition(update, 'download_started', {
+                result: index === 0 ? 'success' : 'failure',
+                source: 'user',
+            })
+        );
+        await vi.advanceTimersByTimeAsync(10_000);
+        await Promise.all(transitions);
+
+        expect(nativeAnalytics.track.mock.calls.length).toBe(32);
     });
 });
 

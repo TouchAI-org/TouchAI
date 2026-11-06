@@ -66,8 +66,9 @@ pub async fn analytics_get_lifecycle_context(
 #[tauri::command]
 pub async fn analytics_begin_operation(
     runtime: State<'_, AnalyticsRuntime>,
+    started_at_ms: i64,
 ) -> Result<AnalyticsOperationHandle, String> {
-    Ok(runtime.begin_operation().await)
+    Ok(runtime.begin_operation_at(started_at_ms).await)
 }
 
 /// 显式释放一个操作句柄。

@@ -1,6 +1,11 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { analytics } from './index';
+import {
+    beginAdmittedOperation,
+    completeAdmittedOperation,
+    trackAdmittedAnalytics,
+    UNAVAILABLE_ANALYTICS_OPERATION,
+} from './admission';
 import type { AnalyticsOperationHandle } from './types';
 
 /**
@@ -27,6 +32,7 @@ export type ProviderErrorCategory = 'auth' | 'network' | 'invalid_config' | 'pro
 export type ResultActionOutcome = 'success' | 'failure';
 
 const MAX_DURATION_MS = 86_400_000;
+const MAX_PENDING_CHAIN_WORK = 32;
 
 function monotonicNow(): number {
     return typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -70,7 +76,7 @@ export function mapProviderCategory(driver: string): ProviderCategory {
 
 /** Records a real user entry into a primary surface; never a background hydration. */
 export async function trackSurfaceOpened(surface: ProductSurface): Promise<void> {
-    await analytics.track('product.surface_opened', { surface });
+    await trackAdmittedAnalytics('product.surface_opened', { surface });
 }
 
 /**
@@ -103,7 +109,11 @@ export async function trackFeatureExposed(
     feature: ProductFeature,
     operation?: AnalyticsOperationHandle
 ): Promise<void> {
-    await analytics.track('product.feature_exposed', { feature }, operation ? { operation } : {});
+    await trackAdmittedAnalytics(
+        'product.feature_exposed',
+        { feature },
+        operation ? { operation } : {}
+    );
 }
 
 export interface ProviderConfigurationOperation {
@@ -142,9 +152,9 @@ export async function beginProviderConfiguration(input: {
     providerCategory: ProviderCategory;
     entry: ProviderConfigurationEntry;
 }): Promise<ProviderConfigurationOperation> {
-    const operation = await analytics.beginOperation();
+    const operation = (await beginAdmittedOperation()) ?? UNAVAILABLE_ANALYTICS_OPERATION;
     const configurationId = crypto.randomUUID();
-    await analytics.track(
+    await trackAdmittedAnalytics(
         'provider.configuration_started',
         {
             configuration_id: configurationId,
@@ -216,7 +226,7 @@ export async function completeProviderConfiguration(
     }
     attempt.closed = true;
     try {
-        await analytics.track(
+        await trackAdmittedAnalytics(
             'provider.configuration_completed',
             {
                 configuration_id: attempt.configurationId,
@@ -229,7 +239,7 @@ export async function completeProviderConfiguration(
         );
     } finally {
         // Even a rejected telemetry call must release the native handle.
-        await analytics.completeOperation(attempt.operation);
+        await completeAdmittedOperation(attempt.operation);
     }
 }
 
@@ -245,7 +255,7 @@ export async function abandonProviderConfiguration(
         return;
     }
     attempt.closed = true;
-    await analytics.completeOperation(attempt.operation);
+    await completeAdmittedOperation(attempt.operation);
 }
 
 /**
@@ -291,6 +301,8 @@ export interface SearchInteraction {
 interface SearchInteractionState {
     /** Serializes every event bound to this interaction, in emission order. */
     pending: Promise<void>;
+    /** Bounds continuations even when the underlying analytics IPC never settles. */
+    pendingCount: number;
     /** Set once the native handle has been released, so no later event reuses it. */
     release: Promise<void> | null;
 }
@@ -300,7 +312,7 @@ const searchInteractionStates = new WeakMap<SearchInteraction, SearchInteraction
 function searchInteractionState(interaction: SearchInteraction): SearchInteractionState {
     let state = searchInteractionStates.get(interaction);
     if (!state) {
-        state = { pending: Promise.resolve(), release: null };
+        state = { pending: Promise.resolve(), pendingCount: 0, release: null };
         searchInteractionStates.set(interaction, state);
     }
     return state;
@@ -317,13 +329,19 @@ function enqueueSearchWork(
     work: () => Promise<unknown>
 ): Promise<void> {
     const state = searchInteractionState(interaction);
-    if (state.release) {
+    if (state.release || state.pendingCount >= MAX_PENDING_CHAIN_WORK) {
         return state.pending;
     }
-    const next = state.pending.then(work).then(
-        () => undefined,
-        () => undefined
-    );
+    state.pendingCount += 1;
+    const next = state.pending
+        .then(work)
+        .then(
+            () => undefined,
+            () => undefined
+        )
+        .finally(() => {
+            state.pendingCount -= 1;
+        });
     state.pending = next;
     return next;
 }
@@ -335,7 +353,7 @@ function enqueueSearchWork(
  */
 export async function beginSearchInteraction(scope: SearchScope): Promise<SearchInteraction> {
     return {
-        operation: await analytics.beginOperation(),
+        operation: (await beginAdmittedOperation()) ?? UNAVAILABLE_ANALYTICS_OPERATION,
         interactionId: crypto.randomUUID(),
         scope,
         startedAtMs: monotonicNow(),
@@ -365,7 +383,7 @@ export function settleSearchInteraction(
                 ? { result_count_bucket: resultCountBucket(outcome.resultCount) }
                 : {}),
         };
-        return analytics.track('search.completed', attributes, {
+        return trackAdmittedAnalytics('search.completed', attributes, {
             operation: interaction.operation,
         });
     });
@@ -377,7 +395,7 @@ export function trackSearchFeatureExposed(
     feature: ProductFeature
 ): Promise<void> {
     return enqueueSearchWork(interaction, () =>
-        analytics.track(
+        trackAdmittedAnalytics(
             'product.feature_exposed',
             { feature },
             { operation: interaction.operation }
@@ -394,7 +412,7 @@ export function selectSearchResult(
     outcome: { category: SearchResultCategory; opened: boolean }
 ): Promise<void> {
     return enqueueSearchWork(interaction, () =>
-        analytics.track(
+        trackAdmittedAnalytics(
             'search.result_selected',
             {
                 interaction_id: interaction.interactionId,
@@ -418,7 +436,7 @@ export function finishSearchInteraction(interaction: SearchInteraction): Promise
     }
     state.release = (async () => {
         await state.pending;
-        await analytics.completeOperation(interaction.operation);
+        await completeAdmittedOperation(interaction.operation);
     })();
     return state.release;
 }
@@ -430,19 +448,10 @@ export interface ResultActionOperation {
     closed: boolean;
 }
 
-type ResultActionCapture =
-    | { status: 'captured'; attempt: ResultActionOperation }
-    | { status: 'unavailable' }
-    | { status: 'timed_out' };
-
-// Native IPC is local. Keep consent capture off the user-visible critical path
-// even if the command stalls or never resolves.
-const RESULT_ACTION_CAPTURE_TIMEOUT_MS = 50;
-
 /** Opens a result action when an existing copy/open action actually starts. */
 export async function beginResultAction(action: ResultAction): Promise<ResultActionOperation> {
     return {
-        operation: await analytics.beginOperation(),
+        operation: (await beginAdmittedOperation()) ?? UNAVAILABLE_ANALYTICS_OPERATION,
         actionId: crypto.randomUUID(),
         action,
         closed: false,
@@ -459,7 +468,7 @@ export async function completeResultAction(
     }
     action.closed = true;
     try {
-        await analytics.track(
+        await trackAdmittedAnalytics(
             'result.action_completed',
             {
                 action_id: action.actionId,
@@ -470,56 +479,39 @@ export async function completeResultAction(
         );
     } finally {
         // The action itself already finished; never keep its handle on failure.
-        await analytics.completeOperation(action.operation);
+        await completeAdmittedOperation(action.operation);
     }
 }
 
 async function captureResultAction(action: ResultAction): Promise<ResultActionOperation | null> {
-    const capture = beginResultAction(action);
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<ResultActionCapture>((resolve) => {
-        timeoutId = setTimeout(
-            () => resolve({ status: 'timed_out' }),
-            RESULT_ACTION_CAPTURE_TIMEOUT_MS
-        );
-    });
-    const result = await Promise.race<ResultActionCapture>([
-        capture.then(
-            (attempt) => ({ status: 'captured', attempt }),
-            () => ({ status: 'unavailable' })
-        ),
-        timeout,
-    ]);
-    if (timeoutId !== undefined) {
-        clearTimeout(timeoutId);
-    }
-
-    if (result.status === 'timed_out') {
-        // A late handle must not carry the completed action's event. Release it
-        // without reporting so it cannot occupy a native registry slot.
-        void capture.then(
-            (late) => analytics.completeOperation(late.operation),
-            () => {}
-        );
+    const operation = await beginAdmittedOperation();
+    if (!operation) {
         return null;
     }
-    return result.status === 'captured' ? result.attempt : null;
+    return {
+        operation,
+        actionId: crypto.randomUUID(),
+        action,
+        closed: false,
+    };
 }
 
 /**
- * Runs an existing copy/open action and reports its real outcome. The native
- * handle is captured before the action starts so an operation that begins while
- * consent is disabled can never borrow a later enabled epoch. Capture has a
- * short deadline, and completion is a rejection-handled side effect, so
- * telemetry cannot block or replace the real success or failure.
+ * Runs an existing copy/open action and reports its real outcome. Native capture
+ * starts before the action so an operation that begins while consent is disabled
+ * cannot borrow a later enabled epoch, but the action does not wait for that IPC.
+ * Completion is a rejection-handled side effect, so telemetry cannot block or
+ * replace the real success or failure.
  */
 export async function runResultAction<T>(action: ResultAction, run: () => Promise<T>): Promise<T> {
-    const attempt = await captureResultAction(action);
+    // The start timestamp is captured synchronously when the action begins.
+    // The telemetry handle may settle later; the user action never waits for it.
+    const capture = captureResultAction(action);
 
     const complete = (outcome: ResultActionOutcome) => {
-        if (attempt) {
-            void completeResultAction(attempt, outcome).catch(() => {});
-        }
+        void capture
+            .then((attempt) => (attempt ? completeResultAction(attempt, outcome) : undefined))
+            .catch(() => {});
     };
 
     try {

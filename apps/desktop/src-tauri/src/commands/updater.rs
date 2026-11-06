@@ -8,9 +8,7 @@ use serde::Deserialize;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use tauri::{AppHandle, Manager, Runtime, State};
 
-use crate::core::analytics::{
-    events, AnalyticsOperationHandle, AnalyticsRuntime, AnalyticsTrackRequest,
-};
+use crate::core::analytics::{events, AnalyticsRuntime, AnalyticsTrackRequest};
 use crate::core::updater::notification::AppUpdateNotificationPayload;
 use crate::core::updater::{
     self, AppUpdateChannel, AppUpdateCheckResult, AppUpdateInfo, AppUpdaterState,
@@ -18,13 +16,14 @@ use crate::core::updater::{
 
 use crate::core::{built_in_tools::BuiltInProcessExecutionRegistry, mcp::McpClientManager};
 
-const ANALYTICS_CAPTURE_TIMEOUT: Duration = Duration::from_millis(50);
+const ANALYTICS_HANDOFF_TIMEOUT: Duration = Duration::from_millis(50);
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppUpdateInstallAnalytics {
     update_operation_id: String,
     source: String,
+    operation_id: Option<String>,
 }
 
 fn now_millis() -> i64 {
@@ -36,7 +35,6 @@ fn now_millis() -> i64 {
 
 fn install_handoff_request(
     analytics: &AppUpdateInstallAnalytics,
-    operation_id: &str,
     result: &str,
     from_version: Option<&str>,
     to_version: &str,
@@ -70,21 +68,9 @@ fn install_handoff_request(
     AnalyticsTrackRequest {
         event_name: "app.update_transition".to_string(),
         occurred_at_ms: now_millis(),
-        operation_id: Some(operation_id.to_string()),
+        operation_id: analytics.operation_id.clone(),
         attributes,
     }
-}
-
-async fn capture_install_analytics<R: Runtime>(
-    app: &AppHandle<R>,
-) -> Option<(AnalyticsRuntime, AnalyticsOperationHandle)> {
-    let runtime = app
-        .try_state::<AnalyticsRuntime>()
-        .map(|runtime| runtime.inner().clone())?;
-    let operation = runtime
-        .begin_operation_with_timeout(ANALYTICS_CAPTURE_TIMEOUT)
-        .await?;
-    Some((runtime, operation))
 }
 
 #[tauri::command]
@@ -134,7 +120,9 @@ pub async fn updater_install_update<R: Runtime>(
     analytics: AppUpdateInstallAnalytics,
 ) -> Result<bool, String> {
     let from_version = app.package_info().version.to_string();
-    let install_analytics = capture_install_analytics(&app).await;
+    let analytics_runtime = app
+        .try_state::<AnalyticsRuntime>()
+        .map(|runtime| runtime.inner().clone());
     let result = async {
         state.validate_install(channel, &version, &file_name)?;
         if let Some(client_manager) = app.try_state::<McpClientManager>() {
@@ -151,18 +139,22 @@ pub async fn updater_install_update<R: Runtime>(
         updater::install_update(state.inner(), channel, &version, &file_name).await
     }
     .await;
-    if let Some((runtime, operation)) = install_analytics.as_ref() {
+    if let Some(runtime) = analytics_runtime {
         let request = install_handoff_request(
             &analytics,
-            &operation.operation_id,
             update_result_label(&result),
             Some(&from_version),
             &version,
         );
-        let _ = runtime
-            .track_install_handoff(request, Some(from_version.clone()), version.clone())
+        runtime
+            .track_install_handoff_before_exit(
+                request,
+                Some(from_version),
+                version,
+                analytics.operation_id.as_deref(),
+                ANALYTICS_HANDOFF_TIMEOUT,
+            )
             .await;
-        runtime.complete_operation(&operation.operation_id).await;
     }
 
     if result.is_ok() {
@@ -188,10 +180,10 @@ mod tests {
         let analytics = AppUpdateInstallAnalytics {
             update_operation_id: "11111111-1111-4111-8111-111111111111".to_string(),
             source: "user".to_string(),
+            operation_id: Some("operation-1".to_string()),
         };
 
-        let request =
-            install_handoff_request(&analytics, "operation-1", "success", Some("1.0.0"), "2.0.0");
+        let request = install_handoff_request(&analytics, "success", Some("1.0.0"), "2.0.0");
 
         assert_eq!(request.event_name, "app.update_transition");
         assert_eq!(request.operation_id.as_deref(), Some("operation-1"));
@@ -214,11 +206,11 @@ mod tests {
             let analytics = AppUpdateInstallAnalytics {
                 update_operation_id: "11111111-1111-4111-8111-111111111111".to_string(),
                 source: "user".to_string(),
+                operation_id: Some("operation-1".to_string()),
             };
 
             let request = install_handoff_request(
                 &analytics,
-                "operation-1",
                 "success",
                 Some("https://updates.touch-ai.org/1.0.0"),
                 &long_version,

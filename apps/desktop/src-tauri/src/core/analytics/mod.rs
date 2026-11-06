@@ -80,6 +80,7 @@ pub struct AnalyticsState {
     pub consent_epoch: i64,
     pub queue_depth: i64,
     pub pending_bytes: i64,
+    pub build_eligible: bool,
     pub transport_ready: bool,
 }
 

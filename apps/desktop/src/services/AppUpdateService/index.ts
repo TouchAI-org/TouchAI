@@ -129,6 +129,7 @@ export class AppUpdateController {
     private lastCheckAttemptAt: string | null = null;
     private reportCheckErrors = false;
     private updateOperationPromise: Promise<UpdateOperation | null> | null = null;
+    private updateOperation: UpdateOperation | null = null;
     private updateOperationId: string | null = null;
     private updateSource: UpdateSource = 'user';
     private unlistenProgress: UnlistenFn | null = null;
@@ -413,6 +414,7 @@ export class AppUpdateController {
     private async performInstall(update: AppUpdateInfo): Promise<boolean> {
         const channel = this.state.channel;
         const updateOperationId = this.updateOperationId ?? crypto.randomUUID();
+        const operationId = this.updateOperation?.operation.operationId || undefined;
         this.commit({ type: 'install-started' });
 
         try {
@@ -421,6 +423,7 @@ export class AppUpdateController {
             await this.native.installUpdate(channel, update.version, update.fileName, {
                 updateOperationId,
                 source: this.updateSource,
+                ...(operationId ? { operationId } : {}),
             });
             this.releaseUpdateOperation();
             return true;
@@ -449,9 +452,15 @@ export class AppUpdateController {
         if (!this.updateOperationPromise) {
             const updateOperationId = this.updateOperationId ?? crypto.randomUUID();
             this.updateOperationId = updateOperationId;
-            this.updateOperationPromise = this.analytics
+            const operationPromise = this.analytics
                 .beginUpdateOperation(updateOperationId)
                 .catch(() => null as UpdateOperation | null);
+            this.updateOperationPromise = operationPromise;
+            void operationPromise.then((operation) => {
+                if (this.updateOperationPromise === operationPromise) {
+                    this.updateOperation = operation;
+                }
+            });
         }
         const operationPromise = this.updateOperationPromise;
         void operationPromise
@@ -474,6 +483,7 @@ export class AppUpdateController {
             return;
         }
         this.updateOperationPromise = null;
+        this.updateOperation = null;
         this.updateOperationId = null;
         void operationPromise
             .then((operation) =>

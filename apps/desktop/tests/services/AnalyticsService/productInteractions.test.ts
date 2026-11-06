@@ -1,3 +1,4 @@
+import { resetAnalyticsAdmissionForTests } from '@services/AnalyticsService/admission';
 import {
     abandonProviderConfiguration,
     beginProviderConfiguration,
@@ -41,6 +42,7 @@ const nativeAnalytics = vi.mocked(native.analytics);
 
 afterEach(() => {
     vi.useRealTimers();
+    resetAnalyticsAdmissionForTests();
 });
 
 function state(partial: Partial<AnalyticsState> = {}): AnalyticsState {
@@ -49,6 +51,7 @@ function state(partial: Partial<AnalyticsState> = {}): AnalyticsState {
         consentEpoch: 5,
         queueDepth: 0,
         pendingBytes: 0,
+        buildEligible: true,
         transportReady: true,
         ...partial,
     };
@@ -113,6 +116,17 @@ describe('user opens a product surface', () => {
         expect(mapSearchSurfaceSource('something-custom')).toBe('other');
         expect(mapSearchSurfaceSource(null)).toBe('other');
     });
+
+    it('user gets bounded surface telemetry when 300 captures start while tracking hangs', async () => {
+        vi.useFakeTimers();
+        nativeAnalytics.track.mockReturnValue(new Promise(() => undefined));
+
+        const captures = Array.from({ length: 300 }, () => trackSurfaceOpened('main'));
+        await vi.advanceTimersByTimeAsync(100);
+        await Promise.all(captures);
+
+        expect(nativeAnalytics.track.mock.calls.length).toBe(64);
+    });
 });
 
 describe('user configures a provider', () => {
@@ -126,6 +140,23 @@ describe('user configures a provider', () => {
             consentEpoch: 7,
         });
         nativeAnalytics.completeOperation.mockResolvedValue(undefined);
+    });
+
+    it('user gets bounded captures when 300 attempts start while native IPC hangs', async () => {
+        vi.useFakeTimers();
+        nativeAnalytics.beginOperation.mockReturnValue(new Promise(() => undefined));
+
+        const attempts = Array.from({ length: 300 }, () =>
+            beginProviderConfigurationAttempt({
+                providerCategory: 'openai',
+                entry: 'settings',
+            })
+        );
+        await vi.advanceTimersByTimeAsync(100);
+
+        expect(nativeAnalytics.beginOperation.mock.calls.length).toBe(16);
+        expect(nativeAnalytics.track).not.toHaveBeenCalled();
+        expect(attempts).toHaveLength(300);
     });
 
     it('user gets a started event with a random configuration id when editing begins', async () => {
@@ -476,6 +507,23 @@ describe('user searches in a settled interaction', () => {
 
         expect(order).toEqual(['product.feature_exposed', 'search.completed', 'release']);
     });
+
+    it('user gets a bounded search chain when 300 selections arrive while tracking hangs', async () => {
+        vi.useFakeTimers();
+        const interaction = await beginSearchInteraction('quick');
+        nativeAnalytics.track.mockReturnValue(new Promise(() => undefined));
+
+        const selections = Array.from({ length: 300 }, () =>
+            selectSearchResult(interaction, { category: 'file', opened: true })
+        );
+        const release = finishSearchInteraction(interaction);
+        await vi.advanceTimersByTimeAsync(10_000);
+        await Promise.all([...selections, release]);
+
+        expect(nativeAnalytics.beginOperation.mock.calls.length).toBe(1);
+        expect(nativeAnalytics.track.mock.calls.length).toBe(32);
+        expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
+    });
 });
 
 describe('user completes an existing result action', () => {
@@ -530,7 +578,7 @@ describe('user completes an existing result action', () => {
         expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(1);
     });
 
-    it('user starts the copy only after its consent handle is captured', async () => {
+    it('user starts the copy while its consent capture is still pending', async () => {
         let resolveBegin!: (handle: {
             operationId: string;
             enabled: boolean;
@@ -545,14 +593,17 @@ describe('user completes an existing result action', () => {
 
         const actionPromise = runResultAction('copy_answer', run);
         await Promise.resolve();
-        expect(run).not.toHaveBeenCalled();
+        expect(run).toHaveBeenCalledTimes(1);
+        await expect(actionPromise).resolves.toBe('copied');
 
         resolveBegin({ operationId: 'op-1', enabled: true, consentEpoch: 7 });
-        await expect(actionPromise).resolves.toBe('copied');
-        expect(run).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => {
+            expect(nativeAnalytics.track).toHaveBeenCalledTimes(1);
+            expect(nativeAnalytics.completeOperation).toHaveBeenCalledWith('op-1');
+        });
     });
 
-    it('user starts the copy after the consent deadline and discards a late handle', async () => {
+    it('user starts the copy before the consent deadline and discards a late handle', async () => {
         vi.useFakeTimers();
         let resolveBegin!: (handle: {
             operationId: string;
@@ -568,11 +619,10 @@ describe('user completes an existing result action', () => {
 
         const actionPromise = runResultAction('copy_answer', run);
         await Promise.resolve();
-        expect(run).not.toHaveBeenCalled();
+        expect(run).toHaveBeenCalledTimes(1);
+        await expect(actionPromise).resolves.toBe('copied');
 
         await vi.advanceTimersByTimeAsync(1_000);
-        await expect(actionPromise).resolves.toBe('copied');
-        expect(run).toHaveBeenCalledTimes(1);
         expect(nativeAnalytics.track).not.toHaveBeenCalled();
 
         resolveBegin({ operationId: 'op-late', enabled: true, consentEpoch: 7 });
@@ -636,6 +686,93 @@ describe('user completes an existing result action', () => {
                     attributes: expect.objectContaining({ action: 'copy_code', result: 'failure' }),
                 })
             );
+        });
+    });
+
+    it('user gets bounded consent captures when 300 actions start while native IPC hangs', async () => {
+        vi.useFakeTimers();
+        nativeAnalytics.beginOperation.mockReturnValue(new Promise(() => undefined));
+        const run = vi.fn(async () => 'copied');
+
+        const actions = Array.from({ length: 300 }, () => runResultAction('copy_answer', run));
+        await vi.advanceTimersByTimeAsync(100);
+        await Promise.all(actions);
+
+        expect(nativeAnalytics.beginOperation.mock.calls.length).toBe(16);
+        expect(nativeAnalytics.track).not.toHaveBeenCalled();
+        expect(nativeAnalytics.completeOperation).not.toHaveBeenCalled();
+        expect(run).toHaveBeenCalledTimes(300);
+    });
+
+    it('user gets bounded result captures when 300 actions start while tracking hangs', async () => {
+        vi.useFakeTimers();
+        nativeAnalytics.beginOperation.mockResolvedValue({
+            operationId: 'op-live',
+            enabled: true,
+            consentEpoch: 7,
+        });
+        nativeAnalytics.track.mockReturnValue(new Promise(() => undefined));
+
+        const actions = Array.from({ length: 300 }, () =>
+            runResultAction('copy_answer', async () => 'copied')
+        );
+        await vi.advanceTimersByTimeAsync(1_000);
+        await Promise.all(actions);
+
+        expect(nativeAnalytics.beginOperation.mock.calls.length).toBe(16);
+        expect(nativeAnalytics.track.mock.calls.length).toBe(16);
+        expect(nativeAnalytics.completeOperation.mock.calls.length).toBe(16);
+        expect(nativeAnalytics.beginOperation.mock.calls.length).toBeLessThan(300);
+        expect(nativeAnalytics.track.mock.calls.length).toBeLessThan(300);
+    });
+
+    it('user gets bounded native releases when 300 actions start while release IPC hangs', async () => {
+        vi.useFakeTimers();
+        nativeAnalytics.beginOperation.mockResolvedValue({
+            operationId: 'op-live',
+            enabled: true,
+            consentEpoch: 7,
+        });
+        nativeAnalytics.completeOperation.mockReturnValue(new Promise(() => undefined));
+
+        const actions = Array.from({ length: 300 }, () =>
+            runResultAction('copy_answer', async () => 'copied')
+        );
+        await vi.advanceTimersByTimeAsync(1_000);
+        await Promise.all(actions);
+
+        expect(nativeAnalytics.beginOperation.mock.calls.length).toBe(16);
+        expect(nativeAnalytics.track.mock.calls.length).toBe(16);
+        expect(nativeAnalytics.completeOperation.mock.calls.length).toBe(16);
+
+        await expect(runResultAction('copy_answer', async () => 'copied')).resolves.toBe('copied');
+        expect(nativeAnalytics.beginOperation.mock.calls.length).toBe(16);
+    });
+
+    it('user regains operation capacity after 16 actions share one mocked native id', async () => {
+        nativeAnalytics.beginOperation.mockResolvedValue({
+            operationId: 'op-live',
+            enabled: true,
+            consentEpoch: 7,
+        });
+
+        const firstWave = Array.from({ length: 16 }, () =>
+            runResultAction('copy_answer', async () => 'copied')
+        );
+        await Promise.all(firstWave);
+        await vi.waitFor(() => {
+            expect(nativeAnalytics.track).toHaveBeenCalledTimes(16);
+            expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(16);
+        });
+
+        const secondWave = Array.from({ length: 16 }, () =>
+            runResultAction('copy_answer', async () => 'copied')
+        );
+        await Promise.all(secondWave);
+        await vi.waitFor(() => {
+            expect(nativeAnalytics.beginOperation).toHaveBeenCalledTimes(32);
+            expect(nativeAnalytics.track).toHaveBeenCalledTimes(32);
+            expect(nativeAnalytics.completeOperation).toHaveBeenCalledTimes(32);
         });
     });
 });

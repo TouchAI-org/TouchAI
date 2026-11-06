@@ -1,7 +1,12 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import {
+    beginAdmittedOperation,
+    completeAdmittedOperation,
+    trackAdmittedAnalytics,
+    UNAVAILABLE_ANALYTICS_OPERATION,
+} from './admission';
 import { normalizeAnalyticsVersion } from './events';
-import { analytics } from './index';
 import type { AnalyticsOperationHandle } from './types';
 
 /**
@@ -32,17 +37,22 @@ export interface UpdateOperation {
     closed: boolean;
     /** Serializes the update phases that share this operation id. */
     pending: Promise<void>;
+    /** Bounds continuations when an analytics IPC never settles. */
+    pendingCount: number;
 }
+
+const MAX_PENDING_UPDATE_PHASES = 32;
 
 /** Opens a bounded update operation when a real update decision starts. */
 export async function beginUpdateOperation(
     updateOperationId: string = crypto.randomUUID()
 ): Promise<UpdateOperation> {
     return {
-        operation: await analytics.beginOperation(),
+        operation: (await beginAdmittedOperation()) ?? UNAVAILABLE_ANALYTICS_OPERATION,
         updateOperationId,
         closed: false,
         pending: Promise.resolve(),
+        pendingCount: 0,
     };
 }
 
@@ -62,14 +72,15 @@ export function trackUpdateTransition(
         toVersion?: string | null;
     }
 ): Promise<void> {
-    if (update.closed) {
+    if (update.closed || update.pendingCount >= MAX_PENDING_UPDATE_PHASES) {
         return update.pending;
     }
+    update.pendingCount += 1;
     const fromVersion = boundedVersion(outcome.fromVersion);
     const toVersion = boundedVersion(outcome.toVersion);
     const next = update.pending
         .then(() =>
-            analytics.track(
+            trackAdmittedAnalytics(
                 'app.update_transition',
                 {
                     update_operation_id: update.updateOperationId,
@@ -85,7 +96,10 @@ export function trackUpdateTransition(
         .then(
             () => undefined,
             () => undefined
-        );
+        )
+        .finally(() => {
+            update.pendingCount -= 1;
+        });
     update.pending = next;
     return next;
 }
@@ -105,5 +119,5 @@ export async function finishUpdateOperation(update: UpdateOperation): Promise<vo
         return;
     }
     update.closed = true;
-    await analytics.completeOperation(update.operation);
+    await completeAdmittedOperation(update.operation);
 }

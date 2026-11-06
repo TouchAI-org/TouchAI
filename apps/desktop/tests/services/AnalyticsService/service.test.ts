@@ -25,6 +25,7 @@ function state(partial: Partial<AnalyticsState> = {}): AnalyticsState {
         consentEpoch: 5,
         queueDepth: 0,
         pendingBytes: 0,
+        buildEligible: true,
         transportReady: true,
         ...partial,
     };
@@ -95,6 +96,16 @@ describe('AnalyticsService', () => {
         );
     });
 
+    it('user gets the original action-start time sent when consent capture is delayed', async () => {
+        const now = vi.spyOn(Date, 'now').mockReturnValue(1_760_000_000_321);
+        nativeAnalytics.beginOperation.mockResolvedValue(operation());
+
+        await analytics.beginOperation();
+
+        expect(nativeAnalytics.beginOperation).toHaveBeenCalledWith(1_760_000_000_321);
+        now.mockRestore();
+    });
+
     it('user gets a disabled result without a native call when the operation started while off', async () => {
         const result = await analytics.track('app.started', validAttributes, {
             operation: operation({ enabled: false }),
@@ -106,6 +117,14 @@ describe('AnalyticsService', () => {
 
     it('user gets a fail-closed handle when the native runtime cannot issue one', async () => {
         nativeAnalytics.beginOperation.mockRejectedValue(new Error('channel down'));
+
+        const handle = await analytics.beginOperation();
+
+        expect(handle).toMatchObject({ operationId: '', enabled: false, consentEpoch: 0 });
+    });
+
+    it('user gets a fail-closed handle when the native runtime returns no operation', async () => {
+        nativeAnalytics.beginOperation.mockResolvedValue(undefined as never);
 
         const handle = await analytics.beginOperation();
 

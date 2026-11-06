@@ -223,6 +223,8 @@ describe('user changes general settings', () => {
         expect(wrapper.text()).not.toContain('默认窗口规格');
         expect(wrapper.text()).not.toContain('支持的修饰键');
         expect(wrapper.find('[data-testid="settings-brand-accent"]').exists()).toBe(false);
+        expect(wrapper.text()).not.toContain('诊断与支持');
+        expect(wrapper.text()).not.toContain('隐私与产品统计');
 
         const controls = wrapper.findAll('[data-testid="settings-general-control"]');
         expect(controls.length).toBeGreaterThanOrEqual(3);

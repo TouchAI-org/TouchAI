@@ -17,6 +17,7 @@
         consentEpoch: 0,
         queueDepth: 0,
         pendingBytes: 0,
+        buildEligible: false,
         transportReady: false,
     });
 
@@ -66,7 +67,11 @@
                 <Switch
                     size="lg"
                     data-testid="settings-analytics-toggle"
-                    :disabled="state.status === 'uninitialized' || !state.transportReady"
+                    :disabled="
+                        state.status === 'uninitialized' ||
+                        (state.status !== 'enabled' &&
+                            (!state.buildEligible || !state.transportReady))
+                    "
                     :model-value="state.status === 'enabled'"
                     @update:model-value="toggle"
                 />
