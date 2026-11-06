@@ -28,6 +28,7 @@ impl TestAppOptions {
     }
 }
 
+#[allow(dead_code)]
 pub fn build_test_app(options: TestAppOptions) -> Result<TestApp, String> {
     let mut builder = testing::test_builder();
     let mut database_root = None;
@@ -49,6 +50,25 @@ pub fn build_test_app(options: TestAppOptions) -> Result<TestApp, String> {
         app,
         main_webview,
         _database_root: database_root,
+    })
+}
+
+pub fn build_test_app_with_database_root(
+    database_root: &std::path::Path,
+) -> Result<TestApp, String> {
+    let builder = testing::test_builder();
+    let builder = testing::attach_test_database_runtime(builder, database_root)?;
+    let app = builder
+        .build(mock_context(noop_assets()))
+        .map_err(|error| format!("Failed to build test app: {error}"))?;
+    let main_webview = WebviewWindowBuilder::new(&app, "main", WebviewUrl::default())
+        .build()
+        .map_err(|error| format!("Failed to build main test webview: {error}"))?;
+
+    Ok(TestApp {
+        app,
+        main_webview,
+        _database_root: None,
     })
 }
 

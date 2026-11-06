@@ -1,5 +1,3 @@
-import type { SQLInputValue } from 'node:sqlite';
-
 import {
     countEnabledBuiltInTools,
     createBuiltInTool,
@@ -11,10 +9,9 @@ import {
     updateBuiltInTool,
     updateBuiltInTools,
 } from '@database/queries/builtInTools';
-import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { openMigratedDatabase } from './sqliteHarness';
+import { openMigratedDatabase, routeQueriesTo } from './sqliteHarness';
 
 /**
  * The built-in tool rows are what the settings page toggles and what the agent reads before each
@@ -27,37 +24,6 @@ function openDatabase() {
     const database = openMigratedDatabase();
     databases.push(database);
     return database;
-}
-
-function routeQueriesTo(database: ReturnType<typeof openMigratedDatabase>) {
-    interceptTauriInvoke((call) => {
-        if (call.cmd === 'database_tx_begin') {
-            database.exec('BEGIN');
-            return 'test-tx';
-        }
-        if (call.cmd === 'database_tx_commit') {
-            database.exec('COMMIT');
-            return null;
-        }
-        if (call.cmd === 'database_tx_rollback') {
-            database.exec('ROLLBACK');
-            return null;
-        }
-        if (call.cmd !== 'database_query' && call.cmd !== 'database_tx_query') return undefined;
-        const { request } = call.payload as {
-            request: { sql: string; params: SQLInputValue[]; method: string };
-        };
-        const statement = database.prepare(request.sql);
-        if (request.method === 'run') {
-            const result = statement.run(...request.params);
-            return {
-                rows: [],
-                rowsAffected: Number(result.changes),
-                lastInsertId: Number(result.lastInsertRowid),
-            };
-        }
-        return { rows: statement.all(...request.params), rowsAffected: 0, lastInsertId: null };
-    });
 }
 
 function seed(database: ReturnType<typeof openMigratedDatabase>) {

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { MetaKey } from '@/database/schema';
+import { MetaKey } from '@/database/keys';
 import { setLocale } from '@/i18n';
 import { log } from '@/services/ObservabilityService';
 

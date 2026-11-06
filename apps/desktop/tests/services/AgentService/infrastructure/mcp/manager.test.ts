@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
-import type { DatabaseSync as SqliteDatabase, SQLInputValue } from 'node:sqlite';
+import type { DatabaseSync as SqliteDatabase } from 'node:sqlite';
 
 import { McpManager } from '@services/AgentService/infrastructure/mcp/McpManager';
-import { interceptTauriInvoke } from '@tests/utils/tauri';
+import { routeQueriesTo } from '@tests/database/sqliteHarness';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { DatabaseSync } = createRequire(import.meta.url)(
@@ -43,42 +43,6 @@ function openDatabase(): SqliteDatabase {
         database.exec(readFileSync(`${databaseRoot}/drizzle/${entry.tag}.sql`, 'utf8'));
     }
     return database;
-}
-
-function routeQueriesTo(database: SqliteDatabase) {
-    interceptTauriInvoke((call) => {
-        if (call.cmd === 'database_tx_begin') {
-            database.exec('BEGIN');
-            return 'test-tx';
-        }
-        if (call.cmd === 'database_tx_commit') {
-            database.exec('COMMIT');
-            return null;
-        }
-        if (call.cmd === 'database_tx_rollback') {
-            database.exec('ROLLBACK');
-            return null;
-        }
-        if (call.cmd !== 'database_query' && call.cmd !== 'database_tx_query') return undefined;
-
-        const { request } = call.payload as {
-            request: { sql: string; params: SQLInputValue[]; method: string };
-        };
-        const statement = database.prepare(request.sql);
-        if (request.method === 'run') {
-            const result = statement.run(...(request.params ?? []));
-            return {
-                rows: [],
-                rowsAffected: Number(result.changes),
-                lastInsertId: Number(result.lastInsertRowid),
-            };
-        }
-        return {
-            rows: statement.all(...(request.params ?? [])),
-            rowsAffected: 0,
-            lastInsertId: null,
-        };
-    });
 }
 
 function seedServer(

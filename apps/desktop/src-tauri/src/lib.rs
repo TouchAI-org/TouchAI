@@ -6,7 +6,6 @@ mod core;
 pub mod testing;
 
 use core::built_in_tools::BuiltInProcessExecutionRegistry;
-use core::database::DatabaseRuntime;
 use core::mcp::McpClientManager;
 use core::setup;
 use core::window::popup::PopupRegistry;
@@ -162,13 +161,6 @@ pub fn run() {
                 let app_handle = window.app_handle().clone();
                 let window_label = window.label().to_string();
                 core::window::search::surface::handle_window_destroyed(&app_handle, &window_label);
-
-                if let Some(runtime) = window.app_handle().try_state::<DatabaseRuntime>() {
-                    let runtime = runtime.inner().clone();
-                    tauri::async_runtime::spawn(async move {
-                        runtime.abort_transactions_for_window(&window_label).await;
-                    });
-                }
             }
         })
         .invoke_handler(commands::invoke_handler::<tauri::Wry>());

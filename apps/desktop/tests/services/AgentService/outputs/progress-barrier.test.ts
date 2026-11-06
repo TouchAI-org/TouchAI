@@ -4,6 +4,11 @@ import { AiRequestExecutor } from '@/services/AgentService/execution';
 import type { AttemptCheckpoint } from '@/services/AgentService/execution/executor';
 import { PersistenceProjector } from '@/services/AgentService/outputs/persistence';
 
+import {
+    createPersistenceDatabaseOperation,
+    type PersistenceDatabaseTelemetry,
+} from '../../../utils/persistenceDatabase';
+
 /**
  * Streamed progress is a replaceable snapshot written through a bounded writer.
  * The attempt boundary is authoritative: a snapshot that belongs to a finished
@@ -19,6 +24,7 @@ vi.mock('@/services/AgentService/catalog', () => ({
 
 const queries = vi.hoisted(() => ({
     createMessage: vi.fn(),
+    createSession: vi.fn(),
     createMessageParts: vi.fn(),
     updateMessage: vi.fn(),
     syncOutputParts: vi.fn(),
@@ -28,19 +34,24 @@ const queries = vi.hoisted(() => ({
     updateSessionTurn: vi.fn(),
     updateSessionTurnAttempt: vi.fn(),
     updateSessionTurnUsage: vi.fn(),
+    updateSessionTurnAttemptUsage: vi.fn(),
     refreshSessionMetadata: vi.fn(),
+    findAllMcpTools: vi.fn(),
+    findAllBuiltInTools: vi.fn(),
     mergeMessagePartData: vi.fn(),
     findToolCallPartByCallId: vi.fn(),
     createMessageAttachment: vi.fn(),
+    insertLlmCallParts: vi.fn(),
 }));
 
-vi.mock('@database', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('@database')>()),
-    db: { transaction: (callback: (tx: unknown) => Promise<unknown>) => callback({}) },
-}));
+const database = vi.hoisted(() => ({ operation: vi.fn() }));
+
 vi.mock('@database/queries', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@database/queries')>()),
     ...queries,
+}));
+vi.mock('@services/NativeService', () => ({
+    native: { database: { operation: database.operation } },
 }));
 
 function createProjector() {
@@ -94,6 +105,13 @@ describe('user streams progress across an attempt boundary', () => {
             attempt_index: draft.attempt_index,
             id: 3,
         }));
+        queries.findAllMcpTools.mockResolvedValue([]);
+        queries.findAllBuiltInTools.mockResolvedValue([]);
+        database.operation.mockImplementation(
+            createPersistenceDatabaseOperation({
+                ...queries,
+            } as unknown as PersistenceDatabaseTelemetry)
+        );
     });
 
     it('user does not see a stale progress snapshot written into the new attempt', async () => {

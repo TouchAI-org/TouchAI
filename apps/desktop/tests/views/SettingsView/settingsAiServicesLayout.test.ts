@@ -65,12 +65,6 @@ const agentServiceMock = vi.hoisted(() => ({
     })),
 }));
 
-vi.mock('@database', () => ({
-    db: {
-        transaction: vi.fn(async (callback: (tx: object) => Promise<void>) => callback({})),
-    },
-}));
-
 vi.mock('@database/queries', () => queries);
 
 vi.mock('@database/queries/llmMetadata.ts', () => llmMetadataMock);

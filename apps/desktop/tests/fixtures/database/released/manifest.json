@@ -1,0 +1,38 @@
+{
+    "description": "Frozen released-version SQLite fixtures generated from the release tag migration, guard, and seed artifacts plus representative user data.",
+    "fixtures": [
+        {
+            "version": "v1.0.0",
+            "file": "touchai-v1.0.0.db",
+            "sha256": "bb60f096660e574f5bdbc8e564f8164964b70416715a27312973922d69ba493c",
+            "appliedMigrations": [
+                "0000_lyrical_toad",
+                "0001_silent_reasoning",
+                "0002_quick_search_click_stats_unique"
+            ]
+        },
+        {
+            "version": "v1.2.0",
+            "file": "touchai-v1.2.0.db",
+            "sha256": "4fc3156943bd4aa255b5db721aab1b19819a7ac0dd20f0b99b63a2f3b1dc67ee",
+            "appliedMigrations": [
+                "0000_lyrical_toad",
+                "0001_silent_reasoning",
+                "0002_quick_search_click_stats_unique",
+                "0003_tough_amazoness"
+            ]
+        },
+        {
+            "version": "v1.3.0-beta.1",
+            "file": "touchai-v1.3.0-beta.1.db",
+            "sha256": "a27558e284500ddd93146b6393dc7b9f79bbb2ce9da167878da02a627c4b0a5e",
+            "appliedMigrations": [
+                "0000_lyrical_toad",
+                "0001_silent_reasoning",
+                "0002_quick_search_click_stats_unique",
+                "0003_tough_amazoness",
+                "0004_ordinary_solo"
+            ]
+        }
+    ]
+}

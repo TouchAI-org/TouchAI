@@ -1,9 +1,10 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import { getMessageText } from '@database/queries/messageParts';
-import { findMessagesBySessionId } from '@database/queries/messages';
+import type { MessageRow } from '@database/queries/messages';
 import { getToolCallName, readToolCallData } from '@database/queries/toolParts';
 import type { MessagePartEntity } from '@database/types';
+import { native } from '@services/NativeService';
 
 import type { AiContentPart, AiMessage, JsonObject } from '../contracts/protocol';
 import type { AiToolCall } from '../contracts/tooling';
@@ -50,6 +51,13 @@ function buildAssistantTransportContent(row: { parts: MessagePartEntity[] }): Ai
 
 const MISSING_TOOL_RESULT_PLACEHOLDER = 'Missing historical tool result.';
 
+function loadSessionMessages(sessionId: number): Promise<MessageRow[]> {
+    return native.database.operation<MessageRow[]>({
+        kind: 'session_messages',
+        sessionId,
+    });
+}
+
 export async function findUnsupportedSessionAttachmentTypes(options: {
     sessionId?: number;
     capabilities: AttachmentCapabilities;
@@ -58,7 +66,7 @@ export async function findUnsupportedSessionAttachmentTypes(options: {
         return [];
     }
 
-    const rows = await findMessagesBySessionId(options.sessionId);
+    const rows = await loadSessionMessages(options.sessionId);
     const transportAttachmentRows = rows
         .filter((row) => row.role === 'user' || row.role === 'tool_call')
         .flatMap((row) => row.attachments);
@@ -98,7 +106,7 @@ export async function loadSessionTransportMessages(options: {
     supportsAttachments?: boolean;
     attachmentCapabilities?: AttachmentCapabilities;
 }): Promise<AiMessage[]> {
-    const rows = options.sessionId ? await findMessagesBySessionId(options.sessionId) : [];
+    const rows = options.sessionId ? await loadSessionMessages(options.sessionId) : [];
     const attachmentCapabilities = resolveTransportAttachmentCapabilities(options);
     const messages: AiMessage[] = [];
 

@@ -1,19 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
-import type { DatabaseSync as SqliteDatabase, SQLInputValue } from 'node:sqlite';
+import type { DatabaseSync as SqliteDatabase } from 'node:sqlite';
 
-import {
-    createMessageAttachment,
-    findAttachmentsByMessageIds,
-} from '@database/queries/attachments';
-import { getMessageText, syncOutputParts } from '@database/queries/messageParts';
-import { findMessagesBySessionId } from '@database/queries/messages';
 import { listSessions, refreshSessionMetadata } from '@database/queries/sessions';
 import { createToolPart, findToolParts, updateToolPart } from '@database/queries/toolParts';
-import { messageParts } from '@database/schema';
-import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
-import { eq } from 'drizzle-orm';
+import { routeDatabaseOperation } from '@tests/database/sqliteHarness';
+import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const { DatabaseSync } = createRequire(import.meta.url)(
@@ -47,32 +40,9 @@ function attachImportDatabase(database: SqliteDatabase) {
 }
 function routeQueriesTo(database: SqliteDatabase) {
     interceptTauriInvoke((call) => {
-        if (call.cmd === 'database_tx_begin') {
-            database.exec('BEGIN');
-            return 'test-tx';
-        }
-        if (call.cmd === 'database_tx_commit') {
-            database.exec('COMMIT');
-            return null;
-        }
-        if (call.cmd === 'database_tx_rollback') {
-            database.exec('ROLLBACK');
-            return null;
-        }
-        if (call.cmd !== 'database_query' && call.cmd !== 'database_tx_query') return undefined;
-        const { request } = call.payload as {
-            request: { sql: string; params: SQLInputValue[]; method: string };
-        };
-        const statement = database.prepare(request.sql);
-        if (request.method === 'run') {
-            const result = statement.run(...request.params);
-            return {
-                rows: [],
-                rowsAffected: Number(result.changes),
-                lastInsertId: Number(result.lastInsertRowid),
-            };
-        }
-        return { rows: statement.all(...request.params), rowsAffected: 0, lastInsertId: null };
+        const operation = routeDatabaseOperation(database, call);
+        if (operation) return operation.value;
+        return undefined;
     });
 }
 afterEach(() => databases.splice(0).forEach((database) => database.close()));
@@ -118,11 +88,15 @@ describe('when conversations are stored as ordered message parts', () => {
             toolKind: 'builtin',
             status: 'pending',
         });
-        const updated = await updateToolPart('builtin', eq(messageParts.id, created.id), {
-            tool_call_id: 'call-renamed',
-            status: 'success',
-            output: 'result',
-        });
+        const updated = await updateToolPart(
+            'builtin',
+            { kind: 'id', id: created.id },
+            {
+                tool_call_id: 'call-renamed',
+                status: 'success',
+                output: 'result',
+            }
+        );
         expect(updated?.tool_call_id).toBe('call-renamed');
         expect(savedData()).toMatchObject({
             toolCallId: 'call-renamed',
@@ -130,18 +104,22 @@ describe('when conversations are stored as ordered message parts', () => {
             output: 'result',
         });
         expect(
-            await findToolParts('builtin', eq(messageParts.tool_call_id, 'call-original'))
+            await findToolParts('builtin', {
+                kind: 'tool_call_id',
+                toolCallId: 'call-original',
+            })
         ).toEqual([]);
         expect(
-            await findToolParts('builtin', eq(messageParts.tool_call_id, 'call-renamed'))
+            await findToolParts('builtin', {
+                kind: 'tool_call_id',
+                toolCallId: 'call-renamed',
+            })
         ).toHaveLength(1);
-        const writes = getTauriInvokeCalls('database_tx_query')
-            .map((call) => (call.payload as { request: { sql: string } }).request.sql)
-            .filter((sql) => /^(insert|update)/i.test(sql));
-        for (const sql of writes) {
-            const assignment = sql.split(/returning/i)[0]!;
-            expect(assignment).not.toMatch(/"(tool_call_id|tool_kind|attachment_id)"/);
-        }
+        expect(
+            database
+                .prepare('SELECT tool_call_id, tool_kind FROM message_parts WHERE id = ?')
+                .get(created.id)
+        ).toEqual({ tool_call_id: 'call-renamed', tool_kind: 'builtin' });
     });
 
     it('user sees a tool update leave the part where it was', async () => {
@@ -161,7 +139,7 @@ describe('when conversations are stored as ordered message parts', () => {
             message_id: 2,
             created_at: '2026-10-02 00:00:00',
         };
-        const updated = await updateToolPart('builtin', eq(messageParts.id, created.id), patch);
+        const updated = await updateToolPart('builtin', { kind: 'id', id: created.id }, patch);
         expect(updated).toMatchObject({
             id: created.id,
             message_id: 1,
@@ -169,31 +147,6 @@ describe('when conversations are stored as ordered message parts', () => {
             status: 'success',
             output: 'Done',
         });
-    });
-
-    it('user gets attachments referenced from part data and findable by column', async () => {
-        const database = openDatabase();
-        routeQueriesTo(database);
-        seedSearch(database);
-        database.exec(
-            "INSERT INTO attachments (id, hash, type, original_name, origin_path) VALUES (7, 'file-hash', 'file', 'test.txt', '/cache/file.txt')"
-        );
-        await createMessageAttachment({
-            message_id: 1,
-            attachment_id: 7,
-            origin_path: '/original/file.txt',
-        });
-        const part = database
-            .prepare("SELECT data, attachment_id FROM message_parts WHERE type='attachment'")
-            .get()!;
-        expect(JSON.parse(String(part.data))).toEqual({
-            attachmentId: 7,
-            originPath: '/original/file.txt',
-        });
-        expect(part.attachment_id).toBe(7);
-        expect(await findAttachmentsByMessageIds([1])).toMatchObject([
-            { id: 7, origin_path: '/original/file.txt', message_id: 1 },
-        ]);
     });
 
     it('user finds tool output through search and stays in sync', async () => {
@@ -215,55 +168,6 @@ describe('when conversations are stored as ordered message parts', () => {
         database.exec('DELETE FROM message_parts WHERE message_id = 2');
         expect(ftsIds(database, 'Replacement')).toEqual([]);
     });
-    it('user sees an output update leave other parts untouched', async () => {
-        const database = openDatabase();
-        routeQueriesTo(database);
-        seedSearch(database);
-        database.exec(
-            "INSERT INTO attachments (id, hash, type, original_name, origin_path) VALUES (7, 'file-hash', 'file', 'test.txt', '/cache/file.txt');" +
-                "INSERT INTO message_parts (message_id, type, content, data, sort_order) VALUES (1, 'tool_call', '', '{}', 3), (1, 'attachment', '', '{\"attachmentId\":7}', 4)"
-        );
-        const original = database
-            .prepare('SELECT * FROM message_parts WHERE message_id = 1 ORDER BY sort_order')
-            .all();
-        const drafts = [
-            { message_id: 1, type: 'text' as const, content: 'First ', sort_order: 0 },
-            {
-                message_id: 1,
-                type: 'reasoning' as const,
-                content: 'Updated plan',
-                sort_order: 1,
-                started_at: 1000,
-                ended_at: 3000,
-            },
-            { message_id: 1, type: 'text' as const, content: 'New answer', sort_order: 2 },
-        ];
-        await syncOutputParts(1, drafts);
-        const updated = database
-            .prepare('SELECT * FROM message_parts WHERE message_id = 1 ORDER BY sort_order')
-            .all();
-        expect(updated.map((part) => part.id)).toEqual(original.map((part) => part.id));
-        expect(updated[0]).toEqual(original[0]);
-        expect(updated.slice(3)).toEqual(original.slice(3));
-        expect(ftsIds(database, 'New answer')).toEqual([1]);
-        expect(ftsIds(database, 'Updated plan')).toEqual([]);
-        const start = getTauriInvokeCalls('database_query').length;
-        await syncOutputParts(1, drafts);
-        const queries = getTauriInvokeCalls('database_query').slice(start);
-        expect(
-            queries.filter((call) =>
-                /^(insert|update)/i.test((call.payload as { request: { sql: string } }).request.sql)
-            )
-        ).toEqual([]);
-        await syncOutputParts(1, []);
-        expect(
-            database
-                .prepare('SELECT type FROM message_parts WHERE message_id = 1 ORDER BY sort_order')
-                .all()
-        ).toEqual([{ type: 'tool_call' }, { type: 'attachment' }]);
-        expect(ftsIds(database, 'New answer')).toEqual([]);
-    });
-
     it('user gets message text stored in one place only', () => {
         const database = openDatabase();
         const columns = database.prepare('PRAGMA table_info(messages)').all();
@@ -666,28 +570,6 @@ describe('when conversations are stored as ordered message parts', () => {
         );
         expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     });
-    it('user sees history, previews and search built from the ordered parts', async () => {
-        const database = openDatabase();
-        routeQueriesTo(database);
-        seedSearch(database);
-        const rows = await findMessagesBySessionId(1);
-        expect(getMessageText(rows[0]!.parts)).toBe('First answer');
-        expect(rows[0]?.parts.find((part) => part.type === 'reasoning')?.content).toBe(
-            'Secret thought'
-        );
-        expect(rows[0]).not.toHaveProperty('content');
-        expect(rows[0]).not.toHaveProperty('reasoning');
-        expect(rows[0]?.parts.map((part) => part.type)).toEqual(['text', 'reasoning', 'text']);
-        database.exec('DELETE FROM messages WHERE id = 2');
-        await refreshSessionMetadata(1);
-        expect(
-            database.prepare('SELECT last_message_preview FROM sessions').get()
-                ?.last_message_preview
-        ).toBe('First answer');
-        expect(await listSessions({ query: 'First answer' })).toHaveLength(1);
-        expect(await listSessions({ query: 'Missing' })).toHaveLength(0);
-    });
-
     it('user gets no empty preview from a reasoning-only reply', async () => {
         const database = openDatabase();
         routeQueriesTo(database);
@@ -866,28 +748,10 @@ describe('when conversation text is searched', () => {
         const database = openDatabase();
         routeQueriesTo(database);
         seedSearch(database);
-        expect(await listSessions({ query: 'First missing' })).toHaveLength(0);
-        const requests = () =>
-            getTauriInvokeCalls('database_query').map(
-                (call) =>
-                    (call.payload as { request: { sql: string; params: SQLInputValue[] } }).request
-            );
-        const longSearch = requests().slice(-1)[0]!;
-        expect(longSearch.sql).toContain('message_search_fts');
-        expect(longSearch.sql).toContain('"sessions"."id" in (select');
-        expect(longSearch.params).toContain('"fir"');
-        const plan = database
-            .prepare('EXPLAIN QUERY PLAN ' + longSearch.sql)
-            .all(...longSearch.params);
         expect(
-            plan.some(
-                (row) =>
-                    String(row.detail).includes('VIRTUAL TABLE INDEX') &&
-                    String(row.detail).includes('M')
-            )
-        ).toBe(true);
-        await listSessions({ query: 'Fi' });
-        expect(requests().slice(-1)[0]!.sql).not.toContain('message_search_fts');
+            (await listSessions({ query: 'First answer' })).map((session) => session.id)
+        ).toEqual([1]);
+        expect((await listSessions({ query: 'Fi' })).map((session) => session.id)).toEqual([1]);
     });
     it('user sees each matching conversation once within the requested limit', async () => {
         const database = openDatabase();
