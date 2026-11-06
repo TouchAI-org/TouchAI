@@ -1,4 +1,4 @@
-/** Record the target's painted position, including intermediate frames during a rail jump. */
+/** Record navigation geometry before and after each frame's layout callbacks. */
 export async function sampleConversationNavigation(railIndex, messageId, durationMs = 1200) {
     await browser.execute(
         (index, id, duration) => {
@@ -7,25 +7,43 @@ export async function sampleConversationNavigation(railIndex, messageId, duratio
             const samples = [];
             const started = performance.now();
             let firstFrameAt;
+            const frameTasks = new MessageChannel();
             window.__navigationSamples = { done: false, samples };
+            const readGeometry = () => {
+                const target = viewport.querySelector(`[data-message-id="${CSS.escape(id)}"]`);
+                const rect = target?.getBoundingClientRect();
+                return {
+                    top: rect ? rect.top - viewport.getBoundingClientRect().top : null,
+                    height: rect?.height ?? null,
+                    scrollTop: viewport.scrollTop,
+                };
+            };
+            // rAF runs before ResizeObserver delivery. Keep both phases so a failed
+            // assertion distinguishes a painted jump from an intermediate layout.
+            frameTasks.port1.onmessage = ({ data: { index, final } }) => {
+                samples[index].afterLayout = {
+                    elapsed: performance.now() - started,
+                    ...readGeometry(),
+                };
+                if (final) {
+                    frameTasks.port1.close();
+                    frameTasks.port2.close();
+                    window.__navigationSamples.done = true;
+                }
+            };
             const sample = () => {
                 const now = performance.now();
                 firstFrameAt ??= now;
-                const target = viewport.querySelector(`[data-message-id="${CSS.escape(id)}"]`);
-                const rect = target?.getBoundingClientRect();
-                const top = rect ? rect.top - viewport.getBoundingClientRect().top : null;
                 samples.push({
                     elapsed: now - started,
-                    top,
-                    height: rect?.height ?? null,
+                    ...readGeometry(),
                     viewportHeight: viewport.clientHeight,
-                    scrollTop: viewport.scrollTop,
                     mountedMessages: viewport.querySelectorAll('[data-message-id]').length,
                 });
-                if (now - firstFrameAt < duration) {
+                const final = now - firstFrameAt >= duration;
+                frameTasks.port2.postMessage({ index: samples.length - 1, final });
+                if (!final) {
                     requestAnimationFrame(sample);
-                } else {
-                    window.__navigationSamples.done = true;
                 }
             };
             requestAnimationFrame(sample);

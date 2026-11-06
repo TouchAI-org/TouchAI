@@ -239,9 +239,15 @@ describe('user scrolls a long conversation', () => {
         for (const index of [4, 14, 4, 4]) {
             const samples = await sampleConversationNavigation(index, `e2e-scroll-${index * 2}`);
             const excursion = targetExcursionAfterArrival(samples);
+            const changedFrames = samples.filter(
+                (sample, frame) =>
+                    frame === 0 ||
+                    sample.top !== samples[frame - 1].top ||
+                    sample.afterLayout.top !== sample.top
+            );
             assertVisible(
                 excursion <= 2,
-                `The selected question flashed away after arriving (${excursion}px): ${JSON.stringify(samples)}.`
+                `Question ${index} moved after arriving (${excursion}px); changed frames: ${JSON.stringify(changedFrames.slice(0, 16))}.`
             );
             assertVisible(
                 samples.every((sample) => sample.mountedMessages < messages.length),
