@@ -86,7 +86,6 @@
         "stream-monaco": "^0.0.49",
         "tailwind-merge": "^3.7.0",
         "tailwindcss": "^4.3.3",
-        "tauri-plugin-clipboard-x-api": "^2.0.2",
         "tauri-plugin-fs-pro-api": "^2.4.0",
         "turndown": "^7.2.4",
         "vercel-minimax-ai-provider": "^0.0.2",

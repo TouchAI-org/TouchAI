@@ -1,4 +1,13 @@
 import { type ContextMenuItem, useContextMenu } from '@composables/useContextMenu';
+import {
+    beginSearchInteraction,
+    finishSearchInteraction,
+    runResultAction,
+    type SearchInteraction,
+    selectSearchResult,
+    settleSearchInteraction,
+    trackSearchFeatureExposed,
+} from '@services/AnalyticsService/productInteractions';
 import { clipboardService } from '@services/ClipboardService';
 import { native, type QuickShortcutItem } from '@services/NativeService';
 import { log } from '@services/ObservabilityService';
@@ -140,6 +149,81 @@ function useQuickSearchFlow(
     let lastSearchedQuery = '';
     const clickStats = useQuickSearchClickStats();
 
+    // One quick-search interaction settles once, on selection, close or blur,
+    // using the final stable results rather than any intermediate query.
+    let interactionReady: Promise<SearchInteraction> | null = null;
+    let panelSessionActive = false;
+    let exposureReported = false;
+
+    function beginSearchInteractionSession() {
+        // One native interaction spans the whole open panel. Triggering another
+        // query while the panel is open must reuse it instead of abandoning the
+        // previous handle on every keystroke.
+        if (panelSessionActive) {
+            return;
+        }
+        panelSessionActive = true;
+        interactionReady = beginSearchInteraction('quick');
+        exposureReported = false;
+    }
+
+    function reportQuickSearchExposure() {
+        if (exposureReported) {
+            return;
+        }
+        exposureReported = true;
+        const ready = interactionReady;
+        if (!ready) return;
+        void ready
+            .then((interaction) => trackSearchFeatureExposed(interaction, 'quick_search'))
+            .catch(() => {});
+    }
+
+    function settleSearchInteractionSession(resultCount = results.value.length) {
+        panelSessionActive = false;
+        const ready = interactionReady;
+        interactionReady = null;
+        if (!ready) return;
+        void ready
+            .then(async (interaction) => {
+                await settleSearchInteraction(interaction, {
+                    hasResults: resultCount > 0,
+                    resultCount,
+                });
+                await finishSearchInteraction(interaction);
+            })
+            .catch(() => {});
+    }
+
+    function captureSearchSelection() {
+        panelSessionActive = false;
+        if (!interactionReady && results.value.length > 0) {
+            beginSearchInteractionSession();
+        }
+        const ready = interactionReady;
+        interactionReady = null;
+        panelSessionActive = false;
+        return ready ? { ready, resultCount: results.value.length } : null;
+    }
+
+    function finishSearchSelection(
+        selection: ReturnType<typeof captureSearchSelection>,
+        opened: boolean
+    ) {
+        if (!selection) return;
+        const { ready, resultCount } = selection;
+        void ready
+            .then(async (interaction) => {
+                await settleSearchInteraction(interaction, {
+                    hasResults: resultCount > 0,
+                    resultCount,
+                });
+                await selectSearchResult(interaction, { category: 'file', opened });
+                await finishSearchInteraction(interaction);
+            })
+            .catch(() => {});
+    }
+
     // 2. 名称高亮匹配
     // 高亮分段属于搜索语义，放在搜索流程 composable 内统一维护。
     const matchTokens = computed(() => buildMatchTokens(searchQuery.value));
@@ -238,12 +322,16 @@ function useQuickSearchFlow(
             if (mergedResults.length === 0) {
                 mergedResults = resolveE2eQuickSearchFallbackResults(trimmedQuery);
                 if (mergedResults.length === 0) {
+                    // The previous query's results are no longer what the user
+                    // sees; settle with the real empty result before closing.
+                    settleSearchInteractionSession(0);
                     close();
                     return;
                 }
             }
 
             emitOpenUpdate(true);
+            reportQuickSearchExposure();
             results.value = mergedResults;
             lastSearchedQuery = trimmedQuery;
             totalFiles.value =
@@ -264,6 +352,7 @@ function useQuickSearchFlow(
         } catch (error) {
             log.error('[QuickSearchPanel] Failed to search shortcuts:', error);
             if (reqId === requestId.value) {
+                settleSearchInteractionSession(0);
                 close();
             }
         } finally {
@@ -344,6 +433,7 @@ function useQuickSearchFlow(
             return;
         }
 
+        beginSearchInteractionSession();
         void refreshStatus();
         void runSearchLoop(query);
     }
@@ -354,6 +444,7 @@ function useQuickSearchFlow(
      * @returns void
      */
     function close() {
+        settleSearchInteractionSession();
         clearDebounceTimer();
         lastSearchedQuery = '';
         requestId.value += 1;
@@ -378,6 +469,7 @@ function useQuickSearchFlow(
             return;
         }
 
+        beginSearchInteractionSession();
         emitOpenUpdate(true);
         scheduleSearch(query);
     }
@@ -399,13 +491,15 @@ function useQuickSearchFlow(
     async function handleContextMenuAction(key: string, item: QuickShortcutItem) {
         if (key === 'open-folder') {
             try {
-                await revealItemInDir(item.path);
+                // Revealing a result in the OS file manager is an external-open action.
+                await runResultAction('open_external', () => revealItemInDir(item.path));
             } catch (error) {
                 log.error('[QuickSearchPanel] Failed to reveal in folder:', error);
             }
         } else if (key === 'copy-path') {
             try {
-                await clipboardService.writeText(item.path);
+                // Copying a result's path has no dedicated category; it is an honest `other`.
+                await runResultAction('other', () => clipboardService.writeText(item.path));
             } catch (error) {
                 log.error('[QuickSearchPanel] Failed to copy path:', error);
             }
@@ -460,11 +554,15 @@ function useQuickSearchFlow(
 
         clickStats.recordClick(searchQuery.value, item.path);
 
+        const selection = captureSearchSelection();
+        let opened = false;
         try {
             await deps.openPath(item.path);
+            opened = true;
         } catch (error) {
             log.error('[QuickSearchPanel] Failed to open path:', error);
         }
+        finishSearchSelection(selection, opened);
     }
 
     /**
@@ -480,17 +578,22 @@ function useQuickSearchFlow(
         highlightedIndex.value = index;
         clickStats.recordClick(searchQuery.value, item.path);
 
+        const selection = captureSearchSelection();
+        let opened = false;
         try {
             await deps.openPath(item.path);
+            opened = true;
         } catch (error) {
             log.error('[QuickSearchPanel] Failed to open path:', error);
         }
+        finishSearchSelection(selection, opened);
     }
 
     return {
         prepareIndex,
         open,
         close,
+        settleInteraction: settleSearchInteractionSession,
         getHighlightedItem,
         openHighlightedItem,
         triggerSearch,
@@ -506,6 +609,16 @@ function useQuickSearchFlow(
         cleanup: () => {
             clearDebounceTimer();
             pruneIconMaps(true);
+            // Unmount is an abandon path: release any handle that never reached
+            // a real close or selection, without fabricating a completed search.
+            const ready = interactionReady;
+            interactionReady = null;
+            panelSessionActive = false;
+            if (ready) {
+                void ready
+                    .then((interaction) => finishSearchInteraction(interaction))
+                    .catch(() => {});
+            }
         },
     };
 }
@@ -826,6 +939,7 @@ export function useQuickSearchLogic(
         openContextMenuForHighlightedItem: quickSearch.openContextMenuForHighlightedItem,
         open: quickSearch.open,
         close: requestCloseFromPanel,
+        settleInteraction: quickSearch.settleInteraction,
         syncClosedState: () => {},
         getHighlightedItem: quickSearch.getHighlightedItem,
         openHighlightedItem: quickSearch.openHighlightedItem,

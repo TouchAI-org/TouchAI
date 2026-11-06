@@ -68,6 +68,7 @@ export interface AnalyticsState {
     consentEpoch: number;
     queueDepth: number;
     pendingBytes: number;
+    buildEligible: boolean;
     transportReady: boolean;
 }
 

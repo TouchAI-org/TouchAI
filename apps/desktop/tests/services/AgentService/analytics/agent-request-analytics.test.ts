@@ -771,6 +771,45 @@ describe('user keeps analytics off or unreachable', () => {
         expect(getTauriInvokeCalls('analytics_track')).toHaveLength(0);
     });
 
+    it('user gets no telemetry when sharing turns on while a disabled request capture is queued', async () => {
+        const startedAtMs = 1_760_000_000_000;
+        const enabledAtMs = startedAtMs + 1_000;
+        const now = vi.spyOn(Date, 'now').mockReturnValue(startedAtMs);
+        let finishBegin!: (operation: InjectedOperation) => void;
+        let capturedStart: number | undefined;
+        mockTauriCommand('analytics_begin_operation', (payload: unknown) => {
+            capturedStart = (payload as { startedAtMs: number }).startedAtMs;
+            return new Promise<InjectedOperation>((resolve) => {
+                finishBegin = resolve;
+            });
+        });
+        mockTauriCommand('analytics_track', () => ({ status: 'persisted', eventId: 'event-1' }));
+
+        const request = new AgentRequestAnalytics();
+        await vi.waitFor(() => expect(capturedStart).toBe(startedAtMs));
+
+        // The user enables sharing while the disabled-generation capture is
+        // still queued. Native rejects that older start; the request must not
+        // open a replacement handle or emit into the new consent generation.
+        now.mockReturnValue(enabledAtMs);
+        finishBegin({ operationId: '', enabled: false, consentEpoch: 0 });
+        request.complete({
+            result: 'cancelled',
+            retryCount: 0,
+            modelSwitchCount: 0,
+            persistenceResult: 'saved',
+            calls: [],
+            usageReportedCalls: 0,
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(getTauriInvokeCalls('analytics_begin_operation')).toHaveLength(1);
+        expect(getTauriInvokeCalls('analytics_track')).toHaveLength(0);
+        expect(getTauriInvokeCalls('analytics_complete_operation')).toHaveLength(0);
+        now.mockRestore();
+    });
+
     it('user still gets the answer when the analytics channel is down', async () => {
         mockTauriCommand('analytics_begin_operation', () => {
             throw new Error('channel down');

@@ -4,7 +4,7 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import DiagnosticsSection from '@/views/SettingsView/components/General/DiagnosticsSection.vue';
+import DiagnosticsSection from '@/views/SettingsView/components/DataManagement/components/DiagnosticsSection.vue';
 
 enableAutoUnmount(afterEach);
 
@@ -65,8 +65,10 @@ vi.mock('@components/SettingsRow.vue', () => ({
 
 vi.mock('@components/ui/button', () => ({
     Button: {
+        props: ['variant', 'disabled'],
         emits: ['click'],
-        template: '<button v-bind="$attrs" @click="$emit(\'click\')"><slot /></button>',
+        template:
+            '<button v-bind="$attrs" :data-variant="variant" @click="$emit(\'click\')"><slot /></button>',
     },
 }));
 
@@ -124,10 +126,9 @@ describe('user exports and controls diagnostics', () => {
         const wrapper = mount(DiagnosticsSection);
         await flushPromises();
 
-        const exportButton = wrapper
-            .findAll('button')
-            .find((button) => button.text() === 'Export diagnostics');
-        await exportButton!.trigger('click');
+        const exportButton = wrapper.get('[data-testid="settings-diagnostics-export"]');
+        expect(exportButton.attributes('data-variant')).toBe('strong');
+        await exportButton.trigger('click');
         await flushPromises();
 
         expect(mocks.confirm).toHaveBeenCalledWith(

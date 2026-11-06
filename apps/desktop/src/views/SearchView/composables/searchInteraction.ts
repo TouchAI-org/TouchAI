@@ -541,6 +541,10 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
         controller.closeQuickSearch();
     }
 
+    // The getter creates a new object even when a dependency is reassigned to
+    // the same value. Skip those no-op syncs so hide cleanup cannot reopen a
+    // settled Quick Search interaction.
+    let lastQuickSearchSyncState: string | null = null;
     watch(
         () => ({
             query: queryText.value,
@@ -550,8 +554,13 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
             selectedModelId: modelOverride.value.modelId,
             isModelDropdownOpen: modelDropdownState.value.isOpen,
         }),
-        ({ query }) => {
-            syncQuickSearchPanel(query);
+        (state) => {
+            const nextState = JSON.stringify(state);
+            if (nextState === lastQuickSearchSyncState) {
+                return;
+            }
+            lastQuickSearchSyncState = nextState;
+            syncQuickSearchPanel(state.query);
         },
         { flush: 'post' }
     );

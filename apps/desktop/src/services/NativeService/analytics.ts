@@ -40,8 +40,8 @@ export const analytics = {
         return invoke<AnalyticsLifecycleContext>('analytics_get_lifecycle_context');
     },
 
-    beginOperation(): Promise<AnalyticsOperationHandle> {
-        return invoke<AnalyticsOperationHandle>('analytics_begin_operation');
+    beginOperation(startedAtMs: number): Promise<AnalyticsOperationHandle> {
+        return invoke<AnalyticsOperationHandle>('analytics_begin_operation', { startedAtMs });
     },
 
     completeOperation(operationId: string): Promise<void> {

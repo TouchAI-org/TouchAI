@@ -58,6 +58,8 @@
     } from '@/utils/markdown/parserSetup';
     import WebSearchCitationLink from '@/views/SearchView/components/WebSearch/WebSearchCitationLink.vue';
 
+    import MarkdownCodeBlock from './MarkdownCodeBlock.vue';
+
     let isConfigured = false;
 
     const markstreamZhI18nMap: Record<string, string> = {
@@ -120,10 +122,10 @@
         if (!isConfigured) {
             // 与具体组件无关的基础插件（emoji / katex / mermaid）在模块级注册一次。
             applyMarkdownBasePlugins();
-            // 只接管外部链接节点：命中搜索来源的会渲染成行内引用 chip，
-            // 其余链接由 WebSearchCitationLink 自己透传成普通 <a>。
-            // 测试环境会把 markstream-vue 整体 mock 掉，所以要容忍缺失。
-            setCustomComponents?.('touchai', { link: WebSearchCitationLink });
+            setCustomComponents?.('touchai', {
+                link: WebSearchCitationLink,
+                code_block: MarkdownCodeBlock,
+            });
             isConfigured = true;
         }
 
@@ -141,6 +143,7 @@
     import { computed, inject, onUnmounted, ref, watch } from 'vue';
 
     import { getLocale, locale, t } from '@/i18n';
+    import { runResultAction } from '@/services/AnalyticsService/productInteractions';
     import { clipboardService } from '@/services/ClipboardService';
     import codeSurfaceStyles from '@/styles/markdown-code-surface.css?inline';
     import { containsLongCodeBlock } from '@/utils/markdownCodeBlock';
@@ -1219,7 +1222,7 @@
         }
 
         try {
-            await clipboardService.writeText(text);
+            await runResultAction('copy_code', () => clipboardService.writeText(text));
             notify({
                 title: 'TouchAI',
                 body: t('common.copied'),

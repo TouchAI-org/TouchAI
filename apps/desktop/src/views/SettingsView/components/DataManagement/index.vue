@@ -33,6 +33,8 @@
         name: 'SettingsDataManagementSection',
     });
 
+    import AnalyticsSection from './components/AnalyticsSection.vue';
+    import DiagnosticsSection from './components/DiagnosticsSection.vue';
     import ImportModeDialog from './components/ImportModeDialog.vue';
     import ProgressDialog from './components/ProgressDialog.vue';
 
@@ -587,6 +589,10 @@
                     </div>
                 </div>
             </section>
+
+            <DiagnosticsSection />
+
+            <AnalyticsSection />
 
             <ImportModeDialog
                 v-if="isImportModeDialogMounted"

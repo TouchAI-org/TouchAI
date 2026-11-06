@@ -147,6 +147,8 @@ function createController() {
         loadActiveModel: vi.fn().mockResolvedValue(undefined),
         invalidateModelDropdownData: vi.fn(),
         isQuickSearchOpen: vi.fn(() => false),
+        closeQuickSearch: vi.fn(),
+        settleQuickSearchInteraction: vi.fn(),
     };
 }
 

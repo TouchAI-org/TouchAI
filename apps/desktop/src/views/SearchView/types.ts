@@ -43,6 +43,7 @@ export interface SearchBarHandle {
 export interface QuickSearchHandle {
     open: () => void;
     close: () => void;
+    settleInteraction: () => void;
     syncClosedState: () => void;
     moveSelection: (direction: 'up' | 'down' | 'left' | 'right') => void;
     getHighlightedItem: () => unknown | null;
@@ -80,6 +81,7 @@ export interface SearchPageController {
     isQuickSearchItemHighlighted: () => boolean;
     openQuickSearch: () => void;
     closeQuickSearch: () => void;
+    settleQuickSearchInteraction: () => void;
     moveQuickSearchSelection: (direction: 'up' | 'down' | 'left' | 'right') => void;
     openHighlightedQuickSearchItem: () => Promise<void>;
     triggerQuickSearch: (query: string) => void;

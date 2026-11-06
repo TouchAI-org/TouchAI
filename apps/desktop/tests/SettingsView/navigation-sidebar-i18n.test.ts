@@ -54,7 +54,7 @@ describe('user navigates the settings sections', () => {
         );
         expect(
             wrapper.get('[data-testid="settings-nav-data-management"]').attributes('title')
-        ).toBe('Data management');
+        ).toBe('Data & privacy');
         expect(wrapper.find('[data-testid="settings-nav-about"]').exists()).toBe(false);
     });
 
@@ -71,10 +71,13 @@ describe('user navigates the settings sections', () => {
             'Search',
             'Browser Control',
             'MCP tools',
-            'Data management',
+            'Data & privacy',
         ]);
         expect(getSettingsNavigationItem('mcp-tools')?.description).toBe(
             'External MCP servers and tool call logs'
+        );
+        expect(getSettingsNavigationItem('data-management')?.description).toBe(
+            'Local data, backup, diagnostics, and analytics'
         );
 
         setLocale('zh-CN');

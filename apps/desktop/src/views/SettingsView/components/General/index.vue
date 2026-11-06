@@ -15,8 +15,6 @@
     import { type AppLocale, LOCALE_LABELS, SUPPORTED_LOCALES, t } from '@/i18n';
     import { type OutputScrollBehavior, useSettingsStore } from '@/stores/settings';
 
-    import AnalyticsSection from './AnalyticsSection.vue';
-    import DiagnosticsSection from './DiagnosticsSection.vue';
     import UpdateAvailableBadge from './UpdateAvailableBadge.vue';
     import UpdateSettingsSection from './UpdateSettingsSection.vue';
 
@@ -310,10 +308,6 @@
                     </SettingsRow>
                 </div>
             </section>
-
-            <DiagnosticsSection />
-
-            <AnalyticsSection />
 
             <UpdateSettingsSection ref="updateSettingsSection" />
         </div>

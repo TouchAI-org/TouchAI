@@ -51,22 +51,6 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
         { labelKey: 'settings.general.update.channelTitle', targetId: 'updates' },
         { labelKey: 'settings.general.update.channelRowLabel', targetId: 'update-channel' },
         { labelKey: 'settings.general.update.autoCheck', targetId: 'update-auto-check' },
-        {
-            labelKey: 'settings.diagnostics.title',
-            targetId: 'diagnostics',
-        },
-        {
-            labelKey: 'settings.diagnostics.diagnosticMode',
-            targetId: 'diagnostic-mode',
-        },
-        {
-            labelKey: 'settings.diagnostics.exportBundle',
-            targetId: 'diagnostic-export',
-        },
-        {
-            labelKey: 'settings.diagnostics.crashRecords',
-            targetId: 'diagnostic-crashes',
-        },
     ],
     shortcuts: [
         {
@@ -130,6 +114,31 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
         { labelKey: 'settings.dataManagement.modelDatabase', targetId: 'model-database' },
         { labelKey: 'settings.dataManagement.exportSettings', targetId: 'export-settings' },
         { labelKey: 'settings.dataManagement.importSettings', targetId: 'import-settings' },
+        {
+            labelKey: 'settings.diagnostics.title',
+            targetId: 'diagnostics',
+        },
+        {
+            labelKey: 'settings.diagnostics.diagnosticMode',
+            targetId: 'diagnostic-mode',
+        },
+        {
+            labelKey: 'settings.diagnostics.exportBundle',
+            targetId: 'diagnostic-export',
+        },
+        {
+            labelKey: 'settings.diagnostics.crashRecords',
+            targetId: 'diagnostic-crashes',
+        },
+        {
+            labelKey: 'settings.analytics.title',
+            targetId: 'analytics',
+        },
+        {
+            labelKey: 'settings.analytics.share',
+            descriptionKey: 'settings.analytics.shareDescription',
+            targetId: 'analytics-share',
+        },
     ],
 };
 

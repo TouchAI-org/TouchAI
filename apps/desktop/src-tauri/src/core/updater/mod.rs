@@ -844,8 +844,7 @@ fn forward_download_progress(progress_rx: mpsc::Receiver<i16>, mut emit_progress
     }
 }
 
-pub async fn install_update<R: Runtime>(
-    app: AppHandle<R>,
+pub async fn install_update(
     state: &AppUpdaterState,
     channel: AppUpdateChannel,
     version: &str,
@@ -869,7 +868,6 @@ pub async fn install_update<R: Runtime>(
     })
     .await?;
 
-    app.exit(0);
     Ok(true)
 }
 
