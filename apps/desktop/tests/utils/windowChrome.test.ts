@@ -11,7 +11,12 @@ vi.mock('@tauri-apps/api/window', () => ({
     currentMonitor: () => currentMonitor(),
 }));
 
-const { applyDesktopPlatformClass, initializeDesktopShell } = await import('@/utils/windowChrome');
+const {
+    applyDesktopPlatformClass,
+    initializeDesktopShell,
+    readWindowSurfaceBounds,
+    readWindowViewportBounds,
+} = await import('@/utils/windowChrome');
 const { detectDesktopPlatform } = await import('@/utils/platform');
 
 function stubUserAgent(userAgent: string, platform = '') {
@@ -40,6 +45,7 @@ function monitorOf(width: number, height: number) {
 function resetShellState() {
     delete document.documentElement.dataset.platform;
     delete document.documentElement.dataset.windowMaximized;
+    document.querySelector('.window-shell')?.remove();
     onResized.mockReset();
     currentMonitor.mockReset();
     scaleFactor.mockReset();
@@ -51,6 +57,39 @@ function resetShellState() {
     currentMonitor.mockResolvedValue(monitorOf(1400, 900));
     stubViewport(750, 60);
 }
+
+describe('window surface bounds', () => {
+    beforeEach(resetShellState);
+
+    it('user gets the visible shell instead of the native shadow gutter', () => {
+        const shell = document.createElement('div');
+        shell.className = 'window-shell';
+        shell.getBoundingClientRect = () => new DOMRect(24, 24, 312, 100);
+        document.body.append(shell);
+        stubViewport(360, 148);
+
+        expect(readWindowSurfaceBounds()).toEqual({
+            left: 24,
+            top: 24,
+            right: 336,
+            bottom: 124,
+            width: 312,
+            height: 100,
+        });
+        expect(readWindowViewportBounds()).toEqual(readWindowSurfaceBounds());
+    });
+
+    it('user gets the viewport when the shell has not been laid out yet', () => {
+        const shell = document.createElement('div');
+        shell.className = 'window-shell';
+        shell.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+        document.body.append(shell);
+        stubViewport(750, 60);
+
+        expect(readWindowSurfaceBounds()).toBeNull();
+        expect(readWindowViewportBounds()).toMatchObject({ width: 750, height: 60 });
+    });
+});
 
 describe('detectDesktopPlatform', () => {
     beforeEach(resetShellState);

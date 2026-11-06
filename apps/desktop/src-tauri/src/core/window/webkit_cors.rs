@@ -25,10 +25,9 @@ pub(crate) fn allow_custom_scheme_requests<R: Runtime>(
 ) -> Result<(), String> {
     use webkit2gtk::{SecurityManagerExt, WebContextExt, WebViewExt};
 
-    let (tx, rx) = std::sync::mpsc::channel();
     window
-        .with_webview(move |webview| {
-            let result = (|| {
+        .with_webview(|webview| {
+            let result: Result<(), String> = (|| {
                 let context = webview
                     .inner()
                     .context()
@@ -44,11 +43,12 @@ pub(crate) fn allow_custom_scheme_requests<R: Runtime>(
                 Ok(())
             })();
 
-            let _ = tx.send(result);
+            if let Err(error) = result {
+                log::warn!(
+                    "Failed to register WebKitGTK custom schemes as CORS-enabled: {}",
+                    error
+                );
+            }
         })
-        .map_err(|error| format!("Failed to access the WebKitGTK webview: {error}"))?;
-
-    rx.recv().map_err(|error| {
-        format!("Failed to receive the WebKitGTK custom scheme registration result: {error}")
-    })?
+        .map_err(|error| format!("Failed to access the WebKitGTK webview: {error}"))
 }

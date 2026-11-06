@@ -199,6 +199,24 @@ describe('user sees a source chip and its preview', () => {
         expect(left).toBeLessThan(chipRect.left);
     });
 
+    it('user keeps the preview inside the visible shell when the native window has shadow gutters', async () => {
+        const shell = document.createElement('div');
+        shell.className = 'window-shell';
+        shell.getBoundingClientRect = () => rect(24, 24, 312, 240);
+        const host = document.createElement('div');
+        shell.appendChild(host);
+        document.body.appendChild(shell);
+        chipRect = rect(300, 80, 18, 18);
+        const wrapper = mount(WebSearchCitation, { props: { source }, attachTo: host });
+
+        await openPreview(wrapper);
+
+        const left = previewMetric('left');
+        const width = previewMetric('max-width');
+        expect(left).toBeGreaterThanOrEqual(24 + 12);
+        expect(left + width).toBeLessThanOrEqual(24 + 312 - 12);
+    });
+
     it('user keeps the preview inside the content column instead of the viewport edge', async () => {
         // 正文列比视口窄：卡片右缘不能伸进正文右侧的留白。
         chipRect = rect(519, 100, 18, 18);

@@ -49,6 +49,9 @@ const DOWNLOAD_CONNECT_TIMEOUT_SECS: u64 = 15;
 /// 最大重试轮次（每轮会尝试所有 CDN）
 const MAX_RETRY_ROUNDS: usize = 2;
 
+/// Overall ceiling for all CDN attempts and retry rounds.
+const FONT_DOWNLOAD_TOTAL_TIMEOUT_SECS: u64 = 300;
+
 /// 获取字体文件路径
 fn get_font_path() -> Result<PathBuf, String> {
     let font_dir = app_directory_path(AppDirectory::AssetsFont)?;
@@ -288,6 +291,21 @@ async fn save_font(data: &[u8]) -> Result<(), String> {
 /// 2. 如果所有 CDN 都失败，进入下一轮重试
 /// 3. 最多重试 MAX_RETRY_ROUNDS 轮
 async fn download_font_with_retry() -> Result<(), String> {
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(FONT_DOWNLOAD_TOTAL_TIMEOUT_SECS),
+        download_font_rounds(),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(format!(
+            "Font download exceeded the {} second overall budget",
+            FONT_DOWNLOAD_TOTAL_TIMEOUT_SECS
+        )),
+    }
+}
+
+async fn download_font_rounds() -> Result<(), String> {
     for round in 1..=MAX_RETRY_ROUNDS {
         info!("Download attempt round {}/{}", round, MAX_RETRY_ROUNDS);
 
@@ -464,7 +482,8 @@ mod tests {
     use super::{
         is_valid_font_file, is_valid_font_file_with, replace_font_file,
         try_download_from_cdns_with, validate_font_data, DOWNLOAD_CONNECT_TIMEOUT_SECS,
-        DOWNLOAD_TIMEOUT_SECS, FONT_CDN_URLS, FONT_FILENAME, MAX_RETRY_ROUNDS,
+        DOWNLOAD_TIMEOUT_SECS, FONT_CDN_URLS, FONT_DOWNLOAD_TOTAL_TIMEOUT_SECS, FONT_FILENAME,
+        MAX_RETRY_ROUNDS,
     };
     use tempfile::tempdir;
     use tokio::fs;
@@ -569,6 +588,21 @@ mod tests {
         assert!(
             MAX_RETRY_ROUNDS * FONT_CDN_URLS.len() >= 6,
             "the app should still try every CDN fallback in each round"
+        );
+    }
+
+    #[test]
+    fn user_waits_at_most_the_overall_font_download_budget() {
+        let theoretical_worst_case =
+            DOWNLOAD_TIMEOUT_SECS * FONT_CDN_URLS.len() as u64 * MAX_RETRY_ROUNDS as u64;
+
+        assert!(
+            FONT_DOWNLOAD_TOTAL_TIMEOUT_SECS < theoretical_worst_case,
+            "the overall budget must cap the sum of every per-CDN retry timeout"
+        );
+        assert!(
+            FONT_DOWNLOAD_TOTAL_TIMEOUT_SECS >= DOWNLOAD_TIMEOUT_SECS,
+            "the overall budget must still allow one full font response"
         );
     }
 

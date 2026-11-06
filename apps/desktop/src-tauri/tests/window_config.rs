@@ -91,16 +91,16 @@ fn user_gets_antialiased_corners_from_a_transparent_frameless_window() {
 }
 
 #[test]
-fn user_can_close_a_window_after_its_close_listener_flushes() {
+fn user_gets_a_standard_close_without_the_destroy_permission() {
     let capabilities = read_config("capabilities/default.json");
     let permissions = capabilities["permissions"]
         .as_array()
         .expect("capabilities.permissions must be an array");
 
     assert!(
-        permissions
+        !permissions
             .iter()
             .any(|permission| permission.as_str() == Some("core:window:allow-destroy")),
-        "the close-requested listener prevents the default close and then destroys the window"
+        "flushing logs must use the approved close path, not the destructive destroy capability"
     );
 }

@@ -4,6 +4,87 @@ import { currentMonitor, getCurrentWindow } from '@tauri-apps/api/window';
 
 import { detectDesktopPlatform } from './platform';
 
+const WINDOW_SHELL_SELECTOR = '.window-shell';
+
+export interface WindowSurfaceBounds {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    width: number;
+    height: number;
+}
+
+/**
+ * Returns the visible window surface in viewport coordinates.
+ *
+ * A native floating window reserves a transparent gutter for its CSS shadow.
+ * `window.innerWidth` and `window.innerHeight` include that gutter, so layout
+ * and fixed overlays must measure the shell instead.
+ */
+export function readWindowSurfaceBounds(element?: Element | null): WindowSurfaceBounds | null {
+    if (typeof document === 'undefined') {
+        return null;
+    }
+
+    const shell =
+        element?.closest<HTMLElement>(WINDOW_SHELL_SELECTOR) ??
+        document.querySelector<HTMLElement>(WINDOW_SHELL_SELECTOR);
+    if (!shell) {
+        return null;
+    }
+
+    const rect = shell.getBoundingClientRect();
+    if (
+        !Number.isFinite(rect.left) ||
+        !Number.isFinite(rect.top) ||
+        !Number.isFinite(rect.width) ||
+        !Number.isFinite(rect.height) ||
+        rect.width <= 0 ||
+        rect.height <= 0
+    ) {
+        return null;
+    }
+
+    return {
+        left: rect.left,
+        top: rect.top,
+        right: rect.left + rect.width,
+        bottom: rect.top + rect.height,
+        width: rect.width,
+        height: rect.height,
+    };
+}
+
+/**
+ * Returns the visible surface, falling back to the browser viewport when no
+ * window shell is mounted yet.
+ */
+export function readWindowViewportBounds(element?: Element | null): WindowSurfaceBounds {
+    const surface = readWindowSurfaceBounds(element);
+    if (surface) {
+        return surface;
+    }
+
+    const documentWidth =
+        typeof document !== 'undefined' ? (document.documentElement?.clientWidth ?? 0) : 0;
+    const documentHeight =
+        typeof document !== 'undefined' ? (document.documentElement?.clientHeight ?? 0) : 0;
+    const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 0;
+    const windowHeight = typeof window !== 'undefined' ? window.innerHeight : 0;
+    const width = windowWidth > 0 ? windowWidth : documentWidth;
+    const height = windowHeight > 0 ? windowHeight : documentHeight;
+
+    return {
+        left: 0,
+        top: 0,
+        right: width,
+        bottom: height,
+        width,
+        height,
+    };
+}
+
 /**
  * 让文档根节点带上平台标记，供需要区分平台的前端逻辑读取。
  */

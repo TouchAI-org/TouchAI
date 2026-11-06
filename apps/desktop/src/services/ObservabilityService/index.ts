@@ -93,7 +93,7 @@ function installShutdownFlush(): void {
 
     try {
         const currentWindow = getCurrentWindow();
-        const handleCloseRequested = createWindowCloseHandler(() => currentWindow.destroy());
+        const handleCloseRequested = createWindowCloseHandler(() => currentWindow.close());
         void currentWindow.onCloseRequested(handleCloseRequested).catch(reportLoggingFailure);
 
         void listen(QUIT_FLUSH_EVENT, async () => {
@@ -120,8 +120,9 @@ type WindowCloseEvent = {
 };
 
 /**
- * Flush once, then destroy the window. The close-requested listener prevents
- * the default close, so the capability must also allow destroy.
+ * Flush once, then close the window again. The close-requested listener
+ * prevents the first close, and the approved second call lets the native close
+ * proceed without a destructive window-destroy permission.
  */
 export function createWindowCloseHandler(
     closeWindow: () => Promise<void>,

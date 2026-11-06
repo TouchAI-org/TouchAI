@@ -66,6 +66,7 @@
         type WebSearchSource,
     } from '@/services/BuiltInToolService/tools/webSearch/sources';
     import { truncateText } from '@/utils/text';
+    import { readWindowViewportBounds } from '@/utils/windowChrome';
 
     import SourceFavicon from './SourceFavicon.vue';
 
@@ -183,26 +184,25 @@
 
         const chipRect = root.getBoundingClientRect();
         const column = resolveContentColumn(root);
-        const viewportWidth = window.innerWidth;
-        const viewportHeight = window.innerHeight;
+        const viewport = readWindowViewportBounds(root);
 
         // 垂直：优先放下方，放不下翻上方，两边都紧张时选空间大的一侧。
-        const spaceBelow = viewportHeight - chipRect.bottom - VIEWPORT_MARGIN;
-        const spaceAbove = chipRect.top - VIEWPORT_MARGIN;
+        const spaceBelow = viewport.bottom - chipRect.bottom - VIEWPORT_MARGIN;
+        const spaceAbove = chipRect.top - viewport.top - VIEWPORT_MARGIN;
         previewAbove.value = spaceBelow < size.height && spaceAbove > spaceBelow;
 
         const availableHeight = Math.max(0, previewAbove.value ? spaceAbove : spaceBelow);
         const height = Math.min(size.height, availableHeight);
         previewMaxHeight.value = height;
         previewTop.value = previewAbove.value
-            ? Math.max(VIEWPORT_MARGIN, chipRect.top - height - PREVIEW_GAP)
+            ? Math.max(viewport.top + VIEWPORT_MARGIN, chipRect.top - height - PREVIEW_GAP)
             : chipRect.bottom + PREVIEW_GAP;
 
         // 水平：先夹左边缘再定宽度，反过来会让宽度占满可用区、左边无处可收。
         // 右边界取「视口」与「正文列」的较窄者，避免卡片伸进正文右侧留白。
-        const limitLeft = Math.max(VIEWPORT_MARGIN, column?.left ?? 0);
+        const limitLeft = Math.max(viewport.left + VIEWPORT_MARGIN, column?.left ?? viewport.left);
         const limitRight =
-            Math.min(viewportWidth - VIEWPORT_MARGIN, column?.right ?? viewportWidth) -
+            Math.min(viewport.right - VIEWPORT_MARGIN, column?.right ?? viewport.right) -
             VIEWPORT_MARGIN;
         const width = Math.min(size.width, Math.max(MIN_PREVIEW_WIDTH, limitRight - limitLeft));
         const maxLeft = Math.max(limitLeft, limitRight - width);

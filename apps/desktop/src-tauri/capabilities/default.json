@@ -20,7 +20,6 @@
         "core:window:allow-unmaximize",
         "core:window:allow-minimize",
         "core:window:allow-close",
-        "core:window:allow-destroy",
         "global-shortcut:allow-register",
         "global-shortcut:allow-unregister",
         "notification:default",
