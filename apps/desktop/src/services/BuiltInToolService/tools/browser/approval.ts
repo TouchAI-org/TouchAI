@@ -1,18 +1,18 @@
-import { getSettingValue } from '@database/queries';
-
-import { tt } from '@/i18n';
-import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 import {
     BROWSER_SETTINGS_KEY,
     parseBrowserSettingsConfig,
-} from '@/stores/setting/sections/browser';
+} from '@services/SettingsService/domain/sections/browser';
 import {
     type BrowserToolOperation,
     evaluateBrowserPermission,
     normalizeBrowserDescription,
-} from '@/stores/setting/sections/browserPolicy';
+} from '@services/SettingsService/domain/sections/browserPolicy';
+
+import { tt } from '@/i18n';
+import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
+import { readEffectiveSettingValue } from '../../settingsReader';
 import type { BrowserToolId } from './index';
 import { parseBrowserOperation } from './operation';
 import { redactBrowserText, redactUrl } from './redaction';
@@ -103,9 +103,8 @@ async function isApprovalAllowedByBrowserSettings(
         return false;
     }
 
-    const settings = parseBrowserSettingsConfig(
-        await getSettingValue({ key: BROWSER_SETTINGS_KEY })
-    );
+    const value = await readEffectiveSettingValue(BROWSER_SETTINGS_KEY);
+    const settings = parseBrowserSettingsConfig(typeof value === 'string' ? value : null);
     const rawUrl = normalizeOptionalString(args.url, { collapseWhitespace: true });
     const decision = evaluateBrowserPermission(settings, permissionOperation, { url: rawUrl });
     return decision.decision === 'allow';

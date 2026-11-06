@@ -1,210 +1,141 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { getSettingValue, setSetting } from '@database/queries';
-import { AppEvent, eventService } from '@services/EventService';
-import { log } from '@services/ObservabilityService';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { defineStore } from 'pinia';
-import { ref } from 'vue';
-
+import { getSettingsService } from '@services/SettingsService';
 import {
     applyGeneralSettingValue,
-    applyParsedGeneralSettingValue,
-    applyPersistedGeneralSettingValue,
-    cloneGeneralSettingsSnapshot,
     createDefaultGeneralSettings,
-    createGeneralSettingsComputedRefs,
     createGeneralSettingUpdaters,
-    GENERAL_SETTING_DEFINITIONS,
     type GeneralSettingKey,
     type GeneralSettingsData,
     type GeneralSettingValue,
-    getGeneralSettingDefinition,
-    getGeneralSettingEventValue,
-    parseGeneralSettingUpdateValue,
-    serializeGeneralSetting,
-    serializeParsedGeneralSettingValue,
-} from './setting';
+} from '@services/SettingsService/domain';
+import {
+    SettingsErrorCode,
+    type SettingsMutationResult,
+    SettingsServiceError,
+} from '@services/SettingsService/types';
+import { defineStore } from 'pinia';
+import { ref } from 'vue';
 
-export type { GeneralSettingsData, OutputScrollBehavior } from './setting';
+import { createGeneralSettingsComputedRefs } from './settingBindings';
+
+export type { GeneralSettingsData, OutputScrollBehavior } from '@services/SettingsService/domain';
+
+function toSettingsError(result: SettingsMutationResult): SettingsServiceError {
+    if (result.status === 'committed') {
+        return new SettingsServiceError(SettingsErrorCode.PersistenceFailed, '');
+    }
+    return new SettingsServiceError(result.code, result.message);
+}
 
 export const useSettingsStore = defineStore('settings', () => {
     const settings = ref<GeneralSettingsData>(createDefaultGeneralSettings());
     const initialized = ref(false);
     const loading = ref(false);
-    const windowLabel = ref('unknown');
+    const lastWarning = ref<string | null>(null);
 
-    const instanceId = crypto.randomUUID();
     let initializePromise: Promise<void> | null = null;
-    let unlistenSettingsUpdated: (() => void) | null = null;
+    let unsubscribe: (() => void) | null = null;
+    let pendingMutationToken = 0;
+    const pendingMutations = new Map<
+        GeneralSettingKey,
+        { token: number; value: GeneralSettingValue }
+    >();
 
-    function cloneSettingsSnapshot(): GeneralSettingsData {
-        return cloneGeneralSettingsSnapshot(settings.value);
+    function service() {
+        return getSettingsService();
     }
 
-    function applySetting(key: GeneralSettingKey, value: GeneralSettingValue): void {
-        applyGeneralSettingValue(settings.value, key, value);
-    }
-
-    function serializeSetting(key: GeneralSettingKey): string {
-        return serializeGeneralSetting(settings.value, key);
-    }
-
-    function payloadValueForEvent(key: GeneralSettingKey): GeneralSettingValue {
-        return getGeneralSettingEventValue(settings.value, key);
-    }
-
-    async function persistDefaultIfMissing(key: GeneralSettingKey, currentValue: string | null) {
-        if (currentValue !== null) {
-            return;
+    function mirror(): void {
+        const snapshot = service().getSnapshot();
+        // A focus refresh can return the owner's pre-mutation snapshot while a write is
+        // still in flight. Keep the latest requested value visible until that write settles.
+        for (const [key, pending] of pendingMutations) {
+            applyGeneralSettingValue(snapshot, key, pending.value);
         }
-        await setSetting({ key, value: serializeSetting(key) });
+        settings.value = snapshot;
     }
 
-    async function loadFromDatabase() {
-        loading.value = true;
-        try {
-            const settingRows = await Promise.all(
-                GENERAL_SETTING_DEFINITIONS.map((definition) =>
-                    getSettingValue({ key: definition.key })
-                )
-            );
-
-            GENERAL_SETTING_DEFINITIONS.forEach((definition, index) => {
-                applyPersistedGeneralSettingValue(
-                    settings.value,
-                    definition.key,
-                    settingRows[index] ?? null
-                );
-            });
-
-            const persistenceResults = await Promise.allSettled(
-                GENERAL_SETTING_DEFINITIONS.map((definition, index) => {
-                    const persistedValue = settingRows[index] ?? null;
-                    if (definition.shouldRewritePersisted?.(persistedValue)) {
-                        return setSetting({
-                            key: definition.key,
-                            value: serializeSetting(definition.key),
-                        });
-                    }
-
-                    return persistDefaultIfMissing(definition.key, persistedValue);
-                })
-            );
-            const failedPersistenceKeys = persistenceResults.flatMap((result, index) =>
-                result.status === 'rejected'
-                    ? [GENERAL_SETTING_DEFINITIONS[index]?.key ?? `unknown:${index}`]
-                    : []
-            );
-            if (failedPersistenceKeys.length > 0) {
-                log.warn(
-                    `[SettingsStore] Failed to persist general setting rewrite/default value(s): ${failedPersistenceKeys.join(
-                        ', '
-                    )}`
-                );
-            }
-        } finally {
-            loading.value = false;
+    function settlePendingMutation(key: GeneralSettingKey, token: number): boolean {
+        if (pendingMutations.get(key)?.token !== token) {
+            return false;
         }
-    }
-
-    async function broadcastUpdate(key: GeneralSettingKey): Promise<void> {
-        await eventService.emit(AppEvent.SETTINGS_GENERAL_UPDATED, {
-            sourceId: instanceId,
-            windowLabel: windowLabel.value,
-            key,
-            value: payloadValueForEvent(key),
-        });
+        pendingMutations.delete(key);
+        mirror();
+        return true;
     }
 
     async function updateSetting(
         key: GeneralSettingKey,
-        value: GeneralSettingValue,
-        options: { broadcast?: boolean } = {}
+        value: GeneralSettingValue
     ): Promise<void> {
-        const { broadcast = true } = options;
-        const definition = getGeneralSettingDefinition(key);
-        if (!definition) {
-            return;
-        }
+        const token = ++pendingMutationToken;
+        pendingMutations.set(key, { token, value });
+        mirror();
 
-        const parsedValue = parseGeneralSettingUpdateValue(key, value);
-        if (definition.persistBeforeApply) {
-            await setSetting({
-                key,
-                value: serializeParsedGeneralSettingValue(key, parsedValue),
-            });
-            applyParsedGeneralSettingValue(settings.value, key, parsedValue);
-            if (broadcast) {
-                await broadcastUpdate(key);
-            }
-            return;
-        }
-
-        const previousSettings = cloneSettingsSnapshot();
-        applyParsedGeneralSettingValue(settings.value, key, parsedValue);
+        let result: SettingsMutationResult;
         try {
-            await setSetting({ key, value: serializeSetting(key) });
+            result = await service().mutate(key, value);
         } catch (error) {
-            settings.value = previousSettings;
+            settlePendingMutation(key, token);
             throw error;
         }
-        if (broadcast) {
-            await broadcastUpdate(key);
+
+        if (result.status === 'committed') {
+            settlePendingMutation(key, token);
+            lastWarning.value = result.warning ?? null;
+            return;
         }
+        settlePendingMutation(key, token);
+        lastWarning.value = null;
+        throw toSettingsError(result);
     }
 
-    async function initialize() {
+    async function initialize(): Promise<void> {
         if (initialized.value) {
             return;
         }
 
         if (initializePromise) {
-            await initializePromise;
-            return;
+            return initializePromise;
+        }
+
+        // Subscribe before the handshake. If the first initialize rejects (e.g. the owner
+        // is not ready yet), a later owner-ready/focus reconcile still updates the mirror;
+        // `initialized` stays false until a handshake actually succeeds.
+        if (!unsubscribe) {
+            unsubscribe = service().subscribe(() => mirror());
         }
 
         initializePromise = (async () => {
+            loading.value = true;
             try {
-                windowLabel.value = getCurrentWindow().label;
-            } catch {
-                windowLabel.value = 'unknown';
+                await service().initialize();
+                mirror();
+                initialized.value = true;
+            } finally {
+                loading.value = false;
+                initializePromise = null;
             }
-
-            await loadFromDatabase();
-
-            if (!unlistenSettingsUpdated) {
-                unlistenSettingsUpdated = await eventService.on(
-                    AppEvent.SETTINGS_GENERAL_UPDATED,
-                    (payload) => {
-                        if (payload.sourceId === instanceId) {
-                            return;
-                        }
-                        applySetting(payload.key, payload.value);
-                    }
-                );
-            }
-
-            initialized.value = true;
         })();
 
-        try {
-            await initializePromise;
-        } finally {
-            initializePromise = null;
-        }
+        return initializePromise;
     }
 
-    async function dispose() {
-        if (unlistenSettingsUpdated) {
-            unlistenSettingsUpdated();
-            unlistenSettingsUpdated = null;
+    async function dispose(): Promise<void> {
+        pendingMutationToken += 1;
+        pendingMutations.clear();
+        if (unsubscribe) {
+            unsubscribe();
+            unsubscribe = null;
         }
+        service().dispose();
         initialized.value = false;
     }
 
-    async function refresh() {
-        await loadFromDatabase();
+    async function refresh(): Promise<void> {
+        await service().refresh();
+        mirror();
     }
 
     const settingComputedRefs = createGeneralSettingsComputedRefs(settings);
@@ -214,6 +145,7 @@ export const useSettingsStore = defineStore('settings', () => {
         settings,
         initialized,
         loading,
+        lastWarning,
         initialize,
         dispose,
         refresh,

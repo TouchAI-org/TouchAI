@@ -7,13 +7,6 @@
     import { Input } from '@components/ui/input';
     import { Switch } from '@components/ui/switch';
     import { log } from '@services/ObservabilityService';
-    import { open } from '@tauri-apps/plugin-dialog';
-    import { storeToRefs } from 'pinia';
-    import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-
-    import { type MessageKey, t } from '@/i18n';
-    import { native } from '@/services/NativeService';
-    import type { BrowserInstalledBrowser } from '@/services/NativeService/types';
     import {
         type BrowserFingerprintProfile,
         type BrowserPermissionMode,
@@ -24,7 +17,14 @@
         parseBrowserSettingsConfig,
         type ScreenshotAttachmentMode,
         serializeBrowserSettingsConfig,
-    } from '@/stores/setting/sections/browser';
+    } from '@services/SettingsService/domain';
+    import { open } from '@tauri-apps/plugin-dialog';
+    import { storeToRefs } from 'pinia';
+    import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+
+    import { type MessageKey, t } from '@/i18n';
+    import { native } from '@/services/NativeService';
+    import type { BrowserInstalledBrowser } from '@/services/NativeService/types';
     import { useSettingsStore } from '@/stores/settings';
 
     import DomainRuleInput from './components/DomainRuleInput.vue';

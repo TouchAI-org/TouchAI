@@ -217,7 +217,8 @@ describe('user records a new activation shortcut', () => {
 
         await pressKeys({ key: 'n', ctrlKey: true });
 
-        expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith('Ctrl+N');
+        expect(settingsMock.updateGlobalShortcut).toHaveBeenCalledWith('Ctrl+N');
+        expect(nativeMock.shortcut.registerGlobalShortcut).not.toHaveBeenCalled();
         expect(settingsMock.settings.value.globalShortcut).toBe('Ctrl+N');
         expect(fieldValue(wrapper)).toBe('Ctrl+N');
     });
@@ -276,23 +277,21 @@ describe('user records a new activation shortcut', () => {
     });
 
     it('user keeps the old shortcut when the system refuses to register the new one', async () => {
-        nativeMock.shortcut.registerGlobalShortcut.mockRejectedValue(
+        settingsMock.updateGlobalShortcut.mockRejectedValueOnce(
             new Error('shortcut already registered')
         );
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
         const wrapper = await mountSection();
         await startCapture(wrapper);
 
         await pressKeys({ key: 'n', ctrlKey: true });
 
-        expect(settingsMock.updateGlobalShortcut).not.toHaveBeenCalled();
+        expect(settingsMock.updateGlobalShortcut).toHaveBeenCalledWith('Ctrl+N');
         expect(settingsMock.settings.value.globalShortcut).toBe('Alt+Space');
         expect(wrapper.find('[data-testid="settings-shortcut-occupied-indicator"]').exists()).toBe(
             true
         );
         expect(notifyMock).toHaveBeenCalled();
         expect(alertMock.error).toHaveBeenCalled();
-        consoleError.mockRestore();
     });
 
     it('user is not asked to save a shortcut they already have', async () => {
@@ -335,7 +334,8 @@ describe('user picks a suggested activation shortcut', () => {
         await wrapper.get('[data-testid="preset-Ctrl+Space"]').trigger('click');
         await flushPromises();
 
-        expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith('Ctrl+Space');
+        expect(settingsMock.updateGlobalShortcut).toHaveBeenCalledWith('Ctrl+Space');
+        expect(nativeMock.shortcut.registerGlobalShortcut).not.toHaveBeenCalled();
         expect(settingsMock.settings.value.globalShortcut).toBe('Ctrl+Space');
         expect(fieldValue(wrapper)).toBe('Ctrl+Space');
         expect(wrapper.find('[data-testid="preset-menu"]').exists()).toBe(false);

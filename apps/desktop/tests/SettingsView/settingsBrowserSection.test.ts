@@ -15,7 +15,7 @@ const browserSettingsPatch = vi.hoisted(() => ({
 const DEFAULT_BROWSER_DATA_PATH = 'C:/Users/test/AppData/Roaming/TouchAI/browser-data';
 
 vi.mock('@/stores/settings', async () => {
-    const { DEFAULT_BROWSER_SETTINGS } = await import('@/stores/setting/sections/browser');
+    const { DEFAULT_BROWSER_SETTINGS } = await import('@services/SettingsService/domain');
     const { ref } = await import('vue');
 
     return {

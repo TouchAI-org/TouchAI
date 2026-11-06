@@ -1,19 +1,19 @@
-import { getSettingValue } from '@database/queries';
 import { native } from '@services/NativeService';
-
-import { t } from '@/i18n';
-import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
-import type { BrowserExistingSession, BrowserStartRequest } from '@/services/NativeService/types';
 import {
     BROWSER_SETTINGS_KEY,
     type BrowserSettingsConfig,
     parseBrowserSettingsConfig,
-} from '@/stores/setting/sections/browser';
+} from '@services/SettingsService/domain/sections/browser';
 import {
     type BrowserToolOperation,
     evaluateBrowserPermission,
-} from '@/stores/setting/sections/browserPolicy';
+} from '@services/SettingsService/domain/sections/browserPolicy';
 
+import { t } from '@/i18n';
+import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
+import type { BrowserExistingSession, BrowserStartRequest } from '@/services/NativeService/types';
+
+import { readEffectiveSettingValue } from '../../settingsReader';
 import {
     type BaseBuiltInToolExecutionContext,
     BuiltInTool,
@@ -126,7 +126,8 @@ function omitUndefinedBrowserStartRequest(request: BrowserStartRequest): Browser
 }
 
 async function loadBrowserSettings(): Promise<BrowserSettingsConfig> {
-    return parseBrowserSettingsConfig(await getSettingValue({ key: BROWSER_SETTINGS_KEY }));
+    const value = await readEffectiveSettingValue(BROWSER_SETTINGS_KEY);
+    return parseBrowserSettingsConfig(typeof value === 'string' ? value : null);
 }
 
 async function ensureBrowserPermission(

@@ -5,7 +5,7 @@ import {
     type SearchWindowSizePreset,
     SearchWindowSizePreset as SearchWindowSizePresets,
 } from '@/config/searchWindow';
-import { type AppLocale, normalizeLocale, resolveFirstLaunchLocale, setLocale } from '@/i18n';
+import { type AppLocale, normalizeLocale, resolveFirstLaunchLocale } from '@/i18n/locales';
 import { z } from '@/utils/zod';
 
 import type {
@@ -13,7 +13,7 @@ import type {
     GeneralSettingsData,
     OutputScrollBehavior,
     ScalarSettingDefinitionOptions,
-} from './index';
+} from './definitions';
 
 const outputScrollBehaviorSchema = z.enum(['follow_output', 'stay_position', 'jump_to_top']);
 const searchWindowSizePresetSchema = z.enum(
@@ -148,7 +148,6 @@ export const GENERAL_SCALAR_SETTING_SPECS = [
         defaultValue: DEFAULT_LANGUAGE,
         parsePersisted: (raw) => (raw === null ? resolveFirstLaunchLocale() : normalizeLocale(raw)),
         parseUpdate: normalizeLocale,
-        afterApply: (_target, value) => setLocale(value as AppLocale),
         persistBeforeApply: true,
         store: {
             computedName: 'language',

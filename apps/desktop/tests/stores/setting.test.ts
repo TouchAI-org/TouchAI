@@ -1,13 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
-import { ref } from 'vue';
-
 import {
     applyGeneralSettingValue,
     applyPersistedGeneralSettingValue,
     cloneGeneralSettingsSnapshot,
     createDefaultGeneralSettings,
-    createGeneralSettingsComputedRefs,
     createGeneralSettingUpdaters,
+    DEFAULT_BROWSER_SETTINGS,
+    DEFAULT_SEARCH_SETTINGS,
     GENERAL_SETTING_COMPUTED_BINDINGS,
     GENERAL_SETTING_DEFINITIONS,
     GENERAL_SETTING_UPDATER_BINDINGS,
@@ -16,11 +14,13 @@ import {
     getGeneralSettingDefinition,
     getGeneralSettingEventValue,
     JSON_GENERAL_SETTING_DEFINITIONS,
+    JSON_SETTINGS_SECTIONS,
     serializeGeneralSetting,
-} from '@/stores/setting';
-import { DEFAULT_BROWSER_SETTINGS } from '@/stores/setting/sections/browser';
-import { JSON_SETTINGS_SECTIONS } from '@/stores/setting/sections/registry';
-import { DEFAULT_SEARCH_SETTINGS } from '@/stores/setting/sections/search';
+} from '@services/SettingsService/domain';
+import { describe, expect, it, vi } from 'vitest';
+import { ref } from 'vue';
+
+import { createGeneralSettingsComputedRefs } from '@/stores/settingBindings';
 
 const EXPECTED_GENERAL_SETTING_KEYS: GeneralSettingKey[] = [
     'global_shortcut',
