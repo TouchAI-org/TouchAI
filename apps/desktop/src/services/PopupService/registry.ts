@@ -35,11 +35,11 @@ function calculatePopupY(
     const screenTop = mainWindow.screenPosition.y;
     const screenHeight = mainWindow.screenSize.height;
     const screenBottom = screenTop + screenHeight;
-    const minY = screenTop;
-    const maxY = screenTop + Math.max(0, screenHeight - popupHeight);
+    const minPanelY = screenTop + POPUP_WINDOW_GUTTER;
+    const maxPanelY = Math.max(screenTop, screenBottom - popupHeight - POPUP_WINDOW_GUTTER);
 
     const isFullyVisible = (candidateY: number) => {
-        return candidateY >= minY && candidateY + popupHeight <= screenBottom;
+        return candidateY >= minPanelY && candidateY <= maxPanelY;
     };
 
     if (isFullyVisible(preferredY)) {
@@ -50,7 +50,7 @@ function calculatePopupY(
         return fallbackY;
     }
 
-    return clamp(preferredY, minY, maxY);
+    return clamp(preferredY, minPanelY, maxPanelY);
 }
 
 /**

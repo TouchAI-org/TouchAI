@@ -1,4 +1,5 @@
-import type { WindowInfo } from '@services/PopupService/types';
+import { createPopupPositionCalculator } from '@services/PopupService/position';
+import type { PopupType, WindowInfo } from '@services/PopupService/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/views/PopupView/components/ModelDropdownPopup/index.vue', () => ({
@@ -111,21 +112,54 @@ describe('user opens a built-in popup', () => {
         if (!config) {
             throw new Error('Expected model dropdown popup config');
         }
-        const position = config.calculatePosition(
-            trigger,
-            createWindowInfo({
-                position: { x: 500, y: 300 },
-                size: { width: 798, height: 108 },
-            }),
-            {
-                width: config.width,
-                height: 180,
-            }
-        );
+        const windowInfo = createWindowInfo({
+            position: { x: 500, y: 300 },
+            size: { width: 798, height: 108 },
+            screenSize: { width: 1800, height: 900 },
+        });
+        const calculator = createPopupPositionCalculator({
+            getPopupConfig: (type: PopupType) => popupRegistry.get(type),
+            getWindowInfo: vi.fn().mockResolvedValue(windowInfo),
+        });
+        const position = await calculator.calculate('model-dropdown-popup', trigger);
 
         expect(position).toEqual({
-            x: 524,
-            y: 389,
+            x: 500,
+            y: 365,
+            width: 368,
+            height: 432,
+        });
+    });
+
+    it('user sees the model dropdown above the shell when only its shadow would cross the screen edge', async () => {
+        const { initializeBuiltInPopups, popupRegistry } = await loadRegistryModule();
+        initializeBuiltInPopups();
+
+        const searchBarContainer = document.createElement('div');
+        searchBarContainer.className = 'search-bar-container';
+        defineRect(searchBarContainer, { top: 24, right: 420, bottom: 84, left: 40 });
+
+        const trigger = document.createElement('button');
+        defineRect(trigger, { top: 30, right: 410, bottom: 60, left: 260 });
+        searchBarContainer.appendChild(trigger);
+        document.body.appendChild(searchBarContainer);
+
+        const windowInfo = createWindowInfo({
+            position: { x: 500, y: 600 },
+            size: { width: 798, height: 108 },
+            screenSize: { width: 1800, height: 1080 },
+        });
+        const calculator = createPopupPositionCalculator({
+            getPopupConfig: (type: PopupType) => popupRegistry.get(type),
+            getWindowInfo: vi.fn().mockResolvedValue(windowInfo),
+        });
+        const position = await calculator.calculate('model-dropdown-popup', trigger);
+
+        expect(position).toEqual({
+            x: 500,
+            y: 211,
+            width: 368,
+            height: 432,
         });
     });
 
