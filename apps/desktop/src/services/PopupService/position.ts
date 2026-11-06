@@ -26,11 +26,19 @@ export function createPopupPositionCalculator(options: PopupPositionCalculatorOp
         if (windowInfo.screenSize && windowInfo.screenPosition) {
             const minX = windowInfo.screenPosition.x;
             const minY = windowInfo.screenPosition.y;
-            const maxX = minX + windowInfo.screenSize.width - width;
-            const maxY = minY + windowInfo.screenSize.height - height;
+            const screenRight = minX + windowInfo.screenSize.width;
+            const screenBottom = minY + windowInfo.screenSize.height;
 
-            x = Math.max(minX, Math.min(x, maxX));
-            y = Math.max(minY, Math.min(y, maxY));
+            x =
+                width <= windowInfo.screenSize.width
+                    ? Math.max(minX, Math.min(x, screenRight - width))
+                    : Math.max(minX, Math.min(position.x, screenRight - config.width)) -
+                      POPUP_WINDOW_GUTTER;
+            y =
+                height <= windowInfo.screenSize.height
+                    ? Math.max(minY, Math.min(y, screenBottom - height))
+                    : Math.max(minY, Math.min(position.y, screenBottom - config.height)) -
+                      POPUP_WINDOW_GUTTER;
         }
 
         return {

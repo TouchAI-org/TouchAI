@@ -6,7 +6,7 @@ import {
 } from '@services/PopupService/types';
 import { describe, expect, it, vi } from 'vitest';
 
-function createWindowInfo(): WindowInfo {
+function createWindowInfo(overrides: Partial<WindowInfo> = {}): WindowInfo {
     return {
         position: { x: 100, y: 200 },
         size: { width: 960, height: 720 },
@@ -14,6 +14,7 @@ function createWindowInfo(): WindowInfo {
         scaleFactor: 1,
         screenSize: { width: 1920, height: 1080 },
         screenPosition: { x: 0, y: 0 },
+        ...overrides,
     };
 }
 
@@ -78,6 +79,34 @@ describe('user opens a popup anchored to the search bar', () => {
             y: 1080 - (384 + POPUP_WINDOW_GUTTER * 2),
             width: 320 + POPUP_WINDOW_GUTTER * 2,
             height: 384 + POPUP_WINDOW_GUTTER * 2,
+        });
+    });
+
+    it('user keeps the panel visible when the screen fits the panel but not its shadow gutter', async () => {
+        const triggerElement = document.createElement('button');
+        const windowInfo = createWindowInfo({
+            screenSize: { width: 320, height: 400 },
+        });
+        const config: PopupConfig = {
+            id: 'session-history-popup',
+            width: 320,
+            height: 384,
+            component: {} as PopupConfig['component'],
+            calculatePosition: () => ({ x: 140, y: 210 }),
+        };
+
+        const calculator = createPopupPositionCalculator({
+            getPopupConfig: () => config,
+            getWindowInfo: vi.fn().mockResolvedValue(windowInfo),
+        });
+
+        await expect(
+            calculator.calculate('session-history-popup', triggerElement)
+        ).resolves.toEqual({
+            x: -POPUP_WINDOW_GUTTER,
+            y: 400 - config.height - POPUP_WINDOW_GUTTER,
+            width: config.width + POPUP_WINDOW_GUTTER * 2,
+            height: config.height + POPUP_WINDOW_GUTTER * 2,
         });
     });
 });
