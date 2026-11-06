@@ -29,8 +29,9 @@ function pointer(type: string, screenX: number, screenY: number, clientX = scree
     return event as unknown as PointerEvent;
 }
 
-function createHarness() {
+function createHarness(panelRect = new DOMRect(48, 64, 750, 290)) {
     const panel = document.createElement('div');
+    panel.getBoundingClientRect = () => panelRect;
     const previewResize = vi.fn(async (): Promise<unknown> => undefined);
     const commitResize = vi.fn(async (): Promise<unknown> => undefined);
     const cancelResize = vi.fn(async (): Promise<unknown> => undefined);
@@ -38,8 +39,10 @@ function createHarness() {
     const onResizeStart = vi.fn();
     const onResizeEnd = vi.fn();
     const enabled = ref(true);
+    const panelBounds = ref({ top: 64, bottom: 792 });
     const options = {
         panel: shallowRef(panel),
+        panelBounds,
         enabled,
         allowHeightOverride: ref(true),
         minimumSize: ref({ width: 750, height: 60 }),
@@ -55,6 +58,7 @@ function createHarness() {
         resizing,
         enabled,
         beginResize,
+        panelBounds,
         previewResize,
         commitResize,
         cancelResize,
@@ -71,7 +75,70 @@ describe('given a bounded search window', () => {
         });
     });
 
-    afterEach(() => vi.clearAllMocks());
+    afterEach(() => {
+        vi.clearAllMocks();
+        vi.unstubAllGlobals();
+    });
+
+    it.each([
+        { hostY: 200, direction: 'n' as const, delta: -400, expectedTop: 296, expectedBottom: 885 },
+        { hostY: -200, direction: 's' as const, delta: 600, expectedTop: 195, expectedBottom: 832 },
+    ])(
+        'keeps the opposite edge fixed when resizing a host at $hostY',
+        async ({ hostY, direction, delta, expectedTop, expectedBottom }) => {
+            outerPosition.mockResolvedValue({ x: 200, y: hostY });
+            scaleFactor.mockResolvedValue(1);
+            vi.stubGlobal('innerHeight', 1080);
+            currentMonitor.mockResolvedValue({
+                workArea: { position: { x: 0, y: 0 }, size: { width: 1920, height: 1080 } },
+            });
+            const harness = createHarness(new DOMRect(48, 395, 750, 290));
+            harness.panelBounds.value = {
+                top: hostY > 0 ? 96 : 296,
+                bottom: hostY > 0 ? 832 : 1032,
+            };
+            const finished = harness.resizing.startResizing(
+                direction,
+                pointer('pointerdown', 500, 500)
+            );
+            await flushPromises();
+            window.dispatchEvent(pointer('pointerup', 500, 500 + delta));
+            await finished;
+            const calls = harness.previewResize.mock.calls;
+            const [size, origin] = calls[calls.length - 1]! as unknown as [
+                { height: number },
+                { y: number },
+            ];
+            expect(origin.y + 96).toBe(expectedTop);
+            expect(origin.y + 96 + size.height).toBe(expectedBottom);
+        }
+    );
+
+    it.each([100, 180])(
+        'user can resize horizontally with only %s pixels visible',
+        async (visibleHeight) => {
+            outerPosition.mockResolvedValue({ x: 200, y: 1080 - visibleHeight });
+            scaleFactor.mockResolvedValue(1);
+            currentMonitor.mockResolvedValue({
+                workArea: { position: { x: 0, y: 0 }, size: { width: 1920, height: 1080 } },
+            });
+            const top = ((visibleHeight - 60) * 2) / 3;
+            const harness = createHarness(new DOMRect(48, top, 750, 60));
+            harness.panelBounds.value = { top, bottom: top + 60 };
+            harness.beginResize.mockReturnValue({ width: 750, height: 60 });
+            const finished = harness.resizing.startResizing(
+                'ne',
+                pointer('pointerdown', 800, 1000)
+            );
+            await flushPromises();
+            window.dispatchEvent(pointer('pointerup', 900, 1000));
+            await finished;
+            expect(harness.previewResize).toHaveBeenLastCalledWith(
+                { width: 850, height: 60 },
+                expect.anything()
+            );
+        }
+    );
 
     it('user reaches the latest pointer position when several moves arrive during a native resize', async () => {
         const harness = createHarness();

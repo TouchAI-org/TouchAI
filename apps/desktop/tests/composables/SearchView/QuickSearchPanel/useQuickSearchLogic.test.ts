@@ -864,4 +864,43 @@ describe('useQuickSearchLogic', () => {
 
         mounted.unmount();
     });
+
+    it('user keeps results until the parent finishes a delayed close', async () => {
+        const open = ref(false);
+        const searchQuery = ref('app');
+        const deps = {
+            quickSearch: {
+                getStatus: vi.fn().mockResolvedValue({}),
+                prepareIndex: vi.fn().mockResolvedValue(undefined),
+                searchShortcuts: vi
+                    .fn()
+                    .mockResolvedValue(createSearchResult([createShortcut('App')])),
+            },
+            window: { hideSearchWindow: vi.fn().mockResolvedValue(undefined) },
+            openPath: vi.fn().mockResolvedValue(undefined),
+        };
+        const mounted = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery,
+                    enabled: ref(true),
+                    emitOpenUpdate: (value) => {
+                        if (value) open.value = true;
+                    },
+                },
+                deps
+            )
+        );
+        mounted.result.triggerSearch('app');
+        await vi.advanceTimersByTimeAsync(80);
+        await flushAsyncWork();
+        mounted.result.close();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(mounted.result.results.value).toEqual([createShortcut('App')]);
+        open.value = false;
+        await flushAsyncWork();
+        expect(mounted.result.results.value).toEqual([]);
+        mounted.unmount();
+    });
 });

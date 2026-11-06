@@ -106,28 +106,29 @@ export function resizeSearchHostFrame(input: {
     const scaleFactor = input.scaleFactor;
     const outset = Math.ceil(SEARCH_WINDOW_VISUAL_OUTSET * scaleFactor);
     const horizontalOutsets = 2 * outset;
-    const verticalOutsets = SEARCH_WINDOW_TOP_INSET + outset;
     const { position, size } = input.workArea;
     const frame = resizeSearchPanelFrame({
         ...input,
         startFrame: {
             left: (input.start.physicalOrigin.x - position.x) / scaleFactor,
-            top: (input.start.physicalOrigin.y - position.y) / scaleFactor,
+            // The shared work area already contains the effective vertical panel insets.
+            top:
+                (input.start.physicalOrigin.y + SEARCH_WINDOW_TOP_INSET - position.y) / scaleFactor,
             width: (Math.ceil(input.start.width * scaleFactor) + horizontalOutsets) / scaleFactor,
-            height: (Math.ceil(input.start.height * scaleFactor) + verticalOutsets) / scaleFactor,
+            height: Math.ceil(input.start.height * scaleFactor) / scaleFactor,
         },
         viewportWidth: size.width / scaleFactor,
         viewportHeight: size.height / scaleFactor,
         minWidth: (Math.ceil(input.minWidth * scaleFactor) + horizontalOutsets) / scaleFactor,
-        minHeight: (Math.ceil(input.minHeight * scaleFactor) + verticalOutsets) / scaleFactor,
+        minHeight: Math.ceil(input.minHeight * scaleFactor) / scaleFactor,
         visualInset: 0,
     });
     return {
         width: (Math.round(frame.width * scaleFactor) - horizontalOutsets) / scaleFactor,
-        height: (Math.round(frame.height * scaleFactor) - verticalOutsets) / scaleFactor,
+        height: Math.round(frame.height * scaleFactor) / scaleFactor,
         physicalOrigin: {
             x: Math.round(position.x + frame.left * scaleFactor),
-            y: Math.round(position.y + frame.top * scaleFactor),
+            y: Math.round(position.y + frame.top * scaleFactor - SEARCH_WINDOW_TOP_INSET),
         },
     };
 }

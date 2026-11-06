@@ -216,16 +216,9 @@
     const quickSearchHandoffClosing = ref(false);
     const quickSearchPanel = ref<QuickSearchHandle>();
     const quickSearchHandoffShell = ref<HTMLElement | null>(null);
-    type QuickSearchRevealPhase =
-        | 'idle'
-        | 'measuring'
-        | 'collapsed'
-        | 'open'
-        | 'folding'
-        | 'handoff';
+    type QuickSearchRevealPhase = 'idle' | 'measuring' | 'open' | 'folding' | 'handoff';
     const quickSearchRevealPhase = ref<QuickSearchRevealPhase>('idle');
     let quickSearchRevealEpoch = 0;
-    let quickSearchRevealDeadline = 0;
     let quickSearchHandoffClosePromise: Promise<void> | null = null;
     const conversationPanel = ref<ConversationPanelHandle>();
     const conversationContainer = ref<HTMLElement | null>(null);
@@ -270,7 +263,7 @@
             const { regions } = resolveSearchWindowRegionGeometry(
                 surface.getBoundingClientRect(),
                 overlayRegionElement.value?.getBoundingClientRect() ?? null,
-                isDragging.value || effectiveWindowMaximized.value
+                isLogicalPanelResizing.value || effectiveWindowMaximized.value
                     ? { width: window.innerWidth, height: window.innerHeight }
                     : null
             );
@@ -301,13 +294,7 @@
             };
         },
         100,
-        (error) => {
-            log.error('[SearchView] Search window region retries exhausted:', error);
-            surfaceHiding.value = true;
-            void native.window.hideSearchWindow().catch((hideError) => {
-                log.error('[SearchView] Failed to hide unsafe search window region:', hideError);
-            });
-        }
+        handleRegionSyncFailure
     );
     const approvalAttentionToken = ref(0);
     const latestContentVisible = ref(true);
@@ -342,6 +329,23 @@
 
     function scheduleSearchWindowRegionSync(force = false, immediate = false) {
         searchWindowRegionReporter.schedule('geometry', force, immediate);
+    }
+
+    function handleRegionSyncFailure(error: unknown) {
+        log.error('[SearchView] Failed to prepare search window region:', error);
+        surfaceHiding.value = true;
+        void native.window.hideSearchWindow().catch((hideError) => {
+            log.error('[SearchView] Failed to hide unsafe search window region:', hideError);
+        });
+    }
+
+    async function preparePanelTransition() {
+        try {
+            await searchWindowRegionReporter.flush('panel-transition', true);
+        } catch (error) {
+            handleRegionSyncFailure(error);
+            throw error;
+        }
     }
 
     function beginOverlayIntent() {
@@ -403,33 +407,6 @@
             overlayRequiredViewportHeight.value === null ||
             document.documentElement.clientHeight >= overlayRequiredViewportHeight.value - 1
         );
-    }
-
-    async function waitForSearchViewportToSettle() {
-        let previousHeight = -1;
-        let stableFrames = 0;
-
-        for (let frame = 0; frame < 12; frame += 1) {
-            await nextTick();
-            await new Promise<void>((resolve) => {
-                if (typeof requestAnimationFrame === 'function') {
-                    requestAnimationFrame(() => setTimeout(resolve, 0));
-                } else {
-                    setTimeout(resolve, 16);
-                }
-            });
-
-            const viewportHeight = document.documentElement.clientHeight;
-            stableFrames = viewportHeight === previousHeight ? stableFrames + 1 : 0;
-            previousHeight = viewportHeight;
-
-            if (stableFrames >= 1 && overlayFitsViewport()) {
-                return true;
-            }
-        }
-
-        // The resize listener retries positioning when WebView2 receives the new viewport.
-        return false;
     }
 
     function buildCurrentInputHistorySnapshot(query = queryText.value): InputHistorySnapshot {
@@ -548,8 +525,11 @@
         settledWindowMaximized,
         fillConversationAvailableHeight,
         monitorHost: usesMonitorHost,
+        panelBounds,
         overlayMaxViewportHeight,
+        overlayMinViewportTop,
         panelStyle,
+        cardStyle,
         isSessionExpandAnimating,
         isCardGrowing,
         allowLogicalPanelHeightResize,
@@ -566,6 +546,8 @@
         commitLogicalPanelResize,
         cancelLogicalPanelResize,
         prepareForNativeDrag,
+        finishNativeDrag,
+        isLogicalPanelResizing,
     } = useSearchWindowResize({
         target: pageContent,
         measureContentHeight: measurePageContentHeight,
@@ -575,13 +557,13 @@
         // do not move while the session content is revealed.
         card: searchViewCard,
         overlayRequiredViewportHeight,
-        overlayOpen: computed(() => activeOverlay.value !== 'none'),
         intrinsicHeightMeasurementPending: quickSearchRevealPending,
         sessionCount: computed(() => sessionHistory.value.length),
         quickSearchOpen,
         defaultSize: searchWindowDefaultSize,
         ready: viewReady,
         onLogicalPanelHeightChange: handleLogicalPanelHeightChange,
+        preparePanelTransition,
         onLogicalPanelGeometryChange: handleLogicalPanelGeometryChange,
         onHostViewportChange: handleHostViewportChange,
         // An already-open overlay is a visible interaction even if a stale
@@ -641,7 +623,9 @@
         dispose: disposeSearchPanelDragging,
     } = useSearchPanelDragging({
         maximized: effectiveWindowMaximized,
+        monitorHost: usesMonitorHost,
         prepareForNativeDrag,
+        finishNativeDrag,
     });
 
     function handleSearchPanelDragStart() {
@@ -661,6 +645,7 @@
         dispose: disposeSearchPanelResizing,
     } = useSearchPanelResizing({
         panel: pageContainer,
+        panelBounds,
         enabled: logicalPanelResizeEnabled,
         allowHeightOverride: allowLogicalPanelHeightResize,
         minimumSize: computed(() => ({
@@ -865,7 +850,6 @@
                 try {
                     await remeasureTargetHeight();
                     if (!isCurrentOverlay()) return;
-                    if (!(await waitForSearchViewportToSettle())) return;
                     await nextTick();
                     if (!isCurrentOverlay()) return;
 
@@ -1346,41 +1330,14 @@
         removeAttachment(id);
     }
 
-    async function finalizeQuickSearchClose() {
-        const closeEpoch = ++quickSearchRevealEpoch;
-        const isCurrent = () =>
-            closeEpoch === quickSearchRevealEpoch && !searchViewListenersDisposed;
-        quickSearchRevealPhase.value = quickSearchHandoff.value ? 'handoff' : 'collapsed';
-
-        // Keep the collapsed shell mounted until the native host reaches idle bounds.
-        // A new result can reopen it while that native operation is still pending.
-        const shouldRestoreIdleHost =
-            !quickSearchHandoff.value &&
-            sessionHistory.value.length === 0 &&
-            !effectiveWindowMaximized.value;
-        if (shouldRestoreIdleHost) {
-            await nextTick();
-            if (!isCurrent()) return;
-            await resetSearchWindowBounds().catch((error) => {
-                log.error(
-                    '[SearchView] Failed to restore idle bounds after QuickSearch close:',
-                    error
-                );
-            });
-        }
-
-        if (!isCurrent()) return;
+    function finalizeQuickSearchClose() {
+        quickSearchRevealEpoch += 1;
         quickSearchRevealPhase.value = 'idle';
         quickSearchOpen.value = false;
     }
 
     function beginQuickSearchClose() {
-        if (
-            !quickSearchOpen.value ||
-            quickSearchRevealPhase.value === 'folding' ||
-            quickSearchRevealPhase.value === 'collapsed'
-        )
-            return;
+        if (!quickSearchOpen.value || quickSearchRevealPhase.value === 'folding') return;
         quickSearchRevealEpoch += 1;
         // Keep the result list painted at full height and let the card fold it away: the
         // shrinking card edge is the transition, so the list can never fade out first and
@@ -1400,11 +1357,16 @@
         };
 
         if (shouldRestoreIdleHost) {
-            void collapseSessionToIdle()
-                .catch((error) => {
-                    log.error('[SearchView] Failed to fold the QuickSearch reveal:', error);
+            void collapseBeforeClearing(
+                () => closeEpoch === quickSearchRevealEpoch && !searchViewListenersDisposed
+            )
+                .then((collapsed) => {
+                    if (closeEpoch !== quickSearchRevealEpoch || searchViewListenersDisposed)
+                        return;
+                    if (collapsed) finish();
+                    else quickSearchRevealPhase.value = 'open';
                 })
-                .then(finish);
+                .catch((error) => log.error('[SearchView] Failed to fold QuickSearch:', error));
             return;
         }
 
@@ -1445,16 +1407,11 @@
         // Search results refresh the existing panel by emitting `true` again.
         // That is a data update, not a new reveal, so do not reset the CSS start
         // state and flash the panel on every keystroke.
-        if (
-            quickSearchOpen.value &&
-            quickSearchRevealPhase.value !== 'folding' &&
-            quickSearchRevealPhase.value !== 'collapsed'
-        ) {
+        if (quickSearchOpen.value && quickSearchRevealPhase.value !== 'folding') {
             return;
         }
 
         quickSearchRevealEpoch += 1;
-        quickSearchRevealDeadline = performance.now() + 900;
         // Measure the hidden list before revealing it to avoid an empty expanded frame.
         quickSearchRevealPhase.value = 'measuring';
         quickSearchOpen.value = true;
@@ -1466,43 +1423,8 @@
             return;
         }
 
-        const content = pageContent.value;
-        const container = pageContainer.value;
-        if (!content || !container) return;
-
-        const compactHeight = searchWindowDefaultSize.value.height;
-        const contentHeight = Math.ceil(
-            Math.max(
-                content.scrollHeight,
-                content.offsetHeight,
-                content.getBoundingClientRect().height,
-                ...Array.from(content.children).map((child) =>
-                    child instanceof HTMLElement
-                        ? Math.max(
-                              child.scrollHeight,
-                              child.offsetHeight,
-                              child.getBoundingClientRect().height
-                          )
-                        : 0
-                )
-            )
-        );
-        const targetHeight = Math.min(
-            pageContentMaxHeight.value,
-            Math.max(compactHeight, contentHeight)
-        );
-
-        // Results can be inserted one or two frames after the open signal. Keep
-        // the shell hidden until a real panel height is available, but do not
-        // wait for the native host: the host is intentionally locked to the
-        // compact height during this measurement phase.
-        if (targetHeight <= compactHeight + 8 && performance.now() < quickSearchRevealDeadline) {
-            requestAnimationFrame(() => void settleQuickSearchReveal());
-            return;
-        }
-
-        // Reopening can keep the same content size, so no observer event is guaranteed.
-        // Claim the new height now to interrupt a close that still owns the native geometry.
+        // Results are assigned before the open signal; nextTick commits their DOM.
+        // The geometry owner measures once and reserves the region before animating.
         quickSearchRevealPhase.value = 'open';
         void remeasureTargetHeight().catch((error) => {
             log.error('[SearchView] Failed to measure QuickSearch reveal:', error);
@@ -1930,22 +1852,24 @@
         await updateSessionSearchQuery(value);
     }
 
+    async function collapseBeforeClearing(isCurrent = () => !searchViewListenersDisposed) {
+        if (effectiveWindowMaximized.value) return true;
+        try {
+            const collapsed = await collapseSessionToIdle();
+            if (!isCurrent()) return false;
+            if (collapsed) return true;
+            return (await resetSearchWindowBounds()) && isCurrent();
+        } catch (error) {
+            log.error('[SearchView] Failed to restore compact bounds:', error);
+            return false;
+        }
+    }
+
     async function clearSessionToIdle() {
         suppressQuickSearchAutoOpenOnce.value = true;
-        let collapsed = false;
-        if (!effectiveWindowMaximized.value) {
-            collapsed = await collapseSessionToIdle().catch((error) => {
-                log.error('[SearchView] Failed to collapse session before clearing:', error);
-                return false;
-            });
-        }
+        if (!(await collapseBeforeClearing())) return;
         clearSession();
         await nextTick();
-        if (!effectiveWindowMaximized.value && !collapsed) {
-            await resetSearchWindowBounds().catch((error) => {
-                log.error('[SearchView] Failed to restore idle search window bounds:', error);
-            });
-        }
         await controller.focusSearchInput();
     }
 
@@ -1956,24 +1880,10 @@
 
         controller.closeQuickSearch();
         await hideAllOverlays();
-        let collapsed = false;
-        if (!effectiveWindowMaximized.value) {
-            collapsed = await collapseSessionToIdle().catch((error) => {
-                log.error(
-                    '[SearchView] Failed to collapse session before starting new one:',
-                    error
-                );
-                return false;
-            });
-        }
+        if (!(await collapseBeforeClearing())) return;
         startNewSession();
         resetSessionInputHistoryTracking();
         await nextTick();
-        if (!effectiveWindowMaximized.value && !collapsed) {
-            await resetSearchWindowBounds().catch((error) => {
-                log.error('[SearchView] Failed to restore idle search window bounds:', error);
-            });
-        }
         await controller.focusSearchInput();
     }
 
@@ -2552,6 +2462,7 @@
                     <div
                         ref="searchViewCard"
                         data-testid="search-view-card"
+                        :style="cardStyle"
                         :class="[
                             'search-view-container search-view-surface-card relative flex h-full min-h-0 w-full flex-col items-center overflow-hidden',
                             isCardGrowing ? 'search-view-surface-card--revealing' : '',
@@ -2666,9 +2577,6 @@
                                             quickSearchRevealPhase === 'measuring'
                                                 ? 'quick-search-handoff-shell--measuring'
                                                 : '',
-                                            quickSearchRevealPhase === 'collapsed'
-                                                ? 'quick-search-handoff-shell--collapsed'
-                                                : '',
                                             quickSearchRevealPhase === 'open' && quickSearchOpen
                                                 ? 'quick-search-handoff-shell--open'
                                                 : '',
@@ -2722,6 +2630,7 @@
             preferred-side="bottom"
             :allow-flip="false"
             :max-viewport-height="overlayMaxViewportHeight"
+            :min-viewport-top="overlayMinViewportTop"
             :align="
                 renderedOverlay === 'session-history' && sessionHistory.length > 0 ? 'end' : 'start'
             "

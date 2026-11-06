@@ -2,6 +2,7 @@ import { mountComposable } from '@tests/utils/composables';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { computed, ref } from 'vue';
 
+import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
 import type { PendingToolApproval, SessionMessage } from '@/types/session';
 import type { UseSearchKeyboardOptions } from '@/views/SearchView/composables/searchInteraction';
 import { useSearchKeyboard } from '@/views/SearchView/composables/useSearchPage';
@@ -204,7 +205,7 @@ describe('useSearchKeyboard inline overlay inputs', () => {
         document.body.innerHTML = '';
     });
 
-    function dispatchOverlayKeydown(key: string) {
+    function dispatchOverlayKeydown(key: string, modifiers: KeyboardEventInit = {}) {
         const host = document.createElement('div');
         host.dataset.searchOverlayHost = 'true';
         const input = document.createElement('input');
@@ -215,10 +216,80 @@ describe('useSearchKeyboard inline overlay inputs', () => {
             key,
             bubbles: true,
             cancelable: true,
+            ...modifiers,
         });
         input.dispatchEvent(event);
         return event;
     }
+
+    it.each([
+        { key: 'ArrowLeft' },
+        { key: 'PageDown' },
+        { key: 'Backspace', ctrlKey: true },
+        { key: 'Enter', shiftKey: true },
+        { key: 'ArrowDown', ctrlKey: true, shiftKey: true },
+    ])(
+        'user edits an overlay filter with $key without operating the underlying search',
+        async (input) => {
+            const options = createOptions({ modelDropdownOpen: true });
+            options.isQuickSearchOpen = computed(() => true);
+            options.controller.isQuickSearchItemHighlighted = () => true;
+            options.queryText.value = 'underlying draft';
+            const mounted = await mountComposable(() => useSearchKeyboard(options));
+            const event = dispatchOverlayKeydown(input.key, input);
+            expect(event.defaultPrevented).toBe(false);
+            expect(options.clearAll).not.toHaveBeenCalled();
+            expect(options.controller.moveQuickSearchSelection).not.toHaveBeenCalled();
+            expect(options.controller.goToNextPageQuickSearch).not.toHaveBeenCalled();
+            expect(options.controller.openHighlightedQuickSearchItem).not.toHaveBeenCalled();
+            mounted.unmount();
+        }
+    );
+
+    it.each([
+        { shortcut: 'Mod+Shift+,', key: '<', code: 'Comma', ctrlKey: true, shiftKey: true },
+        { shortcut: 'F11', key: 'BrightnessUp', code: 'F11' },
+    ])('user invokes a captured $shortcut binding using its physical key code', async (input) => {
+        const options = createOptions();
+        options.searchKeybindings = ref({
+            ...createDefaultSearchKeybindings(),
+            'search.window.pin': input.shortcut,
+            'search.window.maximize': null,
+        });
+        options.handleSearchKeybindingAction = vi.fn();
+        const mounted = await mountComposable(() => useSearchKeyboard(options));
+        window.dispatchEvent(
+            new KeyboardEvent('keydown', { ...input, bubbles: true, cancelable: true })
+        );
+        expect(options.handleSearchKeybindingAction).toHaveBeenCalledWith('search.window.pin');
+        mounted.unmount();
+    });
+
+    it.each([
+        { key: 'Enter', shiftKey: true },
+        { key: 'ArrowLeft', ctrlKey: true },
+        { key: 'ArrowDown', ctrlKey: true, shiftKey: true },
+    ])(
+        'user keeps editing with modified $key while a search result is highlighted',
+        async (input) => {
+            const options = createOptions();
+            options.isQuickSearchOpen = computed(() => true);
+            options.controller.isQuickSearchItemHighlighted = () => true;
+            options.queryText.value = 'draft';
+            const mounted = await mountComposable(() => useSearchKeyboard(options));
+            const event = new KeyboardEvent('keydown', {
+                ...input,
+                bubbles: true,
+                cancelable: true,
+            });
+            window.dispatchEvent(event);
+            expect(event.defaultPrevented).toBe(false);
+            expect(options.handleSubmit).not.toHaveBeenCalled();
+            expect(options.controller.moveQuickSearchSelection).not.toHaveBeenCalled();
+            expect(options.controller.openHighlightedQuickSearchItem).not.toHaveBeenCalled();
+            mounted.unmount();
+        }
+    );
 
     it('keeps the model dropdown open when Backspace edits its filter input', async () => {
         const options = createOptions({ modelDropdownOpen: true });

@@ -3,9 +3,7 @@
 import { useMotion } from '@composables/useMotion';
 import { native } from '@services/NativeService';
 import { log } from '@services/ObservabilityService';
-import { PhysicalPosition } from '@tauri-apps/api/dpi';
 import { currentMonitor, getCurrentWindow } from '@tauri-apps/api/window';
-import { cubicBezier } from 'motion-v';
 import { computed, nextTick, onUnmounted, type Ref, ref, shallowRef, watch } from 'vue';
 
 import {
@@ -16,18 +14,12 @@ import {
 } from '@/config/searchWindow';
 import {
     resolveContentPanelHeight,
-    resolveSurfaceHostContentHeight,
     resolveSurfacePanelStyle,
-    resolveSurfaceWorkAreaHeight,
+    resolveVisibleSearchViewport,
+    SEARCH_PANEL_MIN_HEIGHT,
     shouldCommitPanelHeight,
 } from '@/views/SearchView/searchSurfaceLayout';
-import {
-    resolveFrameShiftForGrowth,
-    resolveSurfaceFrameY,
-    resolveSurfaceGeometryMode,
-    type SurfaceGeometryMode,
-    surfaceModeCentres,
-} from '@/views/SearchView/surfaceGeometry';
+import { SEARCH_WINDOW_VISUAL_OUTSET } from '@/views/SearchView/searchWindowRegions';
 import {
     createWindowViewportSyncScheduler,
     ensureWindowMaximized,
@@ -50,20 +42,13 @@ interface UseSearchWindowResizeOptions {
     overlayTarget?: Ref<HTMLElement | null>;
     card?: Ref<HTMLElement | null>;
     overlayRequiredViewportHeight?: Ref<number | null>;
-    /**
-     * True while a popup is open *over* the surface (model picker, session history).
-     *
-     * The element and viewport-height refs above are filled in once the popup has been measured, so
-     * the growth that opens it can reach a commit before either of them is set. This one is the
-     * surface's own state and is true from the moment the popup opens.
-     */
-    overlayOpen?: Readonly<Ref<boolean>>;
     intrinsicHeightMeasurementPending?: Readonly<Ref<boolean>>;
     sessionCount: Ref<number>;
     quickSearchOpen: Ref<boolean>;
     defaultSize: Ref<SearchWindowDefaultSize>;
     ready: Ref<boolean>;
     onLogicalPanelHeightChange?: (height: number) => void;
+    preparePanelTransition?: () => Promise<void>;
     onLogicalPanelGeometryChange?: () => void;
     onHostViewportChange?: () => void;
     resizeEnabled?: Readonly<Ref<boolean>>;
@@ -77,12 +62,11 @@ export interface LogicalSearchPanelSize {
 interface HeightChange {
     fromHeight: number;
     toHeight: number;
+    fromTop: number;
 }
 
 /** Coalesce observer bursts without delaying the native clipping boundary. */
 const MEASURE_COALESCE_MS = 16;
-
-const easeHostShift = cubicBezier(...SEARCH_SURFACE_MOTION.easing);
 
 /** One serialized geometry owner coordinates native bounds and the visible card. */
 export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
@@ -91,7 +75,6 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
 
     const currentWidth = ref(0);
     const currentHeight = ref(0);
-    const currentHostContentHeight = ref<number | null>(null);
     const activeHeightChange = shallowRef<HeightChange | null>(null);
     const cardAnimation = shallowRef<Animation | null>(null);
     // Hold the previous layout until native bounds can contain the next frame.
@@ -100,11 +83,48 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     const desiredMaximized = ref(false);
     const isMaximizeTransitioning = ref(false);
     const isLogicalPanelResizing = ref(false);
+    const nativeDragLayout = shallowRef<ReturnType<typeof resolveSurfacePanelStyle> | null>(null);
     const displayScaleFactor = ref(window.devicePixelRatio);
     const workAreaHeight = ref<number | null>(null);
+    const workAreaTop = ref(0);
+    const viewportHeight = ref(window.innerHeight);
+    const panelCenterY = ref<number | null>(null);
+    const hostOrigin = ref({ x: 0, y: 0 });
+    const visibleViewport = computed(() =>
+        resolveVisibleSearchViewport({
+            viewportHeight: viewportHeight.value,
+            hostY: hostOrigin.value.y,
+            workAreaTop: workAreaHeight.value === null ? hostOrigin.value.y : workAreaTop.value,
+            workAreaHeight: workAreaHeight.value ?? viewportHeight.value * scaleFactor(),
+            scaleFactor: scaleFactor(),
+        })
+    );
+    const minimumPanelHeight = computed(() =>
+        Math.max(SEARCH_PANEL_MIN_HEIGHT, options.defaultSize.value.height)
+    );
+    const visibleHeight = computed(() => visibleViewport.value.bottom - visibleViewport.value.top);
+    const panelBounds = computed(() => {
+        const topInset = SEARCH_WINDOW_TOP_INSET / scaleFactor();
+        // Sacrifice shadow space before shrinking below the native editor minimum.
+        const insetScale = Math.min(
+            1,
+            Math.max(
+                0,
+                (visibleHeight.value - minimumPanelHeight.value) /
+                    (topInset + SEARCH_WINDOW_VISUAL_OUTSET)
+            )
+        );
+        return {
+            top: visibleViewport.value.top + topInset * insetScale,
+            bottom: visibleViewport.value.bottom - SEARCH_WINDOW_VISUAL_OUTSET * insetScale,
+        };
+    });
     const availablePanelHeight = computed(() =>
         monitorHost.value && workAreaHeight.value !== null
-            ? resolveSurfaceWorkAreaHeight(workAreaHeight.value, scaleFactor())
+            ? Math.max(
+                  minimumPanelHeight.value,
+                  Math.floor(panelBounds.value.bottom - panelBounds.value.top)
+              )
             : Number.POSITIVE_INFINITY
     );
     const searchWindowHeightMode = ref<SearchWindowHeightMode>(SearchWindowHeightMode.Auto);
@@ -117,16 +137,24 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         fromHeight: number,
         toHeight: number,
         duration: number,
-        startOffsetY = 0
+        startOffset: number,
+        endOffset: number
     ): Animation | null {
         const card = options.card?.value ?? null;
         if (!card || typeof card.animate !== 'function') return null;
-        if (duration <= 0 || Math.abs(fromHeight - toHeight) < 1) return null;
+        if (reducedMotion.value || duration <= 0 || Math.abs(fromHeight - toHeight) < 1)
+            return null;
 
         return card.animate(
             [
-                { height: `${fromHeight}px`, transform: `translateY(${startOffsetY}px)` },
-                { height: `${toHeight}px`, transform: 'translateY(0)' },
+                {
+                    height: `${fromHeight}px`,
+                    transform: `translateY(${startOffset}px)`,
+                },
+                {
+                    height: `${toHeight}px`,
+                    transform: `translateY(${endOffset}px)`,
+                },
             ],
             {
                 duration,
@@ -144,188 +172,6 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
      */
     const measurementHold = ref(false);
 
-    /** Move the native frame on the same curve as the card to preserve its centre. */
-    let hostShiftFrame: number | null = null;
-    /** Invalidates frame callbacks and position reads that cancellation cannot abort. */
-    let hostShiftToken = 0;
-    let hostPositionWrite: Promise<void> | null = null;
-    /** Derive absolute targets from the compact origin so repeated measurements cannot accumulate drift. */
-    let hostIdleOrigin: { x: number; y: number } | null = null;
-    /** Last confirmed position; native movement updates it when no programmatic drift owns the frame. */
-    let hostAnchor: { x: number; y: number } | null = null;
-    /** Newest origin read; an older one must not write the cached origin. */
-    let originSeedToken = 0;
-    /** Popups hold the frame still; conversation growth may move its centre. */
-    let geometryMode: SurfaceGeometryMode = 'idle';
-    /** Frame position when a popup took the layout over; the frame holds it until it closes. */
-    let frozenOriginY: number | null = null;
-    let nativeGeometryInFlight = false;
-    let heldCardPosition: { element: HTMLElement; originY: number; transform: string } | null =
-        null;
-
-    /** Placements outside the drift invalidate both its reference and its starting point. */
-    function invalidateHostAnchor() {
-        originSeedToken += 1;
-        hostAnchor = null;
-        hostIdleOrigin = null;
-    }
-
-    /** Remember where the frame rests at the idle height, and where it is right now. */
-    function recordIdleOrigin(position: { x: number; y: number }) {
-        hostIdleOrigin = {
-            x: position.x,
-            y:
-                position.y -
-                resolveFrameShiftForGrowth(
-                    currentHeight.value || options.defaultSize.value.height,
-                    options.defaultSize.value.height,
-                    scaleFactor()
-                ),
-        };
-        hostAnchor = { x: position.x, y: position.y };
-    }
-
-    /** Read the frame's origin and remember it as the idle origin. */
-    function seedIdleOrigin() {
-        // A read can come back after the frame was moved again. Only the seed that is still the
-        // newest one may write the origin, otherwise a stale position becomes the base every later
-        // reveal is derived from.
-        const seed = ++originSeedToken;
-        void currentWindow
-            .outerPosition()
-            .then((position) => {
-                if (windowListenersDisposed || hostShiftFrame !== null || hostPositionWrite) return;
-                if (seed !== originSeedToken) return;
-                recordIdleOrigin(position);
-            })
-            .catch((error) => reportError('read the search host position', error));
-    }
-
-    function cancelHostShift() {
-        hostShiftToken += 1;
-        if (hostShiftFrame !== null) {
-            cancelAnimationFrame(hostShiftFrame);
-            hostShiftFrame = null;
-        }
-    }
-
-    function writeHostPosition(x: number, y: number, generation: number, token: number) {
-        const previous = hostPositionWrite;
-        const write = (async () => {
-            await previous;
-            if (!isCurrentGeometry(generation) || token !== hostShiftToken) return;
-            await currentWindow.setPosition(new PhysicalPosition(x, y));
-            // Tauri's setter only queues a main-thread message. A read waits for it to apply.
-            const position = await currentWindow.outerPosition();
-            if (isCurrentGeometry(generation) && token === hostShiftToken) {
-                hostAnchor = position;
-            }
-        })();
-        hostPositionWrite = write;
-        const release = () => {
-            if (hostPositionWrite === write) hostPositionWrite = null;
-        };
-        void write.then(release, release);
-        return write;
-    }
-
-    /** Read once per transition: native resize may already have clamped the host to this monitor. */
-    async function readSurfaceFrame(targetY: number | null, generation: number) {
-        if (targetY === null || !monitorHost.value || desiredMaximized.value) return null;
-        const token = hostShiftToken;
-        try {
-            const [monitor, position, size] = await Promise.all([
-                currentMonitor(),
-                currentWindow.outerPosition(),
-                currentWindow.outerSize(),
-            ]);
-            if (!monitor || !isCurrentGeometry(generation) || token !== hostShiftToken) return null;
-            const { position: areaOrigin, size: areaSize } = monitor.workArea;
-            const maxX = Math.max(areaOrigin.x, areaOrigin.x + areaSize.width - size.width);
-            const maxY = Math.max(areaOrigin.y, areaOrigin.y + areaSize.height - size.height);
-            hostAnchor = position;
-            return {
-                x: Math.max(areaOrigin.x, Math.min(position.x, maxX)),
-                fromY: position.y,
-                toY: Math.max(areaOrigin.y, Math.min(targetY, maxY)),
-            };
-        } catch (error) {
-            reportError('read the search host work area', error);
-            return null;
-        }
-    }
-
-    /** Start both motion tracks in the same task, after their native bounds are known. */
-    function applySurfaceFrame(
-        frame: Awaited<ReturnType<typeof readSurfaceFrame>>,
-        animate: boolean,
-        generation: number
-    ) {
-        if (!frame || !isCurrentGeometry(generation)) return;
-        cancelHostShift();
-        if (frame.fromY === frame.toY && frame.x === hostAnchor?.x) return;
-        if (!animate || reducedMotion.value || SEARCH_SURFACE_MOTION.durationMs <= 0) {
-            void writeHostPosition(frame.x, frame.toY, generation, hostShiftToken).catch((error) =>
-                reportError('place the search host', error)
-            );
-            return;
-        }
-        runHostShift(frame.x, frame.fromY, frame.toY, SEARCH_SURFACE_MOTION.durationMs, generation);
-    }
-
-    function runHostShift(
-        x: number,
-        fromY: number,
-        toY: number,
-        duration: number,
-        generation: number
-    ) {
-        const token = hostShiftToken;
-        const startedAt = performance.now();
-        const animation = cardAnimation.value;
-        let applied: number | null = null;
-        const step = async () => {
-            if (!isCurrentGeometry(generation) || token !== hostShiftToken) return;
-            // WAAPI can start after this task; both tracks must use its actual clock.
-            const elapsed =
-                animation && 'currentTime' in animation
-                    ? animation.playState === 'idle' || animation.playState === 'finished'
-                        ? duration
-                        : Number(animation.currentTime ?? 0)
-                    : performance.now() - startedAt;
-            const progress = Math.min(1, elapsed / duration);
-            const y = Math.round(fromY + (toY - fromY) * easeHostShift(progress));
-            if (y !== applied) {
-                applied = y;
-                await writeHostPosition(x, y, generation, token).catch((error) =>
-                    reportError('move the search host', error)
-                );
-            }
-            if (!isCurrentGeometry(generation) || token !== hostShiftToken) return;
-            hostShiftFrame = progress < 1 ? requestAnimationFrame(step) : null;
-        };
-        hostShiftFrame = requestAnimationFrame(step);
-    }
-
-    /** Subpixel height updates still need the absolute frame position once motion has settled. */
-    function snapHostToHeight(height: number) {
-        if (!monitorHost.value || desiredMaximized.value) return;
-        if (hostShiftFrame !== null || hostPositionWrite !== null || cardAnimation.value !== null)
-            return;
-        const generation = commitGeneration;
-        void readSurfaceFrame(
-            resolveSurfaceFrameY({
-                mode: geometryMode,
-                panelHeight: height,
-                compactHeight: options.defaultSize.value.height,
-                scaleFactor: scaleFactor(),
-                idleOriginY: hostIdleOrigin?.y ?? null,
-                frozenOriginY,
-            }),
-            generation
-        ).then((frame) => applySurfaceFrame(frame, false, generation));
-    }
-
     function cancelCardAnimation(animation = cardAnimation.value) {
         if (animation === cardAnimation.value) cardAnimation.value = null;
         animation?.cancel();
@@ -333,10 +179,8 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
 
     function claimGeometry() {
         const generation = ++commitGeneration;
-        originSeedToken += 1;
         isMaximizeTransitioning.value = false;
         cancelCardAnimation();
-        cancelHostShift();
         activeHeightChange.value = null;
         return generation;
     }
@@ -347,7 +191,6 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
 
     function enqueueGeometry<T>(generation: number, operation: () => Promise<T>) {
         const run = commitQueue.then(async () => {
-            await hostPositionWrite?.catch(() => undefined);
             if (isCurrentGeometry(generation)) return operation();
         });
         commitQueue = run.then(
@@ -366,6 +209,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         cancelCardAnimation(animation);
         if (activeHeightChange.value === change) activeHeightChange.value = null;
         if (!isCurrentGeometry(generation)) return;
+        options.onLogicalPanelHeightChange?.(currentHeight.value);
         const target = options.target.value;
         if (target && settled) scheduleMeasurement(target);
     }
@@ -377,52 +221,6 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         return height > 0 ? height : currentHeight.value;
     }
 
-    /** Start card and host motion together; neither samples the other track?s previous frame. */
-    async function startCardAnimation(
-        fromHeight: number,
-        toHeight: number,
-        generation: number,
-        animateFrame: boolean,
-        frameMode: SurfaceGeometryMode,
-        previousOriginY?: number,
-        interruptedOffsetY = 0
-    ) {
-        const frame = await readSurfaceFrame(
-            resolveSurfaceFrameY({
-                mode: frameMode,
-                panelHeight: toHeight,
-                compactHeight: options.defaultSize.value.height,
-                scaleFactor: scaleFactor(),
-                idleOriginY: hostIdleOrigin?.y ?? null,
-                frozenOriginY,
-            }),
-            generation
-        );
-        if (!isCurrentGeometry(generation)) return null;
-        let startOffsetY =
-            frame && previousOriginY !== undefined
-                ? (previousOriginY - frame.fromY) / scaleFactor() + interruptedOffsetY
-                : interruptedOffsetY;
-        const growsFromCenter = frame && animateFrame && toHeight > fromHeight;
-        if (growsFromCenter) {
-            // A single native placement reserves the final envelope. The browser owns both
-            // visible tracks, so IPC latency cannot pull the card away from its centre.
-            cancelHostShift();
-            await writeHostPosition(frame.x, frame.toY, generation, hostShiftToken);
-            if (!isCurrentGeometry(generation)) return null;
-            startOffsetY =
-                ((previousOriginY ?? frame.fromY) - (hostAnchor?.y ?? frame.toY)) / scaleFactor() +
-                interruptedOffsetY;
-        }
-        cardAnimation.value = animateCardHeight(
-            fromHeight,
-            toHeight,
-            reducedMotion.value ? 0 : SEARCH_SURFACE_MOTION.durationMs,
-            startOffsetY
-        );
-        if (!growsFromCenter) applySurfaceFrame(frame, animateFrame, generation);
-        return cardAnimation.value;
-    }
     const isCardGrowing = computed(() => cardAnimation.value !== null);
 
     const searchWindowHeightPolicy = computed(() =>
@@ -448,6 +246,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             searchWindowHeightPolicy.value.autoResizeEnabled &&
             !effectiveWindowMaximized.value &&
             !isLogicalPanelResizing.value &&
+            nativeDragLayout.value === null &&
             !manualOverrideActive
         );
     });
@@ -466,18 +265,37 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         () => options.ready.value && searchWindowResizeConstraintsReady.value
     );
 
-    /** The visible panel always fills the native host interior. */
-    const panelStyle = computed(() => {
-        if (!monitorHost.value) {
-            return undefined;
-        }
-
-        return {
-            position: 'fixed' as const,
-            ...resolveSurfacePanelStyle({
+    const cardStyle = computed(() => ({
+        transform:
+            monitorHost.value && activeHeightChange.value && panelStyle.value
+                ? `translateY(${activeHeightChange.value.fromTop - Number.parseFloat(panelStyle.value.top)}px)`
+                : 'none',
+    }));
+    const settledPanelStyle = computed(
+        () =>
+            nativeDragLayout.value ??
+            resolveSurfacePanelStyle({
                 scaleFactor: displayScaleFactor.value,
                 maximized: effectiveWindowMaximized.value,
-            }),
+                panelHeight: currentHeight.value,
+                viewportHeight: viewportHeight.value,
+                centerY: panelCenterY.value,
+                minTop: panelBounds.value.top,
+                maxBottom: panelBounds.value.bottom,
+            })
+    );
+    // Reserve the union before animating; tightening the native region never clips an in-flight frame.
+    const panelStyle = computed(() => {
+        if (!monitorHost.value) return undefined;
+        const style = { position: 'fixed' as const, ...settledPanelStyle.value };
+        const change = activeHeightChange.value;
+        if (!change || effectiveWindowMaximized.value) return style;
+        const settledTop = Number.parseFloat(style.top);
+        const top = Math.min(settledTop, change.fromTop);
+        return {
+            ...style,
+            top: `${top}px`,
+            height: `${Math.max(settledTop + currentHeight.value, change.fromTop + change.fromHeight) - top}px`,
         };
     });
 
@@ -498,9 +316,10 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     let unlistenWindowScaleChanged: (() => void) | null = null;
     let measureTimer: ReturnType<typeof setTimeout> | null = null;
     let pendingMeasureTarget: HTMLElement | null = null;
-    let failedMeasurement: { panelHeight: number; hostContentHeight: number | null } | null = null;
+    let failedMeasurement: number | null = null;
     let logicalPanelResizeStart: {
         size: LogicalSearchPanelSize;
+        centerY: number | null;
         heightMode: SearchWindowHeightMode;
         generation: number;
     } | null = null;
@@ -512,6 +331,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     function notifyHostViewportChange() {
+        viewportHeight.value = window.innerHeight;
         void nextTick().then(() => options.onHostViewportChange?.());
     }
 
@@ -524,41 +344,6 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         return Number.isFinite(displayScaleFactor.value) && displayScaleFactor.value > 0
             ? displayScaleFactor.value
             : 1;
-    }
-
-    function resolveHostContentHeight(panelHeight: number) {
-        if (!monitorHost.value) return null;
-
-        // Only a rendered overlay reserves an envelope past the panel bottom.
-        // Without one there is nothing to reserve, and recomputing a value would
-        // keep re-committing the same envelope forever.
-        const overlayTarget = options.overlayTarget?.value ?? null;
-        const overlayRequiredViewportHeight = options.overlayRequiredViewportHeight?.value ?? null;
-        if (!overlayTarget && overlayRequiredViewportHeight === null) return null;
-
-        return Math.min(
-            availablePanelHeight.value + SEARCH_WINDOW_TOP_INSET / scaleFactor(),
-            resolveSurfaceHostContentHeight({
-                panelHeight,
-                overlayBottom: overlayTarget?.getBoundingClientRect().bottom ?? null,
-                overlayRequiredViewportHeight,
-                scaleFactor: scaleFactor(),
-            })
-        );
-    }
-
-    function resolveHostContentHeightPayload(panelHeight: number) {
-        const hostContentHeight = resolveHostContentHeight(panelHeight);
-        if (hostContentHeight === null) return undefined;
-
-        const panelBottom = resolveSurfaceHostContentHeight({
-            panelHeight,
-            overlayBottom: null,
-            overlayRequiredViewportHeight: null,
-            scaleFactor: scaleFactor(),
-        });
-
-        return hostContentHeight > panelBottom ? hostContentHeight : undefined;
     }
 
     function commitLogicalPanelHeight(height: number) {
@@ -575,7 +360,6 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         currentWidth.value = state.currentWidth;
         searchWindowHeightMode.value = state.heightMode;
         monitorHost.value = state.monitorHost;
-        currentHostContentHeight.value = state.hostContentHeight ?? null;
         commitLogicalPanelHeight(state.currentHeight);
     }
 
@@ -607,16 +391,15 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             reset?: boolean;
             /** An explicit user action clears a stale native manual override. */
             respectManualOverride?: boolean;
-            /** Center the surface in its own motion, whatever else owns the layout. */
-            center?: boolean;
         } = {}
-    ) {
+    ): Promise<boolean> {
         if (windowListenersDisposed || !options.ready.value) {
-            return;
+            return false;
         }
-        if (options.resizeEnabled?.value === false && !commitOptions.reset) return;
-        if (effectiveWindowMaximized.value && !commitOptions.reset) return;
-        if (isLogicalPanelResizing.value && !commitOptions.reset) return;
+        if (options.resizeEnabled?.value === false && !commitOptions.reset) return false;
+        if (effectiveWindowMaximized.value && !commitOptions.reset) return false;
+        if (isLogicalPanelResizing.value && !commitOptions.reset) return false;
+        if (nativeDragLayout.value) return false;
 
         const from = {
             width: currentWidth.value || options.defaultSize.value.width,
@@ -626,198 +409,132 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             commitOptions.respectManualOverride ??
             searchWindowHeightPolicy.value.respectManualOverride;
         const target = resolveEffectivePanelHeight(panelHeight, commitOptions);
-        const hostContentHeight = commitOptions.reset
-            ? undefined
-            : resolveHostContentHeightPayload(target);
-        const hostContentChanged = (hostContentHeight ?? null) !== currentHostContentHeight.value;
         const heightChanged = shouldCommitPanelHeight({
             current: activeHeightChange.value?.toHeight ?? from.height,
             next: target,
         });
-        if (!commitOptions.placement && !heightChanged && !hostContentChanged) return;
+        const restoreVisibleHost =
+            monitorHost.value && visibleHeight.value < minimumPanelHeight.value;
+        if (!commitOptions.placement && !heightChanged && !restoreVisibleHost) return true;
 
-        const envelopeOnly = !heightChanged && !commitOptions.placement;
         const revealFrom = Math.max(
             1,
             cardAnimation.value
                 ? currentCardHeight()
                 : (activeHeightChange.value?.fromHeight ?? currentCardHeight())
         );
-        const visibleCard = options.card?.value;
-        const interruptedTransform =
-            !envelopeOnly && cardAnimation.value && visibleCard
-                ? getComputedStyle(visibleCard).transform
-                : '';
-        const interruptedOffsetY =
-            interruptedTransform && interruptedTransform !== 'none'
-                ? new DOMMatrixReadOnly(interruptedTransform).m42
-                : 0;
-        const generation = envelopeOnly ? commitGeneration : claimGeometry();
+        const revealTop =
+            options.card?.value?.getBoundingClientRect().top ??
+            Number.parseFloat(settledPanelStyle.value.top);
+        const generation = claimGeometry();
         const wasMaximized = desiredMaximized.value;
         if (commitOptions.reset) desiredMaximized.value = false;
-        if (!envelopeOnly) {
-            activeHeightChange.value = {
-                fromHeight: revealFrom,
-                toHeight: target,
-            };
-        }
-        const change = envelopeOnly ? null : activeHeightChange.value;
-        // Resolve placement from the content mode before either motion track starts.
-        const popupOpen =
-            (options.overlayOpen?.value ?? false) ||
-            Boolean(options.overlayTarget?.value) ||
-            (options.overlayRequiredViewportHeight?.value ?? null) !== null;
-        const nextMode = resolveSurfaceGeometryMode({
-            panelHeight: target,
-            compactHeight: options.defaultSize.value.height,
-            popupOpen,
-            maximized: effectiveWindowMaximized.value,
-            manualOverride: searchWindowHeightMode.value === SearchWindowHeightMode.ManualOverride,
-        });
-        const previousMode = geometryMode;
-        const previousFrozenOriginY = frozenOriginY;
-        if (nextMode === 'popup' && geometryMode !== 'popup') {
-            // Remember where the frame was when the popup took over: that is where it has to stay
-            // until the popup is gone, whatever the host envelope does in the meantime.
-            frozenOriginY = hostAnchor?.y ?? null;
-        }
-        geometryMode = nextMode;
-        const atIdleHeight = nextMode === 'idle' && monitorHost.value && !desiredMaximized.value;
-        const placement = commitOptions.placement ?? (atIdleHeight ? 'idle' : 'preserve-origin');
-        // A conversation asks for the centring explicitly; otherwise only the mode decides.
-        const centreFrame = Boolean(commitOptions.center) || surfaceModeCentres(nextMode);
-        const frameMode = commitOptions.center ? 'surface' : nextMode;
-        const animatesCard = !envelopeOnly && Math.abs(revealFrom - target) > 1;
-        const shrinks = animatesCard && revealFrom > target;
+        const change = { fromHeight: revealFrom, toHeight: target, fromTop: revealTop };
+        activeHeightChange.value = change;
+        const placement =
+            commitOptions.placement ?? (restoreVisibleHost ? 'idle' : 'preserve-origin');
+        const animatesCard = Math.abs(revealFrom - target) > 1;
 
-        await enqueueGeometry(generation, async () => {
-            nativeGeometryInFlight = true;
-            let animation: Animation | null = null;
-            let revealContinues = false;
-            let nativeCommitted = false;
-            const previousOrigin = hostAnchor;
-            if (!shrinks && animatesCard && visibleCard && previousOrigin) {
-                heldCardPosition = {
-                    element: visibleCard,
-                    originY: previousOrigin.y + interruptedOffsetY * scaleFactor(),
-                    transform: visibleCard.style.transform,
-                };
-            }
-            try {
-                if (shrinks) {
-                    animation = await startCardAnimation(
-                        revealFrom,
-                        target,
-                        generation,
-                        centreFrame,
-                        frameMode,
-                        undefined,
-                        interruptedOffsetY
-                    );
-                    await animation?.finished.catch(() => undefined);
-                    if (!isCurrentGeometry(generation)) return;
-                }
-                if (monitorHost.value) {
-                    const state = commitOptions.reset
-                        ? await native.window
-                              .resetSearchWindowBounds()
-                              .then(() => native.window.getSearchWindowState())
-                        : await native.window.commitSearchPanelResize({
-                              from,
-                              to: { width: from.width, height: target },
-                              auto: true,
-                              ...(hostContentHeight === undefined ? {} : { hostContentHeight }),
-                              ...(commitOptions.respectManualOverride === undefined
-                                  ? {}
-                                  : { respectManualOverride: commitOptions.respectManualOverride }),
-                              placement,
-                          });
-                    if (!isCurrentGeometry(generation)) return;
-                    applyState(state);
-                    nativeCommitted = true;
-                    failedMeasurement = null;
-                    if (!envelopeOnly && placement !== 'preserve-origin') {
-                        cancelHostShift();
-                        invalidateHostAnchor();
-                        seedIdleOrigin();
-                    }
-                    if (animatesCard && !shrinks) {
-                        animation = await startCardAnimation(
-                            revealFrom,
-                            state.currentHeight,
-                            generation,
-                            centreFrame,
-                            frameMode,
-                            previousOrigin?.y,
-                            interruptedOffsetY
-                        );
-                    }
-                } else {
-                    if (commitOptions.reset) {
-                        await native.window.resetSearchWindowBounds();
+        return (
+            (await enqueueGeometry(generation, async () => {
+                let animation: Animation | null = null;
+                let revealContinues = false;
+                let nativeCommitted = false;
+                try {
+                    if (monitorHost.value) {
+                        const state = commitOptions.reset
+                            ? await native.window
+                                  .resetSearchWindowBounds()
+                                  .then(() => native.window.getSearchWindowState())
+                            : await native.window.commitSearchPanelResize({
+                                  from,
+                                  to: { width: from.width, height: target },
+                                  auto: !(
+                                      respectManualOverride &&
+                                      from.height > availablePanelHeight.value &&
+                                      searchWindowHeightMode.value ===
+                                          SearchWindowHeightMode.ManualOverride
+                                  ),
+                                  ...(commitOptions.respectManualOverride === undefined
+                                      ? {}
+                                      : {
+                                            respectManualOverride:
+                                                commitOptions.respectManualOverride,
+                                        }),
+                                  placement,
+                              });
+                        if (!isCurrentGeometry(generation)) return false;
+                        applyState(state);
+                        nativeCommitted = true;
+                        failedMeasurement = null;
+                        if (restoreVisibleHost) {
+                            const origin = await currentWindow.outerPosition();
+                            if (!isCurrentGeometry(generation)) return false;
+                            hostOrigin.value = origin;
+                        }
+                        if (commitOptions.reset || restoreVisibleHost) panelCenterY.value = null;
+                        await syncSearchWindowMinSizeConstraints();
+                        if (!isCurrentGeometry(generation)) return false;
+                        // Keep the old card visible until the OS can paint the full transition envelope.
+                        await nextTick();
+                        await options.preparePanelTransition?.();
+                        if (!isCurrentGeometry(generation)) return false;
+                        if (animatesCard) {
+                            animation = animateCardHeight(
+                                revealFrom,
+                                state.currentHeight,
+                                SEARCH_SURFACE_MOTION.durationMs,
+                                revealTop - Number.parseFloat(panelStyle.value!.top),
+                                Number.parseFloat(settledPanelStyle.value.top) -
+                                    Number.parseFloat(panelStyle.value!.top)
+                            );
+                            cardAnimation.value = animation;
+                        }
                     } else {
-                        await native.window.resizeWindowHeight({
-                            targetHeight: target,
-                            center: true,
-                            animate: false,
-                            respectManualOverride,
-                        });
+                        if (commitOptions.reset) {
+                            await native.window.resetSearchWindowBounds();
+                        } else {
+                            await native.window.resizeWindowHeight({
+                                targetHeight: target,
+                                center: true,
+                                animate: false,
+                                respectManualOverride,
+                            });
+                        }
+                        if (!isCurrentGeometry(generation)) return false;
+                        const state = await native.window.getSearchWindowState();
+                        if (!isCurrentGeometry(generation)) return false;
+                        applyState(state);
+                        nativeCommitted = true;
+                        failedMeasurement = null;
+                        await syncSearchWindowMinSizeConstraints();
                     }
-                    if (!isCurrentGeometry(generation)) return;
-                    const state = await native.window.getSearchWindowState();
-                    if (!isCurrentGeometry(generation)) return;
-                    applyState(state);
-                    nativeCommitted = true;
-                    failedMeasurement = null;
-                    currentHostContentHeight.value = null;
-                }
-                if (change) {
-                    if (activeHeightChange.value === change) activeHeightChange.value = null;
-                    await nextTick();
-                    if (!isCurrentGeometry(generation)) return;
-                    if (animation && !shrinks) {
-                        const reveal = animation;
-                        revealContinues = true;
-                        void reveal.finished
-                            .catch(() => undefined)
-                            .then(() => finishCardTransition(change, generation, reveal));
+                    if (change) {
+                        await nextTick();
+                        if (!isCurrentGeometry(generation)) return false;
+                        if (animation) {
+                            const reveal = animation;
+                            revealContinues = true;
+                            void reveal.finished
+                                .catch(() => undefined)
+                                .then(() => finishCardTransition(change, generation, reveal));
+                        }
                     }
-                }
-                await syncSearchWindowMinSizeConstraints();
-            } catch (error) {
-                reportError('commit search panel height', error);
-                if (!nativeCommitted && isCurrentGeometry(generation)) {
-                    failedMeasurement = {
-                        panelHeight: target,
-                        hostContentHeight: hostContentHeight ?? null,
-                    };
-                    if (commitOptions.reset) desiredMaximized.value = wasMaximized;
-                    cancelHostShift();
-                    geometryMode = previousMode;
-                    frozenOriginY = previousFrozenOriginY;
-                    if (previousOrigin) {
-                        await writeHostPosition(
-                            previousOrigin.x,
-                            previousOrigin.y,
-                            generation,
-                            hostShiftToken
-                        ).catch((restoreError) =>
-                            reportError('restore the search host position', restoreError)
-                        );
+                    return true;
+                } catch (error) {
+                    reportError('commit search panel height', error);
+                    if (!nativeCommitted && isCurrentGeometry(generation)) {
+                        failedMeasurement = target;
+                        if (commitOptions.reset) desiredMaximized.value = wasMaximized;
+                    }
+                    return false;
+                } finally {
+                    if (change && !revealContinues) {
+                        finishCardTransition(change, generation, animation, nativeCommitted);
                     }
                 }
-            } finally {
-                if (heldCardPosition) {
-                    heldCardPosition.element.style.transform = heldCardPosition.transform;
-                    heldCardPosition = null;
-                }
-                nativeGeometryInFlight = false;
-                if (change && !revealContinues) {
-                    finishCardTransition(change, generation, animation, nativeCommitted);
-                    if (isCurrentGeometry(generation)) snapHostToHeight(currentHeight.value);
-                }
-            }
-        });
+            })) ?? false
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -850,10 +567,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             }),
         });
 
-        // A content-bounded native host carries the overlay envelope itself
-        // (`hostContentHeight`), so the panel stays a pure function of the measured
-        // content. Without such a host nothing else can grow, so the envelope has
-        // to be folded into the panel height.
+        // The Windows host already contains overlays. Other platforms still size the native window.
         return Math.min(
             availablePanelHeight.value,
             resolveSearchWindowMeasuredHeight({
@@ -879,7 +593,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             // The hold can start after this timer was queued -- a submit freezes the height loop
             // while the surface is still empty -- so the check has to happen when it fires, not only
             // when the measurement is scheduled.
-            if (measurementHold.value) return;
+            if (measurementHold.value || isSurfaceAnimating.value) return;
             if (!target || windowListenersDisposed || !autoHeightEnabled.value) {
                 return;
             }
@@ -887,12 +601,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             const nextHeight = resolveEffectivePanelHeight(resolveMeasuredPanelHeight(target));
             // Rolling back an animation fires ResizeObserver too. Only a changed target
             // or an explicit remeasurement should retry a failed native operation.
-            if (
-                failedMeasurement?.panelHeight === nextHeight &&
-                failedMeasurement.hostContentHeight ===
-                    (resolveHostContentHeightPayload(nextHeight) ?? null)
-            )
-                return;
+            if (failedMeasurement === nextHeight) return;
             void commitPanelHeight(nextHeight).catch((error) => {
                 reportError('apply measured content height', error);
             });
@@ -968,11 +677,18 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         await syncSearchWindowHeightMode();
         await syncMaximizedState();
         if (monitorHost.value) {
+            viewportHeight.value = window.innerHeight;
             const generation = commitGeneration;
             try {
-                const monitor = await currentMonitor();
-                if (monitor && isCurrentGeometry(generation))
+                const [monitor, position] = await Promise.all([
+                    currentMonitor(),
+                    currentWindow.outerPosition(),
+                ]);
+                if (isCurrentGeometry(generation)) hostOrigin.value = position;
+                if (monitor && isCurrentGeometry(generation)) {
                     workAreaHeight.value = monitor.workArea.size.height;
+                    workAreaTop.value = monitor.workArea.position.y;
+                }
             } catch (error) {
                 reportError('read search window work area', error);
             }
@@ -1014,10 +730,11 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     async function resetSearchWindowBounds() {
         logicalPanelResizeStart = null;
         isLogicalPanelResizing.value = false;
-        await commitPanelHeight(options.defaultSize.value.height, {
+        const committed = await commitPanelHeight(options.defaultSize.value.height, {
             placement: 'idle',
             reset: true,
         });
+        return committed && (await finishCompactTransition());
     }
 
     /** Measure the live content after Vue has applied the layout. */
@@ -1027,6 +744,10 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
 
         await nextTick();
         if (measurementHold.value) return;
+        if (isSurfaceAnimating.value) {
+            scheduleMeasurement(target);
+            return;
+        }
         const nextHeight = resolveMeasuredPanelHeight(target);
         await commitPanelHeight(nextHeight);
     }
@@ -1050,18 +771,29 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                   );
         if (target === null) return;
 
-        await commitPanelHeight(target, { respectManualOverride: false, center: true });
+        await commitPanelHeight(target, { respectManualOverride: false });
     }
 
     async function collapseSessionToIdle() {
         const compactHeight = options.defaultSize.value.height;
         const fromHeight = currentHeight.value || compactHeight;
         if (fromHeight <= compactHeight + 1) {
-            return false;
+            return finishCompactTransition();
         }
 
-        await commitPanelHeight(compactHeight, { center: true });
-        return true;
+        const committed = await commitPanelHeight(compactHeight);
+        if (!committed) return false;
+        return finishCompactTransition();
+    }
+
+    async function finishCompactTransition() {
+        const generation = commitGeneration;
+        // Callers clear the conversation after this resolves; retain it throughout the fold.
+        await cardAnimation.value?.finished.catch(() => undefined);
+        return (
+            isCurrentGeometry(generation) &&
+            Math.abs(currentHeight.value - options.defaultSize.value.height) <= 1
+        );
     }
 
     // ---------------------------------------------------------------------
@@ -1146,20 +878,14 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                     width: currentWidth.value || options.defaultSize.value.width,
                     height: currentHeight.value || options.defaultSize.value.height,
                 };
-                const hostContentHeight = nextMaximized
-                    ? undefined
-                    : resolveHostContentHeightPayload(from.height);
                 const state = await native.window.commitSearchPanelResize({
                     from,
                     to: from,
                     auto: true,
                     placement: nextMaximized ? 'work-area' : 'restore',
-                    ...(hostContentHeight === undefined ? {} : { hostContentHeight }),
                 });
                 if (isCurrentGeometry(generation)) {
                     applyState(state);
-                    invalidateHostAnchor();
-                    seedIdleOrigin();
                 }
             });
         } catch (error) {
@@ -1183,17 +909,27 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     // Manual panel resize (the drag handles)
     // ---------------------------------------------------------------------
     async function prepareForNativeDrag() {
+        nativeDragLayout.value = { ...settledPanelStyle.value };
+        viewportSyncScheduler.cancel();
         const generation = claimGeometry();
         return (
             (await enqueueGeometry(generation, async () => {
                 const state = await native.window.getSearchWindowState();
                 if (!isCurrentGeometry(generation)) return false;
                 applyState(state);
-                invalidateHostAnchor();
-                seedIdleOrigin();
                 return true;
             })) ?? false
         );
+    }
+
+    async function finishNativeDrag() {
+        try {
+            await syncWindowState();
+        } finally {
+            nativeDragLayout.value = null;
+            await nextTick();
+            options.onHostViewportChange?.();
+        }
     }
 
     function beginLogicalPanelResize(): LogicalSearchPanelSize {
@@ -1203,6 +939,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                 width: currentWidth.value || options.defaultSize.value.width,
                 height: currentHeight.value || options.defaultSize.value.height,
             },
+            centerY: panelCenterY.value,
             heightMode: searchWindowHeightMode.value,
             generation,
         };
@@ -1231,10 +968,18 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             const state = await native.window.commitSearchPanelResize({
                 from: start.size,
                 to: size,
-                physicalOrigin,
+                physicalOrigin: physicalOrigin
+                    ? { x: physicalOrigin.x, y: hostOrigin.value.y }
+                    : undefined,
                 placement: 'preserve-origin',
             });
             if (!isCurrentGeometry(start.generation)) return;
+            if (physicalOrigin) {
+                panelCenterY.value =
+                    (physicalOrigin.y + SEARCH_WINDOW_TOP_INSET - hostOrigin.value.y) /
+                        scaleFactor() +
+                    state.currentHeight / 2;
+            }
             applyState(state);
             return state;
         });
@@ -1247,8 +992,6 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             if (logicalPanelResizeStart === start) {
                 logicalPanelResizeStart = null;
                 isLogicalPanelResizing.value = false;
-                invalidateHostAnchor();
-                seedIdleOrigin();
                 await syncSearchWindowMinSizeConstraints();
             }
         });
@@ -1263,19 +1006,22 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                 const state = await native.window.commitSearchPanelResize({
                     from: { width: currentWidth.value, height: currentHeight.value },
                     to: start.size,
-                    physicalOrigin,
+                    physicalOrigin: physicalOrigin
+                        ? { x: physicalOrigin.x, y: hostOrigin.value.y }
+                        : undefined,
                     auto: start.heightMode === SearchWindowHeightMode.Auto,
                     respectManualOverride: false,
                     placement: 'preserve-origin',
                 });
-                if (isCurrentGeometry(generation)) applyState(state);
+                if (isCurrentGeometry(generation)) {
+                    applyState(state);
+                    panelCenterY.value = start.centerY;
+                }
             });
         } finally {
             if (isCurrentGeometry(generation)) {
                 logicalPanelResizeStart = null;
                 isLogicalPanelResizing.value = false;
-                invalidateHostAnchor();
-                seedIdleOrigin();
             }
         }
     }
@@ -1397,7 +1143,17 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         if (!held) scheduleMeasurement();
     });
 
-    watch(availablePanelHeight, () => scheduleMeasurement());
+    watch([availablePanelHeight, visibleHeight, nativeDragLayout], () => {
+        if (nativeDragLayout.value) return;
+        // Visibility is a hard constraint even when content autosizing is disabled.
+        if (
+            monitorHost.value &&
+            (currentHeight.value > availablePanelHeight.value ||
+                visibleHeight.value < minimumPanelHeight.value)
+        ) {
+            void commitPanelHeight(currentHeight.value);
+        } else scheduleMeasurement();
+    });
 
     // ---------------------------------------------------------------------
     // Window listeners
@@ -1420,21 +1176,9 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
 
     currentWindow
         .onMoved(({ payload }) => {
-            // Preserve the visible start frame while the host acknowledges its new envelope.
-            if (heldCardPosition) {
-                heldCardPosition.element.style.transform = `translateY(${(heldCardPosition.originY - payload.y) / scaleFactor()}px)`;
-            }
-            // Only track the frame when no drift owns it: the drift writes its own position
-            // every frame and its echo must not become the next anchor.
-            if (
-                !nativeGeometryInFlight &&
-                !cardAnimation.value &&
-                hostShiftFrame === null &&
-                hostPositionWrite === null
-            ) {
-                recordIdleOrigin(payload);
-                viewportSyncScheduler.schedule();
-            }
+            hostOrigin.value = payload;
+            if (nativeDragLayout.value) return;
+            viewportSyncScheduler.schedule();
             notifyHostViewportChange();
         })
         .then((unlisten) => {
@@ -1446,15 +1190,9 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         })
         .catch((error) => reportError('listen for search window movement', error));
 
-    // Seed the drift origins so the first reveal does not have to wait for a position read.
-    seedIdleOrigin();
-
     currentWindow
         .onScaleChanged(({ payload }) => {
             displayScaleFactor.value = payload.scaleFactor;
-            // Every drift target is computed in physical pixels from the scale it captured, so a
-            // scale that changed mid-flight leaves the frame on a position nothing will correct.
-            cancelHostShift();
             viewportSyncScheduler.schedule();
             notifyHostViewportChange();
         })
@@ -1485,18 +1223,20 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         currentHeight,
         cardHeight,
         measurementHold,
-        hostContentHeight: currentHostContentHeight,
         isMaximized: desiredMaximized,
         effectiveWindowMaximized,
         settledWindowMaximized,
         fillConversationAvailableHeight,
         monitorHost,
+        panelBounds,
+        overlayMinViewportTop: computed(() =>
+            monitorHost.value ? visibleViewport.value.top : undefined
+        ),
         overlayMaxViewportHeight: computed(() =>
-            Number.isFinite(availablePanelHeight.value)
-                ? availablePanelHeight.value + SEARCH_WINDOW_TOP_INSET / scaleFactor()
-                : undefined
+            monitorHost.value ? panelBounds.value.bottom : undefined
         ),
         panelStyle,
+        cardStyle,
         isSessionExpandAnimating: isSurfaceAnimating,
         isCardGrowing,
         isLogicalPanelResizing,
@@ -1516,5 +1256,6 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         commitLogicalPanelResize,
         cancelLogicalPanelResize,
         prepareForNativeDrag,
+        finishNativeDrag,
     };
 }

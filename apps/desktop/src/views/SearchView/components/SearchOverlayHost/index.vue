@@ -28,6 +28,7 @@
         /** Whether the overlay may move to the opposite side of its anchor. */
         allowFlip?: boolean;
         maxViewportHeight?: number;
+        minViewportTop?: number;
         /**
          * Element whose left edge the overlay aligns to.
          *
@@ -108,7 +109,10 @@
         const alignmentRect = props.leftAlignElement?.getBoundingClientRect() ?? anchorRect;
         if (props.overlayOnAnchor) {
             const overlayRect = overlayElement.value.getBoundingClientRect();
-            const top = anchorRect.top + props.gap;
+            const top = Math.max(
+                anchorRect.top + props.gap,
+                (props.minViewportTop ?? 0) + props.viewportPadding
+            );
             overlayStyle.value = {
                 left: `${alignmentRect.left}px`,
                 top: `${top}px`,
@@ -149,6 +153,7 @@
             gap: props.gap,
             allowFlip: props.allowFlip,
             maxViewportHeight: props.maxViewportHeight,
+            minViewportTop: props.minViewportTop,
             viewportPadding: props.viewportPadding,
         });
 
@@ -403,6 +408,7 @@
             props.gap,
             props.viewportPadding,
             props.maxViewportHeight,
+            props.minViewportTop,
         ],
         () => {
             if (props.open) {

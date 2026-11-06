@@ -14,19 +14,18 @@ const { build } = await import(pathToFileURL(require.resolve('vite')).href);
 const { default: vue } = await import(pathToFileURL(require.resolve('@vitejs/plugin-vue')).href);
 const { chromium } = require('@playwright/test');
 const boundary = `
-let state={defaults:{width:750,height:60},currentWidth:750,currentHeight:60,heightMode:'auto',monitorHost:true,hostContentHeight:null};
+let state={defaults:{width:750,height:60},currentWidth:750,currentHeight:60,heightMode:'auto',monitorHost:true};
 const scale=window.devicePixelRatio;
-let position={x:0,y:438*scale},size={width:846*scale,height:96+108*scale};
+let position={x:0,y:0},size={width:846*scale,height:1080*scale};
 let moved=()=>{};
 window.hostPosition=()=>position;
 const noop=async()=>{};
 export const native={window:{getSearchWindowState:async()=>state,setSearchWindowDefaults:noop,setSearchWindowMinSize:noop,setSearchWindowAllowHeightOverride:noop,resetSearchWindowBounds:noop,commitSearchPanelResize:async({to})=>{
-size={width:(to.width+96)*scale,height:96+(to.height+48)*scale};
-position={...position,y:Math.min(position.y,1080*scale-size.height)};
-moved({payload:position});
+size={width:(to.width+96)*scale,height:1080*scale};
 await new Promise(resolve=>setTimeout(resolve,24));
+moved({payload:position});
 state={...state,currentWidth:to.width,currentHeight:to.height};return state;}}};
-export const getCurrentWindow=()=>({outerPosition:async()=>position,outerSize:async()=>size,onMoved:async cb=>{moved=cb;return()=>{}},onResized:async()=>()=>{},onScaleChanged:async()=>()=>{},isMaximized:async()=>false,setPosition:async p=>{position={x:p.x,y:p.y};moved({payload:position});await new Promise(resolve=>setTimeout(resolve,24))}});
+export const getCurrentWindow=()=>({outerPosition:async()=>position,outerSize:async()=>size,onMoved:async cb=>{moved=cb;return()=>{}},onResized:async()=>()=>{},onScaleChanged:async()=>()=>{},isMaximized:async()=>false,setPosition:async p=>{position={x:p.x,y:p.y};await new Promise(resolve=>setTimeout(resolve,24));moved({payload:position})}});
 export const currentMonitor=async()=>({workArea:{position:{x:0,y:0},size:{width:1920*scale,height:1080*scale}}});`;
 const fixture = `<script setup>
 import {computed,nextTick,onMounted,ref} from 'vue';
@@ -35,7 +34,7 @@ import SearchOverlayHost from '${root}/src/views/SearchView/components/SearchOve
 const card=ref(null),editor=ref(null),trigger=ref(null),menu=ref(null),open=ref(false),ready=ref(false);
 const resize=useSearchWindowResize({target:ref(null),card,sessionCount:ref(1),quickSearchOpen:ref(false),defaultSize:ref({width:750,height:60}),ready});
 const height=computed(()=>resize.cardHeight.value || 60);
-const topInset=96/window.devicePixelRatio;
+
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 onMounted(()=>{ready.value=true});
 window.geometryProbe={
@@ -44,9 +43,9 @@ async showMenu(){open.value=true;await nextTick();await menu.value.refreshPositi
 async hideMenu(){open.value=false;await pause(200)}
 };
 </script><template>
-<main ref="card" :style="{position:'fixed',left:'48px',top:topInset+'px',width:'calc(100% - 96px)',height:height+'px',background:'#faf9f6',display:'flex',flexDirection:'column',justifyContent:'end'}">
+<section :style="resize.panelStyle.value"><main ref="card" :style="{...resize.cardStyle.value,height:height+'px',background:'#faf9f6',display:'flex',flexDirection:'column',justifyContent:'end'}">
 <div ref="editor" style="height:60px;flex-shrink:0;padding:12px;box-sizing:border-box"><button ref="trigger">Models</button></div>
-</main>
+</main></section>
 <SearchOverlayHost ref="menu" :open="open" :anchor="trigger" :position-anchor="editor" :left-align-element="card" :max-viewport-height="900" :gap="5">
 <div style="width:320px;height:384px;max-height:var(--search-overlay-max-height);overflow:auto;background:#faf9f6;border:1px solid gray;box-sizing:border-box"><div style="height:600px">Model list</div></div>
 </SearchOverlayHost>

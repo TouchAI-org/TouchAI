@@ -34,6 +34,7 @@
         effectiveWindowMaximized,
         settledWindowMaximized,
         panelStyle,
+        cardStyle,
         isCardGrowing,
         playSessionExpandAnimation,
         remeasureTargetHeight,

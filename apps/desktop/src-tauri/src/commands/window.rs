@@ -40,7 +40,6 @@ pub struct SearchWindowStatePayload {
     pub current_width: f64,
     pub current_height: f64,
     pub height_mode: crate::core::window::search::bounds::HeightMode,
-    pub host_content_height: Option<f64>,
     pub monitor_host: bool,
 }
 
@@ -56,9 +55,6 @@ pub struct SearchPanelSizePayload {
 pub struct SearchPanelResizeCommitPayload {
     pub from: SearchPanelSizePayload,
     pub to: SearchPanelSizePayload,
-    /// Logical client-space extent required by the bounded host, including overlays.
-    #[serde(default)]
-    pub host_content_height: Option<f64>,
     /// Renderer-owned content/viewport resize. These commits must remain in
     /// Auto mode instead of being classified as a user's manual drag.
     #[serde(default)]
@@ -122,13 +118,36 @@ fn search_window_state_payload(
         current_width: snapshot.current_width,
         current_height: snapshot.current_height,
         height_mode: snapshot.height_mode,
-        host_content_height: snapshot.host_content_height,
         monitor_host: cfg!(target_os = "windows"),
     }
 }
 
 #[tauri::command]
-pub fn hide_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+pub async fn drag_search_window<R: Runtime>(window: WebviewWindow<R>) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("Only the main renderer can drag the search window".to_string());
+    }
+    // Leave the WebView2 IPC callback before entering Windows' modal move loop.
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let app = window.app_handle().clone();
+    app.run_on_main_thread(move || {
+        let result = crate::core::window::search::drag_search_window_on_main_thread(&window);
+        let _ = sender.send(result);
+    })
+    .map_err(|error| format!("Failed to schedule search window drag: {error}"))?;
+    receiver
+        .await
+        .map_err(|error| format!("Search window drag ended without a result: {error}"))?
+}
+
+#[tauri::command]
+pub fn hide_search_window<R: Runtime>(
+    app: AppHandle<R>,
+    if_unfocused: Option<bool>,
+) -> Result<(), String> {
+    if if_unfocused.unwrap_or(false) {
+        return crate::core::window::search::surface::handle_focus_lost_on_main_thread(&app);
+    }
     crate::core::window::hide_search_window_on_main_thread(&app)
 }
 
@@ -358,7 +377,6 @@ pub fn commit_search_panel_resize<R: Runtime>(
         resize.from.height,
         resize.to.width,
         resize.to.height,
-        resize.host_content_height.unwrap_or(1.0),
     ]
     .into_iter()
     .any(|value| !value.is_finite() || value <= 0.0)
@@ -400,9 +418,7 @@ pub fn commit_search_panel_resize<R: Runtime>(
             runtime.should_allow_height_override(),
         );
     }
-    let snapshot = runtime
-        .window_state()
-        .set_host_content_height(resize.host_content_height);
+    let snapshot = runtime.window_state().snapshot();
     #[cfg(target_os = "windows")]
     {
         let native_resize_enabled = window
@@ -416,7 +432,6 @@ pub fn commit_search_panel_resize<R: Runtime>(
                     &window,
                     snapshot.current_width,
                     snapshot.current_height,
-                    resize.host_content_height,
                     resize.placement.unwrap_or(
                         crate::core::window::search_host::SearchHostPlacement::PreserveCenter,
                     ),

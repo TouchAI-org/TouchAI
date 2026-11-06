@@ -56,6 +56,7 @@ const {
         current: null as {
             sessionHistoryOverlayOpen: Ref<boolean>;
             handleSubmit: ReturnType<typeof vi.fn>;
+            clearSession: ReturnType<typeof vi.fn>;
         } | null,
     },
     resizeState: {
@@ -326,7 +327,6 @@ vi.mock('@/views/SearchView/composables/useSearchWindowResize', async () => {
                 cardHeight: ref(60),
                 cardReveal: ref(0),
                 isCardGrowing: ref(false),
-                hostContentHeight: ref(null),
                 isMaximized: ref(false),
                 effectiveWindowMaximized: ref(false),
                 settledWindowMaximized: ref(false),
@@ -402,6 +402,7 @@ interface SearchViewSetupState {
     quickSearchOpen: boolean;
     quickSearchRevealPhase: string;
     handleQuickSearchOpenChange: (open: boolean) => void;
+    clearSessionToIdle: () => Promise<void>;
     handleModelSelect: (modelDbId: number) => Promise<void>;
     handleToggleModelDropdownRequest: () => Promise<void>;
     handleOverlayPositioned: (position: {
@@ -441,7 +442,7 @@ describe('SearchView async overlay and listener lifecycle', () => {
         resizeState.remeasureTargetHeight.mockResolvedValue(undefined);
         resizeState.playSessionExpandAnimation.mockResolvedValue(undefined);
         resizeState.collapseSessionToIdle.mockResolvedValue(true);
-        resizeState.resetSearchWindowBounds.mockResolvedValue(undefined);
+        resizeState.resetSearchWindowBounds.mockResolvedValue(true);
         resizeState.options = null;
         regionState.flush.mockResolvedValue(true);
         surfacePreparationState.start.mockResolvedValue(true);
@@ -475,6 +476,7 @@ describe('SearchView async overlay and listener lifecycle', () => {
         delete (window as Window & { __TOUCHAI_E2E__?: unknown }).__TOUCHAI_E2E__;
         vi.useRealTimers();
         vi.restoreAllMocks();
+        vi.unstubAllGlobals();
     });
 
     function mountSearchView() {
@@ -597,6 +599,24 @@ describe('SearchView async overlay and listener lifecycle', () => {
         expect(setup.overlayPositionReady).toBe(false);
     });
 
+    it('user can open a picker in a stable native viewport without waiting for animation frames', async () => {
+        vi.useFakeTimers();
+        vi.stubGlobal(
+            'requestAnimationFrame',
+            vi.fn(() => 1)
+        );
+        const setup = getSetupState(mountSearchView());
+        await setup.handleToggleModelDropdownRequest();
+        setup.handleOverlayPositioned({
+            left: 48,
+            top: 160,
+            side: 'bottom',
+            requiredViewportHeight: null,
+        });
+        for (let index = 0; index < 12; index += 1) await flushPromises();
+        expect(setup.overlayPositionReady).toBe(true);
+    });
+
     it.each(['fillConversationAvailableHeight', 'effectiveWindowMaximized'] as const)(
         'lets conversation content fill the available height when %s is active',
         async (mode) => {
@@ -618,7 +638,9 @@ describe('SearchView async overlay and listener lifecycle', () => {
             await flushPromises();
             expect(setup.quickSearchRevealPhase).toBe('open');
 
-            const oldClose = deferred<void>();
+            const oldClose = deferred<boolean>();
+            if (closeStage === 'resetting')
+                resizeState.collapseSessionToIdle.mockResolvedValueOnce(false);
             const pendingOperation =
                 closeStage === 'folding'
                     ? resizeState.collapseSessionToIdle
@@ -633,7 +655,7 @@ describe('SearchView async overlay and listener lifecycle', () => {
             setup.handleQuickSearchOpenChange(true);
             await flushPromises();
             expect(resizeState.remeasureTargetHeight).toHaveBeenCalled();
-            oldClose.resolve();
+            oldClose.resolve(true);
             await flushPromises();
             await flushPromises();
 
@@ -647,6 +669,63 @@ describe('SearchView async overlay and listener lifecycle', () => {
             expect(setup.quickSearchOpen).toBe(false);
         }
     );
+
+    it('user keeps a reopened search when an earlier close is superseded', async () => {
+        const setup = getSetupState(mountSearchView());
+        setup.handleQuickSearchOpenChange(true);
+        await flushPromises();
+        const fold = deferred<boolean>();
+        resizeState.collapseSessionToIdle.mockReturnValueOnce(fold.promise);
+        setup.handleQuickSearchOpenChange(false);
+        await flushPromises();
+        setup.handleQuickSearchOpenChange(true);
+        fold.resolve(false);
+        await flushPromises();
+        expect(resizeState.resetSearchWindowBounds).not.toHaveBeenCalled();
+        expect(setup.quickSearchOpen).toBe(true);
+    });
+
+    it.each([true, false])(
+        'user clears a conversation only after fallback geometry succeeds (%s)',
+        async (accepted) => {
+            const setup = getSetupState(mountSearchView());
+            resizeState.collapseSessionToIdle.mockResolvedValueOnce(false);
+            const reset = deferred<boolean>();
+            resizeState.resetSearchWindowBounds.mockReturnValueOnce(reset.promise);
+            const clear = setup.clearSessionToIdle();
+            await flushPromises();
+            expect(requestFlowState.current!.clearSession).not.toHaveBeenCalled();
+            reset.resolve(accepted);
+            await clear;
+            expect(requestFlowState.current!.clearSession).toHaveBeenCalledTimes(accepted ? 1 : 0);
+        }
+    );
+
+    it('user retains the results while a failed fold recovers its native bounds', async () => {
+        const setup = getSetupState(mountSearchView());
+        setup.handleQuickSearchOpenChange(true);
+        await flushPromises();
+        resizeState.collapseSessionToIdle.mockResolvedValueOnce(false);
+        const reset = deferred<boolean>();
+        resizeState.resetSearchWindowBounds.mockReturnValueOnce(reset.promise);
+        setup.handleQuickSearchOpenChange(false);
+        await flushPromises();
+        expect(setup.quickSearchOpen).toBe(true);
+        expect(setup.quickSearchRevealPhase).toBe('folding');
+        reset.resolve(false);
+        await flushPromises();
+        expect(setup.quickSearchOpen).toBe(true);
+        expect(setup.quickSearchRevealPhase).toBe('open');
+    });
+
+    it('user can reveal arrived QuickSearch results without waiting for a rendering frame', async () => {
+        vi.useFakeTimers();
+        const setup = getSetupState(mountSearchView());
+        setup.handleQuickSearchOpenChange(true);
+        await flushPromises();
+        expect(setup.quickSearchRevealPhase).toBe('open');
+        expect(resizeState.remeasureTargetHeight).toHaveBeenCalled();
+    });
 
     it('keeps bounded-host resizing enabled when an overlay opens after a stale hide state', async () => {
         const wrapper = mountSearchView();

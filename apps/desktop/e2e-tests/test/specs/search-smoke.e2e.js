@@ -15,6 +15,47 @@ function sendTestGlobalShortcut(count = 1) {
 }
 
 describe('TouchAI search smoke', () => {
+    it('user keeps the reopened window visible when pinning and unpinning with Ctrl+P', async () => {
+        await browser.waitUntil(async () => browser.execute(() => Boolean(window.__TOUCHAI_E2E__)));
+        for (let cycle = 0; cycle < 2; cycle += 1) {
+            await browser.executeAsync((done) => {
+                void window.__TAURI_INTERNALS__
+                    .invoke('hide_search_window')
+                    .then(() => window.__TAURI_INTERNALS__.invoke('show_search_window'))
+                    .then(
+                        () => done(null),
+                        (error) => done(String(error))
+                    );
+            });
+            await browser.waitUntil(() =>
+                browser.execute(() =>
+                    window.__TAURI_INTERNALS__.invoke('plugin:window|is_focused', { label: 'main' })
+                )
+            );
+            for (let toggle = 0; toggle < 2; toggle += 1) {
+                const previous = await browser.execute(() =>
+                    window.__TAURI_INTERNALS__.invoke('plugin:window|is_always_on_top', {
+                        label: 'main',
+                    })
+                );
+                await browser.keys(['Control', 'p']);
+                await browser.keys(['NULL']);
+                await browser.waitUntil(
+                    async () =>
+                        (await browser.execute(() =>
+                            window.__TAURI_INTERNALS__.invoke('plugin:window|is_always_on_top', {
+                                label: 'main',
+                            })
+                        )) !== previous
+                );
+                const visible = await browser.execute(() =>
+                    window.__TAURI_INTERNALS__.invoke('plugin:window|is_visible', { label: 'main' })
+                );
+                if (!visible) throw new Error('Ctrl+P hid the reopened search window');
+            }
+        }
+    });
+
     it('shows the main window only after the initial renderer handshake commits', async () => {
         await browser.waitUntil(async () => {
             return browser.execute(() => Boolean(window.__TOUCHAI_E2E__));
@@ -328,8 +369,7 @@ describe('TouchAI search smoke', () => {
         const history = await $('[data-search-history-popover="true"]');
         await history.waitForDisplayed();
 
-        // The envelope is measured, so the host grows in the same transaction that
-        // reveals the popover. Poll for the settled fit instead of sampling one frame.
+        // Placement must fit the stable viewport on the first open.
         let geometry = await readOverlayGeometry();
         try {
             await browser.waitUntil(
@@ -364,16 +404,6 @@ describe('TouchAI search smoke', () => {
             );
         }
 
-        const state = await browser.execute(() =>
-            window.__TAURI_INTERNALS__.invoke('get_search_window_state')
-        );
-        const hostInterior = Math.max(state.hostContentHeight ?? 0, state.currentHeight ?? 0);
-        if (!(hostInterior + 2 >= (settledGeometry.bottom ?? 0))) {
-            throw new Error(
-                `Expected the native state to reserve the history overlay envelope: ${JSON.stringify({ state, settledGeometry })}`
-            );
-        }
-
         await browser.keys(['Escape']);
         await history.waitForExist({ reverse: true });
     });
@@ -404,16 +434,22 @@ describe('TouchAI search smoke', () => {
                     await window.__TAURI_INTERNALS__.invoke('database_query', {
                         request: {
                             sql: `INSERT INTO messages
-                                (id, session_id, role, content, created_at, updated_at)
-                                VALUES (?, ?, ?, ?, ?, ?)`,
+                                (id, session_id, role, created_at, updated_at)
+                                VALUES (?, ?, ?, ?, ?)`,
                             params: [
                                 9001,
                                 9001,
                                 'user',
-                                'History toolbar fixture',
                                 '2026-09-18 12:00:00',
                                 '2026-09-18 12:00:00',
                             ],
+                            method: 'run',
+                        },
+                    });
+                    await window.__TAURI_INTERNALS__.invoke('database_query', {
+                        request: {
+                            sql: 'INSERT INTO message_parts (message_id, type, content, sort_order) VALUES (?, ?, ?, ?)',
+                            params: [9001, 'text', 'History toolbar fixture', 0],
                             method: 'run',
                         },
                     });
@@ -649,12 +685,9 @@ describe('TouchAI search smoke', () => {
                         window.innerHeight,
                         document.documentElement.clientHeight
                     );
-                    const state =
-                        await window.__TAURI_INTERNALS__.invoke('get_search_window_state');
                     return {
                         historyBottom: rect?.bottom ?? null,
                         viewportHeight,
-                        hostContentHeight: state.hostContentHeight,
                     };
                 });
                 return (

@@ -157,7 +157,6 @@ function createWindowState(
         currentWidth: 750,
         currentHeight: 60,
         heightMode: SearchWindowHeightMode.Auto,
-        hostContentHeight: null,
         monitorHost: true,
         ...overrides,
     };
@@ -242,24 +241,18 @@ describe('useSearchWindowResize', () => {
         currentWindowMock.isMaximized.mockResolvedValue(false);
         currentWindowMock.maximize.mockResolvedValue(undefined);
         currentWindowMock.unmaximize.mockResolvedValue(undefined);
-        currentWindowMock.outerPosition.mockResolvedValue({ x: 0, y: 100 });
-        currentWindowMock.outerSize.mockResolvedValue({ width: 846, height: 600 });
+        vi.stubGlobal('innerHeight', 1080);
+        currentWindowMock.outerPosition.mockResolvedValue({ x: 0, y: 0 });
+        currentWindowMock.outerSize.mockResolvedValue({ width: 846, height: 1080 });
         currentMonitorMock.mockResolvedValue({
-            workArea: { position: { x: -2000, y: -1000 }, size: { width: 5000, height: 3000 } },
+            workArea: { position: { x: 0, y: 0 }, size: { width: 1920, height: 1080 } },
         });
         currentWindowMock.setPosition.mockResolvedValue(undefined);
 
         nativeMock.window.getSearchWindowState.mockResolvedValue(createWindowState());
         nativeMock.window.commitSearchPanelResize.mockImplementation(
-            async ({
-                to,
-                hostContentHeight,
-            }: {
-                to: { width: number; height: number };
-                hostContentHeight?: number;
-            }) => ({
+            async ({ to }: { to: { width: number; height: number } }) => ({
                 ...createWindowState({ currentWidth: to.width, currentHeight: to.height }),
-                hostContentHeight: hostContentHeight ?? null,
                 monitorHost: true,
             })
         );
@@ -365,15 +358,12 @@ describe('useSearchWindowResize', () => {
         target.value = measured.element;
         await flushLifecycle();
         nativeMock.window.commitSearchPanelResize.mockClear();
-        nativeMock.window.commitSearchPanelResize.mockImplementation(
-            async ({ hostContentHeight }) => ({
-                ...createWindowState({
-                    currentHeight: 850,
-                    heightMode: SearchWindowHeightMode.ManualOverride,
-                }),
-                hostContentHeight,
-            })
-        );
+        nativeMock.window.commitSearchPanelResize.mockImplementation(async () => ({
+            ...createWindowState({
+                currentHeight: 850,
+                heightMode: SearchWindowHeightMode.ManualOverride,
+            }),
+        }));
 
         overlayRequiredViewportHeight.value = 1100;
         const remeasure = mounted.result.remeasureTargetHeight();
@@ -383,7 +373,8 @@ describe('useSearchWindowResize', () => {
         await remeasure;
 
         expect(animated).toBe(0);
-        expect(lastCommit()).toMatchObject({ to: { height: 850 }, hostContentHeight: 1100 });
+        expect(mounted.result.cardHeight.value).toBe(850);
+        expect(nativeMock.window.commitSearchPanelResize).not.toHaveBeenCalled();
         mounted.unmount();
     });
 
@@ -396,10 +387,6 @@ describe('useSearchWindowResize', () => {
             await flushLifecycle();
             mounted.result.measurementHold.value = true;
             if (withOverlay) {
-                nativeMock.window.getSearchWindowState.mockResolvedValue(
-                    createWindowState({ currentHeight: 500 })
-                );
-                await mounted.result.syncWindowState();
                 overlayTarget.value = createMeasuredElement(1100).element;
             }
             target.value = measured.element;
@@ -641,8 +628,6 @@ describe('useSearchWindowResize', () => {
 
         measured.setHeight(60);
         const collapse = mounted.result.collapseSessionToIdle();
-        // A shrink lets the card fold first: the host is only committed once the card has
-        // finished animating down.
         await vi.advanceTimersByTimeAsync(SEARCH_SURFACE_MOTION.durationMs + 20);
         await collapse;
 
@@ -651,6 +636,27 @@ describe('useSearchWindowResize', () => {
         );
         expect(mounted.result.isCardGrowing.value).toBe(false);
 
+        mounted.unmount();
+    });
+
+    it('user keeps conversation content until the collapse finishes', async () => {
+        const card = createAnimatedCard(60);
+        const { mounted } = await mount({ card: ref(card.element) });
+        await flushLifecycle();
+        await mounted.result.playSessionExpandAnimation(290);
+        card.animations[0]!.finish();
+        await flushLifecycle();
+        card.setHeight(290);
+        let mayClearContent = false;
+        const collapse = mounted.result.collapseSessionToIdle().then(() => {
+            mayClearContent = true;
+        });
+        await flushLifecycle();
+        expect(mayClearContent).toBe(false);
+        card.animations[1]!.finish();
+        await collapse;
+        expect(mayClearContent).toBe(true);
+        expect(mounted.result.cardHeight.value).toBe(60);
         mounted.unmount();
     });
 
@@ -687,7 +693,7 @@ describe('useSearchWindowResize', () => {
         mounted.unmount();
     });
 
-    it('fills the host interior instead of pinning a JS panel height', async () => {
+    it('user sees the compact panel centered inside the stable viewport', async () => {
         const { mounted } = await mount();
 
         await flushLifecycle();
@@ -695,10 +701,11 @@ describe('useSearchWindowResize', () => {
         expect(mounted.result.panelStyle.value).toMatchObject({
             position: 'fixed',
             width: 'auto',
-            height: 'auto',
+            height: '60px',
             left: '48px',
             right: '48px',
-            bottom: '48px',
+            top: '510px',
+            bottom: 'auto',
         });
         expect(mounted.result.panelStyle.value).not.toHaveProperty('top', 'calc(50% - 30px)');
 
@@ -723,7 +730,7 @@ describe('useSearchWindowResize', () => {
         expect(nativeMock.window.commitSearchPanelResize).toHaveBeenCalledWith(
             expect.objectContaining({
                 to: { width: 760, height: 320 },
-                physicalOrigin: { x: 10, y: 20 },
+                physicalOrigin: { x: 10, y: 0 },
                 placement: 'preserve-origin',
             })
         );
@@ -737,7 +744,7 @@ describe('useSearchWindowResize', () => {
         await mounted.result.cancelLogicalPanelResize({ x: 10, y: 20 });
         expect(lastCommit()).toMatchObject({
             to: { width: 760, height: 320 },
-            physicalOrigin: { x: 10, y: 20 },
+            physicalOrigin: { x: 10, y: 0 },
             auto: true,
             respectManualOverride: false,
         });
@@ -852,7 +859,9 @@ describe('useSearchWindowResize', () => {
         await advanceMeasurementTimers();
         await vi.advanceTimersByTimeAsync(SEARCH_SURFACE_MOTION.durationMs + 100);
 
-        expect(currentWindowMock.setPosition).toHaveBeenCalled();
+        const style = mounted.result.panelStyle.value!;
+        expect(Number.parseFloat(style.top) + mounted.result.cardHeight.value / 2).toBe(540);
+        expect(currentWindowMock.setPosition).not.toHaveBeenCalled();
 
         mounted.unmount();
     });
@@ -880,8 +889,8 @@ describe('useSearchWindowResize', () => {
         // The model picker flips its state before its element exists, so the growth that opens it
         // must already know a popup is there.
         const measured = createMeasuredElement(60);
-        const overlayOpen = ref(true);
-        const { mounted, target } = await mount({ overlayOpen });
+        const overlayRequiredViewportHeight = ref(600);
+        const { mounted, target } = await mount({ overlayRequiredViewportHeight });
 
         target.value = measured.element;
         await flushLifecycle();
@@ -961,22 +970,12 @@ describe('useSearchWindowResize', () => {
         mounted.unmount();
     });
 
-    it('user keeps the new frame when a position update from the interrupted reveal arrives late', async () => {
-        let origin = { x: 0, y: 500 };
+    it('user keeps the manual frame when interrupting a card reveal', async () => {
+        let origin = { x: 0, y: 0 };
         currentWindowMock.outerPosition.mockImplementation(async () => origin);
         const card = createAnimatedCard(60);
         const { mounted } = await mount({ card: ref(card.element) });
         await flushLifecycle();
-        let acknowledgePosition!: () => void;
-        currentWindowMock.setPosition.mockImplementationOnce(
-            (position) =>
-                new Promise<void>((resolve) => {
-                    acknowledgePosition = () => {
-                        origin = { x: position.x, y: position.y };
-                        resolve();
-                    };
-                })
-        );
         const expansion = mounted.result.playSessionExpandAnimation(290);
         await flushLifecycle();
         nativeMock.window.commitSearchPanelResize.mockImplementationOnce(
@@ -992,17 +991,17 @@ describe('useSearchWindowResize', () => {
         );
         const manualResize = mounted.result.commitLogicalPanelResize();
         await flushLifecycle();
-        acknowledgePosition();
         await Promise.all([expansion, preview, manualResize]);
         await vi.advanceTimersByTimeAsync(500);
 
-        expect(origin).toEqual({ x: 200, y: 300 });
+        expect(origin).toEqual({ x: 200, y: 0 });
+        expect(Number.parseFloat(mounted.result.panelStyle.value!.top)).toBe(396);
         expect(mounted.result.cardHeight.value).toBe(400);
         mounted.unmount();
     });
 
     it('user keeps the dragged centre when an expanded conversation grows again', async () => {
-        let origin = { x: 0, y: 500 };
+        let origin = { x: 0, y: 0 };
         currentWindowMock.outerPosition.mockImplementation(async () => origin);
         currentWindowMock.setPosition.mockImplementation(async (position) => {
             origin = { x: position.x, y: position.y };
@@ -1011,52 +1010,209 @@ describe('useSearchWindowResize', () => {
         await flushLifecycle();
         await mounted.result.playSessionExpandAnimation(290);
         await vi.advanceTimersByTimeAsync(400);
-        origin = { x: 200, y: 585 };
+        origin = { x: 200, y: 85 };
         windowMoveMock.emit(origin.x, origin.y);
         await mounted.result.playSessionExpandAnimation(320);
         await vi.advanceTimersByTimeAsync(400);
 
-        expect(origin).toEqual({ x: 200, y: 570 });
+        expect(origin).toEqual({ x: 200, y: 85 });
+        expect(origin.y + Number.parseFloat(mounted.result.panelStyle.value!.top) + 320 / 2).toBe(
+            625
+        );
         mounted.unmount();
     });
 
-    it('user keeps the conversation centre when native growth moves the host before acknowledging its size', async () => {
-        let origin = { x: 0, y: 438 };
-        currentWindowMock.outerPosition.mockImplementation(async () => origin);
-        currentWindowMock.setPosition.mockImplementation(async (position) => {
-            origin = { x: position.x, y: position.y };
+    it.each([
+        { hostY: 300, top: 0, bottom: 732 },
+        { hostY: -300, top: 300, bottom: 1032 },
+    ])(
+        'keeps overlays inside the visible work area after dragging the host to $hostY',
+        async ({ hostY, top, bottom }) => {
+            currentWindowMock.outerPosition.mockResolvedValue({ x: 0, y: hostY });
+            const { mounted } = await mount();
+            await flushLifecycle();
+            expect(mounted.result.overlayMinViewportTop.value).toBe(top);
+            expect(mounted.result.overlayMaxViewportHeight.value).toBe(bottom);
+            mounted.unmount();
+        }
+    );
+
+    it('user keeps a manually sized conversation visible after dragging the host down', async () => {
+        const { mounted, sessionCount } = await mount();
+        sessionCount.value = 1;
+        let state = createWindowState({
+            currentHeight: 660,
+            heightMode: SearchWindowHeightMode.ManualOverride,
         });
+        nativeMock.window.getSearchWindowState.mockImplementation(async () => state);
+        nativeMock.window.commitSearchPanelResize.mockImplementation(
+            async ({ to, auto, respectManualOverride = true }) => {
+                if (
+                    auto &&
+                    respectManualOverride &&
+                    state.heightMode === SearchWindowHeightMode.ManualOverride
+                )
+                    return state;
+                state = {
+                    ...state,
+                    currentHeight: to.height,
+                    heightMode: auto
+                        ? SearchWindowHeightMode.Auto
+                        : SearchWindowHeightMode.ManualOverride,
+                };
+                return state;
+            }
+        );
+        await mounted.result.syncWindowState();
+        currentWindowMock.outerPosition.mockResolvedValue({ x: 0, y: 500 });
+        windowMoveMock.emit(0, 500);
+        await vi.advanceTimersByTimeAsync(200);
+        expect(
+            500 +
+                Number.parseFloat(mounted.result.panelStyle.value!.top) +
+                mounted.result.cardHeight.value
+        ).toBeLessThanOrEqual(1080);
+        expect(state.heightMode).toBe(SearchWindowHeightMode.ManualOverride);
+        mounted.unmount();
+    });
+
+    it('user drags to the screen edge without the card resizing or moving inside the host', async () => {
+        const { mounted } = await mount();
+        await mounted.result.playSessionExpandAnimation(660);
+        nativeMock.window.getSearchWindowState.mockResolvedValue(
+            createWindowState({ currentHeight: 660 })
+        );
+        await mounted.result.prepareForNativeDrag();
+        const initial = { ...mounted.result.panelStyle.value };
+        nativeMock.window.commitSearchPanelResize.mockClear();
+        for (const y of [500, 900, 1030]) {
+            currentWindowMock.outerPosition.mockResolvedValue({ x: 0, y });
+            windowMoveMock.emit(0, y);
+            await vi.advanceTimersByTimeAsync(100);
+            expect(mounted.result.panelStyle.value).toEqual(initial);
+            expect(mounted.result.cardHeight.value).toBe(660);
+            expect(nativeMock.window.commitSearchPanelResize).not.toHaveBeenCalled();
+        }
+        mounted.unmount();
+    });
+
+    it('user keeps content mounted until a fallback bounds reset finishes animating', async () => {
+        const card = createAnimatedCard(60);
+        const { mounted } = await mount({ card: ref(card.element) });
+        await mounted.result.playSessionExpandAnimation(290);
+        card.animations[0]!.finish();
+        await flushLifecycle();
+        card.setHeight(290);
+        let settled = false;
+        const reset = mounted.result.resetSearchWindowBounds().then(() => {
+            settled = true;
+        });
+        await flushLifecycle();
+        expect(settled).toBe(false);
+        card.animations[1]!.finish();
+        await reset;
+        expect(settled).toBe(true);
+        mounted.unmount();
+    });
+
+    it('user keeps content mounted when a second close arrives during the same fold', async () => {
+        const card = createAnimatedCard(60);
+        const { mounted } = await mount({ card: ref(card.element) });
+        await flushLifecycle();
+        await mounted.result.playSessionExpandAnimation(290);
+        card.animations[0]!.finish();
+        await flushLifecycle();
+        card.setHeight(290);
+        const first = mounted.result.collapseSessionToIdle();
+        await flushLifecycle();
+        let closed = false;
+        const second = mounted.result.collapseSessionToIdle().then(() => {
+            closed = true;
+        });
+        await flushLifecycle();
+        const closedBeforeFold = closed;
+        card.animations[1]!.finish();
+        await Promise.all([first, second]);
+        mounted.unmount();
+        expect(closedBeforeFold).toBe(false);
+    });
+
+    it('user releases an edge drag and recovers a usable panel without a resize loop', async () => {
+        const { mounted, sessionCount } = await mount();
+        sessionCount.value = 1;
+        let state = createWindowState({
+            currentHeight: 660,
+            heightMode: SearchWindowHeightMode.ManualOverride,
+        });
+        let origin = { x: 0, y: 0 };
+        currentWindowMock.outerPosition.mockImplementation(async () => origin);
+        nativeMock.window.getSearchWindowState.mockImplementation(async () => state);
+        nativeMock.window.commitSearchPanelResize.mockImplementation(
+            async ({ to, auto, placement }) => {
+                if (placement === 'idle') origin = { x: 0, y: 0 };
+                if (!auto) state = { ...state, currentHeight: Math.max(60, to.height) };
+                return state;
+            }
+        );
+        await mounted.result.syncWindowState();
+        await mounted.result.prepareForNativeDrag();
+        origin = { x: 0, y: 1060 };
+        windowMoveMock.emit(0, 1060);
+        await vi.advanceTimersByTimeAsync(200);
+        expect(mounted.result.cardHeight.value).toBe(660);
+        await mounted.result.finishNativeDrag();
+        await vi.advanceTimersByTimeAsync(200);
+        expect(
+            origin.y +
+                Number.parseFloat(mounted.result.panelStyle.value!.top) +
+                mounted.result.cardHeight.value
+        ).toBeLessThanOrEqual(1080);
+        expect(state.heightMode).toBe(SearchWindowHeightMode.ManualOverride);
+        nativeMock.window.commitSearchPanelResize.mockClear();
+        await vi.advanceTimersByTimeAsync(500);
+        expect(nativeMock.window.commitSearchPanelResize).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('user keeps the conversation centre across a delayed native acknowledgement', async () => {
+        const origin = { x: 0, y: 0 };
+        currentWindowMock.outerPosition.mockImplementation(async () => origin);
         currentMonitorMock.mockResolvedValue({
             workArea: { position: { x: 0, y: 0 }, size: { width: 1920, height: 1080 } },
         });
         const { mounted } = await mount();
         await flushLifecycle();
         nativeMock.window.commitSearchPanelResize.mockImplementationOnce(async ({ to }) => {
-            origin = { x: 0, y: 276 };
+            await new Promise((resolve) => setTimeout(resolve, 24));
             windowMoveMock.emit(origin.x, origin.y);
-            currentWindowMock.outerSize.mockResolvedValue({ width: 846, height: 804 });
-            return createWindowState({ currentHeight: to.height });
+            const state = createWindowState({ currentHeight: to.height });
+            nativeMock.window.getSearchWindowState.mockResolvedValue(state);
+            return state;
         });
-        await mounted.result.playSessionExpandAnimation(660);
+        const expansion = mounted.result.playSessionExpandAnimation(660);
         await vi.advanceTimersByTimeAsync(500);
+        await expansion;
 
-        expect(origin.y + 96 + 660 / 2).toBe(438 + 96 + 60 / 2);
+        expect(origin.y + Number.parseFloat(mounted.result.panelStyle.value!.top) + 660 / 2).toBe(
+            540
+        );
         mounted.unmount();
     });
 
     it.each([
-        { top: 0, height: 1080, scale: 1, startY: 0, frameHeight: 804, expectedY: 0 },
-        { top: -900, height: 900, scale: 1.5, startY: -850, frameHeight: 900, expectedY: -900 },
-        { top: 0, height: 1080, scale: 1, startY: 900, frameHeight: 804, expectedY: 276 },
+        { top: 0, height: 1080, scale: 1, startY: 0 },
+        { top: -900, height: 900, scale: 1.5, startY: -850 },
+        { top: 0, height: 1080, scale: 1, startY: 900 },
     ])(
         'keeps an expanding surface inside its monitor work area ($startY, $scale DPI)',
-        async ({ top, height, scale, startY, frameHeight, expectedY }) => {
+        async ({ top, height, scale, startY }) => {
             let origin = { x: 0, y: startY };
             currentWindowMock.outerPosition.mockImplementation(async () => origin);
             currentWindowMock.setPosition.mockImplementation(async (position) => {
                 origin = { ...position };
             });
-            currentWindowMock.outerSize.mockResolvedValue({ width: 846, height: frameHeight });
+            vi.stubGlobal('innerHeight', height / scale);
+            currentWindowMock.outerSize.mockResolvedValue({ width: 846, height });
             currentMonitorMock.mockResolvedValue({
                 workArea: { position: { x: 0, y: top }, size: { width: 1920, height } },
             });
@@ -1068,9 +1224,12 @@ describe('useSearchWindowResize', () => {
             await mounted.result.playSessionExpandAnimation(660);
             await vi.advanceTimersByTimeAsync(400);
 
-            expect(origin.y).toBe(expectedY);
-            expect(origin.y).toBeGreaterThanOrEqual(top);
-            expect(origin.y + frameHeight).toBeLessThanOrEqual(top + height);
+            const panelTop =
+                origin.y + Number.parseFloat(mounted.result.panelStyle.value!.top) * scale;
+            const panelBottom = panelTop + mounted.result.cardHeight.value * scale;
+            expect(origin.y).toBe(startY);
+            expect(panelTop).toBeGreaterThanOrEqual(top);
+            expect(panelBottom).toBeLessThanOrEqual(top + height);
             mounted.unmount();
         }
     );
@@ -1093,7 +1252,6 @@ describe('useSearchWindowResize', () => {
         const collapse = mounted.result.collapseSessionToIdle();
         await flushLifecycle();
         await vi.advanceTimersByTimeAsync(400);
-        card.animations[1]!.finish();
         await collapse;
         await vi.advanceTimersByTimeAsync(400);
 
@@ -1115,13 +1273,123 @@ describe('useSearchWindowResize', () => {
 
         const collapse = mounted.result.collapseSessionToIdle();
         await flushLifecycle();
-        card.animations[1]!.finish();
-        await collapse;
+        expect(await collapse).toBe(false);
 
-        expect(card.animations[1]!.cancel).toHaveBeenCalled();
+        expect(card.animations).toHaveLength(1);
         expect(mounted.result.cardHeight.value).toBe(290);
         expect(mounted.result.isSessionExpandAnimating.value).toBe(false);
         expect(mounted.result.isCardGrowing.value).toBe(false);
+        mounted.unmount();
+    });
+
+    it('user keeps a usable compact panel without repeated requests when dragged near the work-area bottom', async () => {
+        currentWindowMock.outerPosition.mockResolvedValue({ x: 0, y: 900 });
+        const { mounted, target, quickSearchOpen } = await mount();
+        await flushLifecycle();
+        nativeMock.window.commitSearchPanelResize.mockImplementation(async ({ to }) =>
+            createWindowState({ currentHeight: Math.max(60, to.height) })
+        );
+        nativeMock.window.commitSearchPanelResize.mockClear();
+        quickSearchOpen.value = true;
+        target.value = createMeasuredElement(290).element;
+        await flushLifecycle();
+        await vi.advanceTimersByTimeAsync(100);
+        const calls = nativeMock.window.commitSearchPanelResize.mock.calls.length;
+        await vi.advanceTimersByTimeAsync(100);
+        expect(nativeMock.window.commitSearchPanelResize.mock.calls.length).toBe(calls);
+        expect(mounted.result.cardHeight.value).toBeGreaterThanOrEqual(60);
+        expect(
+            Number.parseFloat(mounted.result.panelStyle.value!.top) +
+                mounted.result.cardHeight.value
+        ).toBeLessThanOrEqual(180);
+        mounted.unmount();
+    });
+
+    it('user gets the editor back inside the work area when the dragged host cannot fit it', async () => {
+        const { mounted, target, quickSearchOpen } = await mount();
+        await flushLifecycle();
+        currentWindowMock.outerPosition.mockResolvedValue({ x: 0, y: 1050 });
+        windowMoveMock.emit(0, 1050);
+        await vi.advanceTimersByTimeAsync(100);
+        nativeMock.window.commitSearchPanelResize.mockImplementation(async ({ to, placement }) => {
+            if (placement === 'idle')
+                currentWindowMock.outerPosition.mockResolvedValue({ x: 0, y: 0 });
+            return createWindowState({ currentHeight: Math.max(60, to.height) });
+        });
+        quickSearchOpen.value = true;
+        target.value = createMeasuredElement(290).element;
+        await flushLifecycle();
+        await vi.advanceTimersByTimeAsync(100);
+        expect(nativeMock.window.commitSearchPanelResize).toHaveBeenCalledWith(
+            expect.objectContaining({ placement: 'idle' })
+        );
+        expect(mounted.result.cardHeight.value).toBe(290);
+        const top = Number.parseFloat(mounted.result.panelStyle.value!.top);
+        expect(top).toBeGreaterThanOrEqual(0);
+        expect(top + mounted.result.cardHeight.value).toBeLessThanOrEqual(1080);
+        mounted.unmount();
+    });
+
+    it('user finishes starting a new session when an overlay disappears during the fallback fold', async () => {
+        const card = createAnimatedCard(60);
+        const overlayTarget = ref<HTMLElement | null>(null);
+        const { mounted, target, sessionCount } = await mount({
+            card: ref(card.element),
+            overlayTarget,
+        });
+        await flushLifecycle();
+        await mounted.result.playSessionExpandAnimation(290);
+        card.animations[0]!.finish();
+        await flushLifecycle();
+        card.setHeight(290);
+        sessionCount.value = 1;
+        target.value = createMeasuredElement(290).element;
+        overlayTarget.value = createMeasuredElement(200).element;
+        await flushLifecycle();
+        expect(await mounted.result.collapseSessionToIdle()).toBe(false);
+
+        const reset = mounted.result.resetSearchWindowBounds();
+        await flushLifecycle();
+        overlayTarget.value = null;
+        await mounted.result.remeasureTargetHeight();
+        await advanceMeasurementTimers();
+        card.animations[1]!.finish();
+        await flushLifecycle();
+
+        expect(await reset).toBe(true);
+        expect(mounted.result.cardHeight.value).toBe(60);
+        mounted.unmount();
+    });
+
+    it('user completes a fallback fold even when native constraints acknowledge after its duration', async () => {
+        const card = createAnimatedCard(60);
+        const { mounted, target, sessionCount } = await mount({ card: ref(card.element) });
+        await flushLifecycle();
+        sessionCount.value = 1;
+        target.value = createMeasuredElement(290).element;
+        await flushLifecycle();
+        await mounted.result.playSessionExpandAnimation(290);
+        card.animations[card.animations.length - 1]!.finish();
+        await flushLifecycle();
+        card.setHeight(290);
+        let release!: () => void;
+        nativeMock.window.setSearchWindowMinSize.mockImplementationOnce(
+            () =>
+                new Promise<void>((resolve) => {
+                    release = resolve;
+                })
+        );
+        const fold = mounted.result.resetSearchWindowBounds();
+        await flushLifecycle();
+        card.animations[card.animations.length - 1]!.finish();
+        await vi.advanceTimersByTimeAsync(500);
+        release();
+        await flushLifecycle();
+        card.animations[card.animations.length - 1]!.finish();
+        await flushLifecycle();
+
+        expect(await fold).toBe(true);
+        expect(mounted.result.cardHeight.value).toBe(60);
         mounted.unmount();
     });
 
@@ -1136,6 +1404,32 @@ describe('useSearchWindowResize', () => {
 
         expect(card.animations[0]!.cancel).toHaveBeenCalled();
         expect(mounted.result.isCardGrowing.value).toBe(false);
+    });
+
+    it('user keeps the previous card until the native transition region is ready', async () => {
+        const card = createAnimatedCard(60);
+        let releaseRegion!: () => void;
+        const preparePanelTransition = vi.fn<() => Promise<void>>(async () => undefined);
+        const { mounted } = await mount({ card: ref(card.element), preparePanelTransition });
+        await flushLifecycle();
+        preparePanelTransition.mockImplementationOnce(
+            () =>
+                new Promise<void>((resolve) => {
+                    releaseRegion = resolve;
+                })
+        );
+        const expansion = mounted.result.playSessionExpandAnimation(290);
+        await flushLifecycle();
+        expect(mounted.result.cardHeight.value).toBe(60);
+        expect(card.animations).toHaveLength(0);
+
+        releaseRegion();
+        await expansion;
+        expect(card.animations).toHaveLength(1);
+        card.animations[0]!.finish();
+        await flushLifecycle();
+        expect(mounted.result.cardHeight.value).toBe(290);
+        mounted.unmount();
     });
 
     it('user who prefers reduced motion reaches the expanded size and position without intermediate frames', async () => {
@@ -1163,8 +1457,8 @@ describe('useSearchWindowResize', () => {
         expect(mounted.result.cardHeight.value).toBe(290);
         expect(mounted.result.isSessionExpandAnimating.value).toBe(false);
         expect(card.animations).toHaveLength(0);
-        expect(origin).toEqual({ x: 0, y: 385 });
-        expect(currentWindowMock.setPosition).toHaveBeenCalledOnce();
+        expect(origin).toEqual({ x: 0, y: 500 });
+        expect(currentWindowMock.setPosition).not.toHaveBeenCalled();
         mounted.unmount();
     });
 

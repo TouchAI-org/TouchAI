@@ -3,10 +3,10 @@
 //! Windows host frame for the main search surface.
 //!
 //! The renderer owns the logical SearchPanel geometry, while the native window
-//! owns the transparent safety envelope around that panel.  Keeping the host
-//! bounded is important on Windows: a monitor-sized transparent webview makes
-//! the search surface appear to be a full-screen window and also lets layout
-//! measurements accidentally observe the monitor viewport instead of content.
+//! owns the transparent safety envelope around that panel. The host keeps the
+//! work area's height while visible, so content and overlays never move its
+//! coordinate origin. Its width remains bounded; the native region restricts
+//! rendering and hit testing to the visible panel and overlays.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -75,6 +75,17 @@ pub fn resolve_search_host_target_frame(
     restore_frame: Option<PhysicalHostFrame>,
 ) -> Result<PhysicalHostFrame, String> {
     match placement {
+        SearchHostPlacement::PreserveOrigin | SearchHostPlacement::PreserveCenter
+            if current.height == idle_frame.height =>
+        {
+            // A user may have dragged the visible card vertically. Content changes
+            // keep that viewport; restore and monitor refresh always clamp it.
+            let bounded = preserve_host_origin_within_work_area(current, idle_frame, work_area);
+            Ok(PhysicalHostFrame {
+                y: current.y,
+                ..bounded
+            })
+        }
         SearchHostPlacement::PreserveOrigin => Ok(preserve_host_origin_within_work_area(
             current, idle_frame, work_area,
         )),
@@ -101,7 +112,7 @@ pub fn resolve_search_host_target_frame_with_origin(
 ) -> Result<PhysicalHostFrame, String> {
     if placement == SearchHostPlacement::PreserveOrigin {
         if let Some(origin) = physical_origin {
-            return Ok(preserve_host_origin_within_work_area(
+            return resolve_search_host_target_frame(
                 PhysicalHostFrame {
                     x: origin.x,
                     y: origin.y,
@@ -109,7 +120,9 @@ pub fn resolve_search_host_target_frame_with_origin(
                 },
                 idle_frame,
                 work_area,
-            ));
+                placement,
+                restore_frame,
+            );
         }
     }
     resolve_search_host_target_frame(current, idle_frame, work_area, placement, restore_frame)
@@ -286,35 +299,11 @@ pub fn host_frame_from_work_area(area: PhysicalWorkArea) -> Result<PhysicalHostF
     })
 }
 
-/// Compute a bounded native host for a logical SearchPanel.
-///
-/// The host is centered in the work area, matching the original search window
-/// `center()` reset. 96 physical px above the panel stay reserved as a
-/// transparent envelope for the browser shadow and transitions. The renderer
-/// continues to use its viewport dimensions to position the panel inside this
-/// frame.
-#[cfg(test)]
-fn bounded_host_frame_for_panel(
-    area: PhysicalWorkArea,
-    panel_width: f64,
-    panel_height: f64,
-    scale_factor: f64,
-) -> Result<PhysicalHostFrame, String> {
-    bounded_host_frame_for_panel_with_content_height(
-        area,
-        panel_width,
-        panel_height,
-        None,
-        scale_factor,
-    )
-}
-
-/// Compute a bounded host while reserving additional client-space height for
-/// fixed overlays rendered outside the logical panel.
+/// Logical panel bounds after reserving space for shadows and resize handles.
 fn search_panel_work_area_limits(
     area: PhysicalWorkArea,
     scale_factor: f64,
-) -> Result<(f64, f64, f64), String> {
+) -> Result<(f64, f64), String> {
     let frame = host_frame_from_work_area(area)?;
     let outset = logical_to_physical_i64(
         SEARCH_HOST_VISUAL_OUTSET_LOGICAL,
@@ -328,14 +317,14 @@ fn search_panel_work_area_limits(
     if width < 1.0 || height < 1.0 {
         return Err("Monitor work area cannot contain the search surface envelope".to_string());
     }
-    Ok((width, height, content_height))
+    Ok((width, height))
 }
 
-pub fn bounded_host_frame_for_panel_with_content_height(
+/// Reserve a stable vertical viewport; only explicit width changes resize the host.
+pub fn bounded_host_frame_for_panel(
     area: PhysicalWorkArea,
     panel_width: f64,
     panel_height: f64,
-    host_content_height: Option<f64>,
     scale_factor: f64,
 ) -> Result<PhysicalHostFrame, String> {
     if !panel_width.is_finite()
@@ -349,12 +338,8 @@ pub fn bounded_host_frame_for_panel_with_content_height(
             "Search panel size and scale factor must be positive finite values".to_string(),
         );
     }
-    if host_content_height.is_some_and(|height| !height.is_finite() || height <= 0.0) {
-        return Err("Search host content height must be positive and finite".to_string());
-    }
     let work_area = host_frame_from_work_area(area)?;
-    let (max_width, max_height, max_content_height) =
-        search_panel_work_area_limits(area, scale_factor)?;
+    let (max_width, _) = search_panel_work_area_limits(area, scale_factor)?;
     let outset = logical_to_physical_i64(
         SEARCH_HOST_VISUAL_OUTSET_LOGICAL,
         scale_factor,
@@ -365,26 +350,6 @@ pub fn bounded_host_frame_for_panel_with_content_height(
         scale_factor,
         "Search panel width",
     )?;
-    let panel_height = logical_to_physical_i64(
-        panel_height.min(max_height),
-        scale_factor,
-        "Search panel height",
-    )?;
-    let base_content_height = i64::from(SEARCH_HOST_TOP_INSET_PHYSICAL)
-        .checked_add(panel_height)
-        .ok_or_else(|| "Search host content height overflowed".to_string())?;
-    let requested_content_height = host_content_height
-        .map(|height| {
-            logical_to_physical_i64(
-                height.min(max_content_height),
-                scale_factor,
-                "Search host content height",
-            )
-        })
-        .transpose()?;
-    let content_height = requested_content_height
-        .unwrap_or(base_content_height)
-        .max(base_content_height);
     let host_width = panel_width
         .checked_add(
             outset
@@ -392,34 +357,21 @@ pub fn bounded_host_frame_for_panel_with_content_height(
                 .ok_or_else(|| "Search host width overflowed".to_string())?,
         )
         .ok_or_else(|| "Search host width overflowed".to_string())?;
-    let host_height = content_height
-        .checked_add(outset)
-        .ok_or_else(|| "Search host height overflowed".to_string())?;
     let host_width = i32::try_from(host_width)
         .map_err(|_| "Search host width exceeds the physical coordinate range".to_string())?;
-    let host_height = i32::try_from(host_height)
-        .map_err(|_| "Search host height exceeds the physical coordinate range".to_string())?;
+    let host_height = work_area.height;
     let x_offset = (i64::from(work_area.width) - i64::from(host_width)) / 2;
     let x = i64::from(work_area.x)
         .checked_add(x_offset)
         .ok_or_else(|| "Search host x coordinate overflowed".to_string())?;
     let max_x = i64::from(work_area.x) + i64::from(work_area.width) - i64::from(host_width);
     let x = x.clamp(i64::from(work_area.x), max_x.max(i64::from(work_area.x)));
-    let max_y = i64::from(work_area.y) + i64::from(work_area.height) - i64::from(host_height);
-    let y_offset = (i64::from(work_area.height) - i64::from(host_height)) / 2;
-    let y = i64::from(work_area.y)
-        .checked_add(y_offset)
-        .ok_or_else(|| "Search host y coordinate overflowed".to_string())?;
-    let y = y.clamp(i64::from(work_area.y), max_y.max(i64::from(work_area.y)));
     let x = i32::try_from(x).map_err(|_| {
         "Search host x coordinate exceeds the physical coordinate range".to_string()
     })?;
-    let y = i32::try_from(y).map_err(|_| {
-        "Search host y coordinate exceeds the physical coordinate range".to_string()
-    })?;
     Ok(PhysicalHostFrame {
         x,
-        y,
+        y: work_area.y,
         width: host_width,
         height: host_height,
     })
@@ -556,14 +508,12 @@ pub fn resize_main_search_host_for_panel_with_placement<R: Runtime>(
     window: &tauri::WebviewWindow<R>,
     panel_width: f64,
     panel_height: f64,
-    host_content_height: Option<f64>,
     placement: SearchHostPlacement,
 ) -> Result<PreparedSearchHost, String> {
     resize_main_search_host_for_panel_with_origin(
         window,
         panel_width,
         panel_height,
-        host_content_height,
         placement,
         None,
     )
@@ -574,7 +524,6 @@ pub fn resize_main_search_host_for_panel_with_origin<R: Runtime>(
     window: &tauri::WebviewWindow<R>,
     panel_width: f64,
     panel_height: f64,
-    host_content_height: Option<f64>,
     placement: SearchHostPlacement,
     physical_origin: Option<PhysicalHostOrigin>,
 ) -> Result<PreparedSearchHost, String> {
@@ -585,13 +534,8 @@ pub fn resize_main_search_host_for_panel_with_origin<R: Runtime>(
     let current = current_host_frame(hwnd)?;
     let work_area = monitor_work_area_for_window(hwnd)?;
     let scale_factor = search_host_scale_factor(hwnd)?;
-    let idle_frame = bounded_host_frame_for_panel_with_content_height(
-        work_area,
-        panel_width,
-        panel_height,
-        host_content_height,
-        scale_factor,
-    )?;
+    let idle_frame =
+        bounded_host_frame_for_panel(work_area, panel_width, panel_height, scale_factor)?;
     let host_runtime = window.app_handle().try_state::<SearchHostRefreshRuntime>();
     let apply = |restore_frame| {
         let target_frame = resolve_search_host_target_frame_with_origin(
@@ -603,17 +547,14 @@ pub fn resize_main_search_host_for_panel_with_origin<R: Runtime>(
             physical_origin,
         )?;
         let frame = apply_host_frame(window, target_frame)?;
-        let (max_width, max_height, max_content_height) =
-            search_panel_work_area_limits(work_area, scale_factor)?;
+        let (max_width, max_height) = search_panel_work_area_limits(work_area, scale_factor)?;
         if let Some(runtime) = window
             .app_handle()
             .try_state::<crate::core::window::search::surface::SearchWindowRuntime>(
         ) {
-            runtime.window_state().constrain_to_work_area(
-                max_width,
-                max_height,
-                max_content_height,
-            );
+            runtime
+                .window_state()
+                .constrain_to_work_area(max_width, max_height);
         }
         Ok(PreparedSearchHost {
             changed: host_frame_changed(frame, target_frame),
@@ -633,7 +574,6 @@ pub fn prepare_main_search_host_for_panel<R: Runtime>(
     window: &tauri::WebviewWindow<R>,
     panel_width: f64,
     panel_height: f64,
-    host_content_height: Option<f64>,
 ) -> Result<PreparedSearchHost, String> {
     if is_work_area_host(window) {
         let hwnd = search_host_hwnd(window)?;
@@ -647,7 +587,6 @@ pub fn prepare_main_search_host_for_panel<R: Runtime>(
         window,
         panel_width,
         panel_height,
-        host_content_height,
         SearchHostPlacement::PreserveCenter,
     )
 }
@@ -673,15 +612,14 @@ pub fn prepare_main_search_host_for_target_frame<R: Runtime>(
     let work_area = monitor_work_area_for_window(hwnd)?;
     let target_frame = preserve_host_origin_within_work_area(target_frame, target_frame, work_area);
     let frame = apply_host_frame(window, target_frame)?;
-    let (max_width, max_height, max_content_height) =
-        search_panel_work_area_limits(work_area, scale_factor)?;
+    let (max_width, max_height) = search_panel_work_area_limits(work_area, scale_factor)?;
     if let Some(runtime) = window
         .app_handle()
         .try_state::<crate::core::window::search::surface::SearchWindowRuntime>()
     {
         runtime
             .window_state()
-            .constrain_to_work_area(max_width, max_height, max_content_height);
+            .constrain_to_work_area(max_width, max_height);
     }
     Ok(PreparedSearchHost {
         changed: host_frame_changed(frame, target_frame),
@@ -696,7 +634,6 @@ pub fn inspect_main_search_host_for_panel<R: Runtime>(
     window: &tauri::WebviewWindow<R>,
     panel_width: f64,
     panel_height: f64,
-    host_content_height: Option<f64>,
 ) -> Result<PreparedSearchHost, String> {
     use windows::Win32::Graphics::Gdi::{MonitorFromWindow, MONITOR_DEFAULTTONEAREST};
 
@@ -708,13 +645,8 @@ pub fn inspect_main_search_host_for_panel<R: Runtime>(
     let scale_factor = search_host_scale_factor(hwnd)?;
     let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
     let work_area = monitor_work_area(monitor)?;
-    let idle_frame = bounded_host_frame_for_panel_with_content_height(
-        work_area,
-        panel_width,
-        panel_height,
-        host_content_height,
-        scale_factor,
-    )?;
+    let idle_frame =
+        bounded_host_frame_for_panel(work_area, panel_width, panel_height, scale_factor)?;
     let target_frame = if is_work_area_host(window) {
         host_frame_from_work_area(work_area)?
     } else {
@@ -818,7 +750,6 @@ pub fn inspect_main_search_host_for_panel<R: Runtime>(
     window: &tauri::WebviewWindow<R>,
     _panel_width: f64,
     _panel_height: f64,
-    _host_content_height: Option<f64>,
 ) -> Result<PreparedSearchHost, String> {
     prepare_main_search_host(window)
 }
@@ -836,7 +767,6 @@ pub fn prepare_main_search_host_for_panel<R: Runtime>(
     window: &tauri::WebviewWindow<R>,
     _panel_width: f64,
     _panel_height: f64,
-    _host_content_height: Option<f64>,
 ) -> Result<PreparedSearchHost, String> {
     prepare_main_search_host(window)
 }
@@ -856,13 +786,12 @@ mod tests {
     #[cfg(target_os = "windows")]
     use super::win32_bool_result;
     use super::{
-        bounded_host_frame_for_panel, bounded_host_frame_for_panel_with_content_height,
-        host_frame_changed, host_frame_from_work_area, preserve_host_center_within_work_area,
-        preserve_host_origin, preserve_host_origin_within_work_area, reconcile_host_frame,
+        bounded_host_frame_for_panel, host_frame_changed, host_frame_from_work_area,
+        preserve_host_center_within_work_area, preserve_host_origin,
+        preserve_host_origin_within_work_area, reconcile_host_frame,
         resolve_search_host_target_frame, resolve_search_host_target_frame_with_origin,
         scale_factor_from_dpi, PhysicalHostFrame, PhysicalHostOrigin, PhysicalWorkArea,
-        SearchHostPlacement, SearchHostRefreshRuntime, SEARCH_HOST_TOP_INSET_PHYSICAL,
-        SEARCH_HOST_VISUAL_OUTSET_LOGICAL,
+        SearchHostPlacement, SearchHostRefreshRuntime, SEARCH_HOST_VISUAL_OUTSET_LOGICAL,
     };
     #[cfg(target_os = "windows")]
     #[test]
@@ -917,6 +846,60 @@ mod tests {
     }
 
     #[test]
+    fn user_can_expand_and_open_overlays_without_moving_the_native_viewport() {
+        let area = PhysicalWorkArea {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1040,
+        };
+        for scale in [1.0, 1.5] {
+            let idle = bounded_host_frame_for_panel(area, 750.0, 60.0, scale).unwrap();
+            let expanded = bounded_host_frame_for_panel(area, 750.0, 660.0, scale).unwrap();
+            assert_eq!(idle, expanded);
+        }
+    }
+
+    #[test]
+    fn user_keeps_dragged_origin_during_growth_but_restores_inside_the_monitor() {
+        let area = PhysicalWorkArea {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        let target = bounded_host_frame_for_panel(area, 750.0, 300.0, 1.0).unwrap();
+        let dragged = PhysicalHostFrame {
+            x: 100,
+            y: 80,
+            ..target
+        };
+        let growing = resolve_search_host_target_frame(
+            dragged,
+            target,
+            area,
+            SearchHostPlacement::PreserveOrigin,
+            None,
+        )
+        .unwrap();
+        assert_eq!(growing, dragged);
+        let restored = resolve_search_host_target_frame(
+            target,
+            target,
+            area,
+            SearchHostPlacement::Restore,
+            Some(dragged),
+        )
+        .unwrap();
+        assert_eq!(restored.y, area.top);
+        assert_eq!(restored.x, dragged.x);
+        assert_eq!(
+            preserve_host_origin_within_work_area(dragged, target, area).y,
+            area.top
+        );
+    }
+
+    #[test]
     fn bounded_default_panel_reserves_dpi_scaled_shadow_envelope() {
         let area = PhysicalWorkArea {
             left: 0,
@@ -931,9 +914,9 @@ mod tests {
             frame,
             PhysicalHostFrame {
                 x: 645,
-                y: 571,
+                y: 0,
                 width: 1269,
-                height: 258,
+                height: 1400,
             }
         );
         assert_ne!(frame, host_frame_from_work_area(area).unwrap());
@@ -942,46 +925,7 @@ mod tests {
             (750.0_f64 * 1.5).ceil() as i32
                 + 2 * (SEARCH_HOST_VISUAL_OUTSET_LOGICAL * 1.5).ceil() as i32
         );
-        assert_eq!(
-            frame.height,
-            SEARCH_HOST_TOP_INSET_PHYSICAL
-                + (60.0_f64 * 1.5).ceil() as i32
-                + (SEARCH_HOST_VISUAL_OUTSET_LOGICAL * 1.5).ceil() as i32
-        );
-    }
-
-    #[test]
-    fn bounded_host_expands_for_overlay_content_without_changing_panel_position() {
-        let area = PhysicalWorkArea {
-            left: 0,
-            top: 0,
-            right: 2560,
-            bottom: 1400,
-        };
-        let frame =
-            bounded_host_frame_for_panel_with_content_height(area, 750.0, 60.0, Some(520.0), 1.5)
-                .expect("bounded overlay host frame");
-
-        assert_eq!(frame.x, 645);
-        assert_eq!(frame.y, (1400 - frame.height) / 2);
-        assert_eq!(frame.width, 1269);
-        assert_eq!(frame.height, (520.0_f64 * 1.5).ceil() as i32 + 72);
-    }
-
-    #[test]
-    fn bounded_host_ignores_overlay_extent_smaller_than_panel_extent() {
-        let area = PhysicalWorkArea {
-            left: 0,
-            top: 0,
-            right: 2560,
-            bottom: 1400,
-        };
-
-        assert_eq!(
-            bounded_host_frame_for_panel_with_content_height(area, 750.0, 60.0, Some(100.0), 1.5,)
-                .unwrap(),
-            bounded_host_frame_for_panel(area, 750.0, 60.0, 1.5).unwrap()
-        );
+        assert_eq!(frame.height, area.bottom - area.top);
     }
 
     #[test]
@@ -1269,9 +1213,9 @@ mod tests {
             resized,
             PhysicalHostFrame {
                 x: -1800,
-                y: -80,
+                y: -120,
                 width: 1344,
-                height: 693,
+                height: 1200,
             }
         );
     }
@@ -1287,8 +1231,8 @@ mod tests {
         let target = bounded_host_frame_for_panel(area, 800.0, 350.0, 1.5).unwrap();
 
         for (origin, expected) in [
-            (PhysicalHostOrigin { x: -3000, y: -300 }, (-1920, -120)),
-            (PhysicalHostOrigin { x: 100, y: 1000 }, (-1344, 387)),
+            (PhysicalHostOrigin { x: -3000, y: -120 }, (-1920, -120)),
+            (PhysicalHostOrigin { x: 100, y: -120 }, (-1344, -120)),
         ] {
             let resized = resolve_search_host_target_frame_with_origin(
                 target,
@@ -1301,7 +1245,7 @@ mod tests {
             .unwrap();
 
             assert_eq!((resized.x, resized.y), expected);
-            assert_eq!((resized.width, resized.height), (1344, 693));
+            assert_eq!((resized.width, resized.height), (1344, 1200));
         }
     }
 

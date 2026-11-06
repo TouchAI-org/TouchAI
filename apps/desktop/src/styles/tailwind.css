@@ -430,11 +430,6 @@
     transition: none;
 }
 
-.quick-search-handoff-shell--collapsed {
-    grid-template-rows: 0fr;
-    transition: none;
-}
-
 .quick-search-handoff-shell--open {
     grid-template-rows: 1fr;
 }

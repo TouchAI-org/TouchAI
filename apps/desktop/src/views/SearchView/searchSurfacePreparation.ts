@@ -254,22 +254,9 @@ export function createSearchSurfacePreparationController(
 }
 
 export async function settleSearchSurfaceViewport(): Promise<void> {
+    // Geometry reads flush layout after Vue commits. Native occlusion can throttle
+    // frames and timers even while WebView2 reports document.visibilityState as visible.
     await nextTick();
-    await new Promise<void>((resolve) => {
-        let settled = false;
-        const finish = () => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(fallbackId);
-            resolve();
-        };
-        const fallbackId = setTimeout(finish, 48);
-        if (typeof requestAnimationFrame !== 'function') {
-            setTimeout(finish, 0);
-            return;
-        }
-        requestAnimationFrame(() => setTimeout(finish, 0));
-    });
 }
 
 function viewportMatchesPreparation(
