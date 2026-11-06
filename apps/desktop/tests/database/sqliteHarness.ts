@@ -38,13 +38,17 @@ export function openMigratedDatabase(): SqliteDatabase {
  * The query layer only ever talks to SQLite through Tauri commands, so this is the
  * system boundary the tests replace; everything above it runs for real.
  */
-export function routeQueriesTo(database: SqliteDatabase): void {
+export function routeQueriesTo(
+    database: SqliteDatabase,
+    options: { beforeCommit?: () => void } = {}
+): void {
     interceptTauriInvoke((call) => {
         if (call.cmd === 'database_tx_begin') {
             database.exec('BEGIN');
             return 'test-tx';
         }
         if (call.cmd === 'database_tx_commit') {
+            options.beforeCommit?.();
             database.exec('COMMIT');
             return null;
         }

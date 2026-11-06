@@ -246,6 +246,9 @@ export class SessionTaskCenter {
         // 启动阶段不 await 这些任务，用户提前发请求也不会等整个启动流程。
         await waitForAgentStartupCapabilities();
 
+        // Another request may have claimed this session while capabilities were pending.
+        this.ensureSessionSlotAvailable(options.sessionId ?? null);
+
         const taskId = crypto.randomUUID();
         const abortController = new AbortController();
         const detachAbortRelay = relayAbortSignal(options.signal, abortController);

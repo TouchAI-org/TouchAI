@@ -303,7 +303,7 @@ export class PersistenceProjector {
      */
     async markCompleted(options: CompleteTurnOptions): Promise<void> {
         try {
-            const result = await db.transaction(async (tx) => {
+            const result = await this.persistOutputTransaction(async (tx, pendingPartDrafts) => {
                 const assistantMessageId =
                     (options.outputParts.length || this.pendingOutputMessageId !== null) &&
                     !this.assistantMessageId
@@ -311,6 +311,7 @@ export class PersistenceProjector {
                               role: 'assistant',
                               outputParts: options.outputParts,
                               database: tx,
+                              pendingPartDrafts,
                           })
                         : (this.assistantMessageId ?? this.pendingOutputMessageId);
 
@@ -363,7 +364,7 @@ export class PersistenceProjector {
         usage?: TerminalUsageOptions
     ): Promise<void> {
         try {
-            const result = await db.transaction(async (tx) => {
+            const result = await this.persistOutputTransaction(async (tx, pendingPartDrafts) => {
                 const assistantMessageId =
                     outputParts !== undefined &&
                     (outputParts.length || this.pendingOutputMessageId !== null) &&
@@ -372,6 +373,7 @@ export class PersistenceProjector {
                               role: 'assistant',
                               outputParts,
                               database: tx,
+                              pendingPartDrafts,
                           })
                         : (this.assistantMessageId ?? this.pendingOutputMessageId);
 
@@ -423,7 +425,7 @@ export class PersistenceProjector {
         usage?: TerminalUsageOptions
     ): Promise<void> {
         try {
-            const result = await db.transaction(async (tx) => {
+            const result = await this.persistOutputTransaction(async (tx, pendingPartDrafts) => {
                 const assistantMessageId =
                     outputParts !== undefined &&
                     (outputParts.length || this.pendingOutputMessageId !== null) &&
@@ -432,6 +434,7 @@ export class PersistenceProjector {
                               role: 'assistant',
                               outputParts,
                               database: tx,
+                              pendingPartDrafts,
                           })
                         : (this.assistantMessageId ?? this.pendingOutputMessageId);
 
@@ -736,8 +739,8 @@ export class PersistenceProjector {
      * 持久化工具调用消息。
      */
     async persistToolCallMessage(outputParts: PersistedOutputPart[]): Promise<number> {
-        const messageId = await db.transaction((tx) =>
-            this.persistMessage({ role: 'tool_call', outputParts, database: tx })
+        const messageId = await this.persistOutputTransaction((tx, pendingPartDrafts) =>
+            this.persistMessage({ role: 'tool_call', outputParts, database: tx, pendingPartDrafts })
         );
         this.pendingOutputMessageId = null;
         return messageId;
@@ -817,11 +820,12 @@ export class PersistenceProjector {
         if (!this.attemptState || parts.length === 0) return;
         const normalized = normalizeOutputParts(parts);
         if (normalized.length === 0) return;
-        const result = await db.transaction(async (tx) => {
+        const result = await this.persistOutputTransaction(async (tx, pendingPartDrafts) => {
             const messageId = await this.persistMessage({
                 role: 'assistant',
                 outputParts: normalized,
                 database: tx,
+                pendingPartDrafts,
             });
             const turn = await this.patchTurn({ response_message_id: messageId }, tx);
             return { messageId, turn };
@@ -913,6 +917,21 @@ export class PersistenceProjector {
         }
     }
 
+    private async persistOutputTransaction<T>(
+        write: (
+            database: DatabaseExecutor,
+            pendingPartDrafts: Map<number, MessagePartCreateData[]>
+        ) => Promise<T>
+    ): Promise<T> {
+        const pendingPartDrafts = new Map<number, MessagePartCreateData[]>();
+        const result = await db.transaction((tx) => write(tx, pendingPartDrafts));
+        // Only committed parts can suppress a later progress or terminal write.
+        for (const [messageId, parts] of pendingPartDrafts) {
+            this.lastPartDrafts.set(messageId, parts);
+        }
+        return result;
+    }
+
     private async persistMessage({
         role,
         content = '',
@@ -920,6 +939,7 @@ export class PersistenceProjector {
         attachments = [],
         database = db,
         sessionId,
+        pendingPartDrafts,
     }: {
         role: MessageRole;
         content?: string;
@@ -927,6 +947,7 @@ export class PersistenceProjector {
         attachments?: Array<AttachmentIndex | AttachmentEntity>;
         database?: DatabaseExecutor;
         sessionId?: number;
+        pendingPartDrafts?: Map<number, MessagePartCreateData[]>;
     }): Promise<number> {
         const resolvedSessionId = sessionId ?? (await this.ensureSessionId(database));
 
@@ -971,7 +992,7 @@ export class PersistenceProjector {
         if (draftParts) {
             if (partsChanged) {
                 await syncOutputParts(messageId, draftParts, database);
-                this.lastPartDrafts.set(messageId, draftParts);
+                pendingPartDrafts?.set(messageId, draftParts);
             }
         } else if (content) {
             await createMessageParts(

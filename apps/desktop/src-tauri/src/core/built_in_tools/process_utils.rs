@@ -46,6 +46,9 @@ impl BoundedStreamOutput {
             let split = floor_char_boundary(remaining, available);
             self.head.push_str(&remaining[..split]);
             remaining = &remaining[split..];
+            // Seal the head at a UTF-8 boundary; later chunks belong after this tail.
+            self.tail_limit += self.head_limit - self.head.len();
+            self.head_limit = self.head.len();
         }
 
         if remaining.is_empty() {
@@ -239,6 +242,29 @@ pub async fn terminate_child(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn user_keeps_multibyte_output_in_order_when_chunks_cross_the_head_boundary() {
+        for character in ["中", "🙂"] {
+            let prefix = "x".repeat(MAX_RETAINED_STREAM_BYTES / 2 - 1);
+            let mut output = BoundedStreamOutput::new(MAX_RETAINED_STREAM_BYTES);
+            output.push(&prefix);
+            output.push(character);
+            output.push("A");
+            assert_eq!(output.finish(), format!("{prefix}{character}A"));
+        }
+    }
+
+    #[test]
+    fn user_keeps_output_order_when_multibyte_chunks_fill_the_retention_limit() {
+        let prefix = "x".repeat(MAX_RETAINED_STREAM_BYTES / 2 - 1);
+        let suffix = "A".repeat(MAX_RETAINED_STREAM_BYTES / 2 - 2);
+        let mut output = BoundedStreamOutput::new(MAX_RETAINED_STREAM_BYTES);
+        output.push(&prefix);
+        output.push("中");
+        output.push(&suffix);
+        assert_eq!(output.finish(), format!("{prefix}中{suffix}"));
+    }
 
     #[test]
     fn combine_output_both_non_empty() {

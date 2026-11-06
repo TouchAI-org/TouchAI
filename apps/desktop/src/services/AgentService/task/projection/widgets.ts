@@ -59,6 +59,8 @@ export class ProjectionWidgets {
     private readonly readmeRegex = /"i_have_seen_read_me"\s*:\s*true/;
     private readonly htmlRegex = /"html"\s*:/;
 
+    constructor(private readonly onDraftUpdated: () => void = () => {}) {}
+
     resetTransientState(): void {
         this.showWidgetCallIds.clear();
         for (const state of this.draftBuildStates.values()) {
@@ -267,7 +269,9 @@ export class ProjectionWidgets {
                         if (next === null || next === state.applied) {
                             return;
                         }
-                        this.applyDraftBuild(state.history, state.messageId, callId, next);
+                        if (this.applyDraftBuild(state.history, state.messageId, callId, next)) {
+                            this.onDraftUpdated();
+                        }
                     },
                     Math.max(0, WIDGET_DRAFT_REBUILD_INTERVAL_MS - (now - state.lastBuildAt))
                 );
@@ -275,6 +279,12 @@ export class ProjectionWidgets {
             return;
         }
 
+        // A delayed timer must not overwrite a newer synchronous build.
+        if (state.timer) {
+            clearTimeout(state.timer);
+            state.timer = null;
+        }
+        state.pending = null;
         this.draftBuildStates.set(callId, state);
         this.applyDraftBuild(history, messageId, callId, buffer);
     }
@@ -284,7 +294,7 @@ export class ProjectionWidgets {
         messageId: string,
         callId: string,
         buffer: string
-    ): void {
+    ): boolean {
         const state = this.draftBuildStates.get(callId);
         if (state) {
             state.applied = buffer;
@@ -293,10 +303,10 @@ export class ProjectionWidgets {
 
         const draft = buildShowWidgetDraftFromArgumentsBuffer(callId, buffer);
         if (!draft || draft.mode !== 'render') {
-            return;
+            return false;
         }
 
-        this.upsertWidget(history, messageId, draft);
+        return this.upsertWidget(history, messageId, draft) !== null;
     }
 
     private clearDraftBuildState(callId: string): void {
@@ -359,6 +369,9 @@ export class ProjectionWidgets {
         messageId: string,
         callId: string
     ): void {
+        if (findWidgetTargetByCallId(history, callId, messageId)) {
+            return;
+        }
         this.upsertWidget(history, messageId, {
             callId,
             widgetId: callId,

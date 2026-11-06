@@ -65,7 +65,10 @@ export class SessionTaskProjection {
     private activeAssistantMessageId: string | null = null;
     private lastCheckpointPresentation: CheckpointPresentation | null = null;
 
-    private readonly widgets = new ProjectionWidgets();
+    private readonly widgets = new ProjectionWidgets(() => {
+        this.touch();
+        this.publish();
+    });
     private readonly userPrompts = new ProjectionUserPrompts();
 
     constructor(
@@ -313,6 +316,7 @@ export class SessionTaskProjection {
     }
 
     markCompleted(): void {
+        this.widgets.resetTransientState();
         const assistantMessage = this.getActiveAssistantMessage();
         if (assistantMessage) {
             this.finishReasoningPart(assistantMessage);
@@ -326,6 +330,7 @@ export class SessionTaskProjection {
     }
 
     markFailed(errorMessage: string, displayMessage = errorMessage): void {
+        this.widgets.resetTransientState();
         const statusText = tt('请求失败: {error}', { error: displayMessage });
         let shouldCreateStandaloneStatus = true;
         const assistantMessage = this.getActiveAssistantMessage();
@@ -356,6 +361,7 @@ export class SessionTaskProjection {
     }
 
     markCancelled(): void {
+        this.widgets.resetTransientState();
         const cancellationText = tt('请求已取消');
         this.markActiveToolCallsCancelled(cancellationText);
 
