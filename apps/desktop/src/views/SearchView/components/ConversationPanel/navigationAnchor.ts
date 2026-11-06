@@ -1,15 +1,4 @@
-/**
- * 跳转落点计算。
- *
- * 虚拟列表对未挂载条目只有估算高度，"算一次就跳"必然不准。可靠做法是：
- * 先估算跳一次让目标挂载，随后**按元素实测位置**在有限窗口内持续对齐，
- * 偏差 ≤1px 时不做任何写入（写入本身会触发重排）。
- *
- * 对齐语义与上游 `MessageScroller.scrollToItem` 一致：
- * - `start`：元素顶部距容器顶部 = gap
- * - `center`：元素在视口垂直居中（目标比视口高时降级为 start）
- * - `end`：元素底部距容器底部 = gap
- */
+/** DOM alignment shared by initial navigation and subsequent layout measurements. */
 
 export type NavigationAlign = 'start' | 'center' | 'end';
 

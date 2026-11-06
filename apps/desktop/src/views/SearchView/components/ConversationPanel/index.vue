@@ -3,7 +3,14 @@
   -->
 
 <template>
-    <div class="relative w-full" :class="props.fillAvailableHeight ? 'h-full min-h-0' : ''">
+    <div
+        class="relative w-full"
+        :class="props.fillAvailableHeight ? 'h-full min-h-0' : ''"
+        @wheel.capture.passive="cancelNavigation"
+        @touchstart.capture.passive="cancelNavigation"
+        @pointerdown.capture="cancelNavigation"
+        @keydown.capture="handleNavigationKeydown"
+    >
         <ConversationToolbar
             ref="conversationToolbar"
             :is-pinned="isPinned"
@@ -43,11 +50,7 @@
             @state-change="handleScrollerStateChange"
         >
             <template #virtualized>
-                <!--
-                    不虚拟化时直接渲染全部消息。
-                    条目比视口还高的会话（长回答 + 工具卡 + widget）不适合虚拟滚动：
-                    未测量高度只能估算，误差会让 virtua 反复大幅补偿滚动位置。
-                -->
+                <!-- Short conversations do not need windowing. -->
                 <div
                     v-for="message in messagesWithoutVirtualization"
                     :key="message.id"
@@ -69,6 +72,7 @@
                     :scroll-ref="scrollViewport"
                     :item-size="estimatedItemSize"
                     :buffer-size="virtualBufferSize"
+                    :keep-mounted="navigationMountedIndexes"
                     @scroll="handleVirtualScroll"
                     @resize="handleVirtualResize"
                 >
@@ -105,9 +109,10 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import { MARKDOWN_SCROLL_ROOT_KEY } from '@components/markdownScrollRoot';
     import { storeToRefs } from 'pinia';
     import { Virtualizer, type VirtualizerHandle } from 'virtua/vue';
-    import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+    import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 
     import {
         MessageScroller,
@@ -167,6 +172,7 @@
     const conversationScroller = ref<MessageScrollerHandle | null>(null);
     const messageVirtualizer = ref<VirtualizerHandle | null>(null);
     const scrollViewport = ref<HTMLElement | null>(null);
+    provide(MARKDOWN_SCROLL_ROOT_KEY, () => scrollViewport.value);
     /**
      * 是否启用消息虚拟化。
      *
@@ -186,26 +192,20 @@
     /** 条目高度提示：取估算中位数（参照 Cherry Studio 用 estimateSize 做滚动预算）。 */
     const estimatedItemSize = computed(() => estimateMessageListItemSize(props.messages));
 
-    /**
-     * 预渲染缓冲：按“若干条消息”换算成像素。
-     * 固定 200px 在长消息场景下太小，滚动时会露出未挂载空白。
-     */
-    const VIRTUAL_OVERSCAN_ITEMS = 6;
-    const virtualBufferSize = computed(() =>
-        Math.max(200, VIRTUAL_OVERSCAN_ITEMS * estimatedItemSize.value)
-    );
+    // Overscan must stay bounded even when one answer spans many screens.
+    const virtualBufferSize = computed(() => Math.max(200, props.maxHeight));
     /** scroller 的跟随意图镜像：内容变高会把它的内部判定改成“已上滚”，这里保留原意图。 */
     const isFollowing = ref(true);
     let resizeSyncFrame: number | null = null;
     let pinFrame: number | null = null;
-    /** 导航锚点收敛的 rAF 句柄。 */
-    let navigationSettleFrame: number | null = null;
-    /** 当前导航目标；用户再次点击时直接覆盖。 */
-    let navigationTarget: NavigationTarget | null = null;
-    /** 导航后的一小段窗口内不自动贴底（对齐上游 reading 模式）。 */
-    let suppressAutoscrollUntil = 0;
-    /** virtua 的滚动结束时延（150ms）之后才完成测量；给足重测与收敛的时间。 */
-    const NAVIGATION_SETTLE_MS = 900;
+    const navigationTarget = ref<NavigationTarget | null>(null);
+    const navigationMountedIndexes = computed(() => {
+        const index = props.messages.findIndex(
+            (message) => message.id === navigationTarget.value?.id
+        );
+        return index < 0 ? [] : [index];
+    });
+    let navigationMeasurePending = false;
 
     const conversationToolbar = ref<{
         getHistoryAnchor: () => HTMLElement | null;
@@ -334,6 +334,7 @@
     }
 
     function revealLatestContent() {
+        cancelNavigation();
         conversationScroller.value?.scrollToEnd('auto');
         showScrollToBottom.value = false;
         pinToEndUntilSettled();
@@ -409,6 +410,7 @@
         pinFrame = requestAnimationFrame(step);
     }
     function scrollByDelta(deltaY: number) {
+        cancelNavigation();
         conversationScroller.value?.scrollBy(deltaY);
     }
 
@@ -438,6 +440,7 @@
 
     function handleFollowChange(following: boolean) {
         isFollowing.value = following;
+        if (following) cancelNavigation();
     }
 
     function handleScrollerStateChange(state?: MessageScrollerState) {
@@ -453,12 +456,8 @@
         handleScrollerStateChange();
     }
 
-    /**
-     * 虚拟列表视口/条目尺寸变化：
-     * 跟随中则贴底；否则只刷新按钮。已到底时直接返回，避免
-     * `scrollToEnd -> 重新测量 -> resize` 的循环。
-     */
     function handleVirtualResize() {
+        scheduleNavigationMeasure();
         if (resizeSyncFrame !== null) {
             return;
         }
@@ -466,28 +465,17 @@
         resizeSyncFrame = requestAnimationFrame(() => {
             resizeSyncFrame = null;
 
-            // 这里**不写 scrollTop**：resize 期间改写滚动会再次改变挂载集合，
-            // 从而又触发 resize，形成 `ResizeObserver loop` 自激循环。
-            // 贴底由 scroller 自己的跟随逻辑负责；导航修正由跳转时的收敛循环负责。
             handleScrollerStateChange();
         });
     }
 
-    /**
-     * 按索引跳转（消息可能未挂载，不能用 DOM 查询）。
-     *
-     * @param messageId 目标消息 id。
-     * @param options 对齐与偏移；与 `MessageScroller` 的语义保持一致。
-     * @returns 是否已定位。
-     */
     function scrollToMessageById(
         messageId: string,
         options: MessageScrollerScrollOptions = {}
     ): boolean {
         const index = props.messages.findIndex((message) => message.id === messageId);
-        const virtualizer = messageVirtualizer.value;
         const scroller = scrollViewport.value;
-        if (index < 0 || !virtualizer || !scroller) {
+        if (index < 0 || !messageVirtualizer.value || !scroller) {
             return false;
         }
 
@@ -505,94 +493,26 @@
             align: options.align ?? 'center',
             gap: options.offset ?? 0,
         };
-        navigationTarget = target;
-
-        // 导航期间不自动贴底：尺寸重测会改变可达范围，此时贴底会把用户拉走。
-        suppressAutoscrollUntil = Date.now() + NAVIGATION_SETTLE_MS;
-
-        // 估算跳一次，让目标进入挂载窗口（不在这里追求精确）。
-        virtualizer.scrollToIndex(index, { align: target.align });
-        settleNavigation(target);
+        // Mount just the target before moving. scrollToIndex also repositions after
+        // measurement, racing virtua's relative resize compensation in the same flush.
+        navigationTarget.value = target;
+        scheduleNavigationMeasure();
 
         handleScrollerStateChange();
         return true;
     }
 
-    /**
-     * 跳转收敛：每帧按**元素实测位置**对齐，位置与容器高度都稳定才停。
-     *
-     * 为什么要两个判据：
-     * - 只判位置：第一帧往往在 virtua 测量完成前跑完（此时元素位置看似已对），
-     *   随后测量把上方条目高度改写，目标又被顶走——用户看到的就是“再点一次往上偏一点”。
-     * - 只判高度：位置可能因对齐判差太宽而不准。
-     * 两者连续两帧都稳定才收手，才能跨过 virtua 的异步重测。
-     */
-    function settleNavigation(target: NavigationTarget, frames = 60): void {
-        cancelNavigationSettle();
-
-        let remaining = frames;
-        let stableFrames = 0;
-        let stableHeight = -1;
-
-        const step = () => {
-            navigationSettleFrame = null;
-            if (remaining <= 0 || navigationTarget !== target) {
-                return;
-            }
-
-            if (Date.now() > suppressAutoscrollUntil) {
-                navigationTarget = null;
-                return;
-            }
-
-            remaining -= 1;
-
-            if (!hasMessageElement(target.id)) {
-                // 目标还没挂载：继续等下一帧。
-                navigationSettleFrame = requestAnimationFrame(step);
-                return;
-            }
-
-            const height = scrollViewport.value?.scrollHeight ?? 0;
-            const heightSettled = height === stableHeight;
-            stableHeight = height;
-
-            if (correctNavigationOnce(target)) {
-                stableFrames = 0;
-                navigationSettleFrame = requestAnimationFrame(step);
-                return;
-            }
-
-            // 容器高度还在变，说明 virtua 还在重测：此刻的“对齐”不算数。
-            if (!heightSettled) {
-                stableFrames = 0;
-                navigationSettleFrame = requestAnimationFrame(step);
-                return;
-            }
-
-            stableFrames += 1;
-            if (stableFrames < 2) {
-                navigationSettleFrame = requestAnimationFrame(step);
-                return;
-            }
-
-            navigationTarget = null;
-        };
-
-        navigationSettleFrame = requestAnimationFrame(step);
+    function scheduleNavigationMeasure(): void {
+        if (!navigationTarget.value || navigationMeasurePending) return;
+        navigationMeasurePending = true;
+        // Let virtua apply its measured offsets and resize compensation before aligning.
+        void nextTick(() => {
+            navigationMeasurePending = false;
+            const target = navigationTarget.value;
+            if (target) correctNavigationOnce(target);
+        });
     }
 
-    function hasMessageElement(messageId: string): boolean {
-        return Boolean(
-            scrollViewport.value?.querySelector(`[data-message-id="${cssEscape(messageId)}"]`)
-        );
-    }
-
-    /**
-     * 把目标元素对齐到期望位置。
-     *
-     * @returns 是否做了写入（需要继续检查）。
-     */
     function correctNavigationOnce(target: NavigationTarget): boolean {
         const scroller = scrollViewport.value;
         if (!scroller) {
@@ -620,14 +540,21 @@
         }
 
         const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-        scroller.scrollTop = Math.min(maxScrollTop, Math.max(0, scroller.scrollTop + correction));
+        const top = Math.min(maxScrollTop, Math.max(0, scroller.scrollTop + correction));
+        if (Math.abs(top - scroller.scrollTop) <= 1) return false;
+        scroller.scrollTop = top;
         return true;
     }
 
-    function cancelNavigationSettle(): void {
-        if (navigationSettleFrame !== null) {
-            cancelAnimationFrame(navigationSettleFrame);
-            navigationSettleFrame = null;
+    function cancelNavigation(): void {
+        navigationTarget.value = null;
+    }
+
+    function handleNavigationKeydown(event: KeyboardEvent): void {
+        if (
+            ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)
+        ) {
+            cancelNavigation();
         }
     }
 
@@ -660,9 +587,12 @@
     }
 
     function scrollToBottom() {
+        cancelNavigation();
         conversationScroller.value?.scrollToEnd('smooth');
         showScrollToBottom.value = false;
     }
+
+    watch(() => props.messages[0]?.id, cancelNavigation);
 
     watch(
         () => props.messages.length,
@@ -689,6 +619,7 @@
 
             if (outputScrollBehavior.value === 'follow_output') {
                 if (latestAppendedUserMessage) {
+                    cancelNavigation();
                     conversationScroller.value?.scrollToEnd('auto');
                     pinToEndUntilSettled();
                     showScrollToBottom.value = false;
@@ -715,6 +646,7 @@
         async (mode) => {
             await nextTick();
             if (mode === 'follow_output') {
+                cancelNavigation();
                 conversationScroller.value?.scrollToEnd('auto');
                 return;
             }
@@ -745,7 +677,7 @@
 
     onUnmounted(() => {
         cancelPinToEnd();
-        cancelNavigationSettle();
+        cancelNavigation();
         if (resizeSyncFrame !== null) {
             cancelAnimationFrame(resizeSyncFrame);
             resizeSyncFrame = null;

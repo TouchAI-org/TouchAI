@@ -15,6 +15,10 @@
  * viewport geometry instead, so they survive a restyle.
  */
 import {
+    sampleConversationNavigation,
+    targetExcursionAfterArrival,
+} from '../support/conversation-navigation.js';
+import {
     assertVisible,
     callE2eBridge,
     useInterfaceLanguage,
@@ -211,6 +215,71 @@ describe('user scrolls a long conversation', () => {
         assertVisible(
             after.mountedMessages < MESSAGE_COUNT,
             `Jumping mounted the whole transcript (${after.mountedMessages}) instead of a window.`
+        );
+    });
+
+    it('user sees a selected question stay in place while long answers finish mounting', async () => {
+        const messages = buildConversation().map((message, index) => {
+            if (message.role === 'user') return message;
+            const content = Array.from(
+                { length: 40 + (index % 5) * 8 },
+                (_, paragraph) =>
+                    `Paragraph ${paragraph + 1}: ${'Detailed explanation. '.repeat(12)}`
+            ).join('\n\n');
+            return {
+                ...message,
+                content,
+                parts: [{ id: `${message.id}-part`, type: 'text', content }],
+            };
+        });
+        await callE2eBridge('setConversation', messages);
+        await waitForTestIdDisplayed('conversation-panel-host');
+        await browser.pause(1500);
+
+        for (const index of [4, 14, 4, 4]) {
+            const samples = await sampleConversationNavigation(index, `e2e-scroll-${index * 2}`);
+            const excursion = targetExcursionAfterArrival(samples);
+            assertVisible(
+                excursion <= 2,
+                `The selected question flashed away after arriving (${excursion}px): ${JSON.stringify(samples)}.`
+            );
+            assertVisible(
+                samples.every((sample) => sample.mountedMessages < messages.length),
+                `Navigation mounted the entire conversation (${Math.max(...samples.map((sample) => sample.mountedMessages))}/${messages.length}).`
+            );
+        }
+    });
+
+    it('user can keep scrolling after selecting a question', async () => {
+        const viewport = await browser.$('[data-slot="message-scroller"] section[aria-label]');
+        await viewport.click();
+        const readQuestionOffset = () =>
+            browser.execute(() => {
+                const viewport = document.querySelector('[data-slot="message-scroller"] section');
+                const question = viewport.querySelector('[data-message-id="e2e-scroll-8"]');
+                return question
+                    ? question.getBoundingClientRect().top - viewport.getBoundingClientRect().top
+                    : null;
+            });
+        const before = await readQuestionOffset();
+        assertVisible(before !== null, 'The selected question was not mounted.');
+        await browser.keys('PageDown');
+        await browser.waitUntil(
+            async () => {
+                const offset = await readQuestionOffset();
+                return offset === null || offset < before - 100;
+            },
+            {
+                timeout: 5000,
+                timeoutMsg: 'The selected question held the viewport against user scrolling.',
+            }
+        );
+
+        await browser.pause(1200);
+        const settled = await readQuestionOffset();
+        assertVisible(
+            settled === null || settled < before - 100,
+            'The viewport returned to the selected question after user scrolling.'
         );
     });
 });
