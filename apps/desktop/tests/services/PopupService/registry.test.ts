@@ -98,6 +98,37 @@ describe('user opens a built-in popup', () => {
         });
     });
 
+    it('user sees the popup 5px below the visible shell when it fits on screen', async () => {
+        const { initializeBuiltInPopups, popupRegistry } = await loadRegistryModule();
+        initializeBuiltInPopups();
+
+        const trigger = document.createElement('button');
+        defineRect(trigger, { top: 24, right: 410, bottom: 60, left: 260 });
+        document.body.appendChild(trigger);
+
+        const config = popupRegistry.get('model-dropdown-popup');
+        expect(config).toBeDefined();
+        if (!config) {
+            throw new Error('Expected model dropdown popup config');
+        }
+        const position = config.calculatePosition(
+            trigger,
+            createWindowInfo({
+                position: { x: 500, y: 300 },
+                size: { width: 798, height: 108 },
+            }),
+            {
+                width: config.width,
+                height: 180,
+            }
+        );
+
+        expect(position).toEqual({
+            x: 524,
+            y: 389,
+        });
+    });
+
     it('user sees the session history popup placed against the search view container', async () => {
         const { initializeBuiltInPopups, popupRegistry } = await loadRegistryModule();
         initializeBuiltInPopups();

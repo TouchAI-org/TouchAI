@@ -66,7 +66,11 @@ function calculateWindowEdgePopupY(
     mainWindow: WindowInfo,
     popupHeight: number
 ): number {
-    const preferredY = mainWindow.position.y + mainWindow.size.height + GAP;
+    // The native window includes the transparent shadow gutter, while the
+    // popup panel is positioned against the visible shell. Drop only the
+    // bottom gutter so the panel keeps the designed 5px gap.
+    const shellBottom = mainWindow.position.y + mainWindow.size.height - POPUP_WINDOW_GUTTER;
+    const preferredY = shellBottom + GAP;
     const searchBarContainer = triggerElement.closest('.search-bar-container');
     const refElement = searchBarContainer || triggerElement;
     const refRect = refElement.getBoundingClientRect();
