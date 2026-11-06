@@ -443,6 +443,36 @@ describe('user reads text in the bundled serif font', () => {
     );
 
     it(
+        'user gets the file-backed face when the engine reports a loaded check but rejects the load',
+        async () => {
+            const fontApi = mockFontLoadingApi(true);
+            fontApi.load.mockRejectedValueOnce(new Error(' A network error occurred.'));
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockResolvedValue({
+                    ok: true,
+                    status: 200,
+                    statusText: 'OK',
+                    headers: new Headers({ 'content-type': 'font/woff2' }),
+                })
+            );
+            stubFontFaceLoader();
+
+            const { initializeFontLoader } = await import('@/utils/font');
+
+            initializeFontLoader();
+
+            await vi.waitFor(() => {
+                expect(readFileMock).toHaveBeenCalledTimes(1);
+                expect(fontApi.add).toHaveBeenCalledTimes(1);
+            });
+
+            expect(fontStyles()).toHaveLength(0);
+        },
+        FONT_TEST_TIMEOUT_MS
+    );
+
+    it(
         'user still gets the bundled serif face when the asset protocol cannot load it',
         async () => {
             const fontApi = mockFontLoadingApi(false);
@@ -582,6 +612,8 @@ describe('user reads text in the bundled serif font', () => {
                 })
             );
             stubFontFaceLoader();
+            const { log: fontLog } = await import('@services/ObservabilityService');
+            const warn = vi.spyOn(fontLog, 'warn').mockImplementation(() => {});
 
             const { initializeFontLoader } = await import('@/utils/font');
 
@@ -596,7 +628,12 @@ describe('user reads text in the bundled serif font', () => {
             });
 
             rejectStartupLoad?.(new Error(' A network error occurred.'));
-            await vi.waitFor(() => expect(fontApi.check).toHaveBeenCalledTimes(2));
+            await vi.waitFor(() => {
+                expect(warn).toHaveBeenCalledWith(
+                    'Source Han Serif font diagnostics:',
+                    expect.objectContaining({ fontsLoadError: ' A network error occurred.' })
+                );
+            });
             expect(readFileMock).not.toHaveBeenCalled();
             expect(fontStyles()).toHaveLength(1);
             expect(fontStyleText()).toContain('touchaiFontReload=1');

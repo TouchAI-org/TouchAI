@@ -120,9 +120,14 @@ async function verifyInjectedFontFace(fontUrl: string): Promise<boolean> {
                     loadRejected = true;
                 }
 
+                if (loadRejected) {
+                    diagnostics.fontLoaded = false;
+                    break;
+                }
+
                 diagnostics.fontLoaded = document.fonts.check(FONT_LOAD_TEST);
 
-                if (diagnostics.fontLoaded || loadRejected) {
+                if (diagnostics.fontLoaded) {
                     break;
                 }
             }
