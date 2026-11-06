@@ -189,6 +189,9 @@ export async function useProductFont() {
 
             const injected = document.querySelector('style[data-touchai-font-face]')?.textContent;
             const fontUrl = injected?.match(/url\('([^']+)'\)/)?.[1];
+            const declaredFormat = injected?.match(/format\('([^']+)'\)/)?.[1] ?? 'none';
+            const declaredWeight =
+                injected?.match(/font-weight:\s*([^;]+);/)?.[1]?.trim() ?? 'none';
 
             function rasterise(target) {
                 const canvas = document.createElement('canvas');
@@ -214,15 +217,15 @@ export async function useProductFont() {
                 return changed;
             }
 
-            // The reference declares the same format hint the product uses. If the
-            // engine rejects it, no face appears and step 1 below fails loudly
+            // The reference declares the same format hint and weight the product
+            // uses. A rejected rule leaves no face, so step 1 below fails loudly
             // instead of the comparison silently agreeing with itself.
             const referenceRule = document.createElement('style');
             referenceRule.textContent = `
                 @font-face {
                     font-family: '${refFamily}';
-                    src: url('${fontUrl}') format('woff2-variations');
-                    font-weight: 250 900;
+                    src: url('${fontUrl}') format('${declaredFormat}');
+                    font-weight: ${declaredWeight};
                     font-style: normal;
                     font-display: block;
                 }
@@ -247,8 +250,9 @@ export async function useProductFont() {
                 referenceFaceCount: referenceFaces.length,
                 referenceFaceStatus: referenceFaces.map((face) => face.status),
                 productFaceCount: productFaces.length,
-                declaredFormat: injected?.match(/format\('([^']+)'\)/)?.[1] ?? 'none',
-                declaredWeight: injected?.match(/font-weight:\s*([^;]+);/)?.[1]?.trim() ?? 'none',
+                productFaceStatus: productFaces.map((face) => face.status),
+                declaredFormat,
+                declaredWeight,
             };
         },
         family,
@@ -277,8 +281,22 @@ export async function useProductFont() {
         );
     }
 
+    if (!report.referenceFaceStatus.includes('loaded')) {
+        throw new Error(
+            `The engine registered the @font-face rule but did not load it ` +
+                `(${JSON.stringify(report.referenceFaceStatus)}). ${detail}.`
+        );
+    }
+
     if (report.productFaceCount === 0) {
         throw new Error(`The app's own @font-face rule was rejected by the engine (${detail}).`);
+    }
+
+    if (!report.productFaceStatus.includes('loaded')) {
+        throw new Error(
+            `The app's own @font-face rule did not load ` +
+                `(${JSON.stringify(report.productFaceStatus)}). ${detail}.`
+        );
     }
 
     // Step 2: the painted outline must match the shipped bytes. Anti-aliasing leaves a

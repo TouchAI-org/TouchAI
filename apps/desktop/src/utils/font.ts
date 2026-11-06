@@ -1,11 +1,13 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
 
 import { AppEvent, eventService } from '@services/EventService';
-import { paths } from '@services/NativeService';
+import { font, paths } from '@services/NativeService';
 import { log } from '@services/ObservabilityService';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { exists, readFile } from '@tauri-apps/plugin-fs';
+
+import { isLinuxDesktop } from './platform';
 
 const FONT_FILENAME = 'SourceHanSerifSC-VF.ttf.woff2';
 const FONT_FACE_FAMILY = 'TouchAI Source Han Serif SC';
@@ -15,6 +17,7 @@ const FONT_LOAD_TEST = `16px '${FONT_FACE_FAMILY}'`;
 const FONT_LOAD_ATTEMPTS = 3;
 const FONT_LOAD_RETRY_DELAY_MS = 16;
 const FONT_WEIGHT_RANGE = '250 900';
+type FontFormat = 'woff2' | 'truetype';
 
 let fontLoadPromise: Promise<void> | null = null;
 let fontReadyListenerPromise: Promise<void> | null = null;
@@ -38,6 +41,7 @@ interface FontLoadDiagnostics {
     fetchStatusText?: string;
     fetchContentLength?: string | null;
     fetchError?: string;
+    fontFaceStatuses?: string[];
     userAgent: string;
 }
 
@@ -72,6 +76,20 @@ function delay(ms: number): Promise<void> {
 
 function hasUsableFontFace(): boolean {
     return hasInjectedFontFace() || fontRegisteredFromBytes;
+}
+
+function registeredFaceStatuses(): string[] {
+    try {
+        return [...document.fonts]
+            .filter((face) => face.family === FONT_FACE_FAMILY)
+            .map((face) => face.status);
+    } catch {
+        return [];
+    }
+}
+
+function formatForFontPath(fontPath: string): FontFormat {
+    return fontPath.toLowerCase().endsWith('.woff2') ? 'woff2' : 'truetype';
 }
 
 async function waitForStyleProcessing(): Promise<void> {
@@ -123,6 +141,19 @@ async function verifyInjectedFontFace(fontUrl: string): Promise<boolean> {
                 if (loadRejected) {
                     diagnostics.fontLoaded = false;
                     break;
+                }
+
+                const faceStatuses = registeredFaceStatuses();
+                diagnostics.fontFaceStatuses = faceStatuses;
+
+                if (faceStatuses.includes('error')) {
+                    diagnostics.fontLoaded = false;
+                    break;
+                }
+
+                if (faceStatuses.length > 0 && !faceStatuses.includes('loaded')) {
+                    diagnostics.fontLoaded = false;
+                    continue;
                 }
 
                 diagnostics.fontLoaded = document.fonts.check(FONT_LOAD_TEST);
@@ -284,6 +315,54 @@ async function registerFontFaceFromFile(
     return false;
 }
 
+function appendFontFaceRule(fontUrl: string, fontFormat: FontFormat): void {
+    const style = document.createElement('style');
+    style.setAttribute(FONT_FACE_STYLE_ATTRIBUTE, FONT_FACE_STYLE_KEY);
+    /*
+     * `format('woff2')` is the container hint every supported engine parses. The
+     * legacy `woff2-variations` alias is rejected by WebKitGTK 2.52 in release
+     * builds: the whole `src` entry is dropped and the face ends in `status:
+     * "error"`, even though the bytes are a valid variable WOFF2. Variation
+     * capability comes from `font-weight: 250 900` below, not from the format
+     * hint, so the standard WOFF2 container value keeps the axis intact.
+     */
+    style.textContent = `
+        @font-face {
+            font-family: '${FONT_FACE_FAMILY}';
+            src: url('${fontUrl}') format('${fontFormat}');
+            font-weight: ${FONT_WEIGHT_RANGE};
+            font-style: normal;
+            font-display: swap;
+        }
+    `;
+    getInjectedFontFaceStyle()?.remove();
+    document.head.appendChild(style);
+    fontRegisteredFromBytes = false;
+}
+
+async function resolveDecodedFontPath(fontPath: string): Promise<string | null> {
+    if (!isLinuxDesktop()) {
+        return null;
+    }
+
+    try {
+        const decodedPath = await font.prepareProductFontFile();
+
+        if (decodedPath === fontPath || !(await exists(decodedPath))) {
+            return null;
+        }
+
+        return decodedPath;
+    } catch (error) {
+        log.warn('Source Han Serif font decoding failed:', {
+            errorName: errorName(error),
+            error: stringifyError(error),
+            userAgent: navigator.userAgent,
+        });
+        return null;
+    }
+}
+
 async function injectFontFace(
     options: LoadFontFaceOptions = {},
     recoverRemovedStyle = true
@@ -307,28 +386,7 @@ async function injectFontFace(
         return true;
     }
 
-    const style = document.createElement('style');
-    style.setAttribute(FONT_FACE_STYLE_ATTRIBUTE, FONT_FACE_STYLE_KEY);
-    /*
-     * `format('woff2')` is the container hint every supported engine parses. The
-     * legacy `woff2-variations` alias is rejected by WebKitGTK 2.52 in release
-     * builds: the whole `src` entry is dropped and the face ends in `status:
-     * "error"`, even though the bytes are a valid variable WOFF2. Variation
-     * capability comes from `font-weight: 250 900` below, not from the format
-     * hint, so the standard WOFF2 container value keeps the axis intact.
-     */
-    style.textContent = `
-        @font-face {
-            font-family: '${FONT_FACE_FAMILY}';
-            src: url('${fontUrl}') format('woff2');
-            font-weight: ${FONT_WEIGHT_RANGE};
-            font-style: normal;
-            font-display: swap;
-        }
-    `;
-    getInjectedFontFaceStyle()?.remove();
-    document.head.appendChild(style);
-    fontRegisteredFromBytes = false;
+    appendFontFaceRule(fontUrl, formatForFontPath(fontPath));
 
     const injectionToken = ++fontInjectionToken;
     const fontLoaded = await verifyInjectedFontFace(fontUrl);
@@ -354,7 +412,31 @@ async function injectFontFace(
             return true;
         }
 
-        await registerFontFaceFromFile(fontPath, injectionToken);
+        const decodedFontPath = await resolveDecodedFontPath(fontPath);
+
+        if (injectionToken !== fontInjectionToken) {
+            return true;
+        }
+
+        if (decodedFontPath) {
+            const decodedFontUrl = convertFileSrc(decodedFontPath);
+            appendFontFaceRule(decodedFontUrl, formatForFontPath(decodedFontPath));
+            const decodedFontLoaded = await verifyInjectedFontFace(decodedFontUrl);
+
+            if (decodedFontLoaded) {
+                removeRegisteredFontFace();
+                return true;
+            }
+
+            getInjectedFontFaceStyle()?.remove();
+            await waitForStyleProcessing();
+
+            if (injectionToken !== fontInjectionToken) {
+                return true;
+            }
+        }
+
+        await registerFontFaceFromFile(decodedFontPath ?? fontPath, injectionToken);
     }
 
     return true;

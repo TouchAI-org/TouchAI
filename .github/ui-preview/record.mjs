@@ -849,10 +849,10 @@ function findLogErrors(appRoot) {
  * remaining failures are a missing @font-face or a rejected asset URL. A face
  * can report `loaded` while the engine silently paints a fallback, so compare
  * a Han outline against a guaranteed-missing family. Equal outlines mean the
- * product face did not paint. The app may also register the face directly
- * from the file bytes when WebKitGTK cannot fetch the asset URL, so a missing
- * style rule is not a failure by itself. E2E uses the same proof; this keeps
- * preview screenshots honest as well.
+ * product face did not paint. The app may also register the face from a cached
+ * plain TTF or from the file bytes when WebKitGTK cannot decode the WOFF2, so a
+ * missing WOFF2 style rule is not a failure by itself. E2E uses the same proof;
+ * this keeps preview screenshots honest as well.
  */
 async function productFontState(session) {
     const deadline = Date.now() + 10000;
@@ -885,7 +885,7 @@ async function productFontState(session) {
 
             const productStatuses = productFaces.map((face) => face.status);
             const productCheck = document.fonts.check(productProbe, sample);
-            if (!productStatuses.includes('loaded') && !productCheck) {
+            if (!productStatuses.includes('loaded')) {
                 return {
                     ok: false,
                     retry: true,

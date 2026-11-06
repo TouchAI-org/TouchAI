@@ -212,6 +212,15 @@ container value. Do **not** use `format('woff2 supports variations')` either; th
 string is not in the specification and older Chromium releases reject the entire
 `src` entry.
 
+The same WebKitGTK build also rejects this particular WOFF2 during decoding: the
+compressed face is 21.6 MB but expands to 59,997,432 bytes, above its 30 MB output
+limit. The renderer detects the rejected face (including the false-positive case
+where `document.fonts.check()` returns `true` while `FontFace.status` is `error`)
+and asks `prepare_product_font_file` for a fallback. That native command decodes
+the verified WOFF2 once with the `wuff` crate, caches a plain TTF beside it, and
+returns the TTF path. The renderer then registers the same family from
+`format('truetype')`; this is still the product face, not a system font swap.
+
 When the asset URL cannot be fetched, the app removes the failed `@font-face` rule
 before registering the file bytes in memory. Keeping the failed face in the family
 would leave WebKit resolving the same family to the poisoned rule, so the preview

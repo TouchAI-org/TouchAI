@@ -80,10 +80,21 @@ function stubFontFaceLoader() {
     return { createdFaces, load };
 }
 
+function mockWebKitGtkUserAgent() {
+    return vi
+        .spyOn(window.navigator, 'userAgent', 'get')
+        .mockReturnValue(
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/60.5 Safari/605.1.15'
+        );
+}
+
 describe('user reads text in the bundled serif font', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.doUnmock('@tauri-apps/api/core');
+        vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+        );
         document.head.innerHTML = '';
         existsMock.mockReset();
         existsMock.mockResolvedValue(true);
@@ -97,6 +108,7 @@ describe('user reads text in the bundled serif font', () => {
     });
 
     afterEach(() => {
+        vi.restoreAllMocks();
         vi.unstubAllGlobals();
     });
 
@@ -463,10 +475,84 @@ describe('user reads text in the bundled serif font', () => {
             initializeFontLoader();
 
             await vi.waitFor(() => {
+                expect(readFileMock).toHaveBeenCalled();
+                expect(fontApi.add).toHaveBeenCalledTimes(1);
+            });
+
+            expect(fontStyles()).toHaveLength(0);
+        },
+        FONT_TEST_TIMEOUT_MS
+    );
+
+    it(
+        'user gets the decoded TTF when WebKitGTK rejects the WOFF2 face',
+        async () => {
+            mockWebKitGtkUserAgent();
+            const fontApi = mockFontLoadingApi(true);
+            fontApi.load.mockRejectedValueOnce(new Error(' A network error occurred.'));
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockRejectedValue(new Error(' A network error occurred.'))
+            );
+            mockTauriCommand(
+                'prepare_product_font_file',
+                'D:\\TouchAI\\assets\\font\\SourceHanSerifSC-VF.ttf'
+            );
+
+            const { initializeFontLoader } = await import('@/utils/font');
+
+            initializeFontLoader();
+
+            await vi.waitFor(() => {
+                expect(getTauriInvokeCalls('prepare_product_font_file')).toHaveLength(1);
+                expect(fontApi.load).toHaveBeenCalledTimes(2);
+                expect(fontStyles()).toHaveLength(1);
+                expect(fontStyleText()).toContain('SourceHanSerifSC-VF.ttf');
+                expect(fontStyleText()).toContain("format('truetype')");
+            });
+
+            expect(readFileMock).not.toHaveBeenCalled();
+        },
+        FONT_TEST_TIMEOUT_MS
+    );
+
+    it(
+        'user gets the file fallback when the engine marks the registered WOFF2 face as errored',
+        async () => {
+            const fontApi = mockFontLoadingApi(true);
+            Object.defineProperty(document, 'fonts', {
+                configurable: true,
+                value: {
+                    load: fontApi.load,
+                    check: fontApi.check,
+                    add: fontApi.add,
+                    delete: fontApi.delete,
+                    [Symbol.iterator]: function* () {
+                        yield { family: 'TouchAI Source Han Serif SC', status: 'error' };
+                    },
+                },
+            });
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockResolvedValue({
+                    ok: true,
+                    status: 200,
+                    statusText: 'OK',
+                    headers: new Headers({ 'content-type': 'font/woff2' }),
+                })
+            );
+            stubFontFaceLoader();
+
+            const { initializeFontLoader } = await import('@/utils/font');
+
+            initializeFontLoader();
+
+            await vi.waitFor(() => {
                 expect(readFileMock).toHaveBeenCalledTimes(1);
                 expect(fontApi.add).toHaveBeenCalledTimes(1);
             });
 
+            expect(getTauriInvokeCalls('prepare_product_font_file')).toHaveLength(0);
             expect(fontStyles()).toHaveLength(0);
         },
         FONT_TEST_TIMEOUT_MS

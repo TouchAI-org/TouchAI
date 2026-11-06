@@ -7,6 +7,7 @@ pub mod browser;
 pub mod built_in_tools;
 pub mod clipboard;
 pub mod database;
+pub mod font;
 pub mod mcp;
 pub mod observability;
 pub mod paths;
@@ -50,6 +51,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         autostart::disable_autostart,
         autostart::is_autostart_enabled,
         window::close_tray_menu,
+        font::prepare_product_font_file,
         database::database_query,
         database::database_batch,
         database::database_tx_begin,

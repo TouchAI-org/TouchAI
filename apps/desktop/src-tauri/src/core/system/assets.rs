@@ -9,6 +9,8 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use tauri::Emitter;
 use tokio::fs;
+#[cfg(target_os = "linux")]
+use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
 use crate::core::system::paths::{app_directory_path, AppDirectory};
@@ -25,6 +27,10 @@ fn sha256_hex(bytes: &[u8]) -> String {
 
 /// 字体文件名
 const FONT_FILENAME: &str = "SourceHanSerifSC-VF.ttf.woff2";
+#[cfg(target_os = "linux")]
+const FONT_DECODED_FILENAME: &str = "SourceHanSerifSC-VF.ttf";
+#[cfg(target_os = "linux")]
+static FONT_DECODE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const FONT_EXPECTED_SIZE_BYTES: u64 = 21_600_852;
 const FONT_EXPECTED_SHA256: &str =
     "95bee5840bd5bcc68ada7d9c32fbf40af38a7dadeb77bfae4dd26d85b131ce20";
@@ -47,6 +53,12 @@ const MAX_RETRY_ROUNDS: usize = 2;
 fn get_font_path() -> Result<PathBuf, String> {
     let font_dir = app_directory_path(AppDirectory::AssetsFont)?;
     Ok(font_dir.join(FONT_FILENAME))
+}
+
+#[cfg(target_os = "linux")]
+fn get_decoded_font_path() -> Result<PathBuf, String> {
+    let font_dir = app_directory_path(AppDirectory::AssetsFont)?;
+    Ok(font_dir.join(FONT_DECODED_FILENAME))
 }
 
 /// 检查字体文件是否已存在
@@ -326,9 +338,129 @@ pub async fn initialize_font(app_handle: tauri::AppHandle) -> Result<(), String>
     }
 }
 
+/// Returns a plain TTF for WebKitGTK when its bundled WOFF2 decoder rejects
+/// the 60 MB Source Han Serif output.
+///
+/// Decoding happens lazily, only after the renderer reports that the asset face
+/// failed. The result is cached next to the WOFF2 and regenerated when the
+/// source asset is newer or the cached file is not a usable sfnt.
+#[cfg(target_os = "linux")]
+pub async fn prepare_product_font_file() -> Result<String, String> {
+    let _guard = FONT_DECODE_LOCK.lock().await;
+    let source_path = get_font_path()?;
+    let target_path = get_decoded_font_path()?;
+
+    if decoded_font_is_current(&source_path, &target_path).await? {
+        return Ok(target_path.to_string_lossy().to_string());
+    }
+
+    if !is_valid_font_file(&source_path).await? {
+        return Err(format!(
+            "The source font '{}' is missing or invalid",
+            source_path.display()
+        ));
+    }
+
+    let source_bytes = fs::read(&source_path)
+        .await
+        .map_err(|error| format!("Failed to read '{}': {error}", source_path.display()))?;
+    let decoded = tauri::async_runtime::spawn_blocking(move || decode_woff2_font(&source_bytes))
+        .await
+        .map_err(|error| format!("Font decoder task failed: {error}"))??;
+
+    let temporary_path = target_path.with_file_name(format!("{FONT_DECODED_FILENAME}.tmp"));
+    fs::write(&temporary_path, &decoded)
+        .await
+        .map_err(|error| format!("Failed to write '{}': {error}", temporary_path.display()))?;
+    replace_font_file(&temporary_path, &target_path).await?;
+
+    info!(
+        "Decoded WebKit font into '{}' ({} bytes)",
+        target_path.display(),
+        decoded.len()
+    );
+    Ok(target_path.to_string_lossy().to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn decode_woff2_font(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let decoded = wuff::decompress_woff2(bytes)
+        .map_err(|error| format!("Failed to decode the WOFF2 font: {error}"))?;
+
+    if !is_sfnt(&decoded) {
+        return Err("The decoded font is not a TrueType or OpenType file".to_string());
+    }
+
+    Ok(decoded)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub async fn prepare_product_font_file() -> Result<String, String> {
+    Err("A decoded font variant is only needed on WebKitGTK".to_string())
+}
+
+#[cfg(target_os = "linux")]
+async fn decoded_font_is_current(source_path: &Path, target_path: &Path) -> Result<bool, String> {
+    let target_metadata = match fs::metadata(target_path).await {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            return Err(format!(
+                "Failed to read decoded font metadata '{}': {error}",
+                target_path.display()
+            ));
+        }
+    };
+
+    if !target_metadata.is_file() || target_metadata.len() == 0 {
+        return Ok(false);
+    }
+
+    let source_metadata = fs::metadata(source_path).await.map_err(|error| {
+        format!(
+            "Failed to read source font metadata '{}': {error}",
+            source_path.display()
+        )
+    })?;
+    let target_modified = target_metadata
+        .modified()
+        .map_err(|error| format!("Failed to read decoded font timestamp: {error}"))?;
+    let source_modified = source_metadata
+        .modified()
+        .map_err(|error| format!("Failed to read source font timestamp: {error}"))?;
+
+    if target_modified < source_modified {
+        return Ok(false);
+    }
+
+    let mut file = fs::File::open(target_path)
+        .await
+        .map_err(|error| format!("Failed to open '{}': {error}", target_path.display()))?;
+    let mut signature = [0_u8; 4];
+    if let Err(error) = file.read_exact(&mut signature).await {
+        warn!(
+            "Ignoring invalid decoded font '{}': {}",
+            target_path.display(),
+            error
+        );
+        return Ok(false);
+    }
+    Ok(is_sfnt(&signature))
+}
+
+#[cfg(target_os = "linux")]
+fn is_sfnt(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"OTTO")
+        || bytes.starts_with(&[0x00, 0x01, 0x00, 0x00])
+        || bytes.starts_with(b"true")
+        || bytes.starts_with(b"typ1")
+}
+
 #[cfg(test)]
 mod tests {
     use super::sha256_hex;
+    #[cfg(target_os = "linux")]
+    use super::{decode_woff2_font, is_sfnt};
     use super::{
         is_valid_font_file, is_valid_font_file_with, replace_font_file,
         try_download_from_cdns_with, validate_font_data, DOWNLOAD_CONNECT_TIMEOUT_SECS,
@@ -542,5 +674,19 @@ mod tests {
         .await;
 
         assert!(result.is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn user_gets_a_plain_font_when_webkit_cannot_decode_the_woff2_face() {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../site/public/demo-vendor/katex/fonts/KaTeX_Size4-Regular.woff2");
+        let woff2 = fs::read(&fixture)
+            .await
+            .expect("the checked-in WOFF2 fixture should be readable");
+        let decoded = decode_woff2_font(&woff2).expect("the WOFF2 fixture should decode");
+
+        assert!(is_sfnt(&decoded));
+        assert!(!decoded.starts_with(b"wOF2"));
     }
 }
