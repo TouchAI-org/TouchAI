@@ -5,9 +5,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { shouldRetryDisplayStartupFailure } from './display-retry.mjs';
 import { startPerfModelServer } from './local-model-server.mjs';
 
 const MANIFEST_VERSION = 1;
+const MAX_DISPLAY_STARTUP_ATTEMPTS = 2;
 const BASELINE_COMMIT = '21e261a1343087d7dc75414dbb46a12a98630da6';
 const DEFAULT_PORT = readPort(process.env.TOUCHAI_PERF_PORT ?? 3426);
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -845,6 +847,19 @@ function countNotificationFailures(runLogDir) {
     return count;
 }
 
+function hasRunStarted(runId) {
+    return readJsonLines(path.join(rawRoot, 'events.jsonl')).some(
+        (record) => record.runId === runId && record.type === 'run-start'
+    );
+}
+
+function readDisplayFailureLog(runLogDir, wdioLog) {
+    return [wdioLog, path.join(runLogDir, 'dunst.log'), path.join(runLogDir, 'openbox.log')]
+        .filter((file) => fs.existsSync(file))
+        .map((file) => fs.readFileSync(file, 'utf8'))
+        .join('\n');
+}
+
 async function runOneMeasurement({
     arm,
     flow,
@@ -853,6 +868,7 @@ async function runOneMeasurement({
     fixture,
     historyLevel,
     options,
+    attempt = 1,
 }) {
     const binary = binaryPathByArm[arm];
     if (!fs.existsSync(binary)) throw new Error(`Missing ${arm} release binary.`);
@@ -865,6 +881,7 @@ async function runOneMeasurement({
         `b${block}`,
         `s${sequenceIndex}`,
         arm,
+        attempt > 1 ? `r${attempt}` : null,
         Date.now(),
     ]
         .filter(Boolean)
@@ -969,9 +986,18 @@ async function runOneMeasurement({
         );
     }
     const valid = invalidReasons.length === 0;
+    const retryDisplayStartup =
+        !valid &&
+        attempt < MAX_DISPLAY_STARTUP_ATTEMPTS &&
+        shouldRetryDisplayStartupFailure({
+            runStarted: hasRunStarted(runId),
+            exitCode: result.exitCode,
+            signal: result.signal,
+            logText: readDisplayFailureLog(runLogDir, wdioLog),
+        });
 
     const record = {
-        type: 'run',
+        type: retryDisplayStartup ? 'run-attempt' : 'run',
         at: nowIso(),
         arm,
         flow,
@@ -990,9 +1016,30 @@ async function runOneMeasurement({
         notificationFailures,
         valid,
         invalidReasons,
+        retryReason: retryDisplayStartup ? 'display-startup-failure' : null,
         log: wdioLog,
     };
     fs.appendFileSync(path.join(rawRoot, 'runs.jsonl'), `${JSON.stringify(record)}\n`);
+
+    if (retryDisplayStartup) {
+        const failureRoot = path.join(evidenceRoot, 'failures', runId);
+        ensureDirectory(failureRoot);
+        copyIfExists(appRoot, path.join(failureRoot, 'app-root'));
+        removeManagedDirectory(appRoot, runtimeRoot);
+        console.warn(
+            `Performance run ${runId} did not start because the display stack failed; retrying once.`
+        );
+        return runOneMeasurement({
+            arm,
+            flow,
+            block,
+            sequenceIndex,
+            fixture,
+            historyLevel,
+            options,
+            attempt: attempt + 1,
+        });
+    }
 
     if (!valid) {
         const failureRoot = path.join(evidenceRoot, 'failures', runId);
