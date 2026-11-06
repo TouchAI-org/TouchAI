@@ -1131,7 +1131,7 @@ function readOptions(args) {
         flows: (args.flows ?? 'latency,progress,long-session').split(',').filter(Boolean),
         latencyBlocks: numberArg(args, 'latency-blocks', 5),
         progressBlocks: numberArg(args, 'progress-blocks', 3),
-        longBlocks: numberArg(args, 'long-blocks', 3),
+        longBlocks: numberArg(args, 'long-blocks', 6),
         // Keep the default formal levels reproducible; 1500 remains available
         // as an explicit diagnostic because it is not stable on the 3.6 GiB VM.
         historyLevels: (args['history-levels'] ?? '100,500,1000')

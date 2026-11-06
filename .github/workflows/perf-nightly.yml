@@ -15,6 +15,10 @@ on:
                 description: Latency blocks (4 app launches per block)
                 required: false
                 default: '60'
+            long-blocks:
+                description: Long-session blocks per history level (4 app launches per block)
+                required: false
+                default: '6'
             startup-settle-ms:
                 description: Symmetric startup settle before the cold prompt
                 required: false
@@ -54,7 +58,7 @@ jobs:
             NO_AT_BRIDGE: '1'
             LATENCY_BLOCKS: ${{ inputs['latency-blocks'] || '60' }}
             PROGRESS_BLOCKS: '3'
-            LONG_BLOCKS: '3'
+            LONG_BLOCKS: ${{ inputs['long-blocks'] || '6' }}
             HISTORY_LEVELS: '100,500,1000'
             PERF_SCOPE: ${{ inputs['performance-scope'] || (github.event_name == 'schedule' && 'full') || 'cold-latency' }}
         steps:
@@ -123,6 +127,16 @@ jobs:
                       exit 1
                       ;;
                   esac
+                  case "$LONG_BLOCKS" in
+                    ''|*[!0-9]*)
+                      echo "long-blocks must be a positive integer" >&2
+                      exit 1
+                      ;;
+                  esac
+                  if [ "$PERF_SCOPE" != "cold-latency" ] && [ "$LONG_BLOCKS" -lt 6 ]; then
+                    echo "long-blocks must be at least 6 for memory and full scopes" >&2
+                    exit 1
+                  fi
 
             - name: Run RFC 710 performance protocol
               run: |
