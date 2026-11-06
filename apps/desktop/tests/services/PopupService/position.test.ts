@@ -54,4 +54,30 @@ describe('user opens a popup anchored to the search bar', () => {
             calculator.calculate('model-dropdown-popup', document.createElement('button'))
         ).rejects.toThrow("[PopupManager] Popup type 'model-dropdown-popup' not registered");
     });
+
+    it('user gets the whole popup shadow clamped inside the screen', async () => {
+        const triggerElement = document.createElement('button');
+        const windowInfo = createWindowInfo();
+        const config: PopupConfig = {
+            id: 'session-history-popup',
+            width: 320,
+            height: 384,
+            component: {} as PopupConfig['component'],
+            calculatePosition: () => ({ x: 180, y: 900 }),
+        };
+
+        const calculator = createPopupPositionCalculator({
+            getPopupConfig: () => config,
+            getWindowInfo: vi.fn().mockResolvedValue(windowInfo),
+        });
+
+        await expect(
+            calculator.calculate('session-history-popup', triggerElement)
+        ).resolves.toEqual({
+            x: 180 - POPUP_WINDOW_GUTTER,
+            y: 1080 - (384 + POPUP_WINDOW_GUTTER * 2),
+            width: 320 + POPUP_WINDOW_GUTTER * 2,
+            height: 384 + POPUP_WINDOW_GUTTER * 2,
+        });
+    });
 });

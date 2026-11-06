@@ -44,9 +44,11 @@ export function verifyFontBuffer(data, expected = { size: FONT_SIZE_BYTES, sha25
     return { ok: true };
 }
 
-export function isVerifiedFontFile(file) {
+const PRODUCT_FONT_EXPECTATION = { size: FONT_SIZE_BYTES, sha256: FONT_SHA256 };
+
+export function isVerifiedFontFile(file, expected = PRODUCT_FONT_EXPECTATION) {
     try {
-        return verifyFontBuffer(fs.readFileSync(file)).ok;
+        return verifyFontBuffer(fs.readFileSync(file), expected).ok;
     } catch {
         return false;
     }
@@ -58,13 +60,19 @@ export function isVerifiedFontFile(file) {
  * A missing app root means the run uses the user's real profile, which already
  * owns that file; there is nothing for the preview harness to seed.
  */
-export async function provisionProductFont({ appRoot, fetchImpl = fetch, log = console.log } = {}) {
+export async function provisionProductFont({
+    appRoot,
+    fetchImpl = fetch,
+    log = console.log,
+    sources = FONT_SOURCES,
+    expected = PRODUCT_FONT_EXPECTATION,
+} = {}) {
     if (!appRoot) {
         return { ok: true, skipped: true, detail: 'TOUCHAI_APP_ROOT is not set' };
     }
 
     const target = path.join(appRoot, 'assets', 'font', FONT_FILENAME);
-    if (isVerifiedFontFile(target)) {
+    if (isVerifiedFontFile(target, expected)) {
         return { ok: true, detail: 'verified file already in the app root' };
     }
 
@@ -72,7 +80,7 @@ export async function provisionProductFont({ appRoot, fetchImpl = fetch, log = c
     fs.mkdirSync(path.dirname(target), { recursive: true });
 
     let lastError = null;
-    for (const url of FONT_SOURCES) {
+    for (const url of sources) {
         let host = url;
         try {
             host = new URL(url).host;
@@ -85,7 +93,7 @@ export async function provisionProductFont({ appRoot, fetchImpl = fetch, log = c
             }
 
             const data = Buffer.from(await response.arrayBuffer());
-            const verified = verifyFontBuffer(data);
+            const verified = verifyFontBuffer(data, expected);
             if (!verified.ok) {
                 throw new Error(verified.detail);
             }

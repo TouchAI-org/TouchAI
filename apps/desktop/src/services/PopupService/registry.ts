@@ -187,7 +187,7 @@ export function initializeBuiltInPopups(): void {
         height: 384,
         component: ModelDropdownPopup,
         calculatePosition: (triggerElement, mainWindow, dimensions) => {
-            const x = mainWindow.position.x;
+            const x = mainWindow.position.x + POPUP_WINDOW_GUTTER;
             const y = calculateWindowEdgePopupY(triggerElement, mainWindow, dimensions.height);
             return { x, y };
         },
@@ -208,7 +208,7 @@ export function initializeBuiltInPopups(): void {
 
             if (isSearchViewContainer) {
                 // 搜索框状态：左对齐，贴窗口边缘
-                x = mainWindow.position.x;
+                x = mainWindow.position.x + POPUP_WINDOW_GUTTER;
                 y = calculateWindowEdgePopupY(triggerElement, mainWindow, dimensions.height);
             } else {
                 // 会话面板状态：右对齐，锚定在触发元素

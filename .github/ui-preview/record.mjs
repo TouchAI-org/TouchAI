@@ -17,6 +17,7 @@ import path from 'node:path';
 import {
     captureScreenshot,
     countDistinctStates,
+    cropToContentFrame,
     cropToElement,
     ensureDir,
     finalizeRecording,
@@ -548,7 +549,12 @@ async function captureStill({ session, platform, display, surface, state, file }
             await sleep(220);
 
             if (isPaintedWindowFrame(file)) {
-                return pngSize(file);
+                return (
+                    cropToContentFrame({
+                        file,
+                        gutter: Math.round(WINDOW_SHADOW_GUTTER * state.profile.scale),
+                    }) ?? pngSize(file)
+                );
             }
 
             await waitForPaint(session);

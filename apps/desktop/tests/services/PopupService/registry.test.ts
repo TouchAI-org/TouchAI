@@ -93,7 +93,7 @@ describe('user opens a built-in popup', () => {
         });
 
         expect(position).toEqual({
-            x: 500,
+            x: 524,
             y: 235,
         });
     });
@@ -118,7 +118,7 @@ describe('user opens a built-in popup', () => {
         });
 
         expect(position).toEqual({
-            x: 500,
+            x: 524,
             y: 205,
         });
     });

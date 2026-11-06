@@ -640,11 +640,15 @@ describe('user reads text in the bundled serif font', () => {
 
             const { initializeFontLoader } = await import('@/utils/font');
 
-            initializeFontLoader();
+            await initializeFontLoader();
             await vi.waitFor(() => expect(fontApi.add).toHaveBeenCalledTimes(1));
 
-            initializeFontLoader();
-            await vi.waitFor(() => expect(readFileMock).toHaveBeenCalledTimes(1));
+            const appendSpy = vi.spyOn(document.head, 'appendChild');
+            const readsBeforeSecondInitialization = readFileMock.mock.calls.length;
+            await initializeFontLoader();
+
+            expect(appendSpy).not.toHaveBeenCalled();
+            expect(readFileMock).toHaveBeenCalledTimes(readsBeforeSecondInitialization);
             expect(fontStyles()).toHaveLength(0);
         },
         FONT_TEST_TIMEOUT_MS
@@ -683,11 +687,12 @@ describe('user reads text in the bundled serif font', () => {
         'user does not let a slower failed startup font replace a refreshed face',
         async () => {
             const fontApi = mockFontLoadingApi(true);
-            let rejectStartupLoad: ((error: Error) => void) | undefined;
-            const firstLoad = new Promise<never[]>((_, reject) => {
-                rejectStartupLoad = reject;
+            let resolveStartupLoad: ((value: never[]) => void) | undefined;
+            const firstLoad = new Promise<never[]>((resolve) => {
+                resolveStartupLoad = resolve;
             });
             fontApi.load.mockReturnValueOnce(firstLoad);
+            fontApi.check.mockReturnValueOnce(true).mockReturnValue(false);
             vi.stubGlobal(
                 'fetch',
                 vi.fn().mockResolvedValue({
@@ -703,7 +708,7 @@ describe('user reads text in the bundled serif font', () => {
 
             const { initializeFontLoader } = await import('@/utils/font');
 
-            initializeFontLoader();
+            const startupLoad = initializeFontLoader();
             await waitForFontReadyListener();
             await vi.waitFor(() => expect(fontApi.load).toHaveBeenCalledTimes(1));
 
@@ -713,14 +718,69 @@ describe('user reads text in the bundled serif font', () => {
                 expect(fontStyleText()).toContain('touchaiFontReload=1');
             });
 
-            rejectStartupLoad?.(new Error(' A network error occurred.'));
-            await vi.waitFor(() => {
-                expect(warn).toHaveBeenCalledWith(
-                    'Source Han Serif font diagnostics:',
-                    expect.objectContaining({ fontsLoadError: ' A network error occurred.' })
-                );
-            });
+            resolveStartupLoad?.([]);
+            await startupLoad;
+
+            expect(warn).toHaveBeenCalledWith(
+                'Source Han Serif font diagnostics:',
+                expect.objectContaining({ fontLoaded: false })
+            );
+            expect(fontApi.check).toHaveBeenCalledTimes(4);
             expect(readFileMock).not.toHaveBeenCalled();
+            expect(fontStyles()).toHaveLength(1);
+            expect(fontStyleText()).toContain('touchaiFontReload=1');
+        },
+        FONT_TEST_TIMEOUT_MS
+    );
+
+    it(
+        'user keeps the refreshed face when decoded TTF verification finishes late',
+        async () => {
+            mockWebKitGtkUserAgent();
+            const fontApi = mockFontLoadingApi(true);
+            let resolveDecodedLoad: ((value: never[]) => void) | undefined;
+            const decodedLoad = new Promise<never[]>((resolve) => {
+                resolveDecodedLoad = resolve;
+            });
+            let loadCount = 0;
+            fontApi.load.mockImplementation(() => {
+                loadCount += 1;
+
+                if (loadCount === 1) {
+                    return Promise.reject(new Error(' A network error occurred.'));
+                }
+
+                if (loadCount === 2) {
+                    return decodedLoad;
+                }
+
+                return Promise.resolve([]);
+            });
+            fontApi.check.mockReturnValueOnce(true).mockReturnValue(false);
+            vi.stubGlobal(
+                'fetch',
+                vi.fn().mockRejectedValue(new Error(' A network error occurred.'))
+            );
+            mockTauriCommand(
+                'prepare_product_font_file',
+                'D:\\TouchAI\\assets\\font\\SourceHanSerifSC-VF.ttf'
+            );
+
+            const { initializeFontLoader } = await import('@/utils/font');
+
+            const startupLoad = initializeFontLoader();
+            await waitForFontReadyListener();
+            await vi.waitFor(() => expect(loadCount).toBe(2));
+
+            await emit(AppEvent.FONT_READY, {});
+            await vi.waitFor(() => {
+                expect(fontStyles()).toHaveLength(1);
+                expect(fontStyleText()).toContain('touchaiFontReload=1');
+            });
+
+            resolveDecodedLoad?.([]);
+            await startupLoad;
+
             expect(fontStyles()).toHaveLength(1);
             expect(fontStyleText()).toContain('touchaiFontReload=1');
         },

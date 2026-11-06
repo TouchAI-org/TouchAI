@@ -18,12 +18,26 @@ export function createPopupPositionCalculator(options: PopupPositionCalculatorOp
         const windowInfo = await getWindowInfo();
         const dimensions = { width: config.width, height: config.height };
         const position = config.calculatePosition(triggerElement, windowInfo, dimensions);
+        const width = config.width + POPUP_WINDOW_GUTTER * 2;
+        const height = config.height + POPUP_WINDOW_GUTTER * 2;
+        let x = position.x - POPUP_WINDOW_GUTTER;
+        let y = position.y - POPUP_WINDOW_GUTTER;
+
+        if (windowInfo.screenSize && windowInfo.screenPosition) {
+            const minX = windowInfo.screenPosition.x;
+            const minY = windowInfo.screenPosition.y;
+            const maxX = minX + windowInfo.screenSize.width - width;
+            const maxY = minY + windowInfo.screenSize.height - height;
+
+            x = Math.max(minX, Math.min(x, maxX));
+            y = Math.max(minY, Math.min(y, maxY));
+        }
 
         return {
-            x: position.x - POPUP_WINDOW_GUTTER,
-            y: position.y - POPUP_WINDOW_GUTTER,
-            width: config.width + POPUP_WINDOW_GUTTER * 2,
-            height: config.height + POPUP_WINDOW_GUTTER * 2,
+            x,
+            y,
+            width,
+            height,
         };
     }
 

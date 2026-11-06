@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     buildAss,
+    contentCaptureFrame,
     DESKTOP_COLOUR,
     finalizeRecording,
     isPaintedWindowFrame,
@@ -156,6 +157,21 @@ describe('user keeps compact search screenshots', () => {
         } finally {
             fs.rmSync(directory, { recursive: true, force: true });
         }
+    });
+});
+
+describe('user reviews shell content without the shadow gutter', () => {
+    it('user gets the visible 1120x700 settings frame from a native capture', () => {
+        expect(contentCaptureFrame({ width: 1168, height: 748 })).toEqual({
+            width: 1120,
+            height: 700,
+            x: 24,
+            y: 24,
+        });
+    });
+
+    it('user keeps a capture that is too small to contain the gutter', () => {
+        expect(contentCaptureFrame({ width: 48, height: 40 })).toBeNull();
     });
 });
 

@@ -307,6 +307,60 @@ export function cropToElement({
 }
 
 /**
+ * Returns the visible-content rectangle inside a native window capture.
+ *
+ * A screenshot whose size is not larger than the gutter on both axes cannot
+ * contain a padded shell, so callers should leave it untouched.
+ */
+export function contentCaptureFrame(size, gutter = WINDOW_SHADOW_GUTTER) {
+    if (!size || size.width <= gutter * 2 || size.height <= gutter * 2) {
+        return null;
+    }
+
+    return contentWindowFrame({ width: size.width, height: size.height, x: 0, y: 0 }, gutter);
+}
+
+/**
+ * Crops a native WebDriver screenshot to the visible shell.
+ *
+ * Linux captures already crop through `captureScreenshot`; macOS and Windows
+ * return the whole webview, including the transparent shadow gutter. Keeping
+ * the same content frame on every platform makes the stills comparable and
+ * prevents the gutter from being reported as horizontal overflow.
+ */
+export function cropToContentFrame({ file, gutter = WINDOW_SHADOW_GUTTER }) {
+    const size = pngSize(file);
+    const frame = contentCaptureFrame(size, gutter);
+
+    if (!size || !frame) {
+        return size;
+    }
+
+    const scratch = `${file}.crop.png`;
+    const result = run(ffmpegBinary(), [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-i',
+        file,
+        '-vf',
+        `crop=${frame.width}:${frame.height}:${frame.x}:${frame.y}`,
+        '-frames:v',
+        '1',
+        scratch,
+    ]);
+
+    if (result.status !== 0 || !fs.existsSync(scratch)) {
+        fs.rmSync(scratch, { force: true });
+        return null;
+    }
+
+    fs.renameSync(scratch, file);
+    return { width: frame.width, height: frame.height };
+}
+
+/**
  * Captures one window.
  *
  * The window is captured by id rather than by cropping the root: the app
@@ -385,7 +439,7 @@ export function captureScreenshot({ display, file, geometry, id, inset = 0 }) {
         throw new Error(`${convert} failed: ${result.stderr.trim()}`);
     }
 
-    return { width: target.width, height: target.height };
+    return { width: content.width, height: content.height };
 }
 
 /**

@@ -423,6 +423,10 @@ async function injectFontFace(
             appendFontFaceRule(decodedFontUrl, formatForFontPath(decodedFontPath));
             const decodedFontLoaded = await verifyInjectedFontFace(decodedFontUrl);
 
+            if (injectionToken !== fontInjectionToken) {
+                return true;
+            }
+
             if (decodedFontLoaded) {
                 removeRegisteredFontFace();
                 return true;
@@ -489,8 +493,10 @@ function ensureFontReadyListener(): Promise<void> {
     return fontReadyListenerPromise;
 }
 
-export function initializeFontLoader(): void {
-    ensureFontReadyListener().finally(() => {
-        void loadFontFace({ requireExistingFile: true }).catch(logFontLoadError);
-    });
+export function initializeFontLoader(): Promise<void> {
+    return ensureFontReadyListener()
+        .then(() => loadFontFace({ requireExistingFile: true }))
+        .catch((error) => {
+            logFontLoadError(error);
+        });
 }
