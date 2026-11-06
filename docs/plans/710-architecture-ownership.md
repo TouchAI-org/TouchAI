@@ -305,10 +305,12 @@ inside the 5% point budget, but the gate also requires the upper bound to be
 inside it. The 1000 history-only growth row is AUX, not a substitute for the
 gated retained-total row.
 
-The canonical protocol in `run-plan.json` is latency blocks 3, progress blocks
-3, long-session blocks 3 for each formal level 100/500/1000; `stats.mjs` reads
-the canonical `protocol`. The runner's `remainingPlan` field records the
-pre-execution resume plan and is not used to compute measurement counts.
+The historical protocol in this artifact's `run-plan.json` is latency blocks 3,
+progress blocks 3, long-session blocks 3 for each formal level 100/500/1000;
+`stats.mjs` reads the canonical `protocol`. The runner's `remainingPlan` field
+records the pre-execution resume plan and is not used to compute measurement
+counts. The GitHub-hosted workflow now uses six long-session blocks per level to
+reduce the variance described below.
 
 The long-session 1500 runs are a real environment blocker, not a synthetic
 substitute:
@@ -442,8 +444,12 @@ and makes `windowFocused`/`appFocused` represent a real managed desktop window.
 The workflow supports `cold-latency`, `steady-state-memory` and `full` scopes.
 The cold protocol uses `--warm-samples 0` and 60 paired A/B/B/A blocks (240 app
 launches). The steady-state protocol uses three paired blocks for progress and
-for each long-session history level 100/500/1000 (48 runs). Scheduled runs use
-the full scope; manual and `perf:rfc710` PR runs select a scope explicitly.
+six paired blocks for each long-session history level 100/500/1000; a
+memory-only run therefore executes 84 app runs, and a full run executes 324.
+The earlier three-block memory result is retained as historical evidence, but
+is not the canonical CI sample size because a single noisy block can widen a
+three-cluster 95% interval past the unchanged 1.05 upper bound. Scheduled runs
+use the full scope; manual and `perf:rfc710` PR runs select a scope explicitly.
 Every protocol records invalid-run reasons, excludes invalid samples from the
 gate, and uploads raw JSONL plus bootstrap evidence.
 

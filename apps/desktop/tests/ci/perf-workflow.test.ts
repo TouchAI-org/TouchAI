@@ -23,6 +23,7 @@ describe('user runs RFC 710 performance on GitHub Actions', () => {
         expect(workflow).toContain('wmctrl');
         expect(workflow).toContain("inputs['startup-settle-ms']");
         expect(workflow).toContain("inputs['latency-blocks']");
+        expect(workflow).toContain("inputs['long-blocks']");
         expect(workflow).toContain('TOUCHAI_PERF_EVIDENCE: /tmp/touchai-perf-evidence');
         expect(workflow).toContain('TOUCHAI_PERF_ARTIFACTS: /tmp/touchai-perf-artifacts');
         expect(workflow).toContain('performance-scope');
@@ -31,7 +32,9 @@ describe('user runs RFC 710 performance on GitHub Actions', () => {
         expect(workflow).toContain('- full');
         expect(workflow).toContain("github.event_name == 'schedule'");
         expect(workflow).toContain('--progress-blocks "$PROGRESS_BLOCKS"');
+        expect(workflow).toContain("inputs['long-blocks'] || '6'");
         expect(workflow).toContain('--long-blocks "$LONG_BLOCKS"');
+        expect(workflow).toContain('long-blocks must be at least 6');
         expect(workflow).toContain('--history-levels "$HISTORY_LEVELS"');
         expect(workflow).not.toContain('${{ github.workspace }}/../');
         expect(workflow).not.toContain('TOUCHAI_PERF_EVIDENCE: ${{ runner.temp }}');
