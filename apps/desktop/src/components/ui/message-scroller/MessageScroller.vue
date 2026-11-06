@@ -33,8 +33,13 @@
     const RAIL_VERTICAL_PADDING = 8;
     const PREVIEW_MAX_HEIGHT = 112;
     const PREVIEW_HALF_HEIGHT = PREVIEW_MAX_HEIGHT / 2;
+    const MAX_RAIL_ITEMS = 96;
     const RAIL_WAVE_SCALES = [1.5, 1.28, 1.12, 1.02] as const;
     const RAIL_WAVE_STEP_DELAY = 0.012;
+
+    interface RailItem extends MessageScrollerItem {
+        source: MessageScrollerItem;
+    }
 
     interface Props {
         items?: MessageScrollerItem[];
@@ -113,55 +118,67 @@
         return splitText(text, limit).label;
     }
 
-    const displayItems = computed(() =>
-        props.items.map((item) => {
-            const preview = splitText(item.label || props.emptyLabel, PREVIEW_TITLE_LENGTH);
-            const description = item.description
-                ? truncateText(item.description, PREVIEW_DESCRIPTION_LENGTH)
-                : preview.remainder
-                  ? truncateText(preview.remainder, PREVIEW_DESCRIPTION_LENGTH)
-                  : undefined;
+    function createRailItem(sourceIndex: number): RailItem {
+        const source = props.items[sourceIndex]!;
+        const preview = splitText(source.label || props.emptyLabel, PREVIEW_TITLE_LENGTH);
+        const description = source.description
+            ? truncateText(source.description, PREVIEW_DESCRIPTION_LENGTH)
+            : preview.remainder
+              ? truncateText(preview.remainder, PREVIEW_DESCRIPTION_LENGTH)
+              : undefined;
 
-            return {
-                ...item,
-                label: preview.label,
-                description,
-            };
-        })
-    );
+        return {
+            ...source,
+            label: preview.label,
+            description,
+            source,
+        };
+    }
+
+    const railItems = computed<RailItem[]>(() => {
+        const count = props.items.length;
+        if (count === 0) return [];
+        if (count <= MAX_RAIL_ITEMS) {
+            return props.items.map((_, index) => createRailItem(index));
+        }
+
+        return Array.from({ length: MAX_RAIL_ITEMS }, (_, index) =>
+            createRailItem(Math.round((index * (count - 1)) / (MAX_RAIL_ITEMS - 1)))
+        );
+    });
 
     const displayedItemId = computed(
         () => hoveredItemId.value ?? pinnedItemId.value ?? focusedItemId.value
     );
 
-    const displayedItem = computed(
-        () => displayItems.value.find((item) => item.id === displayedItemId.value) ?? null
+    const displayedRailItem = computed(
+        () => railItems.value.find((item) => item.id === displayedItemId.value) ?? null
     );
 
-    const displayedItemIndex = computed(() =>
-        displayItems.value.findIndex((item) => item.id === displayedItemId.value)
+    const displayedRailItemIndex = computed(() =>
+        railItems.value.findIndex((item) => item.id === displayedItemId.value)
     );
 
     const railVisible = computed(
-        () => props.navigation === 'rail' && overflowing.value && displayItems.value.length > 1
+        () => props.navigation === 'rail' && overflowing.value && railItems.value.length > 1
     );
 
     const railItemSize = computed(() => {
-        const count = displayItems.value.length;
+        const count = railItems.value.length;
         const availableHeight = Math.max(0, railHeight.value - RAIL_VERTICAL_PADDING);
         if (count === 0 || availableHeight === 0) return RAIL_ITEM_SIZE;
         return Math.min(RAIL_ITEM_SIZE, availableHeight / count);
     });
 
     const railStyle = computed(() => ({
-        gridTemplateRows: `repeat(${displayItems.value.length}, ${railItemSize.value}px)`,
+        gridTemplateRows: `repeat(${railItems.value.length}, ${railItemSize.value}px)`,
         top: `${props.railInsetTop}px`,
     }));
 
     const previewStyle = computed(() => {
-        if (displayedItemIndex.value < 0) return {};
+        if (displayedRailItemIndex.value < 0) return {};
         const centerOffset =
-            (displayedItemIndex.value - (displayItems.value.length - 1) / 2) * railItemSize.value;
+            (displayedRailItemIndex.value - (railItems.value.length - 1) / 2) * railItemSize.value;
         const previewCenter = railHeight.value / 2 + centerOffset;
         const minimumCenter = Math.min(PREVIEW_HALF_HEIGHT, railHeight.value / 2);
         const maximumCenter = Math.max(minimumCenter, railHeight.value - PREVIEW_HALF_HEIGHT);
@@ -176,8 +193,8 @@
     });
 
     function railTickDistance(index: number): number {
-        if (displayedItemIndex.value < 0) return Number.POSITIVE_INFINITY;
-        return Math.abs(index - displayedItemIndex.value);
+        if (displayedRailItemIndex.value < 0) return Number.POSITIVE_INFINITY;
+        return Math.abs(index - displayedRailItemIndex.value);
     }
 
     function railTickScale(index: number): number {
@@ -310,7 +327,7 @@
     function updateActiveItem(state: MessageScrollerState): void {
         const element = viewport.value;
         if (!element || !railVisible.value) {
-            activeItemId.value = displayItems.value[0]?.id ?? '';
+            activeItemId.value = railItems.value[0]?.id ?? '';
             visibleItemIds.value = new Set();
             return;
         }
@@ -332,7 +349,7 @@
         };
         const nextIds = new Set<string>();
 
-        for (const item of displayItems.value) {
+        for (const item of railItems.value) {
             const range = rangeFor(item.id);
             if (!range) continue;
             if (
@@ -349,11 +366,11 @@
         const distance = state.scrollHeight - state.scrollTop - state.clientHeight;
         activeItemId.value =
             state.scrollTop <= props.followThreshold
-                ? (displayItems.value[0]?.id ?? '')
+                ? (railItems.value[0]?.id ?? '')
                 : distance <= props.followThreshold
-                  ? (displayItems.value[displayItems.value.length - 1]?.id ?? '')
+                  ? (railItems.value[railItems.value.length - 1]?.id ?? '')
                   : (resolveRailItemAtOffset(
-                        displayItems.value,
+                        railItems.value,
                         rangeFor,
                         state.scrollTop + viewportCenter - viewportRect.top
                     ) ?? '');
@@ -586,8 +603,8 @@
         }
     }
 
-    function handleRailItemSelect(item: MessageScrollerItem): void {
-        emit('itemSelect', item);
+    function handleRailItemSelect(item: RailItem): void {
+        emit('itemSelect', item.source);
         scrollToItem(item.id, { align: 'center' });
     }
 
@@ -686,7 +703,7 @@
                 data-slot="message-scroller-rail"
             >
                 <button
-                    v-for="(item, index) in displayItems"
+                    v-for="(item, index) in railItems"
                     :key="item.id"
                     type="button"
                     class="relative flex w-full items-center justify-end outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -714,7 +731,7 @@
                 </button>
 
                 <div
-                    v-if="displayedItem"
+                    v-if="displayedRailItem"
                     class="pointer-events-none absolute z-20 w-64"
                     :style="previewStyle"
                     aria-hidden="true"
@@ -722,7 +739,7 @@
                 >
                     <AnimatePresence mode="wait" :initial="false">
                         <motion.div
-                            :key="displayedItem.id"
+                            :key="displayedRailItem.id"
                             class="max-h-28 overflow-hidden rounded-lg border border-border-subtle bg-background-primary p-3 font-serif shadow-lg"
                             :initial="{ opacity: 0, y: 4 }"
                             :animate="{ opacity: 1, y: 0 }"
@@ -735,14 +752,14 @@
                             data-slot="message-scroller-preview"
                         >
                             <p class="truncate text-compact font-medium text-text-primary">
-                                {{ displayedItem.label }}
+                                {{ displayedRailItem.label }}
                             </p>
                             <p
-                                v-if="displayedItem.description"
+                                v-if="displayedRailItem.description"
                                 class="mt-1 line-clamp-3 text-caption leading-5 text-text-secondary"
                                 data-slot="message-scroller-preview-description"
                             >
-                                {{ displayedItem.description }}
+                                {{ displayedRailItem.description }}
                             </p>
                         </motion.div>
                     </AnimatePresence>

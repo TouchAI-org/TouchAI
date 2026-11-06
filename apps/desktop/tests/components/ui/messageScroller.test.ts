@@ -292,6 +292,36 @@ describe('user navigates a long conversation', () => {
         );
     });
 
+    it('user gets a bounded rail that can still reach both ends of a very long conversation', async () => {
+        const manyItems = Array.from({ length: 1_000 }, (_, index) => ({
+            id: `very-long-${index + 1}`,
+            label: `Message ${index + 1}`,
+        }));
+        const wrapper = mountScroller({ scrollerItems: manyItems });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, { scrollHeight: 200_000, clientHeight: 400 });
+        const scrollTo = stubScrollTo(viewport);
+        stubRect(viewport, { top: 0, height: 400 });
+        stubRect(
+            wrapper.get('[data-message-scroller-item="very-long-1000"]').element as HTMLElement,
+            {
+                top: 199_000,
+                height: 100,
+            }
+        );
+        triggerResize();
+        await settleLayout();
+
+        const ticks = wrapper.findAll('[data-slot="message-scroller-rail-item"]');
+        expect(ticks.length).toBeGreaterThan(1);
+        expect(ticks.length).toBeLessThanOrEqual(96);
+
+        await ticks[ticks.length - 1]!.trigger('click');
+        await nextTick();
+
+        expect(scrollTo).toHaveBeenCalledWith({ top: 198_850, behavior: 'auto' });
+    });
+
     it('user sees complete previews at either end of the rail', async () => {
         const previewItems: MessageScrollerItem[] = [
             items[0]!,
