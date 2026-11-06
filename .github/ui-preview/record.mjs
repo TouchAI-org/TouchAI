@@ -884,13 +884,16 @@ async function productFontState(session) {
             }
 
             const productStatuses = productFaces.map((face) => face.status);
-            if (!productStatuses.includes('loaded')) {
+            const productCheck = document.fonts.check(productProbe, sample);
+            if (!productStatuses.includes('loaded') && !productCheck) {
                 return {
                     ok: false,
                     retry: true,
                     detail:
-                        'waiting for a loaded product face (status: ' +
+                        'waiting for a usable product face (status: ' +
                         productStatuses.join(',') +
+                        ', check: ' +
+                        productCheck +
                         ')',
                 };
             }
@@ -927,7 +930,11 @@ async function productFontState(session) {
                     detail:
                         'the product face did not paint Han glyphs (only ' +
                         differingPixels +
-                        ' pixels differ from the fallback)',
+                        ' pixels differ from the fallback; status: ' +
+                        productStatuses.join(',') +
+                        ', check: ' +
+                        productCheck +
+                        ')',
                 };
             }
 

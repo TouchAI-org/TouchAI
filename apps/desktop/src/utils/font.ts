@@ -111,15 +111,18 @@ async function verifyInjectedFontFace(fontUrl: string): Promise<boolean> {
                     await delay(FONT_LOAD_RETRY_DELAY_MS);
                 }
 
+                let loadRejected = false;
+
                 try {
                     await document.fonts.load(FONT_LOAD_TEST);
                 } catch (error) {
                     diagnostics.fontsLoadError = stringifyError(error);
+                    loadRejected = true;
                 }
 
                 diagnostics.fontLoaded = document.fonts.check(FONT_LOAD_TEST);
 
-                if (diagnostics.fontLoaded) {
+                if (diagnostics.fontLoaded || loadRejected) {
                     break;
                 }
             }
@@ -128,7 +131,7 @@ async function verifyInjectedFontFace(fontUrl: string): Promise<boolean> {
         diagnostics.fontsLoadError = stringifyError(error);
     }
 
-    if (typeof fetch === 'function') {
+    if (!diagnostics.fontLoaded && typeof fetch === 'function') {
         try {
             const response = await fetch(fontUrl);
             diagnostics.fetchOk = response.ok;

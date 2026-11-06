@@ -196,23 +196,26 @@ app is not evidence, however green it is. Both layers are pinned to the real thi
 depends on that file, so without it the whole interface renders in a generic serif
 that no user sees.
 
-The file is a variable font, and the `format()` hint on that rule decides whether it is
-painted at all. An engine that is not told the file carries a variation axis loads it as
-a static face, finds no instance for the requested weight, and silently substitutes
-`serif` — no error, `document.fonts.check()` still returns `true`, and the face still
-reports `status: "loaded"`. The rule must therefore use the form CSS Fonts 4 defines:
+The file is a variable font. The standard `format('woff2')` container hint is enough:
+variation support comes from `font-weight: 250 900` in the rule, not from the format
+string. Measured with this file at weight 500, `woff2`, the legacy
+`woff2-variations` alias, and a face built directly from the bytes render identically
+in WebView2 and WebKit.
 
 ```css
-src: url('…woff2') format('woff2-variations');
+src: url('SourceHanSerifSC-VF.ttf.woff2') format('woff2');
 ```
 
-`format('woff2') tech(variations)` is the modern equivalent. `format('woff2 supports
-variations')` is **not** in the specification — `<font-format>` accepts only `woff2`,
-`woff`, `opentype` and friends, and the variation requirement is expressed through
-`<font-tech>`. It appeared in pre-2018 articles about an early draft. Chromium 156
-parses it leniently enough to work while Chromium 155 rejects the entire `src` entry, so
-the same rule rendered the font on a developer machine and fell back on CI. That cost
-several wrong diagnoses; do not reintroduce it.
+WebKitGTK 2.52 rejects the legacy `woff2-variations` alias outright: it drops the
+whole `src` entry and leaves the face at `status: "error"`. Keep the standard
+container value. Do **not** use `format('woff2 supports variations')` either; that
+string is not in the specification and older Chromium releases reject the entire
+`src` entry.
+
+When the asset URL cannot be fetched, the app removes the failed `@font-face` rule
+before registering the file bytes in memory. Keeping the failed face in the family
+would leave WebKit resolving the same family to the poisoned rule, so the preview
+recorder also accepts a loaded in-memory face without a style rule.
 
 `apps/desktop/e2e-tests/e2e-font.js` provisions the file for the application layer. It
 fetches the exact file the product uses from jsDelivr (falling back to the product's own
