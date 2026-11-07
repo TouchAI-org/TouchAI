@@ -13,6 +13,7 @@
      */
     import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
+    import { useMotion } from '@/composables/useMotion';
     import { getLocale, t } from '@/i18n';
 
     import { type ActivityDay, buildModel, moveIndex, slotOf, toIso, toUtc } from './model';
@@ -50,6 +51,7 @@
     const GUTTER = 26;
     const HEADER = 16;
     const WAVE = 520;
+    const { reducedMotion, duration } = useMotion();
 
     /**
      * Pad to a fixed one-year window.
@@ -127,19 +129,19 @@
             observer.observe(el);
         }
 
-        const reduced =
-            typeof window.matchMedia === 'function' &&
-            window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        if (reduced) {
+        if (reducedMotion.value) {
             revealed.value = true;
             return;
         }
         requestAnimationFrame(() => {
             revealed.value = true;
         });
-        timer = window.setTimeout(() => {
-            revealed.value = true;
-        }, WAVE + 700);
+        timer = window.setTimeout(
+            () => {
+                revealed.value = true;
+            },
+            duration(WAVE + 700)
+        );
     });
 
     onBeforeUnmount(() => {
@@ -151,7 +153,7 @@
 
     /** Per-cell delay grows by column, producing a left-to-right wave. */
     function delayOf(column: number): string {
-        return `${Math.min(column * 10, WAVE)}ms`;
+        return `${duration(Math.min(column * 10, WAVE))}ms`;
     }
 
     // ===== Legend: preview on hover, pin on click =====
@@ -332,8 +334,8 @@
                         rx="2.5"
                         :class="LEVEL_FILL[level]"
                         :style="{
-                            opacity: revealed ? opacityOf(index) : 0,
-                            transition: `opacity 280ms ease-out ${delayOf(slotOf(model, index).column)}`,
+                            opacity: revealed || reducedMotion ? opacityOf(index) : 0,
+                            transition: `opacity ${duration(280)}ms ease-out ${delayOf(slotOf(model, index).column)}`,
                             cursor: 'pointer',
                         }"
                         @pointerenter="focusIndex = index"

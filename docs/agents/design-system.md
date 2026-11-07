@@ -7,6 +7,7 @@ primitives, or view-layer styling.
 - [Token rules](#token-rules)
 - [Primitive rules](#primitive-rules)
 - [Changing things](#changing-things)
+- [Motion preferences](#motion-preferences)
 - [Guards](#guards)
 - [Visual regression](#visual-regression)
 - [Where things live](#where-things-live)
@@ -75,6 +76,25 @@ number looks small — 62 call sites depend on `--radius-lg`.
 
 Adding or changing anything under `styles/` or `components/ui/` requires maintainer
 review via CODEOWNERS.
+
+## Motion preferences
+
+General settings exposes Motion (动效), Animation speed, and Automatically reduce motion.
+The standard pace is the default; slower and faster scale transition durations by 1.2 and
+0.65. The automatic option defaults to enabled and uses the existing scalar settings
+store, with no schema or migration change.
+
+`App.vue` provides one reactive motion policy per window. CSS consumes
+`--motion-duration-scale`; JavaScript animations use `useMotion().duration` or its
+shared transition presets. System reduced motion always takes precedence. Automatic
+reduction samples visible-renderer timer delay once per second, activates after two
+consecutive samples at least 100 ms late, and recovers after eight timely samples.
+Sampling stops while hidden, disabled, or waiting for settings initialization.
+
+The installed `motion-v` captures its `MotionConfig` reduced-motion option at mount.
+Keep that option stable and apply reduction through the shared reactive transitions,
+including layout transitions, so elements created during reduction can recover without
+remounting. `tests/motion/motionRecovery.test.ts` exercises the actual animation engine.
 
 ## Guards
 

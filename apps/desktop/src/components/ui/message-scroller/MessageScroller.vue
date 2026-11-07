@@ -81,7 +81,7 @@
     const pinnedItemId = ref<string | null>(null);
     const focusedItemId = ref<string | null>(null);
 
-    const { reducedMotion, transitions } = useMotion();
+    const { reducedMotion, duration, transitions } = useMotion();
 
     function normaliseText(text: string): string {
         return text.replace(/\s+/g, ' ').trim();
@@ -183,7 +183,7 @@
             delay:
                 reducedMotion.value || !Number.isFinite(distance)
                     ? 0
-                    : distance * RAIL_WAVE_STEP_DELAY,
+                    : duration(distance * RAIL_WAVE_STEP_DELAY * 1000) / 1000,
         };
     }
 
