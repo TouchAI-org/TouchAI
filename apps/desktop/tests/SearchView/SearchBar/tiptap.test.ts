@@ -161,7 +161,7 @@ describe('SearchBar tiptap utilities', () => {
         expect(getEditorText(createEditorFromDoc(doc))).toBe('trusted proxy:\ntrue.');
     });
 
-    it('serializes consecutive hard breaks as consecutive newlines', () => {
+    it('user gets one newline per hard break when several follow each other', () => {
         const doc = schema.nodes.doc!.create(null, [
             schema.nodes.paragraph!.create(null, [
                 schema.text('line1'),
@@ -174,7 +174,7 @@ describe('SearchBar tiptap utilities', () => {
         expect(getEditorText(createEditorFromDoc(doc))).toBe('line1\n\nline2');
     });
 
-    it('serializes hard-break-only paragraphs as newline content', () => {
+    it('user gets only newlines from a paragraph that holds just line breaks', () => {
         const doc = schema.nodes.doc!.create(null, [
             schema.nodes.paragraph!.create(null, [
                 schema.nodes.hardBreak!.create(),
@@ -185,7 +185,7 @@ describe('SearchBar tiptap utilities', () => {
         expect(getEditorText(createEditorFromDoc(doc))).toBe('\n\n');
     });
 
-    it('preserves paragraph boundaries and hard breaks together', () => {
+    it('user gets paragraph breaks and wrapped lines both kept in the draft text', () => {
         const doc = schema.nodes.doc!.create(null, [
             schema.nodes.paragraph!.create(null, [
                 schema.text('para1'),
@@ -202,7 +202,7 @@ describe('SearchBar tiptap utilities', () => {
         expect(getEditorText(createEditorFromDoc(doc))).toBe('para1\nwrap1\npara2\nwrap2');
     });
 
-    it('keeps non-text search tags out of the extracted plain text', () => {
+    it('user never sees the attachment chip text leak into the draft', () => {
         const doc = schema.nodes.doc!.create(null, [
             schema.nodes.paragraph!.create(null, [
                 schema.text('before'),
@@ -214,7 +214,7 @@ describe('SearchBar tiptap utilities', () => {
         expect(getEditorText(createEditorFromDoc(doc))).toBe('beforeafter');
     });
 
-    it('preserves hard breaks while filtering mixed inline search tags', () => {
+    it('user keeps line breaks when the draft also holds attachment chips', () => {
         const doc = schema.nodes.doc!.create(null, [
             schema.nodes.paragraph!.create(null, [
                 schema.text('before'),
@@ -227,7 +227,7 @@ describe('SearchBar tiptap utilities', () => {
         expect(getEditorText(createEditorFromDoc(doc))).toBe('before\nafter');
     });
 
-    it('inserts pasted plain text without flattening line breaks', () => {
+    it('user gets pasted text inserted with its line breaks intact', () => {
         const doc = schema.nodes.doc!.create(null, [
             schema.nodes.paragraph!.create(null, [schema.text('before ')]),
         ]);
@@ -238,7 +238,7 @@ describe('SearchBar tiptap utilities', () => {
         expect(getEditorText(editor)).toBe('before Python\t动态\nRust\t静态');
     });
 
-    it('replaces selected text while preserving consecutive line breaks', () => {
+    it('user gets the selected text replaced without losing blank lines', () => {
         const doc = schema.nodes.doc!.create(null, [
             schema.nodes.paragraph!.create(null, [schema.text('left OLD right')]),
         ]);
@@ -252,7 +252,7 @@ describe('SearchBar tiptap utilities', () => {
         expect(getEditorText(editor)).toBe('left X\n\nY right');
     });
 
-    it('replaces selected text when inserting an attachment at the current selection', () => {
+    it('user gets the selected text replaced by the attachment chip', () => {
         const doc = schema.nodes.doc!.create(null, [
             schema.nodes.paragraph!.create(null, [schema.text('left OLD right')]),
         ]);

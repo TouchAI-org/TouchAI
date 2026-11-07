@@ -133,7 +133,7 @@ function createShownEvent(
 }
 
 describe('useSearchPageController', () => {
-    it('closes quick search through the panel so internal search state is cleared', () => {
+    it('user sees the panel close and the search state cleared', () => {
         const quickSearchOpen = ref(true);
         const closeQuickSearchPanel = vi.fn(() => {
             quickSearchOpen.value = false;
@@ -169,7 +169,7 @@ describe('useSearchPageController', () => {
         expect(quickSearchOpen.value).toBe(false);
     });
 
-    it('falls back to closing the quick search flag when the panel is not mounted', () => {
+    it('user still gets the panel closed when it has not been mounted yet', () => {
         const quickSearchOpen = ref(true);
 
         const controller = useSearchPageController({

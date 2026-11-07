@@ -4,7 +4,10 @@
     <div
         data-model-dropdown-popover="true"
         class="model-dropdown-popover search-surface-elevated flex max-h-96 w-80 flex-col overflow-hidden"
-        :style="{ maxHeight: 'min(24rem, var(--search-overlay-max-height, 24rem))' }"
+        :style="{
+            maxHeight: 'min(24rem, var(--search-overlay-max-height, 24rem))',
+            maxWidth: 'var(--search-overlay-max-width, 20rem)',
+        }"
     >
         <div class="shrink-0 border-b border-stone-200/80 px-3 py-2.5">
             <label

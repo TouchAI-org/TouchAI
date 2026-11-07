@@ -34,7 +34,7 @@
             :navigation-label="t('conversation.scroller.navigation')"
             :empty-label="t('conversation.scroller.message')"
             class="h-full"
-            viewport-class="bg-background-primary px-10 pt-18 pb-9"
+            viewport-class="bg-background-primary px-10 pt-22 pb-5"
             content-class="flow-root min-h-0"
             @state-change="handleScrollerStateChange"
             @content-resize="emit('contentResize', $event)"
@@ -98,13 +98,12 @@
         isMaximized?: boolean;
         historyOpen: boolean;
         toolbarDisabled?: boolean;
-        startDragging?: (event: MouseEvent) => Promise<void>;
+        startDragging: (event: MouseEvent) => Promise<void>;
     }
 
     const props = withDefaults(defineProps<Props>(), {
         toolbarDisabled: false,
         isMaximized: false,
-        startDragging: undefined,
     });
 
     const emit = defineEmits<{

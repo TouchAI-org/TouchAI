@@ -25,13 +25,13 @@ size={width:(to.width+96)*scale,height:1080*scale};
 await new Promise(resolve=>setTimeout(resolve,24));
 moved({payload:position});
 state={...state,currentWidth:to.width,currentHeight:to.height};return state;}}};
-export const getCurrentWindow=()=>({outerPosition:async()=>position,outerSize:async()=>size,onMoved:async cb=>{moved=cb;return()=>{}},onResized:async()=>()=>{},onScaleChanged:async()=>()=>{},isMaximized:async()=>false,setPosition:async p=>{position={x:p.x,y:p.y};await new Promise(resolve=>setTimeout(resolve,24));moved({payload:position})}});
+export const getCurrentWindow=()=>({outerPosition:async()=>({...position}),outerSize:async()=>size,onMoved:async cb=>{moved=cb;return()=>{}},onResized:async()=>()=>{},onScaleChanged:async()=>()=>{},isMaximized:async()=>false,setPosition:async p=>{position={x:p.x,y:p.y};await new Promise(resolve=>setTimeout(resolve,24));moved({payload:position})}});
 export const currentMonitor=async()=>({workArea:{position:{x:0,y:0},size:{width:1920*scale,height:1080*scale}}});`;
 const fixture = `<script setup>
 import {computed,nextTick,onMounted,ref} from 'vue';
 import {useSearchWindowResize} from '${root}/src/views/SearchView/composables/useSearchWindowResize';
 import SearchOverlayHost from '${root}/src/views/SearchView/components/SearchOverlayHost/index.vue';
-const card=ref(null),editor=ref(null),trigger=ref(null),menu=ref(null),filter=ref(null),open=ref(false),reveal=ref(false),ready=ref(false);
+const card=ref(null),editor=ref(null),trigger=ref(null),menu=ref(null),filter=ref(null),open=ref(false),reveal=ref(false),ready=ref(false),floats=ref(false);
 const resize=useSearchWindowResize({target:ref(null),card,sessionCount:ref(1),quickSearchOpen:ref(false),defaultSize:ref({width:750,height:60}),ready});
 const height=computed(()=>resize.cardHeight.value || 60);
 let onRevealed;
@@ -40,6 +40,7 @@ function focusMenu(){filter.value.focus({preventScroll:true});onRevealed?.({acce
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 onMounted(()=>{ready.value=true});
 window.geometryProbe={
+async moveHost(x,onAnchor){window.hostPosition().x=x;floats.value=onAnchor;await resize.syncWindowState();await nextTick()},
 async prepareHidden(){window.monitorHost=false;await resize.syncWindowState();await nextTick();return {panel:card.value.parentElement.getBoundingClientRect().toJSON(),card:card.value.getBoundingClientRect().toJSON()}},
 async expand(interrupt=false){await pause(100);const samples=[];let done=false;const read=()=>{const r=card.value.getBoundingClientRect();samples.push({height:r.height,top:r.top,hostY:window.hostPosition().y,center:window.hostPosition().y+(r.top+r.height/2)*window.devicePixelRatio});if(!done)requestAnimationFrame(read)};read();await resize.playSessionExpandAnimation(660);if(interrupt){await pause(80);await resize.playSessionExpandAnimation(600)}await pause(500);done=true;return samples},
 async showMenu(){const focused=new Promise(resolve=>onRevealed=resolve);reveal.value=false;open.value=true;await nextTick();await menu.value.refreshPosition();await new Promise(requestAnimationFrame);reveal.value=true;const focus=await focused;await pause(220);return {focus,card:card.value.getBoundingClientRect().toJSON(),editor:editor.value.getBoundingClientRect().toJSON(),menu:document.querySelector('[data-search-overlay-host]').getBoundingClientRect().toJSON()}},
@@ -49,8 +50,8 @@ async hideMenu(){open.value=false;await pause(200)}
 <section :style="resize.panelStyle.value"><main ref="card" :style="{...resize.cardStyle.value,height:height+'px',background:'#faf9f6',display:'flex',flexDirection:'column',justifyContent:'end'}">
 <div ref="editor" style="height:60px;flex-shrink:0;padding:12px;box-sizing:border-box"><button ref="trigger">Models</button></div>
 </main></section>
-<SearchOverlayHost ref="menu" :open="open" :reveal="reveal" :anchor="trigger" :position-anchor="editor" :left-align-element="card" :max-viewport-height="900" :gap="5" @revealed="focusMenu">
-<div style="width:320px;height:384px;max-height:var(--search-overlay-max-height);overflow:auto;background:#faf9f6;border:1px solid gray;box-sizing:border-box"><input ref="filter" aria-label="Filter models" /><div style="height:600px">Model list</div></div>
+<SearchOverlayHost ref="menu" :open="open" :reveal="reveal" :anchor="trigger" :position-anchor="editor" :left-align-element="card" :max-viewport-height="900" :min-viewport-left="resize.overlayMinViewportLeft.value" :max-viewport-right="resize.overlayMaxViewportRight.value" :overlay-on-anchor="floats" :gap="5" @revealed="focusMenu">
+<div style="width:320px;height:384px;max-height:var(--search-overlay-max-height);max-width:var(--search-overlay-max-width);overflow:auto;background:#faf9f6;border:1px solid gray;box-sizing:border-box"><input ref="filter" aria-label="Filter models" /><div style="height:600px">Model list</div></div>
 </SearchOverlayHost>
 </template>`;
 const modules = {
@@ -108,6 +109,7 @@ const browser = await chromium.launch({
 });
 const reports = [];
 const focusReports = [];
+const edgeReports = [];
 try {
     const hiddenPage = await browser.newPage();
     await hiddenPage.setContent(
@@ -145,6 +147,40 @@ try {
         );
         assert.ok(report.accepted, 'The popup receives keyboard focus when its entrance starts');
     }
+    for (const scale of [1, 1.5]) {
+        for (const hostX of [-180, 1800]) {
+            for (const onAnchor of [false, true]) {
+                const page = await browser.newPage({
+                    viewport: { width: 846, height: 1080 },
+                    deviceScaleFactor: scale,
+                });
+                await page.setContent(
+                    `<style>${css}.fixed{position:fixed}.inline-block{display:inline-block}</style><div id="probe"></div>`
+                );
+                await page.addScriptTag({ content: bundle });
+                await page.evaluate(
+                    ({ x, onAnchor }) => window.geometryProbe.moveHost(x, onAnchor),
+                    { x: hostX * scale, onAnchor }
+                );
+                const bounds = await page.evaluate(() => window.geometryProbe.showMenu());
+                assert.ok(
+                    bounds.menu.left + hostX >= 0,
+                    `Overlay left stays on screen after dragging: ${JSON.stringify({ scale, hostX, onAnchor, ...bounds })}`
+                );
+                assert.ok(
+                    bounds.menu.right + hostX <= 1920,
+                    'Overlay right stays on screen after dragging'
+                );
+                assert.equal(bounds.card.width, 750, 'Off-screen dragging preserves card width');
+                edgeReports.push({ scale, hostX, onAnchor, ...bounds });
+                await page.close();
+            }
+        }
+    }
+    await writeFile(
+        `${outputDirectory}/overlay-edge-results.json`,
+        JSON.stringify(edgeReports, null, 2)
+    );
     for (const width of [516, 846]) {
         for (const scale of [1, 1.5]) {
             for (const interrupt of [false, true]) {
@@ -197,5 +233,5 @@ for (const report of reports) {
     }
 }
 console.log(
-    `PASS: ${reports.length} browser geometry cases; ${focusReports.length} popup focus cases`
+    `PASS: ${reports.length} browser geometry cases; ${focusReports.length} popup focus cases; ${edgeReports.length} off-screen overlay cases`
 );

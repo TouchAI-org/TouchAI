@@ -14,6 +14,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Manager, Runtime};
 
 #[cfg(target_os = "windows")]
+// Work-area-only changes (for example a taskbar move) have no Tauri WindowEvent.
 const HOST_RECONCILE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(750);
 
 /// Logical room kept around the panel for its browser shadow and transition

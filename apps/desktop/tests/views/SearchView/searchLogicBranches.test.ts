@@ -228,6 +228,7 @@ async function mountSearchInput(overrides: Record<string, unknown> = {}) {
             emitRemoveAttachmentRequest,
             emitDragStart: vi.fn(),
             emitDragEnd: vi.fn(),
+            startDragging: vi.fn().mockResolvedValue(undefined),
             ...overrides,
         })
     );

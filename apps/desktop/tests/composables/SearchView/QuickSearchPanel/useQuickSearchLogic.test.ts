@@ -192,7 +192,7 @@ describe('useQuickSearchLogic', () => {
         mounted.unmount();
     });
 
-    it('keeps only the latest pending query when a slower search result arrives late', async () => {
+    it('user gets the later query results even when the earlier query answers last', async () => {
         const firstSearch = deferred<QuickSearchResult>();
         const secondSearch = deferred<QuickSearchResult>();
         const open = ref(false);

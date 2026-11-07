@@ -15,9 +15,13 @@ export const SEARCH_PANEL_HEIGHT_TOLERANCE = 0.5;
 
 /** The work area intersected with the host, in client CSS coordinates. */
 export function resolveVisibleSearchViewport(input: {
+    viewportWidth: number;
     viewportHeight: number;
+    hostX: number;
     hostY: number;
+    workAreaLeft: number;
     workAreaTop: number;
+    workAreaWidth: number;
     workAreaHeight: number;
     scaleFactor: number;
 }) {
@@ -32,7 +36,18 @@ export function resolveVisibleSearchViewport(input: {
             (input.workAreaTop + input.workAreaHeight - input.hostY) / input.scaleFactor
         )
     );
-    return { top, bottom };
+    const left = Math.min(
+        input.viewportWidth,
+        Math.max(0, (input.workAreaLeft - input.hostX) / input.scaleFactor)
+    );
+    const right = Math.max(
+        left,
+        Math.min(
+            input.viewportWidth,
+            (input.workAreaLeft + input.workAreaWidth - input.hostX) / input.scaleFactor
+        )
+    );
+    return { left, right, top, bottom };
 }
 
 export interface ContentPanelHeightInput {

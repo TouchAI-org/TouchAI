@@ -12,6 +12,41 @@ const anchor = {
 };
 
 describe('calculateSearchOverlayPosition', () => {
+    it('user sees a results overlay within the visible area even when its anchor is above the screen', () => {
+        const position = calculateSearchOverlayPosition({
+            anchor: { left: 48, right: 798, width: 750, top: 20, bottom: 60, height: 40 },
+            overlay: { width: 320, height: 384 },
+            viewport: { width: 846, height: 1080 },
+            minViewportTop: 300,
+            maxViewportHeight: 500,
+            minViewportLeft: 120,
+            maxViewportRight: 846,
+            overlayOnAnchor: true,
+            align: 'end',
+        });
+        expect(position.left).toBe(128);
+        expect(position.top).toBe(308);
+        expect(position.maxHeight).toBe(184);
+    });
+    it.each([
+        { minViewportLeft: 120, maxViewportRight: 846, expectedLeft: 128 },
+        { minViewportLeft: 0, maxViewportRight: 260, expectedLeft: 8 },
+    ])(
+        'user can reach an overlay when the host extends horizontally beyond the display ($minViewportLeft)',
+        ({ minViewportLeft, maxViewportRight, expectedLeft }) => {
+            const position = calculateSearchOverlayPosition({
+                anchor: { left: 48, top: 100, right: 798, bottom: 160, width: 750, height: 60 },
+                overlay: { width: 320, height: 300 },
+                viewport: { width: 846, height: 1080 },
+                minViewportLeft,
+                maxViewportRight,
+            });
+            expect(position.left).toBe(expectedLeft);
+            expect(position.left + Math.min(320, position.maxWidth!)).toBeLessThanOrEqual(
+                maxViewportRight - 8
+            );
+        }
+    );
     it('uses the visible work-area top when the native host extends above the display', () => {
         const position = calculateSearchOverlayPosition({
             anchor: { left: 48, top: 450, right: 400, bottom: 492, width: 352, height: 42 },

@@ -64,6 +64,7 @@ describe('ConversationPanel intrinsic session measurement', () => {
     it('user opens a session with the conversation viewport bounded during measurement', () => {
         const wrapper = mount(ConversationPanel, {
             props: {
+                startDragging: vi.fn().mockResolvedValue(undefined),
                 messages: [],
                 isLoading: false,
                 error: null,

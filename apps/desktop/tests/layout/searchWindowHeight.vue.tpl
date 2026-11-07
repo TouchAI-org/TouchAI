@@ -53,6 +53,7 @@
         ready: viewReady,
     });
     const { reducedMotion } = useMotion();
+    const startSearchPanelDragging = () => {};
     const surfaceAnimationDuration = computed(() =>
         reducedMotion.value ? 0 : SEARCH_SURFACE_MOTION.durationMs
     );
@@ -200,7 +201,7 @@
             quickSearchRevealPhase.value = 'handoff';
             sessionHistory.value = [user, { ...message }];
             await nextTick();
-            const height = await waitForSessionExpandContentHeight();
+            const height = measureTargetHeight();
             await playSessionExpandAnimation(height);
             await pause(400);
             quickSearchOpen.value = false;
@@ -213,7 +214,7 @@
             surfaceMeasurementHold.value = true;
             sessionHistory.value = [user, { ...message }];
             await nextTick();
-            const height = await waitForSessionExpandContentHeight();
+            const height = measureTargetHeight();
             await playSessionExpandAnimation(height);
             surfaceMeasurementHold.value = false;
             await pause(700);
@@ -228,7 +229,7 @@
             sessionHistory.value = [user, { ...message }];
             isLoading.value = true;
             await nextTick();
-            const measured = await waitForSessionExpandContentHeight();
+            const measured = measureTargetHeight();
             await playSessionExpandAnimation(measured);
             surfaceMeasurementHold.value = false;
             await pause(700);

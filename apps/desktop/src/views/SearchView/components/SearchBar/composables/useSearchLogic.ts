@@ -55,7 +55,7 @@ interface UseSearchInputOptions {
     emitRemoveAttachmentRequest: (id: string) => void;
     emitDragStart: () => void;
     emitDragEnd: () => void;
-    startDragging?: (event: MouseEvent) => Promise<void>;
+    startDragging: (event: MouseEvent) => Promise<void>;
 }
 
 export interface UseSearchInputDeps {

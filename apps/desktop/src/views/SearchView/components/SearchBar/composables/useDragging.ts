@@ -1,4 +1,3 @@
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { Editor } from '@tiptap/core';
 import type { ShallowRef } from 'vue';
 
@@ -12,7 +11,7 @@ interface UseDraggingOptions {
     editor: ShallowRef<Editor | null>;
     emitDragStart: () => void;
     emitDragEnd: () => void;
-    startDragging?: (event: MouseEvent) => Promise<void>;
+    startDragging: (event: MouseEvent) => Promise<void>;
 }
 
 /**
@@ -112,20 +111,10 @@ export function useDragging(options: UseDraggingOptions) {
     async function startDragging(event: MouseEvent) {
         emitDragStart();
         try {
-            if (options.startDragging) {
-                await options.startDragging(event);
-            } else {
-                await getCurrentWindow().startDragging();
-            }
+            await options.startDragging(event);
         } finally {
             // 无论拖拽是否成功触发，都确保 UI 拖拽态被回收。
-            if (options.startDragging) {
-                emitDragEnd();
-            } else {
-                setTimeout(() => {
-                    emitDragEnd();
-                }, 100);
-            }
+            emitDragEnd();
         }
     }
 

@@ -2,6 +2,7 @@ import { shallowMount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, nextTick, type Ref } from 'vue';
 
+import type { SessionMessage } from '@/types/session';
 import SearchView from '@/views/SearchView/index.vue';
 import type { SearchSurfacePreparationControllerOptions } from '@/views/SearchView/searchSurfacePreparation';
 
@@ -62,6 +63,7 @@ const {
             sessionHistoryOverlayOpen: Ref<boolean>;
             handleSubmit: ReturnType<typeof vi.fn>;
             clearSession: ReturnType<typeof vi.fn>;
+            sessionHistory: Ref<SessionMessage[]>;
         } | null,
     },
     resizeState: {
@@ -70,6 +72,7 @@ const {
         playSessionExpandAnimation: vi.fn(),
         collapseSessionToIdle: vi.fn(),
         resetSearchWindowBounds: vi.fn(),
+        measureTargetHeight: vi.fn(),
     },
     regionState: { flush: vi.fn<() => Promise<boolean>>() },
     runtimeModeState: {
@@ -332,7 +335,7 @@ vi.mock('@/views/SearchView/composables/useSearchWindowResize', async () => {
         useSearchWindowResize: (options: { resizeEnabled?: Ref<boolean> }) => {
             resizeState.options = options;
             return {
-                contentReady: ref(false),
+                contentReady: ref(true),
                 currentHeight: ref(60),
                 cardHeight: ref(60),
                 cardReveal: ref(0),
@@ -349,7 +352,7 @@ vi.mock('@/views/SearchView/composables/useSearchWindowResize', async () => {
                 toggleMaximize: vi.fn().mockResolvedValue(undefined),
                 syncWindowState: vi.fn().mockResolvedValue(undefined),
                 remeasureTargetHeight: resizeState.remeasureTargetHeight,
-                measureTargetHeight: vi.fn(() => null),
+                measureTargetHeight: resizeState.measureTargetHeight,
                 scheduleMeasurement: vi.fn(),
                 playSessionExpandAnimation: resizeState.playSessionExpandAnimation,
                 collapseSessionToIdle: resizeState.collapseSessionToIdle,
@@ -416,6 +419,7 @@ interface SearchViewSetupState {
     effectiveWindowMaximized: boolean;
     quickSearchOpen: boolean;
     quickSearchRevealPhase: string;
+    surfaceMeasurementHold: boolean;
     handleQuickSearchOpenChange: (open: boolean) => void;
     clearSessionToIdle: () => Promise<void>;
     handleModelSelect: (modelDbId: number) => Promise<void>;
@@ -459,6 +463,7 @@ describe('SearchView async overlay and listener lifecycle', () => {
         resizeState.collapseSessionToIdle.mockResolvedValue(true);
         resizeState.resetSearchWindowBounds.mockResolvedValue(true);
         resizeState.options = null;
+        resizeState.measureTargetHeight.mockReturnValue(400);
         regionState.flush.mockResolvedValue(true);
         surfacePreparationState.start.mockResolvedValue(true);
         delete (window as Window & { __TOUCHAI_E2E__?: unknown }).__TOUCHAI_E2E__;
@@ -518,6 +523,18 @@ describe('SearchView async overlay and listener lifecycle', () => {
                     SearchOverlayHost: overlayHost,
                     ModelDropdownPopup: overlayContent,
                     SessionHistoryPopover: overlayContent,
+                    ConversationPanel: defineComponent({
+                        setup(_, { expose }) {
+                            expose({ getContentHeight: () => 340, focus: vi.fn() });
+                            return () => h('div', 'Conversation');
+                        },
+                    }),
+                    QuickSearchPanel: defineComponent({
+                        setup(_, { expose }) {
+                            expose({ close: vi.fn() });
+                            return () => h('div', 'Search results');
+                        },
+                    }),
                 },
             },
         });
@@ -746,7 +763,7 @@ describe('SearchView async overlay and listener lifecycle', () => {
         expect(resizeState.remeasureTargetHeight).toHaveBeenCalled();
     });
 
-    it('keeps bounded-host resizing enabled when an overlay opens after a stale hide state', async () => {
+    it('user cannot restart native resizing through a picker while the surface is hidden', async () => {
         const wrapper = mountSearchView();
         const setup = getSetupState(wrapper);
         const onSurfaceHidden = lifecycleState.options?.onSurfaceHidden as () => Promise<void>;
@@ -756,6 +773,11 @@ describe('SearchView async overlay and listener lifecycle', () => {
 
         await setup.handleToggleModelDropdownRequest();
 
+        expect(setup.activeOverlay).toBe('none');
+        expect(resizeState.options?.resizeEnabled?.value).toBe(false);
+
+        (lifecycleState.options!.onSurfaceVisibilityChange as (visible: boolean) => void)(true);
+        await setup.handleToggleModelDropdownRequest();
         expect(setup.activeOverlay).toBe('model-dropdown');
         expect(resizeState.options?.resizeEnabled?.value).toBe(true);
     });
@@ -1041,6 +1063,92 @@ describe('SearchView async overlay and listener lifecycle', () => {
 
         expect(requestFlowState.current?.handleSubmit).toHaveBeenCalledWith('hello from idle bar');
         expect(resizeState.playSessionExpandAnimation).not.toHaveBeenCalled();
+    });
+
+    it('user sees a submitted conversation expand when content mounts without waiting for animation frames', async () => {
+        vi.stubGlobal(
+            'requestAnimationFrame',
+            vi.fn(() => 1)
+        );
+        mountSearchView();
+        const request = deferred<void>();
+        requestFlowState.current!.handleSubmit.mockReturnValueOnce(request.promise);
+        const submit = keyboardState.options!.handleSubmit!('hello');
+        await flushPromises();
+        expect(resizeState.playSessionExpandAnimation).not.toHaveBeenCalled();
+
+        requestFlowState.current!.sessionHistory.value = [
+            { id: 'first', role: 'user', content: 'hello' } as SessionMessage,
+        ];
+        for (let tick = 0; tick < 12; tick += 1) await flushPromises();
+
+        expect(resizeState.playSessionExpandAnimation).toHaveBeenCalledWith(400);
+        request.resolve();
+        await submit;
+    });
+
+    it.each(['hide', 'unmount'] as const)(
+        'user does not get a late expansion when %s cancels a pending content mount',
+        async (action) => {
+            vi.stubGlobal(
+                'requestAnimationFrame',
+                vi.fn(() => 1)
+            );
+            const wrapper = mountSearchView();
+            const setup = getSetupState(wrapper);
+            const request = deferred<void>();
+            requestFlowState.current!.handleSubmit.mockReturnValueOnce(request.promise);
+            const submit = keyboardState.options!.handleSubmit!('hello');
+            await flushPromises();
+            if (action === 'hide') await keyboardState.options!.hideSearchWindow();
+            else {
+                wrapper.unmount();
+                wrappers.splice(wrappers.indexOf(wrapper), 1);
+            }
+            requestFlowState.current!.sessionHistory.value = [
+                { id: 'first', role: 'user', content: 'hello' } as SessionMessage,
+            ];
+            request.resolve();
+            for (let tick = 0; tick < 12; tick += 1) await flushPromises();
+
+            expect(setup.surfaceMeasurementHold).toBe(false);
+            expect(resizeState.playSessionExpandAnimation).not.toHaveBeenCalled();
+            await submit;
+        }
+    );
+
+    it('user keeps QuickSearch results until the actual handoff animation finishes', async () => {
+        vi.useFakeTimers();
+        const animation = deferred<void>();
+        vi.stubGlobal(
+            'requestAnimationFrame',
+            vi.fn(() => 1)
+        );
+        const original = HTMLElement.prototype.getAnimations;
+        HTMLElement.prototype.getAnimations = () => [
+            {
+                finished: animation.promise,
+                cancel: () => animation.resolve(),
+            } as unknown as Animation,
+        ];
+        try {
+            const setup = getSetupState(mountSearchView());
+            setup.handleQuickSearchOpenChange(true);
+            await flushPromises();
+            requestFlowState.current!.handleSubmit.mockImplementationOnce(async () => {
+                requestFlowState.current!.sessionHistory.value = [
+                    { id: 'first', role: 'user', content: 'hello' } as SessionMessage,
+                ];
+            });
+            const submit = keyboardState.options!.handleSubmit!('hello');
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(setup.quickSearchOpen).toBe(true);
+            animation.resolve();
+            await submit;
+            expect(setup.quickSearchOpen).toBe(false);
+        } finally {
+            HTMLElement.prototype.getAnimations = original;
+        }
     });
 
     it('does not install the E2E bridge when unmount wins a pending mode check', async () => {

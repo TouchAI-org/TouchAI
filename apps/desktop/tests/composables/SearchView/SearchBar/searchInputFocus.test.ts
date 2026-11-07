@@ -35,6 +35,7 @@ it('user opens a filter after restoring editor focus, then delayed frames keep f
                 emitRemoveAttachmentRequest: vi.fn(),
                 emitDragStart: vi.fn(),
                 emitDragEnd: vi.fn(),
+                startDragging: vi.fn().mockResolvedValue(undefined),
             },
             {
                 createDragging: useDragging,

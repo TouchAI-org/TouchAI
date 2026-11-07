@@ -29,6 +29,8 @@
         allowFlip?: boolean;
         maxViewportHeight?: number;
         minViewportTop?: number;
+        minViewportLeft?: number;
+        maxViewportRight?: number;
         /**
          * Element whose left edge the overlay aligns to.
          *
@@ -108,33 +110,6 @@
         // edge and the row it starts on, whatever control the caller anchored to.
         const anchorRect = positionAnchor.getBoundingClientRect();
         const alignmentRect = props.leftAlignElement?.getBoundingClientRect() ?? anchorRect;
-        if (props.overlayOnAnchor) {
-            const overlayRect = overlayElement.value.getBoundingClientRect();
-            const top = Math.max(
-                anchorRect.top + props.gap,
-                (props.minViewportTop ?? 0) + props.viewportPadding
-            );
-            overlayStyle.value = {
-                left: `${alignmentRect.left}px`,
-                top: `${top}px`,
-                visibility: props.reveal ? 'visible' : 'hidden',
-                '--search-overlay-max-height':
-                    props.maxViewportHeight === undefined
-                        ? undefined
-                        : `${Math.max(0, props.maxViewportHeight - top - props.viewportPadding)}px`,
-            };
-            overlayOrigin.value = `top-${props.align}`;
-            emit('positioned', {
-                left: alignmentRect.left,
-                top,
-                side: 'bottom',
-                // Relative to the window's top edge, the same unit the host reserves space in.
-                requiredViewportHeight: top + overlayRect.height + (props.viewportPadding ?? 0),
-            });
-            emit('regionChange', overlayElement.value);
-            return;
-        }
-
         const position = calculateSearchOverlayPosition({
             anchor: {
                 left: alignmentRect.left,
@@ -155,6 +130,9 @@
             allowFlip: props.allowFlip,
             maxViewportHeight: props.maxViewportHeight,
             minViewportTop: props.minViewportTop,
+            minViewportLeft: props.minViewportLeft,
+            maxViewportRight: props.maxViewportRight,
+            overlayOnAnchor: props.overlayOnAnchor,
             viewportPadding: props.viewportPadding,
         });
 
@@ -164,6 +142,8 @@
             visibility: props.reveal ? 'visible' : 'hidden',
             '--search-overlay-max-height':
                 position.maxHeight === undefined ? undefined : `${position.maxHeight}px`,
+            '--search-overlay-max-width':
+                position.maxWidth === undefined ? undefined : `${position.maxWidth}px`,
         };
         overlayOrigin.value = `${position.side === 'bottom' ? 'top' : 'bottom'}-${props.align}`;
         emit('positioned', position);
@@ -412,6 +392,8 @@
             props.viewportPadding,
             props.maxViewportHeight,
             props.minViewportTop,
+            props.minViewportLeft,
+            props.maxViewportRight,
         ],
         () => {
             if (props.open) {

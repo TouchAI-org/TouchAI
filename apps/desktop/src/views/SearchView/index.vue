@@ -223,6 +223,7 @@
     const quickSearchRevealPhase = ref<QuickSearchRevealPhase>('idle');
     let quickSearchRevealEpoch = 0;
     let quickSearchHandoffClosePromise: Promise<void> | null = null;
+    let sessionExpansion: AbortController | null = null;
     const conversationPanel = ref<ConversationPanelHandle>();
     const conversationContainer = ref<HTMLElement | null>(null);
     const pageContainer = ref<HTMLElement | null>(null);
@@ -547,6 +548,8 @@
         panelBounds,
         overlayMaxViewportHeight,
         overlayMinViewportTop,
+        overlayMinViewportLeft,
+        overlayMaxViewportRight,
         panelStyle,
         cardStyle,
         isSessionExpandAnimating,
@@ -585,10 +588,7 @@
         preparePanelTransition,
         onLogicalPanelGeometryChange: handleLogicalPanelGeometryChange,
         onHostViewportChange: handleHostViewportChange,
-        // An already-open overlay is a visible interaction even if a stale
-        // surface lifecycle event left the hiding guard set during startup.
-        // Its bounded host still needs to expand before the overlay can reveal.
-        resizeEnabled: computed(() => !surfaceHiding.value || activeOverlay.value !== 'none'),
+        resizeEnabled: computed(() => !surfaceHiding.value),
     });
 
     // The card is the panel, not the host interior: a fixed overlay reserves host height
@@ -1037,6 +1037,7 @@
 
     async function hideSearchWindow() {
         surfaceHiding.value = true;
+        cancelSessionExpansion();
         beginOverlayIntent();
         pendingModelOpen = false;
         clearPendingOverlayFocus();
@@ -1147,51 +1148,94 @@
         );
     }
 
-    async function waitForSessionExpandContentHeight() {
-        const compactHeight = searchWindowDefaultSize.value.height;
-        const deadline = performance.now() + 2000;
-        while (performance.now() < deadline) {
-            const content = pageContent.value;
-            if (sessionHistory.value.length > 0 && content) {
-                await nextTick();
-                await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-                const measured = measureTargetHeight();
-                if (measured !== null && measured > compactHeight + 8) {
-                    return measured;
-                }
-            }
-            await new Promise<void>((resolve) => window.setTimeout(resolve, 32));
+    function cancelSessionExpansion() {
+        sessionExpansion?.abort();
+        sessionExpansion = null;
+        surfaceMeasurementHold.value = false;
+        closeOverlayImmediately.value = false;
+        quickSearchHandoffClosePromise = null;
+        if (quickSearchHandoff.value) {
+            quickSearchPanel.value?.close();
+            finalizeQuickSearchClose();
+            quickSearchHandoff.value = false;
+            quickSearchHandoffClosing.value = false;
         }
-        return null;
     }
 
-    async function startQuickSearchHandoffClose() {
-        if (!quickSearchHandoff.value || quickSearchHandoffClosing.value) return;
+    function beginSessionExpansion() {
+        cancelSessionExpansion();
+        const expansion = new AbortController();
+        sessionExpansion = expansion;
+        surfaceMeasurementHold.value = true;
+        return expansion;
+    }
+
+    async function waitForSessionExpandContentHeight(
+        request: Promise<unknown>,
+        signal: AbortSignal
+    ) {
+        await nextTick();
+        if (signal.aborted) return null;
+        return new Promise<number | null>((resolve) => {
+            let settled = false;
+            const finish = (height: number | null) => {
+                if (settled) return;
+                settled = true;
+                stop();
+                signal.removeEventListener('abort', cancel);
+                resolve(height);
+            };
+            const cancel = () => finish(null);
+            const measure = () => {
+                if (settled) return;
+                if (conversationPanel.value && sessionHistory.value.length > 0) {
+                    const height = measureTargetHeight();
+                    if (height !== null) finish(height);
+                }
+            };
+            const stop = watch([conversationPanel, searchViewContentReady], measure, {
+                flush: 'post',
+            });
+            signal.addEventListener('abort', cancel, { once: true });
+            measure();
+            // A rejected, cancelled or empty submission has no content to wait for.
+            void request.then(async () => {
+                await nextTick();
+                measure();
+                finish(null);
+            }, cancel);
+        });
+    }
+
+    async function startQuickSearchHandoffClose(signal: AbortSignal) {
+        if (signal.aborted || !quickSearchHandoff.value || quickSearchHandoffClosing.value) return;
         quickSearchHandoffClosing.value = true;
         // Freeze measurement for the fold. The results row keeps its place while it
         // collapses and the conversation grows into the space it gives up, so the
         // live height loop would otherwise chase both.
-        surfaceMeasurementHold.value = true;
         foldQuickSearchRevealIntoHandoff();
-        quickSearchHandoffClosePromise = new Promise<void>((resolve) => {
-            // Give the CSS transition one frame to settle before removing its content.
-            window.setTimeout(
-                resolve,
-                reducedMotion.value ? 0 : surfaceAnimationDuration.value + 20
-            );
-        });
+        await nextTick();
+        if (signal.aborted) return;
+        const animations = quickSearchHandoffShell.value?.getAnimations?.() ?? [];
+        const cancel = () => animations.forEach((animation) => animation.cancel());
+        signal.addEventListener('abort', cancel, { once: true });
+        if (signal.aborted) cancel();
+        quickSearchHandoffClosePromise = Promise.allSettled(
+            animations.map((animation) => animation.finished)
+        ).then(() => signal.removeEventListener('abort', cancel));
     }
 
-    async function finishQuickSearchHandoff() {
+    async function finishQuickSearchHandoff(signal: AbortSignal) {
         if (!quickSearchHandoff.value) return;
         await quickSearchHandoffClosePromise;
+        if (signal.aborted) return;
         quickSearchHandoffClosePromise = null;
         quickSearchPanel.value?.close();
-        await finalizeQuickSearchClose();
+        finalizeQuickSearchClose();
         await nextTick();
+        if (signal.aborted) return;
         quickSearchHandoffClosing.value = false;
         quickSearchHandoff.value = false;
-        surfaceMeasurementHold.value = false;
     }
 
     async function submitSearchQuery(
@@ -1199,45 +1243,38 @@
     ): ReturnType<typeof handleSubmit> {
         const quickSearchWasOpen = quickSearchOpen.value;
         const shouldExpand = sessionHistory.value.length === 0 && !effectiveWindowMaximized.value;
-        let handoffFinished = false;
+        const expansion = shouldExpand || quickSearchWasOpen ? beginSessionExpansion() : null;
 
         if (quickSearchWasOpen) {
             quickSearchHandoff.value = true;
             quickSearchHandoffClosing.value = false;
         }
-        if (shouldExpand) {
-            // Freeze the height loop before the overlay closes. The conversation is not on screen
-            // yet, so anything measured between here and the handoff is the empty surface -- and
-            // committing that would collapse the panel to the compact height for a few frames
-            // before it grows into the conversation again.
-            surfaceMeasurementHold.value = true;
-        }
-
         try {
             if (shouldExpand) {
                 await hideAllOverlays(false);
             }
 
             const submitPromise = handleSubmit(...args);
+            if (expansion?.signal.aborted) return submitPromise;
             if (quickSearchWasOpen) {
                 // Hand the viewport over: the results row collapses on the card's curve
                 // while the conversation grows into the space it gives up.
-                await startQuickSearchHandoffClose();
+                await startQuickSearchHandoffClose(expansion!.signal);
             }
             if (!shouldExpand) {
-                if (quickSearchWasOpen) {
-                    await finishQuickSearchHandoff();
-                    handoffFinished = true;
-                }
                 return submitPromise;
             }
 
-            const contentHeight = await waitForSessionExpandContentHeight();
+            const contentHeight = await waitForSessionExpandContentHeight(
+                submitPromise,
+                expansion!.signal
+            );
+            if (expansion!.signal.aborted) return submitPromise;
             if (contentHeight === null) {
                 if (sessionHistory.value.length === 0) {
                     await resetSearchWindowBounds().catch((error) => {
                         log.error(
-                            '[SearchView] Failed to restore idle bounds after expand timeout:',
+                            '[SearchView] Failed to restore idle bounds after empty submission:',
                             error
                         );
                     });
@@ -1248,24 +1285,18 @@
             await playSessionExpandAnimation(contentHeight).catch((error) => {
                 log.error('[SearchView] Failed to animate session expand after submit:', error);
             });
+            if (expansion!.signal.aborted) return submitPromise;
             scheduleSearchWindowRegionSync(true, true);
-
-            if (quickSearchWasOpen) {
-                await finishQuickSearchHandoff();
-                handoffFinished = true;
-            }
 
             return submitPromise;
         } finally {
-            if (quickSearchWasOpen && !handoffFinished && quickSearchHandoff.value) {
-                // Error and timeout paths still need to release the guarded panel;
-                // keep the close in the same visual direction as the normal path.
-                await startQuickSearchHandoffClose();
-                await finishQuickSearchHandoff();
+            if (expansion === sessionExpansion && quickSearchWasOpen && quickSearchHandoff.value) {
+                await startQuickSearchHandoffClose(expansion!.signal);
+                await finishQuickSearchHandoff(expansion!.signal);
             }
-            if (!quickSearchHandoff.value) {
-                // The handoff releases the hold on its own; every other exit has to as well.
+            if (expansion === sessionExpansion) {
                 surfaceMeasurementHold.value = false;
+                sessionExpansion = null;
             }
         }
     }
@@ -1379,7 +1410,16 @@
 
         // A conversation owns the height: the card keeps it and only the result row folds
         // away, so the content measurement shrinks the surface by exactly that row.
-        window.setTimeout(finish, surfaceAnimationDuration.value);
+        quickSearchRevealPhase.value = 'handoff';
+        void nextTick()
+            .then(() =>
+                Promise.allSettled(
+                    (quickSearchHandoffShell.value?.getAnimations?.() ?? []).map(
+                        (animation) => animation.finished
+                    )
+                )
+            )
+            .then(finish);
     }
 
     /**
@@ -1663,6 +1703,7 @@
 
     async function clearSurfaceUiAfterHidden() {
         surfaceHiding.value = true;
+        cancelSessionExpansion();
         overlaySettleEpoch += 1;
         overlayPositionReady.value = false;
         const intentEpoch = beginOverlayIntent();
@@ -1677,6 +1718,7 @@
     }
 
     async function handleToggleModelDropdownRequest() {
+        if (surfaceHiding.value || searchViewListenersDisposed) return;
         if (pendingModelOpen) {
             // A second toggle while the model data is still loading means
             // "cancel the pending open". Invalidate the first intent without
@@ -1739,6 +1781,7 @@
     }
 
     async function openHistoryDialog() {
+        if (surfaceHiding.value || searchViewListenersDisposed) return;
         const intentEpoch = beginOverlayIntent();
         if (activeOverlay.value === 'session-history') {
             await closeSessionHistoryOverlayForIntent(intentEpoch, true);
@@ -1764,7 +1807,7 @@
         },
         intentEpoch: number
     ) {
-        if (!isOverlayIntentCurrent(intentEpoch)) return;
+        if (!isOverlayIntentCurrent(intentEpoch) || (payload.open && surfaceHiding.value)) return;
         if (!payload.open) {
             await closeSessionHistoryOverlayForIntent(intentEpoch, true);
             if (!isOverlayIntentCurrent(intentEpoch)) return;
@@ -1873,6 +1916,7 @@
     }
 
     async function clearSessionToIdle() {
+        cancelSessionExpansion();
         suppressQuickSearchAutoOpenOnce.value = true;
         if (!(await collapseBeforeClearing())) return;
         clearSession();
@@ -1881,6 +1925,7 @@
     }
 
     async function handleStartNewSession() {
+        cancelSessionExpansion();
         if (sessionHistory.value.length === 0) {
             return;
         }
@@ -1895,6 +1940,7 @@
     }
 
     async function handleReopenLastClosedSession() {
+        cancelSessionExpansion();
         if (queryText.value.trim() || attachments.value.length > 0) {
             await hideAllOverlays();
             await controller.focusSearchInput();
@@ -1954,6 +2000,7 @@
     }
 
     async function handleOpenSession(sessionId: number, origin: 'history' | 'other' = 'other') {
+        const expansion = beginSessionExpansion();
         // The history popup closes before the session opens, so keep that
         // specific interaction's handle alive until its selection event is
         // recorded. Notification/navigation opens are not history selections.
@@ -1971,21 +2018,24 @@
                 // release the history interaction instead of leaking its handle.
                 abandonHistorySelection(selection);
             }
+            if (sessionExpansion === expansion) cancelSessionExpansion();
             throw error;
         }
         resetSessionInputHistoryTracking();
-
-        surfaceMeasurementHold.value = true;
+        if (expansion.signal.aborted) return;
         try {
             // Keep the native host put until the opened session has a measured
             // height. The visible card then grows in CSS inside that frame.
             await openSession(sessionId, origin, selection);
             await nextTick();
-            const contentHeight = await waitForSessionExpandContentHeight();
+            if (expansion.signal.aborted) return;
+            const contentHeight = sessionHistory.value.length > 0 ? measureTargetHeight() : null;
             await playSessionExpandAnimation(contentHeight ?? undefined).catch((error) => {
                 log.error('[SearchView] Failed to animate session expand:', error);
             });
+            if (expansion.signal.aborted) return;
             await settleSearchSurfaceViewport();
+            if (expansion.signal.aborted) return;
             // playSessionExpandAnimation already commits the measured target
             // height. A second synchronous native resize here used to move the
             // window again after the CSS reveal had finished; let the observers
@@ -1993,6 +2043,7 @@
             scheduleSearchWindowRegionSync(true, true);
             conversationPanel.value?.revealLatestContent();
         } catch (error) {
+            if (expansion.signal.aborted) return;
             log.error('[SearchView] Failed to open session:', error);
 
             const isMissingSession =
@@ -2025,8 +2076,11 @@
 
             await controller.focusSearchInput();
         } finally {
-            surfaceMeasurementHold.value = false;
-            closeOverlayImmediately.value = false;
+            if (sessionExpansion === expansion) {
+                sessionExpansion = null;
+                surfaceMeasurementHold.value = false;
+                closeOverlayImmediately.value = false;
+            }
         }
     }
 
@@ -2456,6 +2510,7 @@
     });
 
     onUnmounted(() => {
+        cancelSessionExpansion();
         beginOverlayIntent();
         clearPendingOverlayFocus();
         searchViewListenersDisposed = true;
@@ -2675,6 +2730,8 @@
             :allow-flip="false"
             :max-viewport-height="overlayMaxViewportHeight"
             :min-viewport-top="overlayMinViewportTop"
+            :min-viewport-left="overlayMinViewportLeft"
+            :max-viewport-right="overlayMaxViewportRight"
             :align="
                 renderedOverlay === 'session-history' && sessionHistory.length > 0 ? 'end' : 'start'
             "

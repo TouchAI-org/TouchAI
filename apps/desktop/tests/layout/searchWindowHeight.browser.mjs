@@ -28,9 +28,9 @@ const surfaceStyle = view.slice(
     view.indexOf('    const searchSurfaceStyle ='),
     view.indexOf('    const pageContentMaxHeight =')
 );
-const waitMeasurement = view.slice(
+const contentMeasurement = view.slice(
     view.indexOf('    function collapsingQuickSearchHeight()'),
-    view.indexOf('    async function startQuickSearchHandoffClose()')
+    view.indexOf('    function cancelSessionExpansion()')
 );
 const contentStyles = view.slice(
     view.indexOf('    const pageContentMaxHeight ='),
@@ -45,7 +45,7 @@ const fixture =
         .replaceAll('../../src', root + '/src')
         .replace('/* __SURFACE_STYLE__ */', surfaceStyle)
         .replace('/* __CONTENT_STYLES__ */', contentStyles)
-        .replace('/* __MEASURE_CONTENT__ */', waitMeasurement) + template;
+        .replace('/* __MEASURE_CONTENT__ */', contentMeasurement) + template;
 
 const nativeState = {
     defaults: { width: 750, height: 60 },

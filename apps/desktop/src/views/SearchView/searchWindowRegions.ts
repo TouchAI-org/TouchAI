@@ -197,16 +197,13 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
         promise: Promise<boolean>;
         resolve: (value: boolean) => void;
         reject: (reason: unknown) => void;
-        ignoreSupersededFailure: boolean;
         context: TContext | undefined;
     } | null = null;
-    const SCHEDULED_REPORT_RETRY_LIMIT = 2;
     const STALE_REBASE_RETRY_LIMIT = 1;
 
     async function dispatchReport(
         requestId: number,
-        dispatchContext: TContext | undefined,
-        ignoreSupersededFailure = false
+        dispatchContext: TContext | undefined
     ): Promise<boolean> {
         if (disposed || requestId !== latestRequestId) return false;
 
@@ -280,24 +277,17 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
             if (isLatestRequest && lastReport?.generation === generation) {
                 lastReport = null;
             }
-            if (ignoreSupersededFailure && !isLatestRequest) {
-                return false;
-            }
             if (!isLatestRequest) return false;
             throw error;
         }
     }
 
-    function enqueueDispatch(
-        context: TContext | undefined,
-        ignoreSupersededFailure = false
-    ): Promise<boolean> {
+    function enqueueDispatch(context: TContext | undefined): Promise<boolean> {
         if (dispatchInFlight) {
             // There is at most one pending dispatch.  Coalescing subsequent
             // signals here keeps a forced report from being superseded by an
             // unchanged layout signal before it reaches the IPC boundary.
             if (pendingDispatch) {
-                pendingDispatch.ignoreSupersededFailure &&= ignoreSupersededFailure;
                 if (context !== undefined) pendingDispatch.context = context;
                 return pendingDispatch.promise;
             }
@@ -314,7 +304,6 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
                 promise,
                 resolve: resolvePending,
                 reject: rejectPending,
-                ignoreSupersededFailure,
                 context,
             };
             pendingDispatch = pending;
@@ -322,19 +311,11 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
             const queuedDispatch = dispatchInFlight.then(
                 () => {
                     if (pendingDispatch === pending) pendingDispatch = null;
-                    return dispatchReport(
-                        requestId,
-                        pending.context,
-                        pending.ignoreSupersededFailure
-                    );
+                    return dispatchReport(requestId, pending.context);
                 },
                 () => {
                     if (pendingDispatch === pending) pendingDispatch = null;
-                    return dispatchReport(
-                        requestId,
-                        pending.context,
-                        pending.ignoreSupersededFailure
-                    );
+                    return dispatchReport(requestId, pending.context);
                 }
             );
             queuedDispatch.then(pending.resolve, pending.reject);
@@ -352,7 +333,7 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
         }
 
         const requestId = ++latestRequestId;
-        const queuedDispatch = dispatchReport(requestId, context, ignoreSupersededFailure);
+        const queuedDispatch = dispatchReport(requestId, context);
         if (nativeReportInFlight) {
             dispatchInFlight = queuedDispatch;
             void queuedDispatch.then(
@@ -366,19 +347,10 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
         }
         return queuedDispatch;
     }
-    function dispatchScheduledReport(retriesRemaining: number) {
-        void enqueueDispatch(undefined, true).catch((error) => {
+    function dispatchScheduledReport() {
+        void enqueueDispatch(undefined).catch((error) => {
             if (disposed) return;
-            if (retriesRemaining <= 0) {
-                onReportFailure?.(error);
-                return;
-            }
-
-            forceNextReport = true;
-            timeoutId = setTimeout(() => {
-                timeoutId = null;
-                dispatchScheduledReport(retriesRemaining - 1);
-            }, settleDelay);
+            onReportFailure?.(error);
         });
     }
 
@@ -390,13 +362,13 @@ export function createSearchWindowRegionReporter<TContext = unknown>(
         timeoutId = null;
 
         if (immediate) {
-            dispatchScheduledReport(SCHEDULED_REPORT_RETRY_LIMIT);
+            dispatchScheduledReport();
             return;
         }
 
         timeoutId = setTimeout(() => {
             timeoutId = null;
-            dispatchScheduledReport(SCHEDULED_REPORT_RETRY_LIMIT);
+            dispatchScheduledReport();
         }, settleDelay);
     }
 

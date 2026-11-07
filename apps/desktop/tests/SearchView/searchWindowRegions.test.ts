@@ -300,96 +300,27 @@ describe('createSearchWindowRegionReporter', () => {
         nextReporter.dispose();
     });
 
-    it('retries a settled region report after a transient native failure', async () => {
-        vi.useFakeTimers();
-        const report = vi
-            .fn()
-            .mockRejectedValueOnce(new Error('transient region failure'))
-            .mockImplementationOnce((generation: number) => appliedUpdate(generation));
-        const onReportFailure = vi.fn();
-        const reporter = createSearchWindowRegionReporter(
-            () => ({ signature: 'settled-panel', report }),
-            50,
-            onReportFailure
-        );
-
-        reporter.schedule('geometry');
-        await vi.advanceTimersByTimeAsync(50);
-
-        expect(report).toHaveBeenCalledTimes(1);
-        expect(onReportFailure).not.toHaveBeenCalled();
-
-        await vi.advanceTimersByTimeAsync(50);
-
-        expect(report).toHaveBeenCalledTimes(2);
-        expect(onReportFailure).not.toHaveBeenCalled();
-        reporter.dispose();
-    });
-
-    it('reports an exhausted settled region failure after bounded retries', async () => {
-        vi.useFakeTimers();
-        const error = new Error('persistent settled region failure');
-        const report = vi.fn().mockRejectedValue(error);
-        const onReportFailure = vi.fn();
-        const reporter = createSearchWindowRegionReporter(
-            () => ({ signature: 'settled-panel', report }),
-            50,
-            onReportFailure
-        );
-
-        reporter.schedule('geometry');
-        await vi.advanceTimersByTimeAsync(150);
-
-        expect(report).toHaveBeenCalledTimes(3);
-        expect(onReportFailure).toHaveBeenCalledOnce();
-        expect(onReportFailure).toHaveBeenCalledWith(error);
-        reporter.dispose();
-    });
-
-    it('retries an immediate final region report after a transient native failure', async () => {
-        vi.useFakeTimers();
-        let signature = 'full-host';
-        const report = vi
-            .fn()
-            .mockImplementationOnce((generation: number) => appliedUpdate(generation))
-            .mockRejectedValueOnce(new Error('transient region failure'))
-            .mockImplementationOnce((generation: number) => appliedUpdate(generation));
-        const reporter = createSearchWindowRegionReporter(() => ({ signature, report }), 50);
-
-        reporter.schedule('interaction-start', true, true);
-        await Promise.resolve();
-        signature = 'tight-panel';
-        reporter.schedule('interaction-end', true, true);
-        await Promise.resolve();
-        await Promise.resolve();
-
-        expect(report).toHaveBeenCalledTimes(2);
-
-        await vi.advanceTimersByTimeAsync(50);
-
-        expect(report).toHaveBeenCalledTimes(3);
-        reporter.dispose();
-    });
-
-    it('reports an exhausted immediate region failure after bounded retries', async () => {
-        vi.useFakeTimers();
-        const error = new Error('persistent region failure');
-        const report = vi.fn().mockRejectedValue(error);
-        const onImmediateFailure = vi.fn();
-        const reporter = createSearchWindowRegionReporter(
-            () => ({ signature: 'full-host', report }),
-            50,
-            onImmediateFailure
-        );
-
-        reporter.schedule('interaction-start', true, true);
-        await Promise.resolve();
-        await vi.advanceTimersByTimeAsync(100);
-
-        expect(report).toHaveBeenCalledTimes(3);
-        expect(onImmediateFailure).toHaveBeenCalledWith(error);
-        reporter.dispose();
-    });
+    it.each([false, true])(
+        'user gets a native region failure without automatic error retries (immediate=%s)',
+        async (immediate) => {
+            vi.useFakeTimers();
+            const error = new Error('region unavailable');
+            const report = vi.fn().mockRejectedValue(error);
+            const onFailure = vi.fn();
+            const reporter = createSearchWindowRegionReporter(
+                () => ({ signature: 'panel', report }),
+                50,
+                onFailure
+            );
+            reporter.schedule('geometry', false, immediate);
+            await vi.advanceTimersByTimeAsync(500);
+            expect(onFailure).toHaveBeenCalledExactlyOnceWith(error);
+            expect(report).toHaveBeenCalledTimes(1);
+            report.mockImplementation((generation: number) => appliedUpdate(generation));
+            await expect(reporter.flush('explicit-recovery', true)).resolves.toBe(true);
+            reporter.dispose();
+        }
+    );
 
     it('keeps generations increasing when the renderer module reloads', async () => {
         sessionStorage.clear();

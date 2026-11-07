@@ -39,6 +39,9 @@ export interface SearchOverlayPositionOptions {
     /** Hard native work-area limit, independent of the host's current compact size. */
     maxViewportHeight?: number;
     minViewportTop?: number;
+    minViewportLeft?: number;
+    maxViewportRight?: number;
+    overlayOnAnchor?: boolean;
 }
 
 export interface SearchOverlayPosition {
@@ -47,6 +50,7 @@ export interface SearchOverlayPosition {
     side: SearchOverlaySide;
     requiredViewportHeight: number | null;
     maxHeight?: number;
+    maxWidth?: number;
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
@@ -77,17 +81,18 @@ export function calculateSearchOverlayPosition(
     options: SearchOverlayPositionOptions
 ): SearchOverlayPosition {
     const preferredSide = options.preferredSide ?? 'bottom';
-    const align = options.align ?? 'start';
+    const align = options.overlayOnAnchor ? 'start' : (options.align ?? 'start');
     const gap = options.gap ?? 8;
     const viewportPadding = options.viewportPadding ?? 8;
     const minimumTop = (options.minViewportTop ?? 0) + viewportPadding;
     const spaceAbove = options.anchor.top - minimumTop - gap;
     const viewportHeight = options.maxViewportHeight ?? options.viewport.height;
-    const spaceBelow = viewportHeight - viewportPadding - options.anchor.bottom - gap;
+    const anchorBottom = options.overlayOnAnchor ? options.anchor.top : options.anchor.bottom;
+    const spaceBelow = viewportHeight - viewportPadding - anchorBottom - gap;
     const preferredSpace = preferredSide === 'bottom' ? spaceBelow : spaceAbove;
     const oppositeSpace = preferredSide === 'bottom' ? spaceAbove : spaceBelow;
     const hardLimit = options.maxViewportHeight !== undefined;
-    const allowFlip = hardLimit || (options.allowFlip ?? true);
+    const allowFlip = !options.overlayOnAnchor && (hardLimit || (options.allowFlip ?? true));
     const side =
         allowFlip &&
         preferredSpace < options.overlay.height &&
@@ -96,19 +101,34 @@ export function calculateSearchOverlayPosition(
                 ? 'top'
                 : 'bottom'
             : preferredSide;
-    const maxHeight = hardLimit ? Math.max(0, side === 'top' ? spaceAbove : spaceBelow) : undefined;
+    const maxHeight = hardLimit
+        ? Math.max(
+              0,
+              Math.min(
+                  side === 'top' ? spaceAbove : spaceBelow,
+                  viewportHeight - minimumTop - viewportPadding
+              )
+          )
+        : undefined;
     const overlayHeight = Math.min(options.overlay.height, maxHeight ?? Infinity);
     const naturalTop =
-        side === 'bottom' ? options.anchor.bottom + gap : options.anchor.top - gap - overlayHeight;
-    const maximumLeft = options.viewport.width - viewportPadding - options.overlay.width;
+        side === 'bottom' ? anchorBottom + gap : options.anchor.top - gap - overlayHeight;
+    const minimumLeft = (options.minViewportLeft ?? 0) + viewportPadding;
+    const viewportRight = options.maxViewportRight ?? options.viewport.width;
+    const maxWidth =
+        options.maxViewportRight === undefined
+            ? undefined
+            : Math.max(0, viewportRight - viewportPadding - minimumLeft);
+    const overlayWidth = Math.min(options.overlay.width, maxWidth ?? Infinity);
+    const maximumLeft = viewportRight - viewportPadding - overlayWidth;
     const maximumTop = viewportHeight - viewportPadding - overlayHeight;
     const requiredViewportHeight =
         side === 'bottom' ? naturalTop + overlayHeight + viewportPadding : null;
 
     return {
         left: clamp(
-            resolveAlignedLeft(options.anchor, options.overlay.width, align),
-            viewportPadding,
+            resolveAlignedLeft(options.anchor, overlayWidth, align),
+            minimumLeft,
             maximumLeft
         ),
         // A bounded host is resized to `requiredViewportHeight` after this
@@ -122,5 +142,6 @@ export function calculateSearchOverlayPosition(
         side,
         requiredViewportHeight,
         ...(maxHeight === undefined ? {} : { maxHeight }),
+        ...(maxWidth === undefined ? {} : { maxWidth }),
     };
 }

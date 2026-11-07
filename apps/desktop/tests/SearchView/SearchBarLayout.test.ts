@@ -74,6 +74,7 @@ describe('SearchBar layout', () => {
     function mountSearchBar() {
         return mount(SearchBar, {
             props: {
+                startDragging: vi.fn().mockResolvedValue(undefined),
                 queryText: '',
                 attachments: [],
                 modelOverride: {
@@ -84,7 +85,7 @@ describe('SearchBar layout', () => {
         });
     }
 
-    it('centers the search bar row vertically while the editor is single-line', () => {
+    it('user sees a single-line draft vertically centred in the window', () => {
         const wrapper = mountSearchBar();
 
         const searchBar = wrapper.get('[data-testid="search-bar"]');
@@ -115,7 +116,7 @@ describe('SearchBar layout', () => {
         expect(searchBar.classes()).not.toContain('items-center');
     });
 
-    it('allows the input editor to grow up to seven text lines', () => {
+    it('user gets at most seven visible lines before the draft scrolls', () => {
         const wrapper = mountSearchBar();
 
         const editorHost = wrapper.get('[data-testid="search-editor-host"]');

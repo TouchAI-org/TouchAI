@@ -81,6 +81,7 @@ function message(id: string, role: SessionMessage['role'], content: string): Ses
 function mountPanel(messages: SessionMessage[] = conversation) {
     return mount(ConversationPanel, {
         props: {
+            startDragging: vi.fn().mockResolvedValue(undefined),
             messages,
             isLoading: false,
             error: null,

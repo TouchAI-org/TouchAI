@@ -222,7 +222,7 @@ describe('navigateSessionInputHistory', () => {
         });
     });
 
-    it('restores the preserved draft when navigating newer back to the latest position', () => {
+    it('user gets their draft back when stepping forward to the newest position', () => {
         const restoredDraft = createInputHistorySnapshot({
             text: 'draft before browse',
             attachments: [],
@@ -253,7 +253,7 @@ describe('navigateSessionInputHistory', () => {
 });
 
 describe('createSearchEntryPolicy', () => {
-    it('allows one shortcut-entry check per armed visibility epoch and deduplicates consumed snapshots', () => {
+    it('user gets the entry checked once per appearance and each snapshot consumed once', () => {
         const policy = createSearchEntryPolicy();
 
         expect(

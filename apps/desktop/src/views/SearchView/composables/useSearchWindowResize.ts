@@ -86,15 +86,22 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     const nativeDragLayout = shallowRef<ReturnType<typeof resolveSurfacePanelStyle> | null>(null);
     const displayScaleFactor = ref(window.devicePixelRatio);
     const workAreaHeight = ref<number | null>(null);
+    const workAreaWidth = ref<number | null>(null);
+    const workAreaLeft = ref(0);
     const workAreaTop = ref(0);
     const viewportHeight = ref(window.innerHeight);
+    const viewportWidth = ref(window.innerWidth);
     const panelCenterY = ref<number | null>(null);
     const hostOrigin = ref({ x: 0, y: 0 });
     const visibleViewport = computed(() =>
         resolveVisibleSearchViewport({
+            viewportWidth: viewportWidth.value,
             viewportHeight: viewportHeight.value,
+            hostX: hostOrigin.value.x,
             hostY: hostOrigin.value.y,
+            workAreaLeft: workAreaWidth.value === null ? hostOrigin.value.x : workAreaLeft.value,
             workAreaTop: workAreaHeight.value === null ? hostOrigin.value.y : workAreaTop.value,
+            workAreaWidth: workAreaWidth.value ?? viewportWidth.value * scaleFactor(),
             workAreaHeight: workAreaHeight.value ?? viewportHeight.value * scaleFactor(),
             scaleFactor: scaleFactor(),
         })
@@ -348,6 +355,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     function notifyHostViewportChange() {
+        viewportWidth.value = window.innerWidth;
         viewportHeight.value = window.innerHeight;
         void nextTick().then(() => options.onHostViewportChange?.());
     }
@@ -686,6 +694,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         await syncSearchWindowHeightMode();
         await syncMaximizedState();
         if (monitorHost.value) {
+            viewportWidth.value = window.innerWidth;
             viewportHeight.value = window.innerHeight;
             const generation = commitGeneration;
             try {
@@ -695,6 +704,8 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                 ]);
                 if (isCurrentGeometry(generation)) hostOrigin.value = position;
                 if (monitor && isCurrentGeometry(generation)) {
+                    workAreaWidth.value = monitor.workArea.size.width;
+                    workAreaLeft.value = monitor.workArea.position.x;
                     workAreaHeight.value = monitor.workArea.size.height;
                     workAreaTop.value = monitor.workArea.position.y;
                 }
@@ -1234,6 +1245,12 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         fillConversationAvailableHeight,
         monitorHost,
         panelBounds,
+        overlayMinViewportLeft: computed(() =>
+            monitorHost.value ? visibleViewport.value.left : undefined
+        ),
+        overlayMaxViewportRight: computed(() =>
+            monitorHost.value ? visibleViewport.value.right : undefined
+        ),
         overlayMinViewportTop: computed(() =>
             monitorHost.value ? visibleViewport.value.top : undefined
         ),

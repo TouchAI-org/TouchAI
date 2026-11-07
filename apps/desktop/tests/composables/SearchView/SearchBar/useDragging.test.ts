@@ -13,12 +13,6 @@ const {
     resolveMouseEventTargetMock: vi.fn(),
 }));
 
-vi.mock('@tauri-apps/api/window', () => ({
-    getCurrentWindow: () => ({
-        startDragging: startDraggingMock,
-    }),
-}));
-
 vi.mock('@/views/SearchView/components/SearchBar/utils/tiptap', () => ({
     isBlankEditorAreaTarget: isBlankEditorAreaTargetMock,
     isSearchTagDomTarget: isSearchTagDomTargetMock,
@@ -79,10 +73,11 @@ describe('useDragging', () => {
         document.body.innerHTML = '';
     });
 
-    it('starts window dragging from the empty container surface and ignores logo-area clicks', async () => {
+    it('user moves the window when dragging empty space but not from the logo', async () => {
         const emitDragStart = vi.fn();
         const emitDragEnd = vi.fn();
         const dragging = useDragging({
+            startDragging: startDraggingMock,
             editor: shallowRef(null),
             emitDragStart,
             emitDragEnd,
@@ -147,6 +142,7 @@ describe('useDragging', () => {
         const target = document.createElement('div');
         resolveMouseEventTargetMock.mockReturnValue(target);
         const dragging = useDragging({
+            startDragging: startDraggingMock,
             editor: shallowRef(createEditor({ isEmpty: true }) as never),
             emitDragStart,
             emitDragEnd,
@@ -173,11 +169,12 @@ describe('useDragging', () => {
         expect(dragging.consumeEditorClickAfterDrag()).toBe(false);
     });
 
-    it('does not treat blank-area clicks near selectable text as a window drag gesture', async () => {
+    it('user gets no window drag when clicking near selectable text', async () => {
         const target = document.createElement('div');
         resolveMouseEventTargetMock.mockReturnValue(target);
         isBlankEditorAreaTargetMock.mockReturnValue(true);
         const dragging = useDragging({
+            startDragging: startDraggingMock,
             editor: shallowRef(
                 createEditor({
                     isEmpty: false,
@@ -218,6 +215,7 @@ describe('useDragging', () => {
         resolveMouseEventTargetMock.mockReturnValue(target);
         isBlankEditorAreaTargetMock.mockReturnValue(true);
         const dragging = useDragging({
+            startDragging: startDraggingMock,
             editor: shallowRef(
                 createEditor({
                     isEmpty: false,
@@ -256,6 +254,7 @@ describe('useDragging', () => {
             resolveMouseEventTargetMock.mockReturnValue(paragraph);
             isBlankEditorAreaTargetMock.mockReturnValue(true);
             const dragging = useDragging({
+                startDragging: startDraggingMock,
                 editor: shallowRef(
                     createEditor({
                         isEmpty: false,
@@ -328,6 +327,7 @@ describe('useDragging', () => {
         const target = document.createElement('div');
         resolveMouseEventTargetMock.mockReturnValue(target);
         const dragging = useDragging({
+            startDragging: startDraggingMock,
             editor: shallowRef(createEditor({ isEmpty: true }) as never),
             emitDragStart: vi.fn(),
             emitDragEnd: vi.fn(),

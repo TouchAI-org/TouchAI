@@ -5,11 +5,27 @@ import { describe, expect, it } from 'vitest';
 import {
     resolveContentPanelHeight,
     resolveSurfacePanelStyle,
+    resolveVisibleSearchViewport,
     shouldCommitPanelHeight,
 } from '@/views/SearchView/searchSurfaceLayout';
 import { SEARCH_WINDOW_VISUAL_OUTSET } from '@/views/SearchView/searchWindowRegions';
 
 describe('search surface layout', () => {
+    it('user gets the visible work area on both axes after dragging across a scaled display edge', () => {
+        expect(
+            resolveVisibleSearchViewport({
+                viewportWidth: 846,
+                viewportHeight: 720,
+                hostX: -180,
+                hostY: -150,
+                workAreaLeft: 0,
+                workAreaTop: 0,
+                workAreaWidth: 1920,
+                workAreaHeight: 1040,
+                scaleFactor: 1.5,
+            })
+        ).toEqual({ left: 120, right: 846, top: 100, bottom: 720 });
+    });
     it('clamps a measured content height between the compact floor and the conversation cap', () => {
         expect(
             resolveContentPanelHeight({ contentHeight: 10, compactHeight: 60, maxHeight: 456 })

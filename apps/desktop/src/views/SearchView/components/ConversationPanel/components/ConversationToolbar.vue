@@ -2,7 +2,6 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
-    import { getCurrentWindow } from '@tauri-apps/api/window';
     import { ref } from 'vue';
 
     import { t } from '@/i18n';
@@ -17,13 +16,12 @@
         historyOpen: boolean;
         canPin?: boolean;
         disabled?: boolean;
-        startDragging?: (event: MouseEvent) => Promise<void>;
+        startDragging: (event: MouseEvent) => Promise<void>;
     }
 
     const props = withDefaults(defineProps<Props>(), {
         canPin: true,
         disabled: false,
-        startDragging: undefined,
     });
 
     const emit = defineEmits<{
@@ -90,19 +88,9 @@
 
         emit('dragStart');
         try {
-            if (props.startDragging) {
-                await props.startDragging(event);
-            } else {
-                await getCurrentWindow().startDragging();
-            }
+            await props.startDragging(event);
         } finally {
-            if (props.startDragging) {
-                emit('dragEnd');
-            } else {
-                setTimeout(() => {
-                    emit('dragEnd');
-                }, 100);
-            }
+            emit('dragEnd');
         }
     }
 

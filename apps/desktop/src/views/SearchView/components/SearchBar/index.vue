@@ -23,12 +23,7 @@
                 :name="selectedModel?.name || activeModel?.name || 'model'"
                 class="border-2 border-model-logo-border transition-colors hover:border-model-logo-border-hover"
             />
-            <img
-                v-else
-                :src="searchLogo"
-                alt="TouchAI"
-                class="h-8 w-8 rounded-full border-2 border-model-logo-border object-cover select-none"
-            />
+            <img v-else :src="searchLogo" alt="TouchAI" class="h-8 w-8 select-none" />
         </div>
 
         <div
@@ -56,7 +51,7 @@
 </template>
 
 <script setup lang="ts">
-    import searchLogo from '@assets/logos/models/deepseek.png';
+    import searchLogo from '@assets/logo.svg';
     import ModelLogo from '@components/ModelLogo.vue';
     import { log } from '@services/ObservabilityService';
     import { EditorContent } from '@tiptap/vue-3';
@@ -83,7 +78,7 @@
         queryText?: string;
         attachments?: Index[];
         modelOverride?: SearchModelOverride;
-        startDragging?: (event: MouseEvent) => Promise<void>;
+        startDragging: (event: MouseEvent) => Promise<void>;
     }
 
     const props = withDefaults(defineProps<Props>(), {
@@ -94,7 +89,6 @@
             modelId: null,
             providerId: null,
         }),
-        startDragging: undefined,
     });
 
     const { disabled, queryText, attachments, modelOverride } = toRefs(props);
