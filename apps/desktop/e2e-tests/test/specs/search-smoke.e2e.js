@@ -582,18 +582,28 @@ describe('TouchAI search smoke', () => {
         await history.waitForExist({ reverse: true });
     });
 
-    it('preserves model-overlay toggle parity across rapid shortcut presses', async () => {
+    it('user opens the model picker, then two rapid shortcut presses leave it open', async () => {
         const modelDropdown = await $('[data-model-dropdown-popover="true"]');
+
+        await browser.keys(['Control', 'm']);
+        await browser.keys(['NULL']);
+        await modelDropdown.waitForDisplayed();
+        const filter = await modelDropdown.$('input');
+        await browser.waitUntil(() => filter.isFocused(), {
+            timeoutMsg: 'Expected one Ctrl+M press to open and focus the model picker',
+        });
 
         await browser.keys(['Control', 'm', 'm']);
         await browser.keys(['NULL']);
-
-        await modelDropdown.waitForExist({
-            timeoutMsg: 'Expected the first rapid Ctrl+M press to open the model overlay',
+        await browser.waitUntil(() => filter.isFocused(), {
+            timeoutMsg: 'Expected two more Ctrl+M presses to leave the model picker interactive',
         });
+
+        await browser.keys(['Control', 'm']);
+        await browser.keys(['NULL']);
         await modelDropdown.waitForExist({
             reverse: true,
-            timeoutMsg: 'Expected two rapid Ctrl+M presses to leave the model overlay closed',
+            timeoutMsg: 'Expected the next Ctrl+M press to close the model picker',
         });
     });
 

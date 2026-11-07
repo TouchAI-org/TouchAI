@@ -196,7 +196,7 @@ export function useSearchInput(
 
         const ed = new Editor({
             extensions,
-            autofocus: true,
+            autofocus: false,
             editorProps: {
                 attributes: {
                     class: 'tiptap',
@@ -656,7 +656,9 @@ export function useSearchInput(
         const ed = editor.value;
         if (!ed) return;
 
-        ed.commands.focus();
+        // The surface lifecycle owns focus. Tiptap's command defers it to RAF,
+        // which can steal focus from an overlay opened before that frame runs.
+        ed.view.focus();
     }
 
     /**
