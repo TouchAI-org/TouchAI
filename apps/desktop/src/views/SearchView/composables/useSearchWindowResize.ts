@@ -107,12 +107,11 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         return currentWindow.isVisible().catch(() => true);
     }
 
-    async function syncMaximizedState() {
-        desiredMaximized.value = await currentWindow.isMaximized().catch(() => false);
+    async function fetchSearchWindowState() {
+        return await native.window.getSearchWindowState();
     }
 
-    async function syncSearchWindowHeightMode() {
-        const state = await native.window.getSearchWindowState();
+    function applySearchWindowState(state: Awaited<ReturnType<typeof fetchSearchWindowState>>) {
         searchWindowHeightMode.value = state.heightMode;
 
         if (state.heightMode === SearchWindowHeightMode.Auto) {
@@ -121,8 +120,13 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     async function syncWindowState() {
-        await syncMaximizedState();
-        await syncSearchWindowHeightMode();
+        // 两个 IPC 并行发出，但状态写入仍按原顺序（先最大化，再高度模式），
+        // 避免派生状态在中间态下多算一次自动高度。
+        const maximizedPromise = currentWindow.isMaximized().catch(() => false);
+        const heightModePromise = fetchSearchWindowState();
+
+        desiredMaximized.value = await maximizedPromise;
+        applySearchWindowState(await heightModePromise);
     }
 
     async function syncSearchWindowAllowHeightOverride() {
@@ -256,8 +260,11 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
 
         // 统一吸收窗口系统事件后的原生状态，再决定是否要补默认尺寸或重新测量。
         await syncWindowState();
-        await syncSearchWindowAllowHeightOverride();
-        await syncSearchWindowMinSizeConstraints();
+        // 高度覆写策略与最小尺寸约束互相独立，并行下发。
+        await Promise.all([
+            syncSearchWindowAllowHeightOverride(),
+            syncSearchWindowMinSizeConstraints(),
+        ]);
 
         if (pendingDefaultSizeApplyAfterRestore && !effectiveWindowMaximized.value) {
             await syncSearchWindowDefaults();

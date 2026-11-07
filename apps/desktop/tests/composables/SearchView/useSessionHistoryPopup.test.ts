@@ -95,6 +95,34 @@ describe('when the user opens the session history panel', () => {
         mounted.unmount();
     });
 
+    it('panel gets a fresh snapshot right after it opens', async () => {
+        const anchor = document.createElement('button');
+        const snapshots: SessionHistoryData[] = [
+            // 打开瞬间列表还在加载，初始快照是 loading；之后加载已完成。
+            createPopupData({ searchQuery: '', isLoading: true }),
+            createPopupData({ searchQuery: '', isLoading: false }),
+        ];
+        let call = 0;
+
+        const mounted = await mountComposable(() =>
+            useSessionHistoryPopup({
+                getAnchorElement: () => anchor,
+                getPopupData: () => snapshots[Math.min(call++, snapshots.length - 1)]!,
+                isSessionHistoryActive: () => true,
+                onSessionOpen: () => undefined,
+                onSessionSearchQueryChange: () => undefined,
+                onClose: () => undefined,
+            })
+        );
+
+        await mounted.result.open();
+
+        // 弹层就绪后必须再推一次数据，否则会卡在「正在搜索」。
+        expect(popupManager.updateData).toHaveBeenCalledWith(snapshots[1]);
+
+        mounted.unmount();
+    });
+
     it('user gets no panel when it went stale before it finished opening', async () => {
         Object.assign(popupManagerState, {
             currentPopupId: 'popup-session-history-popup:2',

@@ -13,6 +13,14 @@ export function createMessagePart(overrides: Partial<MessagePartEntity> = {}): M
         data: '{}',
         tool_call_id: typeof data.toolCallId === 'string' ? data.toolCallId : null,
         tool_kind: data.toolKind === 'builtin' || data.toolKind === 'mcp' ? data.toolKind : null,
+        tool_id:
+            overrides.type === 'tool_call' && typeof data.tool_id === 'string'
+                ? data.tool_id
+                : null,
+        server_id:
+            overrides.type === 'tool_call' && typeof data.server_id === 'number'
+                ? data.server_id
+                : null,
         attachment_id: typeof data.attachmentId === 'number' ? data.attachmentId : null,
         started_at: null,
         ended_at: null,

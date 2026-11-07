@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { shallowRef } from 'vue';
 
 const {
@@ -22,6 +22,11 @@ vi.mock('@tauri-apps/api/window', () => ({
 vi.mock('@/views/SearchView/components/SearchBar/utils/tiptap', () => ({
     isBlankEditorAreaTarget: isBlankEditorAreaTargetMock,
     isSearchTagDomTarget: isSearchTagDomTargetMock,
+    resolveEditorCursorFlags: vi.fn(() => ({
+        cursorAtStart: false,
+        cursorAtTextStart: false,
+        cursorAtEnd: false,
+    })),
     resolveMouseEventTarget: resolveMouseEventTargetMock,
 }));
 

@@ -6,6 +6,13 @@ import { type Ref, ref } from 'vue';
 import { ITEM_SIZE_PX, LIST_ROW_HEIGHT_PX, type ViewMode } from './useLayout';
 
 const LIMIT = 60; // 缓存裁剪阈值基数（触发条件约为 LIMIT * 6）
+
+/** 图标缓存预算：按条目与字节双重限制，超出后按 LRU 淘汰。 */
+export const ICON_CACHE_MAX_ENTRIES = 300;
+export const ICON_CACHE_MAX_BYTES = 3 * 1024 * 1024;
+/** 图片缩略图解码成本更高，预算更保守。 */
+export const IMAGE_CACHE_MAX_ENTRIES = 120;
+export const IMAGE_CACHE_MAX_BYTES = 2 * 1024 * 1024;
 const ICON_LOAD_DELAY_MS = 220; // 图标批次调度延时（非立即模式）
 const SCROLL_THROTTLE_MS = 40; // 滚动后重新排队加载的节流窗口
 const ICON_BATCH_SIZE = 4; // 单批图标请求数量
@@ -70,6 +77,54 @@ export function useAssetLoader(
     // 1. 资源缓存与加载状态
     const iconMap = ref<Record<string, string>>({});
     const imagePreviewMap = ref<Record<string, string>>({});
+
+    // Data URL 缓存按插入/访问顺序维护，超出预算时从最旧开始淘汰。
+    const iconCacheState: { order: string[]; bytes: number } = { order: [], bytes: 0 };
+    const imageCacheState: { order: string[]; bytes: number } = { order: [], bytes: 0 };
+
+    function applyAssetResult(
+        target: typeof iconMap,
+        state: { order: string[]; bytes: number },
+        result: Record<string, string>,
+        limits: { maxEntries: number; maxBytes: number }
+    ) {
+        for (const [path, value] of Object.entries(result)) {
+            const existing = target.value[path];
+            if (existing !== undefined) {
+                state.bytes -= existing.length;
+            }
+            target.value[path] = value;
+            state.bytes += value.length;
+
+            const previousIndex = state.order.indexOf(path);
+            if (previousIndex >= 0) {
+                state.order.splice(previousIndex, 1);
+            }
+            state.order.push(path);
+        }
+
+        while (state.order.length > 0) {
+            const overEntries = Object.keys(target.value).length > limits.maxEntries;
+            if (!overEntries && state.bytes <= limits.maxBytes) {
+                break;
+            }
+
+            const oldest = state.order.shift();
+            if (oldest === undefined) {
+                break;
+            }
+            const value = target.value[oldest];
+            if (value === undefined) {
+                continue;
+            }
+            state.bytes -= value.length;
+            delete target.value[oldest];
+        }
+
+        if (state.bytes < 0) {
+            state.bytes = 0;
+        }
+    }
 
     // 高频状态不使用响应式，避免滚动/加载期间触发不必要渲染。
     const iconLoadingPaths = new Set<string>();
@@ -163,6 +218,16 @@ export function useAssetLoader(
                 delete imagePreviewMap.value[path];
             }
         }
+
+        // 直接删除绕过了应用结果的记账，这里按剩余值重算字节数。
+        iconCacheState.bytes = Object.values(iconMap.value).reduce(
+            (total, value) => total + value.length,
+            0
+        );
+        imageCacheState.bytes = Object.values(imagePreviewMap.value).reduce(
+            (total, value) => total + value.length,
+            0
+        );
     }
 
     // 3. 加载队列构建
@@ -305,7 +370,7 @@ export function useAssetLoader(
         batchSize: number;
         loadingPaths: Set<string>;
         attempts: Map<string, number>;
-        resultRef: typeof iconMap;
+        applyResult: (result: Record<string, string>) => void;
         loadInFlightRef: { value: boolean };
         loadPendingRef: { value: boolean };
         clearTimer: () => void;
@@ -333,7 +398,7 @@ export function useAssetLoader(
                 if (reqId !== requestId.value || !isOpen.value) return;
 
                 if (Object.keys(result).length > 0) {
-                    Object.assign(config.resultRef.value, result);
+                    config.applyResult(result);
                 }
             } catch (error) {
                 log.warn(`[QuickSearchPanel] Failed to load ${config.errorLabel}:`, error);
@@ -402,7 +467,11 @@ export function useAssetLoader(
         batchSize: ICON_BATCH_SIZE,
         loadingPaths: iconLoadingPaths,
         attempts: iconAttempts,
-        resultRef: iconMap,
+        applyResult: (result) =>
+            applyAssetResult(iconMap, iconCacheState, result, {
+                maxEntries: ICON_CACHE_MAX_ENTRIES,
+                maxBytes: ICON_CACHE_MAX_BYTES,
+            }),
         loadInFlightRef: {
             get value() {
                 return iconLoadInFlight;
@@ -432,7 +501,11 @@ export function useAssetLoader(
         batchSize: IMAGE_BATCH_SIZE,
         loadingPaths: imageLoadingPaths,
         attempts: imageAttempts,
-        resultRef: imagePreviewMap,
+        applyResult: (result) =>
+            applyAssetResult(imagePreviewMap, imageCacheState, result, {
+                maxEntries: IMAGE_CACHE_MAX_ENTRIES,
+                maxBytes: IMAGE_CACHE_MAX_BYTES,
+            }),
         loadInFlightRef: {
             get value() {
                 return imageLoadInFlight;

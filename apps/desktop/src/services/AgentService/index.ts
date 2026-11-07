@@ -54,6 +54,7 @@ export type { ModelWithProvider };
 export type {
     SessionTaskSnapshot,
     SessionTaskStatus,
+    SessionTaskViewSnapshot,
     StartedSessionTask,
     StartSessionTaskOptions,
     TaskExecutionMode,
@@ -67,4 +68,4 @@ export const aiService = new AgentService();
 export { AiError, AiErrorCode } from './contracts/errors';
 
 // 导出会话管理函数
-export { createSession, getSessionData, listSessions } from './session';
+export { createSession, getSessionData, listSessions, loadCompleteSessionHistory } from './session';

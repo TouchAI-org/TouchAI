@@ -6,6 +6,89 @@ use encoding_rs::UTF_8;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Child;
 
+/// 流式输出在内存中保留的最大字节数（首尾各一半）。
+///
+/// 超出部分继续通过 `on_chunk` 流式上报，但不再整体驻留内存；
+/// 返回值只保留有界首尾并附带截断标记。
+pub const MAX_RETAINED_STREAM_BYTES: usize = 1024 * 1024;
+const TRUNCATED_STREAM_MARKER: &str = "\n...[output truncated]...\n";
+
+/// 在保留上限内维护首部与尾部文本。
+struct BoundedStreamOutput {
+    head: String,
+    tail: String,
+    head_limit: usize,
+    tail_limit: usize,
+    truncated: bool,
+}
+
+impl BoundedStreamOutput {
+    fn new(limit: usize) -> Self {
+        let head_limit = limit / 2;
+        Self {
+            head: String::new(),
+            tail: String::new(),
+            head_limit,
+            tail_limit: limit - head_limit,
+            truncated: false,
+        }
+    }
+
+    fn push(&mut self, chunk: &str) {
+        let mut remaining = chunk;
+        if self.head.len() < self.head_limit {
+            let available = self.head_limit - self.head.len();
+            if remaining.len() <= available {
+                self.head.push_str(remaining);
+                return;
+            }
+
+            let split = floor_char_boundary(remaining, available);
+            self.head.push_str(&remaining[..split]);
+            remaining = &remaining[split..];
+            // Seal the head at a UTF-8 boundary; later chunks belong after this tail.
+            self.tail_limit += self.head_limit - self.head.len();
+            self.head_limit = self.head.len();
+        }
+
+        if remaining.is_empty() {
+            return;
+        }
+
+        self.tail.push_str(remaining);
+        if self.tail.len() > self.tail_limit {
+            let overflow = self.tail.len() - self.tail_limit;
+            let cut = ceil_char_boundary(&self.tail, overflow);
+            self.tail.drain(..cut);
+            self.truncated = true;
+        }
+    }
+
+    fn finish(self) -> String {
+        if !self.truncated {
+            return self.head + &self.tail;
+        }
+
+        format!("{}{}{}", self.head, TRUNCATED_STREAM_MARKER, self.tail)
+    }
+}
+
+fn floor_char_boundary(value: &str, mut index: usize) -> usize {
+    index = index.min(value.len());
+    while index > 0 && !value.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
+}
+
+fn ceil_char_boundary(value: &str, mut index: usize) -> usize {
+    index = index.min(value.len());
+    while index < value.len() && !value.is_char_boundary(index) {
+        index += 1;
+    }
+    index
+}
+
 /// Incrementally reads a process stream, reporting decoded UTF-8 chunks as they arrive.
 pub async fn read_stream_with_progress<R, F>(
     mut reader: R,
@@ -17,7 +100,7 @@ where
 {
     let mut decoder = UTF_8.new_decoder_without_bom_handling();
     let mut buffer = [0u8; 4096];
-    let mut output = String::new();
+    let mut output = BoundedStreamOutput::new(MAX_RETAINED_STREAM_BYTES);
 
     loop {
         let read = reader
@@ -41,7 +124,7 @@ where
         );
         debug_assert_eq!(consumed, bytes.len(), "解码必须消费本次读取的全部字节");
         if !decoded.is_empty() {
-            output.push_str(&decoded);
+            output.push(&decoded);
             on_chunk(&decoded)?;
         }
 
@@ -50,7 +133,7 @@ where
         }
     }
 
-    Ok(output.trim().to_string())
+    Ok(output.finish().trim().to_string())
 }
 
 /// Combines stdout/stderr into the single tool result format used by the upper layers.
@@ -161,6 +244,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn user_keeps_multibyte_output_in_order_when_chunks_cross_the_head_boundary() {
+        for character in ["中", "🙂"] {
+            let prefix = "x".repeat(MAX_RETAINED_STREAM_BYTES / 2 - 1);
+            let mut output = BoundedStreamOutput::new(MAX_RETAINED_STREAM_BYTES);
+            output.push(&prefix);
+            output.push(character);
+            output.push("A");
+            assert_eq!(output.finish(), format!("{prefix}{character}A"));
+        }
+    }
+
+    #[test]
+    fn user_keeps_output_order_when_multibyte_chunks_fill_the_retention_limit() {
+        let prefix = "x".repeat(MAX_RETAINED_STREAM_BYTES / 2 - 1);
+        let suffix = "A".repeat(MAX_RETAINED_STREAM_BYTES / 2 - 2);
+        let mut output = BoundedStreamOutput::new(MAX_RETAINED_STREAM_BYTES);
+        output.push(&prefix);
+        output.push("中");
+        output.push(&suffix);
+        assert_eq!(output.finish(), format!("{prefix}中{suffix}"));
+    }
+
+    #[test]
     fn combine_output_both_non_empty() {
         let result = combine_output("hello", "world");
         assert_eq!(result, "STDOUT:\nhello\n\nSTDERR:\nworld");
@@ -205,6 +311,42 @@ mod tests {
     #[test]
     fn resolve_timeout_ms_treats_zero_as_disabled() {
         assert_eq!(resolve_timeout_ms(Some(0), 120000, 120000), None);
+    }
+
+    #[tokio::test]
+    async fn read_stream_keeps_small_output_intact() {
+        let payload = "plain output\nwith lines\n";
+        let mut observed = String::new();
+
+        let output = read_stream_with_progress(payload.as_bytes(), |chunk| {
+            observed.push_str(chunk);
+            Ok(())
+        })
+        .await
+        .expect("read");
+
+        assert_eq!(output, "plain output\nwith lines");
+        assert_eq!(observed, payload);
+    }
+
+    #[tokio::test]
+    async fn read_stream_keeps_bounded_head_and_tail_for_huge_output() {
+        let payload = format!("HEAD{}\nTAIL", "x".repeat(2 * MAX_RETAINED_STREAM_BYTES));
+        let mut observed_len = 0usize;
+
+        let output = read_stream_with_progress(payload.as_bytes(), |chunk| {
+            observed_len += chunk.len();
+            Ok(())
+        })
+        .await
+        .expect("read");
+
+        // 流式回调仍然看到全部内容，但内存中只保留有界首尾。
+        assert_eq!(observed_len, payload.len());
+        assert!(output.starts_with("HEAD"));
+        assert!(output.ends_with("TAIL"));
+        assert!(output.contains("output truncated"));
+        assert!(output.len() <= MAX_RETAINED_STREAM_BYTES + 128);
     }
 
     /// 逐字节到达的多字节 UTF-8 序列不能被解码缓冲区容量截断。

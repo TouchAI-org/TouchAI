@@ -6,6 +6,8 @@ CREATE TABLE `message_parts` (
 	`data` text DEFAULT '{}' NOT NULL,
 	`tool_call_id` text GENERATED ALWAYS AS (CASE WHEN "type" = 'tool_call' THEN json_extract("data", '$.toolCallId') END) VIRTUAL,
 	`tool_kind` text GENERATED ALWAYS AS (CASE WHEN "type" = 'tool_call' THEN json_extract("data", '$.toolKind') END) VIRTUAL,
+	`tool_id` text GENERATED ALWAYS AS (CASE WHEN "type" = 'tool_call' THEN json_extract("data", '$."tool_id"') END) VIRTUAL,
+	`server_id` integer GENERATED ALWAYS AS (CASE WHEN "type" = 'tool_call' THEN json_extract("data", '$."server_id"') END) VIRTUAL,
 	`attachment_id` integer GENERATED ALWAYS AS (CASE WHEN "type" = 'attachment' THEN json_extract("data", '$.attachmentId') END) VIRTUAL,
 	`started_at` integer,
 	`ended_at` integer,
@@ -19,8 +21,13 @@ CREATE TABLE `message_parts` (
 );
 --> statement-breakpoint
 CREATE INDEX `message_parts_tool_call_idx` ON `message_parts` (`tool_kind`,`tool_call_id`);--> statement-breakpoint
+CREATE INDEX `message_parts_tool_id_idx` ON `message_parts` (`tool_kind`,`tool_id`,`created_at`,`id`);--> statement-breakpoint
+CREATE INDEX `message_parts_server_id_idx` ON `message_parts` (`tool_kind`,`server_id`,`created_at`,`id`);--> statement-breakpoint
 CREATE INDEX `message_parts_attachment_idx` ON `message_parts` (`attachment_id`);--> statement-breakpoint
 CREATE UNIQUE INDEX `message_parts_message_id_sort_order_idx` ON `message_parts` (`message_id`,`sort_order`);--> statement-breakpoint
+CREATE INDEX `messages_session_id_id_idx` ON `messages` (`session_id`,`id`);--> statement-breakpoint
+CREATE INDEX `session_turns_session_created_idx` ON `session_turns` (`session_id`,`created_at`,`id`);--> statement-breakpoint
+CREATE INDEX `sessions_activity_idx` ON `sessions` (coalesce("last_message_at","updated_at") DESC, "id" DESC);--> statement-breakpoint
 -- Preserve existing messages before removing their legacy content columns.
 INSERT INTO `message_parts` (`message_id`, `type`, `content`, `sort_order`, `created_at`, `updated_at`)
 SELECT `id`, 'reasoning', `reasoning`, 0, `created_at`, `updated_at`
@@ -488,8 +495,17 @@ END;
 CREATE TRIGGER trg_message_parts_search_update
 AFTER UPDATE OF message_id, type, content, data, sort_order ON message_parts
 WHEN (OLD.type IN ('text', 'tool_call') OR NEW.type IN ('text', 'tool_call'))
- AND (OLD.message_id <> NEW.message_id OR OLD.type <> NEW.type
-      OR OLD.content <> NEW.content OR OLD.data <> NEW.data OR OLD.sort_order <> NEW.sort_order)
+ AND (
+     OLD.message_id IS NOT NEW.message_id
+     OR OLD.type IS NOT NEW.type
+     OR OLD.sort_order IS NOT NEW.sort_order
+     OR (OLD.type = 'text' AND NEW.type = 'text' AND OLD.content IS NOT NEW.content)
+     OR (
+         OLD.type = 'tool_call' AND NEW.type = 'tool_call'
+         AND coalesce(json_extract(OLD.data, '$.output'), '')
+             IS NOT coalesce(json_extract(NEW.data, '$.output'), '')
+     )
+ )
 BEGIN
     DELETE FROM message_search_fts WHERE rowid IN (OLD.message_id, NEW.message_id);
     INSERT OR REPLACE INTO message_search_fts(rowid, content)

@@ -13,6 +13,8 @@
 
     import { cn } from '@/lib/utils';
 
+    import { resolveRailLayout } from './railLayout';
+    import { resolveRailItemAtOffset } from './railRange';
     import type {
         MessageScrollerItem,
         MessageScrollerScrollBehavior,
@@ -28,7 +30,14 @@
     const PREVIEW_DESCRIPTION_LENGTH = 88;
     const END_TOLERANCE = 5;
     const PROGRAMMATIC_SCROLL_SETTLE_MS = 320;
-    const RAIL_ITEM_SIZE = 14;
+    /** 布局收敛窗口：虚拟列表测量后的自动补偿也算“非用户滚动”。 */
+    const LAYOUT_SETTLE_MS = 600;
+    /** 视为“第三方布局补偿”的最大离底距离（再大就当用户真的走开了）。 */
+    const FOLLOW_DRIFT_MAX_PX = 48;
+    /** 距离用户最近一次输入多久之后才允许自动复位。 */
+    const USER_INPUT_GRACE_MS = 400;
+    /** 自动复位的最小间隔。 */
+    const FOLLOW_REPAIR_INTERVAL_MS = 400;
     const RAIL_VERTICAL_PADDING = 8;
     const PREVIEW_MAX_HEIGHT = 112;
     const PREVIEW_HALF_HEIGHT = PREVIEW_MAX_HEIGHT / 2;
@@ -48,6 +57,22 @@
         viewportClass?: string;
         contentClass?: string;
         viewportStyle?: StyleValue;
+        /**
+         * 自定义跳转实现。
+         *
+         * 默认按 DOM 查找目标元素；消息列表虚拟化后，屏幕外条目没有 DOM，
+         * 由调用方改成按索引跳转（virtua 的 `scrollToIndex`）。
+         */
+        itemScrollTarget?: (id: string, options: MessageScrollerScrollOptions) => boolean;
+        /** 条目在内容坐标系中的区间，用于导航轨高亮（一条消息可能跨多屏）。 */
+        itemRanges?: (id: string) => { top: number; bottom: number } | null;
+        /**
+         * 导航轨顶部要避开的区域（像素）。
+         *
+         * 窗口顶部有一条可拖动区（工具栏），它盖在内容之上；轨道如果从容器顶部开始，
+         * 最上面几个点会落在拖动区里而无法点击。
+         */
+        railInsetTop?: number;
     }
 
     const props = withDefaults(defineProps<Props>(), {
@@ -60,6 +85,9 @@
         viewportClass: '',
         contentClass: '',
         viewportStyle: undefined,
+        itemScrollTarget: undefined,
+        itemRanges: undefined,
+        railInsetTop: 0,
     });
 
     const emit = defineEmits<{
@@ -140,13 +168,15 @@
     );
 
     const railItemSize = computed(() => {
-        const count = displayItems.value.length;
-        const availableHeight = Math.max(0, railHeight.value - RAIL_VERTICAL_PADDING);
-        if (count === 0 || availableHeight === 0) return RAIL_ITEM_SIZE;
-        return Math.min(RAIL_ITEM_SIZE, availableHeight / count);
+        return resolveRailLayout({
+            itemCount: displayItems.value.length,
+            availableHeight: Math.max(0, railHeight.value - RAIL_VERTICAL_PADDING),
+        }).itemSize;
     });
 
     const railStyle = computed(() => ({
+        top: `${(props.railInsetTop ?? 0) + RAIL_VERTICAL_PADDING / 2}px`,
+        bottom: `${RAIL_VERTICAL_PADDING / 2}px`,
         gridTemplateRows: `repeat(${displayItems.value.length}, ${railItemSize.value}px)`,
     }));
 
@@ -204,6 +234,14 @@
     let followFrame: number | null = null;
     let measureUpdatesFollowing = false;
     let lastEmittedState = '';
+    let lastScrollHeight = 0;
+    let lastScrollTop = 0;
+    /** 布局收敛截止时间：此前的 scrollTop 变化不计入用户意图。 */
+    let layoutSettleUntil = 0;
+    /** 最近一次真实输入（滚轮/触摸/键盘/拖拽）的时间。 */
+    let lastUserInputAt = 0;
+    /** 最近一次“小幅跟随复位”的时间，用于限速。 */
+    let lastFollowRepairAt = 0;
     let touchStartScrollTop = 0;
 
     type FrameCallback = (timestamp: number) => void;
@@ -302,6 +340,26 @@
             viewportRect.height > 0 ? viewportRect.bottom : viewportRect.top + element.clientHeight;
         const nextIds = new Set<string>();
 
+        // 有区间信息时按内容坐标系判断重叠，而不是查 DOM：
+        // 虚拟列表里屏幕外的条目没有元素，靠 DOM 只能高亮一条。
+        // 没有可用区间时（例如该会话不虚拟化）回落到 DOM 判定。
+        if (props.itemRanges && displayItems.value.some((item) => props.itemRanges?.(item.id))) {
+            const viewTop = element.scrollTop;
+            const viewBottom = viewTop + element.clientHeight;
+            for (const item of displayItems.value) {
+                const range = props.itemRanges(item.id);
+                if (!range) continue;
+                if (range.bottom > viewTop && range.top < viewBottom) {
+                    nextIds.add(item.id);
+                }
+            }
+
+            if (!sameIds(visibleItemIds.value, nextIds)) {
+                visibleItemIds.value = nextIds;
+            }
+            return;
+        }
+
         for (const item of displayItems.value) {
             const target = findItemElement(item.id);
             if (!target) continue;
@@ -340,6 +398,25 @@
         }
 
         const viewportCenter = viewportRect.top + viewportRect.height / 2;
+
+        // 有区间信息时按内容坐标系算“当前所在 turn”：
+        // 长回答往往独占多屏，靠 DOM 中心点会错判成上一条或下一条。
+        if (props.itemRanges) {
+            const viewCenter = element.scrollTop + element.clientHeight / 2;
+            const nextId = resolveRailItemAtOffset(
+                displayItems.value,
+                props.itemRanges,
+                viewCenter
+            );
+            // 区间不可用（例如该会话未虚拟化）时回落到下面的 DOM 判定。
+            if (nextId !== null) {
+                if (activeItemId.value !== nextId) {
+                    activeItemId.value = nextId;
+                }
+                return;
+            }
+        }
+
         let nearestId = displayItems.value[0]?.id ?? '';
         let nearestDistance = Number.POSITIVE_INFINITY;
 
@@ -362,6 +439,13 @@
         const state = readState(updateFollowing);
         updateActiveItem();
         railHeight.value = rail.value?.clientHeight ?? 0;
+
+        // 同步“已知位置”基准：下一次 scroll 事件靠它判断方向。
+        // 放在 measure 里而不是只放在 handleScroll 里，是因为滚动也可能由
+        // 内容增长、程序性定位引起，那些不应污染基准。
+        lastScrollTop = state.scrollTop;
+        lastScrollHeight = state.scrollHeight;
+
         emitState(state);
     }
 
@@ -405,7 +489,10 @@
             () => {
                 programmaticScroll = false;
                 programmaticScrollTimer = null;
-                scheduleMeasure(true);
+                // 不要在这里重算 follow：这是程序性滚动的收尾，如果内容刚变高、
+                // 滚动还没跟上，“离底很远”会被误判成用户上滚，把跟随关掉，
+                // 结果就是视图停在半路、看起来往上漂了一点。
+                scheduleMeasure(false);
             },
             effectiveBehavior === 'smooth' ? PROGRAMMATIC_SCROLL_SETTLE_MS : 0
         );
@@ -420,11 +507,24 @@
     }
 
     function scrollToItem(id: string, options: MessageScrollerScrollOptions = {}): boolean {
+        const align = options.align ?? 'center';
+
+        // 虚拟化列表：目标可能未挂载，交给调用方按索引处理。
+        // 调用方无法处理（例如本条消息不虚拟化）时，继续走下面的 DOM 查找。
+        if (props.itemScrollTarget) {
+            const scrolled = props.itemScrollTarget(id, options);
+            if (scrolled) {
+                // 一次性定位：不在这里重算跟随，也不要标记为程序性滚动的长窗口，
+                // 否则后续测量会把“滚动中”当成用户意图而反复回弹。
+                setFollowing(align === 'end');
+                return true;
+            }
+        }
+
         const element = viewport.value;
         const target = findItemElement(id);
         if (!element || !target) return false;
 
-        const align = options.align ?? 'center';
         const offset = options.offset ?? 0;
         const behavior = options.behavior ?? defaultFollowBehavior();
         const viewportRect = element.getBoundingClientRect();
@@ -463,6 +563,50 @@
         viewport.value?.focus({ preventScroll: true });
     }
 
+    function nowMs(): number {
+        return typeof performance !== 'undefined' ? performance.now() : Date.now();
+    }
+
+    /**
+     * 跟随意图下，延迟把视图扭回底部。
+     *
+     * 第三方（代码块库根据实际高度做 scrollTop 锚定补偿）会在我们贴底之后
+     * 再把位置推开几像素。这里在 resize 后等一拍再补一次，到底即停；
+     * **不能**在 scroll 事件里反复补，否则会和补偿互推，形成肉眼可见的抖动。
+     */
+    function reassertFollow(): void {
+        if (followFrame !== null) {
+            return;
+        }
+
+        let attempts = 2;
+        const step = () => {
+            followFrame = null;
+            if (!props.followOutput || !following.value) {
+                return;
+            }
+
+            const element = viewport.value;
+            if (!element) {
+                return;
+            }
+
+            const distance = Math.max(
+                0,
+                element.scrollHeight - element.scrollTop - element.clientHeight
+            );
+            if (distance <= END_TOLERANCE || attempts <= 0) {
+                return;
+            }
+
+            attempts -= 1;
+            scrollToEnd('auto');
+            followFrame = requestFrame(step);
+        };
+
+        followFrame = requestFrame(step);
+    }
+
     function interruptProgrammaticScroll(): void {
         programmaticScroll = false;
         if (programmaticScrollTimer) {
@@ -472,20 +616,70 @@
     }
 
     function handleScroll(): void {
-        scheduleMeasure(!programmaticScroll);
+        const element = viewport.value;
+        if (!element) {
+            return;
+        }
+
+        // 滚动事件只负责“回到底部就恢复跟随”。
+        //
+        // 停止跟随不在这里判：内容变高（流式输出、虚拟列表挂载）会同时改变
+        // scrollHeight 和“离底距离”，靠几何量推断会把增长误判成用户上滚，
+        // 结果就是视图停在半路、看起来往上漂了一点。
+        // 真正的用户意图由 wheel / touch / 键盘 / 拖拽滚动条这些**输入事件**决定。
+        if (!programmaticScroll) {
+            const grew = element.scrollHeight !== lastScrollHeight;
+            const distance = Math.max(
+                0,
+                element.scrollHeight - element.scrollTop - element.clientHeight
+            );
+            const recentInput = nowMs() - lastUserInputAt <= USER_INPUT_GRACE_MS;
+
+            if (distance <= props.followThreshold) {
+                // 回到底部：恢复跟随。
+                setFollowing(true);
+            } else if (
+                !grew &&
+                element.scrollTop < lastScrollTop - 1 &&
+                nowMs() > layoutSettleUntil
+            ) {
+                const drift = lastScrollTop - element.scrollTop;
+
+                if (recentInput || drift > FOLLOW_DRIFT_MAX_PX) {
+                    // 有输入事件，或一下子就走很远：用户上滚（含拖原生滚动条）。
+                    setFollowing(false);
+                } else if (
+                    props.followOutput &&
+                    following.value &&
+                    nowMs() - lastFollowRepairAt > FOLLOW_REPAIR_INTERVAL_MS
+                ) {
+                    // 无输入却小幅上移：第三方（代码块库）测量后的锚定补偿。
+                    // 补一次到宁，限速避免与其互推。
+                    lastFollowRepairAt = nowMs();
+                    scrollToEnd('auto');
+                }
+            }
+        }
+
+        lastScrollTop = element.scrollTop;
+        lastScrollHeight = element.scrollHeight;
+        scheduleMeasure(false);
     }
 
     function handleWheel(event: WheelEvent): void {
         interruptProgrammaticScroll();
+        lastUserInputAt = nowMs();
         if (event.deltaY < 0) setFollowing(false);
     }
 
     function handleTouchStart(): void {
         interruptProgrammaticScroll();
+        lastUserInputAt = nowMs();
         touchStartScrollTop = viewport.value?.scrollTop ?? 0;
     }
 
     function handleTouchMove(): void {
+        lastUserInputAt = nowMs();
         const element = viewport.value;
         if (element && element.scrollTop < touchStartScrollTop) {
             setFollowing(false);
@@ -496,6 +690,7 @@
         const scrollKeys = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '];
         if (scrollKeys.includes(event.key)) {
             interruptProgrammaticScroll();
+            lastUserInputAt = nowMs();
         }
         if (
             event.key === 'ArrowUp' ||
@@ -508,6 +703,10 @@
     }
 
     function handleResize(): void {
+        // 虚拟列表测量完会自行补偿 scrollTop：这属于布局，不是用户意图。
+        // 用一个短窗口把这些位移排除在“用户上滚”判定之外，
+        // 否则打开会话时会因一次几十像素的补偿就把跟随关掉、按钮冒出来。
+        layoutSettleUntil = nowMs() + LAYOUT_SETTLE_MS;
         scheduleMeasure(false);
         if (!props.followOutput || !following.value) return;
         if (followFrame !== null) cancelFrame(followFrame);
@@ -515,6 +714,11 @@
             followFrame = null;
             if (!props.followOutput || !following.value) return;
             scrollToEnd(defaultFollowBehavior());
+            // 代码块库会在同一帧末尾再写一次 scrollTop，推迟一拍补上。
+            followFrame = requestFrame(() => {
+                followFrame = null;
+                reassertFollow();
+            });
         });
     }
 
@@ -639,11 +843,13 @@
     defineExpose({
         focus,
         getState,
+        getViewportElement: () => viewport.value,
         isAtEnd,
         recalculate: () => measure(true),
         scrollBy,
         scrollToEnd,
         scrollToItem,
+        setFollowing,
     });
 </script>
 
@@ -654,7 +860,7 @@
                 v-if="railVisible"
                 ref="rail"
                 :aria-label="navigationLabel"
-                class="absolute inset-y-3 right-4 z-10 grid w-7 content-center py-1"
+                class="absolute right-4 z-10 grid w-7 content-center py-1"
                 :style="railStyle"
                 data-slot="message-scroller-rail"
             >
@@ -747,7 +953,12 @@
                         :class="contentClasses"
                         data-slot="message-scroller-content"
                     >
-                        <slot />
+                        <!--
+                            虚拟化插槽：传入后由外部（virtua）负责有界挂载与按索引跳转，
+                            这里只提供滚动视口与导航轨。
+                        -->
+                        <slot v-if="$slots.virtualized" name="virtualized" />
+                        <slot v-else />
                     </div>
                 </section>
             </div>

@@ -10,6 +10,7 @@ export { sessionTaskCenter } from './center';
 export type {
     SessionTaskSnapshot,
     SessionTaskStatus,
+    SessionTaskViewSnapshot,
     StartedSessionTask,
     StartSessionTaskOptions,
     TaskExecutionMode,

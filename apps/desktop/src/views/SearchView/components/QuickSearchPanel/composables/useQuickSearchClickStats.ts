@@ -66,6 +66,72 @@ function updateClickStatsCache(clickStats: ClickStatsMap, query: string, path: s
 export function useQuickSearchClickStats() {
     // 本地缓存：按规范化 query 缓存 path->count，避免每次搜索都读库。
     const clickStats: ClickStatsMap = {};
+    const pendingLoads = new Map<string, Promise<Record<string, number>>>();
+
+    /**
+     * 读取并缓存某个 query 的点击统计。
+     *
+     * 并发调用共享同一次读取，避免“预取 + 重排”各读一遍 SQLite。
+     *
+     * @param queryNorm 规范化后的查询文本。
+     * @returns 该 query 的 path -> 点击次数映射。
+     */
+    async function ensureClickStats(queryNorm: string): Promise<Record<string, number>> {
+        const cached = clickStats[queryNorm];
+        if (cached) {
+            return cached;
+        }
+
+        const pending = pendingLoads.get(queryNorm);
+        if (pending) {
+            return await pending;
+        }
+
+        const load = (async (): Promise<Record<string, number>> => {
+            try {
+                const rows = await findQuickSearchClicksByQuery({
+                    queryNorm,
+                    limit: MAX_CLICK_PATH_ENTRIES,
+                });
+
+                const pathStats: Record<string, number> = {};
+                for (const row of rows) {
+                    const pathNorm = normalizeClickPath(row.path_norm);
+                    const count = Number(row.click_count ?? 0);
+                    if (!pathNorm || !Number.isFinite(count) || count <= 0) {
+                        continue;
+                    }
+                    pathStats[pathNorm] = Math.min(MAX_CLICK_COUNT, Math.floor(count));
+                }
+                clickStats[queryNorm] = pathStats;
+                return pathStats;
+            } catch (error) {
+                log.warn('[QuickSearchPanel] Failed to load click stats from sqlite:', error);
+                clickStats[queryNorm] = {};
+                return clickStats[queryNorm];
+            } finally {
+                pendingLoads.delete(queryNorm);
+            }
+        })();
+
+        pendingLoads.set(queryNorm, load);
+        return await load;
+    }
+
+    /**
+     * 预取点击统计，使 native 搜索与轻量重排可以并行。
+     *
+     * @param query 当前查询文本。
+     * @returns void
+     */
+    async function prefetch(query: string): Promise<void> {
+        const queryNorm = normalizeClickQuery(query);
+        if (!queryNorm) {
+            return;
+        }
+
+        await ensureClickStats(queryNorm);
+    }
 
     /**
      * 按点击统计对搜索结果做稳定重排。
@@ -83,31 +149,7 @@ export function useQuickSearchClickStats() {
             return items;
         }
 
-        // 懒加载：首次命中某 query 时再读取 SQLite，并回填到内存缓存。
-        if (!clickStats[queryNorm]) {
-            try {
-                const rows = await findQuickSearchClicksByQuery({
-                    queryNorm,
-                    limit: MAX_CLICK_PATH_ENTRIES,
-                });
-
-                const pathStats: Record<string, number> = {};
-                for (const row of rows) {
-                    const pathNorm = normalizeClickPath(row.path_norm);
-                    const count = Number(row.click_count ?? 0);
-                    if (!pathNorm || !Number.isFinite(count) || count <= 0) {
-                        continue;
-                    }
-                    pathStats[pathNorm] = Math.min(MAX_CLICK_COUNT, Math.floor(count));
-                }
-                clickStats[queryNorm] = pathStats;
-            } catch (error) {
-                log.warn('[QuickSearchPanel] Failed to load click stats from sqlite:', error);
-                clickStats[queryNorm] = {};
-            }
-        }
-
-        const pathStats = clickStats[queryNorm];
+        const pathStats = await ensureClickStats(queryNorm);
         let hasClickBoost = false;
         // 记录原始索引，后续同分时按原顺序回退，保持稳定排序。
         const ranked = items.map((item, index) => {
@@ -160,6 +202,7 @@ export function useQuickSearchClickStats() {
     }
 
     return {
+        prefetch,
         rankResults,
         recordClick,
     };

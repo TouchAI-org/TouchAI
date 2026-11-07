@@ -6,7 +6,8 @@
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { useListFilter } from '@composables/useListFilter';
-    import { findMcpToolLogsByServerId } from '@database/queries';
+    import { findMcpToolLogById, findMcpToolLogSummariesByServerId } from '@database/queries';
+    import type { McpToolLogSummary } from '@database/queries/mcpToolLogs';
     import type { McpServerEntity, McpToolLogEntity } from '@database/types';
     import { log as appLog } from '@services/ObservabilityService';
     import { onMounted, ref } from 'vue';
@@ -22,7 +23,9 @@
 
     const props = defineProps<Props>();
 
-    const logs = ref<McpToolLogEntity[]>([]);
+    // 列表只拿摘要；完整 input/output 在展开时按 id 拉取。
+    const logs = ref<McpToolLogSummary[]>([]);
+    const details = ref<Record<number, McpToolLogEntity>>({});
     const loading = ref(true);
     const loadingMore = ref(false);
     const expandedLogs = ref<Set<number>>(new Set());
@@ -38,13 +41,16 @@
     } = useListFilter({
         items: logs,
         getStatus: (log) => log.status,
-        getSearchableText: (log) => [log.tool_name, log.input, log.output, log.error_message],
+        // 搜索基于列表已有的摘要字段；完整输出需要展开后查看。
+        getSearchableText: (log) => [log.tool_name, log.input_preview],
     });
 
     const loadLogs = async () => {
         try {
             loading.value = true;
-            logs.value = await findMcpToolLogsByServerId(props.server.id, { limit: PAGE_SIZE });
+            logs.value = await findMcpToolLogSummariesByServerId(props.server.id, {
+                limit: PAGE_SIZE,
+            });
             hasMore.value = logs.value.length === PAGE_SIZE;
         } catch (error) {
             appLog.error('Failed to load logs:', error);
@@ -56,7 +62,7 @@
     const loadMore = async () => {
         try {
             loadingMore.value = true;
-            const moreLogs = await findMcpToolLogsByServerId(props.server.id, {
+            const moreLogs = await findMcpToolLogSummariesByServerId(props.server.id, {
                 limit: PAGE_SIZE,
                 offset: logs.value.length,
             });
@@ -69,11 +75,27 @@
         }
     };
 
+    const ensureDetail = async (logId: number) => {
+        if (details.value[logId]) {
+            return;
+        }
+
+        try {
+            const detail = await findMcpToolLogById(logId);
+            if (detail) {
+                details.value = { ...details.value, [logId]: detail };
+            }
+        } catch (error) {
+            appLog.error('Failed to load log detail:', error);
+        }
+    };
+
     const toggleExpand = (logId: number) => {
         if (expandedLogs.value.has(logId)) {
             expandedLogs.value.delete(logId);
         } else {
             expandedLogs.value.add(logId);
+            void ensureDetail(logId);
         }
     };
 
@@ -153,9 +175,9 @@
                     :status="log.status"
                     :created-at="log.created_at"
                     :duration-ms="log.duration_ms"
-                    :input="log.input"
-                    :output="log.output"
-                    :error="log.error_message"
+                    :input="details[log.id]?.input ?? log.input_preview ?? ''"
+                    :output="details[log.id]?.output ?? null"
+                    :error="details[log.id]?.error_message ?? null"
                     :expanded="expandedLogs.has(log.id)"
                     @toggle="toggleExpand(log.id)"
                 />
