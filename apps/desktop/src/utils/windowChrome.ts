@@ -2,11 +2,10 @@
 
 import { currentMonitor, getCurrentWindow } from '@tauri-apps/api/window';
 
-import { detectDesktopPlatform, isLinuxDesktop } from './platform';
+import { detectDesktopPlatform } from './platform';
 
 /**
- * 让文档根节点带上平台标记，供 CSS 选择窗口外壳样式。
- * 必须在首帧渲染前同步执行，否则会先画出直角再变成圆角。
+ * 让文档根节点带上平台标记，供需要区分平台的前端逻辑读取。
  */
 export function applyDesktopPlatformClass(): void {
     document.documentElement.dataset.platform = detectDesktopPlatform();
@@ -25,10 +24,16 @@ export function applyDesktopPlatformClass(): void {
 async function coversWholeMonitor(
     currentWindow: ReturnType<typeof getCurrentWindow>
 ): Promise<boolean> {
-    const [monitor, scaleFactor] = await Promise.all([
+    const [monitor, scaleFactor, isMaximized, isFullscreen] = await Promise.all([
         currentMonitor().catch(() => null),
         currentWindow.scaleFactor().catch(() => 1),
+        currentWindow.isMaximized().catch(() => false),
+        currentWindow.isFullscreen().catch(() => false),
     ]);
+
+    if (isMaximized || isFullscreen) {
+        return true;
+    }
 
     if (!monitor) {
         return false;
@@ -41,17 +46,20 @@ async function coversWholeMonitor(
     return window.innerWidth >= monitorWidth - 2 && window.innerHeight >= monitorHeight - 2;
 }
 
-function syncEdgeToEdgeShellState(): void {
-    let currentWindow: ReturnType<typeof getCurrentWindow>;
+function isSettingsWindow(currentWindow: ReturnType<typeof getCurrentWindow>): boolean {
+    return (
+        currentWindow.label === 'settings' || /^#\/settings(?:[/?]|$)/.test(window.location.hash)
+    );
+}
 
-    try {
-        currentWindow = getCurrentWindow();
-    } catch {
-        return;
-    }
-
+function syncEdgeToEdgeShellState(currentWindow: ReturnType<typeof getCurrentWindow>): void {
+    let syncRevision = 0;
     const apply = async (): Promise<void> => {
+        const revision = ++syncRevision;
         const edgeToEdge = await coversWholeMonitor(currentWindow);
+        // A resize can finish after a newer query started. Do not let the older
+        // result put the shell back into maximized-only padding.
+        if (revision !== syncRevision) return;
         document.documentElement.dataset.windowMaximized = String(edgeToEdge);
     };
 
@@ -64,7 +72,13 @@ function syncEdgeToEdgeShellState(): void {
 export function initializeDesktopShell(): void {
     applyDesktopPlatformClass();
 
-    if (isLinuxDesktop()) {
-        syncEdgeToEdgeShellState();
+    let currentWindow: ReturnType<typeof getCurrentWindow>;
+    try {
+        currentWindow = getCurrentWindow();
+    } catch {
+        return;
     }
+
+    if (!isSettingsWindow(currentWindow)) return;
+    syncEdgeToEdgeShellState(currentWindow);
 }

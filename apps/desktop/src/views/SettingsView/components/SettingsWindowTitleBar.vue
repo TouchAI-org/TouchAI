@@ -2,7 +2,6 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
-    import { Tooltip, TooltipTrigger } from '@components/ui/tooltip';
     import { log } from '@services/ObservabilityService';
     import type { UnlistenFn } from '@tauri-apps/api/event';
     import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -89,54 +88,42 @@
         data-tauri-drag-region
     >
         <div class="flex h-full items-center" data-testid="settings-window-controls">
-            <Tooltip :text="t('window.minimize')">
-                <TooltipTrigger as-child>
-                    <button
-                        type="button"
-                        data-testid="settings-window-minimize"
-                        data-tauri-drag-region="false"
-                        class="flex h-full w-11 items-center justify-center text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-900"
-                        :aria-label="t('window.minimize')"
-                        @click="handleMinimize"
-                    >
-                        <AppIcon name="minimize" class="h-3.5 w-3.5" />
-                    </button>
-                </TooltipTrigger>
-            </Tooltip>
+            <button
+                type="button"
+                data-testid="settings-window-minimize"
+                data-tauri-drag-region="false"
+                class="flex h-full w-11 items-center justify-center text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-900"
+                :aria-label="t('window.minimize')"
+                @click="handleMinimize"
+            >
+                <AppIcon name="minimize" class="h-3.5 w-3.5" />
+            </button>
 
-            <Tooltip :text="isWindowMaximized ? t('window.restore') : t('window.maximize')">
-                <TooltipTrigger as-child>
-                    <button
-                        type="button"
-                        data-testid="settings-window-maximize"
-                        data-tauri-drag-region="false"
-                        class="flex h-full w-11 items-center justify-center text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-900"
-                        :aria-label="isWindowMaximized ? t('window.restore') : t('window.maximize')"
-                        @click="handleToggleMaximize"
-                    >
-                        <AppIcon
-                            :name="isWindowMaximized ? 'restore-square' : 'maximize-square'"
-                            class="h-3.5 w-3.5"
-                            :class="isWindowMaximized ? '-scale-x-100' : ''"
-                        />
-                    </button>
-                </TooltipTrigger>
-            </Tooltip>
+            <button
+                type="button"
+                data-testid="settings-window-maximize"
+                data-tauri-drag-region="false"
+                class="flex h-full w-11 items-center justify-center text-neutral-500 transition-colors hover:bg-neutral-200/70 hover:text-neutral-900"
+                :aria-label="isWindowMaximized ? t('window.restore') : t('window.maximize')"
+                @click="handleToggleMaximize"
+            >
+                <AppIcon
+                    :name="isWindowMaximized ? 'restore-square' : 'maximize-square'"
+                    class="h-3.5 w-3.5"
+                    :class="isWindowMaximized ? '-scale-x-100' : ''"
+                />
+            </button>
 
-            <Tooltip :text="t('window.close')">
-                <TooltipTrigger as-child>
-                    <button
-                        type="button"
-                        data-testid="settings-window-close"
-                        data-tauri-drag-region="false"
-                        class="flex h-full w-11 items-center justify-center text-neutral-500 transition-colors hover:bg-red-600 hover:text-white"
-                        :aria-label="t('window.close')"
-                        @click="handleClose"
-                    >
-                        <AppIcon name="close" class="h-3.5 w-3.5" />
-                    </button>
-                </TooltipTrigger>
-            </Tooltip>
+            <button
+                type="button"
+                data-testid="settings-window-close"
+                data-tauri-drag-region="false"
+                class="flex h-full w-11 items-center justify-center text-neutral-500 transition-colors hover:bg-red-600 hover:text-white"
+                :aria-label="t('window.close')"
+                @click="handleClose"
+            >
+                <AppIcon name="close" class="h-3.5 w-3.5" />
+            </button>
         </div>
     </header>
 </template>

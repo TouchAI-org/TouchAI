@@ -4,6 +4,8 @@ import {
     calculateSettingsSecondarySidebarWidth,
     clampSettingsSecondarySidebarWidth,
     getSettingsSecondarySidebarMaxWidth,
+    observeSettingsWindowContentWidth,
+    readSettingsWindowContentWidth,
     SETTINGS_PRIMARY_SIDEBAR_RESIZE_EVENT,
     SETTINGS_RESIZE_KEYBOARD_STEP,
     SETTINGS_SECONDARY_PANEL_RESIZE_EVENT,
@@ -34,7 +36,7 @@ function readPointerId(event: Event): number | null {
 
 export function useSettingsResizablePanel() {
     const panelWidth = ref(SETTINGS_SECONDARY_SIDEBAR_DEFAULT_WIDTH);
-    const windowWidth = ref(window.innerWidth);
+    const windowWidth = ref(readSettingsWindowContentWidth());
     const layoutRevision = ref(0);
     const dragStartClientX = ref(0);
     const dragStartWidth = ref(SETTINGS_SECONDARY_SIDEBAR_DEFAULT_WIDTH);
@@ -43,6 +45,7 @@ export function useSettingsResizablePanel() {
     const previousBodyCursor = ref('');
     const previousBodyUserSelect = ref('');
     const isResizing = ref(false);
+    let stopObservingShellWidth: (() => void) | null = null;
 
     const getPanelClampOptions = () => ({
         availableWidth: windowWidth.value,
@@ -84,7 +87,7 @@ export function useSettingsResizablePanel() {
     };
 
     const handleLayoutResize = () => {
-        windowWidth.value = window.innerWidth;
+        windowWidth.value = readSettingsWindowContentWidth();
         reconcilePanelWidth();
     };
 
@@ -206,6 +209,8 @@ export function useSettingsResizablePanel() {
     };
 
     onBeforeUnmount(() => {
+        stopObservingShellWidth?.();
+        stopObservingShellWidth = null;
         window.removeEventListener('resize', handleLayoutResize);
         window.removeEventListener(SETTINGS_PRIMARY_SIDEBAR_RESIZE_EVENT, handleLayoutResize);
         stopResize();
@@ -214,7 +219,8 @@ export function useSettingsResizablePanel() {
     onMounted(() => {
         window.addEventListener('resize', handleLayoutResize);
         window.addEventListener(SETTINGS_PRIMARY_SIDEBAR_RESIZE_EVENT, handleLayoutResize);
-        reconcilePanelWidth();
+        handleLayoutResize();
+        stopObservingShellWidth = observeSettingsWindowContentWidth(handleLayoutResize);
         notifySecondaryPanelResize();
     });
 

@@ -4,6 +4,7 @@ import { browser } from './browser';
 import { builtInTools } from './builtInTools';
 import { clipboard } from './clipboard';
 import { database } from './database';
+import { font } from './font';
 import { log } from './log';
 import * as mcp from './mcp';
 import { observability } from './observability';
@@ -78,6 +79,7 @@ export {
     builtInTools,
     clipboard,
     database,
+    font,
     log,
     mcp,
     observability,
@@ -100,6 +102,7 @@ export const native = {
     log,
     observability,
     database,
+    font,
     paths,
     mcp,
     quickSearch,

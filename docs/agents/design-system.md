@@ -207,23 +207,35 @@ app is not evidence, however green it is. Both layers are pinned to the real thi
 depends on that file, so without it the whole interface renders in a generic serif
 that no user sees.
 
-The file is a variable font, and the `format()` hint on that rule decides whether it is
-painted at all. An engine that is not told the file carries a variation axis loads it as
-a static face, finds no instance for the requested weight, and silently substitutes
-`serif` — no error, `document.fonts.check()` still returns `true`, and the face still
-reports `status: "loaded"`. The rule must therefore use the form CSS Fonts 4 defines:
+The file is a variable font. The standard `format('woff2')` container hint is enough:
+variation support comes from `font-weight: 250 900` in the rule, not from the format
+string. Measured with this file at weight 500, `woff2`, the legacy
+`woff2-variations` alias, and a face built directly from the bytes render identically
+in WebView2 and WebKit.
 
 ```css
-src: url('…woff2') format('woff2-variations');
+src: url('SourceHanSerifSC-VF.ttf.woff2') format('woff2');
 ```
 
-`format('woff2') tech(variations)` is the modern equivalent. `format('woff2 supports
-variations')` is **not** in the specification — `<font-format>` accepts only `woff2`,
-`woff`, `opentype` and friends, and the variation requirement is expressed through
-`<font-tech>`. It appeared in pre-2018 articles about an early draft. Chromium 156
-parses it leniently enough to work while Chromium 155 rejects the entire `src` entry, so
-the same rule rendered the font on a developer machine and fell back on CI. That cost
-several wrong diagnoses; do not reintroduce it.
+WebKitGTK 2.52 rejects the legacy `woff2-variations` alias outright: it drops the
+whole `src` entry and leaves the face at `status: "error"`. Keep the standard
+container value. Do **not** use `format('woff2 supports variations')` either; that
+string is not in the specification and older Chromium releases reject the entire
+`src` entry.
+
+The same WebKitGTK build also rejects this particular WOFF2 during decoding: the
+compressed face is 21.6 MB but expands to 59,997,432 bytes, above its 30 MB output
+limit. The renderer detects the rejected face (including the false-positive case
+where `document.fonts.check()` returns `true` while `FontFace.status` is `error`)
+and asks `prepare_product_font_file` for a fallback. That native command decodes
+the verified WOFF2 once with the `wuff` crate, caches a plain TTF beside it, and
+returns the TTF path. The renderer then registers the same family from
+`format('truetype')`; this is still the product face, not a system font swap.
+
+When the asset URL cannot be fetched, the app removes the failed `@font-face` rule
+before registering the file bytes in memory. Keeping the failed face in the family
+would leave WebKit resolving the same family to the poisoned rule, so the preview
+recorder also accepts a loaded in-memory face without a style rule.
 
 `apps/desktop/e2e-tests/e2e-font.js` provisions the file for the application layer. It
 fetches the exact file the product uses from jsDelivr (falling back to the product's own
@@ -249,12 +261,12 @@ generic `serif` do not work for the same reason: on a machine with a CJK serif i
 it resolves to a near-identical design, and on a bare runner it resolves to a font with
 no Han glyphs, so in both cases a double fallback reads as a match.
 
-**Window size.** The settings baselines capture the product's own default window
-(`SETTINGS_WINDOW_DEFAULT_SIZE`, mirroring
-`SETTINGS_WINDOW_WIDTH`/`SETTINGS_WINDOW_HEIGHT` in
-`src-tauri/src/core/window/settings/mod.rs`). A GitHub-hosted runner only has a
-1024x768 desktop, but Windows does not clamp a window to the desktop and WebDriver
-captures the window rather than the screen, so the real size works there.
+**Window size.** The settings baselines capture the product's own 1120x700 visible
+surface. `SETTINGS_WINDOW_DEFAULT_SIZE` is the native window size and therefore also
+includes the transparent 24 px shadow gutter on each side. Both mirror the content and
+native constants in `src-tauri/src/core/window/settings/mod.rs`. A GitHub-hosted runner
+only has a 1024x768 desktop, but Windows does not clamp a window to the desktop and
+WebDriver captures the window rather than the screen, so the real size works there.
 
 #### Text, language, and tolerance
 

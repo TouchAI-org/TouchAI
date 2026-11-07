@@ -98,6 +98,10 @@
     --color-scrollbar-thumb-hover: rgba(156, 163, 175, 0.6);
     --color-overlay-fade: rgba(255, 255, 255, 0.95);
 
+    --shadow-window:
+        var(--shadow-window-key), var(--shadow-window-halo), var(--shadow-window-mid),
+        var(--shadow-window-far);
+
     /*
      * ── Widget contract ───────────────────────────────────────────────────
      *

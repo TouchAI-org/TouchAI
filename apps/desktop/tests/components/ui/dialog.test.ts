@@ -70,6 +70,32 @@ function mountDialog(contentClass = '', overlayClass = '') {
     );
 }
 
+function mountDialogBeforeSettingsRoot() {
+    return mount(
+        {
+            components: {
+                Dialog,
+                DialogContent,
+                DialogHeader,
+                DialogTitle,
+            },
+            template: `
+                <div>
+                    <Dialog :open="true">
+                        <DialogContent force-mount>
+                            <DialogHeader>
+                                <DialogTitle>标题</DialogTitle>
+                            </DialogHeader>
+                        </DialogContent>
+                    </Dialog>
+                    <div id="settings-modal-root" class="relative"></div>
+                </div>
+            `,
+        },
+        { attachTo: document.body }
+    );
+}
+
 function dialogCard(): Element {
     const card = document.querySelector('[role="dialog"]');
     expect(card, 'dialog content was not rendered').not.toBeNull();
@@ -81,6 +107,19 @@ function cardClasses(): string[] {
 }
 
 describe('ui/Dialog presence hooks', () => {
+    it('user gets a settings-scoped overlay after the shell mounts', async () => {
+        const wrapper = mountDialogBeforeSettingsRoot();
+        await flushPromises();
+
+        const root = document.getElementById('settings-modal-root');
+        expect(root).not.toBeNull();
+        expect(root?.contains(dialogCard())).toBe(true);
+        expect(cardClasses()).toContain('absolute');
+        expect(cardClasses()).not.toContain('fixed');
+
+        wrapper.unmount();
+    });
+
     it('renders the card with the t-modal hook', async () => {
         mountDialog();
         await flushPromises();

@@ -405,6 +405,48 @@ describe('user navigates the settings sections', () => {
         expect(resizer.attributes('aria-valuemax')).toBe(String(effectiveMax));
     });
 
+    it('user keeps the sidebar inside the visible shell when the native window resizes', async () => {
+        const shell = document.createElement('div');
+        let visibleWidth = 1400;
+        shell.dataset.testid = 'settings-window-shell';
+        shell.getBoundingClientRect = () => new DOMRect(0, 0, visibleWidth, 700);
+        document.body.append(shell);
+
+        Object.defineProperty(window, 'innerWidth', {
+            configurable: true,
+            value: 1400,
+        });
+
+        try {
+            const wrapper = mount(NavigationSidebar, {
+                props: {
+                    activeSection: 'ai-services',
+                },
+            });
+            const sidebar = wrapper.get('[data-testid="settings-sidebar"]');
+            const resizer = wrapper.get('[data-testid="settings-sidebar-resizer"]');
+
+            await resizer.trigger('keydown', { key: 'End' });
+            expect(sidebar.attributes('style')).toContain(`width: ${SETTINGS_SIDEBAR_MAX_WIDTH}px`);
+
+            visibleWidth = SETTINGS_LAYOUT_MIN_WIDTH;
+            window.dispatchEvent(new Event('resize'));
+            await wrapper.vm.$nextTick();
+
+            const effectiveMax = Math.max(
+                SETTINGS_SIDEBAR_MIN_WIDTH,
+                SETTINGS_LAYOUT_MIN_WIDTH -
+                    SETTINGS_SECONDARY_SIDEBAR_DEFAULT_WIDTH -
+                    SETTINGS_DETAIL_PANEL_MIN_WIDTH
+            );
+
+            expect(sidebar.attributes('style')).toContain(`width: ${effectiveMax}px`);
+            expect(resizer.attributes('aria-valuemax')).toBe(String(effectiveMax));
+        } finally {
+            shell.remove();
+        }
+    });
+
     it('user supports keyboard resizing from the sidebar separator', async () => {
         const wrapper = mount(NavigationSidebar, {
             props: {

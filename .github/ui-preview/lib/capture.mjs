@@ -13,6 +13,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { ffmpegBinary, ffprobeBinary } from './platform.mjs';
+import {
+    contentWindowFrame,
+    SETTINGS_WINDOW_HEIGHT,
+    SETTINGS_WINDOW_WIDTH,
+    WINDOW_SHADOW_GUTTER,
+} from './profile.mjs';
 
 // Keep this in sync with the workflow env and the platform display helpers.
 export const DESKTOP_COLOUR = '#d9d4c8';
@@ -142,9 +148,10 @@ export function windowGeometry(display, id) {
 /**
  * Picks the visible app window for a surface.
  *
- * The search window is 750 wide and the settings window is 1120x700, so the
- * surface decides by size. This does not depend on input focus, which is not
- * reliable when the driver drives the app instead of a person.
+ * The search window is 750 wide and the settings window is 1168x748 including
+ * its shadow gutter. The surface decides by size. This does not depend on input
+ * focus, which is not reliable when the driver drives the app instead of a
+ * person.
  */
 export function windowForSurface(display, surface, scale = 1) {
     const env = { ...process.env, DISPLAY: display };
@@ -164,8 +171,8 @@ export function windowForSurface(display, surface, scale = 1) {
     const score = (geometry) =>
         surface === 'settings'
             ? (geometry.width >= 900 * scale && geometry.height >= 500 * scale ? 0 : 10000) +
-              Math.abs(geometry.width - 1120 * scale) +
-              Math.abs(geometry.height - 700 * scale)
+              Math.abs(geometry.width - SETTINGS_WINDOW_WIDTH * scale) +
+              Math.abs(geometry.height - SETTINGS_WINDOW_HEIGHT * scale)
             : (geometry.width <= 900 * scale ? 0 : 10000) + Math.abs(geometry.width - 750 * scale);
 
     return candidates.sort((left, right) => score(left) - score(right))[0];
@@ -301,20 +308,127 @@ export function cropToElement({
 }
 
 /**
+ * Returns the visible-content rectangle inside a native window capture.
+ *
+ * A screenshot whose size is not larger than the gutter on both axes cannot
+ * contain a padded shell, so callers should leave it untouched.
+ */
+export function contentCaptureFrame(size, gutter = WINDOW_SHADOW_GUTTER) {
+    if (!size || size.width <= gutter * 2 || size.height <= gutter * 2) {
+        return null;
+    }
+
+    return contentWindowFrame({ width: size.width, height: size.height, x: 0, y: 0 }, gutter);
+}
+
+/**
+ * Converts the CSS distances between the native viewport and the visible shell
+ * into one uniform capture inset. Maximized windows have zero padding; a
+ * rounded, floating window has the same gutter on every side. An asymmetric
+ * result is not safe to crop uniformly, so callers fall back to the configured
+ * profile value.
+ */
+export function contentInsetFromShellMetrics(metrics) {
+    if (!metrics) {
+        return null;
+    }
+
+    const values = [metrics.left, metrics.top, metrics.right, metrics.bottom];
+    if (values.some((value) => !Number.isFinite(value) || value < 0)) {
+        return null;
+    }
+
+    const inset = Math.max(...values);
+    if (values.some((value) => Math.abs(value - inset) > 1)) {
+        return null;
+    }
+
+    return Math.round(inset);
+}
+
+/**
+ * Crops a native WebDriver screenshot to the visible shell.
+ *
+ * Linux captures already crop through `captureScreenshot`; macOS and Windows
+ * return the whole webview, including the transparent shadow gutter. Keeping
+ * the same content frame on every platform makes the stills comparable and
+ * prevents the gutter from being reported as horizontal overflow.
+ */
+export function cropToContentFrame({ file, gutter = WINDOW_SHADOW_GUTTER }) {
+    const size = pngSize(file);
+    const frame = contentCaptureFrame(size, gutter);
+
+    if (!size || !frame) {
+        return size;
+    }
+
+    const scratch = `${file}.crop.png`;
+    const result = run(ffmpegBinary(), [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-y',
+        '-i',
+        file,
+        '-vf',
+        `crop=${frame.width}:${frame.height}:${frame.x}:${frame.y}`,
+        '-frames:v',
+        '1',
+        scratch,
+    ]);
+
+    if (result.status !== 0 || !fs.existsSync(scratch)) {
+        fs.rmSync(scratch, { force: true });
+        return null;
+    }
+
+    fs.renameSync(scratch, file);
+    return { width: frame.width, height: frame.height };
+}
+
+/**
  * Captures one window.
  *
  * The window is captured by id rather than by cropping the root: the app
  * recenters itself when its height changes, so a geometry read a moment earlier
  * can be stale and produce a black crop.
  */
-export function captureScreenshot({ display, file, geometry, id }) {
+export function captureScreenshot({ display, file, geometry, id, inset = 0 }) {
     if (id) {
-        const direct = run('import', ['-window', String(id), file], {
+        const directFile = inset > 0 ? `${file}.window.png` : file;
+        const direct = run('import', ['-window', String(id), directFile], {
             env: { ...process.env, DISPLAY: display },
         });
 
-        if (direct.status === 0 && fs.existsSync(file)) {
+        if (direct.status === 0 && fs.existsSync(directFile)) {
             const size = windowGeometry(display, id);
+
+            if (inset > 0) {
+                if (!size) {
+                    fs.rmSync(directFile, { force: true });
+                    throw new Error(
+                        'the window disappeared before its screenshot could be cropped'
+                    );
+                }
+
+                const content = contentWindowFrame(size, inset);
+                const convert = hasCommand('magick') ? 'magick' : 'convert';
+                const result = run(convert, [
+                    directFile,
+                    '-crop',
+                    `${content.width}x${content.height}+${inset}+${inset}`,
+                    '+repage',
+                    file,
+                ]);
+
+                fs.rmSync(directFile, { force: true });
+
+                if (result.status !== 0) {
+                    throw new Error(`${convert} failed: ${result.stderr.trim()}`);
+                }
+
+                return { width: content.width, height: content.height };
+            }
 
             return {
                 width: size?.width ?? 0,
@@ -340,7 +454,8 @@ export function captureScreenshot({ display, file, geometry, id }) {
         throw new Error('the window disappeared before its screenshot could be cropped');
     }
 
-    const crop = `${target.width}x${target.height}+${target.x}+${target.y}`;
+    const content = inset > 0 ? contentWindowFrame(target, inset) : target;
+    const crop = `${content.width}x${content.height}+${content.x}+${content.y}`;
     const convert = hasCommand('magick') ? 'magick' : 'convert';
     const result = run(convert, [scratch, '-crop', crop, '+repage', file]);
 
@@ -350,7 +465,7 @@ export function captureScreenshot({ display, file, geometry, id }) {
         throw new Error(`${convert} failed: ${result.stderr.trim()}`);
     }
 
-    return { width: target.width, height: target.height };
+    return { width: content.width, height: content.height };
 }
 
 /**
