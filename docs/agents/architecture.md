@@ -55,6 +55,8 @@ Window labels, event ordering, and session identity are cross-window contracts. 
 
 `SearchOverlayHost` owns anchored placement and scrollable overlay bounds inside the same WebView. Rust's `search_host` accepts bounded host geometry, and `search_region` applies the union of visible panel and overlay regions on Windows. The renderer reconciles the accepted native snapshot instead of assuming a requested size was applied. Native updates occur at transition boundaries, not on every animation frame.
 
+Dragging owns position, not size. A position-only move may leave the card partly outside the screen and must preserve its dimensions and client-space placement after release. Card capacity comes from the host viewport and monitor dimensions, independently of the host's screen position. Only overlays use the intersection with the visible work area. Explicit reset, maximize/restore, and changes to monitor capacity retain their separate bounds policies.
+
 `apps/desktop/tests/layout/README.md` describes the browser layout regression and its native-boundary mocks. Physical monitor/DPI changes, cross-application click-through, and release latency/memory budgets still require native acceptance.
 
 ## Subsystems
