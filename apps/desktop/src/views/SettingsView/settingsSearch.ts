@@ -43,6 +43,12 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
         { labelKey: 'settings.general.startMinimized', targetId: 'start-minimized' },
         { labelKey: 'settings.general.windowSize', targetId: 'window-size' },
         { labelKey: 'settings.general.outputScrollBehavior', targetId: 'output-scroll' },
+        { labelKey: 'settings.general.motion.speed', targetId: 'animation-speed' },
+        {
+            labelKey: 'settings.general.motion.automatic',
+            descriptionKey: 'settings.general.motion.automaticDescription',
+            targetId: 'automatically-reduce-motion',
+        },
         {
             labelKey: 'settings.general.interfaceLanguage',
             descriptionKey: 'settings.general.languageDescription',

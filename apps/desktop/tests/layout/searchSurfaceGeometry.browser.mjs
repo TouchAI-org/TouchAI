@@ -41,6 +41,8 @@ const pause=ms=>new Promise(r=>setTimeout(r,ms));
 onMounted(()=>{ready.value=true});
 window.geometryProbe={
 async moveHost(x,onAnchor){window.hostPosition().x=x;floats.value=onAnchor;await resize.syncWindowState();await nextTick()},
+async beginResize(height){await resize.syncWindowState();await resize.playSessionExpandAnimation(height);const animation=card.value.getAnimations()[0];if(!animation)throw new Error('Expected a real card animation');await animation.ready;animation.pause();animation.currentTime=animation.effect.getTiming().duration/2;return {height:card.value.getBoundingClientRect().height,state:animation.playState}},
+readResize(){return {bounds:card.value.getBoundingClientRect().toJSON(),height:resize.currentHeight.value,animating:resize.isCardGrowing.value,animations:card.value.getAnimations().length}},
 async prepareHidden(){window.monitorHost=false;await resize.syncWindowState();await nextTick();return {panel:card.value.parentElement.getBoundingClientRect().toJSON(),card:card.value.getBoundingClientRect().toJSON()}},
 async expand(interrupt=false){await pause(100);const samples=[];let done=false;const read=()=>{const r=card.value.getBoundingClientRect();samples.push({height:r.height,top:r.top,hostY:window.hostPosition().y,center:window.hostPosition().y+(r.top+r.height/2)*window.devicePixelRatio});if(!done)requestAnimationFrame(read)};read();await resize.playSessionExpandAnimation(660);if(interrupt){await pause(80);await resize.playSessionExpandAnimation(600)}await pause(500);done=true;return samples},
 async showMenu(){const focused=new Promise(resolve=>onRevealed=resolve);reveal.value=false;open.value=true;await nextTick();await menu.value.refreshPosition();await new Promise(requestAnimationFrame);reveal.value=true;const focus=await focused;await pause(220);return {focus,card:card.value.getBoundingClientRect().toJSON(),editor:editor.value.getBoundingClientRect().toJSON(),menu:document.querySelector('[data-search-overlay-host]').getBoundingClientRect().toJSON()}},
@@ -67,7 +69,7 @@ const aliases = {
 const entry = `${outputDirectory}/geometry-entry.ts`;
 await writeFile(
     entry,
-    `import{createApp}from'vue';import App from'probe:fixture.vue';import '${root}/src/styles/motion.css';createApp(App).mount('#probe');`
+    `import{createApp,h,ref}from'vue';import{provideMotionPreferences}from'${root}/src/composables/useMotion';import App from'probe:fixture.vue';import '${root}/src/styles/motion.css';createApp(window.sharedMotionPolicy?{setup(){window.motionPolicy=provideMotionPreferences(ref('standard'),ref(true));return()=>h(App)}}:App).mount('#probe');`
 );
 const result = await build({
     root,
@@ -110,6 +112,7 @@ const browser = await chromium.launch({
 const reports = [];
 const focusReports = [];
 const edgeReports = [];
+const motionReports = [];
 try {
     const hiddenPage = await browser.newPage();
     await hiddenPage.setContent(
@@ -122,15 +125,47 @@ try {
     assert.equal(hidden.card.width, 750, 'hidden card can be measured before native show');
     await writeFile(`${outputDirectory}/hidden-geometry.json`, JSON.stringify(hidden, null, 2));
     await hiddenPage.close();
-    for (const reducedMotion of ['no-preference', 'reduce']) {
-        const page = await browser.newPage({ reducedMotion });
+    for (const mode of ['no-preference', 'reduce', 'css-only', 'automatic-shared']) {
+        const page = await browser.newPage({
+            reducedMotion: mode === 'reduce' ? 'reduce' : 'no-preference',
+        });
         await page.setContent(
             `<style>${css}.fixed{position:fixed}.inline-block{display:inline-block}</style><div id="probe"></div>`
         );
+        if (mode === 'automatic-shared') {
+            await page.evaluate(() => {
+                window.sharedMotionPolicy = true;
+                const now = performance.now.bind(performance);
+                window.motionClockDelay = 0;
+                performance.now = () => now() + window.motionClockDelay;
+            });
+        }
         await page.addScriptTag({ content: bundle });
+        if (mode === 'css-only') {
+            await page.evaluate(() =>
+                document.documentElement.setAttribute('data-reduced-motion', '')
+            );
+        }
+        if (mode === 'automatic-shared') {
+            // Feed two delayed samples through the real shared pressure sampler.
+            // The popup still uses real DOM, focus, CSS and animation timelines.
+            for (let sample = 0; sample < 2; sample += 1) {
+                await page.evaluate(() => (window.motionClockDelay += 200));
+                await page.waitForTimeout(1100);
+            }
+            assert.deepEqual(
+                await page.evaluate(() => ({
+                    reduced: window.motionPolicy.reducedMotion.value,
+                    duration: window.motionPolicy.duration(150),
+                    css: document.documentElement.hasAttribute('data-reduced-motion'),
+                })),
+                { reduced: true, duration: 0, css: true },
+                'Shared automatic policy suppresses both JavaScript and CSS before focus handoff'
+            );
+        }
         for (let opening = 0; opening < 2; opening += 1) {
             const { focus } = await page.evaluate(() => window.geometryProbe.showMenu());
-            focusReports.push({ reducedMotion, opening, ...focus });
+            focusReports.push({ reducedMotion: mode, opening, ...focus });
             await page.evaluate(() => window.geometryProbe.hideMenu());
         }
         await page.close();
@@ -181,6 +216,56 @@ try {
         `${outputDirectory}/overlay-edge-results.json`,
         JSON.stringify(edgeReports, null, 2)
     );
+    for (const scale of [1, 1.5]) {
+        const page = await browser.newPage({
+            viewport: { width: 846, height: 1080 },
+            deviceScaleFactor: scale,
+            reducedMotion: 'no-preference',
+        });
+        await page.setContent(`<style>${css}</style><div id="probe"></div>`);
+        await page.addScriptTag({ content: bundle });
+        let fromHeight = 60;
+        // Pausing the browser's actual WAAPI timeline makes the mid-animation
+        // preference change deterministic without replacing Animation with a mock.
+        for (const height of [660, 180, 480]) {
+            await page.emulateMedia({ reducedMotion: 'no-preference' });
+            const mid = await page.evaluate(
+                (height) => window.geometryProbe.beginResize(height),
+                height
+            );
+            assert.equal(mid.state, 'paused');
+            assert.ok(
+                mid.height > Math.min(fromHeight, height) &&
+                    mid.height < Math.max(fromHeight, height),
+                'The preference changes during an unfinished resize'
+            );
+            await page.emulateMedia({ reducedMotion: 'reduce' });
+            await page.waitForFunction(() => !window.geometryProbe.readResize().animating);
+            const samples = await page.evaluate(async () => {
+                const samples = [window.geometryProbe.readResize()];
+                for (let frame = 0; frame < 4; frame += 1) {
+                    await new Promise(requestAnimationFrame);
+                    samples.push(window.geometryProbe.readResize());
+                }
+                return samples;
+            });
+            for (const sample of samples) {
+                assert.equal(sample.animations, 0, 'Finished WAAPI effects are removed');
+                assert.equal(sample.height, height, 'Native accepted height remains the target');
+                assert.ok(
+                    Math.abs(sample.bounds.height - height) <= 1,
+                    'Cleanup keeps the final card height'
+                );
+                assert.ok(
+                    Math.abs(sample.bounds.top + sample.bounds.height / 2 - 540) <= 1,
+                    'Cleanup keeps the card centered'
+                );
+            }
+            motionReports.push({ scale, fromHeight, height, mid, samples });
+            fromHeight = height;
+        }
+        await page.close();
+    }
     for (const width of [516, 846]) {
         for (const scale of [1, 1.5]) {
             for (const interrupt of [false, true]) {
@@ -212,6 +297,10 @@ try {
     }
 } finally {
     await browser.close();
+    await writeFile(
+        `${outputDirectory}/motion-resize-results.json`,
+        JSON.stringify(motionReports, null, 2)
+    );
 }
 await writeFile(`${outputDirectory}/geometry-results.json`, JSON.stringify(reports, null, 2));
 for (const report of reports) {
@@ -233,5 +322,5 @@ for (const report of reports) {
     }
 }
 console.log(
-    `PASS: ${reports.length} browser geometry cases; ${focusReports.length} popup focus cases; ${edgeReports.length} off-screen overlay cases`
+    `PASS: ${reports.length} browser geometry cases; ${focusReports.length} popup focus cases; ${edgeReports.length} off-screen overlay cases; ${motionReports.length} mid-resize motion changes`
 );

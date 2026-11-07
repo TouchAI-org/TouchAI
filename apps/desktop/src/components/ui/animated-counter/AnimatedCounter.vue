@@ -14,6 +14,8 @@
      */
     import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
+    import { useMotion } from '@/composables/useMotion';
+
     interface Props {
         value: number;
         prefix?: string;
@@ -48,12 +50,14 @@
     const display = ref(0);
     let raf = 0;
     let velocity = 0;
+    const { reducedMotion, duration } = useMotion();
 
     function step(): void {
         const delta = props.value - display.value;
         // Semi-implicit Euler: update velocity before position, which is more stable than explicit.
-        velocity += (STIFFNESS * delta - DAMPING * velocity) * (1 / 60);
-        display.value += velocity * (1 / 60);
+        const dt = 1 / (60 * (duration(1000) / 1000));
+        velocity += (STIFFNESS * delta - DAMPING * velocity) * dt;
+        display.value += velocity * dt;
 
         if (Math.abs(delta) < REST && Math.abs(velocity) < REST) {
             display.value = props.value;
@@ -65,11 +69,13 @@
     }
 
     function kick(): void {
+        if (reducedMotion.value || props.text !== undefined) {
+            display.value = props.value;
+            return;
+        }
         if (raf) return;
         raf = requestAnimationFrame(step);
     }
-
-    const reducedMotion = ref(false);
 
     watch(
         () => props.value,
@@ -87,16 +93,24 @@
 
     const root = ref<HTMLElement | null>(null);
     let observer: IntersectionObserver | null = null;
-    const armed = ref(props.animateOnView);
+    const armed = ref(props.animateOnView && !reducedMotion.value);
+
+    watch(
+        reducedMotion,
+        (reduced) => {
+            if (!reduced) return;
+            if (raf) cancelAnimationFrame(raf);
+            raf = velocity = 0;
+            observer?.disconnect();
+            observer = null;
+            armed.value = false;
+            display.value = props.value;
+        },
+        { flush: 'sync' }
+    );
 
     onMounted(() => {
-        // jsdom has no matchMedia; under test treat reduced motion as off.
-        reducedMotion.value =
-            typeof window.matchMedia === 'function'
-                ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-                : false;
-
-        if (!props.animateOnView) return;
+        if (!armed.value) return;
         const el = root.value;
         if (!el || typeof IntersectionObserver === 'undefined') {
             armed.value = false;

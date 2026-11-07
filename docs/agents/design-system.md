@@ -7,6 +7,7 @@ primitives, or view-layer styling.
 - [Token rules](#token-rules)
 - [Primitive rules](#primitive-rules)
 - [Changing things](#changing-things)
+- [Motion preferences](#motion-preferences)
 - [Guards](#guards)
 - [Visual regression](#visual-regression)
 - [Where things live](#where-things-live)
@@ -75,6 +76,16 @@ number looks small — 62 call sites depend on `--radius-lg`.
 
 Adding or changing anything under `styles/` or `components/ui/` requires maintainer
 review via CODEOWNERS.
+
+## Motion preferences
+
+`App.vue` owns one reactive motion policy per window. CSS uses `--motion-duration-scale`;
+JavaScript uses `useMotion().duration` or its shared transitions. System reduced motion
+takes precedence. Automatic reduction samples renderer delay only while native and
+document visibility permit it, after settings initialize.
+
+Keep motion-v's mount-time `MotionConfig` stable; use the shared reactive transitions
+for suppression and recovery, including layout, so elements recover without remounting.
 
 ## Guards
 

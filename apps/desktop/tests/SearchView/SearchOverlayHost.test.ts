@@ -450,10 +450,14 @@ describe('SearchOverlayHost', () => {
         wrapper.unmount();
     });
 
-    it('releases the closing overlay on the next frame when reduced motion is preferred', async () => {
+    it('user releases the closing overlay immediately when reduced motion is preferred', async () => {
         vi.stubGlobal(
             'matchMedia',
-            vi.fn(() => ({ matches: true }))
+            vi.fn(() => ({
+                matches: true,
+                addEventListener: vi.fn(),
+                removeEventListener: vi.fn(),
+            }))
         );
         const anchor = document.createElement('button');
         vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue(rect(20, 20));
@@ -466,10 +470,6 @@ describe('SearchOverlayHost', () => {
         runFrames();
 
         await wrapper.setProps({ open: false });
-        await nextTick();
-        expect(wrapper.find('[data-search-overlay-host=true]').exists()).toBe(true);
-
-        runFrames();
         await nextTick();
         expect(wrapper.find('[data-search-overlay-host=true]').exists()).toBe(false);
         expect(wrapper.emitted('afterLeave')).toHaveLength(1);
@@ -506,6 +506,53 @@ describe('SearchOverlayHost', () => {
 
         wrapper.unmount();
     });
+
+    it.each(['before close setup', 'during close timer'])(
+        'user enabling reduced motion %s releases the closing overlay exactly once',
+        async (phase) => {
+            vi.useFakeTimers();
+            let changePreference!: (event: { matches: boolean }) => void;
+            vi.stubGlobal(
+                'matchMedia',
+                vi.fn(() => ({
+                    matches: false,
+                    addEventListener: (_: string, listener: typeof changePreference) => {
+                        changePreference = listener;
+                    },
+                    removeEventListener: vi.fn(),
+                }))
+            );
+            const anchor = document.createElement('button');
+            vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue(rect(20, 20));
+            const wrapper = mount(SearchOverlayHost, {
+                props: { open: true, anchor },
+                slots: { default: '<div>overlay</div>' },
+            });
+            await nextTick();
+            runFrames();
+
+            const closing = wrapper.setProps({ open: false });
+            if (phase === 'during close timer') {
+                await closing;
+                await nextTick();
+                expect(vi.getTimerCount()).toBe(1);
+            }
+            changePreference({ matches: true });
+            await closing;
+            await nextTick();
+
+            expect(wrapper.find('[data-search-overlay-host=true]').exists()).toBe(false);
+            expect(wrapper.emitted('afterLeave')).toHaveLength(1);
+            const regions = wrapper.emitted('regionChange') ?? [];
+            expect(regions[regions.length - 1]).toEqual([null]);
+            expect(vi.getTimerCount()).toBe(0);
+            await wrapper.setProps({ open: true });
+            await vi.advanceTimersByTimeAsync(300);
+            expect(wrapper.find('[data-search-overlay-host=true]').exists()).toBe(true);
+            expect(wrapper.emitted('afterLeave')).toHaveLength(1);
+            wrapper.unmount();
+        }
+    );
 
     it('keeps the enter transition on the motion layer', async () => {
         const anchor = document.createElement('button');

@@ -1,4 +1,5 @@
 import { DEFAULT_APP_UPDATE_CHANNEL, normalizeAppUpdateChannel } from '@/config/appUpdate';
+import { normalizeAnimationSpeed } from '@/config/motion';
 import {
     DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
     resolveSearchWindowDefaultSize,
@@ -77,6 +78,33 @@ function retentionDaysFromString(value: unknown, fallback: number): number {
 }
 
 export const GENERAL_SCALAR_SETTING_SPECS = [
+    {
+        key: 'animation_speed',
+        stateKey: 'animationSpeed',
+        defaultValue: 'standard',
+        parsePersisted: normalizeAnimationSpeed,
+        parseUpdate: normalizeAnimationSpeed,
+        persistBeforeApply: true,
+        store: {
+            computedName: 'animationSpeed',
+            updaterName: 'updateAnimationSpeed',
+            normalizeUpdate: normalizeAnimationSpeed,
+        },
+    },
+    {
+        key: 'automatically_reduce_motion',
+        stateKey: 'automaticallyReduceMotion',
+        defaultValue: true,
+        parsePersisted: (raw) => booleanNotFalse(raw, true),
+        parseUpdate: (value) => booleanNotFalse(value, true),
+        eventValue: (value) => value as boolean,
+        persistBeforeApply: true,
+        store: {
+            computedName: 'automaticallyReduceMotion',
+            updaterName: 'updateAutomaticallyReduceMotion',
+            normalizeUpdate: Boolean,
+        },
+    },
     {
         key: 'global_shortcut',
         stateKey: 'globalShortcut',

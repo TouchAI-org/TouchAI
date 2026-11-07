@@ -1,5 +1,27 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
-import { computed, onScopeDispose, ref } from 'vue';
+import {
+    computed,
+    hasInjectionContext,
+    inject,
+    type InjectionKey,
+    onScopeDispose,
+    provide,
+    type Ref,
+    ref,
+    watchEffect,
+} from 'vue';
+
+import { ANIMATION_SPEEDS, type AnimationSpeed, resolveMotionDuration } from '@/config/motion';
+
+import { useMotionPressure } from './useMotionPressure';
+
+interface MotionPolicy {
+    reducedMotion: Readonly<Ref<boolean>>;
+    duration: (milliseconds: number) => number;
+    setWindowVisible: (visible: boolean) => void;
+}
+
+const motionPolicyKey: InjectionKey<MotionPolicy> = Symbol('motion-policy');
 
 /** CSS is the shared source of truth; motion-v consumes seconds. */
 export function motionSeconds(value: string): number {
@@ -9,7 +31,7 @@ export function motionSeconds(value: string): number {
     return match[2] === 'ms' ? number / 1000 : number;
 }
 
-export function useMotion() {
+function useSystemReducedMotion() {
     const media =
         typeof window !== 'undefined' && typeof window.matchMedia === 'function'
             ? window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -20,6 +42,55 @@ export function useMotion() {
     };
     media?.addEventListener('change', update);
     onScopeDispose(() => media?.removeEventListener('change', update));
+    return reducedMotion;
+}
+
+/** One policy per application window; all consumers share its preference and pressure signal. */
+export function provideMotionPreferences(
+    speed: Readonly<Ref<AnimationSpeed>>,
+    automaticallyReduce: Readonly<Ref<boolean>>,
+    initiallyVisible = true
+) {
+    const systemReduced = useSystemReducedMotion();
+    const windowVisible = ref(initiallyVisible);
+    const pressure = useMotionPressure(
+        computed(() => automaticallyReduce.value && !systemReduced.value),
+        windowVisible
+    );
+    const reducedMotion = computed(() => systemReduced.value || pressure.value);
+    const policy: MotionPolicy = {
+        reducedMotion,
+        duration: (milliseconds) =>
+            resolveMotionDuration(milliseconds, speed.value, reducedMotion.value),
+        setWindowVisible: (visible) => {
+            windowVisible.value = visible;
+        },
+    };
+    provide(motionPolicyKey, policy);
+
+    const root = document.documentElement;
+    watchEffect(
+        () => {
+            root.style.setProperty(
+                '--motion-duration-scale',
+                String(ANIMATION_SPEEDS[speed.value])
+            );
+            root.toggleAttribute('data-reduced-motion', reducedMotion.value);
+        },
+        { flush: 'sync' }
+    );
+    onScopeDispose(() => {
+        root.style.removeProperty('--motion-duration-scale');
+        root.removeAttribute('data-reduced-motion');
+    });
+    return policy;
+}
+
+export function useMotion() {
+    const policy = hasInjectionContext() ? inject(motionPolicyKey, null) : null;
+    const reducedMotion = policy?.reducedMotion ?? useSystemReducedMotion();
+    const duration =
+        policy?.duration ?? ((milliseconds: number) => (reducedMotion.value ? 0 : milliseconds));
 
     const transitions = computed(() => {
         const css =
@@ -36,7 +107,12 @@ export function useMotion() {
                 : ('easeOut' as const);
         const preset = (token: string) => ({
             type: 'tween' as const,
-            duration: reducedMotion.value ? 0 : motionSeconds(css?.getPropertyValue(token) ?? ''),
+            duration:
+                duration(
+                    motionSeconds(
+                        css?.getPropertyValue(`${token}-base`) || css?.getPropertyValue(token) || ''
+                    ) * 1000
+                ) / 1000,
             ease,
         });
         return {
@@ -45,5 +121,10 @@ export function useMotion() {
             slow: preset('--duration-slow'),
         };
     });
-    return { reducedMotion, transitions };
+    return {
+        reducedMotion,
+        duration,
+        transitions,
+        setWindowVisible: (visible: boolean) => policy?.setWindowVisible(visible),
+    };
 }

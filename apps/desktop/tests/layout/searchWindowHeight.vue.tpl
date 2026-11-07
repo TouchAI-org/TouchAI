@@ -52,10 +52,10 @@
         defaultSize: searchWindowDefaultSize,
         ready: viewReady,
     });
-    const { reducedMotion } = useMotion();
+    const { duration } = useMotion();
     const startSearchPanelDragging = () => {};
     const surfaceAnimationDuration = computed(() =>
-        reducedMotion.value ? 0 : SEARCH_SURFACE_MOTION.durationMs
+        duration(SEARCH_SURFACE_MOTION.durationMs)
     );
     /* __SURFACE_STYLE__ */
     /* __CONTENT_STYLES__ */

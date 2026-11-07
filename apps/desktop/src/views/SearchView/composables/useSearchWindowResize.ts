@@ -71,7 +71,7 @@ const MEASURE_COALESCE_MS = 16;
 /** One serialized geometry owner coordinates native bounds and the visible card. */
 export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     const currentWindow = getCurrentWindow();
-    const { reducedMotion } = useMotion();
+    const { reducedMotion, duration: motionDuration } = useMotion();
 
     const currentWidth = ref(0);
     const currentHeight = ref(0);
@@ -233,6 +233,9 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     const isCardGrowing = computed(() => cardAnimation.value !== null);
+    watch(reducedMotion, (reduced) => {
+        if (reduced) cardAnimation.value?.finish();
+    });
 
     const searchWindowHeightPolicy = computed(() =>
         resolveSearchWindowHeightPolicy({
@@ -500,7 +503,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                             animation = animateCardHeight(
                                 revealFrom,
                                 state.currentHeight,
-                                SEARCH_SURFACE_MOTION.durationMs,
+                                motionDuration(SEARCH_SURFACE_MOTION.durationMs),
                                 revealTop - Number.parseFloat(panelStyle.value!.top),
                                 Number.parseFloat(settledPanelStyle.value.top) -
                                     Number.parseFloat(panelStyle.value!.top)
