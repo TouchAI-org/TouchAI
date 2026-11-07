@@ -11,6 +11,13 @@
 @import './markdown.css';
 @import './motion.css';
 
+:root {
+    --search-surface-background: rgb(251 251 246);
+    --search-surface-border: rgb(209 213 219);
+    --search-surface-radius: 0.5rem;
+    --search-surface-shadow: 0 8px 18px -3px rgb(0 0 0 / 0.36), 0 2px 6px -1px rgb(0 0 0 / 0.18);
+}
+
 /* 全局基础样式 */
 @layer base {
     * {
@@ -27,8 +34,8 @@
     }
 
     #app {
-        border-radius: 8px;
-        overflow: hidden;
+        background: transparent;
+        overflow: visible;
     }
 
     /* Linux 桌面窗口是透明的，圆角只能由 #app 自己裁剪。body 必须保持透明，
@@ -48,7 +55,7 @@
 
     body {
         overflow: hidden;
-        background: var(--color-background-primary);
+        background: transparent;
         font-family: var(--font-sans), system-ui;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
@@ -151,6 +158,17 @@
 }
 
 @layer components {
+    .search-view-container {
+        background-color: var(--search-surface-background);
+    }
+
+    .search-surface-elevated {
+        background-color: var(--search-surface-background);
+        border: var(--search-surface-border-width, 1px) solid var(--search-surface-border);
+        border-radius: var(--search-surface-radius);
+        box-shadow: var(--search-surface-shadow);
+    }
+
     .settings-page {
         @apply min-w-0 pt-[83px] pb-12;
         width: min(1000px, calc(100% - 136px));
@@ -367,4 +385,110 @@
         position: absolute;
         right: 0;
     }
+}
+
+/* The native host is a stable transparent envelope. The visible card is the
+ * only element that owns the border, radius, shadow, and clipping. Keeping the
+ * two layout wrappers transparent prevents their bounds from fighting the CSS
+ * height transition and avoids square corners showing through the card. */
+.search-view-surface-viewport,
+.search-view-surface-clip {
+    overflow: visible;
+}
+
+/* Keep the card at the host's top inset; the geometry owner coordinates their motion. */
+.search-view-surface-clip {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+}
+
+.search-view-surface-card {
+    isolation: isolate;
+}
+
+/* QuickSearch hands its existing viewport to the conversation card. Keeping the
+ * component mounted lets the reverse reveal use the same timing as the forward
+ * session reveal instead of producing a display:none frame. */
+.quick-search-handoff-slot {
+    width: 100%;
+}
+
+.quick-search-handoff-shell {
+    display: grid;
+    /* Start every reveal from a real collapsed row. Measuring temporarily opens
+     * the row only so the native host can learn the final height. */
+    grid-template-rows: 0fr;
+    min-height: 0;
+    overflow: hidden;
+    transition: grid-template-rows var(--search-reveal-duration) var(--search-reveal-easing);
+}
+
+.quick-search-handoff-shell--measuring {
+    grid-template-rows: 1fr;
+    transition: none;
+}
+
+.quick-search-handoff-shell--open {
+    grid-template-rows: 1fr;
+}
+
+/* The card folds the list away: the row keeps its full height so the shrinking card edge
+ * is what hides the results, instead of the results fading into an empty card first. */
+.quick-search-handoff-shell--folding {
+    grid-template-rows: 1fr;
+    transition: none;
+    pointer-events: none;
+}
+
+/* Handing the viewport over to a conversation.
+ *
+ * The results keep their place in the layout and collapse: the row animates from the list's own
+ * height to zero on the card's curve, while the conversation above the editor grows into the space
+ * the row gives up. The editor rides between the two, so the whole swap reads as the list shrinking
+ * and the conversation growing instead of one fading out of a card that never changes size.
+ *
+ * The row has to stay in the layout for that: lifting it out (a fixed overlay above the editor)
+ * made the editor jump to the bottom of the card in a single frame, which left only the fade.
+ */
+.quick-search-handoff-shell--handoff {
+    grid-template-rows: 0fr;
+    transition: grid-template-rows var(--search-surface-duration) var(--search-surface-easing);
+    pointer-events: none;
+}
+
+/* The results are painted at full opacity as soon as the row opens.
+ *
+ * A separate fade here ran slower than the card height animation, so the surface showed an
+ * empty white card first and the results only faded in afterwards (the visible "flash"). The
+ * card animation already provides the motion, so the content must not animate on top of it. */
+.quick-search-handoff-shell__content {
+    min-height: 0;
+    height: auto;
+    overflow: hidden;
+    opacity: 1;
+    transform: none;
+    clip-path: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .quick-search-handoff-shell,
+    .quick-search-handoff-shell__content {
+        transition: none;
+    }
+}
+
+/* The card is the panel, not the host interior.
+ *
+ * The native host is committed instantly to the final height (so it is never smaller
+ * than the content), a fixed overlay reserves host height below the panel, and the card
+ * itself owns the height it shows. Unlayered on purpose: this has to win over `h-full`. */
+.search-view-surface-card {
+    height: var(--search-surface-card-height, 100%);
+}
+
+.search-view-surface-card--revealing {
+    /* WAAPI animates height; the template disables backdrop blur during this layout work. */
+    will-change: height;
 }

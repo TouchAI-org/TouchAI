@@ -17,7 +17,8 @@ use crate::{
         database::DatabaseRuntime,
         updater::AppUpdaterState,
         window::{
-            popup::PopupRegistry, search::surface::SearchSurfaceRuntime,
+            search::surface::SearchSurfaceRuntime, search_host::SearchHostRefreshRuntime,
+            search_region::SearchRegionRuntime,
             status_reminder::SessionStatusReminderNotificationRuntime, tray::TrayStatusRuntime,
             webview_recovery::WebviewRecoveryRuntime,
         },
@@ -30,11 +31,18 @@ pub struct SearchSurfacePolicySnapshot {
     pub allow_height_override: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchSurfaceReadinessSnapshot {
+    pub renderer_ready: bool,
+    pub pending_show_source: Option<String>,
+}
+
 pub fn test_builder() -> Builder<MockRuntime> {
     mock_builder()
         .invoke_handler(commands::invoke_handler::<MockRuntime>())
-        .manage(PopupRegistry::new())
-        .manage(SearchSurfaceRuntime::new())
+        .manage(SearchSurfaceRuntime::for_tests())
+        .manage(SearchHostRefreshRuntime::for_tests())
+        .manage(SearchRegionRuntime::for_tests())
         .manage(WebviewRecoveryRuntime::new())
         .manage(SessionStatusReminderNotificationRuntime::for_tests())
         .manage(TrayStatusRuntime::new())
@@ -53,16 +61,35 @@ pub fn attach_test_database_runtime(
     Ok(builder.manage(runtime))
 }
 
-pub fn popup_registry_has<R: Runtime>(app: &App<R>, id: &str) -> bool {
-    app.state::<PopupRegistry>().has(id)
-}
-
 pub fn search_surface_policies<R: Runtime>(app: &App<R>) -> SearchSurfacePolicySnapshot {
     let runtime = app.state::<SearchSurfaceRuntime>();
     SearchSurfacePolicySnapshot {
         hide_on_app_blur: runtime.should_hide_on_app_blur(),
         allow_height_override: runtime.should_allow_height_override(),
     }
+}
+
+pub fn search_surface_readiness<R: Runtime>(app: &App<R>) -> SearchSurfaceReadinessSnapshot {
+    let runtime = app.state::<SearchSurfaceRuntime>();
+    let (renderer_ready, pending_show_source) = runtime.renderer_readiness_snapshot();
+    SearchSurfaceReadinessSnapshot {
+        renderer_ready,
+        pending_show_source: pending_show_source.map(str::to_string),
+    }
+}
+
+pub fn search_surface_protocol<R: Runtime>(
+    app: &App<R>,
+) -> crate::core::window::search::surface::SearchSurfaceProtocolSnapshot {
+    app.state::<SearchSurfaceRuntime>().protocol_snapshot()
+}
+
+pub fn register_search_renderer_load<R: Runtime>(app: &App<R>) -> Result<u64, String> {
+    crate::core::window::search::surface::register_renderer_load_on_main_thread(app.handle())
+}
+
+pub fn search_region_generation<R: Runtime>(app: &App<R>) -> u64 {
+    app.state::<SearchRegionRuntime>().generation()
 }
 
 pub fn tray_status_indicator<R: Runtime>(app: &App<R>) -> Option<String> {

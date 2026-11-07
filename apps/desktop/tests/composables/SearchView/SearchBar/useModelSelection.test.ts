@@ -133,19 +133,19 @@ describe('when the search bar picks the model for the next request', () => {
         );
 
         const [firstResult, secondResult] = await Promise.all([
-            mounted.result.loadPopupModels(),
-            mounted.result.loadPopupModels(),
+            mounted.result.loadDropdownModels(),
+            mounted.result.loadDropdownModels(),
         ]);
 
         expect(firstResult).toEqual(models);
         expect(secondResult).toEqual(models);
         expect(deps.findModels).toHaveBeenCalledTimes(1);
 
-        await mounted.result.loadPopupModels();
+        await mounted.result.loadDropdownModels();
         expect(deps.findModels).toHaveBeenCalledTimes(1);
 
-        mounted.result.invalidatePopupModels();
-        await mounted.result.loadPopupModels();
+        mounted.result.invalidateDropdownModels();
+        await mounted.result.loadDropdownModels();
         expect(deps.findModels).toHaveBeenCalledTimes(2);
 
         mounted.unmount();
@@ -210,7 +210,7 @@ describe('when the search bar picks the model for the next request', () => {
             supportsFiles: true,
         });
 
-        await mounted.result.loadPopupModels();
+        await mounted.result.loadDropdownModels();
 
         await expect(mounted.result.handleModelSelect(activeModel.id)).resolves.toEqual({
             modelId: null,

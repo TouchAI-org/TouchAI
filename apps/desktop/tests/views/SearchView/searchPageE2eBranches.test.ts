@@ -41,18 +41,6 @@ vi.mock('@services/NotificationService', () => ({
     initNotificationPermission: initNotificationPermissionMock,
     notify: vi.fn(),
 }));
-vi.mock('@services/PopupService', () => ({
-    popupManager: {
-        initialize: vi.fn().mockResolvedValue(undefined),
-        state: {
-            isOpen: false,
-            currentType: null,
-            currentPopupId: null,
-            currentWindowLabel: null,
-            currentPopupSessionVersion: null,
-        },
-    },
-}));
 vi.mock('@services/StartupService', () => ({ runStartupTasks: runStartupTasksMock }));
 vi.mock('@composables/useAlert', () => ({ useAlert: vi.fn() }));
 vi.mock('@/stores/settings', () => ({

@@ -1,7 +1,6 @@
-import { AppEvent, eventService } from '@services/EventService';
-import { popupManager } from '@services/PopupService';
 import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
-import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
+import { acknowledgeSearchRegions, installSearchSurfaceBoundary } from '@tests/utils/searchSurface';
+import { mockTauriCommand } from '@tests/utils/tauri';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,26 +8,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SearchView from '@/views/SearchView/index.vue';
 
 // Window geometry and observer delivery are browser/OS boundaries.
-vi.mock('@tauri-apps/api/window', () => ({
-    getCurrentWindow: () => ({
-        label: 'main',
-        isVisible: async () => true,
-        isAlwaysOnTop: async () => false,
-        isMaximized: async () => false,
-        isFullscreen: async () => false,
-        scaleFactor: async () => 1,
-        outerPosition: async () => ({ toLogical: () => ({ x: 0, y: 0 }) }),
-        outerSize: async () => ({ toLogical: () => ({ width: 750, height: 60 }) }),
-        innerSize: async () => ({ toLogical: () => ({ width: 750, height: 60 }) }),
-        onResized: async () => () => undefined,
-        onMoved: async () => () => undefined,
-    }),
-    currentMonitor: async () => ({
-        size: { width: 1920, height: 1080 },
-        position: { x: 0, y: 0 },
-        scaleFactor: 1,
-    }),
-}));
+vi.mock('@tauri-apps/api/window', async () => {
+    const { searchSurfaceWindow, searchSurfaceMonitor } =
+        await import('@tests/utils/searchSurface');
+    return {
+        getCurrentWindow: () => searchSurfaceWindow,
+        currentMonitor: async () => searchSurfaceMonitor,
+    };
+});
 enableAutoUnmount(afterEach);
 const rangeGeometry = {
     getBoundingClientRect: Object.getOwnPropertyDescriptor(
@@ -40,11 +27,7 @@ const rangeGeometry = {
 
 beforeEach(() => {
     setActivePinia(createPinia());
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-        queueMicrotask(() => callback(performance.now()));
-        return 0;
-    });
-    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+    installSearchSurfaceBoundary();
     Object.defineProperties(Range.prototype, {
         getBoundingClientRect: { configurable: true, value: () => new DOMRect() },
         getClientRects: { configurable: true, value: () => [] },
@@ -65,18 +48,10 @@ beforeEach(() => {
         return { rows, rowsAffected: 0, lastInsertId: null };
     });
     mockTauriCommand('get_runtime_info', { isE2eTestMode: true });
-    mockTauriCommand('get_search_window_state', {
-        defaults: { width: 750, height: 60 },
-        currentWidth: 750,
-        currentHeight: 60,
-        heightMode: 'auto',
-    });
-    mockTauriCommand('set_search_window_defaults', (payload: unknown) => {
-        return (payload as { defaults: { width: number; height: number } }).defaults;
-    });
 });
 
 afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     for (const [name, descriptor] of Object.entries(rangeGeometry)) {
         if (descriptor) Object.defineProperty(Range.prototype, name, descriptor);
@@ -85,12 +60,17 @@ afterEach(() => {
 });
 
 describe('user opens history from the search page', () => {
-    it('user gets no history exposure when another popup supersedes a pending native open', async () => {
+    it('user gets no history exposure when another overlay supersedes a pending native region', async () => {
         const telemetry = installProductAnalytics();
-        const historyWindow = deferred<void>();
-        mockTauriCommand('show_popup_window', (payload: unknown) => {
-            const { params } = payload as { params: { popupType: string } };
-            return params.popupType === 'session-history-popup' ? historyWindow.promise : undefined;
+        const historyRegion = deferred<ReturnType<typeof acknowledgeSearchRegions>>();
+        let pendingRegion: unknown;
+        mockTauriCommand('set_search_window_regions', (payload: unknown) => {
+            const { regions } = payload as { regions: unknown[] };
+            if (regions.length > 1 && !pendingRegion) {
+                pendingRegion = payload;
+                return historyRegion.promise;
+            }
+            return acknowledgeSearchRegions(payload);
         });
         const wrapper = mount(SearchView, {
             global: { plugins: [createPinia()] },
@@ -100,27 +80,21 @@ describe('user opens history from the search page', () => {
         await wrapper
             .get('[data-testid="search-view"]')
             .trigger('keydown', { key: 'h', code: 'KeyH', ctrlKey: true });
-        await flushPromises();
-        expect(getTauriInvokeCalls('show_popup_window')).toEqual(
-            expect.arrayContaining([
-                expect.objectContaining({
-                    payload: expect.objectContaining({
-                        params: expect.objectContaining({ popupType: 'session-history-popup' }),
-                    }),
-                }),
-            ])
+        await vi.waitFor(() => expect(pendingRegion).toBeDefined());
+        expect(wrapper.get('[data-search-overlay-host]').attributes('style')).toContain(
+            'visibility: hidden'
         );
 
-        await popupManager.show('model-dropdown-popup', wrapper.element as HTMLElement, {
-            models: [],
-            activeModelId: '',
-            activeProviderId: null,
-            selectedModelId: '',
-            selectedProviderId: null,
-            searchQuery: '',
-        });
-        historyWindow.resolve();
+        await wrapper
+            .get('[data-testid="search-view"]')
+            .trigger('keydown', { key: 'm', code: 'KeyM', ctrlKey: true });
         await flushPromises();
+        historyRegion.resolve(acknowledgeSearchRegions(pendingRegion));
+        await vi.waitFor(() => {
+            expect(wrapper.get('[data-search-overlay-host]').attributes('style')).toContain(
+                'visibility: visible'
+            );
+        });
         expect(
             telemetry.events.filter(
                 (event) =>
@@ -131,19 +105,16 @@ describe('user opens history from the search page', () => {
         ).toEqual([]);
         expect(telemetry.active.size).toBe(0);
 
-        const state = popupManager.state;
-        await eventService.emit(AppEvent.POPUP_CLOSED, {
-            popupId: state.currentPopupId!,
-            popupSessionVersion: state.currentPopupSessionVersion!,
-            windowLabel: state.currentWindowLabel!,
-            type: 'model-dropdown-popup',
-        });
-        await flushPromises();
         await wrapper
             .get('[data-testid="search-view"]')
             .trigger('keydown', { key: 'h', code: 'KeyH', ctrlKey: true });
-        await flushPromises();
-        expect(telemetry.events.some((event) => event.attributes.surface === 'history')).toBe(true);
-        expect(telemetry.events.some((event) => event.attributes.feature === 'history')).toBe(true);
+        await vi.waitFor(() => {
+            expect(telemetry.events.some((event) => event.attributes.surface === 'history')).toBe(
+                true
+            );
+            expect(telemetry.events.some((event) => event.attributes.feature === 'history')).toBe(
+                true
+            );
+        });
     });
 });

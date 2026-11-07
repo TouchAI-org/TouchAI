@@ -62,8 +62,8 @@ export function useModelSelection(
     const hasResolvedActiveModel = ref(false);
     const resolvedOverrideModel = ref<ModelWithProvider | null>(null);
     const availableModels = ref<ModelWithProvider[]>([]);
-    let hasLoadedPopupModels = false;
-    let popupModelsLoadPromise: Promise<ModelWithProvider[]> | null = null;
+    let hasLoadedDropdownModels = false;
+    let dropdownModelsLoadPromise: Promise<ModelWithProvider[]> | null = null;
     let resolveOverrideRequestId = 0;
 
     const selectedModel = computed(() => {
@@ -184,36 +184,36 @@ export function useModelSelection(
      *
      * @returns 当前可用的模型列表。
      */
-    async function loadPopupModels(): Promise<ModelWithProvider[]> {
-        if (hasLoadedPopupModels) {
+    async function loadDropdownModels(): Promise<ModelWithProvider[]> {
+        if (hasLoadedDropdownModels) {
             return availableModels.value;
         }
 
-        if (popupModelsLoadPromise) {
-            return popupModelsLoadPromise;
+        if (dropdownModelsLoadPromise) {
+            return dropdownModelsLoadPromise;
         }
 
-        popupModelsLoadPromise = (async () => {
+        dropdownModelsLoadPromise = (async () => {
             try {
                 const models = await deps.findModels();
                 availableModels.value = models;
-                hasLoadedPopupModels = true;
+                hasLoadedDropdownModels = true;
                 return models;
             } catch (error) {
                 log.error('[SearchBar] Failed to load popup models:', error);
                 availableModels.value = [];
                 return [];
             } finally {
-                popupModelsLoadPromise = null;
+                dropdownModelsLoadPromise = null;
             }
         })();
 
-        return popupModelsLoadPromise;
+        return dropdownModelsLoadPromise;
     }
 
-    function invalidatePopupModels() {
-        hasLoadedPopupModels = false;
-        popupModelsLoadPromise = null;
+    function invalidateDropdownModels() {
+        hasLoadedDropdownModels = false;
+        dropdownModelsLoadPromise = null;
     }
 
     /**
@@ -222,7 +222,7 @@ export function useModelSelection(
      * @returns Promise<void>
      */
     async function prepareModelDropdownOpen() {
-        await loadPopupModels();
+        await loadDropdownModels();
     }
 
     /**
@@ -292,7 +292,7 @@ export function useModelSelection(
     /**
      * 构造模型下拉领域上下文快照。
      *
-     * @returns 页面层映射 popup DTO 所需的数据。
+     * @returns 页面层映射 dropdown 数据所需的上下文。
      */
     function getModelDropdownContext(): SearchModelDropdownContext {
         return {
@@ -330,8 +330,8 @@ export function useModelSelection(
         activeModel,
         modelCapabilities,
         loadActiveModel,
-        loadPopupModels,
-        invalidatePopupModels,
+        loadDropdownModels,
+        invalidateDropdownModels,
         prepareModelDropdownOpen,
         handleModelSelect,
         getModelDropdownAnchor,

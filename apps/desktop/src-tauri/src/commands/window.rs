@@ -1,9 +1,8 @@
 //! 窗口命令。
 
-use crate::core::window::popup::{self, PopupConfig, PopupRegistry};
 use crate::core::window::status_reminder::SessionStatusReminderNotificationPayload;
 use crate::core::window::tray::TrayStatusIndicator;
-use tauri::{AppHandle, Manager, Runtime, State, WebviewWindow};
+use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,32 +40,115 @@ pub struct SearchWindowStatePayload {
     pub current_width: f64,
     pub current_height: f64,
     pub height_mode: crate::core::window::search::bounds::HeightMode,
+    pub monitor_host: bool,
 }
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ShowPopupWindowParams {
-    pub x: f64,
-    pub y: f64,
+pub struct SearchPanelSizePayload {
     pub width: f64,
     pub height: f64,
-    pub popup_type: String,
-    pub popup_id: String,
-    pub window_label: String,
-    pub popup_session_version: u64,
 }
 
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct HidePopupWindowParams {
-    pub popup_id: String,
-    pub window_label: String,
-    pub popup_session_version: u64,
+pub struct SearchPanelResizeCommitPayload {
+    pub from: SearchPanelSizePayload,
+    pub to: SearchPanelSizePayload,
+    /// Renderer-owned content/viewport resize. These commits must remain in
+    /// Auto mode instead of being classified as a user's manual drag.
+    #[serde(default)]
+    pub auto: bool,
+    /// One-shot session-open measurement may clear a stale native manual override.
+    #[serde(default)]
+    pub respect_manual_override: Option<bool>,
+    /// Explicit host placement. When omitted, content-driven resizes preserve
+    /// the current host center so the visible search surface stays in place.
+    #[serde(default)]
+    pub placement: Option<crate::core::window::search_host::SearchHostPlacement>,
+    #[serde(default)]
+    pub physical_origin: Option<crate::core::window::search_host::PhysicalHostOrigin>,
+}
+
+#[derive(Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "status")]
+pub enum SearchWindowRegionUpdate {
+    #[serde(rename = "applied")]
+    Applied {
+        generation: u64,
+        #[serde(rename = "showStatus", skip_serializing_if = "Option::is_none")]
+        show_status: Option<crate::core::window::search::surface::SearchSurfaceShowStatus>,
+    },
+    #[serde(rename = "stale")]
+    Stale {
+        #[serde(rename = "requestedGeneration")]
+        requested_generation: u64,
+        #[serde(rename = "activeGeneration")]
+        active_generation: u64,
+    },
+}
+
+fn search_window_region_update(
+    requested_generation: u64,
+    applied: bool,
+    active_generation: u64,
+    show_status: Option<crate::core::window::search::surface::SearchSurfaceShowStatus>,
+) -> SearchWindowRegionUpdate {
+    if applied {
+        SearchWindowRegionUpdate::Applied {
+            generation: requested_generation,
+            show_status,
+        }
+    } else {
+        SearchWindowRegionUpdate::Stale {
+            requested_generation,
+            active_generation,
+        }
+    }
+}
+
+fn search_window_state_payload(
+    snapshot: crate::core::window::search::bounds::SearchWindowStateSnapshot,
+) -> SearchWindowStatePayload {
+    SearchWindowStatePayload {
+        defaults: SearchWindowDefaultsPayload {
+            width: snapshot.defaults.width,
+            height: snapshot.defaults.height,
+        },
+        current_width: snapshot.current_width,
+        current_height: snapshot.current_height,
+        height_mode: snapshot.height_mode,
+        monitor_host: cfg!(target_os = "windows"),
+    }
 }
 
 #[tauri::command]
-pub fn hide_search_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    crate::core::window::hide_search_window(app)
+pub async fn drag_search_window<R: Runtime>(window: WebviewWindow<R>) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("Only the main renderer can drag the search window".to_string());
+    }
+    // Leave the WebView2 IPC callback before entering Windows' modal move loop.
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let app = window.app_handle().clone();
+    app.run_on_main_thread(move || {
+        let result = crate::core::window::search::drag_search_window_on_main_thread(&window);
+        let _ = sender.send(result);
+    })
+    .map_err(|error| format!("Failed to schedule search window drag: {error}"))?;
+    receiver
+        .await
+        .map_err(|error| format!("Search window drag ended without a result: {error}"))?
+}
+
+#[tauri::command]
+pub fn hide_search_window<R: Runtime>(
+    app: AppHandle<R>,
+    if_unfocused: Option<bool>,
+) -> Result<(), String> {
+    if if_unfocused.unwrap_or(false) {
+        return crate::core::window::search::surface::handle_focus_lost_on_main_thread(&app);
+    }
+    crate::core::window::hide_search_window_on_main_thread(&app)
 }
 
 #[tauri::command]
@@ -74,12 +156,40 @@ pub fn show_search_window<R: Runtime>(
     app: AppHandle<R>,
     window: WebviewWindow<R>,
 ) -> Result<(), String> {
-    crate::core::window::show_search_window(
-        app,
+    crate::core::window::show_search_window_on_main_thread(
+        &app,
         crate::core::window::search::surface::SearchSurfaceShowSource::from_requesting_window(
             window.label(),
         ),
     )
+}
+
+#[tauri::command]
+pub fn mark_search_window_ready<R: Runtime>(
+    window: WebviewWindow<R>,
+    renderer_epoch: u64,
+) -> Result<Option<crate::core::window::search::surface::SearchSurfacePreparationPayload>, String> {
+    if window.label() != "main" {
+        return Err(
+            "Search window readiness can only be reported by the main renderer".to_string(),
+        );
+    }
+    crate::core::window::search::surface::mark_renderer_ready_on_main_thread(
+        window.app_handle(),
+        renderer_epoch,
+    )
+}
+
+#[tauri::command]
+pub fn get_search_window_renderer_epoch<R: Runtime>(
+    window: WebviewWindow<R>,
+) -> Result<u64, String> {
+    if window.label() != "main" {
+        return Err(
+            "Search window renderer epoch can only be read by the main renderer".to_string(),
+        );
+    }
+    crate::core::window::search::surface::renderer_epoch(window.app_handle())
 }
 
 #[tauri::command]
@@ -121,54 +231,67 @@ pub fn clear_session_status_reminder_notifications<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn register_popup_configs(
-    registry: State<PopupRegistry>,
-    configs: Vec<PopupConfig>,
-) -> Result<(), String> {
-    registry.register_batch(configs)?;
-    Ok(())
+pub fn set_search_window_regions<R: Runtime>(
+    window: WebviewWindow<R>,
+    generation: u64,
+    regions: Vec<crate::core::window::search_region::SearchWindowRegion>,
+    preparation: Option<crate::core::window::search::surface::SearchSurfacePreparationToken>,
+) -> Result<SearchWindowRegionUpdate, String> {
+    set_search_window_regions_on_main_thread(&window, generation, regions, preparation)
 }
 
-#[tauri::command]
-pub async fn preload_popup_windows<R: Runtime>(
-    app: AppHandle<R>,
-    registry: State<'_, PopupRegistry>,
-) -> Result<(), String> {
-    popup::preload_popup_windows(app, registry.inner()).await
-}
+fn set_search_window_regions_on_main_thread<R: Runtime>(
+    window: &WebviewWindow<R>,
+    generation: u64,
+    regions: Vec<crate::core::window::search_region::SearchWindowRegion>,
+    preparation: Option<crate::core::window::search::surface::SearchSurfacePreparationToken>,
+) -> Result<SearchWindowRegionUpdate, String> {
+    if window.label() != "main" {
+        return Err("Search window regions can only be reported by the main renderer".to_string());
+    }
+    let region_runtime = window
+        .app_handle()
+        .try_state::<crate::core::window::search_region::SearchRegionRuntime>()
+        .ok_or_else(|| "Search region runtime is not initialized".to_string())?;
+    let applied = region_runtime.apply_and_update(generation, regions, |regions| {
+        if region_runtime.native_enabled() {
+            crate::core::window::search_region::apply_search_window_regions(&window, regions)
+        } else {
+            Ok(())
+        }
+    })?;
+    if !applied {
+        return Ok(search_window_region_update(
+            generation,
+            false,
+            region_runtime.generation(),
+            None,
+        ));
+    }
 
-#[tauri::command]
-pub async fn show_popup_window<R: Runtime>(
-    app: AppHandle<R>,
-    registry: State<'_, PopupRegistry>,
-    params: ShowPopupWindowParams,
-) -> Result<(), String> {
-    popup::show_popup_window(
-        app,
-        registry.inner(),
-        params.x,
-        params.y,
-        params.width,
-        params.height,
-        params.popup_type,
-        params.popup_id,
-        params.window_label,
-        params.popup_session_version,
-    )
-    .await
-}
-
-#[tauri::command]
-pub fn hide_popup_window<R: Runtime>(
-    app: AppHandle<R>,
-    params: HidePopupWindowParams,
-) -> Result<(), String> {
-    popup::hide_popup_window(
-        app,
-        params.popup_id,
-        params.window_label,
-        params.popup_session_version,
-    )
+    let commit = region_runtime.with_current_generation(generation, || {
+        preparation
+            .map(|token| {
+                crate::core::window::search::surface::commit_prepared_region_on_main_thread(
+                    window, token, generation,
+                )
+            })
+            .unwrap_or(Ok(None))
+    })?;
+    let Some(show_status) = commit else {
+        return Ok(search_window_region_update(
+            generation,
+            false,
+            region_runtime.generation(),
+            None,
+        ));
+    };
+    Ok(search_window_region_update(
+        generation,
+        true,
+        generation,
+        show_status,
+    ))
 }
 
 #[tauri::command]
@@ -234,16 +357,97 @@ pub fn get_search_window_state<R: Runtime>(
     let runtime = app
         .try_state::<crate::core::window::search::surface::SearchWindowRuntime>()
         .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
+    Ok(search_window_state_payload(
+        runtime.window_state().snapshot(),
+    ))
+}
+
+/// Commit one completed logical-panel resize and keep the bounded native host
+/// envelope in sync with the renderer-owned panel geometry.
+#[tauri::command]
+pub fn commit_search_panel_resize<R: Runtime>(
+    window: WebviewWindow<R>,
+    resize: SearchPanelResizeCommitPayload,
+) -> Result<SearchWindowStatePayload, String> {
+    if window.label() != "main" {
+        return Err("Search panel resize can only be reported by the main renderer".to_string());
+    }
+    if [
+        resize.from.width,
+        resize.from.height,
+        resize.to.width,
+        resize.to.height,
+    ]
+    .into_iter()
+    .any(|value| !value.is_finite() || value <= 0.0)
+    {
+        return Err("Search panel resize dimensions must be positive finite values".to_string());
+    }
+
+    let runtime = window
+        .app_handle()
+        .try_state::<crate::core::window::search::surface::SearchWindowRuntime>()
+        .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
+    let previous = runtime.window_state().snapshot();
+    let (x, y) = previous
+        .last_known_frame
+        .map(|frame| (frame.x, frame.y))
+        .unwrap_or((0.0, 0.0));
+    if resize.auto {
+        runtime.window_state().commit_auto_resize(
+            resize.to.width,
+            resize.to.height,
+            resize
+                .respect_manual_override
+                .unwrap_or_else(|| runtime.should_allow_height_override()),
+        );
+    } else {
+        runtime.window_state().commit_user_resize(
+            crate::core::window::search::bounds::SearchWindowFrame {
+                x,
+                y,
+                width: resize.from.width,
+                height: resize.from.height,
+            },
+            crate::core::window::search::bounds::SearchWindowFrame {
+                x,
+                y,
+                width: resize.to.width,
+                height: resize.to.height,
+            },
+            runtime.should_allow_height_override(),
+        );
+    }
     let snapshot = runtime.window_state().snapshot();
-    Ok(SearchWindowStatePayload {
-        defaults: SearchWindowDefaultsPayload {
-            width: snapshot.defaults.width,
-            height: snapshot.defaults.height,
-        },
-        current_width: snapshot.current_width,
-        current_height: snapshot.current_height,
-        height_mode: snapshot.height_mode,
-    })
+    #[cfg(target_os = "windows")]
+    {
+        let native_resize_enabled = window
+            .app_handle()
+            .try_state::<crate::core::window::search_host::SearchHostRefreshRuntime>()
+            .map(|runtime| runtime.native_enabled())
+            .unwrap_or(true);
+        if native_resize_enabled {
+            if let Err(error) = runtime.resize_host_preserving_surface(|| {
+                crate::core::window::search_host::resize_main_search_host_for_panel_with_origin(
+                    &window,
+                    snapshot.current_width,
+                    snapshot.current_height,
+                    resize.placement.unwrap_or(
+                        crate::core::window::search_host::SearchHostPlacement::PreserveCenter,
+                    ),
+                    resize.physical_origin,
+                )
+            }) {
+                runtime
+                    .window_state()
+                    .rollback_failed_resize(previous, snapshot);
+                return Err(error);
+            }
+        }
+    }
+    Ok(search_window_state_payload(
+        runtime.window_state().snapshot(),
+    ))
 }
 
 #[tauri::command]
@@ -261,4 +465,72 @@ pub fn set_search_window_allow_height_override<R: Runtime>(
     allow: bool,
 ) -> Result<(), String> {
     crate::core::window::search::surface::set_allow_height_override(&app, allow)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        search_window_region_update, SearchPanelResizeCommitPayload, SearchWindowRegionUpdate,
+    };
+
+    #[test]
+    fn user_can_resize_with_a_negative_physical_origin_or_without_an_origin() {
+        let mut request = serde_json::json!({
+            "from": { "width": 750, "height": 290 },
+            "to": { "width": 800, "height": 350 },
+            "placement": "preserve-origin",
+        });
+        let legacy: SearchPanelResizeCommitPayload =
+            serde_json::from_value(request.clone()).unwrap();
+        assert!(legacy.physical_origin.is_none());
+        assert_eq!(
+            legacy.placement,
+            Some(crate::core::window::search_host::SearchHostPlacement::PreserveOrigin)
+        );
+
+        request["physicalOrigin"] = serde_json::json!({ "x": -1800, "y": -80 });
+        let positioned: SearchPanelResizeCommitPayload = serde_json::from_value(request).unwrap();
+        let origin = positioned.physical_origin.unwrap();
+        assert_eq!((origin.x, origin.y), (-1800, -80));
+    }
+
+    #[test]
+    fn user_cannot_send_fractional_or_out_of_range_physical_origins() {
+        for origin in [
+            serde_json::json!({ "x": 1.5, "y": 0 }),
+            serde_json::json!({ "x": 0, "y": -2.5 }),
+            serde_json::json!({ "x": 2147483648_i64, "y": 0 }),
+            serde_json::json!({ "x": 0, "y": -2147483649_i64 }),
+        ] {
+            let request = serde_json::json!({
+                "from": { "width": 750, "height": 290 },
+                "to": { "width": 800, "height": 350 },
+                "physicalOrigin": origin,
+            });
+            assert!(serde_json::from_value::<SearchPanelResizeCommitPayload>(request).is_err());
+        }
+    }
+
+    #[test]
+    fn search_window_region_update_serializes_applied_and_stale_acknowledgements() {
+        assert_eq!(
+            serde_json::to_value(search_window_region_update(7, true, 7, None)).unwrap(),
+            serde_json::json!({ "status": "applied", "generation": 7 })
+        );
+        assert_eq!(
+            serde_json::to_value(search_window_region_update(1, false, 100, None)).unwrap(),
+            serde_json::json!({
+                "status": "stale",
+                "requestedGeneration": 1,
+                "activeGeneration": 100
+            })
+        );
+        assert_eq!(
+            search_window_region_update(1, false, 100, None),
+            SearchWindowRegionUpdate::Stale {
+                requested_generation: 1,
+                active_generation: 100,
+            }
+        );
+    }
 }

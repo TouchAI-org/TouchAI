@@ -4,10 +4,11 @@
 //!
 //! 包含主窗口、设置窗口的管理逻辑
 
-pub mod popup;
 pub mod resize;
 pub mod rounded_corners;
 pub mod search;
+pub mod search_host;
+pub mod search_region;
 pub mod settings;
 pub mod status_reminder;
 pub mod tray;
@@ -15,7 +16,7 @@ pub(crate) mod webview_defaults;
 pub(crate) mod webview_recovery;
 
 pub use search::{
-    hide_search_window, show_search_window, show_search_window_for_testing,
-    show_search_window_from_shortcut,
+    hide_search_window_on_main_thread, show_search_window_for_testing_on_main_thread,
+    show_search_window_from_shortcut_on_main_thread, show_search_window_on_main_thread,
 };
 pub use settings::build_settings_window;

@@ -1,19 +1,14 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <template>
-    <div class="flex justify-start" :class="message.isStreaming ? 'mb-0' : 'mb-4'">
+    <div
+        class="flex justify-start"
+        :class="message.isStreaming || isRequestStateMessage ? 'mb-0' : 'mb-4'"
+    >
         <div class="w-full break-words">
             <div class="text-reading leading-[1.8]">
-                <!-- 请求状态消息 -->
-                <div
-                    v-if="isRequestStateMessage"
-                    class="font-serif text-compact leading-[1.6] text-gray-500"
-                >
-                    {{ message.content }}
-                </div>
-
                 <!-- 正常 AI 消息 -->
-                <template v-else>
+                <template v-if="!isRequestStateMessage">
                     <div v-if="renderedParts.length > 0" class="assistant-message-parts">
                         <div
                             v-for="part in renderedParts"
@@ -50,13 +45,16 @@
                     >
                         {{ message.statusText }}
                     </div>
+                </template>
 
-                    <!-- 流式响应加载指示器 -->
-                    <div
-                        v-if="message.isStreaming && !askUserStore.current"
-                        :class="streamingIndicatorClass"
-                    >
-                        <div class="flex items-center gap-1">
+                <div
+                    v-if="isRequestStateMessage || (message.isStreaming && !askUserStore.current)"
+                    class="mt-5 mb-2 flex min-h-6 items-center gap-2 font-serif text-compact leading-6 text-text-tertiary"
+                    data-request-status
+                >
+                    <span v-if="isRequestStateMessage">{{ message.content }}</span>
+                    <template v-else>
+                        <div class="flex shrink-0 items-center gap-1">
                             <span class="dot"></span>
                             <span class="dot"></span>
                             <span class="dot"></span>
@@ -66,8 +64,8 @@
                                 {{ currentTip }}
                             </span>
                         </Transition>
-                    </div>
-                </template>
+                    </template>
+                </div>
 
                 <div v-if="showMessageActions" class="mt-3 flex items-center gap-1">
                     <ActionButton
@@ -339,11 +337,6 @@
 
         return parts;
     });
-    const streamingIndicatorClass = computed(() => {
-        const marginTop = 'mt-5';
-
-        return ['streaming-indicator', 'flex', 'items-center', 'gap-2', marginTop, 'mb-2'];
-    });
     const showMessageActions = computed(() => {
         return !props.message.isStreaming && !isRequestStateMessage.value;
     });
@@ -372,11 +365,6 @@
     }
 
     .assistant-message-part {
-        min-width: 0;
-    }
-
-    .streaming-indicator {
-        min-height: 1.2em;
         min-width: 0;
     }
 

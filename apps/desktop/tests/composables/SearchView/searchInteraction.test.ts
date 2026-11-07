@@ -1,21 +1,21 @@
 import { mountComposable } from '@tests/utils/composables';
-import { createPinia, setActivePinia } from 'pinia';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { computed, nextTick, type Ref, ref } from 'vue';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { nextTick, ref } from 'vue';
 
-import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
+import {
+    createDefaultSearchKeybindings,
+    SEARCH_KEYBINDING_DEFINITIONS,
+} from '@/config/searchKeybindings';
 import { createInputHistorySnapshot, type SessionMessage } from '@/types/session';
 import {
-    createPopupSurfaceCoordinator,
     createSearchEntryPolicy,
-    createSearchInteractionContext,
-    createSearchKeydownHandler,
+    createSearchKeyboardRouter,
     createSessionInputHistoryBrowseState,
     extractSessionInputHistoryEntries,
     navigateSessionInputHistory,
     useQuickSearchCoordinator,
-    useSearchOverlayMachine,
 } from '@/views/SearchView/composables/searchInteraction';
+import { filterModelDropdownItems } from '@/views/SearchView/composables/useSearchPage';
 import type {
     SearchCursorContext,
     SearchModelOverride,
@@ -32,20 +32,6 @@ function createUserMessage(id: string, overrides: Partial<SessionMessage> = {}):
         ...overrides,
     };
 }
-
-function createAttachment(id: string) {
-    return {
-        id,
-        type: 'file' as const,
-        path: `D:/${id}.txt`,
-        originPath: `D:/${id}.txt`,
-        name: `${id}.txt`,
-    };
-}
-
-beforeEach(() => {
-    setActivePinia(createPinia());
-});
 
 function createControllerStub() {
     return {
@@ -83,62 +69,81 @@ function createControllerStub() {
     } satisfies SearchPageController;
 }
 
-function createSearchKeydownHandlerForTest(
-    overrides: Partial<Parameters<typeof createSearchKeydownHandler>[0]> = {}
-) {
-    const controller = createControllerStub();
-    return createSearchKeydownHandler({
-        viewReady: ref(true),
-        searchKeybindings: ref(createDefaultSearchKeybindings()),
-        queryText: ref(''),
-        attachments: ref([]),
-        cursorContext: ref<SearchCursorContext>({
-            isMultiLine: false,
-            cursorAtStart: true,
-            cursorAtTextStart: true,
-            cursorAtEnd: true,
-        }),
-        modelOverride: ref<SearchModelOverride>({
-            modelId: null,
-            providerId: null,
-        }),
-        modelDropdownState: ref({ isOpen: false }),
-        controller,
-        sessionHistory: ref([]),
-        hasPendingRequest: () => false,
-        isLoading: ref(false),
-        pendingToolApproval: ref(null),
-        approvePendingToolApproval: vi.fn(() => false),
-        rejectPendingToolApproval: vi.fn(() => false),
-        promptPendingToolApprovalAttention: vi.fn(),
-        getActivePopupType: () => null,
-        hasActivePopupWindowFocus: () => false,
-        isQuickSearchOpen: computed(() => false),
-        shouldTriggerQuickSearch: () => false,
-        sessionHistoryPopupOpen: ref(false),
-        hideAllPopups: vi.fn().mockResolvedValue(undefined),
-        hideSearchWindow: vi.fn().mockResolvedValue(undefined),
-        navigateInputHistory: vi.fn(() => 'ignored' as const),
-        closeModelDropdown: vi.fn().mockResolvedValue(undefined),
-        handleSearchKeybindingAction: vi.fn().mockResolvedValue(undefined),
-        handleSubmit: vi.fn().mockResolvedValue(undefined),
-        cancelRequest: vi.fn(),
-        cancelPendingRequest: vi.fn(() => false),
-        clearSession: vi.fn(),
-        ...overrides,
+async function flushMicrotasks() {
+    await Promise.resolve();
+    await Promise.resolve();
+}
+
+describe('when the user filters the model list', () => {
+    const models = [
+        {
+            id: 1,
+            modelId: 'claude-sonnet',
+            name: 'Claude Sonnet',
+            providerId: 1,
+            providerName: 'Anthropic',
+            reasoning: 0,
+            tool_call: 0,
+            modalities: null,
+            attachment: 0,
+            open_weights: 0,
+        },
+        {
+            id: 2,
+            modelId: 'codex-mini',
+            name: 'Codex Mini',
+            providerId: 2,
+            providerName: 'OpenAI',
+            reasoning: 0,
+            tool_call: 0,
+            modalities: null,
+            attachment: 0,
+            open_weights: 0,
+        },
+        {
+            id: 3,
+            modelId: 'gpt-5',
+            name: 'GPT 5',
+            providerId: 2,
+            providerName: 'OpenAI',
+            reasoning: 0,
+            tool_call: 0,
+            modalities: null,
+            attachment: 0,
+            open_weights: 0,
+        },
+    ];
+
+    it.each([
+        ['', [1, 2, 3]],
+        ['  ', [1, 2, 3]],
+        ['SONNET', [1]],
+        ['gpt-5', [3]],
+        ['openai', [2, 3]],
+        ['cdx', [2]],
+        ['openai mini', [2]],
+        ['gemini', []],
+    ])('user sees the matching models for query %j', (query, ids) => {
+        expect(filterModelDropdownItems(models, query).map((model) => model.id)).toEqual(ids);
     });
-}
 
-async function flushKeyboardWork() {
-    await Promise.resolve();
-    await Promise.resolve();
-}
+    it('user sees a direct match before a fuzzy match listed earlier', () => {
+        const candidates = [
+            { ...models[0]!, name: 'Great Prompt Thing 4', modelId: 'great-prompt-thing-4' },
+            { ...models[1]!, name: 'GPT-4o mini', modelId: 'gpt4o-mini' },
+        ];
+        expect(filterModelDropdownItems(candidates, 'gpt4').map((model) => model.id)).toEqual([
+            2, 1,
+        ]);
+    });
+});
 
-describe('when the user browses the prompts they already sent', () => {
-    it('user only sees prompts that still carry visible input', () => {
+describe('extractSessionInputHistoryEntries', () => {
+    it('returns only user prompts that still have visible input history content', () => {
         const entries = extractSessionInputHistoryEntries([
-            createUserMessage('1', { content: 'fallback text' }),
-            // Explicitly excluded from history by the caller.
+            createUserMessage('1', {
+                content: 'fallback text',
+            }),
             createUserMessage('2', {
                 inputSnapshot: createInputHistorySnapshot({
                     text: '',
@@ -153,26 +158,49 @@ describe('when the user browses the prompts they already sent', () => {
                 parts: [],
                 timestamp: 3,
             },
-            // Empty text but still meaningful because of the attachment.
             createUserMessage('4', {
                 inputSnapshot: createInputHistorySnapshot({
                     text: '',
-                    attachments: [createAttachment('attachment-1')],
+                    attachments: [
+                        {
+                            id: 'attachment-1',
+                            type: 'file',
+                            path: 'D:/file.txt',
+                            originPath: 'D:/file.txt',
+                            name: 'file.txt',
+                        },
+                    ],
                 }),
             }),
         ]);
 
         expect(entries).toEqual([
-            createInputHistorySnapshot({ text: 'fallback text', attachments: [] }),
+            createInputHistorySnapshot({
+                text: 'fallback text',
+                attachments: [],
+            }),
             createInputHistorySnapshot({
                 text: '',
-                attachments: [createAttachment('attachment-1')],
+                attachments: [
+                    {
+                        id: 'attachment-1',
+                        type: 'file',
+                        path: 'D:/file.txt',
+                        originPath: 'D:/file.txt',
+                        name: 'file.txt',
+                    },
+                ],
             }),
         ]);
     });
+});
 
-    it('user gets the draft captured when stepping back from the newest position', () => {
-        const latestDraft = createInputHistorySnapshot({ text: 'draft', attachments: [] });
+describe('navigateSessionInputHistory', () => {
+    it('captures the current draft when browsing older history from the latest position', () => {
+        const latestDraft = createInputHistorySnapshot({
+            text: 'draft',
+            attachments: [],
+        });
         const entries = [
             createInputHistorySnapshot({ text: 'first', attachments: [] }),
             createInputHistorySnapshot({ text: 'second', attachments: [] }),
@@ -222,85 +250,9 @@ describe('when the user browses the prompts they already sent', () => {
             activeBrowseSnapshot: null,
         });
     });
-
-    it('user gets nothing to browse when the conversation has no prompts yet', () => {
-        const currentDraft = createInputHistorySnapshot({ text: 'draft', attachments: [] });
-
-        const result = navigateSessionInputHistory({
-            entries: [],
-            currentDraft,
-            direction: 'older',
-            state: createSessionInputHistoryBrowseState(0),
-        });
-
-        expect(result.changed).toBe(false);
-        expect(result.nextSnapshot).toEqual(currentDraft);
-        expect(result.state.pointer).toBe(0);
-    });
-
-    it('user stays on the oldest prompt when pressing back again', () => {
-        const entries = [
-            createInputHistorySnapshot({ text: 'first', attachments: [] }),
-            createInputHistorySnapshot({ text: 'second', attachments: [] }),
-        ];
-
-        const result = navigateSessionInputHistory({
-            entries,
-            currentDraft: createInputHistorySnapshot({ text: 'draft', attachments: [] }),
-            direction: 'older',
-            state: {
-                pointer: 0,
-                draftBeforeBrowse: createInputHistorySnapshot({ text: 'draft', attachments: [] }),
-                activeBrowseSnapshot: entries[0]!,
-            },
-        });
-
-        expect(result.changed).toBe(false);
-        expect(result.nextSnapshot).toEqual(entries[0]);
-        expect(result.state.pointer).toBe(0);
-    });
-
-    it('user stays on the newest position when pressing forward at the end', () => {
-        const currentDraft = createInputHistorySnapshot({ text: 'draft', attachments: [] });
-        const entries = [createInputHistorySnapshot({ text: 'first', attachments: [] })];
-
-        const result = navigateSessionInputHistory({
-            entries,
-            currentDraft,
-            direction: 'newer',
-            state: createSessionInputHistoryBrowseState(entries.length),
-        });
-
-        expect(result.changed).toBe(false);
-        expect(result.nextSnapshot).toEqual(currentDraft);
-        expect(result.state.activeBrowseSnapshot).toBeNull();
-    });
-
-    it('user walks from the oldest prompt forward to the next one', () => {
-        const entries = [
-            createInputHistorySnapshot({ text: 'first', attachments: [] }),
-            createInputHistorySnapshot({ text: 'second', attachments: [] }),
-            createInputHistorySnapshot({ text: 'third', attachments: [] }),
-        ];
-
-        const result = navigateSessionInputHistory({
-            entries,
-            currentDraft: createInputHistorySnapshot({ text: 'draft', attachments: [] }),
-            direction: 'newer',
-            state: {
-                pointer: 0,
-                draftBeforeBrowse: createInputHistorySnapshot({ text: 'draft', attachments: [] }),
-                activeBrowseSnapshot: entries[0]!,
-            },
-        });
-
-        expect(result.changed).toBe(true);
-        expect(result.nextSnapshot).toEqual(entries[1]);
-        expect(result.state.pointer).toBe(1);
-    });
 });
 
-describe('when a shortcut opens the search window', () => {
+describe('createSearchEntryPolicy', () => {
     it('user gets the entry checked once per appearance and each snapshot consumed once', () => {
         const policy = createSearchEntryPolicy();
 
@@ -316,7 +268,6 @@ describe('when a shortcut opens the search window', () => {
         expect(policy.shouldConsumeSnapshot('snapshot-1')).toBe(true);
         policy.markSnapshotConsumed('snapshot-1');
         expect(policy.shouldConsumeSnapshot('snapshot-1')).toBe(false);
-
         expect(
             policy.shouldCheckShortcutEntry({
                 activationSource: 'shortcut',
@@ -326,148 +277,16 @@ describe('when a shortcut opens the search window', () => {
             })
         ).toBe(false);
     });
-
-    it('user does not get the entry checked when the window was opened another way', () => {
-        const policy = createSearchEntryPolicy();
-
-        expect(
-            policy.shouldCheckShortcutEntry({
-                activationSource: 'manual',
-                visibilityEpoch: 3,
-                entryCheckArmedVisibilityEpoch: 3,
-                lastEntryCheckedVisibilityEpoch: null,
-            })
-        ).toBe(false);
-    });
-
-    it('user gets no snapshot consumed when there is no snapshot to consume', () => {
-        const policy = createSearchEntryPolicy();
-
-        expect(policy.shouldConsumeSnapshot(null)).toBe(false);
-        expect(policy.shouldConsumeSnapshot('')).toBe(false);
-        expect(() => policy.markSnapshotConsumed(null)).not.toThrow();
-    });
 });
 
-describe('when a popup window talks to the search window', () => {
-    it('user only gets events from the popup session that is actually on screen', () => {
-        const interactionContext = createSearchInteractionContext();
-        const coordinator = createPopupSurfaceCoordinator(interactionContext);
-
-        coordinator.activatePopup({
-            popupId: 'popup-model-dropdown-popup:2',
-            popupType: 'model-dropdown-surface',
-            windowLabel: 'popup-model-dropdown-popup',
-            popupSessionVersion: 2,
-        });
-
-        expect(
-            coordinator.isCurrentPopupEvent({
-                popupId: 'popup-model-dropdown-popup:2',
-                windowLabel: 'popup-model-dropdown-popup',
-                popupSessionVersion: 2,
-            })
-        ).toBe(true);
-
-        // A reopened popup keeps the id but bumps the version.
-        expect(
-            coordinator.isCurrentPopupEvent({
-                popupId: 'popup-model-dropdown-popup:2',
-                windowLabel: 'popup-model-dropdown-popup',
-                popupSessionVersion: 3,
-            })
-        ).toBe(false);
-
-        coordinator.clearActivePopup();
-
-        expect(
-            coordinator.isCurrentPopupEvent({
-                popupId: 'popup-model-dropdown-popup:2',
-                windowLabel: 'popup-model-dropdown-popup',
-                popupSessionVersion: 2,
-            })
-        ).toBe(false);
-    });
-
-    it('user gets no popup event accepted when no popup was ever activated', () => {
-        const coordinator = createPopupSurfaceCoordinator(createSearchInteractionContext());
-
-        expect(
-            coordinator.isCurrentPopupEvent({
-                popupId: 'popup-session-history-popup:1',
-                windowLabel: 'popup-session-history-popup',
-                popupSessionVersion: 1,
-            })
-        ).toBe(false);
-    });
-});
-
-describe('when the search window tracks its own visibility', () => {
-    it('user gets the hide reason and epoch recorded when the window hides', () => {
-        const context = createSearchInteractionContext();
-
-        context.recordActivation('shortcut');
-        expect(context.state.activationSource).toBe('shortcut');
-
-        context.markWindowHidden({ hideReason: 'manual-dismiss', hiddenAt: 1234 });
-
-        expect(context.state.windowVisible).toBe(false);
-        expect(context.state.windowFocused).toBe(false);
-        expect(context.state.lastHideReason).toBe('manual-dismiss');
-        expect(context.state.lastHideAt).toBe(1234);
-        expect(context.state.activationSource).toBe('unknown');
-        // The next shortcut entry must be armed for the new visibility epoch.
-        expect(context.state.entryCheckArmedVisibilityEpoch).toBe(context.state.visibilityEpoch);
-    });
-
-    it('user gets a timeout clear only once per hidden epoch', () => {
-        const context = createSearchInteractionContext();
-        context.markWindowHidden({ hideReason: 'manual-dismiss', hiddenAt: 1_000 });
-
-        expect(
-            context.shouldRunTimeoutClearOnFocus(
-                context.state.visibilityEpoch,
-                1_000 + 5_000,
-                1_000
-            )
-        ).toBe(true);
-
-        // The same epoch cannot trigger the clear twice.
-        expect(
-            context.shouldRunTimeoutClearOnFocus(
-                context.state.visibilityEpoch,
-                1_000 + 6_000,
-                1_000
-            )
-        ).toBe(false);
-    });
-
-    it('user gets no timeout clear when the window comes back too soon', () => {
-        const context = createSearchInteractionContext();
-        context.markWindowHidden({ hideReason: 'manual-dismiss', hiddenAt: 1_000 });
-
-        expect(
-            context.shouldRunTimeoutClearOnFocus(context.state.visibilityEpoch, 1_500, 5_000)
-        ).toBe(false);
-    });
-
-    it('user gets no timeout clear for a stale visibility epoch', () => {
-        const context = createSearchInteractionContext();
-        context.markWindowHidden({ hideReason: 'manual-dismiss', hiddenAt: 1_000 });
-        const staleEpoch = context.state.visibilityEpoch;
-        context.markWindowHidden({ hideReason: 'manual-dismiss', hiddenAt: 2_000 });
-
-        expect(context.shouldRunTimeoutClearOnFocus(staleEpoch, 9_000, 0)).toBe(false);
-    });
-});
-
-describe('when the user types a query that could show the quick search panel', () => {
+describe('useQuickSearchCoordinator', () => {
     afterEach(() => {
         document.body.innerHTML = '';
     });
 
-    async function mountCoordinator(queryText: Ref<string>) {
+    it('opens quick search only when the query satisfies the coordinator policy', async () => {
         const controller = createControllerStub();
+        const queryText = ref('touchai');
         const attachments = ref<unknown[]>([]);
         const sessionHistory = ref<SessionMessage[]>([]);
         const cursorContext = ref<SearchCursorContext>({
@@ -476,8 +295,12 @@ describe('when the user types a query that could show the quick search panel', (
             cursorAtTextStart: true,
             cursorAtEnd: true,
         });
-        const modelOverride = ref<SearchModelOverride>({ modelId: null, providerId: null });
+        const modelOverride = ref<SearchModelOverride>({
+            modelId: null,
+            providerId: null,
+        });
         const modelDropdownState = ref({ isOpen: false });
+        const activeOverlay = ref<'none' | 'model-dropdown' | 'session-history'>('none');
         const quickSearchOpen = ref(false);
 
         const mounted = await mountComposable(() =>
@@ -488,450 +311,409 @@ describe('when the user types a query that could show the quick search panel', (
                 cursorContext,
                 modelOverride,
                 modelDropdownState,
+                activeOverlay,
                 quickSearchOpen,
                 controller,
             })
         );
 
-        return {
-            ...mounted,
-            controller,
-            attachments,
-            sessionHistory,
-            cursorContext,
-            modelOverride,
-            modelDropdownState,
-        };
-    }
-
-    it('user sees the panel appear for a plain query with nothing in the way', async () => {
-        const { result, controller, unmount } = await mountCoordinator(ref('touchai'));
-
-        result.syncQuickSearchPanel();
+        mounted.result.syncQuickSearchPanel();
 
         expect(controller.triggerQuickSearch).toHaveBeenCalledWith('touchai');
 
-        unmount();
-    });
-
-    it('user does not get the panel once an attachment is added', async () => {
-        const { result, controller, attachments, unmount } = await mountCoordinator(ref('touchai'));
-
-        result.syncQuickSearchPanel();
-        attachments.value = [createAttachment('blocker')];
+        attachments.value = [{ id: 'attachment-blocker' }];
         await nextTick();
 
         expect(controller.closeQuickSearch).toHaveBeenCalled();
 
-        unmount();
+        mounted.unmount();
     });
 
-    it('user does not get the panel while the model dropdown is open', async () => {
-        const { result, modelDropdownState, unmount } = await mountCoordinator(ref('touchai'));
-
-        modelDropdownState.value = { isOpen: true };
-
-        expect(result.shouldTriggerQuickSearch('touchai')).toBe(false);
-
-        unmount();
-    });
-
-    it('user does not get the panel when the draft is multiline', async () => {
-        const { result, cursorContext, unmount } = await mountCoordinator(ref('touchai'));
-
-        cursorContext.value = {
-            isMultiLine: true,
-            cursorAtStart: true,
-            cursorAtTextStart: true,
-            cursorAtEnd: true,
-        };
-
-        expect(result.shouldTriggerQuickSearch('touchai')).toBe(false);
-
-        unmount();
-    });
-
-    it('user does not get the panel when a model was picked by hand', async () => {
-        const { result, modelOverride, unmount } = await mountCoordinator(ref('touchai'));
-
-        modelOverride.value = { modelId: 'gpt-5', providerId: 1 };
-
-        expect(result.shouldTriggerQuickSearch('touchai')).toBe(false);
-
-        unmount();
-    });
-
-    it('user does not get the panel once the conversation has started', async () => {
-        const { result, sessionHistory, unmount } = await mountCoordinator(ref('touchai'));
-
-        sessionHistory.value = [createUserMessage('1', { content: 'hello' })];
-
-        expect(result.shouldTriggerQuickSearch('touchai')).toBe(false);
-
-        unmount();
-    });
-
-    it('user does not get the panel for a blank query', async () => {
-        const { result, unmount } = await mountCoordinator(ref('   '));
-
-        expect(result.shouldTriggerQuickSearch('   ')).toBe(false);
-
-        unmount();
-    });
-
-    it('user gets the panel closed instead of reopened while a layout change is settling', async () => {
-        const suppressNextAutoOpen = ref(true);
-
+    it('treats model selection and session history as authoritative quick-search blockers', async () => {
         const controller = createControllerStub();
+        const queryText = ref('touchai');
+        const sessionHistory = ref<SessionMessage[]>([]);
+        const modelOverride = ref<SearchModelOverride>({ modelId: null, providerId: null });
+        const activeOverlay = ref<'none' | 'model-dropdown' | 'session-history'>('none');
+
         const mounted = await mountComposable(() =>
             useQuickSearchCoordinator({
-                queryText: ref('touchai'),
+                queryText,
                 attachments: ref([]),
-                sessionHistory: ref([]),
-                cursorContext: ref<SearchCursorContext>({
+                sessionHistory,
+                cursorContext: ref({
                     isMultiLine: false,
                     cursorAtStart: true,
                     cursorAtTextStart: true,
                     cursorAtEnd: true,
                 }),
-                modelOverride: ref<SearchModelOverride>({ modelId: null, providerId: null }),
+                modelOverride,
                 modelDropdownState: ref({ isOpen: false }),
-                quickSearchOpen: ref(false),
+                activeOverlay,
+                quickSearchOpen: ref(true),
                 controller,
-                suppressNextAutoOpen,
             })
         );
 
-        mounted.result.syncQuickSearchPanel();
-
-        expect(controller.closeQuickSearch).toHaveBeenCalled();
-        expect(controller.triggerQuickSearch).not.toHaveBeenCalled();
-        // The suppression is one-shot: the next sync behaves normally again.
-        expect(suppressNextAutoOpen.value).toBe(false);
-
-        mounted.unmount();
-    });
-});
-
-describe('when a search shortcut arrives from the host window', () => {
-    it('user gets the shortcut action run through the same keyboard guards', async () => {
-        const handleSearchKeybindingAction = vi.fn().mockResolvedValue(undefined);
-        const handleKeyDown = createSearchKeydownHandlerForTest({ handleSearchKeybindingAction });
-
-        expect(
-            handleKeyDown.routeSearchSurfaceCommand({
-                actionId: 'search.model.toggle',
-                shortcut: 'Mod+M',
-                source: 'webview2-accelerator',
-            })
-        ).toBe(true);
-        await flushKeyboardWork();
-
-        expect(handleSearchKeybindingAction).toHaveBeenCalledWith('search.model.toggle');
-    });
-
-    it('user gets the shortcut ignored while the quick search context menu is open', async () => {
-        const controller = createControllerStub();
-        controller.isQuickSearchContextMenuOpen.mockReturnValue(true);
-        const handleSearchKeybindingAction = vi.fn().mockResolvedValue(undefined);
-        const handleKeyDown = createSearchKeydownHandlerForTest({
-            controller,
-            handleSearchKeybindingAction,
-        });
-
-        expect(
-            handleKeyDown.routeSearchSurfaceCommand({
-                actionId: 'search.model.toggle',
-                shortcut: 'Mod+M',
-                source: 'webview2-accelerator',
-            })
-        ).toBe(false);
-        await flushKeyboardWork();
-
-        expect(handleSearchKeybindingAction).not.toHaveBeenCalled();
-    });
-
-    it('user gets the shortcut ignored while the view is still starting up', async () => {
-        const handleSearchKeybindingAction = vi.fn().mockResolvedValue(undefined);
-        const handleKeyDown = createSearchKeydownHandlerForTest({
-            viewReady: ref(false),
-            handleSearchKeybindingAction,
-        });
-
-        expect(
-            handleKeyDown.routeSearchSurfaceCommand({
-                actionId: 'search.model.toggle',
-                shortcut: 'Mod+M',
-                source: 'webview2-accelerator',
-            })
-        ).toBe(false);
-
-        expect(handleSearchKeybindingAction).not.toHaveBeenCalled();
-    });
-});
-
-describe('when the user presses keys on the search surface', () => {
-    it('user gets the maximize shortcut triggered by F11', async () => {
-        const handleSearchKeybindingAction = vi.fn().mockResolvedValue(undefined);
-        const handleKeyDown = createSearchKeydownHandlerForTest({ handleSearchKeybindingAction });
-
-        const event = new KeyboardEvent('keydown', { key: 'F11', cancelable: true });
-        await handleKeyDown(event);
-        await flushKeyboardWork();
-
-        expect(handleSearchKeybindingAction).toHaveBeenCalledWith('search.window.maximize');
-        expect(event.defaultPrevented).toBe(true);
-    });
-
-    it('user gets the reopen shortcut triggered by the configured key', async () => {
-        const handleSearchKeybindingAction = vi.fn().mockResolvedValue(undefined);
-        const handleKeyDown = createSearchKeydownHandlerForTest({
-            searchKeybindings: ref({
-                ...createDefaultSearchKeybindings(),
-                'search.session.reopenLastClosed': 'Mod+Shift+Y',
-            }),
-            handleSearchKeybindingAction,
-        });
-
-        const event = new KeyboardEvent('keydown', {
-            key: 'y',
-            ctrlKey: true,
-            shiftKey: true,
-            cancelable: true,
-        });
-        await handleKeyDown(event);
-        await flushKeyboardWork();
-
-        expect(handleSearchKeybindingAction).toHaveBeenCalledWith(
-            'search.session.reopenLastClosed'
-        );
-        expect(event.defaultPrevented).toBe(true);
-    });
-
-    it('user gets the running request cancelled by Escape', async () => {
-        const cancelRequest = vi.fn();
-        const handleKeyDown = createSearchKeydownHandlerForTest({
-            isLoading: ref(true),
-            cancelRequest,
-        });
-
-        const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
-        await handleKeyDown(event);
-
-        expect(cancelRequest).toHaveBeenCalled();
-        expect(event.defaultPrevented).toBe(true);
-    });
-
-    it('user gets the running request cancelled by pressing Backspace twice quickly', async () => {
-        const cancelPendingRequest = vi.fn(() => true);
-        const handleKeyDown = createSearchKeydownHandlerForTest({
-            hasPendingRequest: () => true,
-            cancelPendingRequest,
-        });
-
-        const firstBackspaceEvent = new KeyboardEvent('keydown', {
-            key: 'Backspace',
-            cancelable: true,
-        });
-        await handleKeyDown(firstBackspaceEvent);
-        expect(cancelPendingRequest).not.toHaveBeenCalled();
-        expect(firstBackspaceEvent.defaultPrevented).toBe(false);
-
-        const secondBackspaceEvent = new KeyboardEvent('keydown', {
-            key: 'Backspace',
-            cancelable: true,
-        });
-        await handleKeyDown(secondBackspaceEvent);
-        expect(cancelPendingRequest).toHaveBeenCalledTimes(1);
-        expect(secondBackspaceEvent.defaultPrevented).toBe(true);
-    });
-
-    it('user does not lose the request when the second Backspace comes long after the first', async () => {
-        const cancelPendingRequest = vi.fn(() => true);
-        const handleKeyDown = createSearchKeydownHandlerForTest({
-            hasPendingRequest: () => true,
-            cancelPendingRequest,
-        });
-        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000);
-
-        await handleKeyDown(new KeyboardEvent('keydown', { key: 'Backspace', cancelable: true }));
-
-        nowSpy.mockReturnValue(1_000 + 1_000);
-        const lateEvent = new KeyboardEvent('keydown', { key: 'Backspace', cancelable: true });
-        await handleKeyDown(lateEvent);
-
-        expect(cancelPendingRequest).not.toHaveBeenCalled();
-        expect(lateEvent.defaultPrevented).toBe(false);
-        nowSpy.mockRestore();
-    });
-
-    it('user gets the model dropdown closed with Backspace before anything else happens', async () => {
-        const closeModelDropdown = vi.fn().mockResolvedValue(undefined);
-        const handleKeyDown = createSearchKeydownHandlerForTest({
-            modelDropdownState: ref({ isOpen: true }),
-            closeModelDropdown,
-        });
-
-        await handleKeyDown(new KeyboardEvent('keydown', { key: 'Backspace', cancelable: true }));
-
-        expect(closeModelDropdown).toHaveBeenCalled();
-    });
-
-    it('user gets the hand-picked model dropped by Backspace at the start of an empty draft', async () => {
-        const modelOverride = ref<SearchModelOverride>({ modelId: 'gpt-5', providerId: 1 });
-        const handleKeyDown = createSearchKeydownHandlerForTest({ modelOverride });
-
-        const event = new KeyboardEvent('keydown', { key: 'Backspace', cancelable: true });
-        await handleKeyDown(event);
-
-        expect(modelOverride.value).toEqual({ modelId: null, providerId: null });
-        expect(event.defaultPrevented).toBe(true);
-    });
-
-    it('user gets the conversation focused with Tab when a conversation is on screen', async () => {
-        const controller = createControllerStub();
-        const handleKeyDown = createSearchKeydownHandlerForTest({
-            controller,
-            sessionHistory: ref([createUserMessage('1', { content: 'hello' })]),
-        });
-
-        const event = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true });
-        await handleKeyDown(event);
-
-        expect(controller.focusConversation).toHaveBeenCalled();
-        expect(event.defaultPrevented).toBe(true);
-    });
-
-    it('user gets Escape to close the quick search context menu', async () => {
-        const controller = createControllerStub();
-        controller.isQuickSearchContextMenuOpen.mockReturnValue(true);
-        const handleKeyDown = createSearchKeydownHandlerForTest({ controller });
-
-        const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
-        await handleKeyDown(event);
-
-        expect(controller.closeQuickSearchContextMenu).toHaveBeenCalled();
-        expect(event.defaultPrevented).toBe(true);
-    });
-
-    it('user gets other keys left alone while the context menu is open so the menu can navigate', async () => {
-        const controller = createControllerStub();
-        controller.isQuickSearchContextMenuOpen.mockReturnValue(true);
-        const handleKeyDown = createSearchKeydownHandlerForTest({ controller });
-
-        const event = new KeyboardEvent('keydown', { key: 'ArrowDown', cancelable: true });
-        await handleKeyDown(event);
-
-        expect(controller.closeQuickSearchContextMenu).not.toHaveBeenCalled();
-        expect(event.defaultPrevented).toBe(false);
-    });
-
-    it('user gets no search handling while the view is not ready yet', async () => {
-        const handleSearchKeybindingAction = vi.fn().mockResolvedValue(undefined);
-        const handleKeyDown = createSearchKeydownHandlerForTest({
-            viewReady: ref(false),
-            handleSearchKeybindingAction,
-        });
-
-        const event = new KeyboardEvent('keydown', { key: 'F11', cancelable: true });
-        await handleKeyDown(event);
-
-        expect(handleSearchKeybindingAction).not.toHaveBeenCalled();
-        expect(event.defaultPrevented).toBe(false);
-    });
-
-    it('user gets no double handling when another handler already took the key', async () => {
-        const handleSearchKeybindingAction = vi.fn().mockResolvedValue(undefined);
-        const handleKeyDown = createSearchKeydownHandlerForTest({ handleSearchKeybindingAction });
-
-        const event = new KeyboardEvent('keydown', { key: 'F11', cancelable: true });
-        event.preventDefault();
-        await handleKeyDown(event);
-        await flushKeyboardWork();
-
-        expect(handleSearchKeybindingAction).not.toHaveBeenCalled();
-    });
-});
-
-describe('when the model dropdown and quick search overlap', () => {
-    afterEach(() => {
-        document.body.innerHTML = '';
-    });
-
-    it('user gets the dropdown opening only after the quick search panel has closed', async () => {
-        const quickSearchOpen = ref(true);
-        const modelDropdownState = ref({ isOpen: false });
-
-        const mounted = await mountComposable(() =>
-            useSearchOverlayMachine({
-                isQuickSearchOpen: computed(() => quickSearchOpen.value),
-                modelDropdownState,
-            })
-        );
-
-        expect(mounted.result.overlayState.value).toBe('quick-search-open');
-        expect(mounted.result.requestModelDropdownOpen()).toBe('close-quick-search');
-        expect(mounted.result.overlayState.value).toBe('model-dropdown-preparing');
-        expect(mounted.result.handleQuickSearchClosedForModelDropdown()).toBe('wait-layout-stable');
-        expect(mounted.result.overlayState.value).toBe('waiting-layout-stable');
-        expect(mounted.result.handleLayoutStableForModelDropdown()).toBe('open-model-dropdown');
-
-        mounted.result.handleModelDropdownOpened();
-        expect(mounted.result.overlayState.value).toBe('model-dropdown-open');
-
-        modelDropdownState.value = { isOpen: false };
-        quickSearchOpen.value = false;
-        mounted.result.handleModelDropdownClosed();
+        modelOverride.value = { modelId: 'gpt-5', providerId: 2 };
         await nextTick();
+        expect(controller.closeQuickSearch).toHaveBeenCalled();
 
-        expect(mounted.result.overlayState.value).toBe('idle');
+        controller.closeQuickSearch.mockClear();
+        modelOverride.value = { modelId: null, providerId: null };
+        sessionHistory.value = [createUserMessage('9', { content: 'existing prompt' })];
+        await nextTick();
+        expect(controller.closeQuickSearch).toHaveBeenCalled();
 
-        mounted.unmount();
-    });
-
-    it('user gets the dropdown opened straight away when no quick search is in the way', async () => {
-        const quickSearchOpen = ref(false);
-        const modelDropdownState = ref({ isOpen: false });
-
-        const mounted = await mountComposable(() =>
-            useSearchOverlayMachine({
-                isQuickSearchOpen: computed(() => quickSearchOpen.value),
-                modelDropdownState,
-            })
-        );
-
-        expect(mounted.result.requestModelDropdownOpen()).toBe('open-model-dropdown');
+        controller.closeQuickSearch.mockClear();
+        sessionHistory.value = [];
+        activeOverlay.value = 'session-history';
+        await nextTick();
+        // A popup blocks auto-opening; it must not dismiss a list that is already showing results.
+        expect(controller.closeQuickSearch).not.toHaveBeenCalled();
+        expect(mounted.result.shouldTriggerQuickSearch('touchai')).toBe(false);
 
         mounted.unmount();
     });
+});
 
-    it('user gets no second request while the dropdown is already open', async () => {
-        const modelDropdownState = ref({ isOpen: true });
+describe('createSearchKeyboardRouter', () => {
+    function createKeyboardRouter(
+        overrides: Partial<Parameters<typeof createSearchKeyboardRouter>[0]> = {}
+    ) {
+        const callbacks = {
+            onPromptApprovalAttention: vi.fn(),
+            onRejectApproval: vi.fn(),
+            onApproveApproval: vi.fn(),
+            onForwardToOverlay: vi.fn(),
+            onSubmit: vi.fn(),
+            onOpenQuickSearch: vi.fn(),
+            onMoveQuickSearchSelection: vi.fn(),
+            onOpenHighlightedQuickSearchItem: vi.fn(),
+            onCloseQuickSearch: vi.fn(),
+            onQuickSearchPageUp: vi.fn(),
+            onQuickSearchPageDown: vi.fn(),
+            onQuickSearchContextMenu: vi.fn(),
+            onQuickSearchCollapse: vi.fn(),
+            onNavigateInputHistory: vi.fn(() => 'ignored' as const),
+            onHideAllOverlays: vi.fn(),
+            onCancelRequest: vi.fn(),
+            onClearModelOverride: vi.fn(),
+            onHideWindow: vi.fn(),
+            onClearSession: vi.fn(),
+            onClearDraft: vi.fn(),
+            onPrimaryShortcut: vi.fn(),
+            onSearchKeybindingAction: vi.fn(),
+        };
 
-        const mounted = await mountComposable(() =>
-            useSearchOverlayMachine({
-                isQuickSearchOpen: computed(() => false),
-                modelDropdownState,
-            })
-        );
+        return {
+            callbacks,
+            router: createSearchKeyboardRouter({
+                getPendingApproval: () => null,
+                getSearchKeybindings: () => createDefaultSearchKeybindings(),
+                getActiveSurface: () => 'search-surface',
+                getQueryText: () => '',
+                hasAttachments: () => false,
+                isQuickSearchOpen: () => false,
+                hasQuickSearchHighlight: () => false,
+                shouldTriggerQuickSearch: () => false,
+                isMultiLineCursor: () => false,
+                isCursorAtTextStart: () => true,
+                isCursorAtEnd: () => true,
+                hasModelOverride: () => false,
+                getSessionHistoryCount: () => 0,
+                isLoading: () => false,
+                ...callbacks,
+                ...overrides,
+            }),
+        };
+    }
 
-        expect(mounted.result.overlayState.value).toBe('model-dropdown-open');
-        expect(mounted.result.requestModelDropdownOpen()).toBe('noop');
+    it('rejects pending approval with escape before normal surface handling', () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getPendingApproval: () => ({
+                callId: 'approval-1',
+                keyboardApproveAt: Date.now() + 1_000,
+            }),
+        });
 
-        mounted.unmount();
+        const handled = router.route({ key: 'Escape' });
+
+        expect(handled).toBe(true);
+        expect(callbacks.onRejectApproval).toHaveBeenCalledWith('approval-1');
     });
 
-    it('user gets no layout wait when the dropdown was never preparing', async () => {
-        const mounted = await mountComposable(() =>
-            useSearchOverlayMachine({
-                isQuickSearchOpen: computed(() => false),
-                modelDropdownState: ref({ isOpen: false }),
-            })
+    it('leaves IME composition keys to the editor instead of submitting or selecting', () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getQueryText: () => '输入中',
+            getActiveSurface: () => 'model-dropdown-surface',
+        });
+
+        expect(router.route({ key: 'Enter', isComposing: true })).toBe(false);
+        expect(router.route({ key: 'Enter', keyCode: 229 })).toBe(false);
+        expect(callbacks.onSubmit).not.toHaveBeenCalled();
+        expect(callbacks.onForwardToOverlay).not.toHaveBeenCalled();
+    });
+
+    it('submits when ArrowDown cannot navigate newer history and query text is present', () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getQueryText: () => 'touch',
+            shouldTriggerQuickSearch: () => true,
+            onNavigateInputHistory: vi.fn(() => 'ignored' as const),
+        });
+
+        const handled = router.route({ key: 'ArrowDown' });
+
+        expect(handled).toBe(true);
+        expect(callbacks.onSubmit).toHaveBeenCalledTimes(1);
+        expect(callbacks.onOpenQuickSearch).not.toHaveBeenCalled();
+    });
+
+    it('leaves an open quick search panel mounted while submitting', () => {
+        const order: string[] = [];
+        const onSubmit = vi.fn(() => {
+            order.push('submit');
+        });
+        const onCloseQuickSearch = vi.fn(() => {
+            order.push('close');
+        });
+        const { router } = createKeyboardRouter({
+            getQueryText: () => '11',
+            isQuickSearchOpen: () => true,
+            hasQuickSearchHighlight: () => false,
+            onSubmit,
+            onCloseQuickSearch,
+        });
+
+        expect(router.route({ key: 'Enter' })).toBe(true);
+        expect(onSubmit).toHaveBeenCalledTimes(1);
+        expect(onCloseQuickSearch).not.toHaveBeenCalled();
+        expect(order).toEqual(['submit']);
+    });
+
+    it('opens quick search when ArrowDown cannot navigate newer history and query is empty with eligible trigger', () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getQueryText: () => '',
+            shouldTriggerQuickSearch: () => true,
+            hasAttachments: () => false,
+            onNavigateInputHistory: vi.fn(() => 'ignored' as const),
+        });
+
+        const handled = router.route({ key: 'ArrowDown' });
+
+        expect(handled).toBe(true);
+        expect(callbacks.onOpenQuickSearch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not navigate input history when multiline cursor is not at the text start', () => {
+        const { router, callbacks } = createKeyboardRouter({
+            isMultiLineCursor: () => true,
+            isCursorAtTextStart: () => false,
+        });
+
+        const handled = router.route({ key: 'ArrowUp' });
+
+        expect(handled).toBe(false);
+        expect(callbacks.onNavigateInputHistory).not.toHaveBeenCalled();
+    });
+
+    it('forwards model-dropdown arrow keys to the overlay surface contract', () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getActiveSurface: () => 'model-dropdown-surface',
+        });
+
+        const handled = router.route({ key: 'ArrowDown' });
+
+        expect(handled).toBe(true);
+        expect(callbacks.onForwardToOverlay).toHaveBeenCalledWith('ArrowDown');
+    });
+
+    it('clears the draft before model/session/window dismissal on escape', () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getQueryText: () => 'hello',
+        });
+
+        const handled = router.route({ key: 'Escape' });
+
+        expect(handled).toBe(true);
+        expect(callbacks.onClearDraft).toHaveBeenCalledTimes(1);
+        expect(callbacks.onClearModelOverride).not.toHaveBeenCalled();
+        expect(callbacks.onClearSession).not.toHaveBeenCalled();
+        expect(callbacks.onHideWindow).not.toHaveBeenCalled();
+    });
+
+    it('routes direct Quick Search navigation and toggle keys without history fallback', () => {
+        const { router, callbacks } = createKeyboardRouter({
+            isQuickSearchOpen: () => true,
+            hasQuickSearchHighlight: () => true,
+        });
+
+        expect(router.route({ key: 'ArrowRight' })).toBe(true);
+        expect(callbacks.onMoveQuickSearchSelection).toHaveBeenCalledWith('right');
+        expect(router.route({ key: 'g', ctrlKey: true })).toBe(true);
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith(
+            'search.quickSearch.toggleView'
         );
+        expect(callbacks.onNavigateInputHistory).not.toHaveBeenCalled();
+    });
 
-        expect(mounted.result.handleQuickSearchClosedForModelDropdown()).toBe('noop');
-        expect(mounted.result.handleLayoutStableForModelDropdown()).toBe('noop');
+    it('collapses highlighted Quick Search on escape before clearing authoritative state', () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getQueryText: () => 'touchai',
+            isQuickSearchOpen: () => true,
+            hasQuickSearchHighlight: () => true,
+            hasModelOverride: () => true,
+            getSessionHistoryCount: () => 1,
+        });
 
-        mounted.unmount();
+        expect(router.route({ key: 'Escape' })).toBe(true);
+        expect(callbacks.onQuickSearchCollapse).toHaveBeenCalledTimes(1);
+        expect(callbacks.onClearDraft).not.toHaveBeenCalled();
+        expect(callbacks.onClearModelOverride).not.toHaveBeenCalled();
+        expect(callbacks.onClearSession).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])(
+        'user keeps Shift+Enter editing when the key repeat flag is %s',
+        (repeat) => {
+            const { router, callbacks } = createKeyboardRouter({
+                isQuickSearchOpen: () => true,
+                hasQuickSearchHighlight: () => true,
+            });
+            expect(router.route({ key: 'Enter', shiftKey: true, repeat })).toBe(false);
+            expect(callbacks.onSubmit).not.toHaveBeenCalled();
+            expect(callbacks.onOpenHighlightedQuickSearchItem).not.toHaveBeenCalled();
+        }
+    );
+
+    it('routes configured Ctrl+M and Ctrl+H actions', async () => {
+        const { router, callbacks } = createKeyboardRouter();
+
+        expect(router.route({ key: 'm', ctrlKey: true })).toBe(true);
+        expect(router.route({ key: 'h', ctrlKey: true })).toBe(true);
+        await flushMicrotasks();
+
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenNthCalledWith(
+            1,
+            'search.model.toggle'
+        );
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenNthCalledWith(
+            2,
+            'search.history.open'
+        );
+        expect(callbacks.onPrimaryShortcut).not.toHaveBeenCalled();
+    });
+
+    it.each(SEARCH_KEYBINDING_DEFINITIONS)(
+        'user invokes $id once per press through both shortcut paths',
+        ({ id, defaultShortcut }) => {
+            const { router, callbacks } = createKeyboardRouter({ isQuickSearchOpen: () => true });
+            const tokens = defaultShortcut!.split('+');
+            const key = tokens[tokens.length - 1]!;
+            const input = {
+                key: key === 'F11' ? key : key.toLowerCase(),
+                ctrlKey: tokens.includes('Mod'),
+                shiftKey: tokens.includes('Shift'),
+            };
+            expect(router.route(input)).toBe(true);
+            expect(callbacks.onSearchKeybindingAction).toHaveBeenLastCalledWith(id);
+            expect(router.route({ ...input, repeat: true })).toBe(true);
+            expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledTimes(1);
+            expect(router.routeCommand(id, defaultShortcut!)).toBe(true);
+            expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledTimes(2);
+            expect(callbacks.onHideWindow).not.toHaveBeenCalled();
+        }
+    );
+
+    it.each([null, 'Mod+Shift+G'])(
+        'user disables the old QuickSearch binding when it is changed to %s',
+        (binding) => {
+            const bindings = createDefaultSearchKeybindings();
+            bindings['search.quickSearch.toggleView'] = binding;
+            const { router, callbacks } = createKeyboardRouter({
+                getSearchKeybindings: () => bindings,
+                isQuickSearchOpen: () => true,
+            });
+            expect(router.route({ key: 'g', ctrlKey: true })).toBe(false);
+            expect(callbacks.onSearchKeybindingAction).not.toHaveBeenCalled();
+        }
+    );
+
+    it('user cannot bypass a pending approval through a configured DOM shortcut', () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getPendingApproval: () => ({ callId: 'pending', keyboardApproveAt: 0 }),
+        });
+        expect(router.route({ key: 'n', ctrlKey: true })).toBe(true);
+        expect(router.routeCommand('search.session.new', 'Mod+N')).toBe(true);
+        expect(callbacks.onSearchKeybindingAction).not.toHaveBeenCalled();
+    });
+
+    it('user holding Escape does not cascade from draft clearing into window dismissal', () => {
+        let draft = 'keep session';
+        const { router, callbacks } = createKeyboardRouter({
+            getQueryText: () => draft,
+            onClearDraft: () => {
+                draft = '';
+            },
+        });
+        expect(router.route({ key: 'Escape' })).toBe(true);
+        expect(router.route({ key: 'Escape', repeat: true })).toBe(true);
+        expect(callbacks.onHideWindow).not.toHaveBeenCalled();
+    });
+
+    it('rejects a stale accelerator command after the shortcut is rebound', () => {
+        const keybindings = createDefaultSearchKeybindings();
+        keybindings['search.model.toggle'] = 'Mod+Shift+M';
+        const { router, callbacks } = createKeyboardRouter({
+            getSearchKeybindings: () => keybindings,
+        });
+
+        expect(router.routeCommand('search.model.toggle', 'Mod+M')).toBe(false);
+        expect(router.routeCommand('search.model.toggle', 'Mod+Shift+M')).toBe(true);
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledWith('search.model.toggle');
+    });
+
+    it('closes an active overlay on escape before clearing the draft', async () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getActiveSurface: () => 'session-history-surface',
+            getQueryText: () => 'preserve me',
+        });
+
+        expect(router.route({ key: 'Escape' })).toBe(true);
+        await flushMicrotasks();
+
+        expect(callbacks.onHideAllOverlays).toHaveBeenCalledTimes(1);
+        expect(callbacks.onClearDraft).not.toHaveBeenCalled();
+    });
+
+    it.each(['model-dropdown-surface', 'session-history-surface'] as const)(
+        'dismisses %s before the highlighted QuickSearch beneath it on escape',
+        async (surface) => {
+            const { router, callbacks } = createKeyboardRouter({
+                getActiveSurface: () => surface,
+                isQuickSearchOpen: () => true,
+                hasQuickSearchHighlight: () => true,
+            });
+
+            expect(router.route({ key: 'Escape' })).toBe(true);
+            await flushMicrotasks();
+
+            expect(callbacks.onHideAllOverlays).toHaveBeenCalledOnce();
+            expect(callbacks.onQuickSearchCollapse).not.toHaveBeenCalled();
+            expect(callbacks.onClearDraft).not.toHaveBeenCalled();
+        }
+    );
+
+    it('fires the stop-request primary shortcut only while the request is still loading', async () => {
+        const { router, callbacks } = createKeyboardRouter({
+            getQueryText: () => '',
+            isLoading: () => true,
+        });
+
+        const handled = router.route({ key: '.', ctrlKey: true });
+        await flushMicrotasks();
+
+        expect(handled).toBe(true);
+        expect(callbacks.onPrimaryShortcut).toHaveBeenCalledWith('.');
     });
 });

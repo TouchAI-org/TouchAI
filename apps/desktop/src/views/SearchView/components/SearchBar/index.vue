@@ -6,7 +6,7 @@
     <div
         ref="searchBarContainerRef"
         data-testid="search-bar"
-        class="search-bar-container relative flex h-full min-h-14 w-full gap-2 p-3"
+        class="search-bar-container relative flex min-h-14 w-full gap-2 p-3"
         :class="isMultiLine ? 'items-start' : 'items-center'"
         @mousedown="handleContainerMouseDown"
     >
@@ -21,9 +21,9 @@
                 v-if="selectedModel || activeModel"
                 :model-id="selectedModel?.model_id || activeModel?.model_id || ''"
                 :name="selectedModel?.name || activeModel?.name || 'model'"
-                class="border-2 border-gray-300 transition-colors hover:border-gray-400"
+                class="border-2 border-model-logo-border transition-colors hover:border-model-logo-border-hover"
             />
-            <img v-else :src="logo" alt="TouchAI" class="h-8 w-8 object-contain select-none" />
+            <img v-else :src="searchLogo" alt="TouchAI" class="h-8 w-8 select-none" />
         </div>
 
         <div
@@ -37,7 +37,6 @@
             :style="{ maxHeight: 'calc(1.5em * 7 + 8px)' }"
             @click="onEditorClick"
             @mousedown.capture="handleEditorSelectionMouseDown"
-            @mousedown="handleEditorMouseDown"
         >
             <!--
               Keep the mounted Tiptap wrapper stretchable in the flex host.
@@ -52,7 +51,7 @@
 </template>
 
 <script setup lang="ts">
-    import logo from '@assets/logo.svg';
+    import searchLogo from '@assets/logo.svg';
     import ModelLogo from '@components/ModelLogo.vue';
     import { log } from '@services/ObservabilityService';
     import { EditorContent } from '@tiptap/vue-3';
@@ -79,6 +78,7 @@
         queryText?: string;
         attachments?: Index[];
         modelOverride?: SearchModelOverride;
+        startDragging: (event: MouseEvent) => Promise<void>;
     }
 
     const props = withDefaults(defineProps<Props>(), {
@@ -120,6 +120,7 @@
         emitRemoveAttachmentRequest: (id) => emit('attachmentRemoveRequest', id),
         emitDragStart: () => emit('dragStart'),
         emitDragEnd: () => emit('dragEnd'),
+        startDragging: props.startDragging,
     });
 
     const {
@@ -208,6 +209,10 @@
      * 让鼠标事件穿透标签，浏览器选区即可连续跨越。mouseup 时移除该类恢复交互。
      */
     function handleEditorSelectionMouseDown(event: MouseEvent) {
+        if (handleEditorMouseDown(event)) {
+            return;
+        }
+
         const host = editorHostRef.value;
         // 仅响应左键
         if (!host || event.button !== 0) {

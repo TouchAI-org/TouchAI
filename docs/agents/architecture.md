@@ -14,7 +14,7 @@ Read this before any non-trivial change.
 ```text
 views / components
     -> composables / stores
-        -> services (AgentService, PopupService, NativeService, ...)
+        -> services (AgentService, EventService, NativeService, ...)
             -> Tauri invoke commands (src-tauri/src/commands)
                 -> Rust core (src-tauri/src/core)
                     -> SQLite
@@ -41,13 +41,15 @@ Read the owning code first and expect cross-window or cross-process consequences
 | --- | --- | --- |
 | Agent orchestration | `apps/desktop/src/services/AgentService/` | Message ordering, streaming, cancellation, tool loops, final vs intermediate state |
 | Built-in tools | `apps/desktop/src/services/BuiltInToolService/` | Sandbox escape, unbounded output, approval bypass, resource leaks |
-| Popups and events | `apps/desktop/src/services/PopupService/`, `EventService/` | Stale `popupId`/`sessionVersion`, duplicate listeners, ready/data/close races |
+| Search overlays and events | `apps/desktop/src/views/SearchView/components/SearchOverlayHost/`, `services/EventService/` | Stale async results, duplicate listeners, focus restoration, open/close races |
 | Native bridge | `apps/desktop/src/services/NativeService/`, `apps/desktop/src-tauri/src/commands/` | TypeScript/Rust type drift, timeout and cancel semantics |
 | Multi-window shell | `apps/desktop/src-tauri/src/core/window/` | Window lifecycle, resize feedback loops, focus restoration, tray state |
 | Database runtime | `apps/desktop/src-tauri/src/core/database/`, `apps/desktop/src/database/` | Migration order, WAL/locking, transaction ownership, backup/import |
 | Attachments | `apps/desktop/src/services/AgentService/infrastructure/attachments/` | Draft state, cached copies, and database rows drifting apart; a failed read silently changing what the model sees |
 
-Window labels, popup lifecycle, event ordering, and session identity are cross-window contracts. Duplicate listeners, stale IDs, and races are correctness bugs, not polish.
+Window labels, event ordering, and session identity are cross-window contracts. Search overlays share the main Vue tree and its state; they have no standalone popup window or event transport. Duplicate listeners, stale IDs, and races are correctness bugs, not polish.
+
+`useSearchWindowResize` owns card geometry from natural content and accepted native bounds; `SearchOverlayHost` owns overlay placement. Rust's `search_host` and `search_region` own the native viewport and Windows clipping region. Dragging changes position only and may leave the card off-screen; overlays stay within the visible work area. Native geometry updates occur at transition boundaries, not on every animation frame.
 
 ## Subsystems
 

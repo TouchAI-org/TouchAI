@@ -48,6 +48,7 @@ interface UseQuickSearchFlowOptions {
     enabled: Ref<boolean>;
     emitOpenUpdate: (value: boolean) => void;
     isOpen: Ref<boolean>;
+    handoff?: Readonly<Ref<boolean>>;
     results: Ref<QuickShortcutItem[]>;
     highlightedIndex: Ref<number>;
     itemRefs: Ref<HTMLElement[]>;
@@ -105,6 +106,7 @@ interface UseQuickSearchLogicOptions {
     searchQuery: Ref<string>;
     enabled: Ref<boolean>;
     emitOpenUpdate: (value: boolean) => void;
+    handoff?: Readonly<Ref<boolean>>;
 }
 
 /**
@@ -288,6 +290,7 @@ function useQuickSearchFlow(
     async function executeSearch(query: string) {
         const trimmedQuery = query.trim();
         if (!trimmedQuery) {
+            if (options.handoff?.value) return;
             close();
             return;
         }
@@ -316,6 +319,7 @@ function useQuickSearchFlow(
             if (mergedResults.length === 0) {
                 mergedResults = resolveE2eQuickSearchFallbackResults(trimmedQuery);
                 if (mergedResults.length === 0) {
+                    if (options.handoff?.value) return;
                     // The previous query's results are no longer what the user
                     // sees; settle with the real empty result before closing.
                     settleSearchInteractionSession(0);
@@ -324,9 +328,12 @@ function useQuickSearchFlow(
                 }
             }
 
+            // Mount and measure the result DOM before asking the parent to
+            // reveal it. Emitting first exposes an empty shell to the native host,
+            // which can paint a large white panel before the result list exists.
+            results.value = mergedResults;
             emitOpenUpdate(true);
             reportQuickSearchExposure();
-            results.value = mergedResults;
             lastSearchedQuery = trimmedQuery;
             totalFiles.value =
                 searchResult.total_files > 0
@@ -345,7 +352,7 @@ function useQuickSearchFlow(
             scheduleImageLoad(reqId, false);
         } catch (error) {
             log.error('[QuickSearchPanel] Failed to search shortcuts:', error);
-            if (reqId === requestId.value) {
+            if (reqId === requestId.value && !options.handoff?.value) {
                 settleSearchInteractionSession(0);
                 close();
             }
@@ -373,7 +380,7 @@ function useQuickSearchFlow(
     async function runSearchLoop(query: string) {
         let currentQuery = query.trim();
         if (!currentQuery) {
-            close();
+            if (!options.handoff?.value) close();
             return;
         }
 
@@ -405,6 +412,7 @@ function useQuickSearchFlow(
      * @returns void
      */
     function scheduleSearch(query: string) {
+        if (options.handoff?.value) return;
         clearDebounceTimer();
         debounceTimer = setTimeout(() => {
             void runSearchLoop(query);
@@ -441,10 +449,9 @@ function useQuickSearchFlow(
         lastSearchedQuery = '';
         requestId.value += 1;
         pendingQuery.value = null;
-        pruneIconMaps(true);
         resetLoadingState();
         emitOpenUpdate(false);
-        resetResultState();
+        if (!options.isOpen.value) resetResultState();
     }
 
     /**
@@ -461,8 +468,10 @@ function useQuickSearchFlow(
             return;
         }
 
+        // Keep the surface out of the layout while results are pending. The parent
+        // uses the open state to switch to intrinsic sizing, so opening here would
+        // resize the host before the result panel exists (and shrink it again on no hits).
         beginSearchInteractionSession();
-        emitOpenUpdate(true);
         scheduleSearch(query);
     }
 
@@ -705,7 +714,7 @@ export function useQuickSearchLogic(
     options: UseQuickSearchLogicOptions,
     deps: UseQuickSearchDeps = DEFAULT_DEPS
 ) {
-    const { open, searchQuery, enabled, emitOpenUpdate } = options;
+    const { open, searchQuery, enabled, emitOpenUpdate, handoff } = options;
 
     const {
         state: {
@@ -739,6 +748,7 @@ export function useQuickSearchLogic(
             enabled,
             emitOpenUpdate,
             isOpen: open,
+            handoff,
             results,
             highlightedIndex,
             itemRefs,
@@ -825,21 +835,19 @@ export function useQuickSearchLogic(
             assets.scheduleIconLoad(requestId.value, false);
             assets.scheduleImageLoad(requestId.value, false);
         } else {
-            if (results.value.length === 0) {
-                highlightedIndex.value = -1;
-                void nextTick(() => {
-                    if (scrollRef.value) {
-                        scrollRef.value.scrollTop = 0;
-                    }
-                });
-            }
+            // The parent closes this prop only after the card/handoff transition settles.
+            resetResultState();
+            pruneIconMaps(true);
+            void nextTick(() => {
+                if (scrollRef.value) scrollRef.value.scrollTop = 0;
+            });
         }
     });
 
     watch(
         [searchQuery, enabled],
         ([query, isEnabled]) => {
-            if (!isEnabled || !open.value) return;
+            if (!isEnabled || !open.value || handoff?.value) return;
             quickSearch.scheduleSearch(query);
         },
         { flush: 'post' }
@@ -914,7 +922,6 @@ export function useQuickSearchLogic(
         open: quickSearch.open,
         close: requestCloseFromPanel,
         settleInteraction: quickSearch.settleInteraction,
-        syncClosedState: () => {},
         getHighlightedItem: quickSearch.getHighlightedItem,
         openHighlightedItem: quickSearch.openHighlightedItem,
         triggerSearch: quickSearch.triggerSearch,

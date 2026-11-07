@@ -6,6 +6,7 @@ import {
     MessageScroller,
     type MessageScrollerHandle,
     type MessageScrollerItem,
+    type MessageScrollerState,
 } from '@/components/ui/message-scroller';
 
 enableAutoUnmount(afterEach);
@@ -226,6 +227,28 @@ describe('user navigates a long conversation', () => {
         await settleLayout();
 
         expect(wrapper.find('nav').exists()).toBe(false);
+    });
+
+    it('user keeps the same message width when navigation appears or disappears', async () => {
+        const wrapper = mountScroller();
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, { scrollHeight: 400, clientHeight: 400 });
+        triggerResize();
+        await settleLayout();
+        const viewportClasses = viewport.className;
+
+        setScrollHeight(viewport, 1_200);
+        triggerResize();
+        await settleLayout();
+
+        expect(wrapper.find('nav').exists()).toBe(true);
+        expect(viewport.className).toBe(viewportClasses);
+
+        setScrollHeight(viewport, 400);
+        triggerResize();
+        await settleLayout();
+        expect(wrapper.find('nav').exists()).toBe(false);
+        expect(viewport.className).toBe(viewportClasses);
     });
 
     it('user sees no rail for a single message', async () => {
@@ -543,6 +566,56 @@ describe('user navigates a long conversation', () => {
 });
 
 describe('user follows streamed output', () => {
+    it('user receives a new message without briefly being reported away from the live edge', async () => {
+        const wrapper = mountScroller({ followOutput: true });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, { scrollTop: 600, scrollHeight: 1_000, clientHeight: 400 });
+        stubScrollTo(viewport);
+        await settleLayout();
+        const previousEvents = wrapper.emitted('stateChange')?.length ?? 0;
+
+        setScrollHeight(viewport, 1_200);
+        await wrapper.setProps({ items: [...items, { id: 'a2', label: 'New answer' }] });
+        await settleLayout();
+
+        const states = (wrapper.emitted('stateChange') ?? [])
+            .slice(previousEvents)
+            .map(([state]) => state as MessageScrollerState);
+        expect(states.length).toBeGreaterThan(0);
+        expect(states.every((state) => state.atEnd)).toBe(true);
+        expect(viewport.scrollTop).toBe(800);
+    });
+
+    it.each([
+        { scrollHeight: 1_200, clientHeight: 400 },
+        { scrollHeight: 1_000, clientHeight: 300 },
+    ])(
+        'user stays at the live edge without a false away state after a layout resize (%o)',
+        async (metrics) => {
+            const wrapper = mountScroller({ followOutput: true });
+            const viewport = viewportOf(wrapper);
+            setScrollMetrics(viewport, {
+                scrollTop: 600,
+                scrollHeight: 1_000,
+                clientHeight: 400,
+            });
+            stubScrollTo(viewport);
+            await settleLayout();
+            const previousEvents = wrapper.emitted('stateChange')?.length ?? 0;
+
+            setScrollMetrics(viewport, { scrollTop: 600, ...metrics });
+            triggerResize();
+            await settleLayout();
+
+            const states = (wrapper.emitted('stateChange') ?? [])
+                .slice(previousEvents)
+                .map(([state]) => state as MessageScrollerState);
+            expect(states.length).toBeGreaterThan(0);
+            expect(states.every((state) => state.atEnd)).toBe(true);
+            expect(viewport.scrollTop).toBe(metrics.scrollHeight - metrics.clientHeight);
+        }
+    );
+
     it('user stays at the live edge while output grows', async () => {
         const wrapper = mountScroller({ followOutput: true });
         const viewport = viewportOf(wrapper);

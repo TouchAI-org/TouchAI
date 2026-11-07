@@ -1,23 +1,41 @@
 import { invoke } from './invoke';
 import type {
-    HidePopupWindowParams,
-    PopupConfig,
     ResizeWindowHeightParams,
+    SearchPanelResizeCommit,
+    SearchSurfacePreparation,
     SearchWindowDefaultSize,
     SearchWindowMinimumSize,
+    SearchWindowRegion,
+    SearchWindowRegionUpdate,
     SearchWindowState,
     SessionStatusReminderNotificationPayload,
-    ShowPopupWindowParams,
     TrayStatusIndicator,
 } from './types';
 
 export const window = {
+    /** Resolves after the native move loop ends, including cancellation. */
+    dragSearchWindow(): Promise<void> {
+        return invoke('drag_search_window');
+    },
+
     hideSearchWindow(): Promise<void> {
         return invoke('hide_search_window');
     },
 
+    reconcileSearchWindowBlur(): Promise<void> {
+        return invoke('hide_search_window', { ifUnfocused: true });
+    },
+
     showSearchWindow(): Promise<void> {
         return invoke('show_search_window');
+    },
+
+    getSearchWindowRendererEpoch(): Promise<number> {
+        return invoke('get_search_window_renderer_epoch');
+    },
+
+    markSearchWindowReady(rendererEpoch: number): Promise<SearchSurfacePreparation | null> {
+        return invoke('mark_search_window_ready', { rendererEpoch });
     },
 
     setTrayStatusIndicator(status: TrayStatusIndicator): Promise<void> {
@@ -46,24 +64,20 @@ export const window = {
         return invoke('close_tray_menu');
     },
 
-    registerPopupConfigs(configs: PopupConfig[]): Promise<void> {
-        return invoke('register_popup_configs', { configs });
-    },
-
-    preloadPopupWindows(): Promise<void> {
-        return invoke('preload_popup_windows');
-    },
-
-    showPopupWindow(params: ShowPopupWindowParams): Promise<void> {
-        return invoke('show_popup_window', { params });
-    },
-
-    hidePopupWindow(params: HidePopupWindowParams): Promise<void> {
-        return invoke('hide_popup_window', { params });
-    },
-
     setSearchSurfaceHideOnAppBlur(shouldHide: boolean): Promise<void> {
         return invoke('set_search_surface_hide_on_app_blur', { shouldHide });
+    },
+
+    setSearchWindowRegions(
+        regions: SearchWindowRegion[],
+        generation: number,
+        preparation?: SearchSurfacePreparation | null
+    ): Promise<SearchWindowRegionUpdate> {
+        return invoke('set_search_window_regions', {
+            regions,
+            generation,
+            preparation,
+        });
     },
 
     setSearchWindowAllowHeightOverride(allow: boolean): Promise<void> {
@@ -88,5 +102,9 @@ export const window = {
 
     getSearchWindowState(): Promise<SearchWindowState> {
         return invoke('get_search_window_state');
+    },
+
+    commitSearchPanelResize(resize: SearchPanelResizeCommit): Promise<SearchWindowState> {
+        return invoke('commit_search_panel_resize', { resize });
     },
 } as const;

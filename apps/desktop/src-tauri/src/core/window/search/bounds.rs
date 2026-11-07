@@ -148,6 +148,37 @@ impl SearchWindowState {
         snapshot_of(&inner)
     }
 
+    /// Physical work-area bounds take precedence over preferred/minimum sizes.
+    /// Preserve manual sizing policy while publishing only dimensions that fit.
+    pub fn constrain_to_work_area(&self, max_width: f64, max_height: f64) {
+        let mut inner = self.inner.lock().expect("search window state poisoned");
+        inner.current_width = inner.current_width.min(max_width);
+        inner.current_height = inner.current_height.min(max_height);
+        if let Some(mut frame) = inner.last_known_frame {
+            frame.width = inner.current_width;
+            frame.height = inner.current_height;
+            inner.last_known_frame = Some(frame);
+        }
+    }
+
+    pub fn rollback_failed_resize(
+        &self,
+        previous: SearchWindowStateSnapshot,
+        attempted: SearchWindowStateSnapshot,
+    ) -> bool {
+        let mut inner = self.inner.lock().expect("search window state poisoned");
+        if snapshot_of(&inner) != attempted {
+            return false;
+        }
+
+        inner.defaults = previous.defaults;
+        inner.current_width = previous.current_width;
+        inner.current_height = previous.current_height;
+        inner.height_mode = previous.height_mode;
+        inner.last_known_frame = previous.last_known_frame;
+        true
+    }
+
     /// 更新默认尺寸。若当前为 Auto 模式则同步更新当前高度；ManualOverride 模式下仅更新宽度。
     pub fn update_defaults(&self, defaults: SearchWindowDefaults) -> SearchWindowDefaults {
         let mut inner = self.inner.lock().expect("search window state poisoned");
@@ -298,6 +329,40 @@ impl SearchWindowState {
         snapshot_of(&inner)
     }
 
+    /// Commit a user resize reported by the logical panel inside a monitor-sized host.
+    /// The frontend origin is applied first because content-driven height changes do not resize
+    /// the native host and therefore may not yet exist in the native state snapshot.
+    pub fn commit_user_resize(
+        &self,
+        from: SearchWindowFrame,
+        to: SearchWindowFrame,
+        allow_height_override: bool,
+    ) -> SearchWindowStateSnapshot {
+        self.apply_programmatic_size(Some(from.width), Some(from.height), None);
+        self.record_runtime_resize(to, allow_height_override, true);
+        self.snapshot()
+    }
+
+    /// Commit a renderer-owned resize without classifying it as a manual drag.
+    ///
+    /// Content-driven height changes and viewport clamps must remain in Auto
+    /// mode so a later keystroke can continue to remeasure the panel. Width is
+    /// applied together with the clamped auto height for cross-monitor bounds.
+    pub fn commit_auto_resize(
+        &self,
+        width: f64,
+        height: f64,
+        respect_manual_override: bool,
+    ) -> SearchWindowStateSnapshot {
+        let Some(target_height) =
+            self.auto_height_target_with_policy(height, respect_manual_override)
+        else {
+            return self.snapshot();
+        };
+
+        self.apply_programmatic_size(Some(width), Some(target_height), Some(HeightMode::Auto))
+    }
+
     /// 重置为默认尺寸，清除 ManualOverride 和所有守护状态。
     pub fn reset_to_defaults(&self) -> SearchWindowStateSnapshot {
         let mut inner = self.inner.lock().expect("search window state poisoned");
@@ -357,6 +422,17 @@ pub fn clamp_height(height: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::{HeightMode, SearchWindowDefaults, SearchWindowFrame, SearchWindowState};
+
+    #[test]
+    fn user_keeps_manual_policy_when_a_smaller_work_area_limits_the_panel() {
+        let state = state_with_manual_override();
+        state.constrain_to_work_area(800.0, 480.0);
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.current_width, 800.0);
+        assert_eq!(snapshot.current_height, 480.0);
+        assert_eq!(snapshot.height_mode, HeightMode::ManualOverride);
+        assert_eq!(snapshot.last_known_frame.unwrap().height, 480.0);
+    }
 
     fn frame(width: f64, height: f64) -> SearchWindowFrame {
         SearchWindowFrame {
@@ -445,6 +521,28 @@ mod tests {
     }
 
     #[test]
+    fn auto_resize_commit_keeps_auto_mode_and_updates_panel_size() {
+        let state = state_with_defaults(900.0, 280.0);
+
+        let snapshot = state.commit_auto_resize(960.0, 360.0, true);
+
+        assert_eq!(snapshot.current_width, 960.0);
+        assert_eq!(snapshot.current_height, 360.0);
+        assert_eq!(snapshot.height_mode, HeightMode::Auto);
+    }
+
+    #[test]
+    fn auto_resize_commit_does_not_override_manual_height_when_policy_respects_it() {
+        let state = state_with_manual_override();
+
+        let snapshot = state.commit_auto_resize(960.0, 360.0, true);
+
+        assert_eq!(snapshot.current_width, 920.0);
+        assert_eq!(snapshot.current_height, 540.0);
+        assert_eq!(snapshot.height_mode, HeightMode::ManualOverride);
+    }
+
+    #[test]
     fn runtime_height_resize_enters_manual_override_when_override_is_allowed() {
         let state = state_with_defaults(900.0, 280.0);
 
@@ -508,6 +606,28 @@ mod tests {
 
         assert_eq!(snapshot.current_width, 420.0);
         assert_eq!(snapshot.current_height, 60.0);
+        assert_eq!(snapshot.height_mode, HeightMode::ManualOverride);
+    }
+
+    #[test]
+    fn explicit_user_resize_aligns_frontend_height_before_classifying_width_only_change() {
+        let state = SearchWindowState::default();
+
+        let snapshot = state.commit_user_resize(frame(750.0, 300.0), frame(900.0, 300.0), true);
+
+        assert_eq!(snapshot.current_width, 900.0);
+        assert_eq!(snapshot.current_height, 300.0);
+        assert_eq!(snapshot.height_mode, HeightMode::Auto);
+    }
+
+    #[test]
+    fn explicit_user_resize_enters_manual_override_only_for_an_allowed_height_change() {
+        let state = SearchWindowState::default();
+
+        let snapshot = state.commit_user_resize(frame(750.0, 300.0), frame(900.0, 420.0), true);
+
+        assert_eq!(snapshot.current_width, 900.0);
+        assert_eq!(snapshot.current_height, 420.0);
         assert_eq!(snapshot.height_mode, HeightMode::ManualOverride);
     }
 
@@ -612,5 +732,46 @@ mod tests {
 
         assert_eq!(target, Some(380.0));
         assert_eq!(state.snapshot().height_mode, HeightMode::Auto);
+    }
+
+    #[test]
+    fn user_recovers_the_previous_size_mode_and_frame_when_a_native_resize_fails() {
+        for original_mode in [HeightMode::Auto, HeightMode::ManualOverride] {
+            let state = state_with_manual_override();
+            state.apply_programmatic_size(None, None, Some(original_mode));
+            let previous = state.snapshot();
+            state.commit_user_resize(frame(920.0, 540.0), frame(1000.0, 600.0), true);
+            let attempted = state.snapshot();
+
+            assert!(state.rollback_failed_resize(previous, attempted));
+            assert_eq!(state.snapshot(), previous);
+        }
+    }
+
+    #[test]
+    fn user_keeps_a_newer_native_resize_when_an_older_resize_reports_failure() {
+        let state = state_with_defaults(750.0, 60.0);
+        let previous = state.snapshot();
+        let attempted = state.commit_user_resize(frame(750.0, 60.0), frame(800.0, 300.0), true);
+        state.record_runtime_resize(frame(900.0, 400.0), true, true);
+        let latest = state.snapshot();
+
+        assert!(!state.rollback_failed_resize(previous, attempted));
+        assert_eq!(state.snapshot(), latest);
+    }
+
+    #[test]
+    fn user_keeps_new_defaults_when_an_older_resize_reports_failure() {
+        let state = state_with_defaults(750.0, 60.0);
+        let previous = state.snapshot();
+        let attempted = state.commit_auto_resize(800.0, 300.0, false);
+        state.update_defaults(SearchWindowDefaults {
+            width: 1000.0,
+            height: 100.0,
+        });
+        let latest = state.snapshot();
+
+        assert!(!state.rollback_failed_resize(previous, attempted));
+        assert_eq!(state.snapshot(), latest);
     }
 }

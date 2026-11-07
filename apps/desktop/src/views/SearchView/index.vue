@@ -1,30 +1,37 @@
 <script setup lang="ts">
     // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3.
+
+    import { useMotion } from '@composables/useMotion';
     import { useSessionStatus } from '@composables/useSessionStatus';
+    import { AppEvent, eventService } from '@services/EventService';
     import type {
         SearchSurfaceCommandEvent,
         SessionStatusReminderActionEvent,
     } from '@services/EventService/types';
     import type { QuickShortcutItem } from '@services/NativeService';
     import { native } from '@services/NativeService';
-    import type { SearchWindowState } from '@services/NativeService/types';
     import { notify } from '@services/NotificationService';
     import { log } from '@services/ObservabilityService';
-    import {
-        popupManager as popupService,
-        type SessionHistoryData,
-        type SessionHistorySessionItem,
-    } from '@services/PopupService';
+    import { getCurrentWindow } from '@tauri-apps/api/window';
     import { storeToRefs } from 'pinia';
     import { computed, nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
     import type { SearchKeybindingActionId } from '@/config/searchKeybindings';
+    import {
+        SEARCH_SURFACE_EASING,
+        SEARCH_SURFACE_MOTION,
+        SEARCH_SURFACE_REVEAL_EASING,
+    } from '@/config/searchWindow';
     import { type AppLocale, t } from '@/i18n';
     import type { ToolApprovalDecisionRequest } from '@/services/AgentService/contracts/tooling';
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
     import type { SessionTaskStatus } from '@/services/AgentService/task/types';
     import { clipboardService } from '@/services/ClipboardService';
-    import type { ClipboardPayload } from '@/services/NativeService/types';
+    import type {
+        ClipboardPayload,
+        SearchSurfacePreparation,
+        SearchWindowState,
+    } from '@/services/NativeService/types';
     import { type AskUserConfirmOptions, useAskUserStore } from '@/stores/askUser';
     import { useMcpStore } from '@/stores/mcp';
     import { useSettingsStore } from '@/stores/settings';
@@ -43,10 +50,14 @@
     } from './autoShrinkPolicy';
     import AskUserPanel from './components/AskUser/AskUserPanel.vue';
     import ConversationPanel from './components/ConversationPanel/index.vue';
+    import ModelDropdownPopup from './components/ModelDropdownPopup/index.vue';
     import QuickSearchPanel from './components/QuickSearchPanel/index.vue';
     import SearchBar from './components/SearchBar/index.vue';
+    import SearchOverlayHost from './components/SearchOverlayHost/index.vue';
+    import type { SearchOverlayPosition } from './components/SearchOverlayHost/position';
+    import SearchPanelResizeHandles from './components/SearchPanelResizeHandles/index.vue';
+    import SessionHistoryPopover from './components/SessionHistoryPopover/index.vue';
     import {
-        createPopupSurfaceCoordinator,
         createSearchEntryPolicy,
         createSearchInteractionContext,
         createSessionInputHistoryBrowseState,
@@ -56,21 +67,38 @@
         type SessionInputHistoryDirection,
         type SessionInputHistoryNavigationResult,
         useQuickSearchCoordinator,
-        useSearchOverlayMachine,
     } from './composables/searchInteraction';
     import { useSearchAttachments, useSearchDraftController } from './composables/useSearchInput';
     import {
+        filterModelDropdownItems,
         useSearchKeyboard,
-        useSearchModelDropdownCoordinator,
         useSearchPageController,
         useSearchPageLifecycle,
         useSearchPanelFocusRestore,
         useSearchWindowPin,
     } from './composables/useSearchPage';
+    import { useSearchPanelDragging } from './composables/useSearchPanelDragging';
+    import { useSearchPanelInteraction } from './composables/useSearchPanelInteraction';
+    import { useSearchPanelResizing } from './composables/useSearchPanelResizing';
     import { useSearchRequestFlow } from './composables/useSearchRequest';
     import { useSearchWindowResize } from './composables/useSearchWindowResize';
-    import { useSessionHistoryPopup } from './composables/useSessionHistoryPopup';
+    import {
+        createSearchSurfacePreparationController,
+        settleSearchSurfaceViewport,
+    } from './searchSurfacePreparation';
+    import {
+        createSearchWindowRegionReporter,
+        createSearchWindowRegionSignature,
+        resolveSearchWindowRegionGeometry,
+        validateSearchSurfacePreparationUpdate,
+    } from './searchWindowRegions';
     import { initializeSearchViewForFirstPaint } from './startup';
+    import type {
+        ModelDropdownData,
+        ModelDropdownItem,
+        SessionHistoryData,
+        SessionHistorySessionItem,
+    } from './types';
     import type {
         ConversationPanelHandle,
         QuickSearchHandle,
@@ -85,11 +113,16 @@
         clipboardPayloadHasAttachmentFragments,
         trimClipboardPayloadTextBoundary,
     } from './utils/clipboardDraft';
+    import { resolveAutoSessionPanelHeight } from './windowSizing';
     defineOptions({
         name: 'SearchViewPage',
     });
 
     const viewReady = ref(false);
+    const { reducedMotion } = useMotion();
+    const surfaceAnimationDuration = computed(() =>
+        reducedMotion.value ? 0 : SEARCH_SURFACE_MOTION.durationMs
+    );
     const searchBar = ref<SearchBarHandle>();
     const draft = reactive<SearchDraftState>({
         queryText: '',
@@ -111,14 +144,163 @@
     const modelDropdownState = ref<SearchModelDropdownState>({
         isOpen: false,
     });
+    type ActiveSearchOverlay = 'none' | 'model-dropdown' | 'session-history';
+    type OverlayContentHandle = {
+        handleOverlayShown: () => void;
+        handleKeyDown: (event: KeyboardEvent) => void;
+    };
+    type OverlayHostHandle = { refreshPosition: () => Promise<void> };
+    const activeOverlay = ref<ActiveSearchOverlay>('none');
+    const renderedOverlay = ref<ActiveSearchOverlay>('none');
+    const overlayAnchorElement = ref<HTMLElement | null>(null);
+    const overlayPositionAnchorElement = ref<HTMLElement | null>(null);
+    /**
+     * Gap between a popup and the element it hangs from.
+     *
+     * A popup that floats over the results list sits flush with the search box's bottom edge, because
+     * that edge is the list's top: any gap shows a strip of the list between the box and the popup.
+     * Every other popup keeps the small gap it uses to read as attached but separate.
+     */
+    const overlayPositionGap = ref(5);
+    /** Left edge reference for a popup that floats over the results list. */
+    const overlayLeftAlignElement = ref<HTMLElement | null>(null);
+    /**
+     * Whether the open popup covers the results list instead of hanging beside its own control.
+     *
+     * Only the model picker does that, and only while the list is open. It is asked here rather than
+     * inferred from the reference above: that reference is kept for the popup it was resolved for,
+     * and a later popup reading a leftover value would be positioned as if it floated over the list
+     * -- which put the session history at the top of the window.
+     */
+    const overlayFloatsOverResults = computed(
+        () => quickSearchOpen.value && overlayLeftAlignElement.value !== null
+    );
+    /**
+     * The element a popup covers when the results list is showing.
+     *
+     * It defines both edges: its left is the surface's, and its top is where the list starts. A popup
+     * opened over the list uses it instead of its own (inset) control.
+     */
+    function resolveResultsSlotElement(): HTMLElement | null {
+        return document.querySelector<HTMLElement>("[data-testid='quick-search-handoff-shell']");
+    }
+
+    /**
+     * Point the overlay host at the results slot (or back at the default placement).
+     *
+     * Every popup follows one rule while the list is open: it covers the list instead of hanging
+     * beside its control, because the list is what the user is reading and it must neither collapse
+     * nor push the popup under itself.
+     */
+    function alignOverlayToResultsSlot(floating: boolean) {
+        if (floating) {
+            const slot = resolveResultsSlotElement();
+            overlayLeftAlignElement.value = slot;
+            overlayPositionGap.value = slot ? 0 : 5;
+            return;
+        }
+
+        overlayLeftAlignElement.value = null;
+        overlayPositionGap.value = 5;
+    }
+
+    const overlayHost = ref<OverlayHostHandle>();
+    const modelDropdownOverlay = ref<OverlayContentHandle>();
+    const sessionHistoryPopover = ref<OverlayContentHandle>();
+    let pendingOverlayFocus: ActiveSearchOverlay = 'none';
+    let pendingOverlayFocusEpoch = 0;
+    let overlayIntentEpoch = 0;
+    let pendingModelOpen = false;
     const modelDropdownQuery = ref('');
     const quickSearchOpen = ref(false);
+    // Keep QuickSearch mounted while a submitted query hands the surface to the
+    // conversation panel. The shell then collapses in CSS instead of disappearing.
+    const quickSearchHandoff = ref(false);
+    const quickSearchHandoffClosing = ref(false);
     const quickSearchPanel = ref<QuickSearchHandle>();
+    const quickSearchHandoffShell = ref<HTMLElement | null>(null);
+    type QuickSearchRevealPhase = 'idle' | 'measuring' | 'open' | 'folding' | 'handoff';
+    const quickSearchRevealPhase = ref<QuickSearchRevealPhase>('idle');
+    let quickSearchRevealEpoch = 0;
+    let quickSearchHandoffClosePromise: Promise<void> | null = null;
+    let sessionExpansion: AbortController | null = null;
     const conversationPanel = ref<ConversationPanelHandle>();
-    const historyAnchorElement = ref<HTMLElement | null>(null);
+    const conversationContainer = ref<HTMLElement | null>(null);
     const pageContainer = ref<HTMLElement | null>(null);
+    const pageContent = ref<HTMLElement | null>(null);
+    const searchViewCard = ref<HTMLElement | null>(null);
+    const overlayRegionElement = ref<HTMLElement | null>(null);
+    const overlayRequiredViewportHeight = ref<number | null>(null);
+    const overlayPositionReady = ref(false);
+    const closeOverlayImmediately = ref(false);
+    let overlaySettleInFlightEpoch: number | null = null;
+    let overlaySettleEpoch = 0;
+    const quickSearchRevealPending = computed(() => quickSearchRevealPhase.value === 'measuring');
+    const surfaceHiding = ref(false);
+
+    const {
+        active: isDragging,
+        begin: beginSearchPanelInteraction,
+        end: endSearchPanelInteraction,
+    } = useSearchPanelInteraction({
+        onFirstStart: () => {
+            void hideAllOverlays(false);
+            scheduleSearchWindowRegionSync(true, true);
+        },
+        onLastEnd: () => {
+            void nextTick().then(() => {
+                if (isDragging.value) return;
+                overlayHost.value?.refreshPosition();
+                scheduleSearchWindowRegionSync(true, true);
+            });
+        },
+    });
+    let searchViewListenersDisposed = false;
+    let notifySearchSurfaceViewportChanged: () => void = () => undefined;
+    const searchWindowRegionReporter = createSearchWindowRegionReporter<SearchSurfacePreparation>(
+        (preparation) => {
+            if (!viewReady.value) return null;
+            if (surfaceHiding.value && !preparation) return null;
+            const surface = pageContainer.value;
+            if (!surface) return null;
+
+            const { regions } = resolveSearchWindowRegionGeometry(
+                surface.getBoundingClientRect(),
+                overlayRegionElement.value?.getBoundingClientRect() ?? null,
+                isLogicalPanelResizing.value || effectiveWindowMaximized.value
+                    ? { width: window.innerWidth, height: window.innerHeight }
+                    : null
+            );
+            if (regions.length === 0) return null;
+
+            return {
+                signature: createSearchWindowRegionSignature(regions),
+                report: async (
+                    generation: number,
+                    preparation: SearchSurfacePreparation | undefined
+                ) => {
+                    try {
+                        const update = await native.window.setSearchWindowRegions(
+                            regions,
+                            generation,
+                            preparation
+                        );
+                        return validateSearchSurfacePreparationUpdate(
+                            update,
+                            preparation,
+                            generation
+                        );
+                    } catch (error) {
+                        log.error('[SearchView] Failed to sync search window regions:', error);
+                        throw error;
+                    }
+                },
+            };
+        },
+        100,
+        handleRegionSyncFailure
+    );
     const approvalAttentionToken = ref(0);
-    const isDragging = ref(false);
     const latestContentVisible = ref(true);
     const latestSeenCompletedMessageMarker = ref<string | null>(null);
     const inputHistoryBrowseState = ref<SessionInputHistoryBrowseState>(
@@ -131,48 +313,117 @@
     const { searchWindowDefaultSize, searchKeybindings } = storeToRefs(settingsStore);
     const { sessionStatuses, refreshAllStatuses: refreshSessionStatuses } = useSessionStatus();
     const { isPinned, syncWindowPinState, setWindowPinned, toggleWindowPin } = useSearchWindowPin();
-    /**
-     * A pending ask-user prompt the E2E bridge can put in front of the user.
-     *
-     * The bridge only routes this to the store; what the prompt says is the caller's data.
-     */
     type E2eAskUserRequest =
         | { kind: 'confirm'; options: AskUserConfirmOptions }
         | { kind: 'approval'; payload: ToolApprovalDecisionRequest };
-
     const widgetBridgeWindow = window as Window & {
         sendPrompt?: (text: string) => void;
         openLink?: (url: string) => void;
         __TOUCHAI_E2E__?: {
             openSettingsWindow: () => Promise<void>;
             setSearchQuery: (text: string) => void;
-            getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
-            /** 直接发生一轮对话，用于验证用量采集链路 */
             sendPrompt: (text: string) => Promise<void>;
-            /** 窗口状态查询与调整，用于验证原生窗口行为 */
             getSearchWindowState: () => Promise<SearchWindowState>;
-            resizeWindowHeight: (params: {
-                targetHeight: number;
-                center: boolean;
-                animate: boolean;
-                respectManualOverride: boolean;
-            }) => Promise<void>;
+            resizeWindowHeight: typeof native.window.resizeWindowHeight;
             resetSearchWindowBounds: () => Promise<void>;
-            setLanguage: (locale: AppLocale) => Promise<void>;
-            /** Registers the results the search panel shows for one query. */
             setSearchFixture: (query: string, results: QuickShortcutItem[]) => void;
             setConversation: (messages: SessionMessage[]) => void;
             setAskUserRequest: (request: E2eAskUserRequest) => void;
             clearAskUser: () => void;
+            setLanguage: (locale: AppLocale) => Promise<void>;
+            getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
+            clearSessionToIdle?: () => Promise<void>;
+            getSessionExpandDebug?: () => { events: unknown[] } | null;
         };
     };
     const searchInteractionContext = createSearchInteractionContext();
     const searchEntryPolicy = createSearchEntryPolicy();
-    const popupSurfaceCoordinator = createPopupSurfaceCoordinator(searchInteractionContext);
     const suppressQuickSearchAutoOpenOnce = ref(false);
     const askUserStore = useAskUserStore();
     let lastBridgedApprovalCallId: string | null = null;
     let lastBridgedQuestionCallId: string | null = null;
+
+    function scheduleSearchWindowRegionSync(force = false, immediate = false) {
+        searchWindowRegionReporter.schedule('geometry', force, immediate);
+    }
+
+    function handleRegionSyncFailure(error: unknown) {
+        log.error('[SearchView] Failed to prepare search window region:', error);
+        surfaceHiding.value = true;
+        void native.window.hideSearchWindow().catch((hideError) => {
+            log.error('[SearchView] Failed to hide unsafe search window region:', hideError);
+        });
+    }
+
+    async function preparePanelTransition() {
+        try {
+            await searchWindowRegionReporter.flush('panel-transition', true);
+        } catch (error) {
+            handleRegionSyncFailure(error);
+            throw error;
+        }
+    }
+
+    function beginOverlayIntent() {
+        overlayIntentEpoch += 1;
+        return overlayIntentEpoch;
+    }
+
+    function isOverlayIntentCurrent(intentEpoch: number) {
+        return intentEpoch === overlayIntentEpoch;
+    }
+
+    function clearPendingOverlayFocus() {
+        pendingOverlayFocus = 'none';
+        pendingOverlayFocusEpoch = 0;
+    }
+
+    function handleOverlayRegionChange(element: HTMLElement | null) {
+        overlayRegionElement.value = element;
+        if (!element) overlayRequiredViewportHeight.value = null;
+        searchWindowRegionReporter.schedule('overlay-transition-envelope', false, true);
+        void remeasureTargetHeight().catch((error) => {
+            log.error('[SearchView] Failed to remeasure inline overlay bounds:', error);
+        });
+    }
+
+    function handleOverlayAfterLeave() {
+        if (activeOverlay.value === 'none') {
+            overlayPositionReady.value = false;
+            renderedOverlay.value = 'none';
+            overlayAnchorElement.value = null;
+            overlayPositionAnchorElement.value = null;
+        }
+    }
+
+    function handleLogicalPanelHeightChange() {
+        void nextTick().then(() => {
+            if (searchViewListenersDisposed) return;
+            scheduleSearchWindowRegionSync(true, true);
+        });
+    }
+
+    function handleLogicalPanelGeometryChange() {
+        handleHostViewportChange();
+    }
+
+    function handleHostViewportChange() {
+        notifySearchSurfaceViewportChanged();
+        void nextTick().then(() => {
+            settleQuickSearchReveal();
+            if (activeOverlay.value !== 'none') {
+                void overlayHost.value?.refreshPosition();
+            }
+            scheduleSearchWindowRegionSync(true, true);
+        });
+    }
+
+    function overlayFitsViewport() {
+        return (
+            overlayRequiredViewportHeight.value === null ||
+            document.documentElement.clientHeight >= overlayRequiredViewportHeight.value - 1
+        );
+    }
 
     function buildCurrentInputHistorySnapshot(query = queryText.value): InputHistorySnapshot {
         const capturedSnapshot = searchBar.value?.captureInputHistorySnapshot();
@@ -211,20 +462,6 @@
         }
     }
 
-    /**
-     * 判断交互上下文里的 popup 会话是否仍然对应 popupManager 当前会话。
-     */
-    function isLiveActivePopupSession() {
-        const activeIdentity = searchInteractionContext.state.activePopupIdentity;
-        return (
-            popupService.state.isOpen === true &&
-            activeIdentity !== null &&
-            popupService.state.currentPopupId === activeIdentity.popupId &&
-            popupService.state.currentWindowLabel === activeIdentity.windowLabel &&
-            popupService.state.currentPopupSessionVersion === activeIdentity.popupSessionVersion
-        );
-    }
-
     const controller = useSearchPageController({
         searchBar,
         quickSearchOpen,
@@ -255,6 +492,10 @@
         createAttachmentFromClipboardPath,
     });
 
+    const requestDraftClear = (options?: { preserveModelTag?: boolean }) => {
+        clearDraft(options);
+    };
+
     const {
         pendingRequest,
         isWaitingForCompletion,
@@ -262,12 +503,12 @@
         error,
         currentSessionId,
         sessionHistory,
-        sessionHistoryPopupOpen,
+        sessionHistoryOverlayOpen,
         sessionList,
         sessionListQuery,
         isSessionListLoading,
         clearSession,
-        setSessionHistoryPopupOpen,
+        setSessionHistoryOverlayOpen,
         beginHistoryInteraction,
         markHistorySelectionPending,
         abandonHistorySelection,
@@ -284,12 +525,12 @@
         rejectPendingToolApproval,
         settleUserQuestion,
         handleSubmit,
+        clearAll,
         cancelRequest,
-        cancelPendingRequest,
         handleRegenerateMessage: handleRegenerateMessageRequest,
     } = useSearchRequestFlow({
         modelOverride,
-        clearDraft,
+        clearDraft: requestDraftClear,
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
         getCurrentInputSnapshot: buildCurrentInputHistorySnapshot,
@@ -297,19 +538,155 @@
 
     const {
         contentReady: searchViewContentReady,
+        cardHeight: cardPixelHeight,
+        measurementHold: surfaceMeasurementHold,
         isMaximized,
         effectiveWindowMaximized,
+        settledWindowMaximized,
         fillConversationAvailableHeight,
+        monitorHost: usesMonitorHost,
+        panelBounds,
+        overlayMaxViewportHeight,
+        overlayMinViewportTop,
+        overlayMinViewportLeft,
+        overlayMaxViewportRight,
+        panelStyle,
+        cardStyle,
+        isSessionExpandAnimating,
+        isCardGrowing,
+        allowLogicalPanelHeightResize,
         toggleMaximize: toggleMaximizeBase,
         syncWindowState: syncSearchWindowState,
         remeasureTargetHeight,
+        measureTargetHeight,
+        scheduleMeasurement: scheduleContentMeasurement,
+        playSessionExpandAnimation,
+        collapseSessionToIdle,
+        resetSearchWindowBounds,
+        beginLogicalPanelResize,
+        previewLogicalPanelResize,
+        commitLogicalPanelResize,
+        cancelLogicalPanelResize,
+        prepareForNativeDrag,
+        finishNativeDrag,
+        isLogicalPanelResizing,
     } = useSearchWindowResize({
-        target: pageContainer,
+        target: pageContent,
+        measureContentHeight: measurePageContentHeight,
+        overlayTarget: overlayRegionElement,
+        // The animated height belongs to the opaque card. The outer frame
+        // keeps the committed host geometry stable so its radius and shadow
+        // do not move while the session content is revealed.
+        card: searchViewCard,
+        overlayRequiredViewportHeight,
+        intrinsicHeightMeasurementPending: quickSearchRevealPending,
         sessionCount: computed(() => sessionHistory.value.length),
         quickSearchOpen,
         defaultSize: searchWindowDefaultSize,
         ready: viewReady,
+        onLogicalPanelHeightChange: handleLogicalPanelHeightChange,
+        preparePanelTransition,
+        onLogicalPanelGeometryChange: handleLogicalPanelGeometryChange,
+        onHostViewportChange: handleHostViewportChange,
+        resizeEnabled: computed(() => !surfaceHiding.value),
     });
+
+    // The card is the panel, not the host interior: a fixed overlay reserves host height
+    // below the panel, and the card animates its own growth into the committed host. Both
+    // cases need the card height to come from the committed panel height.
+    const searchSurfaceStyle = computed(() => {
+        const borderWidth = panelStyle.value?.['--search-surface-border-width'];
+        const style: Record<string, string> = {
+            '--search-surface-duration': `${surfaceAnimationDuration.value}ms`,
+            '--search-surface-easing': SEARCH_SURFACE_EASING,
+            '--search-reveal-duration': `${reducedMotion.value ? 0 : SEARCH_SURFACE_MOTION.revealDurationMs}ms`,
+            '--search-reveal-easing': SEARCH_SURFACE_REVEAL_EASING,
+        };
+        if (borderWidth) {
+            style['--search-surface-border-width'] = borderWidth;
+        }
+        const panelHeight = cardPixelHeight.value;
+        if (panelHeight && !effectiveWindowMaximized.value) {
+            style['--search-surface-card-height'] = `${panelHeight}px`;
+        }
+
+        return style;
+    });
+
+    const pageContentMaxHeight = computed(() =>
+        resolveAutoSessionPanelHeight({
+            searchBarHeight: searchWindowDefaultSize.value.height,
+        })
+    );
+    const pageContentStyle = computed(() => {
+        if (
+            sessionHistory.value.length > 0 ||
+            fillConversationAvailableHeight.value ||
+            effectiveWindowMaximized.value
+        ) {
+            return { maxHeight: 'none' };
+        }
+
+        // Intrinsic content box: the native host follows the measurement, the card
+        // clips the overflow while it catches up. A stretched flex child was what
+        // stopped text wrapping from resizing the window and stretched the editor.
+        return {
+            flex: '0 0 auto',
+            maxHeight: `${pageContentMaxHeight.value}px`,
+        };
+    });
+
+    const {
+        startDragging: startSearchPanelDragging,
+        cancelDragging: cancelSearchPanelDragging,
+        dispose: disposeSearchPanelDragging,
+    } = useSearchPanelDragging({
+        maximized: effectiveWindowMaximized,
+        monitorHost: usesMonitorHost,
+        prepareForNativeDrag,
+        finishNativeDrag,
+    });
+
+    function handleSearchPanelDragStart() {
+        beginSearchPanelInteraction();
+    }
+
+    function handleSearchPanelDragEnd() {
+        endSearchPanelInteraction();
+    }
+
+    const logicalPanelResizeEnabled = computed(
+        () => viewReady.value && usesMonitorHost.value && !effectiveWindowMaximized.value
+    );
+    const {
+        startResizing: startSearchPanelResizing,
+        cancelResizing: cancelSearchPanelResizing,
+        dispose: disposeSearchPanelResizing,
+    } = useSearchPanelResizing({
+        panel: pageContainer,
+        panelBounds,
+        enabled: logicalPanelResizeEnabled,
+        allowHeightOverride: allowLogicalPanelHeightResize,
+        minimumSize: computed(() => ({
+            width: searchWindowDefaultSize.value.width,
+            height: searchWindowDefaultSize.value.height,
+        })),
+        beginResize: beginLogicalPanelResize,
+        previewResize: previewLogicalPanelResize,
+        commitResize: commitLogicalPanelResize,
+        cancelResize: cancelLogicalPanelResize,
+        onResizeStart: handleSearchPanelDragStart,
+        onResizeEnd: handleSearchPanelDragEnd,
+    });
+
+    function handleSearchPanelResizeStart(
+        direction: Parameters<typeof startSearchPanelResizing>[0],
+        event: PointerEvent
+    ) {
+        void startSearchPanelResizing(direction, event).catch((error) => {
+            log.error('[SearchView] Failed to resize logical search panel:', error);
+        });
+    }
 
     const { isQuickSearchOpen, shouldTriggerQuickSearch } = useQuickSearchCoordinator({
         queryText,
@@ -318,21 +695,11 @@
         cursorContext,
         modelOverride,
         modelDropdownState,
+        activeOverlay,
         quickSearchOpen,
+        quickSearchHandoff,
         controller,
         suppressNextAutoOpen: suppressQuickSearchAutoOpenOnce,
-    });
-
-    const {
-        requestModelDropdownOpen,
-        handleQuickSearchClosedForModelDropdown,
-        handleLayoutStableForModelDropdown,
-        handleModelDropdownOpened,
-        handleModelDropdownClosed,
-        syncOverlayState,
-    } = useSearchOverlayMachine({
-        isQuickSearchOpen,
-        modelDropdownState,
     });
 
     const sessionIdleForAutoShrink = computed(
@@ -402,34 +769,138 @@
         return pendingTerminalStatus ?? null;
     }
 
-    const {
-        closeModelDropdown,
-        hideAllDropdowns,
-        refreshModelDropdownData,
-        handleToggleModelDropdownRequest: handleToggleModelDropdownRequestBase,
-    } = useSearchModelDropdownCoordinator({
-        pageContainer,
-        controller,
-        modelOverride,
-        modelDropdownState,
-        modelDropdownQuery,
-        getModelToggleShortcut: () => searchKeybindings.value['search.model.toggle'],
-        requestModelDropdownOpen,
-        handleQuickSearchClosedForModelDropdown,
-        handleLayoutStableForModelDropdown,
-        handleModelDropdownOpened,
-        handleModelDropdownClosed,
-        syncOverlayState,
-        onPopupSessionStart: (identity) => {
-            popupSurfaceCoordinator.activatePopup({
-                ...identity,
-                popupType: 'model-dropdown-surface',
+    function getModelDropdownData(): ModelDropdownData {
+        const context = controller.getModelDropdownContext();
+        const models = filterModelDropdownItems(
+            context.models
+                .filter((model) => model.provider_enabled === 1)
+                .map<ModelDropdownItem>((model) => ({
+                    id: model.id,
+                    modelId: model.model_id,
+                    name: model.name,
+                    providerId: model.provider_id,
+                    providerName: model.provider_name,
+                    reasoning: model.reasoning,
+                    tool_call: model.tool_call,
+                    modalities: model.modalities,
+                    attachment: model.attachment,
+                    open_weights: model.open_weights,
+                })),
+            modelDropdownQuery.value
+        );
+        return {
+            activeModelId: context.activeModelId ?? '',
+            activeProviderId: context.activeProviderId,
+            selectedModelId: context.selectedModelId ?? '',
+            selectedProviderId: context.selectedProviderId,
+            searchQuery: modelDropdownQuery.value,
+            toggleShortcut: searchKeybindings.value['search.model.toggle'],
+            models,
+        };
+    }
+
+    async function focusActiveOverlay(intentEpoch: number) {
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
+        const overlayToFocus = activeOverlay.value;
+        pendingOverlayFocus = overlayToFocus;
+        pendingOverlayFocusEpoch = intentEpoch;
+        await nextTick();
+        if (!isOverlayIntentCurrent(intentEpoch) || activeOverlay.value !== overlayToFocus) {
+            return;
+        }
+        await overlayHost.value?.refreshPosition();
+    }
+
+    function focusPendingOverlayWhenReady() {
+        if (!overlayPositionReady.value) return;
+
+        const overlayToFocus = pendingOverlayFocus;
+        const focusEpoch = pendingOverlayFocusEpoch;
+        if (
+            overlayToFocus === 'none' ||
+            overlayToFocus !== activeOverlay.value ||
+            !isOverlayIntentCurrent(focusEpoch)
+        ) {
+            return;
+        }
+
+        const overlayHandle =
+            overlayToFocus === 'model-dropdown'
+                ? modelDropdownOverlay.value
+                : sessionHistoryPopover.value;
+        if (!overlayHandle) return;
+
+        clearPendingOverlayFocus();
+        overlayHandle.handleOverlayShown();
+    }
+
+    function handleOverlayPositioned(position: SearchOverlayPosition) {
+        overlayRequiredViewportHeight.value = position.requiredViewportHeight;
+        if (!overlayPositionReady.value && overlaySettleInFlightEpoch !== overlaySettleEpoch) {
+            const settleEpoch = overlaySettleEpoch;
+            const isCurrentOverlay = () =>
+                settleEpoch === overlaySettleEpoch &&
+                activeOverlay.value !== 'none' &&
+                !searchViewListenersDisposed;
+            overlaySettleInFlightEpoch = settleEpoch;
+            void (async () => {
+                try {
+                    await remeasureTargetHeight();
+                    if (!isCurrentOverlay()) return;
+                    await nextTick();
+                    if (!isCurrentOverlay()) return;
+
+                    await overlayHost.value?.refreshPosition();
+                    await nextTick();
+                    if (!isCurrentOverlay() || !overlayFitsViewport()) return;
+                    const regionsAccepted = await searchWindowRegionReporter.flush(
+                        'overlay-reveal',
+                        true
+                    );
+                    if (regionsAccepted && isCurrentOverlay() && overlayFitsViewport()) {
+                        overlayPositionReady.value = true;
+                        if (activeOverlay.value === 'session-history') {
+                            beginHistoryInteraction();
+                            reportHistoryInteractionOpened();
+                        }
+                    }
+                } catch (error) {
+                    log.error('[SearchView] Failed to settle positioned overlay bounds:', error);
+                } finally {
+                    if (overlaySettleInFlightEpoch === settleEpoch) {
+                        overlaySettleInFlightEpoch = null;
+                    }
+                }
+            })();
+        } else if (overlayPositionReady.value) {
+            void remeasureTargetHeight().catch((error) => {
+                log.error('[SearchView] Failed to remeasure positioned overlay bounds:', error);
             });
-        },
-        onPopupSessionEnd: () => {
-            popupSurfaceCoordinator.clearActivePopup();
-        },
-    });
+        }
+    }
+
+    async function closeModelDropdownForIntent(intentEpoch: number, restoreFocus: boolean) {
+        if (!isOverlayIntentCurrent(intentEpoch)) return false;
+        clearPendingOverlayFocus();
+        if (activeOverlay.value === 'model-dropdown') activeOverlay.value = 'none';
+        modelDropdownState.value = { isOpen: false };
+        modelDropdownQuery.value = '';
+        if (restoreFocus) {
+            await controller.focusSearchInput();
+            if (!isOverlayIntentCurrent(intentEpoch)) return false;
+        }
+        return true;
+    }
+
+    async function closeModelDropdown(restoreFocus = true) {
+        const intentEpoch = beginOverlayIntent();
+        await closeModelDropdownForIntent(intentEpoch, restoreFocus);
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
+    }
+
+    async function refreshModelDropdownData() {
+        if (activeOverlay.value === 'model-dropdown') await overlayHost.value?.refreshPosition();
+    }
 
     async function handleAiModelsUpdated() {
         controller.invalidateModelDropdownData();
@@ -449,7 +920,7 @@
                 await openHistoryDialog();
                 return;
             case 'search.input.focus':
-                await hideAllPopups();
+                await hideAllOverlays();
                 await controller.focusSearchInput();
                 return;
             case 'search.session.new':
@@ -484,29 +955,101 @@
 
     let routeSearchSurfaceCommand: ((payload: SearchSurfaceCommandEvent) => boolean) | null = null;
 
-    const { hideSearchWindow } = useSearchPageLifecycle({
+    const {
+        hideSearchWindow: hideSearchWindowBase,
+        handleSearchSurfaceShown,
+        handleSearchSurfaceHidden,
+    } = useSearchPageLifecycle({
         controller,
         viewReady,
         isDragging,
         isPinned,
         isMaximized: effectiveWindowMaximized,
         searchKeybindings,
+        isSurfaceTransitioning: isSessionExpandAnimating,
         interactionContext: searchInteractionContext,
         syncWindowPinState,
         clearSession: clearSessionToIdle,
         shouldClearSessionAfterTimeout,
-        reconcilePopupSurfaces: hideAllPopups,
+        reconcileSearchOverlays: hideAllOverlays,
         remeasureSearchWindowHeight: remeasureTargetHeight,
+        onSurfaceVisibilityChange: (visible) => {
+            surfaceHiding.value = !visible;
+            if (visible) handleHostViewportChange();
+        },
         onSurfaceHidden: clearSurfaceUiAfterHidden,
-        handleSessionStatusReminderAction,
-        handleAiModelsUpdated,
-        handleShortcutAutoPaste: tryShortcutAutoPaste,
         handleSearchSurfaceCommand: (payload) => {
             routeSearchSurfaceCommand?.(payload);
         },
+        handleSessionStatusReminderAction,
+        handleAiModelsUpdated,
+        handleShortcutAutoPaste: tryShortcutAutoPaste,
     });
+    const searchHostWindow = getCurrentWindow();
+    const searchSurfacePreparationController = createSearchSurfacePreparationController({
+        listenPrepare: (handler) => eventService.on(AppEvent.SEARCH_SURFACE_PREPARE, handler),
+        listenShown: (handler) => eventService.on(AppEvent.SEARCH_SURFACE_SHOWN, handler),
+        listenHidden: (handler) => eventService.on(AppEvent.SEARCH_SURFACE_HIDDEN, handler),
+        getRendererEpoch: () => native.window.getSearchWindowRendererEpoch(),
+        markRendererReady: (rendererEpoch) => native.window.markSearchWindowReady(rendererEpoch),
+        getViewport: async () => {
+            const [position, size, scaleFactor] = await Promise.all([
+                searchHostWindow.outerPosition(),
+                searchHostWindow.innerSize(),
+                searchHostWindow.scaleFactor(),
+            ]);
+            return {
+                physicalViewport: {
+                    x: position.x,
+                    y: position.y,
+                    width: size.width,
+                    height: size.height,
+                },
+                scaleFactor,
+            };
+        },
+        settle: settleSearchSurfaceViewport,
+        flush: (preparation) =>
+            searchWindowRegionReporter.flush('surface-preparation', true, preparation),
+        onShown: handleSearchSurfaceShown,
+        onHidden: handleSearchSurfaceHidden,
+        onError: (error) => {
+            const surface = pageContainer.value?.getBoundingClientRect();
+            const card = searchViewCard.value?.getBoundingClientRect();
+            log.error('[SearchView] Failed to commit search surface preparation:', error, {
+                ready: viewReady.value,
+                contentReady: searchViewContentReady.value,
+                monitorHost: usesMonitorHost.value,
+                viewportWidth: innerWidth,
+                viewportHeight: innerHeight,
+                scale: devicePixelRatio,
+                surfaceWidth: surface?.width ?? 0,
+                surfaceHeight: surface?.height ?? 0,
+                cardWidth: card?.width ?? 0,
+                cardHeight: card?.height ?? 0,
+            });
+            void native.window.hideSearchWindow().catch((hideError) => {
+                log.error('[SearchView] Failed to hide unsafe prepared surface:', hideError);
+            });
+        },
+    });
+    notifySearchSurfaceViewportChanged = searchSurfacePreparationController.notifyViewportChanged;
 
-    function getSessionHistoryPopupData(): SessionHistoryData {
+    async function hideSearchWindow() {
+        surfaceHiding.value = true;
+        cancelSessionExpansion();
+        beginOverlayIntent();
+        pendingModelOpen = false;
+        clearPendingOverlayFocus();
+        try {
+            await hideSearchWindowBase();
+        } catch (error) {
+            surfaceHiding.value = false;
+            throw error;
+        }
+    }
+
+    function getSessionHistoryOverlayData(): SessionHistoryData {
         return {
             sessions: sessionList.value.map<SessionHistorySessionItem>((session) => ({
                 ...session,
@@ -521,27 +1064,6 @@
             toggleShortcut: searchKeybindings.value['search.history.open'],
         };
     }
-
-    const sessionHistoryPopup = useSessionHistoryPopup({
-        getAnchorElement: () =>
-            historyAnchorElement.value ?? conversationPanel.value?.getHistoryAnchor() ?? null,
-        getPopupData: getSessionHistoryPopupData,
-        isSessionHistoryActive: () => sessionHistoryPopupOpen.value,
-        onSessionOpen: (sessionId) => handleOpenSession(sessionId, 'history'),
-        onSessionSearchQueryChange: handleSessionSearchQueryChange,
-        onClose: () => setSessionHistoryPopupOpen(false),
-        onPopupSessionStart: (identity) => {
-            beginHistoryInteraction();
-            reportHistoryInteractionOpened();
-            popupSurfaceCoordinator.activatePopup({
-                ...identity,
-                popupType: 'session-history-surface',
-            });
-        },
-        onPopupSessionEnd: () => {
-            popupSurfaceCoordinator.clearActivePopup();
-        },
-    });
 
     const sessionInputHistoryEntries = computed(() =>
         extractSessionInputHistoryEntries(sessionHistory.value)
@@ -595,7 +1117,196 @@
         return 'navigated';
     }
 
+    /**
+     * Height of the results row the handoff is folding away.
+     *
+     * The row stays in the layout while it collapses so the editor can ride down as the
+     * conversation grows, which means the measurement sees the results on top of the
+     * conversation. Their own height has to come back off the total.
+     */
+    function collapsingQuickSearchHeight() {
+        const shell = quickSearchHandoffShell.value;
+        if (!shell || !quickSearchHandoff.value) return 0;
+        return shell.getBoundingClientRect().height;
+    }
+
+    function measurePageContentHeight(content: HTMLElement) {
+        if (!conversationPanel.value || !conversationContainer.value) {
+            return Math.max(content.scrollHeight, content.getBoundingClientRect().height);
+        }
+
+        const controlsHeight = Array.from(content.children).reduce((height, child) => {
+            if (!(child instanceof HTMLElement) || child === conversationContainer.value) {
+                return height;
+            }
+            return height + child.getBoundingClientRect().height;
+        }, 0);
+        return (
+            conversationPanel.value.getContentHeight() +
+            controlsHeight -
+            collapsingQuickSearchHeight()
+        );
+    }
+
+    function cancelSessionExpansion() {
+        sessionExpansion?.abort();
+        sessionExpansion = null;
+        surfaceMeasurementHold.value = false;
+        closeOverlayImmediately.value = false;
+        quickSearchHandoffClosePromise = null;
+        if (quickSearchHandoff.value) {
+            quickSearchPanel.value?.close();
+            finalizeQuickSearchClose();
+            quickSearchHandoff.value = false;
+            quickSearchHandoffClosing.value = false;
+        }
+    }
+
+    function beginSessionExpansion() {
+        cancelSessionExpansion();
+        const expansion = new AbortController();
+        sessionExpansion = expansion;
+        surfaceMeasurementHold.value = true;
+        return expansion;
+    }
+
+    async function waitForSessionExpandContentHeight(
+        request: Promise<unknown>,
+        signal: AbortSignal
+    ) {
+        await nextTick();
+        if (signal.aborted) return null;
+        return new Promise<number | null>((resolve) => {
+            let settled = false;
+            const finish = (height: number | null) => {
+                if (settled) return;
+                settled = true;
+                stop();
+                signal.removeEventListener('abort', cancel);
+                resolve(height);
+            };
+            const cancel = () => finish(null);
+            const measure = () => {
+                if (settled) return;
+                if (conversationPanel.value && sessionHistory.value.length > 0) {
+                    const height = measureTargetHeight();
+                    if (height !== null) finish(height);
+                }
+            };
+            const stop = watch([conversationPanel, searchViewContentReady], measure, {
+                flush: 'post',
+            });
+            signal.addEventListener('abort', cancel, { once: true });
+            measure();
+            // A rejected, cancelled or empty submission has no content to wait for.
+            void request.then(async () => {
+                await nextTick();
+                measure();
+                finish(null);
+            }, cancel);
+        });
+    }
+
+    async function startQuickSearchHandoffClose(signal: AbortSignal) {
+        if (signal.aborted || !quickSearchHandoff.value || quickSearchHandoffClosing.value) return;
+        quickSearchHandoffClosing.value = true;
+        // Freeze measurement for the fold. The results row keeps its place while it
+        // collapses and the conversation grows into the space it gives up, so the
+        // live height loop would otherwise chase both.
+        foldQuickSearchRevealIntoHandoff();
+        await nextTick();
+        if (signal.aborted) return;
+        const animations = quickSearchHandoffShell.value?.getAnimations?.() ?? [];
+        const cancel = () => animations.forEach((animation) => animation.cancel());
+        signal.addEventListener('abort', cancel, { once: true });
+        if (signal.aborted) cancel();
+        quickSearchHandoffClosePromise = Promise.allSettled(
+            animations.map((animation) => animation.finished)
+        ).then(() => signal.removeEventListener('abort', cancel));
+    }
+
+    async function finishQuickSearchHandoff(signal: AbortSignal) {
+        if (!quickSearchHandoff.value) return;
+        await quickSearchHandoffClosePromise;
+        if (signal.aborted) return;
+        quickSearchHandoffClosePromise = null;
+        quickSearchPanel.value?.close();
+        finalizeQuickSearchClose();
+        await nextTick();
+        if (signal.aborted) return;
+        quickSearchHandoffClosing.value = false;
+        quickSearchHandoff.value = false;
+    }
+
+    async function submitSearchQuery(
+        ...args: Parameters<typeof handleSubmit>
+    ): ReturnType<typeof handleSubmit> {
+        const quickSearchWasOpen = quickSearchOpen.value;
+        const shouldExpand = sessionHistory.value.length === 0 && !effectiveWindowMaximized.value;
+        const expansion = shouldExpand || quickSearchWasOpen ? beginSessionExpansion() : null;
+
+        if (quickSearchWasOpen) {
+            quickSearchHandoff.value = true;
+            quickSearchHandoffClosing.value = false;
+        }
+        try {
+            if (shouldExpand) {
+                await hideAllOverlays(false);
+            }
+
+            const submitPromise = handleSubmit(...args);
+            if (expansion?.signal.aborted) return submitPromise;
+            if (quickSearchWasOpen) {
+                // Hand the viewport over: the results row collapses on the card's curve
+                // while the conversation grows into the space it gives up.
+                await startQuickSearchHandoffClose(expansion!.signal);
+            }
+            if (!shouldExpand) {
+                return submitPromise;
+            }
+
+            const contentHeight = await waitForSessionExpandContentHeight(
+                submitPromise,
+                expansion!.signal
+            );
+            if (expansion!.signal.aborted) return submitPromise;
+            if (contentHeight === null) {
+                if (sessionHistory.value.length === 0) {
+                    await resetSearchWindowBounds().catch((error) => {
+                        log.error(
+                            '[SearchView] Failed to restore idle bounds after empty submission:',
+                            error
+                        );
+                    });
+                }
+                return submitPromise;
+            }
+
+            await playSessionExpandAnimation(contentHeight).catch((error) => {
+                log.error('[SearchView] Failed to animate session expand after submit:', error);
+            });
+            if (expansion!.signal.aborted) return submitPromise;
+            scheduleSearchWindowRegionSync(true, true);
+
+            return submitPromise;
+        } finally {
+            if (expansion === sessionExpansion && quickSearchWasOpen && quickSearchHandoff.value) {
+                await startQuickSearchHandoffClose(expansion!.signal);
+                await finishQuickSearchHandoff(expansion!.signal);
+            }
+            if (expansion === sessionExpansion) {
+                surfaceMeasurementHold.value = false;
+                sessionExpansion = null;
+            }
+        }
+    }
+
     const searchKeyboard = useSearchKeyboard({
+        cancelActivePanelInteraction: () => {
+            const resizeCancelled = cancelSearchPanelResizing();
+            const dragCancelled = cancelSearchPanelDragging();
+            return resizeCancelled || dragCancelled;
+        },
         viewReady,
         searchKeybindings,
         queryText,
@@ -605,26 +1316,38 @@
         modelDropdownState,
         controller,
         sessionHistory,
-        hasPendingRequest: () => Boolean(pendingRequest.value),
+        pendingRequest,
+        isWaitingForCompletion,
         isLoading,
         pendingToolApproval,
         approvePendingToolApproval,
         rejectPendingToolApproval,
         promptPendingToolApprovalAttention,
-        getActivePopupType: () =>
-            isLiveActivePopupSession() ? searchInteractionContext.state.activePopupType : null,
-        hasActivePopupWindowFocus: () => isLiveActivePopupSession(),
+        getActiveOverlaySurface: () =>
+            activeOverlay.value === 'model-dropdown'
+                ? 'model-dropdown-surface'
+                : activeOverlay.value === 'session-history'
+                  ? 'session-history-surface'
+                  : null,
+        forwardOverlayKeydown: (key) => {
+            const event = new KeyboardEvent('keydown', { key });
+            if (activeOverlay.value === 'model-dropdown')
+                modelDropdownOverlay.value?.handleKeyDown(event);
+            if (activeOverlay.value === 'session-history')
+                sessionHistoryPopover.value?.handleKeyDown(event);
+        },
         isQuickSearchOpen,
         shouldTriggerQuickSearch,
-        sessionHistoryPopupOpen,
-        hideAllPopups,
+        sessionHistoryOverlayOpen,
+        hideAllOverlays,
         hideSearchWindow,
         navigateInputHistory,
         closeModelDropdown,
+        toggleWindowMaximize: handleToggleMaximize,
         handleSearchKeybindingAction,
-        handleSubmit,
+        handleSubmit: submitSearchQuery,
+        clearAll,
         cancelRequest,
-        cancelPendingRequest,
         clearSession: clearSessionToIdle,
     });
     routeSearchSurfaceCommand = searchKeyboard.routeSearchSurfaceCommand;
@@ -645,13 +1368,120 @@
         removeAttachment(id);
     }
 
+    function finalizeQuickSearchClose() {
+        quickSearchRevealEpoch += 1;
+        quickSearchRevealPhase.value = 'idle';
+        quickSearchOpen.value = false;
+    }
+
+    function beginQuickSearchClose() {
+        if (!quickSearchOpen.value || quickSearchRevealPhase.value === 'folding') return;
+        quickSearchRevealEpoch += 1;
+        // Keep the result list painted at full height and let the card fold it away: the
+        // shrinking card edge is the transition, so the list can never fade out first and
+        // leave an empty expanded card behind.
+        quickSearchRevealPhase.value = 'folding';
+        const closeEpoch = quickSearchRevealEpoch;
+        const shouldRestoreIdleHost =
+            sessionHistory.value.length === 0 && !effectiveWindowMaximized.value;
+        const finish = () => {
+            if (closeEpoch !== quickSearchRevealEpoch || searchViewListenersDisposed) {
+                return;
+            }
+            // A session handoff owns its final close so the session transition can use
+            // the same reverse shell without a second close path.
+            if (quickSearchHandoff.value && quickSearchHandoffClosing.value) return;
+            void finalizeQuickSearchClose();
+        };
+
+        if (shouldRestoreIdleHost) {
+            void collapseBeforeClearing(
+                () => closeEpoch === quickSearchRevealEpoch && !searchViewListenersDisposed
+            )
+                .then((collapsed) => {
+                    if (closeEpoch !== quickSearchRevealEpoch || searchViewListenersDisposed)
+                        return;
+                    if (collapsed) finish();
+                    else quickSearchRevealPhase.value = 'open';
+                })
+                .catch((error) => log.error('[SearchView] Failed to fold QuickSearch:', error));
+            return;
+        }
+
+        // A conversation owns the height: the card keeps it and only the result row folds
+        // away, so the content measurement shrinks the surface by exactly that row.
+        quickSearchRevealPhase.value = 'handoff';
+        void nextTick()
+            .then(() =>
+                Promise.allSettled(
+                    (quickSearchHandoffShell.value?.getAnimations?.() ?? []).map(
+                        (animation) => animation.finished
+                    )
+                )
+            )
+            .then(finish);
+    }
+
+    /**
+     * Hand the QuickSearch viewport over to a submitted conversation.
+     *
+     * The list is taken out of the layout in the same frame (so it cannot add its height to
+     * the measured content) but stays painted while it slides out, so the conversation rises
+     * underneath it instead of the whole surface jumping.
+     */
+    function foldQuickSearchRevealIntoHandoff() {
+        if (!quickSearchOpen.value) return;
+        quickSearchRevealEpoch += 1;
+        quickSearchRevealPhase.value = 'handoff';
+    }
+
     function handleQuickSearchOpenChange(value: boolean) {
-        quickSearchOpen.value = value;
+        // A stale QuickSearch request can finish after submission has started.
+        // Keep the panel mounted until the handoff animation owns the close.
+        if (!value && quickSearchHandoff.value && !quickSearchHandoffClosing.value) {
+            return;
+        }
+
+        if (!value) {
+            // The handoff calls QuickSearch.close() after its reverse transition;
+            // it only emits this notification to the parent and must not restart
+            // the timer or remove the shell early.
+            if (quickSearchHandoff.value && quickSearchHandoffClosing.value) return;
+            beginQuickSearchClose();
+            return;
+        }
+
+        // Search results refresh the existing panel by emitting `true` again.
+        // That is a data update, not a new reveal, so do not reset the CSS start
+        // state and flash the panel on every keystroke.
+        if (quickSearchOpen.value && quickSearchRevealPhase.value !== 'folding') {
+            return;
+        }
+
+        quickSearchRevealEpoch += 1;
+        // Measure the hidden list before revealing it to avoid an empty expanded frame.
+        quickSearchRevealPhase.value = 'measuring';
+        quickSearchOpen.value = true;
+        void nextTick().then(() => settleQuickSearchReveal());
+    }
+
+    function settleQuickSearchReveal() {
+        if (!quickSearchRevealPending.value || searchViewListenersDisposed) {
+            return;
+        }
+
+        // Results are assigned before the open signal; nextTick commits their DOM.
+        // The geometry owner measures once and reserves the region before animating.
+        quickSearchRevealPhase.value = 'open';
+        void remeasureTargetHeight().catch((error) => {
+            log.error('[SearchView] Failed to measure QuickSearch reveal:', error);
+        });
     }
 
     async function handlePinChange(value: boolean) {
         try {
             await setWindowPinned(value);
+            scheduleSearchWindowRegionSync(true, true);
         } catch (error) {
             log.error('[SearchView] Failed to update window pin state:', error);
             await notify({
@@ -768,10 +1598,17 @@
     }
 
     /**
-     * 在快捷键唤起窗口后尝试 auto-paste。
-     */
-    async function tryShortcutAutoPaste() {
+     * 鍦ㄥ揩鎹烽敭鍞よ捣绐楀彛鍚庡皾璇?auto-paste銆?     */
+    async function tryShortcutAutoPaste(isCurrent = () => true) {
         const visibilityEpoch = searchInteractionContext.state.visibilityEpoch;
+        const isEntryCurrent = () =>
+            isCurrent() &&
+            searchInteractionContext.state.windowVisible &&
+            searchInteractionContext.state.visibilityEpoch === visibilityEpoch;
+
+        if (!isEntryCurrent()) {
+            return;
+        }
 
         if (
             !searchEntryPolicy.shouldCheckShortcutEntry({
@@ -799,72 +1636,210 @@
             }
 
             const payload = await clipboardService.consumeShortcutAutoPastePayload(3000);
-            if (!payload) {
+            if (!isEntryCurrent() || !payload) {
                 return;
             }
 
-            if (!searchEntryPolicy.shouldConsumeSnapshot(payload.snapshotId)) {
+            if (!isEntryCurrent() || !searchEntryPolicy.shouldConsumeSnapshot(payload.snapshotId)) {
                 return;
             }
 
+            if (!isEntryCurrent()) {
+                return;
+            }
             searchEntryPolicy.markSnapshotConsumed(payload.snapshotId);
 
+            if (!isEntryCurrent()) {
+                return;
+            }
             await importClipboardPayload(payload, { trimTextBoundary: true });
         } finally {
-            searchInteractionContext.markEntryChecked(visibilityEpoch);
+            if (isEntryCurrent()) {
+                searchInteractionContext.markEntryChecked(visibilityEpoch);
+            }
         }
     }
 
-    async function closeSessionHistoryPopup() {
-        try {
-            await sessionHistoryPopup.close();
-        } finally {
-            await setSessionHistoryPopupOpen(false);
+    async function closeSessionHistoryOverlayForIntent(intentEpoch: number, restoreFocus: boolean) {
+        if (!isOverlayIntentCurrent(intentEpoch)) return false;
+        clearPendingOverlayFocus();
+        if (activeOverlay.value === 'session-history') activeOverlay.value = 'none';
+        await setSessionHistoryOverlayOpen(false);
+        if (!isOverlayIntentCurrent(intentEpoch)) return false;
+        if (restoreFocus) {
+            await controller.focusSearchInput();
+            if (!isOverlayIntentCurrent(intentEpoch)) return false;
         }
+        return true;
     }
 
-    async function hideAllPopups() {
-        await closeSessionHistoryPopup();
-        await hideAllDropdowns();
+    async function closeSessionHistoryOverlay(restoreFocus = true) {
+        const intentEpoch = beginOverlayIntent();
+        await closeSessionHistoryOverlayForIntent(intentEpoch, restoreFocus);
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
+    }
+
+    async function hideAllOverlaysForIntent(intentEpoch: number, restoreFocus: boolean) {
+        if (!isOverlayIntentCurrent(intentEpoch)) return false;
+        const hadOverlay = activeOverlay.value !== 'none';
+        clearPendingOverlayFocus();
+        activeOverlay.value = 'none';
+        modelDropdownState.value = { isOpen: false };
+        modelDropdownQuery.value = '';
+        await setSessionHistoryOverlayOpen(false);
+        if (!isOverlayIntentCurrent(intentEpoch)) return false;
+        if (restoreFocus && hadOverlay) {
+            await controller.focusSearchInput();
+            if (!isOverlayIntentCurrent(intentEpoch)) return false;
+        }
+        return true;
+    }
+
+    async function hideAllOverlays(restoreFocus = true) {
+        const intentEpoch = beginOverlayIntent();
+        await hideAllOverlaysForIntent(intentEpoch, restoreFocus);
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
     }
 
     async function clearSurfaceUiAfterHidden() {
-        await setSessionHistoryPopupOpen(false);
-        modelDropdownState.value = {
-            isOpen: false,
-        };
-        modelDropdownQuery.value = '';
-        handleModelDropdownClosed();
+        surfaceHiding.value = true;
+        cancelSessionExpansion();
+        overlaySettleEpoch += 1;
+        overlayPositionReady.value = false;
+        const intentEpoch = beginOverlayIntent();
+        cancelSearchPanelResizing();
+        cancelSearchPanelDragging();
+        await hideAllOverlaysForIntent(intentEpoch, false);
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
+        renderedOverlay.value = 'none';
+        overlayAnchorElement.value = null;
+        overlayPositionAnchorElement.value = null;
+        overlayRegionElement.value = null;
     }
 
     async function handleToggleModelDropdownRequest() {
-        await closeSessionHistoryPopup();
-        await handleToggleModelDropdownRequestBase();
+        if (surfaceHiding.value || searchViewListenersDisposed) return;
+        if (pendingModelOpen) {
+            // A second toggle while the model data is still loading means
+            // "cancel the pending open". Invalidate the first intent without
+            // starting another asynchronous load.
+            beginOverlayIntent();
+            pendingModelOpen = false;
+            return;
+        }
+
+        const intentEpoch = beginOverlayIntent();
+        if (activeOverlay.value === 'model-dropdown') {
+            await closeModelDropdownForIntent(intentEpoch, true);
+            if (!isOverlayIntentCurrent(intentEpoch)) return;
+            return;
+        }
+
+        pendingModelOpen = true;
+        // The picker layers over the results list instead of dismissing it: the list is what the
+        // user was reading, and collapsing it to show a popup makes the surface collapse and grow
+        // again for something that only hangs above it.
+        await closeSessionHistoryOverlayForIntent(intentEpoch, false);
+        if (!isOverlayIntentCurrent(intentEpoch)) {
+            pendingModelOpen = false;
+            return;
+        }
+        await controller.prepareModelDropdownOpen();
+        if (!isOverlayIntentCurrent(intentEpoch)) {
+            pendingModelOpen = false;
+            return;
+        }
+        overlayAnchorElement.value = controller.getModelDropdownAnchor();
+        // The picker belongs to the editor row, including its padding, in every surface mode.
+        overlayPositionAnchorElement.value =
+            overlayAnchorElement.value?.closest<HTMLElement>('[data-testid="search-bar"]') ??
+            pageContent.value ??
+            overlayAnchorElement.value;
+        if (quickSearchOpen.value) {
+            // A popup opened over the results list covers it: the slot's left edge is the surface's and
+            // its top edge is the list's first row, which is the search box's bottom.
+            alignOverlayToResultsSlot(true);
+            overlayPositionAnchorElement.value =
+                overlayLeftAlignElement.value ??
+                document.querySelector<HTMLElement>("[data-testid='search-bar']") ??
+                overlayPositionAnchorElement.value;
+        } else {
+            alignOverlayToResultsSlot(false);
+        }
+        if (!overlayAnchorElement.value || !overlayPositionAnchorElement.value) {
+            pendingModelOpen = false;
+            return;
+        }
+        modelDropdownState.value = { isOpen: true };
+        renderedOverlay.value = 'model-dropdown';
+        overlayPositionReady.value = false;
+        overlaySettleEpoch += 1;
+        activeOverlay.value = 'model-dropdown';
+        pendingModelOpen = false;
+        await focusActiveOverlay(intentEpoch);
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
     }
 
     async function openHistoryDialog() {
-        if (
-            sessionHistoryPopupOpen.value ||
-            (popupService.state.isOpen &&
-                popupService.state.currentType === 'session-history-popup')
-        ) {
-            await closeSessionHistoryPopup();
+        if (surfaceHiding.value || searchViewListenersDisposed) return;
+        const intentEpoch = beginOverlayIntent();
+        if (activeOverlay.value === 'session-history') {
+            await closeSessionHistoryOverlayForIntent(intentEpoch, true);
+            if (!isOverlayIntentCurrent(intentEpoch)) return;
             return;
         }
-
-        // 根据是否有会话面板，选择不同的 anchor 元素
+        // The overlay opens below its anchor, so the anchor must be a content-sized
+        // node. pageContainer stretches with the native host, which would feed the
+        // surface's own growth back into the overlay envelope forever.
         const anchorElement =
             sessionHistory.value.length > 0
                 ? (conversationPanel.value?.getHistoryAnchor() ?? null)
-                : pageContainer.value;
+                : (pageContent.value ?? pageContainer.value);
+        if (!anchorElement) return;
+        await handleHistoryOpenChangeForIntent({ open: true, anchorElement }, intentEpoch);
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
+    }
 
-        if (!anchorElement) {
+    async function handleHistoryOpenChangeForIntent(
+        payload: {
+            open: boolean;
+            anchorElement: HTMLElement | null;
+        },
+        intentEpoch: number
+    ) {
+        if (!isOverlayIntentCurrent(intentEpoch) || (payload.open && surfaceHiding.value)) return;
+        if (!payload.open) {
+            await closeSessionHistoryOverlayForIntent(intentEpoch, true);
+            if (!isOverlayIntentCurrent(intentEpoch)) return;
             return;
         }
-
-        await handleHistoryOpenChange({
-            open: true,
-            anchorElement,
+        // Layered over the results list, like the model picker: opening a popup must not dismiss
+        // what the user was reading.
+        await closeModelDropdownForIntent(intentEpoch, false);
+        // The same rule as the model picker: while the list is open the popup covers it, so it needs
+        // the slot's edges and none of its own control's placement.
+        if (quickSearchOpen.value) {
+            alignOverlayToResultsSlot(true);
+        } else {
+            alignOverlayToResultsSlot(false);
+        }
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
+        overlayAnchorElement.value = payload.anchorElement;
+        overlayPositionAnchorElement.value = overlayFloatsOverResults.value
+            ? overlayLeftAlignElement.value
+            : payload.anchorElement;
+        if (!overlayAnchorElement.value) return;
+        const historyStateUpdate = setSessionHistoryOverlayOpen(true);
+        renderedOverlay.value = 'session-history';
+        overlayPositionReady.value = false;
+        overlaySettleEpoch += 1;
+        activeOverlay.value = 'session-history';
+        await historyStateUpdate;
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
+        await focusActiveOverlay(intentEpoch);
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
+        void ensureSessionListLoaded().catch((error) => {
+            log.error('[SearchView] Failed to ensure session history before interaction:', error);
         });
     }
 
@@ -872,39 +1847,13 @@
         open: boolean;
         anchorElement: HTMLElement | null;
     }) {
-        historyAnchorElement.value = payload.anchorElement;
-
-        if (!payload.open) {
-            await closeSessionHistoryPopup();
-            return;
-        }
-
-        controller.closeQuickSearch();
-        await hideAllDropdowns();
-        await setSessionHistoryPopupOpen(true);
-        try {
-            await sessionHistoryPopup.open();
-            if (!sessionHistoryPopup.isOpen.value) {
-                await setSessionHistoryPopupOpen(false);
-                return;
-            }
-
-            void ensureSessionListLoaded().catch((error) => {
-                log.error(
-                    '[SearchView] Failed to ensure session history before popup interaction:',
-                    error
-                );
-            });
-        } catch (error) {
-            await setSessionHistoryPopupOpen(false);
-            log.error('[SearchView] Failed to open session history popup:', error);
-        }
+        const intentEpoch = beginOverlayIntent();
+        await handleHistoryOpenChangeForIntent(payload, intentEpoch);
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
     }
 
-    function handleHistoryPrefetch(anchorElement: HTMLElement | null) {
-        historyAnchorElement.value = anchorElement;
-
-        if (sessionHistoryPopupOpen.value) {
+    function handleHistoryPrefetch() {
+        if (sessionHistoryOverlayOpen.value) {
             return;
         }
 
@@ -923,38 +1872,83 @@
         });
     }
 
+    function handleOverlayOutsideClick(event: PointerEvent) {
+        // A model-menu outside gesture is a dismissal gesture. Consume the
+        // initiating pointer event so the underlying trigger cannot receive a
+        // synthetic click after the overlay closes. History intentionally
+        // keeps the legacy dismiss-and-continue behaviour.
+        if (renderedOverlay.value === 'model-dropdown') {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        void hideAllOverlays();
+    }
+
+    async function handleModelSelect(modelDbId: number) {
+        const intentEpoch = beginOverlayIntent();
+        const selectedModel = await controller.selectModelFromDropdown(modelDbId);
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
+        modelOverride.value = selectedModel;
+        await closeModelDropdownForIntent(intentEpoch, true);
+        if (!isOverlayIntentCurrent(intentEpoch)) return;
+    }
+
+    function handleModelSearchQueryChange(value: string) {
+        modelDropdownQuery.value = value;
+        void nextTick().then(() => overlayHost.value?.refreshPosition());
+    }
+
     async function handleSessionSearchQueryChange(value: string) {
         await updateSessionSearchQuery(value);
     }
 
+    async function collapseBeforeClearing(isCurrent = () => !searchViewListenersDisposed) {
+        if (effectiveWindowMaximized.value) return true;
+        try {
+            const collapsed = await collapseSessionToIdle();
+            if (!isCurrent()) return false;
+            if (collapsed) return true;
+            return (await resetSearchWindowBounds()) && isCurrent();
+        } catch (error) {
+            log.error('[SearchView] Failed to restore compact bounds:', error);
+            return false;
+        }
+    }
+
     async function clearSessionToIdle() {
+        cancelSessionExpansion();
         suppressQuickSearchAutoOpenOnce.value = true;
+        if (!(await collapseBeforeClearing())) return;
         clearSession();
         await nextTick();
         await controller.focusSearchInput();
     }
 
     async function handleStartNewSession() {
+        cancelSessionExpansion();
         if (sessionHistory.value.length === 0) {
             return;
         }
 
         controller.closeQuickSearch();
-        await hideAllPopups();
+        await hideAllOverlays();
+        if (!(await collapseBeforeClearing())) return;
         startNewSession();
         resetSessionInputHistoryTracking();
+        await nextTick();
         await controller.focusSearchInput();
     }
 
     async function handleReopenLastClosedSession() {
+        cancelSessionExpansion();
         if (queryText.value.trim() || attachments.value.length > 0) {
-            await hideAllPopups();
+            await hideAllOverlays();
             await controller.focusSearchInput();
             return;
         }
 
         controller.closeQuickSearch();
-        await hideAllPopups();
+        await hideAllOverlays();
         resetSessionInputHistoryTracking();
 
         try {
@@ -986,6 +1980,7 @@
     async function handleToggleWindowPin() {
         try {
             await toggleWindowPin();
+            scheduleSearchWindowRegionSync(true, true);
         } catch (error) {
             log.error('[SearchView] Failed to toggle window pin state:', error);
             await notify({
@@ -997,7 +1992,7 @@
 
     async function handleToggleMaximize() {
         try {
-            await hideAllPopups();
+            await hideAllOverlays();
             await toggleMaximizeBase();
         } catch (error) {
             log.error('[SearchView] Failed to toggle maximized state:', error);
@@ -1005,39 +2000,53 @@
     }
 
     async function handleOpenSession(sessionId: number, origin: 'history' | 'other' = 'other') {
+        const expansion = beginSessionExpansion();
         // The history popup closes before the session opens, so keep that
         // specific interaction's handle alive until its selection event is
         // recorded. Notification/navigation opens are not history selections.
         const selection = origin === 'history' ? markHistorySelectionPending() : null;
         controller.closeQuickSearch();
         try {
-            await hideAllPopups();
+            closeOverlayImmediately.value = true;
+            await hideAllOverlays(false);
+            // Session content must be measured without the closing history region
+            // contributing its old bottom edge to the bounded native host.
+            await nextTick();
         } catch (error) {
             if (origin === 'history') {
                 // The selection never reached the real open path; settle and
                 // release the history interaction instead of leaking its handle.
                 abandonHistorySelection(selection);
             }
+            if (sessionExpansion === expansion) cancelSessionExpansion();
             throw error;
         }
         resetSessionInputHistoryTracking();
-
+        if (expansion.signal.aborted) {
+            abandonHistorySelection(selection);
+            return;
+        }
         try {
+            // Keep the native host put until the opened session has a measured
+            // height. The visible card then grows in CSS inside that frame.
             await openSession(sessionId, origin, selection);
-            await syncSearchWindowState().catch((error) => {
-                log.error(
-                    '[SearchView] Failed to sync search window state after session open:',
-                    error
-                );
+            await nextTick();
+            if (expansion.signal.aborted) return;
+            const contentHeight = sessionHistory.value.length > 0 ? measureTargetHeight() : null;
+            await playSessionExpandAnimation(contentHeight ?? undefined).catch((error) => {
+                log.error('[SearchView] Failed to animate session expand:', error);
             });
-            await remeasureTargetHeight().catch((error) => {
-                log.error(
-                    '[SearchView] Failed to remeasure window height after session open:',
-                    error
-                );
-            });
+            if (expansion.signal.aborted) return;
+            await settleSearchSurfaceViewport();
+            if (expansion.signal.aborted) return;
+            // playSessionExpandAnimation already commits the measured target
+            // height. A second synchronous native resize here used to move the
+            // window again after the CSS reveal had finished; let the observers
+            // handle any later message/image growth instead.
+            scheduleSearchWindowRegionSync(true, true);
             conversationPanel.value?.revealLatestContent();
         } catch (error) {
+            if (expansion.signal.aborted) return;
             log.error('[SearchView] Failed to open session:', error);
 
             const isMissingSession =
@@ -1052,6 +2061,13 @@
                 });
             }
 
+            await resetSearchWindowBounds().catch((resetError) => {
+                log.error(
+                    '[SearchView] Failed to restore idle bounds after session open failure:',
+                    resetError
+                );
+            });
+
             await notify({
                 title: t('notification.openSessionFailed.title'),
                 body: t(
@@ -1062,6 +2078,12 @@
             });
 
             await controller.focusSearchInput();
+        } finally {
+            if (sessionExpansion === expansion) {
+                sessionExpansion = null;
+                surfaceMeasurementHold.value = false;
+                closeOverlayImmediately.value = false;
+            }
         }
     }
 
@@ -1075,12 +2097,12 @@
             text: normalizedReply,
             attachments: [],
         });
-        await handleSubmit(normalizedReply, replySnapshot);
+        await submitSearchQuery(normalizedReply, replySnapshot);
     }
 
     async function handleSessionStatusReminderAction(payload: SessionStatusReminderActionEvent) {
         controller.closeQuickSearch();
-        await hideAllPopups();
+        await hideAllOverlays();
 
         const requiresSessionOpen =
             currentSessionId.value !== payload.sessionId ||
@@ -1131,27 +2153,14 @@
         queryText.value = restoredText;
     }
 
-    /**
-     * The search results the E2E bridge was asked to show for one query.
-     *
-     * Real file search reads the machine's disk, so a screenshot of the results panel
-     * would differ per machine for reasons unrelated to the code under test. The caller
-     * registers the rows it wants and this view holds none of its own, which keeps the
-     * fixture data out of the shipped bundle.
-     */
+    // Fixtures come from the test runner so production holds no synthetic search results.
     const e2eSearchFixture = ref<{ query: string; results: QuickShortcutItem[] } | null>(null);
 
-    function applyE2eAskUserRequest(request: E2eAskUserRequest) {
-        if (request.kind === 'confirm') {
-            askUserStore.enqueueConfirm(request.options, () => undefined);
+    async function installE2eBridge() {
+        if (searchViewListenersDisposed || !(await isE2eTestMode())) {
             return;
         }
-
-        askUserStore.enqueueApproval(request.payload, () => undefined);
-    }
-
-    async function installE2eBridge() {
-        if (!(await isE2eTestMode())) {
+        if (searchViewListenersDisposed) {
             return;
         }
 
@@ -1169,87 +2178,48 @@
                     excludeFromHistory: true,
                 });
                 applyE2eSearchQuery(text);
-                await handleSubmit(text, snapshot);
+                await submitSearchQuery(text, snapshot);
             },
             getQuickSearchFallbackResults(query: string) {
                 const fixture = e2eSearchFixture.value;
-
-                if (!fixture) {
-                    return [];
-                }
-
-                return fixture.query.trim().toLowerCase() === query.trim().toLowerCase()
+                return fixture?.query.trim().toLowerCase() === query.trim().toLowerCase()
                     ? fixture.results
                     : [];
             },
-            // Window-level flows drive the real commands and read the real state back, so an
-            // E2E assertion covers the native side rather than a stubbed renderer value.
-            getSearchWindowState() {
-                return native.window.getSearchWindowState();
-            },
-            resizeWindowHeight(params: {
-                targetHeight: number;
-                center: boolean;
-                animate: boolean;
-                respectManualOverride: boolean;
-            }) {
-                return native.window.resizeWindowHeight(params);
-            },
-            resetSearchWindowBounds() {
-                return native.window.resetSearchWindowBounds();
-            },
-            /** Records the rows the search panel should show for `query`. */
+            getSearchWindowState: native.window.getSearchWindowState,
+            resizeWindowHeight: native.window.resizeWindowHeight,
+            resetSearchWindowBounds: native.window.resetSearchWindowBounds,
             setSearchFixture(query: string, results: QuickShortcutItem[]) {
                 e2eSearchFixture.value = { query, results };
             },
-            /**
-             * Seeds the conversation panel with a fixed transcript.
-             *
-             * Visual baselines need a deterministic conversation. Reaching one by
-             * sending a real prompt would depend on a model, a network call and a
-             * stream timing, none of which belong in a pixel comparison. This fills
-             * the same reactive state the agent fills, so the panel renders through
-             * its normal code path.
-             *
-             * The values arrive already detached from the caller: `browser.execute`
-             * serialises its arguments into the page, so a spec that reuses its own
-             * fixture object afterwards cannot change what is being rendered.
-             */
             setConversation(messages: SessionMessage[]) {
-                // `sessionHistory` is owned by the agent composable and rewritten from a
-                // task snapshot; writing it here is enough because no request is running.
                 sessionHistory.value = messages;
             },
-            /**
-             * Puts the ask-user panel in front of the user without running a tool.
-             *
-             * The panel is how a pending approval or question looks, and it is the
-             * densest screen in the main window. Rendering it from a real tool call
-             * would need a model; this enqueues the same request the tool enqueues.
-             */
             setAskUserRequest(request: E2eAskUserRequest) {
-                applyE2eAskUserRequest(request);
+                if (request.kind === 'confirm') {
+                    askUserStore.enqueueConfirm(request.options, () => undefined);
+                } else {
+                    askUserStore.enqueueApproval(request.payload, () => undefined);
+                }
             },
-            /** Drops whatever the request enqueued so a later spec starts clean. */
             clearAskUser() {
                 askUserStore.clearAll('e2e request reset');
             },
-            /**
-             * Pins the interface language for E2E runs.
-             *
-             * The first-launch language is derived from `navigator.language`, so a
-             * zh-CN developer machine and an en-US CI runner render different text
-             * for the same screen. Visual baselines need one deterministic state,
-             * and setting the real setting is the only way to reach it without
-             * hiding the text (which would leave the screenshots blank and unusable
-             * as review evidence).
-             */
             async setLanguage(locale: AppLocale) {
-                // `initialize()` loads the persisted settings into the store. Without
-                // waiting for it, the load can land after this write and replace the
-                // language with whatever the previous run stored.
                 await settingsStore.initialize();
                 await settingsStore.updateLanguage(locale);
+            },
+            async clearSessionToIdle() {
+                await clearSessionToIdle();
+            },
+            getSessionExpandDebug() {
+                return (
+                    (
+                        window as Window & {
+                            __TOUCHAI_SESSION_EXPAND_DEBUG__?: { events: unknown[] };
+                        }
+                    ).__TOUCHAI_SESSION_EXPAND_DEBUG__ ?? null
+                );
             },
         };
     }
@@ -1270,7 +2240,7 @@
             attachments: [],
             excludeFromHistory: true,
         });
-        void handleSubmit(normalizedText, widgetSnapshot);
+        void submitSearchQuery(normalizedText, widgetSnapshot);
     }
 
     function handleWidgetOpenLink(url: string) {
@@ -1293,11 +2263,10 @@
         pageContainer.value?.focus({ preventScroll: true });
     }
 
-    async function initialize() {
+    async function initialize(): Promise<boolean> {
         await initializeSearchViewForFirstPaint({
             initializeSettings: () => settingsStore.initialize(),
             initializeMcpStore: () => mcpStore.initialize(),
-            initializePopups: () => popupService.initialize(),
             syncWindowPinState,
             syncSearchWindowState,
             isE2eTestMode,
@@ -1311,6 +2280,11 @@
                 log.error(message, error);
             },
         });
+        if (!viewReady.value || searchViewListenersDisposed) return false;
+
+        await nextTick();
+        if (searchViewListenersDisposed) return false;
+        return searchSurfacePreparationController.start();
     }
 
     watch(
@@ -1386,7 +2360,7 @@
             latestSeenCompletedMessageMarker.value = null;
             latestContentVisible.value = true;
             resetSessionInputHistoryTracking();
-            await closeSessionHistoryPopup();
+            await closeSessionHistoryOverlay();
             await controller.focusSearchInput();
         },
         { flush: 'post' }
@@ -1412,8 +2386,8 @@
                 if (lastBridgedApprovalCallId === approval.callId) return;
                 lastBridgedApprovalCallId = approval.callId;
                 controller.closeQuickSearch();
-                void hideAllPopups().catch((error) => {
-                    log.error('[SearchView] failed to hide popups before approval prompt', error);
+                void hideAllOverlays().catch((error) => {
+                    log.error('[SearchView] failed to hide overlays before approval prompt', error);
                 });
                 askUserStore.enqueueApproval(
                     {
@@ -1423,7 +2397,7 @@
                         command: approval.command,
                         riskLabel: approval.riskLabel,
                         reason: approval.reason,
-                        commandLabel: '命令预览',
+                        commandLabel: '鍛戒护棰勮',
                         approveLabel: approval.approveLabel,
                         rejectLabel: approval.rejectLabel,
                         enterHint: approval.enterHint,
@@ -1459,8 +2433,8 @@
                 if (lastBridgedQuestionCallId === question.callId) return;
                 lastBridgedQuestionCallId = question.callId;
                 controller.closeQuickSearch();
-                void hideAllPopups().catch((error) => {
-                    log.error('[SearchView] failed to hide popups before question prompt', error);
+                void hideAllOverlays().catch((error) => {
+                    log.error('[SearchView] failed to hide overlays before question prompt', error);
                 });
                 askUserStore.enqueueQuestion(
                     question.questions,
@@ -1488,33 +2462,69 @@
     );
 
     watch(
-        [
-            sessionHistoryPopupOpen,
-            sessionList,
-            sessionListQuery,
-            isSessionListLoading,
-            currentSessionId,
-            sessionStatuses,
-            () => searchKeybindings.value['search.history.open'],
-        ],
-        ([isOpen]) => {
-            if (!isOpen) {
-                return;
-            }
+        activeOverlay,
+        () => {
+            overlayRequiredViewportHeight.value = null;
+        },
+        { flush: 'sync' }
+    );
 
-            void sessionHistoryPopup.updateData();
+    watch(
+        [
+            () => sessionHistory.value.length,
+            () => Boolean(askUserStore.current),
+            fillConversationAvailableHeight,
+            effectiveWindowMaximized,
+        ],
+        () => {
+            if (activeOverlay.value !== 'none') {
+                void nextTick().then(() => overlayHost.value?.refreshPosition());
+            }
         },
         { flush: 'post' }
     );
 
+    watch(
+        [sessionHistoryOverlayOpen, sessionList, sessionListQuery, isSessionListLoading],
+        ([isOpen]) => {
+            if (isOpen) void nextTick().then(() => overlayHost.value?.refreshPosition());
+        },
+        { flush: 'post' }
+    );
+
+    function handleSearchWindowResize() {
+        handleHostViewportChange();
+    }
+
     onMounted(() => {
+        searchViewListenersDisposed = false;
         widgetBridgeWindow.sendPrompt = handleWidgetSendPrompt;
         widgetBridgeWindow.openLink = handleWidgetOpenLink;
-        void installE2eBridge();
-        void initialize();
+        window.addEventListener('resize', handleSearchWindowResize);
+        void initialize()
+            .then((initialCommitSucceeded) => {
+                if (!initialCommitSucceeded || searchViewListenersDisposed) return;
+                return installE2eBridge();
+            })
+            .catch((error) => {
+                viewReady.value = false;
+                log.error('[SearchView] Failed to unlock the native search window:', error);
+            });
     });
 
     onUnmounted(() => {
+        cancelSessionExpansion();
+        beginOverlayIntent();
+        clearPendingOverlayFocus();
+        searchViewListenersDisposed = true;
+        window.removeEventListener('resize', handleSearchWindowResize);
+        notifySearchSurfaceViewportChanged = () => undefined;
+        searchSurfacePreparationController.dispose();
+        disposeSearchPanelDragging();
+        void disposeSearchPanelResizing().catch((error) => {
+            log.error('[SearchView] Failed to finish search panel resizing:', error);
+        });
+        searchWindowRegionReporter.dispose();
         if (widgetBridgeWindow.sendPrompt === handleWidgetSendPrompt) {
             delete widgetBridgeWindow.sendPrompt;
         }
@@ -1530,85 +2540,233 @@
 </script>
 
 <template>
-    <div
-        ref="pageContainer"
-        tabindex="-1"
-        data-testid="search-view"
-        :class="[
-            'search-view-container relative flex min-h-0 w-full flex-col items-center justify-start overflow-hidden bg-background-primary backdrop-blur-xl focus:outline-none',
-            fillConversationAvailableHeight || effectiveWindowMaximized ? 'h-full' : '',
-            isLoading && !askUserStore.current ? 'loading' : '',
-        ]"
-        @paste.capture="handlePagePaste"
-    >
+    <div class="relative h-full w-full" :style="searchSurfaceStyle">
         <div
-            v-if="searchViewContentReady && sessionHistory.length > 0"
-            data-testid="conversation-panel-host"
+            ref="pageContainer"
+            tabindex="-1"
+            data-testid="search-view"
+            :style="panelStyle"
             :class="[
-                'w-full overflow-hidden',
-                fillConversationAvailableHeight ? 'min-h-0 flex-1' : '',
+                'relative flex min-h-0 w-full flex-col items-center focus:outline-none',
+                fillConversationAvailableHeight || effectiveWindowMaximized ? 'h-full' : '',
             ]"
+            @paste.capture="handlePagePaste"
         >
-            <ConversationPanel
-                ref="conversationPanel"
-                :messages="sessionHistory"
-                :is-loading="isLoading"
-                :error="error"
-                :is-pinned="isPinned"
-                :is-maximized="isMaximized"
-                :fill-available-height="fillConversationAvailableHeight"
-                :history-open="sessionHistoryPopupOpen"
-                @pin-change="handlePinChange"
-                @maximize-toggle="handleToggleMaximize"
-                @new-session="handleStartNewSession"
-                @history-open-change="handleHistoryOpenChange"
-                @history-prefetch="handleHistoryPrefetch"
-                @drag-start="isDragging = true"
-                @drag-end="isDragging = false"
-                @regenerate-message="handleRegenerateMessage"
-                @latest-content-visibility-change="handleLatestContentVisibilityChange"
-            />
-        </div>
-        <div
-            v-if="searchViewContentReady && sessionHistory.length > 0 && !askUserStore.current"
-            class="w-full border-t-[0.5px] border-gray-300/80"
-        ></div>
-        <div
-            v-if="searchViewContentReady"
-            aria-hidden="true"
-            class="ask-user-divider relative z-10 w-full"
-        ></div>
-        <AskUserPanel v-if="searchViewContentReady && askUserStore.current" />
-        <div v-if="viewReady && !askUserStore.current" class="relative w-full">
-            <SearchBar
-                ref="searchBar"
-                :disabled="isWaitingForCompletion || Boolean(pendingToolApproval)"
-                :query-text="queryText"
-                :attachments="attachments"
-                :model-override="modelOverride"
-                @update:query-text="handleQueryTextChange"
-                @attachment-remove-request="handleAttachmentRemoveRequest"
-                @model-change="handleModelChange"
-                @cursor-context-change="handleCursorContextChange"
-                @model-override-change="handleModelOverrideChange"
-                @request-prefetch-model-dropdown="handleModelDropdownPrefetch"
-                @request-toggle-model-dropdown="handleToggleModelDropdownRequest"
-                @drag-start="isDragging = true"
-                @drag-end="isDragging = false"
-            />
             <div
-                v-if="searchViewContentReady && sessionHistory.length === 0"
-                v-show="quickSearchOpen"
+                data-testid="search-view-expand-frame"
+                class="search-view-surface-viewport relative h-full min-h-0 w-full overflow-visible"
             >
-                <QuickSearchPanel
-                    ref="quickSearchPanel"
-                    :open="quickSearchOpen"
-                    :search-query="queryText"
-                    :enabled="true"
-                    @blank-click="handleQuickSearchBlankClick"
-                    @update:open="handleQuickSearchOpenChange"
-                />
+                <div
+                    data-testid="search-view-expand-clip"
+                    class="search-view-surface-clip relative h-full min-h-0 w-full overflow-visible"
+                >
+                    <div
+                        ref="searchViewCard"
+                        data-testid="search-view-card"
+                        :style="cardStyle"
+                        :class="[
+                            'search-view-container search-view-surface-card relative flex h-full min-h-0 w-full flex-col items-center overflow-hidden border-0',
+                            isCardGrowing ? 'search-view-surface-card--revealing' : '',
+                            isCardGrowing ? 'backdrop-blur-none' : 'backdrop-blur-xl',
+                            !settledWindowMaximized ? 'search-surface-elevated' : '',
+                            // The card always equals the host interior. A conversation
+                            // keeps its editor on the bottom edge and reveals itself
+                            // from the bottom up; the compact surface and the
+                            // QuickSearch list hang from the top edge so the editor
+                            // never sinks out of the frame.
+                            //
+                            // A handoff already is a conversation even before the submitted
+                            // message lands: aligning that stack from the top left the card's
+                            // spare height under the toolbar as a blank band, and the flip to
+                            // bottom alignment when the message arrived moved the whole stack
+                            // in one frame.
+                            sessionHistory.length > 0 || quickSearchHandoff
+                                ? 'justify-end'
+                                : 'justify-start',
+                        ]"
+                    >
+                        <div
+                            ref="pageContent"
+                            :style="pageContentStyle"
+                            :class="[
+                                'relative flex min-h-0 w-full flex-col',
+                                sessionHistory.length > 0 ||
+                                fillConversationAvailableHeight ||
+                                effectiveWindowMaximized
+                                    ? 'h-full min-h-0 flex-1'
+                                    : '',
+                            ]"
+                        >
+                            <div
+                                v-if="searchViewContentReady && sessionHistory.length > 0"
+                                ref="conversationContainer"
+                                data-testid="conversation-panel-host"
+                                class="min-h-0 w-full flex-1 overflow-hidden"
+                            >
+                                <ConversationPanel
+                                    ref="conversationPanel"
+                                    :messages="sessionHistory"
+                                    :is-loading="isLoading"
+                                    :error="error"
+                                    :is-pinned="isPinned"
+                                    :is-maximized="isMaximized"
+                                    :history-open="sessionHistoryOverlayOpen"
+                                    :start-dragging="startSearchPanelDragging"
+                                    @pin-change="handlePinChange"
+                                    @maximize-toggle="handleToggleMaximize"
+                                    @new-session="handleStartNewSession"
+                                    @history-open-change="handleHistoryOpenChange"
+                                    @history-prefetch="handleHistoryPrefetch"
+                                    @drag-start="handleSearchPanelDragStart"
+                                    @drag-end="handleSearchPanelDragEnd"
+                                    @regenerate-message="handleRegenerateMessage"
+                                    @content-resize="scheduleContentMeasurement()"
+                                    @latest-content-visibility-change="
+                                        handleLatestContentVisibilityChange
+                                    "
+                                />
+                            </div>
+                            <div
+                                v-if="
+                                    searchViewContentReady &&
+                                    sessionHistory.length > 0 &&
+                                    !askUserStore.current
+                                "
+                                class="w-full border-t-[0.5px] border-gray-300/80"
+                            ></div>
+                            <div
+                                v-if="searchViewContentReady && askUserStore.current"
+                                aria-hidden="true"
+                                class="ask-user-divider relative z-10 w-full"
+                            ></div>
+                            <AskUserPanel v-if="searchViewContentReady && askUserStore.current" />
+                            <div
+                                v-if="viewReady && !askUserStore.current"
+                                class="relative w-full shrink-0"
+                            >
+                                <SearchBar
+                                    ref="searchBar"
+                                    :disabled="
+                                        isWaitingForCompletion || Boolean(pendingToolApproval)
+                                    "
+                                    :query-text="queryText"
+                                    :attachments="attachments"
+                                    :model-override="modelOverride"
+                                    :start-dragging="startSearchPanelDragging"
+                                    @update:query-text="handleQueryTextChange"
+                                    @attachment-remove-request="handleAttachmentRemoveRequest"
+                                    @model-change="handleModelChange"
+                                    @cursor-context-change="handleCursorContextChange"
+                                    @model-override-change="handleModelOverrideChange"
+                                    @request-prefetch-model-dropdown="handleModelDropdownPrefetch"
+                                    @request-toggle-model-dropdown="
+                                        handleToggleModelDropdownRequest
+                                    "
+                                    @drag-start="handleSearchPanelDragStart"
+                                    @drag-end="handleSearchPanelDragEnd"
+                                />
+                                <div class="quick-search-handoff-slot">
+                                    <div
+                                        v-if="
+                                            searchViewContentReady &&
+                                            (sessionHistory.length === 0 || quickSearchHandoff)
+                                        "
+                                        v-show="quickSearchOpen"
+                                        ref="quickSearchHandoffShell"
+                                        data-testid="quick-search-handoff-shell"
+                                        :class="[
+                                            'quick-search-handoff-shell w-full',
+                                            quickSearchRevealPhase === 'measuring'
+                                                ? 'quick-search-handoff-shell--measuring'
+                                                : '',
+                                            quickSearchRevealPhase === 'open' && quickSearchOpen
+                                                ? 'quick-search-handoff-shell--open'
+                                                : '',
+                                            quickSearchRevealPhase === 'folding'
+                                                ? 'quick-search-handoff-shell--folding'
+                                                : '',
+                                            quickSearchRevealPhase === 'handoff'
+                                                ? 'quick-search-handoff-shell--handoff'
+                                                : '',
+                                        ]"
+                                        :style="{
+                                            visibility:
+                                                quickSearchRevealPhase === 'measuring'
+                                                    ? 'hidden'
+                                                    : undefined,
+                                        }"
+                                    >
+                                        <div
+                                            class="quick-search-handoff-shell__content min-h-0 overflow-hidden"
+                                        >
+                                            <QuickSearchPanel
+                                                ref="quickSearchPanel"
+                                                :open="quickSearchOpen"
+                                                :search-query="queryText"
+                                                :enabled="true"
+                                                :handoff="quickSearchHandoff"
+                                                @blank-click="handleQuickSearchBlankClick"
+                                                @update:open="handleQuickSearchOpenChange"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <SearchPanelResizeHandles
+                            :enabled="logicalPanelResizeEnabled"
+                            @resize-start="handleSearchPanelResizeStart"
+                        />
+                    </div>
+                </div>
             </div>
         </div>
+        <SearchOverlayHost
+            ref="overlayHost"
+            :open="activeOverlay !== 'none'"
+            :reveal="overlayPositionReady"
+            :close-immediately="closeOverlayImmediately"
+            :anchor="overlayAnchorElement"
+            :position-anchor="overlayPositionAnchorElement"
+            :layout-target="pageContainer"
+            preferred-side="bottom"
+            :allow-flip="false"
+            :max-viewport-height="overlayMaxViewportHeight"
+            :min-viewport-top="overlayMinViewportTop"
+            :min-viewport-left="overlayMinViewportLeft"
+            :max-viewport-right="overlayMaxViewportRight"
+            :align="
+                renderedOverlay === 'session-history' && sessionHistory.length > 0 ? 'end' : 'start'
+            "
+            :gap="overlayPositionGap"
+            :left-align-element="
+                renderedOverlay === 'model-dropdown' || overlayFloatsOverResults
+                    ? searchViewCard
+                    : null
+            "
+            :overlay-on-anchor="overlayFloatsOverResults"
+            @after-leave="handleOverlayAfterLeave"
+            @outside-click="handleOverlayOutsideClick"
+            @positioned="handleOverlayPositioned"
+            @region-change="handleOverlayRegionChange"
+            @revealed="focusPendingOverlayWhenReady"
+        >
+            <ModelDropdownPopup
+                v-if="renderedOverlay === 'model-dropdown'"
+                ref="modelDropdownOverlay"
+                :data="getModelDropdownData()"
+                :on-model-select="handleModelSelect"
+                :on-search-query-change="handleModelSearchQueryChange"
+                @close="closeModelDropdown()"
+            />
+            <SessionHistoryPopover
+                v-else-if="renderedOverlay === 'session-history'"
+                ref="sessionHistoryPopover"
+                :data="getSessionHistoryOverlayData()"
+                :on-session-open="(sessionId) => handleOpenSession(sessionId, 'history')"
+                :on-search-query-change="handleSessionSearchQueryChange"
+                @close="closeSessionHistoryOverlay()"
+            />
+        </SearchOverlayHost>
     </div>
 </template>

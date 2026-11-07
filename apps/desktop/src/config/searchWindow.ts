@@ -25,6 +25,32 @@ export interface SearchWindowDefaultSize {
 
 export const DEFAULT_SEARCH_WINDOW_SIZE_PRESET: SearchWindowSizePreset = 'normal';
 
+/** Intrinsic conversation cap used by the window geometry owner. */
+export const SEARCH_CONVERSATION_AUTO_MAX_HEIGHT = 600;
+
+/** Shared timing for the card, native position track, and QuickSearch handoff. */
+export const SEARCH_SURFACE_MOTION = {
+    durationMs: 320,
+    easing: [0.4, 0, 0.2, 1] as const,
+    revealDurationMs: 380,
+    revealEasing: [0.22, 1, 0.36, 1] as const,
+} as const;
+
+export const SEARCH_SURFACE_EASING = `cubic-bezier(${SEARCH_SURFACE_MOTION.easing.join(', ')})`;
+export const SEARCH_SURFACE_REVEAL_EASING = `cubic-bezier(${SEARCH_SURFACE_MOTION.revealEasing.join(', ')})`;
+
+/** Shared timing for the in-window model/history overlays. */
+export const SEARCH_OVERLAY_MOTION = {
+    openDurationMs: 180,
+    closeDurationMs: 150,
+    enterOffsetPx: 4,
+    enterScale: 0.97,
+    closingScale: 0.99,
+    easing: [0.22, 1, 0.36, 1] as const,
+} as const;
+
+export const SEARCH_OVERLAY_EASING = `cubic-bezier(${SEARCH_OVERLAY_MOTION.easing.join(', ')})`;
+
 export function resolveSearchWindowDefaultSize(
     preset: SearchWindowSizePreset
 ): SearchWindowDefaultSize {

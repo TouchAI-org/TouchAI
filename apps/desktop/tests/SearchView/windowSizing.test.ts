@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { SearchWindowHeightMode } from '@/config/searchWindow';
-
 const windowApiMock = vi.hoisted(() => {
     let resizeListener: (() => void) | null = null;
     const unlisten = vi.fn();
@@ -26,27 +24,86 @@ const windowApiMock = vi.hoisted(() => {
     };
 });
 
+const observabilityMock = vi.hoisted(() => ({
+    error: vi.fn(),
+}));
+
 vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => windowApiMock.currentWindow,
+}));
+
+vi.mock('@services/ObservabilityService', () => ({
+    log: observabilityMock,
 }));
 
 import {
     createWindowViewportSyncScheduler,
     ensureWindowMaximized,
     ensureWindowRestoredFromMaximized,
+    resolveAutoSessionPanelHeight,
     resolveEffectiveWindowMaximized,
     resolveSearchWindowDefaultSizeApplyAction,
     resolveSearchWindowHeightPolicy,
+    resolveSearchWindowMeasuredHeight,
     resolveSearchWindowMinimumSize,
-    shouldEnforceIdleDefaultBounds,
     shouldFillConversationAvailableHeight,
     shouldRemeasureAfterMaximizedRestore,
-    shouldRepairIdleSearchWindowHeight,
 } from '@/views/SearchView/windowSizing';
 
 afterEach(() => {
     vi.useRealTimers();
     windowApiMock.reset();
+});
+
+describe('resolveSearchWindowMeasuredHeight', () => {
+    it('prefers the natural overlay requirement over a clamped bottom edge for a bounded host', () => {
+        expect(
+            resolveSearchWindowMeasuredHeight({
+                panelHeight: 120,
+                overlayBottom: 160,
+                overlayRequiredViewportHeight: 260,
+                monitorHost: false,
+            })
+        ).toBe(260);
+    });
+
+    it('keeps monitor-host panel height independent from overlay geometry', () => {
+        expect(
+            resolveSearchWindowMeasuredHeight({
+                panelHeight: 120,
+                overlayBottom: 260,
+                overlayRequiredViewportHeight: 340,
+                monitorHost: true,
+            })
+        ).toBe(120);
+    });
+
+    it('returns to the natural panel height after overlay measurements are cleared', () => {
+        expect(
+            resolveSearchWindowMeasuredHeight({
+                panelHeight: 120,
+                overlayBottom: null,
+                overlayRequiredViewportHeight: null,
+                monitorHost: false,
+            })
+        ).toBe(120);
+    });
+});
+
+describe('resolveAutoSessionPanelHeight', () => {
+    it('adds the conversation auto cap to the current search bar height', () => {
+        expect(
+            resolveAutoSessionPanelHeight({
+                searchBarHeight: 60,
+            })
+        ).toBe(660);
+        expect(
+            resolveAutoSessionPanelHeight({
+                searchBarHeight: 72,
+                conversationMaxHeight: 600,
+            })
+        ).toBe(672);
+    });
 });
 
 describe('when the search window has no conversation on screen', () => {
@@ -61,7 +118,6 @@ describe('when the search window has no conversation on screen', () => {
             autoResizeEnabled: true,
             respectManualOverride: false,
             allowHeightOverride: false,
-            shouldEnforceIdleDefaultHeight: true,
         });
     });
 
@@ -103,7 +159,6 @@ describe('when a conversation is on screen', () => {
             autoResizeEnabled: true,
             respectManualOverride: true,
             allowHeightOverride: true,
-            shouldEnforceIdleDefaultHeight: false,
         });
     });
 
@@ -163,7 +218,6 @@ describe('when the quick search panel is open with no conversation', () => {
             autoResizeEnabled: true,
             respectManualOverride: false,
             allowHeightOverride: false,
-            shouldEnforceIdleDefaultHeight: false,
         });
     });
 });
@@ -185,86 +239,6 @@ describe('when the window is not ready or is maximized', () => {
                 hasManagedPanel: false,
             })
         ).toBe('skip');
-    });
-
-    it('user gets no idle-height repair while maximized', () => {
-        expect(
-            shouldRepairIdleSearchWindowHeight({
-                ready: true,
-                idle: true,
-                heightMode: SearchWindowHeightMode.Auto,
-                maximized: true,
-            })
-        ).toBe(false);
-    });
-
-    it('user gets no idle bounds re-applied while maximized', () => {
-        expect(
-            shouldEnforceIdleDefaultBounds({
-                ready: true,
-                hasManagedPanel: false,
-                maximized: true,
-            })
-        ).toBe(false);
-    });
-});
-
-describe('when the window returns from a conversation to the idle state', () => {
-    it('user gets the idle height repaired when a manual height leaked out of the conversation', () => {
-        expect(
-            shouldRepairIdleSearchWindowHeight(
-                {
-                    ready: true,
-                    idle: true,
-                    heightMode: SearchWindowHeightMode.ManualOverride,
-                    maximized: false,
-                },
-                {
-                    ready: true,
-                    idle: true,
-                    heightMode: SearchWindowHeightMode.Auto,
-                    maximized: false,
-                }
-            )
-        ).toBe(true);
-    });
-
-    it('user gets the idle height left alone while the window is still starting up', () => {
-        expect(
-            shouldRepairIdleSearchWindowHeight({
-                ready: false,
-                idle: true,
-                heightMode: SearchWindowHeightMode.Auto,
-                maximized: false,
-            })
-        ).toBe(false);
-    });
-
-    it('user gets the default bounds re-applied when the conversation closes', () => {
-        expect(
-            shouldEnforceIdleDefaultBounds(
-                {
-                    ready: true,
-                    hasManagedPanel: false,
-                    maximized: false,
-                },
-                {
-                    ready: true,
-                    hasManagedPanel: true,
-                    maximized: false,
-                }
-            )
-        ).toBe(true);
-    });
-
-    it('user gets no bounds change while a panel is still on screen', () => {
-        expect(
-            shouldEnforceIdleDefaultBounds({
-                ready: true,
-                hasManagedPanel: true,
-                maximized: false,
-            })
-        ).toBe(false);
     });
 });
 
@@ -408,7 +382,6 @@ describe('when the window viewport keeps changing', () => {
     });
 
     it('user gets further syncs after one of them failed', async () => {
-        vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const sync = vi.fn(async () => undefined);
         sync.mockRejectedValueOnce(new Error('sync failed')).mockResolvedValueOnce(undefined);
         const scheduler = createWindowViewportSyncScheduler(sync, 0);
@@ -419,5 +392,21 @@ describe('when the window viewport keeps changing', () => {
         await Promise.resolve();
 
         expect(sync).toHaveBeenCalledTimes(2);
+        expect(observabilityMock.error).toHaveBeenCalledWith(
+            '[SearchView] Failed to sync viewport state:',
+            expect.any(Error)
+        );
+    });
+});
+
+describe('when intrinsic conversation measurement is pending', () => {
+    it('user keeps the maximized layout but measures natural content before applying manual height', () => {
+        const input = {
+            hasConversationPanel: true,
+            shouldRespectManualHeightOverride: true,
+            isIntrinsicHeightMeasurementPending: true,
+        };
+        expect(shouldFillConversationAvailableHeight({ ...input, isMaximized: false })).toBe(false);
+        expect(shouldFillConversationAvailableHeight({ ...input, isMaximized: true })).toBe(true);
     });
 });

@@ -1,6 +1,7 @@
 import { AppEvent, eventService } from '@services/EventService';
 import type { QuickShortcutItem } from '@services/NativeService';
 import { installProductAnalytics } from '@tests/utils/productAnalytics';
+import { installSearchSurfaceBoundary } from '@tests/utils/searchSurface';
 import { mockTauriCommand } from '@tests/utils/tauri';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
@@ -8,26 +9,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SearchView from '@/views/SearchView/index.vue';
 
-vi.mock('@tauri-apps/api/window', () => ({
-    getCurrentWindow: () => ({
-        label: 'main',
-        isVisible: async () => true,
-        isAlwaysOnTop: async () => false,
-        isMaximized: async () => false,
-        isFullscreen: async () => false,
-        scaleFactor: async () => 1,
-        outerPosition: async () => ({ toLogical: () => ({ x: 0, y: 0 }) }),
-        outerSize: async () => ({ toLogical: () => ({ width: 750, height: 60 }) }),
-        innerSize: async () => ({ toLogical: () => ({ width: 750, height: 60 }) }),
-        onResized: async () => () => undefined,
-        onMoved: async () => () => undefined,
-    }),
-    currentMonitor: async () => ({
-        size: { width: 1920, height: 1080 },
-        position: { x: 0, y: 0 },
-        scaleFactor: 1,
-    }),
-}));
+vi.mock('@tauri-apps/api/window', async () => {
+    const { searchSurfaceWindow, searchSurfaceMonitor } =
+        await import('@tests/utils/searchSurface');
+    return {
+        getCurrentWindow: () => searchSurfaceWindow,
+        currentMonitor: async () => searchSurfaceMonitor,
+    };
+});
 enableAutoUnmount(afterEach);
 
 const rangeGeometry = {
@@ -45,11 +34,7 @@ const result: QuickShortcutItem = {
 
 beforeEach(() => {
     setActivePinia(createPinia());
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-        queueMicrotask(() => callback(performance.now()));
-        return 0;
-    });
-    vi.stubGlobal('cancelAnimationFrame', () => undefined);
+    installSearchSurfaceBoundary();
     Object.defineProperties(Range.prototype, {
         getBoundingClientRect: { configurable: true, value: () => new DOMRect() },
         getClientRects: { configurable: true, value: () => [] },
@@ -70,15 +55,7 @@ beforeEach(() => {
         return { rows, rowsAffected: 0, lastInsertId: null };
     });
     mockTauriCommand('get_runtime_info', { isE2eTestMode: true });
-    mockTauriCommand('get_search_window_state', {
-        defaults: { width: 750, height: 60 },
-        currentWidth: 750,
-        currentHeight: 60,
-        heightMode: 'auto',
-    });
-    mockTauriCommand('set_search_window_defaults', (payload: unknown) => {
-        return (payload as { defaults: { width: number; height: number } }).defaults;
-    });
+
     mockTauriCommand('quick_search_search_shortcuts', {
         shortcuts: [],
         files: [],
@@ -99,6 +76,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     for (const [name, descriptor] of Object.entries(rangeGeometry)) {
         if (descriptor) Object.defineProperty(Range.prototype, name, descriptor);
@@ -166,6 +144,10 @@ describe('user hides the search surface while quick search is open', () => {
         await eventService.emit(AppEvent.SEARCH_SURFACE_SHOWN, {
             source: 'main',
             sequence: 2,
+            rendererEpoch: 1,
+            showEpoch: 2,
+            hostEpoch: 2,
+            generation: 100,
         });
         await flushPromises();
 

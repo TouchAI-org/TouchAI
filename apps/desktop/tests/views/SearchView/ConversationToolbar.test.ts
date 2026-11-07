@@ -7,15 +7,12 @@ import ConversationToolbar from '@/views/SearchView/components/ConversationPanel
  * The toolbar floats over the conversation. Its buttons must not start a window drag, and a
  * disabled toolbar must swallow its actions rather than half-apply them.
  */
-const { startDraggingMock } = vi.hoisted(() => ({ startDraggingMock: vi.fn() }));
-
-vi.mock('@tauri-apps/api/window', () => ({
-    getCurrentWindow: () => ({ startDragging: startDraggingMock }),
-}));
+const startDraggingMock = vi.fn();
 
 function mountToolbar(props = {}) {
     return mount(ConversationToolbar, {
         props: {
+            startDragging: startDraggingMock,
             isPinned: false,
             historyOpen: false,
             ...props,

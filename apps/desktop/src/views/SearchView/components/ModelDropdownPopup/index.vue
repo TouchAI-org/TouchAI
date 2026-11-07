@@ -1,0 +1,321 @@
+<!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
+
+<template>
+    <div
+        data-model-dropdown-popover="true"
+        class="model-dropdown-popover search-surface-elevated flex max-h-96 w-80 flex-col overflow-hidden"
+        :style="{
+            maxHeight: 'min(24rem, var(--search-overlay-max-height, 24rem))',
+            maxWidth: 'var(--search-overlay-max-width, 20rem)',
+        }"
+    >
+        <div class="shrink-0 border-b border-stone-200/80 px-3 py-2.5">
+            <label
+                class="history-search-field flex items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 transition-colors focus-within:border-primary-300 focus-within:bg-white"
+            >
+                <AppIcon name="search" class="h-3.5 w-3.5 text-stone-400" />
+                <input
+                    ref="searchInputRef"
+                    :value="localSearchQuery"
+                    type="text"
+                    :placeholder="t('popup.modelDropdown.searchPlaceholder')"
+                    class="w-full border-0 bg-transparent text-xs text-stone-700 outline-none placeholder:text-stone-400"
+                    @input="handleSearchInput"
+                />
+            </label>
+        </div>
+
+        <div
+            ref="dropdownListRef"
+            class="custom-scrollbar-thin max-h-[20rem] min-h-0 overflow-y-auto px-2 py-2"
+        >
+            <div
+                v-for="(model, index) in models"
+                :key="model.id"
+                :ref="
+                    (el) => {
+                        if (el) itemRefs[index] = el as HTMLElement;
+                    }
+                "
+                class="model-dropdown-row flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors"
+                :class="{
+                    'model-dropdown-row--highlighted': index === highlightedIndex,
+                }"
+                @mouseenter="highlightedIndex = index"
+                @click="handleSelect(model.id)"
+            >
+                <div class="shrink-0">
+                    <ModelLogo :model-id="model.modelId" :name="model.name" size="sm" />
+                </div>
+                <div class="min-w-0 flex-1">
+                    <div class="flex min-w-0 items-start justify-between gap-2">
+                        <div class="min-w-0 flex-1">
+                            <div class="flex min-w-0 items-baseline gap-2">
+                                <span
+                                    class="min-w-0 truncate text-xs font-medium text-stone-900"
+                                    data-no-i18n="true"
+                                    translate="no"
+                                >
+                                    {{ model.name }}
+                                </span>
+                                <span
+                                    class="min-w-0 truncate text-caption text-stone-500"
+                                    data-no-i18n="true"
+                                    translate="no"
+                                >
+                                    {{ model.providerName }}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="flex min-w-[3.5rem] shrink-0 flex-col items-end gap-1">
+                            <span
+                                v-if="
+                                    model.modelId === selectedModelId &&
+                                    model.providerId === selectedProviderId
+                                "
+                                class="model-dropdown-state-badge inline-flex min-w-[3.25rem] justify-center rounded border border-gray-300 bg-white px-1.5 py-0.5 text-2xs leading-tight whitespace-nowrap text-gray-600 shadow-sm"
+                            >
+                                {{ t('common.current') }}
+                            </span>
+                            <span
+                                v-if="
+                                    model.modelId === activeModelId &&
+                                    model.providerId === activeProviderId
+                                "
+                                class="model-dropdown-state-badge inline-flex min-w-[3.25rem] justify-center rounded border border-gray-300 bg-white px-1.5 py-0.5 text-2xs leading-tight whitespace-nowrap text-gray-600 shadow-sm"
+                            >
+                                {{ t('common.default') }}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="mt-1">
+                        <ModelCapabilityTags :model="model" size="sm" />
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="models.length === 0" class="px-2">
+                <EmptyState :title="emptyStateMessage" :icon="emptyStateIcon" size="compact">
+                    <template #description>
+                        <span v-if="effectiveSearchQuery">
+                            {{ t('popup.modelDropdown.empty.tryShorter') }}
+                        </span>
+                        <span v-else class="inline-flex items-baseline">
+                            <span>{{ emptySettingsPrompt.prefix }}</span>
+                            <button
+                                type="button"
+                                class="cursor-pointer font-medium text-primary-600 underline decoration-primary-300 underline-offset-2 transition-colors hover:text-primary-700"
+                                @click="openSettingsFromEmptyState"
+                            >
+                                {{ t('popup.modelDropdown.settingsCenter') }}
+                            </button>
+                            <span>{{ emptySettingsPrompt.suffix }}</span>
+                        </span>
+                    </template>
+                </EmptyState>
+            </div>
+        </div>
+    </div>
+</template>
+
+<script setup lang="ts">
+    import AppIcon from '@components/AppIcon.vue';
+    import type { AppIconName } from '@components/appIconMap';
+    import EmptyState from '@components/EmptyState.vue';
+    import ModelCapabilityTags from '@components/ModelCapabilityTags.vue';
+    import ModelLogo from '@components/ModelLogo.vue';
+    import { native } from '@services/NativeService';
+    import { log } from '@services/ObservabilityService';
+    import { computed, nextTick, ref, watch } from 'vue';
+
+    import { t } from '@/i18n';
+    import { matchShortcut } from '@/utils/shortcuts';
+
+    import type { ModelDropdownData, ModelDropdownItem } from '../../types';
+
+    defineOptions({
+        name: 'SearchModelDropdownOverlay',
+    });
+
+    interface Props {
+        data: ModelDropdownData | null;
+        onModelSelect?: (modelDbId: number) => void | Promise<void>;
+        onSearchQueryChange?: (query: string) => void | Promise<void>;
+    }
+
+    const props = defineProps<Props>();
+
+    const emit = defineEmits<{
+        close: [];
+    }>();
+
+    const activeModelId = computed(() => props.data?.activeModelId ?? '');
+    const activeProviderId = computed(() => props.data?.activeProviderId ?? null);
+    const selectedModelId = computed(() => props.data?.selectedModelId ?? '');
+    const selectedProviderId = computed(() => props.data?.selectedProviderId ?? null);
+    const searchQuery = computed(() => props.data?.searchQuery ?? '');
+    const models = computed<ModelDropdownItem[]>(() => props.data?.models ?? []);
+    const effectiveSearchQuery = computed(() => {
+        return localSearchQuery.value.trim() || searchQuery.value.trim();
+    });
+
+    const searchInputRef = ref<HTMLInputElement | null>(null);
+    const highlightedIndex = ref(0);
+    const itemRefs = ref<HTMLElement[]>([]);
+    const localSearchQuery = ref(props.data?.searchQuery ?? '');
+    let scrollRafId: number | null = null;
+
+    const emptyStateIcon = computed<AppIconName>(() => {
+        return effectiveSearchQuery.value ? 'search' : 'database';
+    });
+
+    const emptyStateMessage = computed(() => {
+        return effectiveSearchQuery.value
+            ? t('popup.modelDropdown.empty.noMatches')
+            : t('popup.modelDropdown.empty.noModels');
+    });
+
+    const emptySettingsPrompt = computed(() => {
+        return {
+            prefix: t('popup.modelDropdown.emptySetupPrefix'),
+            suffix: t('popup.modelDropdown.emptySetupSuffix'),
+        };
+    });
+
+    async function handleSelect(modelDbId: number) {
+        if (!props.onModelSelect) {
+            log.error('[SearchView] Model dropdown requires onModelSelect.');
+            return;
+        }
+
+        try {
+            await props.onModelSelect(modelDbId);
+            emit('close');
+        } catch (error) {
+            log.error('[SearchView] Failed to select model from model dropdown:', error);
+        }
+    }
+
+    async function openSettingsFromEmptyState() {
+        try {
+            await native.window.openSettingsWindow();
+            emit('close');
+        } catch (error) {
+            log.error('[SearchView] Failed to open settings from model dropdown:', error);
+        }
+    }
+
+    async function handleSearchInput(event: Event) {
+        const target = event.target as HTMLInputElement;
+        const query = target.value;
+        localSearchQuery.value = query;
+        highlightedIndex.value = 0;
+        if (!props.onSearchQueryChange) return;
+        try {
+            await props.onSearchQueryChange(query);
+        } catch (error) {
+            log.error('[SearchView] Failed to update model dropdown search query:', error);
+            localSearchQuery.value = searchQuery.value;
+        }
+    }
+
+    const scrollToHighlighted = async () => {
+        await nextTick();
+        if (scrollRafId !== null) {
+            cancelAnimationFrame(scrollRafId);
+        }
+
+        scrollRafId = requestAnimationFrame(() => {
+            const highlightedElement = itemRefs.value[highlightedIndex.value];
+            if (highlightedElement) {
+                highlightedElement.scrollIntoView({
+                    block: 'nearest',
+                    behavior: 'auto',
+                });
+            }
+            scrollRafId = null;
+        });
+    };
+
+    function handleKeyDown(event: KeyboardEvent) {
+        if (matchShortcut(props.data?.toggleShortcut, event)) {
+            event.preventDefault();
+            emit('close');
+            return;
+        }
+
+        if (models.value.length === 0) {
+            return;
+        }
+
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            highlightedIndex.value = Math.min(highlightedIndex.value + 1, models.value.length - 1);
+            void scrollToHighlighted();
+            return;
+        }
+
+        if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            highlightedIndex.value = Math.max(highlightedIndex.value - 1, 0);
+            void scrollToHighlighted();
+            return;
+        }
+
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            const model = models.value[highlightedIndex.value];
+            if (model) {
+                void handleSelect(model.id);
+            }
+        }
+    }
+
+    function handleOverlayShown() {
+        searchInputRef.value?.focus({ preventScroll: true });
+        if (!localSearchQuery.value) {
+            searchInputRef.value?.select();
+        }
+        highlightedIndex.value = 0;
+    }
+
+    watch(
+        () => searchQuery.value,
+        (value) => {
+            if (value === localSearchQuery.value) {
+                return;
+            }
+
+            localSearchQuery.value = value;
+        }
+    );
+
+    watch(searchQuery, () => {
+        highlightedIndex.value = 0;
+    });
+
+    watch(
+        () => props.data,
+        (value) => {
+            if (value) {
+                highlightedIndex.value = 0;
+            }
+        }
+    );
+
+    defineExpose({
+        handleOverlayShown,
+        handleKeyDown,
+    });
+</script>
+
+<style scoped>
+    .history-search-field {
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+    }
+
+    .model-dropdown-row:hover,
+    .model-dropdown-row--highlighted {
+        background: color-mix(in srgb, var(--color-primary-50) 92%, white);
+    }
+</style>

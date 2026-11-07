@@ -46,7 +46,7 @@ async function mountFlow() {
 }
 
 async function openHistory(flow: Awaited<ReturnType<typeof mountFlow>>['result']) {
-    await flow.setSessionHistoryPopupOpen(true);
+    await flow.setSessionHistoryOverlayOpen(true);
     flow.beginHistoryInteraction();
     flow.reportHistoryInteractionOpened();
     await flow.ensureSessionListLoaded();
@@ -98,7 +98,7 @@ describe('user selects conversation history', () => {
         const { result } = await flow();
         await result.ensureSessionListLoaded();
         await openHistory(result);
-        await result.setSessionHistoryPopupOpen(false);
+        await result.setSessionHistoryOverlayOpen(false);
         await flushPromises();
 
         expect(completed()).toHaveLength(1);
@@ -118,14 +118,14 @@ describe('user selects conversation history', () => {
         const { result } = await flow();
         await openHistory(result);
         const selectionA = result.markHistorySelectionPending();
-        await result.setSessionHistoryPopupOpen(false);
+        await result.setSessionHistoryOverlayOpen(false);
         const openingA = result.openSession(7, 'history', selectionA);
 
         rows = [session(8), session(9), session(10)];
         await openHistory(result);
         await result.refreshSessionList();
         const selectionB = result.markHistorySelectionPending();
-        await result.setSessionHistoryPopupOpen(false);
+        await result.setSessionHistoryOverlayOpen(false);
         const openingB = result.openSession(8, 'history', selectionB);
         await flushPromises();
         expect(telemetry.released).toEqual([]);
@@ -160,12 +160,12 @@ describe('user selects conversation history', () => {
         const { result } = await flow();
         await openHistory(result);
         const selectionA = result.markHistorySelectionPending();
-        await result.setSessionHistoryPopupOpen(false);
+        await result.setSessionHistoryOverlayOpen(false);
         const openingA = result.openSession(7, 'history', selectionA);
         const failure = expect(openingA).rejects.toThrow();
         await openHistory(result);
         const selectionB = result.markHistorySelectionPending();
-        await result.setSessionHistoryPopupOpen(false);
+        await result.setSessionHistoryOverlayOpen(false);
         result.abandonHistorySelection(selectionB);
         first.reject(new Error('history unavailable'));
         await failure;
@@ -188,7 +188,7 @@ describe('user selects conversation history', () => {
         await flushPromises();
         expect(selected()).toEqual([]);
         expect(telemetry.released).toEqual([]);
-        await result.setSessionHistoryPopupOpen(false);
+        await result.setSessionHistoryOverlayOpen(false);
         await flushPromises();
         expect(telemetry.active.size).toBe(0);
     });
@@ -197,7 +197,7 @@ describe('user selects conversation history', () => {
         const { result, unmount } = await mountFlow();
         await openHistory(result);
         const selectionA = result.markHistorySelectionPending();
-        await result.setSessionHistoryPopupOpen(false);
+        await result.setSessionHistoryOverlayOpen(false);
         await openHistory(result);
         const selectionB = result.markHistorySelectionPending();
         unmount();

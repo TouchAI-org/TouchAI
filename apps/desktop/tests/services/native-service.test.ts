@@ -20,6 +20,8 @@ import {
     type QuickSearchFileItem,
     type QuickSearchResult,
     type QuickSearchStatus,
+    type SearchSurfacePreparation,
+    type SearchWindowRegionUpdate,
     shortcut,
     updater,
     window as windowCommands,
@@ -27,7 +29,7 @@ import {
 import type { DatabaseQueryResponse } from '@services/NativeService/database';
 import type { SearchWindowState } from '@services/NativeService/types';
 import { getLastTauriInvokeCall, interceptTauriInvoke, mockTauriCommand } from '@tests/utils/tauri';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import { APP_PRODUCT_CONFIG } from '@/config/product';
 
@@ -205,6 +207,18 @@ describe('user drives a browser through the app', () => {
 describe('user works with app windows', () => {
     it.each([
         {
+            name: 'user ends native dragging before its completion is acknowledged',
+            call: () => windowCommands.dragSearchWindow(),
+            cmd: 'drag_search_window',
+            payload: undefined,
+        },
+        {
+            name: 'user dismisses a blurred window only if native focus and pin state permit it',
+            call: () => windowCommands.reconcileSearchWindowBlur(),
+            cmd: 'hide_search_window',
+            payload: { ifUnfocused: true },
+        },
+        {
             name: 'user hides the search window',
             call: () => windowCommands.hideSearchWindow(),
             cmd: 'hide_search_window',
@@ -215,6 +229,18 @@ describe('user works with app windows', () => {
             call: () => windowCommands.showSearchWindow(),
             cmd: 'show_search_window',
             payload: undefined,
+        },
+        {
+            name: 'reads the current search renderer epoch',
+            call: () => windowCommands.getSearchWindowRendererEpoch(),
+            cmd: 'get_search_window_renderer_epoch',
+            payload: undefined,
+        },
+        {
+            name: 'marks the search renderer ready for its first native show',
+            call: () => windowCommands.markSearchWindowReady(12),
+            cmd: 'mark_search_window_ready',
+            payload: { rendererEpoch: 12 },
         },
         {
             name: 'user updates the tray status indicator',
@@ -270,73 +296,6 @@ describe('user works with app windows', () => {
             payload: undefined,
         },
         {
-            name: 'user preloads popup windows',
-            call: () => windowCommands.preloadPopupWindows(),
-            cmd: 'preload_popup_windows',
-            payload: undefined,
-        },
-        {
-            name: 'user resets search window bounds',
-            call: () => windowCommands.resetSearchWindowBounds(),
-            cmd: 'reset_search_window_bounds',
-            payload: undefined,
-        },
-        {
-            name: 'user registers popup configs',
-            call: () =>
-                windowCommands.registerPopupConfigs([
-                    { id: 'session-history-popup', width: 320, height: 384 },
-                ]),
-            cmd: 'register_popup_configs',
-            payload: {
-                configs: [{ id: 'session-history-popup', width: 320, height: 384 }],
-            },
-        },
-        {
-            name: 'user shows a popup window',
-            call: () =>
-                windowCommands.showPopupWindow({
-                    popupId: 'popup-model-dropdown-popup:1',
-                    popupSessionVersion: 1,
-                    popupType: 'model-dropdown-popup',
-                    width: 320,
-                    height: 384,
-                    x: 80,
-                    y: 120,
-                    windowLabel: 'popup-model-dropdown-popup',
-                }),
-            cmd: 'show_popup_window',
-            payload: {
-                params: {
-                    popupId: 'popup-model-dropdown-popup:1',
-                    popupSessionVersion: 1,
-                    popupType: 'model-dropdown-popup',
-                    width: 320,
-                    height: 384,
-                    x: 80,
-                    y: 120,
-                    windowLabel: 'popup-model-dropdown-popup',
-                },
-            },
-        },
-        {
-            name: 'user hides a popup window',
-            call: () =>
-                windowCommands.hidePopupWindow({
-                    popupId: 'popup-model-dropdown-popup:1',
-                    popupSessionVersion: 1,
-                    windowLabel: 'popup-model-dropdown-popup',
-                }),
-            cmd: 'hide_popup_window',
-            payload: {
-                params: {
-                    popupId: 'popup-model-dropdown-popup:1',
-                    popupSessionVersion: 1,
-                    windowLabel: 'popup-model-dropdown-popup',
-                },
-            },
-        },
-        {
             name: 'user syncs app blur policy for the search surface',
             call: () => windowCommands.setSearchSurfaceHideOnAppBlur(true),
             cmd: 'set_search_surface_hide_on_app_blur',
@@ -388,6 +347,48 @@ describe('user works with app windows', () => {
         await callAndExpectInvoke(call, cmd, payload);
     });
 
+    it('returns the native acknowledgement for a search window region update', async () => {
+        const response: SearchWindowRegionUpdate = { status: 'applied', generation: 7 };
+        const regions = [
+            { x: 24, y: 32, width: 750, height: 420, cornerRadius: 12 },
+            { x: 454, y: 96, width: 320, height: 384, cornerRadius: 12 },
+        ];
+        mockTauriCommand('set_search_window_regions', response);
+        const preparation: SearchSurfacePreparation = {
+            rendererEpoch: 2,
+            showEpoch: 4,
+            hostEpoch: 6,
+            source: 'shortcut',
+            physicalViewport: { x: -1920, y: 0, width: 1920, height: 1040 },
+            scaleFactor: 1.25,
+        };
+        expectTypeOf(windowCommands.setSearchWindowRegions).returns.toEqualTypeOf<
+            Promise<SearchWindowRegionUpdate>
+        >();
+
+        await expect(
+            callAndExpectInvoke(
+                () => windowCommands.setSearchWindowRegions(regions, 7, preparation),
+                'set_search_window_regions',
+                { generation: 7, regions, preparation }
+            )
+        ).resolves.toEqual(response);
+    });
+
+    it('returns a pending preparation from the epoch-aware renderer handshake', async () => {
+        const preparation: SearchSurfacePreparation = {
+            rendererEpoch: 2,
+            showEpoch: 4,
+            hostEpoch: 6,
+            source: 'notification',
+            physicalViewport: { x: 0, y: 0, width: 2560, height: 1400 },
+            scaleFactor: 1.5,
+        };
+        mockTauriCommand('mark_search_window_ready', preparation);
+
+        await expect(windowCommands.markSearchWindowReady(2)).resolves.toEqual(preparation);
+    });
+
     it('user sees the backend clamp the search window defaults', async () => {
         const response = { width: 960, height: 320 };
         mockTauriCommand('set_search_window_defaults', response);
@@ -416,6 +417,7 @@ describe('user works with app windows', () => {
             currentWidth: 900,
             currentHeight: 420,
             heightMode: 'manual_override',
+            monitorHost: true,
         };
         mockTauriCommand('get_search_window_state', response);
 
@@ -423,6 +425,38 @@ describe('user works with app windows', () => {
             callAndExpectInvoke(
                 () => windowCommands.getSearchWindowState(),
                 'get_search_window_state'
+            )
+        ).resolves.toEqual(response);
+    });
+
+    it('commits a logical panel resize with both the frontend origin and final size', async () => {
+        const response: SearchWindowState = {
+            defaults: { width: 750, height: 60 },
+            currentWidth: 900,
+            currentHeight: 420,
+            heightMode: 'manual_override',
+            monitorHost: true,
+        };
+        mockTauriCommand('commit_search_panel_resize', response);
+
+        await expect(
+            callAndExpectInvoke(
+                () =>
+                    windowCommands.commitSearchPanelResize({
+                        from: { width: 750, height: 300 },
+                        to: { width: 900, height: 420 },
+                        placement: 'preserve-origin',
+                        physicalOrigin: { x: -1200, y: 40 },
+                    }),
+                'commit_search_panel_resize',
+                {
+                    resize: {
+                        from: { width: 750, height: 300 },
+                        to: { width: 900, height: 420 },
+                        placement: 'preserve-origin',
+                        physicalOrigin: { x: -1200, y: 40 },
+                    },
+                }
             )
         ).resolves.toEqual(response);
     });

@@ -621,7 +621,7 @@
             const firstRow = rowsContainerRef.value?.querySelector(
                 '[data-proximity-index="0"]'
             ) as HTMLElement | null;
-            firstRow?.focus();
+            firstRow?.focus({ preventScroll: true });
         });
     });
 

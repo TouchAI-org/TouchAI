@@ -1,4 +1,3 @@
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { Editor } from '@tiptap/core';
 import type { ShallowRef } from 'vue';
 
@@ -12,6 +11,7 @@ interface UseDraggingOptions {
     editor: ShallowRef<Editor | null>;
     emitDragStart: () => void;
     emitDragEnd: () => void;
+    startDragging: (event: MouseEvent) => Promise<void>;
 }
 
 /**
@@ -108,15 +108,13 @@ export function useDragging(options: UseDraggingOptions) {
      *
      * @returns Promise<void>
      */
-    async function startDragging() {
+    async function startDragging(event: MouseEvent) {
         emitDragStart();
         try {
-            await getCurrentWindow().startDragging();
+            await options.startDragging(event);
         } finally {
             // 无论拖拽是否成功触发，都确保 UI 拖拽态被回收。
-            setTimeout(() => {
-                emitDragEnd();
-            }, 100);
+            emitDragEnd();
         }
     }
 
@@ -145,7 +143,7 @@ export function useDragging(options: UseDraggingOptions) {
             return;
         }
 
-        await startDragging();
+        await startDragging(event);
     }
 
     /**
@@ -155,21 +153,31 @@ export function useDragging(options: UseDraggingOptions) {
      * @param event 鼠标按下事件。
      * @returns void
      */
-    function handleEditorMouseDown(event: MouseEvent) {
+    function handleEditorMouseDown(event: MouseEvent): boolean {
         const ed = editor.value;
-        if (!ed || event.button !== 0) return;
+        if (!ed || event.button !== 0) return false;
 
         const target = resolveMouseEventTarget(event);
         if (!target || isSearchTagDomTarget(target)) {
-            return;
+            return false;
         }
 
         // 编辑器空 → 整块可拖拽；有内容 → 仅空白区域且远离文字时可拖拽。
-        const shouldTrackBlankAreaDrag =
-            ed.isEmpty ||
-            (isBlankEditorAreaTarget(target) && !isNearSelectableTextBoundary(ed, event));
-        if (!shouldTrackBlankAreaDrag) {
-            return;
+        const isBlankAreaDrag =
+            !ed.isEmpty &&
+            isBlankEditorAreaTarget(target) &&
+            !isNearSelectableTextBoundary(ed, event);
+        if (isBlankAreaDrag) {
+            // Tauri 的原生拖动必须由原始 mousedown 手势启动。若等到
+            // mousemove 才调用，WebView2 可能已经把手势交给 contenteditable，
+            // 导致有文本时的编辑器空白区无法拖动窗口。
+            event.preventDefault();
+            void startDragging(event);
+            return true;
+        }
+
+        if (!ed.isEmpty) {
+            return false;
         }
 
         const startX = event.clientX;
@@ -202,7 +210,7 @@ export function useDragging(options: UseDraggingOptions) {
             }, 500);
             cleanup();
             moveEvent.preventDefault();
-            void startDragging();
+            void startDragging(moveEvent);
         };
 
         const handleMouseUp = () => {
@@ -211,6 +219,7 @@ export function useDragging(options: UseDraggingOptions) {
 
         window.addEventListener('mousemove', handleMouseMove, true);
         window.addEventListener('mouseup', handleMouseUp, true);
+        return false;
     }
 
     /**

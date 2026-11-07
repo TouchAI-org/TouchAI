@@ -195,8 +195,8 @@ function getModelSelectionMock() {
         selectedModel: ReturnType<typeof ref<unknown>>;
         selectedProviderId: ReturnType<typeof ref<number | null>>;
         activeModel: ReturnType<typeof ref<unknown>>;
-        loadPopupModels: ReturnType<typeof vi.fn>;
-        invalidatePopupModels: ReturnType<typeof vi.fn>;
+        loadDropdownModels: ReturnType<typeof vi.fn>;
+        invalidateDropdownModels: ReturnType<typeof vi.fn>;
         prepareModelDropdownOpen: ReturnType<typeof vi.fn>;
         handleModelSelect: ReturnType<typeof vi.fn>;
         getModelDropdownAnchor: ReturnType<typeof vi.fn>;
@@ -242,6 +242,7 @@ async function mountSearchInput(overrides: Partial<Parameters<typeof useSearchIn
             emitRemoveAttachmentRequest,
             emitDragStart: vi.fn(),
             emitDragEnd: vi.fn(),
+            startDragging: vi.fn().mockResolvedValue(undefined),
             ...overrides,
         })
     );
@@ -281,8 +282,8 @@ describe('when the search input first appears', () => {
             selectedModel: ref(null),
             selectedProviderId: ref<number | null>(null),
             activeModel: ref(null),
-            loadPopupModels: vi.fn(),
-            invalidatePopupModels: vi.fn(),
+            loadDropdownModels: vi.fn(),
+            invalidateDropdownModels: vi.fn(),
             prepareModelDropdownOpen: vi.fn(),
             handleModelSelect: vi.fn(),
             getModelDropdownAnchor: vi.fn(() => null),
@@ -399,8 +400,8 @@ describe('when the page replaces the draft behind the editor', () => {
             selectedModel: ref(null),
             selectedProviderId: ref<number | null>(null),
             activeModel: ref(null),
-            loadPopupModels: vi.fn(),
-            invalidatePopupModels: vi.fn(),
+            loadDropdownModels: vi.fn(),
+            invalidateDropdownModels: vi.fn(),
             prepareModelDropdownOpen: vi.fn(),
             handleModelSelect: vi.fn(),
             getModelDropdownAnchor: vi.fn(() => null),
@@ -465,8 +466,8 @@ describe('when the user removes a chip from the editor', () => {
             selectedModel: ref(null),
             selectedProviderId: ref<number | null>(null),
             activeModel: ref(null),
-            loadPopupModels: vi.fn(),
-            invalidatePopupModels: vi.fn(),
+            loadDropdownModels: vi.fn(),
+            invalidateDropdownModels: vi.fn(),
             prepareModelDropdownOpen: vi.fn(),
             handleModelSelect: vi.fn(),
             getModelDropdownAnchor: vi.fn(() => null),
@@ -520,8 +521,8 @@ describe('when the user recalls a previously sent prompt', () => {
             selectedModel: ref(null),
             selectedProviderId: ref<number | null>(null),
             activeModel: ref(null),
-            loadPopupModels: vi.fn(),
-            invalidatePopupModels: vi.fn(),
+            loadDropdownModels: vi.fn(),
+            invalidateDropdownModels: vi.fn(),
             prepareModelDropdownOpen: vi.fn(),
             handleModelSelect: vi.fn(),
             getModelDropdownAnchor: vi.fn(() => null),
@@ -621,8 +622,8 @@ describe('when the user switches the application language', () => {
             selectedModel: ref(null),
             selectedProviderId: ref<number | null>(null),
             activeModel: ref(null),
-            loadPopupModels: vi.fn(),
-            invalidatePopupModels: vi.fn(),
+            loadDropdownModels: vi.fn(),
+            invalidateDropdownModels: vi.fn(),
             prepareModelDropdownOpen: vi.fn(),
             handleModelSelect: vi.fn(),
             getModelDropdownAnchor: vi.fn(() => null),
@@ -684,8 +685,8 @@ describe('when the user is selecting text in a long draft', () => {
             selectedModel: ref(null),
             selectedProviderId: ref<number | null>(null),
             activeModel: ref(null),
-            loadPopupModels: vi.fn(),
-            invalidatePopupModels: vi.fn(),
+            loadDropdownModels: vi.fn(),
+            invalidateDropdownModels: vi.fn(),
             prepareModelDropdownOpen: vi.fn(),
             handleModelSelect: vi.fn(),
             getModelDropdownAnchor: vi.fn(() => null),

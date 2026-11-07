@@ -180,8 +180,8 @@ function createModelSelectionState(overrides: Record<string, unknown> = {}) {
         selectedModel: ref(null),
         selectedProviderId: ref<number | null>(null),
         activeModel: ref(null),
-        loadPopupModels: vi.fn(),
-        invalidatePopupModels: vi.fn(),
+        loadDropdownModels: vi.fn(),
+        invalidateDropdownModels: vi.fn(),
         prepareModelDropdownOpen: vi.fn(),
         handleModelSelect: vi.fn(),
         getModelDropdownAnchor: vi.fn(() => null),
@@ -228,6 +228,7 @@ async function mountSearchInput(overrides: Record<string, unknown> = {}) {
             emitRemoveAttachmentRequest,
             emitDragStart: vi.fn(),
             emitDragEnd: vi.fn(),
+            startDragging: vi.fn().mockResolvedValue(undefined),
             ...overrides,
         })
     );

@@ -117,6 +117,14 @@ function createSessionEntity(id: number, overrides: Partial<SessionEntity> = {})
     };
 }
 
+function createDeferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((resolvePromise) => {
+        resolve = resolvePromise;
+    });
+    return { promise, resolve };
+}
+
 async function flushAsyncWork() {
     await Promise.resolve();
     await Promise.resolve();
@@ -367,6 +375,44 @@ describe('when the user browses the session history list', () => {
         document.body.innerHTML = '';
     });
 
+    it('user keeps the newest history query when an older response arrives late', async () => {
+        const olderRequest = createDeferred<SessionEntity[]>();
+        const newerRequest = createDeferred<SessionEntity[]>();
+        listSessionsMock
+            .mockImplementationOnce(() => olderRequest.promise)
+            .mockImplementationOnce(() => newerRequest.promise);
+
+        const mounted = await mountComposable(() =>
+            useSearchRequestFlow({
+                modelOverride: ref({ modelId: null, providerId: null }),
+                clearDraft: vi.fn(),
+                getSupportedAttachments: () => [],
+                getUnsupportedAttachmentMessage: () => null,
+                getCurrentInputSnapshot: (query) =>
+                    createInputHistorySnapshot({ text: query, attachments: [] }),
+            })
+        );
+
+        await mounted.result.setSessionHistoryOverlayOpen(true);
+        const olderLoad = mounted.result.updateSessionSearchQuery('old');
+        await flushAsyncWork();
+        const newerLoad = mounted.result.updateSessionSearchQuery('new');
+        await flushAsyncWork();
+
+        newerRequest.resolve([createSessionEntity(2, { title: 'New result' })]);
+        await newerLoad;
+        olderRequest.resolve([createSessionEntity(1, { title: 'Stale result' })]);
+        await olderLoad;
+
+        expect(listSessionsMock).toHaveBeenNthCalledWith(1, { query: 'old', limit: 40 });
+        expect(listSessionsMock).toHaveBeenNthCalledWith(2, { query: 'new', limit: 40 });
+        expect(mounted.result.sessionList.value).toEqual([
+            createSessionEntity(2, { title: 'New result' }),
+        ]);
+
+        mounted.unmount();
+    });
+
     it('user sees the loaded sessions after a single query even when two loads race', async () => {
         const { result, unmount } = await mountFlow();
 
@@ -402,7 +448,7 @@ describe('when the user browses the session history list', () => {
     it('user gets the history list filtered by the typed query', async () => {
         const { result, unmount } = await mountFlow();
 
-        await result.setSessionHistoryPopupOpen(true);
+        await result.setSessionHistoryOverlayOpen(true);
         await result.updateSessionSearchQuery('deploy');
 
         expect(listSessionsMock).toHaveBeenLastCalledWith({ query: 'deploy', limit: 40 });
@@ -427,9 +473,9 @@ describe('when the user browses the session history list', () => {
     it('user gets the search filter cleared when the history popup closes', async () => {
         const { result, unmount } = await mountFlow();
 
-        await result.setSessionHistoryPopupOpen(true);
+        await result.setSessionHistoryOverlayOpen(true);
         await result.updateSessionSearchQuery('deploy');
-        await result.setSessionHistoryPopupOpen(false);
+        await result.setSessionHistoryOverlayOpen(false);
 
         expect(result.sessionListQuery.value).toBe('');
         expect(result.sessionList.value).toEqual([]);

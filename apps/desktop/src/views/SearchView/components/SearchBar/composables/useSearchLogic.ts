@@ -55,6 +55,7 @@ interface UseSearchInputOptions {
     emitRemoveAttachmentRequest: (id: string) => void;
     emitDragStart: () => void;
     emitDragEnd: () => void;
+    startDragging: (event: MouseEvent) => Promise<void>;
 }
 
 export interface UseSearchInputDeps {
@@ -126,6 +127,7 @@ export function useSearchInput(
         editor,
         emitDragStart,
         emitDragEnd,
+        startDragging: options.startDragging,
     });
 
     // 3. 编辑器创建
@@ -194,7 +196,7 @@ export function useSearchInput(
 
         const ed = new Editor({
             extensions,
-            autofocus: true,
+            autofocus: false,
             editorProps: {
                 attributes: {
                     class: 'tiptap',
@@ -654,22 +656,24 @@ export function useSearchInput(
         const ed = editor.value;
         if (!ed) return;
 
-        ed.commands.focus();
+        // The surface lifecycle owns focus. Tiptap's command defers it to RAF,
+        // which can steal focus from an overlay opened before that frame runs.
+        ed.view.focus();
     }
 
     /**
      * 编辑器 mousedown 预处理：标签元素上 preventDefault 阻止浏览器默认选区，
      * 其余区域转发给拖拽模块判断是否启动窗口拖拽。
      */
-    function handleEditorMouseDown(event: MouseEvent) {
+    function handleEditorMouseDown(event: MouseEvent): boolean {
         const target = resolveMouseEventTarget(event);
 
         if (target && isSearchTagDomTarget(target)) {
             event.preventDefault();
-            return;
+            return false;
         }
 
-        dragging.handleEditorMouseDown(event);
+        return dragging.handleEditorMouseDown(event);
     }
 
     /**
@@ -746,8 +750,8 @@ export function useSearchInput(
         selectedModel: modelSelection.selectedModel,
         selectedProviderId: modelSelection.selectedProviderId,
         activeModel: modelSelection.activeModel,
-        prefetchModelDropdownData: modelSelection.loadPopupModels,
-        invalidateModelDropdownData: modelSelection.invalidatePopupModels,
+        prefetchModelDropdownData: modelSelection.loadDropdownModels,
+        invalidateModelDropdownData: modelSelection.invalidateDropdownModels,
         prepareModelDropdownOpen: modelSelection.prepareModelDropdownOpen,
         selectModelFromDropdown: modelSelection.handleModelSelect,
         getModelDropdownAnchor: modelSelection.getModelDropdownAnchor,

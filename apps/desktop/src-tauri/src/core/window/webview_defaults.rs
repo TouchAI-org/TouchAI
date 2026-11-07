@@ -5,8 +5,6 @@
 #[cfg(target_os = "windows")]
 use raw_window_handle::HasWindowHandle;
 #[cfg(target_os = "windows")]
-use std::{collections::HashSet, sync::Mutex};
-#[cfg(target_os = "windows")]
 use tauri::Emitter;
 #[cfg(target_os = "windows")]
 use tauri::Manager;
@@ -18,7 +16,7 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     ICoreWebView2AcceleratorKeyPressedEventArgs, ICoreWebView2AcceleratorKeyPressedEventArgs2,
     ICoreWebView2Controller, ICoreWebView2Settings3, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
     COREWEBVIEW2_KEY_EVENT_KIND_KEY_UP, COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN,
-    COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_UP,
+    COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_UP, COREWEBVIEW2_PHYSICAL_KEY_STATUS,
 };
 #[cfg(target_os = "windows")]
 use windows::core::BOOL;
@@ -197,20 +195,10 @@ fn is_system_menu_accelerator_command(key_event_kind: i32, virtual_key: u32) -> 
 }
 
 #[cfg(target_os = "windows")]
-fn is_accelerator_key_down_event(key_event_kind: i32) -> bool {
-    key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN.0
-        || key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN.0
-}
-
-#[cfg(target_os = "windows")]
-fn is_accelerator_key_up_event(key_event_kind: i32) -> bool {
-    key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_UP.0
-        || key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_UP.0
-}
-
-#[cfg(target_os = "windows")]
-fn should_emit_search_surface_command_to_window(label: &str) -> bool {
-    label == "main" || label.starts_with("popup-")
+fn should_dispatch_search_accelerator(key_event_kind: i32, was_key_down: bool) -> bool {
+    !was_key_down
+        && (key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN.0
+            || key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN.0)
 }
 
 #[cfg(target_os = "windows")]
@@ -225,9 +213,7 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
     controller: &ICoreWebView2Controller,
 ) -> Result<(), String> {
     let app_handle = window.app_handle().clone();
-    let search_surface_command_window =
-        should_emit_search_surface_command_to_window(window.label()).then(|| window.clone());
-    let handled_key_downs = Mutex::new(HashSet::new());
+    let search_surface_command_window = (window.label() == "main").then(|| window.clone());
     let mut token = 0i64;
     let handler = AcceleratorKeyPressedEventHandler::create(Box::new(
         move |_controller: Option<ICoreWebView2Controller>,
@@ -243,26 +229,10 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                 let mut virtual_key = 0u32;
                 args.VirtualKey(&mut virtual_key)?;
 
-                let is_key_down = is_accelerator_key_down_event(key_event_kind.0);
-                let is_key_up = is_accelerator_key_up_event(key_event_kind.0);
-
-                if !is_system_menu_accelerator_command(key_event_kind.0, virtual_key) {
-                    if !is_key_down && !is_key_up {
-                        return Ok(());
-                    }
-
-                    if search_surface_command_window.is_none() {
-                        return Ok(());
-                    }
-
-                    if is_key_up
-                        && handled_key_downs
-                            .lock()
-                            .map(|mut keys| keys.remove(&virtual_key))
-                            .unwrap_or(false)
-                    {
-                        return Ok(());
-                    }
+                if key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_KEY_UP
+                    || key_event_kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_UP
+                {
+                    return Ok(());
                 }
 
                 // Alt+Space 的 system-key 事件在 Alt 可能已抬起后才送达，
@@ -279,14 +249,14 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                     (GetKeyState(i32::from(VK_MENU.0)) as u16 & 0x8000) != 0
                 };
 
-                if let Some(command) =
+                if let Some(command) = search_surface_command_window.as_ref().and_then(|_|
                     crate::core::system::shortcut::find_search_surface_command_for_windows_accelerator(
                         virtual_key,
                         is_ctrl_down,
                         is_alt_down,
                         is_shift_down,
                         is_super_down,
-                    )
+                    ))
                 {
                     if let Ok(args2) =
                         Interface::cast::<ICoreWebView2AcceleratorKeyPressedEventArgs2>(&args)
@@ -294,13 +264,12 @@ fn register_system_menu_accelerator_handler<R: Runtime>(
                         let _ = args2.SetIsBrowserAcceleratorKeyEnabled(false);
                     }
                     let _ = args.SetHandled(true);
-                    if is_key_down {
-                        let _ = handled_key_downs
-                            .lock()
-                            .map(|mut keys| keys.insert(virtual_key));
-                    }
-                    if let Some(search_surface_command_window) = &search_surface_command_window {
-                        let _ = search_surface_command_window.emit("search-surface-command", command);
+                    let mut status = COREWEBVIEW2_PHYSICAL_KEY_STATUS::default();
+                    args.PhysicalKeyStatus(&mut status)?;
+                    if should_dispatch_search_accelerator(key_event_kind.0, status.WasKeyDown.as_bool()) {
+                        if let Some(search_surface_command_window) = &search_surface_command_window {
+                            let _ = search_surface_command_window.emit("search-surface-command", command);
+                        }
                     }
                     return Ok(());
                 }
@@ -463,27 +432,18 @@ pub(crate) fn apply_webview_runtime_defaults<R: Runtime>(
 
 #[cfg(all(test, target_os = "windows"))]
 mod tests {
-    use super::{is_accelerator_key_up_event, should_emit_search_surface_command_to_window};
+    use super::should_dispatch_search_accelerator;
 
     #[test]
-    fn search_surface_commands_target_main_and_popup_windows_only() {
-        assert!(should_emit_search_surface_command_to_window("main"));
-        assert!(should_emit_search_surface_command_to_window(
-            "popup-model-dropdown-popup"
-        ));
-        assert!(should_emit_search_surface_command_to_window(
-            "popup-session-history-popup"
-        ));
-        assert!(!should_emit_search_surface_command_to_window("settings"));
-        assert!(!should_emit_search_surface_command_to_window("assistant"));
-    }
-
-    #[test]
-    fn accelerator_key_up_events_are_supported() {
-        assert!(is_accelerator_key_up_event(1));
-        assert!(is_accelerator_key_up_event(3));
-        assert!(!is_accelerator_key_up_event(0));
-        assert!(!is_accelerator_key_up_event(2));
+    fn user_triggers_one_command_per_key_press_without_repeat_or_release_toggles() {
+        for kind in [0, 2] {
+            assert!(should_dispatch_search_accelerator(kind, false));
+            assert!(!should_dispatch_search_accelerator(kind, true));
+        }
+        for kind in [1, 3] {
+            assert!(!should_dispatch_search_accelerator(kind, false));
+            assert!(!should_dispatch_search_accelerator(kind, true));
+        }
     }
 }
 

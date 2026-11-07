@@ -201,7 +201,7 @@ afterEach(() => {
     document.body.innerHTML = '';
 });
 
-describe('when the history popup is closed while its list was loaded', () => {
+describe('when the history overlay is closed while its list was loaded', () => {
     it('user gets the default list reused instead of cleared and refetched', async () => {
         const { result, unmount } = await mountFlow();
         listSessionsMock.mockResolvedValue([createSessionEntity(1)]);
@@ -210,8 +210,8 @@ describe('when the history popup is closed while its list was loaded', () => {
         expect(result.sessionList.value).toHaveLength(1);
 
         // Opening and closing with no filter must keep the already loaded default list.
-        await result.setSessionHistoryPopupOpen(true);
-        await result.setSessionHistoryPopupOpen(false);
+        await result.setSessionHistoryOverlayOpen(true);
+        await result.setSessionHistoryOverlayOpen(false);
 
         expect(result.sessionList.value).toHaveLength(1);
         expect(result.isSessionListLoading.value).toBe(false);
@@ -219,15 +219,15 @@ describe('when the history popup is closed while its list was loaded', () => {
         unmount();
     });
 
-    it('user gets the filtered list dropped when the popup closes', async () => {
+    it('user gets the filtered list dropped when the overlay closes', async () => {
         const { result, unmount } = await mountFlow();
         listSessionsMock.mockResolvedValue([createSessionEntity(2)]);
 
-        await result.setSessionHistoryPopupOpen(true);
+        await result.setSessionHistoryOverlayOpen(true);
         await result.updateSessionSearchQuery('filtered');
         await flushAsyncWork();
 
-        await result.setSessionHistoryPopupOpen(false);
+        await result.setSessionHistoryOverlayOpen(false);
 
         // A filtered result must not linger as the default list.
         expect(result.sessionListQuery.value).toBe('');
@@ -238,7 +238,7 @@ describe('when the history popup is closed while its list was loaded', () => {
 
     it('user gets the search query applied to the next list request', async () => {
         const { result, unmount } = await mountFlow();
-        await result.setSessionHistoryPopupOpen(true);
+        await result.setSessionHistoryOverlayOpen(true);
 
         await result.updateSessionSearchQuery('  deploy  ');
         await flushAsyncWork();
@@ -250,7 +250,7 @@ describe('when the history popup is closed while its list was loaded', () => {
         unmount();
     });
 
-    it('user gets no list request while the popup is closed', async () => {
+    it('user gets no list request while the overlay is closed', async () => {
         const { result, unmount } = await mountFlow();
         listSessionsMock.mockClear();
 
@@ -296,7 +296,7 @@ describe('when two list loads race', () => {
 
     it('user gets a second request started for a different filter', async () => {
         const { result, unmount } = await mountFlow();
-        await result.setSessionHistoryPopupOpen(true);
+        await result.setSessionHistoryOverlayOpen(true);
 
         await result.updateSessionSearchQuery('first');
         await flushAsyncWork();
@@ -318,7 +318,7 @@ describe('when two list loads race', () => {
         listSessionsMock.mockClear();
         await result.ensureSessionListLoaded();
 
-        // The resolved key still matches, so the popup opens without another query.
+        // The resolved key still matches, so the overlay opens without another query.
         expect(listSessionsMock).not.toHaveBeenCalled();
 
         unmount();
@@ -329,7 +329,7 @@ describe('when a session reaches a terminal state', () => {
     it('user gets the active session badge dismissed and the list refreshed', async () => {
         const { result, unmount } = await mountFlow();
         agentState.currentSessionId.value = 5;
-        await result.setSessionHistoryPopupOpen(true);
+        await result.setSessionHistoryOverlayOpen(true);
 
         await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)!({
             sessionId: 5,
@@ -524,7 +524,7 @@ describe('when a queued prompt is released on completion', () => {
 
     it('user gets the list refreshed when a turn starts', async () => {
         const { result, unmount } = await mountFlow();
-        await result.setSessionHistoryPopupOpen(true);
+        await result.setSessionHistoryOverlayOpen(true);
         listSessionsMock.mockClear();
 
         callAgentCallback('onTurnStarted');

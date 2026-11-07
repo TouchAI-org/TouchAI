@@ -1,13 +1,14 @@
 import { AppEvent } from '@services/EventService';
+import type { SearchSurfaceShownEvent } from '@services/EventService/types';
 import { mountComposable } from '@tests/utils/composables';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref } from 'vue';
 
 import { createSearchInteractionContext } from '@/views/SearchView/composables/searchInteraction';
 import {
-    useSearchModelDropdownCoordinator,
     useSearchPageController,
     useSearchPageLifecycle,
+    useSearchWindowPin,
 } from '@/views/SearchView/composables/useSearchPage';
 
 const {
@@ -15,28 +16,18 @@ const {
     eventHandlers,
     eventServiceMock,
     initNotificationPermissionMock,
-    modelDropdownPopupMock,
     nativeMock,
     notifyMock,
-    popupManagerMock,
-    popupManagerState,
     runStartupTasksMock,
     settingsStoreMock,
     useAlertMock,
-    useModelDropdownPopupMock,
 } = vi.hoisted(() => {
     const handlers = new Map<string, (payload?: unknown) => unknown>();
-    const modelDropdownPopup = {
-        isOpen: { value: true },
-        open: vi.fn(),
-        close: vi.fn(),
-        updateData: vi.fn(),
-        isLiveSession: vi.fn(),
-    };
 
     return {
         currentWindowMock: {
             isVisible: vi.fn(),
+            isFocused: vi.fn(),
             isAlwaysOnTop: vi.fn(),
             setAlwaysOnTop: vi.fn(),
         },
@@ -50,7 +41,6 @@ const {
             }),
         },
         initNotificationPermissionMock: vi.fn(),
-        modelDropdownPopupMock: modelDropdownPopup,
         notifyMock: vi.fn(),
         nativeMock: {
             runtime: {
@@ -58,10 +48,10 @@ const {
             },
             shortcut: {
                 registerGlobalShortcut: vi.fn(),
-                setSearchSurfaceShortcuts: vi.fn(),
             },
             window: {
                 hideSearchWindow: vi.fn(),
+                reconcileSearchWindowBlur: vi.fn(),
                 setTrayStatusIndicator: vi.fn(),
                 clearTrayStatusIndicator: vi.fn(),
                 showSessionStatusReminderNotification: vi.fn(),
@@ -69,23 +59,12 @@ const {
                 setSearchSurfaceHideOnAppBlur: vi.fn(),
             },
         },
-        popupManagerMock: {
-            initialize: vi.fn(),
-        },
-        popupManagerState: {
-            isOpen: false,
-            currentType: null,
-            currentPopupId: null,
-            currentWindowLabel: null,
-            currentPopupSessionVersion: null,
-        },
         runStartupTasksMock: vi.fn(),
         settingsStoreMock: {
             initialize: vi.fn(),
             globalShortcut: 'Alt+Space',
         },
         useAlertMock: vi.fn(),
-        useModelDropdownPopupMock: vi.fn(() => modelDropdownPopup),
     };
 });
 
@@ -109,17 +88,6 @@ vi.mock('@services/NativeService', () => ({
 vi.mock('@services/NotificationService', () => ({
     initNotificationPermission: initNotificationPermissionMock,
     notify: notifyMock,
-}));
-
-vi.mock('@services/PopupService', () => ({
-    popupManager: {
-        ...popupManagerMock,
-        state: popupManagerState,
-    },
-}));
-
-vi.mock('@/views/SearchView/composables/useModelDropdownPopup', () => ({
-    useModelDropdownPopup: useModelDropdownPopupMock,
 }));
 
 vi.mock('@services/StartupService', () => ({
@@ -146,38 +114,46 @@ function createController() {
         focusSearchInput: vi.fn().mockResolvedValue(undefined),
         loadActiveModel: vi.fn().mockResolvedValue(undefined),
         invalidateModelDropdownData: vi.fn(),
-        isQuickSearchOpen: vi.fn(() => false),
-        closeQuickSearch: vi.fn(),
         settleQuickSearchInteraction: vi.fn(),
     };
 }
 
-function createQuickSearchPanel(close: () => void) {
-    return ref({
-        open: vi.fn(),
-        close: vi.fn(close),
-        syncClosedState: vi.fn(),
-        moveSelection: vi.fn(),
-        getHighlightedItem: vi.fn(() => null),
-        openHighlightedItem: vi.fn().mockResolvedValue(undefined),
-        triggerSearch: vi.fn(),
-        goToPage: vi.fn(),
-        goToNextPage: vi.fn(),
-        goToPreviousPage: vi.fn(),
-        openContextMenuForItem: vi.fn(),
-        openContextMenuForHighlightedItem: vi.fn(),
-        toggleViewMode: vi.fn(),
-        collapseToDefault: vi.fn(),
-        isContextMenuOpen: false,
-        closeContextMenu: vi.fn(),
-    });
+function createShownEvent(
+    sequence: number,
+    source: SearchSurfaceShownEvent['source'] = 'notification'
+): SearchSurfaceShownEvent {
+    return {
+        source,
+        sequence,
+        rendererEpoch: 2,
+        showEpoch: sequence,
+        hostEpoch: sequence + 10,
+        generation: sequence + 20,
+    };
 }
 
-describe('closing the quick search panel', () => {
+describe('useSearchPageController', () => {
     it('user sees the panel close and the search state cleared', () => {
         const quickSearchOpen = ref(true);
-        const quickSearchPanel = createQuickSearchPanel(() => {
+        const closeQuickSearchPanel = vi.fn(() => {
             quickSearchOpen.value = false;
+        });
+        const quickSearchPanel = ref({
+            open: vi.fn(),
+            close: closeQuickSearchPanel,
+            moveSelection: vi.fn(),
+            getHighlightedItem: vi.fn(() => null),
+            openHighlightedItem: vi.fn().mockResolvedValue(undefined),
+            triggerSearch: vi.fn(),
+            goToPage: vi.fn(),
+            goToNextPage: vi.fn(),
+            goToPreviousPage: vi.fn(),
+            openContextMenuForItem: vi.fn(),
+            openContextMenuForHighlightedItem: vi.fn(),
+            toggleViewMode: vi.fn(),
+            collapseToDefault: vi.fn(),
+            isContextMenuOpen: false,
+            closeContextMenu: vi.fn(),
         });
 
         const controller = useSearchPageController({
@@ -189,6 +165,7 @@ describe('closing the quick search panel', () => {
 
         controller.closeQuickSearch();
 
+        expect(closeQuickSearchPanel).toHaveBeenCalledTimes(1);
         expect(quickSearchOpen.value).toBe(false);
     });
 
@@ -205,240 +182,6 @@ describe('closing the quick search panel', () => {
         controller.closeQuickSearch();
 
         expect(quickSearchOpen.value).toBe(false);
-    });
-});
-
-describe('when the model dropdown is open and the shortcut changes', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        modelDropdownPopupMock.isOpen.value = true;
-        useModelDropdownPopupMock.mockReturnValue(modelDropdownPopupMock);
-    });
-
-    it('user sees the shortcut hint in the open dropdown follow the new binding', async () => {
-        const modelToggleShortcut = ref<string | null>('Mod+M');
-        const controller = {
-            getModelDropdownAnchor: vi.fn(() => document.createElement('button')),
-            getModelDropdownContext: vi.fn(() => ({
-                activeModelId: null,
-                activeProviderId: null,
-                selectedModelId: null,
-                selectedProviderId: null,
-                models: [],
-            })),
-            prepareModelDropdownOpen: vi.fn().mockResolvedValue(undefined),
-            selectModelFromDropdown: vi.fn().mockResolvedValue({
-                modelId: null,
-                providerId: null,
-            }),
-        };
-
-        const mounted = await mountComposable(() =>
-            useSearchModelDropdownCoordinator({
-                pageContainer: ref(null),
-                controller: controller as never,
-                modelOverride: ref({
-                    modelId: null,
-                    providerId: null,
-                }),
-                modelDropdownState: ref({
-                    isOpen: true,
-                }),
-                modelDropdownQuery: ref(''),
-                getModelToggleShortcut: () => modelToggleShortcut.value,
-                requestModelDropdownOpen: vi.fn(() => 'noop' as const),
-                handleQuickSearchClosedForModelDropdown: vi.fn(() => 'noop' as const),
-                handleLayoutStableForModelDropdown: vi.fn(() => 'noop' as const),
-                handleModelDropdownOpened: vi.fn(),
-                handleModelDropdownClosed: vi.fn(),
-                syncOverlayState: vi.fn(),
-            })
-        );
-
-        const popupOptions = (
-            useModelDropdownPopupMock.mock.calls as unknown as Array<
-                [
-                    {
-                        getPopupData: () => {
-                            toggleShortcut?: string | null;
-                        };
-                    },
-                ]
-            >
-        )[0]?.[0];
-        expect(popupOptions?.getPopupData().toggleShortcut).toBe('Mod+M');
-
-        modelToggleShortcut.value = 'Alt+M';
-        await flushLifecycle();
-
-        expect(popupOptions?.getPopupData().toggleShortcut).toBe('Alt+M');
-
-        mounted.unmount();
-    });
-});
-
-describe('when the dropdown searches models', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        modelDropdownPopupMock.isOpen.value = true;
-        useModelDropdownPopupMock.mockReturnValue(modelDropdownPopupMock);
-    });
-
-    it('user sees only models the query matches, best match first', async () => {
-        const controller = {
-            getModelDropdownAnchor: vi.fn(() => document.createElement('button')),
-            getModelDropdownContext: vi.fn(() => ({
-                activeModelId: null,
-                activeProviderId: null,
-                selectedModelId: null,
-                selectedProviderId: null,
-                models: [
-                    {
-                        id: 1,
-                        model_id: 'claude-sonnet-4',
-                        name: 'Claude Sonnet 4',
-                        provider_id: 2,
-                        provider_name: 'Anthropic',
-                        provider_enabled: 1,
-                        reasoning: 1,
-                        tool_call: 1,
-                        modalities: null,
-                        attachment: 1,
-                        open_weights: 0,
-                    },
-                    {
-                        id: 2,
-                        model_id: 'gpt-5',
-                        name: 'GPT-5',
-                        provider_id: 1,
-                        provider_name: 'OpenAI',
-                        provider_enabled: 1,
-                        reasoning: 1,
-                        tool_call: 1,
-                        modalities: null,
-                        attachment: 1,
-                        open_weights: 0,
-                    },
-                    {
-                        id: 3,
-                        model_id: 'hidden-model',
-                        name: 'Disabled Provider Model',
-                        provider_id: 9,
-                        provider_name: 'Disabled',
-                        provider_enabled: 0,
-                        reasoning: 0,
-                        tool_call: 0,
-                        modalities: null,
-                        attachment: 0,
-                        open_weights: 0,
-                    },
-                ],
-            })),
-            prepareModelDropdownOpen: vi.fn().mockResolvedValue(undefined),
-            selectModelFromDropdown: vi.fn().mockResolvedValue({
-                modelId: null,
-                providerId: null,
-            }),
-        };
-        const modelDropdownQuery = ref('sonnet');
-
-        const mounted = await mountComposable(() =>
-            useSearchModelDropdownCoordinator({
-                pageContainer: ref(null),
-                controller: controller as never,
-                modelOverride: ref({ modelId: null, providerId: null }),
-                modelDropdownState: ref({ isOpen: true }),
-                modelDropdownQuery,
-                requestModelDropdownOpen: vi.fn(() => 'noop' as const),
-                handleQuickSearchClosedForModelDropdown: vi.fn(() => 'noop' as const),
-                handleLayoutStableForModelDropdown: vi.fn(() => 'noop' as const),
-                handleModelDropdownOpened: vi.fn(),
-                handleModelDropdownClosed: vi.fn(),
-                syncOverlayState: vi.fn(),
-            })
-        );
-
-        const popupOptions = (
-            useModelDropdownPopupMock.mock.calls as unknown as Array<
-                [
-                    {
-                        getPopupData: () => {
-                            models: Array<{ modelId: string }>;
-                        };
-                    },
-                ]
-            >
-        )[0]?.[0];
-
-        expect(popupOptions?.getPopupData().models.map((model) => model.modelId)).toEqual([
-            'claude-sonnet-4',
-        ]);
-
-        mounted.unmount();
-    });
-
-    it('user never sees models from a disabled provider', async () => {
-        const controller = {
-            getModelDropdownAnchor: vi.fn(() => document.createElement('button')),
-            getModelDropdownContext: vi.fn(() => ({
-                activeModelId: null,
-                activeProviderId: null,
-                selectedModelId: null,
-                selectedProviderId: null,
-                models: [
-                    {
-                        id: 3,
-                        model_id: 'hidden-model',
-                        name: 'Disabled Provider Model',
-                        provider_id: 9,
-                        provider_name: 'Disabled',
-                        provider_enabled: 0,
-                        reasoning: 0,
-                        tool_call: 0,
-                        modalities: null,
-                        attachment: 0,
-                        open_weights: 0,
-                    },
-                ],
-            })),
-            prepareModelDropdownOpen: vi.fn().mockResolvedValue(undefined),
-            selectModelFromDropdown: vi.fn().mockResolvedValue({
-                modelId: null,
-                providerId: null,
-            }),
-        };
-
-        const mounted = await mountComposable(() =>
-            useSearchModelDropdownCoordinator({
-                pageContainer: ref(null),
-                controller: controller as never,
-                modelOverride: ref({ modelId: null, providerId: null }),
-                modelDropdownState: ref({ isOpen: true }),
-                modelDropdownQuery: ref(''),
-                requestModelDropdownOpen: vi.fn(() => 'noop' as const),
-                handleQuickSearchClosedForModelDropdown: vi.fn(() => 'noop' as const),
-                handleLayoutStableForModelDropdown: vi.fn(() => 'noop' as const),
-                handleModelDropdownOpened: vi.fn(),
-                handleModelDropdownClosed: vi.fn(),
-                syncOverlayState: vi.fn(),
-            })
-        );
-
-        const popupOptions = (
-            useModelDropdownPopupMock.mock.calls as unknown as Array<
-                [
-                    {
-                        getPopupData: () => {
-                            models: unknown[];
-                        };
-                    },
-                ]
-            >
-        )[0]?.[0];
-
-        expect(popupOptions?.getPopupData().models).toEqual([]);
-
-        mounted.unmount();
     });
 });
 
@@ -481,58 +224,26 @@ function createStatusChangedPayload(
     };
 }
 
-async function mountLifecycle(options: Partial<Parameters<typeof useSearchPageLifecycle>[0]> = {}) {
-    const controller = options.controller ?? (createController() as never);
-    const interactionContext = options.interactionContext ?? createSearchInteractionContext();
-
-    const mounted = await mountComposable(() =>
-        useSearchPageLifecycle({
-            controller,
-            viewReady: ref(true),
-            isDragging: ref(false),
-            isPinned: ref(false),
-            interactionContext,
-            syncWindowPinState: vi.fn().mockResolvedValue(false),
-            clearSession: vi.fn(),
-            ...options,
-        })
-    );
-
-    await flushLifecycle();
-
-    return { controller, interactionContext, mounted };
-}
-
-describe('when the search view starts up', () => {
+describe('useSearchPageLifecycle', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useFakeTimers();
         eventHandlers.clear();
-        modelDropdownPopupMock.isOpen.value = true;
-        useModelDropdownPopupMock.mockReturnValue(modelDropdownPopupMock);
 
         currentWindowMock.isVisible.mockResolvedValue(true);
+        currentWindowMock.isFocused.mockResolvedValue(false);
         currentWindowMock.isAlwaysOnTop.mockResolvedValue(false);
         currentWindowMock.setAlwaysOnTop.mockResolvedValue(undefined);
 
         nativeMock.shortcut.registerGlobalShortcut.mockResolvedValue(undefined);
-        nativeMock.shortcut.setSearchSurfaceShortcuts.mockResolvedValue(undefined);
         nativeMock.runtime.getRuntimeInfo.mockResolvedValue({ isE2eTestMode: false });
         nativeMock.window.hideSearchWindow.mockResolvedValue(undefined);
+        nativeMock.window.reconcileSearchWindowBlur.mockResolvedValue(undefined);
         nativeMock.window.setTrayStatusIndicator.mockResolvedValue(undefined);
         nativeMock.window.clearTrayStatusIndicator.mockResolvedValue(undefined);
         nativeMock.window.showSessionStatusReminderNotification.mockResolvedValue(undefined);
         nativeMock.window.clearSessionStatusReminderNotifications.mockResolvedValue(undefined);
         nativeMock.window.setSearchSurfaceHideOnAppBlur.mockResolvedValue(undefined);
-
-        popupManagerMock.initialize.mockResolvedValue(undefined);
-        Object.assign(popupManagerState, {
-            isOpen: false,
-            currentType: null,
-            currentPopupId: null,
-            currentWindowLabel: null,
-            currentPopupSessionVersion: null,
-        });
 
         settingsStoreMock.initialize.mockResolvedValue(undefined);
         settingsStoreMock.globalShortcut = 'Alt+Space';
@@ -546,22 +257,35 @@ describe('when the search view starts up', () => {
         document.body.innerHTML = '';
     });
 
-    it('user gets the app-blur hide policy switched off while the window is pinned', async () => {
+    it('initializes the lifecycle and keeps the app-blur hide policy in sync', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const isDragging = ref(false);
         const isPinned = ref(false);
+        const isMaximized = ref(false);
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
 
         const mounted = await mountComposable(() =>
             useSearchPageLifecycle({
-                controller: createController() as never,
+                controller: controller as never,
                 viewReady: ref(true),
-                isDragging: ref(false),
+                isDragging,
                 isPinned,
-                interactionContext: createSearchInteractionContext(),
-                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                isMaximized,
+                interactionContext,
+                syncWindowPinState,
                 clearSession: vi.fn(),
             })
         );
 
-        expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenLastCalledWith(true);
+        expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenCalledWith(true);
+        await flushLifecycle();
+
+        expect(settingsStoreMock.initialize).toHaveBeenCalledTimes(1);
+        expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith('Alt+Space');
+        expect(useAlertMock).toHaveBeenCalledTimes(1);
+        expect(currentWindowMock.isVisible).toHaveBeenCalledTimes(1);
+        expect(syncWindowPinState).toHaveBeenCalledTimes(1);
 
         isPinned.value = true;
         await nextTick();
@@ -571,158 +295,410 @@ describe('when the search view starts up', () => {
         mounted.unmount();
     });
 
-    it('user gets the app-blur hide policy switched off while the window is being dragged or maximized', async () => {
-        const isDragging = ref(false);
-        const isMaximized = ref(false);
+    it('user keeps a pinned window visible when blur arrives before pin readback completes', async () => {
+        let nativePinned = false;
+        let visible = true;
+        let readback!: (value: boolean) => void;
+        currentWindowMock.isAlwaysOnTop.mockImplementation(() =>
+            nativePinned
+                ? new Promise<boolean>((resolve) => {
+                      readback = resolve;
+                  })
+                : Promise.resolve(false)
+        );
+        currentWindowMock.setAlwaysOnTop.mockImplementation(async (pinned) => {
+            nativePinned = pinned;
+        });
+        nativeMock.window.hideSearchWindow.mockImplementation(async () => {
+            visible = false;
+        });
+        nativeMock.window.reconcileSearchWindowBlur.mockImplementation(async () => {
+            if (!nativePinned) visible = false;
+        });
+        const mounted = await mountComposable(() => {
+            const pin = useSearchWindowPin();
+            useSearchPageLifecycle({
+                controller: createController() as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: pin.isPinned,
+                interactionContext: createSearchInteractionContext(),
+                syncWindowPinState: pin.syncWindowPinState,
+                clearSession: vi.fn(),
+            });
+            return pin;
+        });
+        await flushLifecycle();
+        const toggle = mounted.result.toggleWindowPin();
+        await flushLifecycle();
+        expect(nativePinned).toBe(true);
+        expect(mounted.result.isPinned.value).toBe(false);
+        window.dispatchEvent(new Event('blur'));
+        await vi.advanceTimersByTimeAsync(50);
+        const visibleDuringReadback = visible;
+        readback(true);
+        await toggle;
+        mounted.unmount();
+        expect(visibleDuringReadback).toBe(true);
+    });
 
+    it('user closes the view during listener registration without leaving active subscriptions', async () => {
+        let finishRegistration!: () => void;
+        const registration = new Promise<void>((resolve) => {
+            finishRegistration = resolve;
+        });
+        eventServiceMock.on.mockImplementationOnce(async (event, handler) => {
+            await registration;
+            eventHandlers.set(event, handler);
+            return () => {
+                eventHandlers.delete(event);
+            };
+        });
         const mounted = await mountComposable(() =>
             useSearchPageLifecycle({
                 controller: createController() as never,
                 viewReady: ref(true),
-                isDragging,
+                isDragging: ref(false),
                 isPinned: ref(false),
-                isMaximized,
                 interactionContext: createSearchInteractionContext(),
                 syncWindowPinState: vi.fn().mockResolvedValue(false),
                 clearSession: vi.fn(),
             })
         );
+        await flushLifecycle();
+        mounted.unmount();
+        finishRegistration();
+        await flushLifecycle();
+
+        expect(eventHandlers.size).toBe(0);
+        expect(runStartupTasksMock).not.toHaveBeenCalled();
+    });
+
+    it.each(['refocus', 'unmount'] as const)(
+        'user keeps the current view when an obsolete blur check finishes after %s',
+        async (action) => {
+            let finishFocusCheck!: (focused: boolean) => void;
+            currentWindowMock.isFocused.mockReturnValueOnce(
+                new Promise<boolean>((resolve) => {
+                    finishFocusCheck = resolve;
+                })
+            );
+            const reconcileSearchOverlays = vi.fn().mockResolvedValue(undefined);
+            const mounted = await mountComposable(() =>
+                useSearchPageLifecycle({
+                    controller: createController() as never,
+                    viewReady: ref(true),
+                    isDragging: ref(false),
+                    isPinned: ref(false),
+                    interactionContext: createSearchInteractionContext(),
+                    syncWindowPinState: vi.fn().mockResolvedValue(false),
+                    clearSession: vi.fn(),
+                    reconcileSearchOverlays,
+                })
+            );
+            await flushLifecycle();
+            window.dispatchEvent(new Event('blur'));
+            await vi.advanceTimersByTimeAsync(50);
+
+            if (action === 'refocus') window.dispatchEvent(new Event('focus'));
+            else mounted.unmount();
+            finishFocusCheck(false);
+            await flushLifecycle();
+            if (action === 'refocus') mounted.unmount();
+
+            expect(reconcileSearchOverlays).not.toHaveBeenCalled();
+            expect(nativeMock.window.hideSearchWindow).not.toHaveBeenCalled();
+        }
+    );
+
+    it.each(['refocus', 'shown', 'unmount', 'pin', 'drag', 'maximize'] as const)(
+        'ignores a pending interaction-end hide after %s',
+        async (action) => {
+            const isDragging = ref(false);
+            const isPinned = ref(false);
+            const isMaximized = ref(false);
+            const mounted = await mountComposable(() =>
+                useSearchPageLifecycle({
+                    controller: createController() as never,
+                    viewReady: ref(true),
+                    isDragging,
+                    isPinned,
+                    isMaximized,
+                    interactionContext: createSearchInteractionContext(),
+                    syncWindowPinState: vi.fn().mockResolvedValue(false),
+                    clearSession: vi.fn(),
+                })
+            );
+            await flushLifecycle();
+            isDragging.value = true;
+            await flushLifecycle();
+            window.dispatchEvent(new Event('blur'));
+            let finishPolicy!: () => void;
+            nativeMock.window.setSearchSurfaceHideOnAppBlur.mockReturnValueOnce(
+                new Promise<void>((resolve) => {
+                    finishPolicy = resolve;
+                })
+            );
+            isDragging.value = false;
+            await flushLifecycle();
+
+            if (action === 'refocus') window.dispatchEvent(new Event('focus'));
+            else if (action === 'shown')
+                await mounted.result.handleSearchSurfaceShown(createShownEvent(1));
+            else if (action === 'unmount') mounted.unmount();
+            else if (action === 'pin') isPinned.value = true;
+            else if (action === 'drag') isDragging.value = true;
+            else isMaximized.value = true;
+            finishPolicy();
+            await flushLifecycle();
+            if (action !== 'unmount') mounted.unmount();
+
+            expect(nativeMock.window.hideSearchWindow).not.toHaveBeenCalled();
+        }
+    );
+
+    it('keeps app-blur hiding disabled during panel interaction and hides after Alt+Tab blur', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const isDragging = ref(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging,
+                isPinned: ref(false),
+                isMaximized: ref(false),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+            })
+        );
+
+        await flushLifecycle();
+        nativeMock.window.setSearchSurfaceHideOnAppBlur.mockClear();
+        nativeMock.window.hideSearchWindow.mockClear();
 
         isDragging.value = true;
         await nextTick();
         expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenLastCalledWith(false);
+        expect(nativeMock.window.hideSearchWindow).not.toHaveBeenCalled();
+
+        window.dispatchEvent(new Event('blur'));
+        expect(interactionContext.state.windowFocused).toBe(false);
 
         isDragging.value = false;
-        isMaximized.value = true;
-        await nextTick();
-        expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenLastCalledWith(false);
+        await flushLifecycle();
+
+        expect(nativeMock.window.setSearchSurfaceHideOnAppBlur).toHaveBeenLastCalledWith(true);
+        expect(nativeMock.window.reconcileSearchWindowBlur).toHaveBeenCalledTimes(1);
+        expect(nativeMock.window.hideSearchWindow).not.toHaveBeenCalled();
 
         mounted.unmount();
     });
 
-    it('user keeps the configured global shortcut registered and the popup layer ready', async () => {
-        await mountLifecycle();
+    it('does not send status notifications while the search surface is visible', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
 
-        expect(nativeMock.shortcut.registerGlobalShortcut).toHaveBeenCalledWith('Alt+Space');
-        expect(popupManagerMock.initialize).toHaveBeenCalled();
-    });
-
-    it('user gets told when the global shortcut cannot be registered', async () => {
-        nativeMock.shortcut.registerGlobalShortcut.mockRejectedValue(
-            new Error('shortcut already registered')
-        );
-
-        await mountLifecycle();
-
-        expect(notifyMock).toHaveBeenCalledWith(
-            expect.objectContaining({
-                title: expect.any(String),
-                body: expect.any(String),
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
             })
         );
-    });
-});
 
-describe('when the host window forwards a shortcut', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        vi.useFakeTimers();
-        eventHandlers.clear();
-        currentWindowMock.isVisible.mockResolvedValue(true);
-        currentWindowMock.isAlwaysOnTop.mockResolvedValue(false);
-        nativeMock.shortcut.registerGlobalShortcut.mockResolvedValue(undefined);
-        nativeMock.shortcut.setSearchSurfaceShortcuts.mockResolvedValue(undefined);
-        nativeMock.runtime.getRuntimeInfo.mockResolvedValue({ isE2eTestMode: false });
-        nativeMock.window.setSearchSurfaceHideOnAppBlur.mockResolvedValue(undefined);
-        popupManagerMock.initialize.mockResolvedValue(undefined);
-        settingsStoreMock.initialize.mockResolvedValue(undefined);
-        settingsStoreMock.globalShortcut = 'Alt+Space';
-        initNotificationPermissionMock.mockResolvedValue(undefined);
-        runStartupTasksMock.mockResolvedValue(undefined);
-    });
-
-    afterEach(() => {
-        vi.runOnlyPendingTimers();
-        vi.useRealTimers();
-        document.body.innerHTML = '';
-    });
-
-    it('user gets the command forwarded to the page only when the listener exists', async () => {
-        const handleSearchSurfaceCommand = vi.fn().mockResolvedValue(undefined);
-
-        await mountLifecycle({ handleSearchSurfaceCommand });
-
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_COMMAND)!({
-            actionId: 'search.model.toggle',
-            shortcut: 'Mod+M',
-            source: 'webview2-accelerator',
-        });
         await flushLifecycle();
 
-        expect(handleSearchSurfaceCommand).toHaveBeenCalledWith({
-            actionId: 'search.model.toggle',
-            shortcut: 'Mod+M',
-            source: 'webview2-accelerator',
-        });
-    });
-
-    it('user gets no command listener when the page does not handle shortcuts', async () => {
-        await mountLifecycle();
-
-        expect(eventHandlers.get(AppEvent.SEARCH_SURFACE_COMMAND)).toBeUndefined();
-    });
-});
-
-describe('when the search surface is hidden and shown again', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        vi.useFakeTimers();
-        eventHandlers.clear();
-        currentWindowMock.isVisible.mockResolvedValue(true);
-        currentWindowMock.isAlwaysOnTop.mockResolvedValue(false);
-        nativeMock.shortcut.registerGlobalShortcut.mockResolvedValue(undefined);
-        nativeMock.shortcut.setSearchSurfaceShortcuts.mockResolvedValue(undefined);
-        nativeMock.runtime.getRuntimeInfo.mockResolvedValue({ isE2eTestMode: false });
-        nativeMock.window.setSearchSurfaceHideOnAppBlur.mockResolvedValue(undefined);
-        nativeMock.window.showSessionStatusReminderNotification.mockResolvedValue(undefined);
-        nativeMock.window.setTrayStatusIndicator.mockResolvedValue(undefined);
-        nativeMock.window.clearTrayStatusIndicator.mockResolvedValue(undefined);
-        nativeMock.window.clearSessionStatusReminderNotifications.mockResolvedValue(undefined);
-        popupManagerMock.initialize.mockResolvedValue(undefined);
-        settingsStoreMock.initialize.mockResolvedValue(undefined);
-        settingsStoreMock.globalShortcut = 'Alt+Space';
-        initNotificationPermissionMock.mockResolvedValue(undefined);
-        runStartupTasksMock.mockResolvedValue(undefined);
-    });
-
-    afterEach(() => {
-        vi.runOnlyPendingTimers();
-        vi.useRealTimers();
-        document.body.innerHTML = '';
-    });
-
-    it('user gets no reminder while the search surface is in the foreground', async () => {
-        await mountLifecycle();
-
-        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)!(
-            createStatusChangedPayload('completed')
-        );
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        expect(statusHandler).toBeDefined();
+        await statusHandler!(createStatusChangedPayload('completed'));
         await flushLifecycle();
 
         expect(nativeMock.window.showSessionStatusReminderNotification).not.toHaveBeenCalled();
         expect(nativeMock.window.setTrayStatusIndicator).not.toHaveBeenCalled();
+
+        mounted.unmount();
     });
 
-    it('user gets a desktop reminder and a tray dot when a hidden task completes', async () => {
-        await mountLifecycle();
+    it('sends status notifications when the search surface is visible but the app is unfocused', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN)!({
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(true),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+            })
+        );
+
+        await flushLifecycle();
+
+        window.dispatchEvent(new Event('blur'));
+        await flushLifecycle();
+
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        expect(statusHandler).toBeDefined();
+        await statusHandler!(
+            createStatusChangedPayload('completed', {
+                title: '任务已完成',
+                body: 'done',
+            })
+        );
+        await flushLifecycle();
+
+        expect(nativeMock.window.showSessionStatusReminderNotification).toHaveBeenCalledWith({
+            title: '任务已完成',
+            body: 'done',
+            sessionId: 1,
+            taskId: 'task-1',
+            kind: 'completed',
+            approval: null,
+            openLabel: '打开',
+        });
+        expect(nativeMock.window.setTrayStatusIndicator).toHaveBeenCalledWith('completed');
+
+        mounted.unmount();
+    });
+
+    it('dismisses overlays without restoring focus when a pinned surface loses focus', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const reconcileSearchOverlays = vi.fn().mockResolvedValue(undefined);
+        const documentHasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(true),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(true),
+                clearSession: vi.fn(),
+                reconcileSearchOverlays,
+            })
+        );
+
+        await flushLifecycle();
+        reconcileSearchOverlays.mockClear();
+
+        window.dispatchEvent(new Event('blur'));
+        vi.advanceTimersByTime(50);
+        await flushLifecycle();
+
+        expect(reconcileSearchOverlays).toHaveBeenCalledWith(false);
+        expect(controller.focusSearchInput).not.toHaveBeenCalled();
+
+        documentHasFocus.mockRestore();
+        mounted.unmount();
+    });
+
+    it('keeps overlays open when native host resizing briefly blurs and refocuses the WebView', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const reconcileSearchOverlays = vi.fn().mockResolvedValue(undefined);
+        const documentHasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(true),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(true),
+                clearSession: vi.fn(),
+                reconcileSearchOverlays,
+            })
+        );
+
+        await flushLifecycle();
+        reconcileSearchOverlays.mockClear();
+
+        window.dispatchEvent(new Event('blur'));
+        vi.advanceTimersByTime(10);
+        window.dispatchEvent(new Event('focus'));
+        vi.advanceTimersByTime(50);
+        await flushLifecycle();
+
+        expect(reconcileSearchOverlays).not.toHaveBeenCalled();
+
+        documentHasFocus.mockRestore();
+        mounted.unmount();
+    });
+
+    it('keeps overlays open when WebView blur leaves the native window focused', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const reconcileSearchOverlays = vi.fn().mockResolvedValue(undefined);
+        const documentHasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+        currentWindowMock.isFocused.mockResolvedValue(true);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(true),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(true),
+                clearSession: vi.fn(),
+                reconcileSearchOverlays,
+            })
+        );
+
+        await flushLifecycle();
+        reconcileSearchOverlays.mockClear();
+
+        window.dispatchEvent(new Event('blur'));
+        vi.advanceTimersByTime(50);
+        await flushLifecycle();
+
+        expect(currentWindowMock.isFocused).toHaveBeenCalledTimes(1);
+        expect(reconcileSearchOverlays).not.toHaveBeenCalled();
+
+        documentHasFocus.mockRestore();
+        mounted.unmount();
+    });
+
+    it('sends background reminders through native notifications and tray status dots', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+            })
+        );
+
+        await flushLifecycle();
+        const surfaceHiddenHandler = mounted.result.handleSearchSurfaceHidden;
+        await surfaceHiddenHandler({
             sequence: 1,
             reason: 'manual-dismiss',
         });
         await flushLifecycle();
 
-        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)!(
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        expect(statusHandler).toBeDefined();
+        await statusHandler!(
             createStatusChangedPayload('failed', {
                 title: '任务失败',
                 body: 'network error',
@@ -740,19 +716,40 @@ describe('when the search surface is hidden and shown again', () => {
             openLabel: '打开',
         });
         expect(nativeMock.window.setTrayStatusIndicator).toHaveBeenCalledWith('failed');
+
+        mounted.unmount();
     });
 
-    it('user gets an actionable approval reminder while the task waits for approval', async () => {
-        await mountLifecycle();
+    it('uses the approval reminder payload in background and clears reminders when shown again', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN)!({
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+            })
+        );
+
+        await flushLifecycle();
+        const surfaceHiddenHandler = mounted.result.handleSearchSurfaceHidden;
+        await surfaceHiddenHandler({
             sequence: 1,
             reason: 'manual-dismiss',
         });
         await flushLifecycle();
 
-        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)!(
-            createStatusChangedPayload('waiting_approval', { body: 'Need approval' })
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        expect(statusHandler).toBeDefined();
+        await statusHandler!(
+            createStatusChangedPayload('waiting_approval', {
+                body: 'Need approval',
+            })
         );
         await flushLifecycle();
 
@@ -769,18 +766,44 @@ describe('when the search surface is hidden and shown again', () => {
             },
         });
         expect(nativeMock.window.setTrayStatusIndicator).toHaveBeenCalledWith('waiting_approval');
+
+        const surfaceShownHandler = mounted.result.handleSearchSurfaceShown;
+        await surfaceShownHandler(createShownEvent(2));
+        await flushLifecycle();
+
+        expect(nativeMock.window.clearTrayStatusIndicator).toHaveBeenCalled();
+        expect(nativeMock.window.clearSessionStatusReminderNotifications).toHaveBeenCalled();
+
+        mounted.unmount();
     });
 
-    it('user gets an open action when the waiting task has no approval buttons', async () => {
-        await mountLifecycle();
+    it('adds an open action for waiting reminders that have no approval buttons', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN)!({
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+            })
+        );
+
+        await flushLifecycle();
+        const surfaceHiddenHandler = mounted.result.handleSearchSurfaceHidden;
+        await surfaceHiddenHandler({
             sequence: 1,
             reason: 'manual-dismiss',
         });
         await flushLifecycle();
 
-        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)!(
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        expect(statusHandler).toBeDefined();
+        await statusHandler!(
             createStatusChangedPayload('waiting_approval', {
                 title: 'Waiting for response',
                 body: 'Pick the deployment target',
@@ -798,36 +821,34 @@ describe('when the search surface is hidden and shown again', () => {
             approval: null,
             openLabel: '打开',
         });
+        expect(nativeMock.window.setTrayStatusIndicator).toHaveBeenCalledWith('waiting_approval');
+
+        mounted.unmount();
     });
 
-    it('user gets the reminder and tray dot cleared once the window is shown again', async () => {
-        await mountLifecycle();
-
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN)!({
-            sequence: 1,
-            reason: 'manual-dismiss',
-        });
-        await flushLifecycle();
-        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)!(
-            createStatusChangedPayload('waiting_approval', { body: 'Need approval' })
-        );
-        await flushLifecycle();
-
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)!({
-            source: 'notification',
-            sequence: 2,
-        });
-        await flushLifecycle();
-
-        expect(nativeMock.window.clearTrayStatusIndicator).toHaveBeenCalled();
-        expect(nativeMock.window.clearSessionStatusReminderNotifications).toHaveBeenCalled();
-    });
-
-    it('user gets the reminder action delegated to the page after the reminder is dismissed', async () => {
+    it('clears reminders and delegates notification actions to the page handler', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
         const handleSessionStatusReminderAction = vi.fn().mockResolvedValue(undefined);
-        await mountLifecycle({ handleSessionStatusReminderAction });
 
-        await eventHandlers.get(AppEvent.SESSION_STATUS_REMINDER_ACTION)!({
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+                handleSessionStatusReminderAction,
+            })
+        );
+
+        await flushLifecycle();
+
+        const reminderActionHandler = eventHandlers.get(AppEvent.SESSION_STATUS_REMINDER_ACTION);
+        expect(reminderActionHandler).toBeDefined();
+        await reminderActionHandler!({
             sessionId: 1,
             taskId: 'task-1',
             kind: 'completed',
@@ -837,6 +858,7 @@ describe('when the search surface is hidden and shown again', () => {
         await flushLifecycle();
 
         expect(nativeMock.window.clearTrayStatusIndicator).toHaveBeenCalled();
+        expect(nativeMock.window.clearSessionStatusReminderNotifications).toHaveBeenCalled();
         expect(handleSessionStatusReminderAction).toHaveBeenCalledWith({
             sessionId: 1,
             taskId: 'task-1',
@@ -844,104 +866,327 @@ describe('when the search surface is hidden and shown again', () => {
             action: 'reply',
             replyText: 'follow up',
         });
+
+        mounted.unmount();
     });
 
-    it('user never sees a stale shown event undo a newer hide', async () => {
-        const { controller, interactionContext } = await mountLifecycle({
-            reconcilePopupSurfaces: vi.fn().mockResolvedValue(undefined),
-            handleShortcutAutoPaste: vi.fn().mockResolvedValue(undefined),
-        });
+    it('ignores stale surface shown events after a newer hidden event', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const clearSession = vi.fn().mockResolvedValue(undefined);
+        const reconcileSearchOverlays = vi.fn().mockResolvedValue(undefined);
+        const handleShortcutAutoPaste = vi.fn().mockResolvedValue(undefined);
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
+        const acceptedVisibility: boolean[] = [];
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)!({
-            source: 'shortcut',
-            sequence: 2,
-        });
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState,
+                onSurfaceVisibilityChange: (visible) => {
+                    acceptedVisibility.push(visible);
+                },
+                clearSession,
+                reconcileSearchOverlays,
+                handleShortcutAutoPaste,
+            })
+        );
+
         await flushLifecycle();
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN)!({
-            sequence: 3,
-            reason: 'manual-dismiss',
-        });
+
+        const surfaceShownHandler = mounted.result.handleSearchSurfaceShown;
+        const surfaceHiddenHandler = mounted.result.handleSearchSurfaceHidden;
+
+        await surfaceShownHandler(createShownEvent(2, 'shortcut'));
+        await flushLifecycle();
+        await surfaceHiddenHandler({ sequence: 3, reason: 'manual-dismiss' });
         await flushLifecycle();
 
         expect(interactionContext.state.windowVisible).toBe(false);
+        expect(acceptedVisibility).toEqual([true, false]);
 
-        vi.mocked(controller.focusSearchInput).mockClear();
+        controller.focusSearchInput.mockClear();
+        controller.loadActiveModel.mockClear();
+        clearSession.mockClear();
+        reconcileSearchOverlays.mockClear();
+        handleShortcutAutoPaste.mockClear();
+        syncWindowPinState.mockClear();
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)!({
-            source: 'shortcut',
-            sequence: 2,
-        });
+        await surfaceShownHandler(createShownEvent(2, 'shortcut'));
         await flushLifecycle();
 
         expect(interactionContext.state.windowVisible).toBe(false);
         expect(controller.focusSearchInput).not.toHaveBeenCalled();
+        expect(controller.loadActiveModel).not.toHaveBeenCalled();
+        expect(clearSession).not.toHaveBeenCalled();
+        expect(reconcileSearchOverlays).not.toHaveBeenCalled();
+        expect(handleShortcutAutoPaste).not.toHaveBeenCalled();
+        expect(syncWindowPinState).not.toHaveBeenCalled();
+
+        await surfaceShownHandler(createShownEvent(4));
+        await surfaceHiddenHandler({ sequence: 3, reason: 'manual-dismiss' });
+        expect(interactionContext.state.windowVisible).toBe(true);
+        expect(acceptedVisibility).toEqual([true, false, true]);
+
+        mounted.unmount();
     });
 
-    it('user gets the previous session cleared when reopening the window after the idle timeout', async () => {
+    it('cancels in-flight surface activation when a newer hidden event arrives', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
         const clearSession = vi.fn().mockResolvedValue(undefined);
-        const { controller, interactionContext } = await mountLifecycle({
-            clearSession,
-            reconcilePopupSurfaces: vi.fn().mockResolvedValue(undefined),
-            handleShortcutAutoPaste: vi.fn().mockResolvedValue(undefined),
+        const handleShortcutAutoPaste = vi.fn().mockResolvedValue(undefined);
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
+        const remeasureSearchWindowHeight = vi.fn().mockResolvedValue(undefined);
+
+        let resolveOverlayReconciliation!: () => void;
+        const overlayReconciliationPending = new Promise<void>((resolve) => {
+            resolveOverlayReconciliation = resolve;
         });
+        const reconcileSearchOverlays = vi.fn(() => overlayReconciliationPending);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState,
+                clearSession,
+                reconcileSearchOverlays,
+                remeasureSearchWindowHeight,
+                handleShortcutAutoPaste,
+            })
+        );
+
+        await flushLifecycle();
+        controller.focusSearchInput.mockClear();
+        controller.loadActiveModel.mockClear();
+        syncWindowPinState.mockClear();
+        remeasureSearchWindowHeight.mockClear();
+        handleShortcutAutoPaste.mockClear();
+
+        const shownPromise = mounted.result.handleSearchSurfaceShown(
+            createShownEvent(1, 'shortcut')
+        );
+        await flushLifecycle();
+        expect(reconcileSearchOverlays).toHaveBeenCalledTimes(1);
+
+        await mounted.result.handleSearchSurfaceHidden({
+            sequence: 2,
+            reason: 'manual-dismiss',
+        });
+        resolveOverlayReconciliation();
+        await shownPromise;
+        await flushLifecycle();
+
+        expect(interactionContext.state.windowVisible).toBe(false);
+        expect(controller.focusSearchInput).not.toHaveBeenCalled();
+        expect(controller.loadActiveModel).not.toHaveBeenCalled();
+        expect(syncWindowPinState).not.toHaveBeenCalled();
+        expect(remeasureSearchWindowHeight).not.toHaveBeenCalled();
+        expect(handleShortcutAutoPaste).not.toHaveBeenCalled();
+        expect(clearSession).not.toHaveBeenCalled();
+
+        mounted.unmount();
+    });
+
+    it('cancels in-flight surface activation when the lifecycle unmounts', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const clearSession = vi.fn().mockResolvedValue(undefined);
+        const handleShortcutAutoPaste = vi.fn().mockResolvedValue(undefined);
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
+        const remeasureSearchWindowHeight = vi.fn().mockResolvedValue(undefined);
+
+        let resolveOverlayReconciliation!: () => void;
+        const overlayReconciliationPending = new Promise<void>((resolve) => {
+            resolveOverlayReconciliation = resolve;
+        });
+        const reconcileSearchOverlays = vi.fn(() => overlayReconciliationPending);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState,
+                clearSession,
+                reconcileSearchOverlays,
+                remeasureSearchWindowHeight,
+                handleShortcutAutoPaste,
+            })
+        );
+
+        await flushLifecycle();
+        controller.focusSearchInput.mockClear();
+        controller.loadActiveModel.mockClear();
+        syncWindowPinState.mockClear();
+        remeasureSearchWindowHeight.mockClear();
+        handleShortcutAutoPaste.mockClear();
+
+        const shownPromise = mounted.result.handleSearchSurfaceShown(
+            createShownEvent(1, 'shortcut')
+        );
+        await flushLifecycle();
+        expect(reconcileSearchOverlays).toHaveBeenCalledTimes(1);
+
+        mounted.unmount();
+        resolveOverlayReconciliation();
+        await shownPromise;
+        await flushLifecycle();
+
+        expect(controller.focusSearchInput).not.toHaveBeenCalled();
+        expect(controller.loadActiveModel).not.toHaveBeenCalled();
+        expect(syncWindowPinState).not.toHaveBeenCalled();
+        expect(remeasureSearchWindowHeight).not.toHaveBeenCalled();
+        expect(handleShortcutAutoPaste).not.toHaveBeenCalled();
+        expect(clearSession).not.toHaveBeenCalled();
+    });
+
+    it('clears timed-out sessions when the search surface is reopened after manual dismiss', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const clearSession = vi.fn().mockResolvedValue(undefined);
+        const reconcileSearchOverlays = vi.fn().mockResolvedValue(undefined);
+        const handleShortcutAutoPaste = vi.fn().mockResolvedValue(undefined);
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState,
+                clearSession,
+                reconcileSearchOverlays,
+                handleShortcutAutoPaste,
+            })
+        );
+
+        await flushLifecycle();
 
         interactionContext.markWindowHidden({
             hideReason: 'manual-dismiss',
             hiddenAt: Date.now() - 5 * 60 * 1000 - 1,
         });
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({ sequence: 1 });
+        await mounted.result.handleSearchSurfaceShown(createShownEvent(1, 'shortcut'));
         await flushLifecycle();
 
-        expect(clearSession).toHaveBeenCalled();
-        expect(controller.focusSearchInput).toHaveBeenCalled();
-        expect(controller.loadActiveModel).toHaveBeenCalled();
+        expect(clearSession).toHaveBeenCalledTimes(1);
+        expect(reconcileSearchOverlays).toHaveBeenCalledTimes(1);
+        expect(controller.focusSearchInput).toHaveBeenCalledTimes(1);
+        expect(controller.loadActiveModel).toHaveBeenCalledTimes(1);
+        expect(syncWindowPinState).toHaveBeenCalledTimes(2);
+        expect(handleShortcutAutoPaste).toHaveBeenCalledTimes(1);
         expect(interactionContext.state.lastHideReason).toBe('manual-dismiss');
+
+        mounted.unmount();
     });
 
-    it('user gets the previous session kept when the page policy blocks the timeout clear', async () => {
+    it('suppresses timed-out session clearing when the page policy says auto-shrink is not yet allowed', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
         const clearSession = vi.fn().mockResolvedValue(undefined);
-        const { controller } = await mountLifecycle({
-            clearSession,
-            shouldClearSessionAfterTimeout: () => false,
-            reconcilePopupSurfaces: vi.fn().mockResolvedValue(undefined),
-            handleShortcutAutoPaste: vi.fn().mockResolvedValue(undefined),
+        const reconcileSearchOverlays = vi.fn().mockResolvedValue(undefined);
+        const handleShortcutAutoPaste = vi.fn().mockResolvedValue(undefined);
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
+
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState,
+                clearSession,
+                shouldClearSessionAfterTimeout: () => false,
+                reconcileSearchOverlays,
+                handleShortcutAutoPaste,
+            })
+        );
+
+        await flushLifecycle();
+
+        interactionContext.markWindowHidden({
+            hideReason: 'app-blur-hide',
+            hiddenAt: Date.now() - 5 * 60 * 1000 - 1,
         });
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({ sequence: 1 });
+        await mounted.result.handleSearchSurfaceShown(createShownEvent(1, 'shortcut'));
         await flushLifecycle();
 
         expect(clearSession).not.toHaveBeenCalled();
-        expect(controller.focusSearchInput).toHaveBeenCalled();
+        expect(reconcileSearchOverlays).toHaveBeenCalledTimes(1);
+        expect(controller.focusSearchInput).toHaveBeenCalledTimes(1);
+        expect(controller.loadActiveModel).toHaveBeenCalledTimes(1);
+        expect(syncWindowPinState).toHaveBeenCalledTimes(2);
+        expect(handleShortcutAutoPaste).toHaveBeenCalledTimes(1);
+
+        mounted.unmount();
     });
 
-    it('user sees the reopened completed conversation fit the window again', async () => {
+    it('remeasures the search window height when a hidden completed session is reopened', async () => {
+        const controller = createController();
+        const interactionContext = createSearchInteractionContext();
+        const clearSession = vi.fn().mockResolvedValue(undefined);
+        const reconcileSearchOverlays = vi.fn().mockResolvedValue(undefined);
+        const handleShortcutAutoPaste = vi.fn().mockResolvedValue(undefined);
+        const syncWindowPinState = vi.fn().mockResolvedValue(false);
         const remeasureSearchWindowHeight = vi.fn().mockResolvedValue(undefined);
-        await mountLifecycle({
-            shouldClearSessionAfterTimeout: () => false,
-            reconcilePopupSurfaces: vi.fn().mockResolvedValue(undefined),
-            handleShortcutAutoPaste: vi.fn().mockResolvedValue(undefined),
-            remeasureSearchWindowHeight,
-        });
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN)!({
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext,
+                syncWindowPinState,
+                clearSession,
+                shouldClearSessionAfterTimeout: () => false,
+                reconcileSearchOverlays,
+                handleShortcutAutoPaste,
+                remeasureSearchWindowHeight,
+            })
+        );
+
+        await flushLifecycle();
+
+        const surfaceHiddenHandler = mounted.result.handleSearchSurfaceHidden;
+        const statusHandler = eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED);
+        const surfaceShownHandler = mounted.result.handleSearchSurfaceShown;
+        expect(statusHandler).toBeDefined();
+
+        await surfaceHiddenHandler({
             sequence: 1,
             reason: 'app-blur-hide',
         });
         await flushLifecycle();
-        await eventHandlers.get(AppEvent.SESSION_TASK_STATUS_CHANGED)!(
-            createStatusChangedPayload('completed')
-        );
+        await statusHandler!(createStatusChangedPayload('completed'));
         await flushLifecycle();
 
         remeasureSearchWindowHeight.mockClear();
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)!({
-            source: 'notification',
-            sequence: 2,
-        });
+        await surfaceShownHandler(createShownEvent(2));
         await flushLifecycle();
 
-        expect(remeasureSearchWindowHeight).toHaveBeenCalled();
+        expect(remeasureSearchWindowHeight).toHaveBeenCalledTimes(1);
+        expect(reconcileSearchOverlays).toHaveBeenCalledTimes(1);
+        expect(controller.focusSearchInput).toHaveBeenCalledTimes(1);
+        expect(controller.loadActiveModel).toHaveBeenCalledTimes(1);
+
+        mounted.unmount();
     });
 });

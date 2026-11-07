@@ -884,7 +884,10 @@ fn show_recovered_window<R: Runtime>(window: &WebviewWindow<R>, intent: Option<S
         match intent {
             Some(ShowIntent::SearchSurface(source)) => {
                 if let Err(error) =
-                    crate::core::window::search::surface::show_surface(&app_for_main_thread, source)
+                    crate::core::window::search::surface::show_surface_on_main_thread(
+                        &app_for_main_thread,
+                        source,
+                    )
                 {
                     log::warn!("Failed to show recovered main window: {}", error);
                 }
@@ -903,8 +906,8 @@ fn show_recovered_window<R: Runtime>(window: &WebviewWindow<R>, intent: Option<S
         }
 
         if window_label == "main" {
-            if let Err(error) = crate::core::window::show_search_window(
-                app_for_main_thread.clone(),
+            if let Err(error) = crate::core::window::show_search_window_on_main_thread(
+                &app_for_main_thread,
                 SearchSurfaceShowSource::Main,
             ) {
                 log::warn!("Failed to show recovered main window: {}", error);

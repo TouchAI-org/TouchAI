@@ -1,6 +1,8 @@
-﻿import type { ModelWithProvider } from '@database/queries/models';
+import type { ModelWithProvider } from '@database/queries/models';
+import type { SessionEntity } from '@database/types';
 
 import type { Index } from '@/services/AgentService/infrastructure/attachments';
+import type { SessionTaskStatus } from '@/services/AgentService/task/types';
 import type { InputHistorySnapshot, SessionMessage } from '@/types/session';
 
 import type {
@@ -44,7 +46,6 @@ export interface QuickSearchHandle {
     open: () => void;
     close: () => void;
     settleInteraction: () => void;
-    syncClosedState: () => void;
     moveSelection: (direction: 'up' | 'down' | 'left' | 'right') => void;
     getHighlightedItem: () => unknown | null;
     openHighlightedItem: () => Promise<void>;
@@ -61,6 +62,7 @@ export interface QuickSearchHandle {
 }
 
 export interface ConversationPanelHandle {
+    getContentHeight: () => number;
     focus: () => void;
     revealLatestContent: () => void;
     scrollByDelta: (deltaY: number) => void;
@@ -123,18 +125,45 @@ export interface SearchDraftState {
     modelOverride: SearchModelOverride;
 }
 
-export type SearchOverlayState =
-    | 'idle'
-    | 'quick-search-open'
-    | 'model-dropdown-preparing'
-    | 'waiting-layout-stable'
-    | 'model-dropdown-open';
-
 export interface SearchViewContext {
     draft: SearchDraftState;
     quickSearchOpen: boolean;
     cursor: SearchCursorContext;
     modelDropdown: SearchModelDropdownState;
-    overlay: SearchOverlayState;
     sessionHistory: SessionMessage[];
+}
+
+export interface ModelDropdownItem {
+    id: number;
+    modelId: string;
+    name: string;
+    providerId: number;
+    providerName: string;
+    reasoning: number;
+    tool_call: number;
+    modalities: string | null;
+    attachment: number;
+    open_weights: number;
+}
+
+export interface ModelDropdownData {
+    activeModelId: string;
+    activeProviderId: number | null;
+    selectedModelId: string;
+    selectedProviderId: number | null;
+    searchQuery: string;
+    toggleShortcut: string | null;
+    models?: ModelDropdownItem[];
+}
+
+export interface SessionHistorySessionItem extends SessionEntity {
+    displayStatus: Exclude<SessionTaskStatus, 'cancelled'> | null;
+}
+
+export interface SessionHistoryData {
+    sessions: SessionHistorySessionItem[];
+    activeSessionId: number | null;
+    searchQuery: string;
+    isLoading: boolean;
+    toggleShortcut: string | null;
 }

@@ -7,6 +7,7 @@ import { insertAttachmentTag } from '@/views/SearchView/components/SearchBar/tag
 import {
     getEditorText,
     insertPlainTextAtSelection,
+    isBlankEditorAreaTarget,
 } from '@/views/SearchView/components/SearchBar/utils/tiptap';
 
 const schema = new Schema({
@@ -134,8 +135,21 @@ function createChainEditorFromDoc(
     return editor as unknown as Editor;
 }
 
-describe('when the user types or pastes into the search bar', () => {
-    it('user gets a newline for every hard break in the draft text', () => {
+describe('SearchBar tiptap utilities', () => {
+    it('recognizes blank space inside a populated editor paragraph as editor surface', () => {
+        const host = document.createElement('div');
+        host.className = 'search-bar-editor-host';
+        const editorRoot = document.createElement('div');
+        editorRoot.className = 'tiptap';
+        const paragraph = document.createElement('p');
+        paragraph.textContent = 'existing query';
+        editorRoot.append(paragraph);
+        host.append(editorRoot);
+
+        expect(isBlankEditorAreaTarget(paragraph)).toBe(true);
+    });
+
+    it('serializes hard breaks as newlines for pasted and manually wrapped text', () => {
         const doc = schema.nodes.doc!.create(null, [
             schema.nodes.paragraph!.create(null, [
                 schema.text('trusted proxy:'),

@@ -3,9 +3,9 @@
  */
 import {
     assertVisible,
+    expectSearchSurfaceSnapshot,
     useInterfaceLanguage,
     useProductFont,
-    visualMismatchTolerance,
     waitForE2eBridge,
     waitForTestIdDisplayed,
 } from '../support/desktop.js';
@@ -37,14 +37,9 @@ describe('user launches the desktop app', () => {
         // is meant to be compared. The search window is the app's first screen, so
         // a regression here is visible before any feature is used.
         //
-        // The baseline is the window at CSS size (750x60). A machine that renders at
-        // 150% DPI captures a larger image, which the comparison resizes back down;
-        // `visualMismatchTolerance()` widens the budget for exactly that case.
+        // Capture the visible card, independent of the transparent host envelope.
         await browser.pause(500);
-        await expect(browser).toMatchScreenSnapshot(
-            'search-window-empty',
-            await visualMismatchTolerance()
-        );
+        await expectSearchSurfaceSnapshot('search-window-empty');
     });
 
     it('user can focus the prompt field and type a query', async () => {

@@ -32,7 +32,7 @@ mod win {
     const FALLBACK_CORNER_RADIUS_PX: i32 = 12;
 
     fn should_manage_window(window: &WebviewWindow<impl Runtime>) -> bool {
-        matches!(window.label(), "main" | "settings")
+        window.label() == "settings"
     }
 
     pub(super) fn fallback_region_dimensions(
@@ -104,11 +104,9 @@ mod win {
             }
 
             if SetWindowRgn(hwnd, Some(region), true) == 0 {
+                let error = windows::core::Error::from_thread();
                 let _ = DeleteObject(HGDIOBJ(region.0));
-                return Err(format!(
-                    "Failed to apply rounded window region: {}",
-                    windows::core::Error::from_thread()
-                ));
+                return Err(format!("Failed to apply rounded window region: {}", error));
             }
         }
 

@@ -1,44 +1,238 @@
-// Copyright (c) 2026. 千诚. Licensed under GPL v3
+// Copyright (c) 2026. 閸楀啳鐦? Licensed under GPL v3.
+
+import { useMotion } from '@composables/useMotion';
 import { native } from '@services/NativeService';
 import { log } from '@services/ObservabilityService';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { computed, nextTick, onUnmounted, type Ref, ref, watch } from 'vue';
+import { currentMonitor, getCurrentWindow } from '@tauri-apps/api/window';
+import { computed, nextTick, onUnmounted, type Ref, ref, shallowRef, watch } from 'vue';
 
-import { type SearchWindowDefaultSize, SearchWindowHeightMode } from '@/config/searchWindow';
+import {
+    SEARCH_SURFACE_EASING,
+    SEARCH_SURFACE_MOTION,
+    type SearchWindowDefaultSize,
+    SearchWindowHeightMode,
+} from '@/config/searchWindow';
+import {
+    resolveContentPanelHeight,
+    resolveSurfacePanelStyle,
+    resolveVisibleSearchViewport,
+    SEARCH_PANEL_MIN_HEIGHT,
+    shouldCommitPanelHeight,
+} from '@/views/SearchView/searchSurfaceLayout';
+import { SEARCH_WINDOW_VISUAL_OUTSET } from '@/views/SearchView/searchWindowRegions';
 import {
     createWindowViewportSyncScheduler,
     ensureWindowMaximized,
     ensureWindowRestoredFromMaximized,
+    resolveAutoSessionPanelHeight,
     resolveEffectiveWindowMaximized,
     resolveSearchWindowDefaultSizeApplyAction,
     resolveSearchWindowHeightPolicy,
+    resolveSearchWindowMeasuredHeight,
     resolveSearchWindowMinimumSize,
-    shouldEnforceIdleDefaultBounds,
+    SEARCH_WINDOW_TOP_INSET,
     shouldFillConversationAvailableHeight,
     shouldRemeasureAfterMaximizedRestore,
-    shouldRepairIdleSearchWindowHeight,
 } from '@/views/SearchView/windowSizing';
 
 interface UseSearchWindowResizeOptions {
     target: Ref<HTMLElement | null>;
+    /** Read natural content independently of the viewport that clips it. */
+    measureContentHeight?: (target: HTMLElement) => number;
+    overlayTarget?: Ref<HTMLElement | null>;
+    card?: Ref<HTMLElement | null>;
+    overlayRequiredViewportHeight?: Ref<number | null>;
+    intrinsicHeightMeasurementPending?: Readonly<Ref<boolean>>;
     sessionCount: Ref<number>;
     quickSearchOpen: Ref<boolean>;
     defaultSize: Ref<SearchWindowDefaultSize>;
     ready: Ref<boolean>;
+    onLogicalPanelHeightChange?: (height: number) => void;
+    preparePanelTransition?: () => Promise<void>;
+    onLogicalPanelGeometryChange?: () => void;
+    onHostViewportChange?: () => void;
+    resizeEnabled?: Readonly<Ref<boolean>>;
 }
 
-/**
- * 搜索窗口大小专用状态机。
- *
- * 负责统一管理页面内容高度、原生窗口状态、搜索窗口策略
- */
+export interface LogicalSearchPanelSize {
+    width: number;
+    height: number;
+}
+
+interface HeightChange {
+    fromHeight: number;
+    toHeight: number;
+    fromTop: number;
+}
+
+/** Coalesce observer bursts without delaying the native clipping boundary. */
+const MEASURE_COALESCE_MS = 16;
+
+/** One serialized geometry owner coordinates native bounds and the visible card. */
 export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     const currentWindow = getCurrentWindow();
+    const { reducedMotion } = useMotion();
+
+    const currentWidth = ref(0);
     const currentHeight = ref(0);
+    const activeHeightChange = shallowRef<HeightChange | null>(null);
+    const cardAnimation = shallowRef<Animation | null>(null);
+    // Hold the previous layout until native bounds can contain the next frame.
+    const cardHeight = computed(() => activeHeightChange.value?.fromHeight ?? currentHeight.value);
+    const monitorHost = ref(false);
     const desiredMaximized = ref(false);
     const isMaximizeTransitioning = ref(false);
+    const isLogicalPanelResizing = ref(false);
+    const nativeDragLayout = shallowRef<ReturnType<typeof resolveSurfacePanelStyle> | null>(null);
+    const displayScaleFactor = ref(window.devicePixelRatio);
+    const workAreaHeight = ref<number | null>(null);
+    const workAreaWidth = ref<number | null>(null);
+    const workAreaLeft = ref(0);
+    const workAreaTop = ref(0);
+    const viewportHeight = ref(window.innerHeight);
+    const viewportWidth = ref(window.innerWidth);
+    const panelCenterY = ref<number | null>(null);
+    const hostOrigin = ref({ x: 0, y: 0 });
+    const visibleViewport = computed(() =>
+        resolveVisibleSearchViewport({
+            viewportWidth: viewportWidth.value,
+            viewportHeight: viewportHeight.value,
+            hostX: hostOrigin.value.x,
+            hostY: hostOrigin.value.y,
+            workAreaLeft: workAreaWidth.value === null ? hostOrigin.value.x : workAreaLeft.value,
+            workAreaTop: workAreaHeight.value === null ? hostOrigin.value.y : workAreaTop.value,
+            workAreaWidth: workAreaWidth.value ?? viewportWidth.value * scaleFactor(),
+            workAreaHeight: workAreaHeight.value ?? viewportHeight.value * scaleFactor(),
+            scaleFactor: scaleFactor(),
+        })
+    );
+    const minimumPanelHeight = computed(() =>
+        Math.max(SEARCH_PANEL_MIN_HEIGHT, options.defaultSize.value.height)
+    );
+    const panelViewportHeight = computed(() =>
+        workAreaHeight.value === null
+            ? viewportHeight.value
+            : Math.min(viewportHeight.value, workAreaHeight.value / scaleFactor())
+    );
+    const panelBounds = computed(() => {
+        const topInset = SEARCH_WINDOW_TOP_INSET / scaleFactor();
+        // Card capacity belongs to the host; moving it off-screen only limits overlays.
+        const insetScale = Math.min(
+            1,
+            Math.max(
+                0,
+                (panelViewportHeight.value - minimumPanelHeight.value) /
+                    (topInset + SEARCH_WINDOW_VISUAL_OUTSET)
+            )
+        );
+        return {
+            top: topInset * insetScale,
+            bottom: panelViewportHeight.value - SEARCH_WINDOW_VISUAL_OUTSET * insetScale,
+        };
+    });
+    const availablePanelHeight = computed(() =>
+        monitorHost.value && workAreaHeight.value !== null
+            ? Math.max(
+                  minimumPanelHeight.value,
+                  Math.floor(panelBounds.value.bottom - panelBounds.value.top)
+              )
+            : Number.POSITIVE_INFINITY
+    );
     const searchWindowHeightMode = ref<SearchWindowHeightMode>(SearchWindowHeightMode.Auto);
     const searchWindowResizeConstraintsReady = ref(false);
+    const isSurfaceAnimating = computed(
+        () => activeHeightChange.value !== null || cardAnimation.value !== null
+    );
+    /** WAAPI supplies an explicit start frame even when Vue applies layout and animation together. */
+    function animateCardHeight(
+        fromHeight: number,
+        toHeight: number,
+        duration: number,
+        startOffset: number,
+        endOffset: number
+    ): Animation | null {
+        const card = options.card?.value ?? null;
+        if (!card || typeof card.animate !== 'function') return null;
+        if (reducedMotion.value || duration <= 0 || Math.abs(fromHeight - toHeight) < 1)
+            return null;
+
+        return card.animate(
+            [
+                {
+                    height: `${fromHeight}px`,
+                    transform: `translateY(${startOffset}px)`,
+                },
+                {
+                    height: `${toHeight}px`,
+                    transform: `translateY(${endOffset}px)`,
+                },
+            ],
+            {
+                duration,
+                easing: SEARCH_SURFACE_EASING,
+                fill: 'both',
+            }
+        );
+    }
+    /**
+     * Held while a QuickSearch list is folding into a conversation.
+     *
+     * The list still occupies part of the layout while it folds, so measuring then would add
+     * the fading results to the conversation and commit a transient sum. The fold ends with one
+     * measurement of the conversation alone.
+     */
+    const measurementHold = ref(false);
+
+    function cancelCardAnimation(animation = cardAnimation.value) {
+        if (animation === cardAnimation.value) cardAnimation.value = null;
+        animation?.cancel();
+    }
+
+    function claimGeometry() {
+        const generation = ++commitGeneration;
+        isMaximizeTransitioning.value = false;
+        cancelCardAnimation();
+        activeHeightChange.value = null;
+        return generation;
+    }
+
+    function isCurrentGeometry(generation: number) {
+        return !windowListenersDisposed && generation === commitGeneration;
+    }
+
+    function enqueueGeometry<T>(generation: number, operation: () => Promise<T>) {
+        const run = commitQueue.then(async () => {
+            if (isCurrentGeometry(generation)) return operation();
+        });
+        commitQueue = run.then(
+            () => undefined,
+            () => undefined
+        );
+        return run;
+    }
+
+    function finishCardTransition(
+        change: HeightChange,
+        generation: number,
+        animation: Animation | null,
+        settled = true
+    ) {
+        cancelCardAnimation(animation);
+        if (activeHeightChange.value === change) activeHeightChange.value = null;
+        if (!isCurrentGeometry(generation)) return;
+        options.onLogicalPanelHeightChange?.(currentHeight.value);
+        const target = options.target.value;
+        if (target && settled) scheduleMeasurement(target);
+    }
+
+    /** Height the card is showing right now, in CSS pixels. */
+    function currentCardHeight(): number {
+        const card = options.card?.value;
+        const height = card?.getBoundingClientRect().height ?? 0;
+        return height > 0 ? height : currentHeight.value;
+    }
+
+    const isCardGrowing = computed(() => cardAnimation.value !== null);
 
     const searchWindowHeightPolicy = computed(() =>
         resolveSearchWindowHeightPolicy({
@@ -49,17 +243,21 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     const effectiveWindowMaximized = computed(() =>
         resolveEffectiveWindowMaximized(desiredMaximized.value, isMaximizeTransitioning.value)
     );
+    const settledWindowMaximized = computed(
+        () => desiredMaximized.value && !isMaximizeTransitioning.value
+    );
     const autoHeightEnabled = computed(() => {
-        // ManualOverride 只在有会话时生效；
-        // 一旦用户手动改过对话窗口高度，就停止内容驱动的自动伸缩。
         const manualOverrideActive =
             searchWindowHeightPolicy.value.respectManualOverride &&
             searchWindowHeightMode.value === SearchWindowHeightMode.ManualOverride;
 
         return (
             options.ready.value &&
+            (options.resizeEnabled?.value ?? true) &&
             searchWindowHeightPolicy.value.autoResizeEnabled &&
             !effectiveWindowMaximized.value &&
+            !isLogicalPanelResizing.value &&
+            nativeDragLayout.value === null &&
             !manualOverrideActive
         );
     });
@@ -70,18 +268,85 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             shouldRespectManualHeightOverride:
                 searchWindowHeightPolicy.value.respectManualOverride &&
                 searchWindowHeightMode.value === SearchWindowHeightMode.ManualOverride,
+            isIntrinsicHeightMeasurementPending:
+                options.intrinsicHeightMeasurementPending?.value ?? false,
         })
     );
     const contentReady = computed(
         () => options.ready.value && searchWindowResizeConstraintsReady.value
     );
 
-    let resizeObserver: ResizeObserver | null = null;
-    let unlistenWindowResize: (() => void) | null = null;
+    const cardStyle = computed(() => ({
+        transform:
+            monitorHost.value && activeHeightChange.value && panelStyle.value
+                ? `translateY(${activeHeightChange.value.fromTop - Number.parseFloat(panelStyle.value.top)}px)`
+                : 'none',
+    }));
+    const settledPanelStyle = computed(
+        () =>
+            nativeDragLayout.value ??
+            resolveSurfacePanelStyle({
+                scaleFactor: displayScaleFactor.value,
+                maximized: effectiveWindowMaximized.value,
+                panelHeight: currentHeight.value,
+                viewportHeight: viewportHeight.value,
+                centerY: panelCenterY.value,
+                minTop: panelBounds.value.top,
+                maxBottom: panelBounds.value.bottom,
+            })
+    );
+    // Reserve the union before animating; tightening the native region never clips an in-flight frame.
+    const panelStyle = computed(() => {
+        if (!monitorHost.value) {
+            const style = resolveSurfacePanelStyle({
+                scaleFactor: displayScaleFactor.value,
+                maximized: true,
+            });
+            if (effectiveWindowMaximized.value) return style;
+            // Hidden WebKit can have a 0×0 viewport. Lay out the accepted panel
+            // independently so its first region can be measured before native show.
+            return {
+                ...style,
+                width: `${currentWidth.value || options.defaultSize.value.width}px`,
+                height: `${Math.max(currentHeight.value || options.defaultSize.value.height, activeHeightChange.value?.fromHeight ?? 0)}px`,
+            };
+        }
+        const style = { position: 'fixed' as const, ...settledPanelStyle.value };
+        const change = activeHeightChange.value;
+        if (!change || effectiveWindowMaximized.value) return style;
+        const settledTop = Number.parseFloat(style.top);
+        const top = Math.min(settledTop, change.fromTop);
+        return {
+            ...style,
+            top: `${top}px`,
+            height: `${Math.max(settledTop + currentHeight.value, change.fromTop + change.fromHeight) - top}px`,
+        };
+    });
+
+    // ---------------------------------------------------------------------
+    // Native geometry
+    // ---------------------------------------------------------------------
+    let windowListenersDisposed = false;
     let lastResizeConstraintsKey: string | null = null;
     let lastAllowHeightOverride: boolean | null = null;
     let lastSyncedDefaultSizeKey: string | null = null;
     let pendingDefaultSizeApplyAfterRestore = false;
+    let commitQueue: Promise<void> = Promise.resolve();
+    let commitGeneration = 0;
+    let resizeObserver: ResizeObserver | null = null;
+    let mutationObserver: MutationObserver | null = null;
+    let unlistenWindowResize: (() => void) | null = null;
+    let unlistenWindowMoved: (() => void) | null = null;
+    let unlistenWindowScaleChanged: (() => void) | null = null;
+    let measureTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingMeasureTarget: HTMLElement | null = null;
+    let failedMeasurement: number | null = null;
+    let logicalPanelResizeStart: {
+        size: LogicalSearchPanelSize;
+        centerY: number | null;
+        heightMode: SearchWindowHeightMode;
+        generation: number;
+    } | null = null;
 
     const viewportSyncScheduler = createWindowViewportSyncScheduler(syncViewportState, 80);
 
@@ -89,12 +354,210 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         log.error(`[SearchView] Failed to ${action}:`, error);
     }
 
+    function notifyHostViewportChange() {
+        viewportWidth.value = window.innerWidth;
+        viewportHeight.value = window.innerHeight;
+        void nextTick().then(() => options.onHostViewportChange?.());
+    }
+
     function getDefaultSizeKey() {
         const { width, height } = options.defaultSize.value;
         return `${width}:${height}`;
     }
 
-    function measureElementHeight(el: HTMLElement) {
+    function scaleFactor() {
+        return Number.isFinite(displayScaleFactor.value) && displayScaleFactor.value > 0
+            ? displayScaleFactor.value
+            : 1;
+    }
+
+    function commitLogicalPanelHeight(height: number) {
+        if (height === currentHeight.value) {
+            return false;
+        }
+
+        currentHeight.value = height;
+        options.onLogicalPanelHeightChange?.(height);
+        return true;
+    }
+
+    function applyState(state: Awaited<ReturnType<typeof native.window.commitSearchPanelResize>>) {
+        currentWidth.value = state.currentWidth;
+        searchWindowHeightMode.value = state.heightMode;
+        monitorHost.value = state.monitorHost;
+        commitLogicalPanelHeight(state.currentHeight);
+    }
+
+    function resolveEffectivePanelHeight(
+        height: number,
+        {
+            reset = false,
+            respectManualOverride = searchWindowHeightPolicy.value.respectManualOverride,
+        } = {}
+    ) {
+        const current = currentHeight.value || options.defaultSize.value.height;
+        const keepManualHeight =
+            !reset &&
+            respectManualOverride &&
+            searchWindowHeightMode.value === SearchWindowHeightMode.ManualOverride;
+        const keepOverlayHeight =
+            !reset && Boolean(options.overlayTarget?.value) && height < current;
+        return Math.min(
+            availablePanelHeight.value,
+            Math.max(1, Math.round(keepManualHeight || keepOverlayHeight ? current : height))
+        );
+    }
+
+    /** Serialize native commits and ignore superseded completions. */
+    async function commitPanelHeight(
+        panelHeight: number,
+        commitOptions: {
+            placement?: 'idle' | 'work-area' | 'restore';
+            reset?: boolean;
+            /** An explicit user action clears a stale native manual override. */
+            respectManualOverride?: boolean;
+        } = {}
+    ): Promise<boolean> {
+        if (windowListenersDisposed || !options.ready.value) {
+            return false;
+        }
+        if (options.resizeEnabled?.value === false && !commitOptions.reset) return false;
+        if (effectiveWindowMaximized.value && !commitOptions.reset) return false;
+        if (isLogicalPanelResizing.value && !commitOptions.reset) return false;
+        if (nativeDragLayout.value) return false;
+
+        const from = {
+            width: currentWidth.value || options.defaultSize.value.width,
+            height: currentHeight.value || options.defaultSize.value.height,
+        };
+        const respectManualOverride =
+            commitOptions.respectManualOverride ??
+            searchWindowHeightPolicy.value.respectManualOverride;
+        const target = resolveEffectivePanelHeight(panelHeight, commitOptions);
+        const heightChanged = shouldCommitPanelHeight({
+            current: activeHeightChange.value?.toHeight ?? from.height,
+            next: target,
+        });
+        if (!commitOptions.placement && !heightChanged) return true;
+
+        const revealFrom = Math.max(
+            1,
+            cardAnimation.value
+                ? currentCardHeight()
+                : (activeHeightChange.value?.fromHeight ?? currentCardHeight())
+        );
+        const revealTop =
+            options.card?.value?.getBoundingClientRect().top ??
+            Number.parseFloat(settledPanelStyle.value.top);
+        const generation = claimGeometry();
+        const wasMaximized = desiredMaximized.value;
+        if (commitOptions.reset) desiredMaximized.value = false;
+        const change = { fromHeight: revealFrom, toHeight: target, fromTop: revealTop };
+        activeHeightChange.value = change;
+        const placement = commitOptions.placement ?? 'preserve-origin';
+        const animatesCard = Math.abs(revealFrom - target) > 1;
+
+        return (
+            (await enqueueGeometry(generation, async () => {
+                let animation: Animation | null = null;
+                let revealContinues = false;
+                let nativeCommitted = false;
+                try {
+                    if (monitorHost.value) {
+                        const state = commitOptions.reset
+                            ? await native.window
+                                  .resetSearchWindowBounds()
+                                  .then(() => native.window.getSearchWindowState())
+                            : await native.window.commitSearchPanelResize({
+                                  from,
+                                  to: { width: from.width, height: target },
+                                  auto: !(
+                                      respectManualOverride &&
+                                      from.height > availablePanelHeight.value &&
+                                      searchWindowHeightMode.value ===
+                                          SearchWindowHeightMode.ManualOverride
+                                  ),
+                                  ...(commitOptions.respectManualOverride === undefined
+                                      ? {}
+                                      : {
+                                            respectManualOverride:
+                                                commitOptions.respectManualOverride,
+                                        }),
+                                  placement,
+                              });
+                        if (!isCurrentGeometry(generation)) return false;
+                        applyState(state);
+                        nativeCommitted = true;
+                        failedMeasurement = null;
+                        if (commitOptions.reset) panelCenterY.value = null;
+                        await syncSearchWindowMinSizeConstraints();
+                        if (!isCurrentGeometry(generation)) return false;
+                        // Keep the old card visible until the OS can paint the full transition envelope.
+                        await nextTick();
+                        await options.preparePanelTransition?.();
+                        if (!isCurrentGeometry(generation)) return false;
+                        if (animatesCard) {
+                            animation = animateCardHeight(
+                                revealFrom,
+                                state.currentHeight,
+                                SEARCH_SURFACE_MOTION.durationMs,
+                                revealTop - Number.parseFloat(panelStyle.value!.top),
+                                Number.parseFloat(settledPanelStyle.value.top) -
+                                    Number.parseFloat(panelStyle.value!.top)
+                            );
+                            cardAnimation.value = animation;
+                        }
+                    } else {
+                        if (commitOptions.reset) {
+                            await native.window.resetSearchWindowBounds();
+                        } else {
+                            await native.window.resizeWindowHeight({
+                                targetHeight: target,
+                                center: true,
+                                animate: false,
+                                respectManualOverride,
+                            });
+                        }
+                        if (!isCurrentGeometry(generation)) return false;
+                        const state = await native.window.getSearchWindowState();
+                        if (!isCurrentGeometry(generation)) return false;
+                        applyState(state);
+                        nativeCommitted = true;
+                        failedMeasurement = null;
+                        await syncSearchWindowMinSizeConstraints();
+                    }
+                    if (change) {
+                        await nextTick();
+                        if (!isCurrentGeometry(generation)) return false;
+                        if (animation) {
+                            const reveal = animation;
+                            revealContinues = true;
+                            void reveal.finished
+                                .catch(() => undefined)
+                                .then(() => finishCardTransition(change, generation, reveal));
+                        }
+                    }
+                    return true;
+                } catch (error) {
+                    reportError('commit search panel height', error);
+                    if (!nativeCommitted && isCurrentGeometry(generation)) {
+                        failedMeasurement = target;
+                        if (commitOptions.reset) desiredMaximized.value = wasMaximized;
+                    }
+                    return false;
+                } finally {
+                    if (change && !revealContinues) {
+                        finishCardTransition(change, generation, animation, nativeCommitted);
+                    }
+                }
+            })) ?? false
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Measurement
+    // ---------------------------------------------------------------------
+    function measureContentHeight(el: HTMLElement) {
         return Math.max(
             el.getBoundingClientRect().height,
             el.clientHeight,
@@ -103,59 +566,174 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         );
     }
 
-    async function isWindowVisible() {
-        return currentWindow.isVisible().catch(() => true);
+    function resolveMeasuredPanelHeight(el: HTMLElement) {
+        // Alignment slack and the animated viewport are outputs, never content measurements.
+        const card = options.card?.value;
+        const style = card ? getComputedStyle(card) : null;
+        const borderHeight =
+            (Number.parseFloat(style?.borderTopWidth ?? '') || 0) +
+            (Number.parseFloat(style?.borderBottomWidth ?? '') || 0);
+        const contentHeight =
+            (options.measureContentHeight?.(el) ?? measureContentHeight(el)) + borderHeight;
+
+        const panelHeight = resolveContentPanelHeight({
+            contentHeight,
+            compactHeight: options.defaultSize.value.height,
+            maxHeight: resolveAutoSessionPanelHeight({
+                searchBarHeight: options.defaultSize.value.height,
+            }),
+        });
+
+        // The Windows host already contains overlays. Other platforms still size the native window.
+        return Math.min(
+            availablePanelHeight.value,
+            resolveSearchWindowMeasuredHeight({
+                panelHeight,
+                overlayBottom: options.overlayTarget?.value?.getBoundingClientRect().bottom ?? null,
+                overlayRequiredViewportHeight: options.overlayRequiredViewportHeight?.value ?? null,
+                monitorHost: monitorHost.value,
+            })
+        );
+    }
+
+    function scheduleMeasurement(el = options.target.value) {
+        if (!el) return;
+        pendingMeasureTarget = el;
+        if (isLogicalPanelResizing.value || isSurfaceAnimating.value || measurementHold.value)
+            return;
+        if (measureTimer !== null) return;
+
+        measureTimer = setTimeout(() => {
+            measureTimer = null;
+            const target = pendingMeasureTarget;
+            pendingMeasureTarget = null;
+            // The hold can start after this timer was queued -- a submit freezes the height loop
+            // while the surface is still empty -- so the check has to happen when it fires, not only
+            // when the measurement is scheduled.
+            if (measurementHold.value || isSurfaceAnimating.value) return;
+            if (!target || windowListenersDisposed || !autoHeightEnabled.value) {
+                return;
+            }
+
+            const nextHeight = resolveEffectivePanelHeight(resolveMeasuredPanelHeight(target));
+            // Rolling back an animation fires ResizeObserver too. Only a changed target
+            // or an explicit remeasurement should retry a failed native operation.
+            if (failedMeasurement === nextHeight) return;
+            void commitPanelHeight(nextHeight).catch((error) => {
+                reportError('apply measured content height', error);
+            });
+        }, MEASURE_COALESCE_MS);
+    }
+
+    function observeTargetHeight(el: HTMLElement) {
+        resizeObserver?.disconnect();
+        resizeObserver = new ResizeObserver(() => scheduleMeasurement(el));
+        resizeObserver.observe(el);
+        // In a filled conversation, controls can grow while the outer viewport stays fixed.
+        for (const child of el.children) resizeObserver.observe(child);
+        if (options.overlayTarget?.value) {
+            resizeObserver.observe(options.overlayTarget.value);
+        }
+    }
+
+    function observeTarget(el: HTMLElement) {
+        observeTargetHeight(el);
+
+        mutationObserver?.disconnect();
+        mutationObserver = new MutationObserver(() => {
+            observeTargetHeight(el);
+            scheduleMeasurement(el);
+        });
+        mutationObserver.observe(el, { childList: true });
+
+        const initialMeasurement = () => {
+            if (!autoHeightEnabled.value) return;
+            void remeasureTargetHeight().catch((error) => {
+                reportError('run initial surface measurement', error);
+            });
+        };
+
+        if (document.readyState === 'complete') {
+            initialMeasurement();
+        } else {
+            window.addEventListener('load', initialMeasurement, { once: true });
+        }
+    }
+
+    function disposeObservers() {
+        if (measureTimer !== null) {
+            clearTimeout(measureTimer);
+            measureTimer = null;
+        }
+        pendingMeasureTarget = null;
+        resizeObserver?.disconnect();
+        resizeObserver = null;
+        mutationObserver?.disconnect();
+        mutationObserver = null;
+    }
+
+    // ---------------------------------------------------------------------
+    // Native window state
+    // ---------------------------------------------------------------------
+    async function syncSearchWindowHeightMode() {
+        const generation = commitGeneration;
+        await enqueueGeometry(generation, async () => {
+            const state = await native.window.getSearchWindowState();
+            if (!isCurrentGeometry(generation) || isLogicalPanelResizing.value) return;
+            applyState(state);
+        });
     }
 
     async function syncMaximizedState() {
-        desiredMaximized.value = await currentWindow.isMaximized().catch(() => false);
-    }
-
-    async function syncSearchWindowHeightMode() {
-        const state = await native.window.getSearchWindowState();
-        searchWindowHeightMode.value = state.heightMode;
-
-        if (state.heightMode === SearchWindowHeightMode.Auto) {
-            currentHeight.value = state.currentHeight;
+        if (!monitorHost.value) {
+            desiredMaximized.value = await currentWindow.isMaximized().catch(() => false);
         }
     }
 
     async function syncWindowState() {
-        await syncMaximizedState();
         await syncSearchWindowHeightMode();
+        await syncMaximizedState();
+        if (monitorHost.value) {
+            viewportWidth.value = window.innerWidth;
+            viewportHeight.value = window.innerHeight;
+            const generation = commitGeneration;
+            try {
+                const [monitor, position] = await Promise.all([
+                    currentMonitor(),
+                    currentWindow.outerPosition(),
+                ]);
+                if (isCurrentGeometry(generation)) hostOrigin.value = position;
+                if (monitor && isCurrentGeometry(generation)) {
+                    workAreaWidth.value = monitor.workArea.size.width;
+                    workAreaLeft.value = monitor.workArea.position.x;
+                    workAreaHeight.value = monitor.workArea.size.height;
+                    workAreaTop.value = monitor.workArea.position.y;
+                }
+            } catch (error) {
+                reportError('read search window work area', error);
+            }
+        }
     }
 
     async function syncSearchWindowAllowHeightOverride() {
-        if (!options.ready.value) {
-            return;
-        }
+        if (!options.ready.value) return;
 
         const allowHeightOverride = searchWindowHeightPolicy.value.allowHeightOverride;
-        if (lastAllowHeightOverride === allowHeightOverride) {
-            return;
-        }
+        if (lastAllowHeightOverride === allowHeightOverride) return;
 
         await native.window.setSearchWindowAllowHeightOverride(allowHeightOverride);
         lastAllowHeightOverride = allowHeightOverride;
     }
 
-    async function syncSearchWindowMinSizeConstraints(nextAutoHeightFloor?: number) {
-        if (!options.ready.value) {
-            return;
-        }
+    async function syncSearchWindowMinSizeConstraints() {
+        if (!options.ready.value) return;
 
         const defaultSize = options.defaultSize.value;
-        // 有面板时，最小高度跟随“默认高度”和“当前自动高度 floor”中的较大者。
-        // 这样既不会让用户把窗口缩得比默认值更小，也不会在收缩前被旧的 minHeight 卡住。
-        const autoHeightFloor = Math.max(
-            defaultSize.height,
-            nextAutoHeightFloor ?? currentHeight.value ?? 0
-        );
         const constraints = resolveSearchWindowMinimumSize({
             defaultWidth: defaultSize.width,
             defaultHeight: defaultSize.height,
             hasManagedPanel: searchWindowHeightPolicy.value.hasManagedPanel,
-            autoHeightFloor,
+            autoHeightFloor: Math.max(defaultSize.height, currentHeight.value || 0),
         });
         const constraintsKey = JSON.stringify(constraints);
 
@@ -170,58 +748,79 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     async function resetSearchWindowBounds() {
-        currentHeight.value = options.defaultSize.value.height;
-        searchWindowHeightMode.value = SearchWindowHeightMode.Auto;
-        await native.window.resetSearchWindowBounds();
-        await syncSearchWindowMinSizeConstraints();
-    }
-
-    async function resize(pageHeight: number) {
-        const newHeight = Math.ceil(pageHeight);
-
-        if (!autoHeightEnabled.value || !(await isWindowVisible())) {
-            return;
-        }
-
-        if (newHeight === currentHeight.value) {
-            return;
-        }
-
-        if (newHeight < currentHeight.value) {
-            // 收缩前先下调原生最小高度约束，否则 Windows 会直接拒绝这次 shrink。
-            await syncSearchWindowMinSizeConstraints(newHeight);
-        }
-
-        await native.window.resizeWindowHeight({
-            targetHeight: newHeight,
-            center: true,
-            animate: false,
-            respectManualOverride: searchWindowHeightPolicy.value.respectManualOverride,
+        logicalPanelResizeStart = null;
+        isLogicalPanelResizing.value = false;
+        const committed = await commitPanelHeight(options.defaultSize.value.height, {
+            placement: 'idle',
+            reset: true,
         });
-        currentHeight.value = newHeight;
-        await syncSearchWindowMinSizeConstraints(newHeight);
+        return committed && (await finishCompactTransition());
     }
 
-    async function resizeToTargetElement(el: HTMLElement) {
-        await resize(measureElementHeight(el));
-    }
-
-    async function remeasureTargetHeight() {
+    /** Measure the live content after Vue has applied the layout. */
+    async function remeasureTargetHeight(): Promise<void> {
         const target = options.target.value;
-        if (!target) {
+        if (!target) return;
+
+        await nextTick();
+        if (measurementHold.value) return;
+        if (isSurfaceAnimating.value) {
+            scheduleMeasurement(target);
             return;
         }
-
-        // 切会话时不能只依赖 ResizeObserver；
-        // 当前窗口高度本身可能没先变化，因此这里提供显式重测入口。
-        await nextTick();
-        await resizeToTargetElement(target);
+        const nextHeight = resolveMeasuredPanelHeight(target);
+        await commitPanelHeight(nextHeight);
     }
 
-    async function syncSearchWindowDefaults() {
-        if (!options.ready.value) {
-            return;
+    function measureTargetHeight() {
+        return options.target.value ? resolveMeasuredPanelHeight(options.target.value) : null;
+    }
+
+    // ---------------------------------------------------------------------
+    // Session reveal
+    // ---------------------------------------------------------------------
+    async function playSessionExpandAnimation(height?: number) {
+        const compactHeight = options.defaultSize.value.height;
+        const target =
+            height === undefined
+                ? measureTargetHeight()
+                : Math.min(
+                      availablePanelHeight.value,
+                      resolveAutoSessionPanelHeight({ searchBarHeight: compactHeight }),
+                      Math.max(compactHeight, Math.ceil(height))
+                  );
+        if (target === null) return;
+
+        await commitPanelHeight(target, { respectManualOverride: false });
+    }
+
+    async function collapseSessionToIdle() {
+        const compactHeight = options.defaultSize.value.height;
+        const fromHeight = currentHeight.value || compactHeight;
+        if (fromHeight <= compactHeight + 1) {
+            return finishCompactTransition();
         }
+
+        const committed = await commitPanelHeight(compactHeight);
+        if (!committed) return false;
+        return finishCompactTransition();
+    }
+
+    async function finishCompactTransition() {
+        const generation = commitGeneration;
+        // Callers clear the conversation after this resolves; retain it throughout the fold.
+        await cardAnimation.value?.finished.catch(() => undefined);
+        return (
+            isCurrentGeometry(generation) &&
+            Math.abs(currentHeight.value - options.defaultSize.value.height) <= 1
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Defaults, maximize, viewport
+    // ---------------------------------------------------------------------
+    async function syncSearchWindowDefaults() {
+        if (!options.ready.value) return;
 
         const defaultSizeKey = getDefaultSizeKey();
         if (lastSyncedDefaultSizeKey !== defaultSizeKey) {
@@ -250,11 +849,8 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     async function syncViewportState(previousMaximized = desiredMaximized.value) {
-        if (!options.ready.value) {
-            return;
-        }
+        if (!options.ready.value) return;
 
-        // 统一吸收窗口系统事件后的原生状态，再决定是否要补默认尺寸或重新测量。
         await syncWindowState();
         await syncSearchWindowAllowHeightOverride();
         await syncSearchWindowMinSizeConstraints();
@@ -276,136 +872,187 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     }
 
     async function toggleMaximize() {
+        const wasMaximized = desiredMaximized.value;
+        const nextMaximized = !wasMaximized;
+        const generation = claimGeometry();
+
+        desiredMaximized.value = nextMaximized;
+        isMaximizeTransitioning.value = true;
+        logicalPanelResizeStart = null;
+        isLogicalPanelResizing.value = false;
+
+        try {
+            await enqueueGeometry(generation, async () => {
+                if (!monitorHost.value) {
+                    if (nextMaximized) await ensureWindowMaximized(currentWindow);
+                    else await ensureWindowRestoredFromMaximized(currentWindow);
+                    return;
+                }
+                if (nextMaximized) {
+                    await nextTick();
+                    if (!isCurrentGeometry(generation)) return;
+                    options.onLogicalPanelGeometryChange?.();
+                }
+
+                const from = {
+                    width: currentWidth.value || options.defaultSize.value.width,
+                    height: currentHeight.value || options.defaultSize.value.height,
+                };
+                const state = await native.window.commitSearchPanelResize({
+                    from,
+                    to: from,
+                    auto: true,
+                    placement: nextMaximized ? 'work-area' : 'restore',
+                });
+                if (isCurrentGeometry(generation)) {
+                    applyState(state);
+                }
+            });
+        } catch (error) {
+            if (isCurrentGeometry(generation)) desiredMaximized.value = wasMaximized;
+            throw error;
+        } finally {
+            if (isCurrentGeometry(generation)) {
+                isMaximizeTransitioning.value = false;
+                await syncViewportState(wasMaximized).catch((error) => {
+                    reportError('sync viewport state after maximize toggle', error);
+                });
+                if (isCurrentGeometry(generation) && monitorHost.value) {
+                    await nextTick();
+                    options.onLogicalPanelGeometryChange?.();
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Manual panel resize (the drag handles)
+    // ---------------------------------------------------------------------
+    async function prepareForNativeDrag() {
+        nativeDragLayout.value = { ...settledPanelStyle.value };
+        viewportSyncScheduler.cancel();
+        const generation = claimGeometry();
+        return (
+            (await enqueueGeometry(generation, async () => {
+                const state = await native.window.getSearchWindowState();
+                if (!isCurrentGeometry(generation)) return false;
+                applyState(state);
+                return true;
+            })) ?? false
+        );
+    }
+
+    async function finishNativeDrag() {
+        try {
+            await syncWindowState();
+        } finally {
+            nativeDragLayout.value = null;
+            await nextTick();
+            options.onHostViewportChange?.();
+        }
+    }
+
+    function beginLogicalPanelResize(): LogicalSearchPanelSize {
+        const generation = claimGeometry();
+        logicalPanelResizeStart = {
+            size: {
+                width: currentWidth.value || options.defaultSize.value.width,
+                height: currentHeight.value || options.defaultSize.value.height,
+            },
+            centerY: panelCenterY.value,
+            heightMode: searchWindowHeightMode.value,
+            generation,
+        };
+        isLogicalPanelResizing.value = true;
+        return { ...logicalPanelResizeStart.size };
+    }
+
+    async function previewLogicalPanelResize(
+        size: LogicalSearchPanelSize,
+        physicalOrigin?: { x: number; y: number }
+    ) {
+        const start = logicalPanelResizeStart;
         if (
-            isMaximizeTransitioning.value ||
-            (!desiredMaximized.value && options.sessionCount.value === 0)
+            !start ||
+            !isCurrentGeometry(start.generation) ||
+            !isLogicalPanelResizing.value ||
+            !Number.isFinite(size.width) ||
+            !Number.isFinite(size.height) ||
+            size.width <= 0 ||
+            size.height <= 0
         ) {
             return;
         }
 
-        const wasMaximized = desiredMaximized.value;
-        const nextMaximized = !wasMaximized;
-
-        desiredMaximized.value = nextMaximized;
-        isMaximizeTransitioning.value = true;
-
-        try {
-            if (nextMaximized) {
-                await ensureWindowMaximized(currentWindow);
-            } else {
-                await ensureWindowRestoredFromMaximized(currentWindow);
-            }
-        } finally {
-            await syncViewportState(wasMaximized).catch((error) => {
-                reportError('sync viewport state after maximize toggle', error);
+        return enqueueGeometry(start.generation, async () => {
+            const state = await native.window.commitSearchPanelResize({
+                from: start.size,
+                to: size,
+                physicalOrigin: physicalOrigin
+                    ? { x: physicalOrigin.x, y: hostOrigin.value.y }
+                    : undefined,
+                placement: 'preserve-origin',
             });
-            isMaximizeTransitioning.value = false;
-        }
-    }
-
-    /**
-     * 串行 resize 消费队列。
-     *
-     * ResizeObserver 连续触发时，始终取最新高度串行调用 resize()。
-     * 同一时刻只允许一个 resize() 在执行，避免并发 IPC 导致窗口在多个高度之间跳变。
-     * resize() 内部的 currentHeight 去重确保已完成的高度不会重复调用。
-     *
-     * 增高立即跟随，避免输入框内容先长高而 #app 外框滞后；
-     * 收缩和微小抖动继续合并，降低 Windows WebView2 高频 resize 卡顿。
-     */
-    let pendingHeight: number | null = null;
-    let isConsuming = false;
-    let coalesceTimer: ReturnType<typeof setTimeout> | null = null;
-    const COALESCE_SETTLE_MS = 80;
-
-    function scheduleObserverResize(height: number) {
-        pendingHeight = height;
-
-        // 增高时立即驱动窗口跟随输入内容，避免 #app 外框落后于 SearchBar。
-        // 收缩和 1px 级抖动继续合并，防止 WebView2 高频 resize 卡顿。
-        const shouldFlushImmediately = currentHeight.value === 0 || height > currentHeight.value;
-
-        if (coalesceTimer !== null) {
-            clearTimeout(coalesceTimer);
-            coalesceTimer = null;
-        }
-
-        if (shouldFlushImmediately) {
-            consumeResizeQueue();
-            return;
-        }
-
-        coalesceTimer = setTimeout(() => {
-            coalesceTimer = null;
-            consumeResizeQueue();
-        }, COALESCE_SETTLE_MS);
-    }
-
-    async function consumeResizeQueue() {
-        if (isConsuming) {
-            // 已有消费在运行，pendingHeight 会在当前循环的下一次迭代中被取走。
-            return;
-        }
-        isConsuming = true;
-        try {
-            while (pendingHeight !== null) {
-                const nextHeight = pendingHeight;
-                pendingHeight = null;
-                await resize(nextHeight);
-                // 等待一帧让 WebView2 完成重绘，避免透明闪烁。
-                // Rust animate=false 时 set_size 为同步调用，
-                // WebView2 buffer 需要一整帧来渲染新尺寸的内容。
-                await new Promise((resolve) => requestAnimationFrame(resolve));
+            if (!isCurrentGeometry(start.generation)) return;
+            if (physicalOrigin) {
+                panelCenterY.value =
+                    (physicalOrigin.y + SEARCH_WINDOW_TOP_INSET - hostOrigin.value.y) /
+                        scaleFactor() +
+                    state.currentHeight / 2;
             }
-        } finally {
-            isConsuming = false;
-        }
+            applyState(state);
+            return state;
+        });
     }
 
-    function observeTarget(el: HTMLElement) {
-        resizeObserver = new ResizeObserver((entries) => {
-            for (const entry of entries) {
-                const target = entry.target as HTMLElement;
-                const height = Math.max(
-                    entry.borderBoxSize?.[0]?.blockSize ?? target.clientHeight,
-                    target.scrollHeight,
-                    target.getBoundingClientRect().height
-                );
-                scheduleObserverResize(height);
+    async function commitLogicalPanelResize() {
+        const start = logicalPanelResizeStart;
+        if (!start) return;
+        await enqueueGeometry(start.generation, async () => {
+            if (logicalPanelResizeStart === start) {
+                logicalPanelResizeStart = null;
+                isLogicalPanelResizing.value = false;
+                await syncSearchWindowMinSizeConstraints();
             }
         });
-        resizeObserver.observe(el);
+    }
 
-        const runInitialResize = () => {
-            if (autoHeightEnabled.value) {
-                void remeasureTargetHeight().catch((error) => {
-                    reportError('run initial managed-panel resize', error);
+    async function cancelLogicalPanelResize(physicalOrigin?: { x: number; y: number }) {
+        const start = logicalPanelResizeStart;
+        if (!start || !isCurrentGeometry(start.generation)) return;
+        const generation = claimGeometry();
+        try {
+            await enqueueGeometry(generation, async () => {
+                const state = await native.window.commitSearchPanelResize({
+                    from: { width: currentWidth.value, height: currentHeight.value },
+                    to: start.size,
+                    physicalOrigin: physicalOrigin
+                        ? { x: physicalOrigin.x, y: hostOrigin.value.y }
+                        : undefined,
+                    auto: start.heightMode === SearchWindowHeightMode.Auto,
+                    respectManualOverride: false,
+                    placement: 'preserve-origin',
                 });
+                if (isCurrentGeometry(generation)) {
+                    applyState(state);
+                    panelCenterY.value = start.centerY;
+                }
+            });
+        } finally {
+            if (isCurrentGeometry(generation)) {
+                logicalPanelResizeStart = null;
+                isLogicalPanelResizing.value = false;
             }
-        };
-
-        if (document.readyState === 'complete') {
-            runInitialResize();
-        } else {
-            window.addEventListener('load', runInitialResize, { once: true });
         }
     }
 
-    function cleanup() {
-        if (resizeObserver) {
-            resizeObserver.disconnect();
-            resizeObserver = null;
-        }
-        if (coalesceTimer !== null) {
-            clearTimeout(coalesceTimer);
-            coalesceTimer = null;
-        }
-    }
-
+    // ---------------------------------------------------------------------
+    // Watchers
+    // ---------------------------------------------------------------------
     watch(
         options.target,
         (el) => {
-            cleanup();
+            disposeObservers();
             if (el) {
                 observeTarget(el);
             }
@@ -413,23 +1060,47 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         { immediate: true }
     );
 
+    if (options.overlayTarget) {
+        watch(
+            options.overlayTarget,
+            () => {
+                const target = options.target.value;
+                if (!target) return;
+
+                observeTargetHeight(target);
+                scheduleMeasurement(target);
+            },
+            { flush: 'post' }
+        );
+    }
+
+    watch(
+        () => options.quickSearchOpen.value,
+        (open) => {
+            if (!open) return;
+            const target = options.target.value;
+            if (!target) return;
+
+            // The list is measured as soon as it renders; the host follows the
+            // measurement like any other content change.
+            scheduleMeasurement(target);
+        },
+        { flush: 'post' }
+    );
+
     watch(
         () => options.ready.value,
         (ready) => {
             if (!ready) {
+                claimGeometry();
+                failedMeasurement = null;
                 searchWindowResizeConstraintsReady.value = false;
                 return;
             }
 
-            void syncWindowState().catch((error) => {
-                reportError('sync window state', error);
-            });
-            void syncSearchWindowAllowHeightOverride().catch((error) => {
-                reportError('sync height override policy', error);
-            });
-            void syncSearchWindowDefaults().catch((error) => {
-                reportError('sync search window defaults', error);
-            });
+            void syncWindowState()
+                .then(() => syncSearchWindowDefaults())
+                .catch((error) => reportError('initialize search window geometry', error));
         },
         { immediate: true, flush: 'post' }
     );
@@ -441,10 +1112,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             defaultHeight: options.defaultSize.value.height,
         }),
         ({ ready, defaultWidth, defaultHeight }, previous) => {
-            if (!ready) {
-                return;
-            }
-
+            if (!ready) return;
             if (
                 previous &&
                 previous.defaultWidth === defaultWidth &&
@@ -453,9 +1121,9 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                 return;
             }
 
-            void syncSearchWindowDefaults().catch((error) => {
-                reportError('apply search window defaults', error);
-            });
+            void syncSearchWindowDefaults().catch((error) =>
+                reportError('apply search window defaults', error)
+            );
         },
         { flush: 'post' }
     );
@@ -467,16 +1135,14 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             allowHeightOverride: searchWindowHeightPolicy.value.allowHeightOverride,
         }),
         ({ ready }) => {
-            if (!ready) {
-                return;
-            }
+            if (!ready) return;
 
-            void syncSearchWindowAllowHeightOverride().catch((error) => {
-                reportError('sync search window override policy', error);
-            });
-            void syncSearchWindowMinSizeConstraints().catch((error) => {
-                reportError('sync search window min size', error);
-            });
+            void syncSearchWindowAllowHeightOverride().catch((error) =>
+                reportError('sync search window override policy', error)
+            );
+            void syncSearchWindowMinSizeConstraints().catch((error) =>
+                reportError('sync search window min size', error)
+            );
         },
         { immediate: true, flush: 'post' }
     );
@@ -484,103 +1150,142 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     watch(
         autoHeightEnabled,
         (enabled, previous) => {
-            if (!enabled || enabled === previous) {
-                return;
-            }
+            if (!enabled || enabled === previous) return;
 
-            void remeasureTargetHeight().catch((error) => {
-                reportError('remeasure managed panel after auto-height re-enabled', error);
-            });
+            void remeasureTargetHeight().catch((error) =>
+                reportError('remeasure surface after auto-height re-enabled', error)
+            );
         },
         { flush: 'post' }
     );
 
-    watch(
-        () => ({
-            ready: options.ready.value,
-            idle: !searchWindowHeightPolicy.value.hasManagedPanel,
-            heightMode: searchWindowHeightMode.value,
-            maximized: effectiveWindowMaximized.value,
-            hasManagedPanel: searchWindowHeightPolicy.value.hasManagedPanel,
-        }),
-        (current, previous) => {
-            if (!current.ready) {
-                return;
-            }
+    watch(measurementHold, (held) => {
+        if (!held) scheduleMeasurement();
+    });
 
-            // 空态不允许继承对话态留下的 ManualOverride 或放大后的高度，
-            // 因此一旦切回 idle，需要强制回到默认窗口尺寸。
-            const shouldRepairIdleHeight = shouldRepairIdleSearchWindowHeight(
-                {
-                    ready: current.ready,
-                    idle: current.idle,
-                    heightMode: current.heightMode,
-                    maximized: current.maximized,
-                },
-                previous
-                    ? {
-                          ready: previous.ready,
-                          idle: previous.idle,
-                          heightMode: previous.heightMode,
-                          maximized: previous.maximized,
-                      }
-                    : undefined
-            );
+    watch([availablePanelHeight, nativeDragLayout], () => {
+        if (nativeDragLayout.value) return;
+        // A smaller monitor can reduce host capacity; position-only movement cannot.
+        if (monitorHost.value && currentHeight.value > availablePanelHeight.value) {
+            void commitPanelHeight(currentHeight.value);
+        } else scheduleMeasurement();
+    });
 
-            const shouldRepairIdleBounds = shouldEnforceIdleDefaultBounds(
-                {
-                    ready: current.ready,
-                    hasManagedPanel: current.hasManagedPanel,
-                    maximized: current.maximized,
-                },
-                previous
-                    ? {
-                          ready: previous.ready,
-                          hasManagedPanel: previous.hasManagedPanel,
-                          maximized: previous.maximized,
-                      }
-                    : undefined
-            );
-
-            if (!shouldRepairIdleHeight && !shouldRepairIdleBounds) {
-                return;
-            }
-
-            void resetSearchWindowBounds().catch((error) => {
-                reportError('repair idle search window bounds', error);
-            });
-        },
-        { flush: 'post' }
-    );
-
+    // ---------------------------------------------------------------------
+    // Window listeners
+    // ---------------------------------------------------------------------
     currentWindow
         .onResized(() => {
-            if (!options.ready.value) {
-                return;
-            }
+            notifyHostViewportChange();
+            if (!options.ready.value) return;
 
             viewportSyncScheduler.schedule();
         })
         .then((unlisten) => {
+            if (windowListenersDisposed) {
+                unlisten();
+                return;
+            }
             unlistenWindowResize = unlisten;
         })
-        .catch((error) => {
-            reportError('listen for window resize', error);
-        });
+        .catch((error) => reportError('listen for window resize', error));
+
+    currentWindow
+        .onMoved(({ payload }) => {
+            hostOrigin.value = payload;
+            if (nativeDragLayout.value) return;
+            viewportSyncScheduler.schedule();
+            notifyHostViewportChange();
+        })
+        .then((unlisten) => {
+            if (windowListenersDisposed) {
+                unlisten();
+                return;
+            }
+            unlistenWindowMoved = unlisten;
+        })
+        .catch((error) => reportError('listen for search window movement', error));
+
+    currentWindow
+        .onScaleChanged(({ payload }) => {
+            displayScaleFactor.value = payload.scaleFactor;
+            viewportSyncScheduler.schedule();
+            notifyHostViewportChange();
+        })
+        .then((unlisten) => {
+            if (windowListenersDisposed) {
+                unlisten();
+                return;
+            }
+            unlistenWindowScaleChanged = unlisten;
+        })
+        .catch((error) => reportError('listen for window scale changes', error));
 
     onUnmounted(() => {
-        cleanup();
+        windowListenersDisposed = true;
+        claimGeometry();
+        disposeObservers();
         viewportSyncScheduler.cancel();
         unlistenWindowResize?.();
+        unlistenWindowResize = null;
+        unlistenWindowMoved?.();
+        unlistenWindowMoved = null;
+        unlistenWindowScaleChanged?.();
+        unlistenWindowScaleChanged = null;
     });
 
     return {
         contentReady,
+        currentHeight,
+        cardHeight,
+        measurementHold,
         isMaximized: desiredMaximized,
         effectiveWindowMaximized,
+        settledWindowMaximized,
         fillConversationAvailableHeight,
+        monitorHost,
+        panelBounds,
+        overlayMinViewportLeft: computed(() =>
+            monitorHost.value ? visibleViewport.value.left : undefined
+        ),
+        overlayMaxViewportRight: computed(() =>
+            monitorHost.value ? visibleViewport.value.right : undefined
+        ),
+        overlayMinViewportTop: computed(() =>
+            monitorHost.value ? visibleViewport.value.top : undefined
+        ),
+        overlayMaxViewportHeight: computed(() =>
+            monitorHost.value
+                ? Math.max(
+                      visibleViewport.value.top,
+                      Math.min(
+                          panelBounds.value.bottom,
+                          visibleViewport.value.bottom - SEARCH_WINDOW_VISUAL_OUTSET
+                      )
+                  )
+                : undefined
+        ),
+        panelStyle,
+        cardStyle,
+        isSessionExpandAnimating: isSurfaceAnimating,
+        isCardGrowing,
+        isLogicalPanelResizing,
+        allowLogicalPanelHeightResize: computed(
+            () => searchWindowHeightPolicy.value.allowHeightOverride
+        ),
         toggleMaximize,
         syncWindowState,
         remeasureTargetHeight,
+        measureTargetHeight,
+        scheduleMeasurement,
+        playSessionExpandAnimation,
+        collapseSessionToIdle,
+        resetSearchWindowBounds,
+        beginLogicalPanelResize,
+        previewLogicalPanelResize,
+        commitLogicalPanelResize,
+        cancelLogicalPanelResize,
+        prepareForNativeDrag,
+        finishNativeDrag,
     };
 }

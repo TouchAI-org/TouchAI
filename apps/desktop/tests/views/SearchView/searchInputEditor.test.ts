@@ -57,6 +57,7 @@ const {
         };
         view: {
             dom: HTMLElement;
+            focus: () => void;
             dispatch: ReturnType<typeof vi.fn>;
             coordsAtPos: ReturnType<typeof vi.fn>;
             state: MockEditor['state'];
@@ -82,6 +83,7 @@ const {
             };
             this.view = {
                 dom: document.createElement('div'),
+                focus: () => this.view.dom.focus(),
                 dispatch: vi.fn(),
                 coordsAtPos: vi.fn(() => ({ top: 0, bottom: 20 })),
                 state: this.state,
@@ -198,8 +200,8 @@ function createModelSelectionState() {
         selectedModel: ref(null),
         selectedProviderId: ref<number | null>(null),
         activeModel: ref(null),
-        loadPopupModels: vi.fn(),
-        invalidatePopupModels: vi.fn(),
+        loadDropdownModels: vi.fn(),
+        invalidateDropdownModels: vi.fn(),
         prepareModelDropdownOpen: vi.fn(),
         handleModelSelect: vi.fn(),
         getModelDropdownAnchor: vi.fn(() => null),
@@ -239,6 +241,7 @@ async function mountSearchInput(overrides: Record<string, unknown> = {}) {
             emitRemoveAttachmentRequest,
             emitDragStart,
             emitDragEnd,
+            startDragging: vi.fn().mockResolvedValue(undefined),
             ...overrides,
         })
     );
@@ -632,10 +635,12 @@ describe('when the user sends a prompt and the editor is torn down', () => {
         const { result, unmount } = await mountSearchInput();
         result.initEditor();
         const editor = lastEditor();
+        editor.view.dom.tabIndex = 0;
+        document.body.append(editor.view.dom);
 
         await result.focus();
 
-        expect(editor.commands.focus).toHaveBeenCalled();
+        expect(document.activeElement).toBe(editor.view.dom);
 
         unmount();
     });

@@ -14,10 +14,11 @@
 import {
     assertVisible,
     callE2eBridge,
+    expectSearchSurfaceSnapshot,
+    resetSearchSurface,
     useInterfaceLanguage,
     useProductFont,
     useSearchFixture,
-    visualMismatchTolerance,
     waitForE2eBridge,
     waitForTestIdDisplayed,
     waitForTestIdNotDisplayed,
@@ -78,19 +79,10 @@ describe('user works in the main window with a conversation', () => {
         await useSearchFixture();
     });
 
-    after(async () => {
-        // The specs run in one session, and this one leaves a transcript and a
-        // pending approval behind. Clearing both, and shrinking the window back,
-        // is what keeps the search spec that follows independent.
-        await callE2eBridge('setConversation', []);
-        await callE2eBridge('clearAskUser');
-        await browser.execute(() => window.__TOUCHAI_E2E__?.setSearchQuery?.(''));
-        await browser.setWindowSize(750, 60);
-        await browser.pause(500);
-    });
+    beforeEach(resetSearchSurface);
+    afterEach(resetSearchSurface);
 
     it('user sees the search results panel keep its layout while typing', async () => {
-        await browser.setWindowSize(750, 80);
         // A query no real file matches: the bridge answers for it from the fixture this
         // spec registered, so the pixels do not depend on what happens to be on this
         // machine's disk.
@@ -103,10 +95,7 @@ describe('user works in the main window with a conversation', () => {
         await browser.pause(700);
 
         assertVisible(await panel.isDisplayed(), 'The results panel was not visible.');
-        await expect(browser).toMatchScreenSnapshot(
-            'main-window-search-results',
-            await visualMismatchTolerance()
-        );
+        await expectSearchSurfaceSnapshot('main-window-search-results');
 
         await browser.execute(() => window.__TOUCHAI_E2E__.setSearchQuery(''));
         await waitForTestIdNotDisplayed('quick-search-panel');
@@ -115,30 +104,43 @@ describe('user works in the main window with a conversation', () => {
     it('user sees the conversation panel with a finished answer', async () => {
         await callE2eBridge('setConversation', CONVERSATION_FIXTURE);
 
-        // The window grows to fit the conversation, so it is resized first and the
-        // element is queried afterwards: a handle taken before the reflow goes stale
-        // and `getBoundingClientRect` fails.
-        await browser.setWindowSize(750, 620);
+        // Natural content measurement owns the card height and its native envelope.
         await waitForTestIdDisplayed('conversation-panel-host');
         await browser.pause(1200);
 
-        await expect(browser).toMatchScreenSnapshot(
-            'main-window-conversation',
-            await visualMismatchTolerance()
-        );
+        await expectSearchSurfaceSnapshot('main-window-conversation');
     });
 
     it('user sees the ask-user panel when a tool needs a decision', async () => {
+        await callE2eBridge('setConversation', CONVERSATION_FIXTURE);
         await callE2eBridge('setAskUserRequest', APPROVAL_REQUEST);
 
-        await browser.setWindowSize(750, 520);
         const panel = await waitForTestIdDisplayed('ask-user-panel');
         await browser.pause(800);
 
         assertVisible(await panel.isDisplayed(), 'The ask-user panel was not visible.');
-        await expect(browser).toMatchScreenSnapshot(
-            'main-window-ask-user',
-            await visualMismatchTolerance()
+        const layout = await browser.execute(() => {
+            const card = document.querySelector('[data-testid="search-view-card"]');
+            const cardBounds = card.getBoundingClientRect();
+            const toolbar = card.querySelector('.toolbar-fade-overlay').getBoundingClientRect();
+            const approval = card
+                .querySelector('[data-testid="ask-user-panel"]')
+                .getBoundingClientRect();
+            return {
+                cardHeight: cardBounds.height,
+                cardScroll: card.scrollTop,
+                toolbarTop: toolbar.top - cardBounds.top,
+                approvalTop: approval.top - cardBounds.top,
+                approvalBottom: approval.bottom - cardBounds.bottom,
+            };
+        });
+        assertVisible(
+            layout.cardScroll === 0 &&
+                layout.toolbarTop >= 0 &&
+                layout.approvalTop >= 0 &&
+                layout.approvalBottom <= 1,
+            `The toolbar and complete approval must fit inside the card: ${JSON.stringify(layout)}`
         );
+        await expectSearchSurfaceSnapshot('main-window-ask-user');
     });
 });

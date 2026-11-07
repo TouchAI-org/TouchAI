@@ -2,52 +2,34 @@ import { AppEvent } from '@services/EventService';
 import { mountComposable } from '@tests/utils/composables';
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { nextTick, ref } from 'vue';
+import { computed, nextTick, ref } from 'vue';
 
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
 import { createSearchInteractionContext } from '@/views/SearchView/composables/searchInteraction';
 import {
     useSearchKeyboard,
-    useSearchModelDropdownCoordinator,
     useSearchPageController,
     useSearchPageLifecycle,
     useSearchPanelFocusRestore,
 } from '@/views/SearchView/composables/useSearchPage';
 
-/**
- * These tests cover the conditional branches of the search page wiring: which
- * state the page reports to the native layer, which shortcut entries reach the
- * native shortcut owner, and how activation/focus transitions reach the popup
- * reconciler. The Tauri window, the native bridge and the event bus are process
- * boundaries and are stubbed; the assertions are about the observable effect.
- */
+/** Search-page behavior at the native boundary: shortcuts, activation, and focus. */
 const {
     currentWindowMock,
     eventHandlers,
     eventServiceMock,
     initNotificationPermissionMock,
-    modelDropdownPopupMock,
     nativeMock,
     notifyMock,
-    popupManagerState,
-    popupManagerMock,
     runStartupTasksMock,
     settingsStoreMock,
     useAlertMock,
-    useModelDropdownPopupMock,
 } = vi.hoisted(() => {
     const handlers = new Map<string, (payload?: unknown) => unknown>();
-    const popup = {
-        isOpen: { value: true },
-        open: vi.fn(),
-        close: vi.fn(),
-        updateData: vi.fn(),
-        isLiveSession: vi.fn(),
-    };
-
     return {
         currentWindowMock: {
             isVisible: vi.fn(),
+            isFocused: vi.fn().mockResolvedValue(true),
             isAlwaysOnTop: vi.fn(),
             setAlwaysOnTop: vi.fn(),
         },
@@ -61,7 +43,6 @@ const {
             }),
         },
         initNotificationPermissionMock: vi.fn(),
-        modelDropdownPopupMock: popup,
         nativeMock: {
             runtime: { getRuntimeInfo: vi.fn() },
             shortcut: {
@@ -78,18 +59,9 @@ const {
             },
         },
         notifyMock: vi.fn(),
-        popupManagerMock: { initialize: vi.fn() },
-        popupManagerState: {
-            isOpen: false,
-            currentType: null,
-            currentPopupId: null,
-            currentWindowLabel: null,
-            currentPopupSessionVersion: null,
-        },
         runStartupTasksMock: vi.fn(),
         settingsStoreMock: { initialize: vi.fn(), globalShortcut: 'Alt+Space' },
         useAlertMock: vi.fn(),
-        useModelDropdownPopupMock: vi.fn(() => popup),
     };
 });
 
@@ -107,12 +79,6 @@ vi.mock('@services/NativeService', () => ({ native: nativeMock }));
 vi.mock('@services/NotificationService', () => ({
     initNotificationPermission: initNotificationPermissionMock,
     notify: notifyMock,
-}));
-vi.mock('@services/PopupService', () => ({
-    popupManager: { ...popupManagerMock, state: popupManagerState },
-}));
-vi.mock('@/views/SearchView/composables/useModelDropdownPopup', () => ({
-    useModelDropdownPopup: useModelDropdownPopupMock,
 }));
 vi.mock('@services/StartupService', () => ({ runStartupTasks: runStartupTasksMock }));
 vi.mock('@composables/useAlert', () => ({ useAlert: useAlertMock }));
@@ -192,13 +158,6 @@ beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     eventHandlers.clear();
-    modelDropdownPopupMock.isOpen.value = true;
-    modelDropdownPopupMock.open.mockResolvedValue(undefined);
-    modelDropdownPopupMock.close.mockResolvedValue(undefined);
-    modelDropdownPopupMock.updateData.mockResolvedValue(undefined);
-    modelDropdownPopupMock.isLiveSession.mockReturnValue(true);
-    useModelDropdownPopupMock.mockReturnValue(modelDropdownPopupMock);
-
     currentWindowMock.isVisible.mockResolvedValue(true);
     currentWindowMock.isAlwaysOnTop.mockResolvedValue(false);
     currentWindowMock.setAlwaysOnTop.mockResolvedValue(undefined);
@@ -212,15 +171,6 @@ beforeEach(() => {
     nativeMock.window.clearTrayStatusIndicator.mockResolvedValue(undefined);
     nativeMock.window.showSessionStatusReminderNotification.mockResolvedValue(undefined);
     nativeMock.window.clearSessionStatusReminderNotifications.mockResolvedValue(undefined);
-
-    popupManagerMock.initialize.mockResolvedValue(undefined);
-    Object.assign(popupManagerState, {
-        isOpen: false,
-        currentType: null,
-        currentPopupId: null,
-        currentWindowLabel: null,
-        currentPopupSessionVersion: null,
-    });
 
     settingsStoreMock.initialize.mockResolvedValue(undefined);
     settingsStoreMock.globalShortcut = 'Alt+Space';
@@ -408,51 +358,21 @@ describe('when the surface is hidden while the window was never visible', () => 
         interactionContext.markWindowHidden({ hideReason: 'manual-dismiss', hiddenAt: Date.now() });
         interactionContext.state.activationSource = 'unknown';
 
-        const reconcilePopupSurfaces = vi.fn().mockResolvedValue(undefined);
-        const { mounted } = await mountLifecycle({ interactionContext, reconcilePopupSurfaces });
+        const reconcileSearchOverlays = vi.fn().mockResolvedValue(undefined);
+        const { mounted } = await mountLifecycle({ interactionContext, reconcileSearchOverlays });
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({
+        await mounted.result.handleSearchSurfaceShown({
+            rendererEpoch: 1,
+            showEpoch: 1,
+            hostEpoch: 1,
+            generation: 1,
             source: 'shortcut',
             sequence: 1,
         });
         await flushLifecycle();
 
         expect(interactionContext.state.windowVisible).toBe(true);
-        expect(reconcilePopupSurfaces).toHaveBeenCalled();
-
-        mounted.unmount();
-    });
-});
-
-describe('when a popup window currently owns focus', () => {
-    it('user gets the popup left alone instead of being reconciled away', async () => {
-        const interactionContext = createSearchInteractionContext();
-        Object.assign(popupManagerState, {
-            isOpen: true,
-            currentPopupId: 'popup-1',
-            currentWindowLabel: 'popup-model-dropdown-popup',
-            currentPopupSessionVersion: 3,
-        });
-        interactionContext.setActivePopupSession({
-            popupType: 'model-dropdown-surface',
-            identity: {
-                popupId: 'popup-1',
-                windowLabel: 'popup-model-dropdown-popup',
-                popupSessionVersion: 3,
-            },
-        });
-
-        const reconcilePopupSurfaces = vi.fn().mockResolvedValue(undefined);
-        const { mounted } = await mountLifecycle({ interactionContext, reconcilePopupSurfaces });
-
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({
-            source: 'shortcut',
-            sequence: 1,
-        });
-        await flushLifecycle();
-
-        // The popup still owns the surface, so it must not be torn down underneath it.
-        expect(reconcilePopupSurfaces).not.toHaveBeenCalled();
+        expect(reconcileSearchOverlays).toHaveBeenCalled();
 
         mounted.unmount();
     });
@@ -460,29 +380,37 @@ describe('when a popup window currently owns focus', () => {
 
 describe('when the activation repeats', () => {
     it('user gets the window focused again on a second activation', async () => {
-        const reconcilePopupSurfaces = vi.fn().mockResolvedValue(undefined);
+        const reconcileSearchOverlays = vi.fn().mockResolvedValue(undefined);
         const controller = createController();
         const { mounted } = await mountLifecycle({
             controller,
-            reconcilePopupSurfaces,
+            reconcileSearchOverlays,
             shouldClearSessionAfterTimeout: () => false,
         });
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({
+        await mounted.result.handleSearchSurfaceShown({
+            rendererEpoch: 1,
+            showEpoch: 1,
+            hostEpoch: 1,
+            generation: 1,
             source: 'shortcut',
             sequence: 1,
         });
         await flushLifecycle();
         const focusCallsAfterFirst = vi.mocked(controller.focusSearchInput).mock.calls.length;
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({
+        await mounted.result.handleSearchSurfaceShown({
+            rendererEpoch: 1,
+            showEpoch: 1,
+            hostEpoch: 1,
+            generation: 1,
             source: 'shortcut',
             sequence: 2,
         });
         await flushLifecycle();
 
         // Each activation re-focuses the input so the user can type straight away.
-        expect(reconcilePopupSurfaces.mock.calls.length).toBeGreaterThan(1);
+        expect(reconcileSearchOverlays.mock.calls.length).toBeGreaterThan(1);
         expect(vi.mocked(controller.focusSearchInput).mock.calls.length).toBe(
             focusCallsAfterFirst + 1
         );
@@ -571,7 +499,7 @@ describe('when the surface hidden handler fails', () => {
         const onSurfaceHidden = vi.fn().mockRejectedValue(new Error('cleanup failed'));
         const { interactionContext, mounted } = await mountLifecycle({ onSurfaceHidden });
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_HIDDEN)?.({
+        await mounted.result.handleSearchSurfaceHidden({
             sequence: 1,
             reason: 'app-blur-hide',
         });
@@ -699,7 +627,11 @@ describe('when the shortcut autopaste fails on activation', () => {
             shouldClearSessionAfterTimeout: () => false,
         });
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({
+        await mounted.result.handleSearchSurfaceShown({
+            rendererEpoch: 1,
+            showEpoch: 1,
+            hostEpoch: 1,
+            generation: 1,
             source: 'shortcut',
             sequence: 1,
         });
@@ -718,7 +650,11 @@ describe('when the shortcut autopaste fails on activation', () => {
             shouldClearSessionAfterTimeout: () => false,
         });
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({
+        await mounted.result.handleSearchSurfaceShown({
+            rendererEpoch: 1,
+            showEpoch: 1,
+            hostEpoch: 1,
+            generation: 1,
             source: 'notification',
             sequence: 1,
         });
@@ -741,7 +677,11 @@ describe('when the pin state sync fails', () => {
             shouldClearSessionAfterTimeout: () => false,
         });
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({
+        await mounted.result.handleSearchSurfaceShown({
+            rendererEpoch: 1,
+            showEpoch: 1,
+            hostEpoch: 1,
+            generation: 1,
             source: 'shortcut',
             sequence: 1,
         });
@@ -765,7 +705,11 @@ describe('when the window remeasure hook fails', () => {
             shouldClearSessionAfterTimeout: () => false,
         });
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({
+        await mounted.result.handleSearchSurfaceShown({
+            rendererEpoch: 1,
+            showEpoch: 1,
+            hostEpoch: 1,
+            generation: 1,
             source: 'shortcut',
             sequence: 1,
         });
@@ -791,7 +735,11 @@ describe('when the timeout clear is not needed', () => {
             hiddenAt: Date.now(),
         });
 
-        await eventHandlers.get(AppEvent.SEARCH_SURFACE_SHOWN)?.({
+        await mounted.result.handleSearchSurfaceShown({
+            rendererEpoch: 1,
+            showEpoch: 1,
+            hostEpoch: 1,
+            generation: 1,
             source: 'shortcut',
             sequence: 1,
         });
@@ -799,129 +747,6 @@ describe('when the timeout clear is not needed', () => {
 
         // Reopened immediately: well inside the five-minute window.
         expect(clearSession).not.toHaveBeenCalled();
-
-        mounted.unmount();
-    });
-});
-
-describe('when the dropdown waits for the layout to settle', () => {
-    it('user gets the dropdown opened after two stable frames', async () => {
-        const pageContainer = document.createElement('div');
-        let height = 300;
-        pageContainer.getBoundingClientRect = () => ({ height }) as DOMRect;
-
-        const handleLayoutStableForModelDropdown = vi.fn(() => 'open-model-dropdown' as const);
-        const controller = createController();
-
-        const mounted = await mountComposable(() =>
-            useSearchModelDropdownCoordinator({
-                pageContainer: ref(pageContainer),
-                controller: controller as never,
-                modelOverride: ref({ modelId: null, providerId: null }),
-                modelDropdownState: ref({ isOpen: false }),
-                modelDropdownQuery: ref(''),
-                requestModelDropdownOpen: () => 'wait-layout-stable' as const,
-                handleQuickSearchClosedForModelDropdown: () => 'noop' as const,
-                handleLayoutStableForModelDropdown,
-                handleModelDropdownOpened: vi.fn(),
-                handleModelDropdownClosed: vi.fn(),
-                syncOverlayState: vi.fn(),
-            })
-        );
-
-        await mounted.result.openModelDropdownWithLayoutSync();
-        height = 300;
-        await flushLifecycle();
-
-        expect(handleLayoutStableForModelDropdown).toHaveBeenCalled();
-
-        mounted.unmount();
-    });
-
-    it('user gets no wait at all when the page container is missing', async () => {
-        const handleLayoutStableForModelDropdown = vi.fn(() => 'open-model-dropdown' as const);
-        const controller = createController();
-
-        const mounted = await mountComposable(() =>
-            useSearchModelDropdownCoordinator({
-                pageContainer: ref(null),
-                controller: controller as never,
-                modelOverride: ref({ modelId: null, providerId: null }),
-                modelDropdownState: ref({ isOpen: false }),
-                modelDropdownQuery: ref(''),
-                requestModelDropdownOpen: () => 'wait-layout-stable' as const,
-                handleQuickSearchClosedForModelDropdown: () => 'noop' as const,
-                handleLayoutStableForModelDropdown,
-                handleModelDropdownOpened: vi.fn(),
-                handleModelDropdownClosed: vi.fn(),
-                syncOverlayState: vi.fn(),
-            })
-        );
-
-        await mounted.result.openModelDropdownWithLayoutSync();
-
-        // Without a container there is nothing to measure, so the sequence moves on.
-        expect(handleLayoutStableForModelDropdown).toHaveBeenCalled();
-
-        mounted.unmount();
-    });
-
-    it('user gets the last command processed when the sequence ends in open', async () => {
-        const controller = createController();
-        const handleModelDropdownOpened = vi.fn();
-
-        const mounted = await mountComposable(() =>
-            useSearchModelDropdownCoordinator({
-                pageContainer: ref(null),
-                controller: controller as never,
-                modelOverride: ref({ modelId: null, providerId: null }),
-                modelDropdownState: ref({ isOpen: false }),
-                modelDropdownQuery: ref(''),
-                requestModelDropdownOpen: () => 'close-quick-search' as const,
-                handleQuickSearchClosedForModelDropdown: () => 'open-model-dropdown' as const,
-                handleLayoutStableForModelDropdown: () => 'noop' as const,
-                handleModelDropdownOpened,
-                handleModelDropdownClosed: vi.fn(),
-                syncOverlayState: vi.fn(),
-            })
-        );
-
-        await mounted.result.openModelDropdownWithLayoutSync();
-
-        expect(controller.closeQuickSearch).toHaveBeenCalled();
-        expect(handleModelDropdownOpened).toHaveBeenCalled();
-
-        mounted.unmount();
-    });
-});
-
-describe('when the dropdown toggle finds a live popup session', () => {
-    it('user gets the popup closed through its own session when it is live', async () => {
-        const controller = createController();
-        const modelDropdownState = ref({ isOpen: true });
-        modelDropdownPopupMock.isOpen.value = true;
-        modelDropdownPopupMock.isLiveSession.mockReturnValue(true);
-
-        const mounted = await mountComposable(() =>
-            useSearchModelDropdownCoordinator({
-                pageContainer: ref(null),
-                controller: controller as never,
-                modelOverride: ref({ modelId: null, providerId: null }),
-                modelDropdownState,
-                modelDropdownQuery: ref(''),
-                requestModelDropdownOpen: () => 'noop' as const,
-                handleQuickSearchClosedForModelDropdown: () => 'noop' as const,
-                handleLayoutStableForModelDropdown: () => 'noop' as const,
-                handleModelDropdownOpened: vi.fn(),
-                handleModelDropdownClosed: vi.fn(),
-                syncOverlayState: vi.fn(),
-            })
-        );
-
-        await mounted.result.handleToggleModelDropdownRequest();
-
-        expect(modelDropdownPopupMock.close).toHaveBeenCalled();
-        expect(modelDropdownState.value.isOpen).toBe(false);
 
         mounted.unmount();
     });
@@ -935,7 +760,7 @@ describe('when the user clicks around the window before the view is ready', () =
 
     function mountKeyboard(overrides: Record<string, unknown> = {}) {
         const controller = createController();
-        const hideAllPopups = vi.fn().mockResolvedValue(undefined);
+        const hideAllOverlays = vi.fn().mockResolvedValue(undefined);
         const hideSearchWindow = vi.fn().mockResolvedValue(undefined);
 
         return mountComposable(() =>
@@ -954,70 +779,70 @@ describe('when the user clicks around the window before the view is ready', () =
                 modelDropdownState: ref({ isOpen: false }),
                 controller: controller as never,
                 sessionHistory: ref([]),
-                hasPendingRequest: () => false,
+                pendingRequest: ref(null),
+                isWaitingForCompletion: ref(false),
                 isLoading: ref(false),
                 pendingToolApproval: ref(null),
                 approvePendingToolApproval: vi.fn(() => false),
                 rejectPendingToolApproval: vi.fn(() => false),
                 promptPendingToolApprovalAttention: vi.fn(),
-                getActivePopupType: () => null,
-                hasActivePopupWindowFocus: () => false,
-                isQuickSearchOpen: ref(false) as never,
                 shouldTriggerQuickSearch: () => false,
-                sessionHistoryPopupOpen: ref(false),
-                hideAllPopups,
+                sessionHistoryOverlayOpen: ref(false),
+                hideAllOverlays,
                 hideSearchWindow,
                 navigateInputHistory: vi.fn(() => 'ignored' as const),
                 closeModelDropdown: vi.fn().mockResolvedValue(undefined),
-                handleSearchKeybindingAction: vi.fn().mockResolvedValue(undefined),
+                toggleWindowMaximize: vi.fn().mockResolvedValue(undefined),
+                clearAll: vi.fn(),
+                getActiveOverlaySurface: () => null,
+                isQuickSearchOpen: computed(() => false),
                 handleSubmit: vi.fn().mockResolvedValue(undefined),
                 cancelRequest: vi.fn(),
-                cancelPendingRequest: vi.fn(() => false),
                 clearSession: vi.fn(),
                 ...overrides,
             })
-        ).then((mounted) => ({ ...mounted, hideAllPopups, hideSearchWindow, controller }));
+        ).then((mounted) => ({ ...mounted, hideAllOverlays, hideSearchWindow, controller }));
     }
 
     it('user gets nothing hidden while the view is still loading', async () => {
-        const { hideAllPopups, hideSearchWindow, unmount } = await mountKeyboard();
+        const { hideAllOverlays, hideSearchWindow, unmount } = await mountKeyboard();
 
         const inner = document.createElement('div');
         document.body.appendChild(inner);
         inner.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
         document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-        expect(hideAllPopups).not.toHaveBeenCalled();
+        expect(hideAllOverlays).not.toHaveBeenCalled();
         expect(hideSearchWindow).not.toHaveBeenCalled();
 
         unmount();
     });
 
-    it('user gets popups hidden when the history popup is open and they click elsewhere', async () => {
-        const { hideAllPopups, unmount } = await mountKeyboard({
+    it('user gets overlays hidden when the history overlay is open and they click elsewhere', async () => {
+        const { hideAllOverlays, unmount } = await mountKeyboard({
             viewReady: ref(true),
-            sessionHistoryPopupOpen: ref(true),
+            sessionHistoryOverlayOpen: ref(true),
         });
         const inner = document.createElement('div');
         document.body.appendChild(inner);
         inner.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
 
-        expect(hideAllPopups).toHaveBeenCalled();
+        expect(hideAllOverlays).toHaveBeenCalled();
 
         unmount();
     });
 
-    it('user keeps the popup open when clicking the history trigger', async () => {
-        const { hideAllPopups, unmount } = await mountKeyboard({
+    it('user keeps the overlay open when clicking the history trigger', async () => {
+        const { hideAllOverlays, unmount } = await mountKeyboard({
             viewReady: ref(true),
-            sessionHistoryPopupOpen: ref(true),
+            sessionHistoryOverlayOpen: ref(true),
         });
         const trigger = document.createElement('div');
         trigger.setAttribute('data-history-trigger', 'true');
         document.body.appendChild(trigger);
         trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
 
-        expect(hideAllPopups).not.toHaveBeenCalled();
+        expect(hideAllOverlays).not.toHaveBeenCalled();
 
         unmount();
     });

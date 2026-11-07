@@ -170,14 +170,7 @@ export function useLayout(options: UseLayoutOptions) {
 
         const scrollWidth = scrollRef.value?.clientWidth ?? 0;
         const panelWidth = scrollRef.value?.parentElement?.clientWidth ?? 0;
-        const viewportWidth = scrollRef.value?.ownerDocument?.documentElement?.clientWidth ?? 0;
-        const windowWidth = typeof window !== 'undefined' ? window.innerWidth : 0;
-        const availableWidth = Math.max(
-            scrollWidth,
-            panelWidth,
-            viewportWidth > 0 ? viewportWidth - 32 : 0,
-            windowWidth > 0 ? windowWidth - 32 : 0
-        );
+        const availableWidth = scrollWidth || panelWidth;
         if (availableWidth <= 0) return;
 
         // 根据容器宽度动态计算列数，并限制最大列数避免视觉过密。
@@ -210,12 +203,8 @@ export function useLayout(options: UseLayoutOptions) {
     async function syncLayout() {
         await nextTick();
         updateLayout();
-        await new Promise<void>((resolve) => {
-            requestAnimationFrame(() => {
-                updateLayout();
-                resolve();
-            });
-        });
+        // The search queue must not wait for a frame from a hidden/occluded WebView.
+        await nextTick();
     }
 
     // 3. 高亮滚动与键盘导航

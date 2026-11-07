@@ -32,10 +32,53 @@ export function assertVisible(condition, message) {
 }
 
 export async function waitForE2eBridge(timeoutMs = DEFAULT_TIMEOUT_MS) {
-    await browser.waitUntil(async () => browser.execute(() => Boolean(window.__TOUCHAI_E2E__)), {
-        timeout: timeoutMs,
-        timeoutMsg: 'TouchAI E2E bridge did not become available in the renderer.',
-    });
+    try {
+        await browser.waitUntil(
+            async () => browser.execute(() => Boolean(window.__TOUCHAI_E2E__)),
+            {
+                timeout: timeoutMs,
+                timeoutMsg: 'TouchAI E2E bridge did not become available in the renderer.',
+            }
+        );
+    } catch (error) {
+        // Report readiness and geometry only; never dump prompts or persisted settings.
+        const diagnostics = await browser
+            .execute(async () => {
+                const internals = window.__TAURI_INTERNALS__;
+                const read = async (command) => {
+                    if (!internals) return 'Tauri IPC unavailable';
+                    let timer;
+                    try {
+                        return await Promise.race([
+                            internals.invoke(command),
+                            new Promise((resolve) => {
+                                timer = setTimeout(() => resolve('IPC timed out'), 1000);
+                            }),
+                        ]);
+                    } catch (failure) {
+                        return String(failure);
+                    } finally {
+                        clearTimeout(timer);
+                    }
+                };
+                const surface = document.querySelector('[data-testid="search-view"]');
+                return {
+                    path: location.pathname,
+                    readyState: document.readyState,
+                    visibility: document.visibilityState,
+                    windowLabel: internals?.metadata?.currentWindow?.label,
+                    viewport: { width: innerWidth, height: innerHeight, scale: devicePixelRatio },
+                    surface: surface?.getBoundingClientRect().toJSON() ?? null,
+                    rendererEpoch: await read('get_search_window_renderer_epoch'),
+                    windowState: await read('get_search_window_state'),
+                    runtime: await read('get_runtime_info'),
+                };
+            })
+            .catch((failure) => ({ diagnosticsError: String(failure) }));
+        throw new Error(`${error.message}\nReadiness diagnostics: ${JSON.stringify(diagnostics)}`, {
+            cause: error,
+        });
+    }
 }
 
 export async function callE2eBridge(methodName, ...args) {
@@ -67,6 +110,60 @@ export async function callE2eBridge(methodName, ...args) {
 
 export async function findElementByTestId(testId) {
     return $(`[data-testid='${testId}']`);
+}
+
+/** Restore the logical card through its owner, without resizing the transparent native host. */
+export async function resetSearchSurface() {
+    await callE2eBridge('clearAskUser');
+    await callE2eBridge('setSearchQuery', '');
+    const hasConversation = await browser.execute(() =>
+        Boolean(document.querySelector('[data-testid="conversation-panel-host"]'))
+    );
+    if (hasConversation) await callE2eBridge('clearSessionToIdle');
+    await callE2eBridge('resetSearchWindowBounds');
+    await browser.waitUntil(
+        async () =>
+            browser.execute(async () => {
+                const card = document.querySelector('[data-testid="search-view-card"]');
+                const editor = document.querySelector(
+                    '[data-testid="search-editor-host"] .ProseMirror'
+                );
+                if (!card || !editor) return false;
+                const rect = editor.getBoundingClientRect();
+                const state = await window.__TOUCHAI_E2E__.getSearchWindowState();
+                return (
+                    !document.querySelector('[data-testid="conversation-panel-host"]') &&
+                    card.getAnimations().length === 0 &&
+                    Math.abs(card.getBoundingClientRect().height - state.defaults.height) <= 2 &&
+                    rect.top >= 0 &&
+                    rect.bottom <= innerHeight &&
+                    rect.height > 0
+                );
+            }),
+        { timeoutMsg: 'The search surface did not settle with an accessible idle editor.' }
+    );
+}
+
+/** Compare the visible card; the transparent host also reserves room for overlays. */
+export async function expectSearchSurfaceSnapshot(tag) {
+    const card = await waitForTestIdDisplayed('search-view-card');
+    await browser.waitUntil(
+        async () =>
+            browser.execute(() => {
+                const card = document.querySelector('[data-testid="search-view-card"]');
+                if (!card) return false;
+                const rect = card.getBoundingClientRect();
+                return (
+                    card.getAnimations().length === 0 &&
+                    rect.top >= 0 &&
+                    rect.bottom <= innerHeight + 1 &&
+                    rect.left >= 0 &&
+                    rect.right <= innerWidth + 1
+                );
+            }),
+        { timeoutMsg: 'The search card did not settle inside the native viewport.' }
+    );
+    await expect(card).toMatchElementSnapshot(tag, await visualMismatchTolerance());
 }
 
 /**

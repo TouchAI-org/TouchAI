@@ -43,6 +43,8 @@ const PROJECT_COMPONENT_CLASS_PATTERNS = [
     '^ask-user.*',
     '^conversation-.*',
     '^quick-search.*',
+    '^search-view.*',
+    '^search-surface.*',
     '^custom-scrollbar.*',
     '^tool-call-log.*',
     '^toolbar-button$',

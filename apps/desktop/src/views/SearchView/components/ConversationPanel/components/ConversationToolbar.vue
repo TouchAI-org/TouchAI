@@ -2,7 +2,6 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
-    import { getCurrentWindow } from '@tauri-apps/api/window';
     import { ref } from 'vue';
 
     import { t } from '@/i18n';
@@ -17,6 +16,7 @@
         historyOpen: boolean;
         canPin?: boolean;
         disabled?: boolean;
+        startDragging: (event: MouseEvent) => Promise<void>;
     }
 
     const props = withDefaults(defineProps<Props>(), {
@@ -88,11 +88,9 @@
 
         emit('dragStart');
         try {
-            await getCurrentWindow().startDragging();
+            await props.startDragging(event);
         } finally {
-            setTimeout(() => {
-                emit('dragEnd');
-            }, 100);
+            emit('dragEnd');
         }
     }
 
@@ -107,7 +105,7 @@
 
 <template>
     <div
-        class="toolbar-fade-overlay absolute top-0 right-0 left-0 z-30 flex h-[4.5rem] cursor-grab items-start px-10 pt-3 active:cursor-grabbing"
+        class="toolbar-fade-overlay pointer-events-auto absolute top-0 right-0 left-0 z-100 flex h-18 cursor-grab items-start px-10 pt-3 active:cursor-grabbing"
         @mousedown="handleToolbarDragMouseDown"
         @wheel.passive="emit('wheel', $event.deltaY)"
     >
