@@ -319,6 +319,56 @@ describe('SearchOverlayHost', () => {
         wrapper.unmount();
     });
 
+    it('user receives overlay keyboard focus when its visible entrance starts', async () => {
+        const anchor = document.createElement('button');
+        vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue(rect(20, 20));
+        const wrapper = mount(SearchOverlayHost, {
+            attachTo: document.body,
+            props: {
+                open: true,
+                reveal: false,
+                anchor,
+                onRevealed: () => (wrapper.get('input').element as HTMLInputElement).focus(),
+            },
+            slots: { default: '<input aria-label="Filter" />' },
+        });
+        await wrapper.setProps({ reveal: true });
+        for (let tick = 0; tick < 6; tick += 1) await nextTick();
+
+        expect(document.activeElement).not.toBe(wrapper.get('input').element);
+        expect(wrapper.emitted('revealed')).toBeUndefined();
+
+        runFrames();
+        await nextTick();
+        expect(document.activeElement).toBe(wrapper.get('input').element);
+        expect(wrapper.emitted('revealed')).toHaveLength(1);
+        wrapper.unmount();
+    });
+
+    it('user closing the overlay before its entrance cannot lose focus to the cancelled popup', async () => {
+        const anchor = document.createElement('button');
+        document.body.append(anchor);
+        anchor.focus();
+        vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue(rect(20, 20));
+        const wrapper = mount(SearchOverlayHost, {
+            attachTo: document.body,
+            props: {
+                open: true,
+                anchor,
+                onRevealed: () => (wrapper.get('input').element as HTMLInputElement).focus(),
+            },
+            slots: { default: '<input aria-label="Filter" />' },
+        });
+        for (let tick = 0; tick < 6; tick += 1) await nextTick();
+        await wrapper.setProps({ open: false });
+        runFrames();
+        await nextTick();
+
+        expect(document.activeElement).toBe(anchor);
+        expect(wrapper.emitted('revealed')).toBeUndefined();
+        wrapper.unmount();
+    });
+
     it('disconnects observation and cancels pending positioning on unmount', async () => {
         const anchor = document.createElement('button');
         vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue(rect(20, 20));

@@ -196,13 +196,16 @@
                 return;
             }
 
-            emit('revealed');
-            openTransitionFrame = requestAnimationFrame(() => {
+            openTransitionFrame = requestAnimationFrame(async () => {
                 openTransitionFrame = null;
                 if (!props.open || !props.reveal || token !== openTransitionToken) {
                     return;
                 }
                 overlayMotionState.value = 'open';
+                await nextTick();
+                if (isMounted && props.open && props.reveal && token === openTransitionToken) {
+                    emit('revealed');
+                }
             });
         });
     }

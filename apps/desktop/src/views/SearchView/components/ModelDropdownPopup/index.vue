@@ -15,7 +15,6 @@
                     ref="searchInputRef"
                     :value="localSearchQuery"
                     type="text"
-                    autofocus
                     :placeholder="t('popup.modelDropdown.searchPlaceholder')"
                     class="w-full border-0 bg-transparent text-xs text-stone-700 outline-none placeholder:text-stone-400"
                     @input="handleSearchInput"
