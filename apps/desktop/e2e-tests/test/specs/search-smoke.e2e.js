@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 
 import { useSearchFixture, waitForE2eBridge } from '../support/desktop.js';
 import { SEARCH_FIXTURE_RESULTS } from '../support/fixtures.js';
+import { expectFocused, startFocusTrace, stopFocusTrace } from '../support/focus.js';
 
 function sendTestGlobalShortcut(count = 1) {
     execFileSync(
@@ -21,7 +22,10 @@ describe('TouchAI search smoke', () => {
     before(async () => {
         await waitForE2eBridge();
         await useSearchFixture('touchai', SEARCH_FIXTURE_RESULTS);
+        await startFocusTrace();
     });
+
+    after(stopFocusTrace);
 
     it('user keeps the reopened window visible when pinning and unpinning with Ctrl+P', async () => {
         await browser.waitUntil(async () => browser.execute(() => Boolean(window.__TOUCHAI_E2E__)));
@@ -298,31 +302,7 @@ describe('TouchAI search smoke', () => {
         await overlayHost.waitForDisplayed();
         await modelDropdown.waitForDisplayed();
         const modelFilter = await modelDropdown.$('input');
-        let activeElementSnapshot = '';
-        try {
-            await browser.waitUntil(
-                async () => {
-                    activeElementSnapshot = await browser.execute(() => {
-                        const activeElement = document.activeElement;
-                        if (!(activeElement instanceof HTMLElement)) return String(activeElement);
-                        return JSON.stringify({
-                            tagName: activeElement.tagName,
-                            className: activeElement.className,
-                            testId: activeElement.dataset.testid ?? null,
-                            placeholder: activeElement.getAttribute('placeholder'),
-                        });
-                    });
-                    return modelFilter.isFocused();
-                },
-                {
-                    timeoutMsg: 'Expected model filter to receive focus after opening the overlay',
-                }
-            );
-        } catch {
-            throw new Error(
-                `Expected model filter to receive focus after opening the overlay; active element: ${activeElementSnapshot}`
-            );
-        }
+        await expectFocused(modelFilter, 'Expected model filter focus after opening the overlay');
         await modelFilter.setValue('no-match-model');
         const modelFilterValue = await modelFilter.getValue();
         if (modelFilterValue !== 'no-match-model') {
@@ -336,9 +316,10 @@ describe('TouchAI search smoke', () => {
         await sessionHistory.waitForDisplayed();
         await modelDropdown.waitForExist({ reverse: true });
         const historyFilter = await sessionHistory.$('input');
-        await browser.waitUntil(() => historyFilter.isFocused(), {
-            timeoutMsg: 'Expected history filter to receive focus after opening the overlay',
-        });
+        await expectFocused(
+            historyFilter,
+            'Expected history filter focus after opening the overlay'
+        );
         await historyFilter.setValue('no-match-session');
         const historyFilterValue = await historyFilter.getValue();
         if (historyFilterValue !== 'no-match-session') {
@@ -496,9 +477,10 @@ describe('TouchAI search smoke', () => {
         await browser.keys(['NULL']);
         const fixtureHistory = await $('[data-search-history-popover="true"]');
         const fixtureSearchInput = await fixtureHistory.$('input');
-        await browser.waitUntil(() => fixtureSearchInput.isFocused(), {
-            timeoutMsg: 'Expected history filter to become interactive before searching history',
-        });
+        await expectFocused(
+            fixtureSearchInput,
+            'Expected history filter focus before searching history'
+        );
         await fixtureSearchInput.setValue('E2E history toolbar session');
         const fixtureSession = await $('[data-search-history-popover="true"] .history-session-row');
         await fixtureSession.waitForDisplayed();
@@ -568,9 +550,7 @@ describe('TouchAI search smoke', () => {
         const history = await $('[data-search-history-popover="true"]');
         await history.waitForDisplayed();
         const historyFilter = await history.$('input');
-        await browser.waitUntil(() => historyFilter.isFocused(), {
-            timeoutMsg: 'Expected toolbar history to become interactive after native hide/show',
-        });
+        await expectFocused(historyFilter, 'Expected toolbar history focus after native hide/show');
         const after = await outerHeight();
         if (after.height < before.height - 20) {
             throw new Error(
@@ -589,15 +569,14 @@ describe('TouchAI search smoke', () => {
         await browser.keys(['NULL']);
         await modelDropdown.waitForDisplayed();
         const filter = await modelDropdown.$('input');
-        await browser.waitUntil(() => filter.isFocused(), {
-            timeoutMsg: 'Expected one Ctrl+M press to open and focus the model picker',
-        });
+        await expectFocused(filter, 'Expected one Ctrl+M press to open and focus the model picker');
 
         await browser.keys(['Control', 'm', 'm']);
         await browser.keys(['NULL']);
-        await browser.waitUntil(() => filter.isFocused(), {
-            timeoutMsg: 'Expected two more Ctrl+M presses to leave the model picker interactive',
-        });
+        await expectFocused(
+            filter,
+            'Expected two more Ctrl+M presses to leave the model picker interactive'
+        );
 
         await browser.keys(['Control', 'm']);
         await browser.keys(['NULL']);
