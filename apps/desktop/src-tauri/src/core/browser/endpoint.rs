@@ -1,8 +1,28 @@
+use std::sync::OnceLock;
 use std::{fmt, time::Duration};
 
 use reqwest::Url;
 
 use super::types::{BrowserEndpointSnapshot, CdpVersionResponse};
+
+/// 浏览器端点探测与页面操作共享的 HTTP 客户端。
+///
+/// 每次连接都新建 reqwest Client 会重新建立连接池与 TLS 配置；
+/// 端点固定为 loopback + no_proxy，配置恒定，可安全复用。
+pub fn shared_http_client() -> Result<&'static reqwest::Client, String> {
+    static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(4))
+                .build()
+                .map_err(|error| format!("Failed to build browser endpoint client: {error}"))
+        })
+        .as_ref()
+        .map_err(|error| error.clone())
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrowserEndpoint {
@@ -86,11 +106,7 @@ pub fn parse_loopback_endpoint(raw: &str) -> Result<BrowserEndpoint, String> {
 pub async fn validate_cdp_version_endpoint(
     endpoint: &BrowserEndpoint,
 ) -> Result<CdpVersionResponse, String> {
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .timeout(Duration::from_secs(4))
-        .build()
-        .map_err(|error| format!("Failed to build browser endpoint client: {error}"))?;
+    let client = shared_http_client()?;
 
     let version = client
         .get(endpoint.version_url())

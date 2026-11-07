@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type { AiToolCall } from '@/services/AgentService/contracts/tooling';
@@ -63,8 +63,10 @@ vi.mock('@/services/AgentService/catalog', () => ({
     getModel: vi.fn(),
 }));
 
-vi.mock('@/services/AgentService/infrastructure/providers', async (importOriginal) => ({
-    ...(await importOriginal<typeof import('@/services/AgentService/infrastructure/providers')>()),
+vi.mock('@/services/AgentService/infrastructure/providers/drivers', async (importOriginal) => ({
+    ...(await importOriginal<
+        typeof import('@/services/AgentService/infrastructure/providers/drivers')
+    >()),
     createProviderFromRegistry: createProviderFromRegistryMock,
 }));
 

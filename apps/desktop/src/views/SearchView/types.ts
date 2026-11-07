@@ -69,7 +69,6 @@ export interface ConversationPanelHandle {
     getHistoryAnchor: () => HTMLElement | null;
     isLatestContentVisible: () => boolean;
 }
-
 export interface SearchPageController {
     focusConversation: () => void;
     focusSearchInput: () => Promise<void>;

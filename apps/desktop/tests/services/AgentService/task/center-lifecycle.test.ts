@@ -1,8 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type { ExecuteRequestResult } from '@/services/AgentService/execution/runtime';
 import { log } from '@/services/ObservabilityService';
+import {
+    registerStartupCapability,
+    resetStartupCapabilities,
+} from '@/services/StartupService/capabilities';
 
 /**
  * The task center owns the lifecycle of a running conversation: which task a session
@@ -87,6 +91,7 @@ function createCenter() {
 }
 
 describe('user starts a conversation task', () => {
+    afterEach(resetStartupCapabilities);
     beforeEach(() => {
         runtimeState.run.mockReset();
         runtimeState.instances.length = 0;
@@ -155,6 +160,35 @@ describe('user starts a conversation task', () => {
 
         expect(second.taskId).not.toBe(first.taskId);
         expect(center.getSessionStatus(9)?.taskId).toBe(second.taskId);
+    });
+
+    it('user gets only one active task when submitting twice while startup is pending', async () => {
+        let release!: () => void;
+        registerStartupCapability(
+            'model-metadata',
+            new Promise<void>((resolve) => {
+                release = resolve;
+            })
+        );
+        runtimeState.run.mockImplementation(staysRunningInSession(5));
+        const center = createCenter();
+        const starts = Promise.allSettled([
+            center.startTask({ prompt: 'first', sessionId: 5 }),
+            center.startTask({ prompt: 'second', sessionId: 5 }),
+        ]);
+        release();
+
+        const [first, second] = await starts;
+        expect(first.status).toBe('fulfilled');
+        expect(second).toMatchObject({
+            status: 'rejected',
+            reason: { code: AiErrorCode.SESSION_ACTIVE_TASK_EXISTS },
+        });
+        expect(center.listActiveTasks()).toHaveLength(1);
+        if (first.status !== 'fulfilled') throw first.reason;
+        expect(center.attachSessionView(5)?.taskId).toBe(first.value.taskId);
+        center.cancelTask(first.value.taskId);
+        expect(latestOptions().signal?.aborted).toBe(true);
     });
 
     it('user gets no task at all when loading the earlier messages fails', async () => {

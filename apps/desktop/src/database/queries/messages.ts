@@ -14,13 +14,8 @@ export interface MessageRow extends MessageEntity {
     attachments: MessageAttachmentRow[];
 }
 
-export async function findMessagesBySessionId(sessionId: number): Promise<MessageRow[]> {
-    const rows = await db
-        .select()
-        .from(messages)
-        .where(eq(messages.session_id, sessionId))
-        .orderBy(asc(messages.id))
-        .all();
+/** 为一批消息补全 parts 与附件，避免逐条查询。 */
+async function hydrateMessageRows(rows: MessageEntity[]): Promise<MessageRow[]> {
     const ids = rows.map((row) => row.id);
     const [parts, attachments] = await Promise.all([
         findMessagePartsByMessageIds(ids),
@@ -44,6 +39,18 @@ export async function findMessagesBySessionId(sessionId: number): Promise<Messag
         attachments: attachmentsByMessage.get(row.id) ?? [],
     }));
 }
+
+export async function findMessagesBySessionId(sessionId: number): Promise<MessageRow[]> {
+    const rows = await db
+        .select()
+        .from(messages)
+        .where(eq(messages.session_id, sessionId))
+        .orderBy(asc(messages.id))
+        .all();
+
+    return hydrateMessageRows(rows);
+}
+
 /**
  * 创建消息。
  *

@@ -9,20 +9,38 @@ import McpToolList from '@/views/SettingsView/components/McpTools/components/Mcp
 import McpToolLogViewer from '@/views/SettingsView/components/McpTools/components/McpToolLogViewer.vue';
 import McpToolsSection from '@/views/SettingsView/components/McpTools/index.vue';
 
-const { findMcpToolLogsByServerIdMock, findMcpToolsByServerIdMock } = vi.hoisted(() => ({
-    findMcpToolLogsByServerIdMock: vi.fn(),
-    findMcpToolsByServerIdMock: vi.fn(),
-}));
+const { findMcpToolLogByIdMock, findMcpToolLogsByServerIdMock, findMcpToolsByServerIdMock } =
+    vi.hoisted(() => ({
+        findMcpToolLogByIdMock: vi.fn(),
+        findMcpToolLogsByServerIdMock: vi.fn(),
+        findMcpToolsByServerIdMock: vi.fn(),
+    }));
 
 vi.mock('@database/queries', () => ({
     createMcpServer: vi.fn(),
     deleteMcpServer: vi.fn(),
     findAllMcpServers: vi.fn(async () => []),
     findMcpToolLogsByServerId: findMcpToolLogsByServerIdMock,
+    findMcpToolLogSummariesByServerId: findMcpToolLogsByServerIdMock,
+    findMcpToolLogById: findMcpToolLogByIdMock,
     findMcpToolsByServerId: findMcpToolsByServerIdMock,
     updateMcpServer: vi.fn(),
     updateMcpTool: vi.fn(),
 }));
+
+/** 列表走摘要投影，展开时才按 id 取完整正文。 */
+function setMcpLogs(logs: Array<Record<string, unknown> & { id: number }>) {
+    findMcpToolLogsByServerIdMock.mockResolvedValue(
+        logs.map((log) => ({
+            ...log,
+            input_preview: typeof log.input === 'string' ? log.input : null,
+            output_length: typeof log.output === 'string' ? log.output.length : 0,
+        }))
+    );
+    findMcpToolLogByIdMock.mockImplementation(async (id: number) =>
+        logs.find((log) => log.id === id)
+    );
+}
 
 vi.mock('@composables/useMcpConnection', () => ({
     useMcpConnection: () => ({
@@ -138,7 +156,7 @@ async function flushMountedPromises() {
     }
 }
 
-describe('user configures MCP servers', () => {
+describe('MCP settings i18n and long text layout', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('en-US');
@@ -146,7 +164,7 @@ describe('user configures MCP servers', () => {
         findMcpToolsByServerIdMock.mockResolvedValue([]);
     });
 
-    it('user sees section tabs, buttons, and empty states in English', async () => {
+    it('renders section tabs, buttons, and empty states in English', async () => {
         const wrapper = mountWithPinia(McpToolsSection);
 
         await flushMountedPromises();
@@ -159,7 +177,7 @@ describe('user configures MCP servers', () => {
         expect(wrapper.text()).not.toContain('暂无服务器');
     });
 
-    it('user sees configuration labels, placeholders, and transport descriptions in English', () => {
+    it('renders configuration labels, placeholders, and transport descriptions in English', () => {
         const wrapper = mountWithPinia(McpServerConfig, {
             props: { server },
         });
@@ -179,7 +197,7 @@ describe('user configures MCP servers', () => {
         expect(wrapper.text()).not.toContain('服务器配置');
     });
 
-    it('user sees tool filters, empty states, parameter labels, and wrapping classes in English', async () => {
+    it('renders tool filters, empty states, parameter labels, and wrapping classes in English', async () => {
         findMcpToolsByServerIdMock.mockResolvedValue([
             {
                 created_at: '2026-05-20T00:00:00.000Z',
@@ -221,7 +239,7 @@ describe('user configures MCP servers', () => {
         expect(wrapper.find('td').classes()).toContain('break-all');
     });
 
-    it('user does not let the global DOM localizer rewrite dynamic MCP tool payload text', async () => {
+    it('does not let the global DOM localizer rewrite dynamic MCP tool payload text', async () => {
         findMcpToolsByServerIdMock.mockResolvedValue([
             {
                 created_at: '2026-05-20T00:00:00.000Z',
@@ -269,8 +287,8 @@ describe('user configures MCP servers', () => {
         wrapper.unmount();
     });
 
-    it('user sees log filters and header dates in English without iteration labels', async () => {
-        findMcpToolLogsByServerIdMock.mockResolvedValue([
+    it('renders log filters and header dates in English without iteration labels', async () => {
+        setMcpLogs([
             {
                 created_at: '2026-05-20T08:30:00.000Z',
                 duration_ms: 25,
@@ -323,8 +341,13 @@ describe('user configures MCP servers', () => {
         expect(wrapper.text()).not.toContain('Iteration');
         expect(wrapper.text()).not.toContain('迭代');
 
-        await wrapper.get('button.w-full').trigger('click');
+        // 展开之前不应读取完整日志正文。
+        expect(findMcpToolLogByIdMock).not.toHaveBeenCalled();
 
+        await wrapper.get('button.w-full').trigger('click');
+        await flushMountedPromises();
+
+        expect(findMcpToolLogByIdMock).toHaveBeenCalledWith(20);
         expect(wrapper.get('[data-testid="tool-log-content"]').text()).toContain('{"ok":true}');
         expect(wrapper.find('[data-testid="mcp-tool-log-detail-metadata"]').exists()).toBe(false);
         expect(wrapper.text()).not.toContain('tool-call-with-long-id');

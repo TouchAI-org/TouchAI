@@ -8,7 +8,7 @@
 <template>
     <AnimatePresence>
         <motion.div
-            v-if="current"
+            v-if="current && mappedQuestions.length > 0"
             :key="current.id"
             data-testid="ask-user-panel"
             class="ask-user-panel w-full flex-shrink-0"
