@@ -63,6 +63,9 @@ const {
             sessionHistoryOverlayOpen: Ref<boolean>;
             handleSubmit: ReturnType<typeof vi.fn>;
             clearSession: ReturnType<typeof vi.fn>;
+            openSession: ReturnType<typeof vi.fn>;
+            markHistorySelectionPending: ReturnType<typeof vi.fn>;
+            abandonHistorySelection: ReturnType<typeof vi.fn>;
             sessionHistory: Ref<SessionMessage[]>;
         } | null,
     },
@@ -422,6 +425,7 @@ interface SearchViewSetupState {
     surfaceMeasurementHold: boolean;
     handleQuickSearchOpenChange: (open: boolean) => void;
     clearSessionToIdle: () => Promise<void>;
+    handleOpenSession: (id: number, origin: 'history') => Promise<void>;
     handleModelSelect: (modelDbId: number) => Promise<void>;
     handleToggleModelDropdownRequest: () => Promise<void>;
     handleOverlayPositioned: (position: {
@@ -1149,6 +1153,19 @@ describe('SearchView async overlay and listener lifecycle', () => {
         } finally {
             HTMLElement.prototype.getAnimations = original;
         }
+    });
+
+    it('user hiding the window before a history selection opens releases that selection', async () => {
+        const setup = getSetupState(mountSearchView());
+        const selection = { interaction: Promise.resolve({}), resultCount: 1 };
+        requestFlowState.current!.markHistorySelectionPending.mockReturnValueOnce(selection);
+        const opening = setup.handleOpenSession(1, 'history');
+        await keyboardState.options!.hideSearchWindow();
+        await opening;
+
+        expect(requestFlowState.current!.openSession).not.toHaveBeenCalled();
+        expect(requestFlowState.current!.abandonHistorySelection).toHaveBeenCalledWith(selection);
+        expect(setup.surfaceMeasurementHold).toBe(false);
     });
 
     it('does not install the E2E bridge when unmount wins a pending mode check', async () => {

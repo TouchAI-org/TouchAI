@@ -2022,7 +2022,10 @@
             throw error;
         }
         resetSessionInputHistoryTracking();
-        if (expansion.signal.aborted) return;
+        if (expansion.signal.aborted) {
+            abandonHistorySelection(selection);
+            return;
+        }
         try {
             // Keep the native host put until the opened session has a measured
             // height. The visible card then grows in CSS inside that frame.
