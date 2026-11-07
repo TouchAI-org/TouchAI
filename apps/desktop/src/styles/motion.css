@@ -304,8 +304,8 @@
     }
 }
 
-/* Covers existing CSS, utility animations and embedded renderers too.
-   A nonzero instant duration preserves animationend/presence cleanup. */
+/* Preserve animationend for presence cleanup. Transitions stay immediate: a
+   global nonzero duration also animates static visibility and rejects focus. */
 @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -313,7 +313,7 @@
         animation-duration: 0.01ms !important;
         animation-delay: 0ms !important;
         animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
+        transition-duration: 0ms !important;
         transition-delay: 0ms !important;
         scroll-behavior: auto !important;
     }

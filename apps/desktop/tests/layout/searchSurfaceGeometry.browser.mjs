@@ -31,24 +31,26 @@ const fixture = `<script setup>
 import {computed,nextTick,onMounted,ref} from 'vue';
 import {useSearchWindowResize} from '${root}/src/views/SearchView/composables/useSearchWindowResize';
 import SearchOverlayHost from '${root}/src/views/SearchView/components/SearchOverlayHost/index.vue';
-const card=ref(null),editor=ref(null),trigger=ref(null),menu=ref(null),open=ref(false),ready=ref(false);
+const card=ref(null),editor=ref(null),trigger=ref(null),menu=ref(null),filter=ref(null),open=ref(false),reveal=ref(false),ready=ref(false);
 const resize=useSearchWindowResize({target:ref(null),card,sessionCount:ref(1),quickSearchOpen:ref(false),defaultSize:ref({width:750,height:60}),ready});
 const height=computed(()=>resize.cardHeight.value || 60);
+let onRevealed;
+function focusMenu(){filter.value.focus({preventScroll:true});onRevealed?.({accepted:document.activeElement===filter.value,visibility:getComputedStyle(filter.value).visibility});onRevealed=null}
 
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 onMounted(()=>{ready.value=true});
 window.geometryProbe={
 async prepareHidden(){window.monitorHost=false;await resize.syncWindowState();await nextTick();return {panel:card.value.parentElement.getBoundingClientRect().toJSON(),card:card.value.getBoundingClientRect().toJSON()}},
 async expand(interrupt=false){await pause(100);const samples=[];let done=false;const read=()=>{const r=card.value.getBoundingClientRect();samples.push({height:r.height,top:r.top,hostY:window.hostPosition().y,center:window.hostPosition().y+(r.top+r.height/2)*window.devicePixelRatio});if(!done)requestAnimationFrame(read)};read();await resize.playSessionExpandAnimation(660);if(interrupt){await pause(80);await resize.playSessionExpandAnimation(600)}await pause(500);done=true;return samples},
-async showMenu(){open.value=true;await nextTick();await menu.value.refreshPosition();await pause(220);return {card:card.value.getBoundingClientRect().toJSON(),editor:editor.value.getBoundingClientRect().toJSON(),menu:document.querySelector('[data-search-overlay-host]').getBoundingClientRect().toJSON()}},
+async showMenu(){const focused=new Promise(resolve=>onRevealed=resolve);reveal.value=false;open.value=true;await nextTick();await menu.value.refreshPosition();await new Promise(requestAnimationFrame);reveal.value=true;const focus=await focused;await pause(220);return {focus,card:card.value.getBoundingClientRect().toJSON(),editor:editor.value.getBoundingClientRect().toJSON(),menu:document.querySelector('[data-search-overlay-host]').getBoundingClientRect().toJSON()}},
 async hideMenu(){open.value=false;await pause(200)}
 };
 </script><template>
 <section :style="resize.panelStyle.value"><main ref="card" :style="{...resize.cardStyle.value,height:height+'px',background:'#faf9f6',display:'flex',flexDirection:'column',justifyContent:'end'}">
 <div ref="editor" style="height:60px;flex-shrink:0;padding:12px;box-sizing:border-box"><button ref="trigger">Models</button></div>
 </main></section>
-<SearchOverlayHost ref="menu" :open="open" :anchor="trigger" :position-anchor="editor" :left-align-element="card" :max-viewport-height="900" :gap="5">
-<div style="width:320px;height:384px;max-height:var(--search-overlay-max-height);overflow:auto;background:#faf9f6;border:1px solid gray;box-sizing:border-box"><div style="height:600px">Model list</div></div>
+<SearchOverlayHost ref="menu" :open="open" :reveal="reveal" :anchor="trigger" :position-anchor="editor" :left-align-element="card" :max-viewport-height="900" :gap="5" @revealed="focusMenu">
+<div style="width:320px;height:384px;max-height:var(--search-overlay-max-height);overflow:auto;background:#faf9f6;border:1px solid gray;box-sizing:border-box"><input ref="filter" aria-label="Filter models" /><div style="height:600px">Model list</div></div>
 </SearchOverlayHost>
 </template>`;
 const modules = {
@@ -64,7 +66,7 @@ const aliases = {
 const entry = `${outputDirectory}/geometry-entry.ts`;
 await writeFile(
     entry,
-    "import{createApp}from'vue';import App from'probe:fixture.vue';createApp(App).mount('#probe');"
+    `import{createApp}from'vue';import App from'probe:fixture.vue';import '${root}/src/styles/motion.css';createApp(App).mount('#probe');`
 );
 const result = await build({
     root,
@@ -105,6 +107,7 @@ const browser = await chromium.launch({
     headless: true,
 });
 const reports = [];
+const focusReports = [];
 try {
     const hiddenPage = await browser.newPage();
     await hiddenPage.setContent(
@@ -117,6 +120,31 @@ try {
     assert.equal(hidden.card.width, 750, 'hidden card can be measured before native show');
     await writeFile(`${outputDirectory}/hidden-geometry.json`, JSON.stringify(hidden, null, 2));
     await hiddenPage.close();
+    for (const reducedMotion of ['no-preference', 'reduce']) {
+        const page = await browser.newPage({ reducedMotion });
+        await page.setContent(
+            `<style>${css}.fixed{position:fixed}.inline-block{display:inline-block}</style><div id="probe"></div>`
+        );
+        await page.addScriptTag({ content: bundle });
+        for (let opening = 0; opening < 2; opening += 1) {
+            const { focus } = await page.evaluate(() => window.geometryProbe.showMenu());
+            focusReports.push({ reducedMotion, opening, ...focus });
+            await page.evaluate(() => window.geometryProbe.hideMenu());
+        }
+        await page.close();
+    }
+    await writeFile(
+        `${outputDirectory}/overlay-focus-results.json`,
+        JSON.stringify(focusReports, null, 2)
+    );
+    for (const report of focusReports) {
+        assert.equal(
+            report.visibility,
+            'visible',
+            `The popup is visible at focus handoff (${report.reducedMotion}, opening ${report.opening})`
+        );
+        assert.ok(report.accepted, 'The popup receives keyboard focus when its entrance starts');
+    }
     for (const width of [516, 846]) {
         for (const scale of [1, 1.5]) {
             for (const interrupt of [false, true]) {
@@ -168,4 +196,6 @@ for (const report of reports) {
         );
     }
 }
-console.log(`PASS: ${reports.length} browser geometry cases`);
+console.log(
+    `PASS: ${reports.length} browser geometry cases; ${focusReports.length} popup focus cases`
+);
