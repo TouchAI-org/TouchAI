@@ -8,9 +8,8 @@ use serde_json::{Map, Value};
 use std::path::PathBuf;
 
 /// 允许在 Linux 覆盖里与基础配置不同的字段。
-/// - `transparent`：Linux 用透明窗口承载 CSS 圆角。
 /// - `backgroundColor`：透明窗口下由 CSS 外壳负责底色，不再设置窗口底色。
-const ALLOWED_LINUX_OVERRIDES: [&str; 2] = ["transparent", "backgroundColor"];
+const ALLOWED_LINUX_OVERRIDES: [&str; 1] = ["backgroundColor"];
 
 fn read_config(file_name: &str) -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(file_name);
@@ -79,12 +78,17 @@ fn linux_main_window_is_transparent_for_css_rounded_corners() {
 }
 
 #[test]
-fn base_config_keeps_the_opaque_main_window() {
+fn base_config_keeps_the_transparent_main_window() {
     let base = read_config("tauri.conf.json");
 
     assert_eq!(
         main_window(&base).get("transparent"),
-        Some(&Value::Bool(false)),
-        "only Linux uses a transparent window; other platforms keep the opaque window"
+        Some(&Value::Bool(true)),
+        "the main window must stay transparent so the CSS shell owns rounded corners"
+    );
+    assert_eq!(
+        main_window(&base).get("backgroundColor"),
+        Some(&Value::String("#00000000".to_owned())),
+        "the base window must keep an explicit transparent background"
     );
 }

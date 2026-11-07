@@ -227,7 +227,7 @@ describe('TouchAI search smoke', () => {
         const maxCardHeight = Math.max(...cardHeights);
 
         const submittedLayout = await browser.execute(() => {
-            const conversation = document.querySelector('.conversation-container');
+            const conversation = document.querySelector('[data-testid="conversation-panel-host"]');
             const card = document.querySelector("[data-testid='search-view-card']");
             const frame = document.querySelector("[data-testid='search-view-expand-frame']");
             const cardRect = card instanceof HTMLElement ? card.getBoundingClientRect() : null;
@@ -519,7 +519,7 @@ describe('TouchAI search smoke', () => {
 
         const conversationLayout = await browser.execute(() => {
             const panel = document.querySelector('[data-testid="search-view"] > div > div');
-            const container = document.querySelector('.conversation-container');
+            const container = document.querySelector('[data-testid="conversation-panel-host"]');
             if (!(panel instanceof HTMLElement) || !(container instanceof HTMLElement)) {
                 return null;
             }

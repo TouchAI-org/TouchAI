@@ -420,6 +420,8 @@ interface UseSearchPageLifecycleOptions {
     shouldClearSessionAfterTimeout?: () => boolean | Promise<boolean>;
     reconcileSearchOverlays?: (restoreFocus?: boolean) => Promise<void>;
     remeasureSearchWindowHeight?: () => void | Promise<void>;
+    /** Runs synchronously after the native lifecycle sequence is accepted. */
+    onSurfaceVisibilityChange?: (visible: boolean) => void;
     onSurfaceHidden?: () => void | Promise<void>;
     handleSearchSurfaceCommand?: (payload: SearchSurfaceCommandEvent) => void | Promise<void>;
     handleSessionStatusReminderAction?: (
@@ -444,6 +446,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         shouldClearSessionAfterTimeout,
         reconcileSearchOverlays,
         remeasureSearchWindowHeight,
+        onSurfaceVisibilityChange,
         onSurfaceHidden,
         handleSearchSurfaceCommand,
         handleSessionStatusReminderAction,
@@ -739,6 +742,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         const isCurrent = () =>
             lifecycleEpoch === surfaceLifecycleEpoch && interactionContext.state.windowVisible;
         interactionContext.markWindowVisible();
+        onSurfaceVisibilityChange?.(true);
         void trackSurfaceOpened(mapSearchSurfaceSource(payload.source));
         handleReminderSurfaceVisible();
         await handleSearchWindowActivated(payload.source, isCurrent);
@@ -754,6 +758,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
             hideReason: payload.reason,
             hiddenAt: Date.now(),
         });
+        onSurfaceVisibilityChange?.(false);
         await Promise.resolve(onSurfaceHidden?.()).catch((error) => {
             log.error('[SearchView] Failed to clear UI after surface hidden:', error);
         });

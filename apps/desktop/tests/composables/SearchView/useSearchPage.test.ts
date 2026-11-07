@@ -877,6 +877,7 @@ describe('useSearchPageLifecycle', () => {
         const reconcileSearchOverlays = vi.fn().mockResolvedValue(undefined);
         const handleShortcutAutoPaste = vi.fn().mockResolvedValue(undefined);
         const syncWindowPinState = vi.fn().mockResolvedValue(false);
+        const acceptedVisibility: boolean[] = [];
 
         const mounted = await mountComposable(() =>
             useSearchPageLifecycle({
@@ -886,6 +887,9 @@ describe('useSearchPageLifecycle', () => {
                 isPinned: ref(false),
                 interactionContext,
                 syncWindowPinState,
+                onSurfaceVisibilityChange: (visible) => {
+                    acceptedVisibility.push(visible);
+                },
                 clearSession,
                 reconcileSearchOverlays,
                 handleShortcutAutoPaste,
@@ -903,6 +907,7 @@ describe('useSearchPageLifecycle', () => {
         await flushLifecycle();
 
         expect(interactionContext.state.windowVisible).toBe(false);
+        expect(acceptedVisibility).toEqual([true, false]);
 
         controller.focusSearchInput.mockClear();
         controller.loadActiveModel.mockClear();
@@ -921,6 +926,11 @@ describe('useSearchPageLifecycle', () => {
         expect(reconcileSearchOverlays).not.toHaveBeenCalled();
         expect(handleShortcutAutoPaste).not.toHaveBeenCalled();
         expect(syncWindowPinState).not.toHaveBeenCalled();
+
+        await surfaceShownHandler(createShownEvent(4));
+        await surfaceHiddenHandler({ sequence: 3, reason: 'manual-dismiss' });
+        expect(interactionContext.state.windowVisible).toBe(true);
+        expect(acceptedVisibility).toEqual([true, false, true]);
 
         mounted.unmount();
     });

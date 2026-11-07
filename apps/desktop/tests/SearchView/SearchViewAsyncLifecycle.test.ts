@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, nextTick, type Ref } from 'vue';
 
 import SearchView from '@/views/SearchView/index.vue';
+import type { SearchSurfacePreparationControllerOptions } from '@/views/SearchView/searchSurfacePreparation';
 
 const {
     controllerMock,
@@ -38,6 +39,10 @@ const {
     },
     currentWindowMock: {
         onMoved: vi.fn(),
+        outerPosition: vi.fn(),
+        outerSize: vi.fn(),
+        innerSize: vi.fn(),
+        scaleFactor: vi.fn(),
     },
     eventServiceMock: {
         on: vi.fn(),
@@ -76,6 +81,7 @@ const {
         ),
     },
     surfacePreparationState: {
+        options: null as SearchSurfacePreparationControllerOptions | null,
         start: vi.fn<() => Promise<boolean>>(),
         notifyViewportChanged: vi.fn(),
         dispose: vi.fn(),
@@ -371,7 +377,12 @@ vi.mock('@/views/SearchView/searchWindowRegions', () => ({
 }));
 
 vi.mock('@/views/SearchView/searchSurfacePreparation', () => ({
-    createSearchSurfacePreparationController: () => surfacePreparationState,
+    createSearchSurfacePreparationController: (
+        options: SearchSurfacePreparationControllerOptions
+    ) => {
+        surfacePreparationState.options = options;
+        return surfacePreparationState;
+    },
     settleSearchSurfaceViewport: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -469,6 +480,10 @@ describe('SearchView async overlay and listener lifecycle', () => {
             providerId: null,
         });
         currentWindowMock.onMoved.mockResolvedValue(() => undefined);
+        currentWindowMock.outerPosition.mockResolvedValue({ x: 100, y: 200 });
+        currentWindowMock.outerSize.mockResolvedValue({ width: 766, height: 98 });
+        currentWindowMock.innerSize.mockResolvedValue({ width: 750, height: 60 });
+        currentWindowMock.scaleFactor.mockResolvedValue(1);
         eventServiceMock.on.mockResolvedValue(() => undefined);
     });
 
@@ -931,6 +946,15 @@ describe('SearchView async overlay and listener lifecycle', () => {
         expect(controllerMock.getModelDropdownAnchor).not.toHaveBeenCalled();
         expect(setup.activeOverlay).toBe('none');
         expect(setup.modelDropdownState).toEqual({ isOpen: false });
+    });
+
+    it('user can show the search surface when native borders differ from the prepared client viewport', async () => {
+        mountSearchView();
+        const viewport = await surfacePreparationState.options!.getViewport();
+        expect(viewport).toEqual({
+            physicalViewport: { x: 100, y: 200, width: 750, height: 60 },
+            scaleFactor: 1,
+        });
     });
 
     it('does not install the E2E bridge when unmount cancels the initial native commit', async () => {

@@ -112,6 +112,60 @@ export async function findElementByTestId(testId) {
     return $(`[data-testid='${testId}']`);
 }
 
+/** Restore the logical card through its owner, without resizing the transparent native host. */
+export async function resetSearchSurface() {
+    await callE2eBridge('clearAskUser');
+    await callE2eBridge('setSearchQuery', '');
+    const hasConversation = await browser.execute(() =>
+        Boolean(document.querySelector('[data-testid="conversation-panel-host"]'))
+    );
+    if (hasConversation) await callE2eBridge('clearSessionToIdle');
+    await callE2eBridge('resetSearchWindowBounds');
+    await browser.waitUntil(
+        async () =>
+            browser.execute(async () => {
+                const card = document.querySelector('[data-testid="search-view-card"]');
+                const editor = document.querySelector(
+                    '[data-testid="search-editor-host"] .ProseMirror'
+                );
+                if (!card || !editor) return false;
+                const rect = editor.getBoundingClientRect();
+                const state = await window.__TOUCHAI_E2E__.getSearchWindowState();
+                return (
+                    !document.querySelector('[data-testid="conversation-panel-host"]') &&
+                    card.getAnimations().length === 0 &&
+                    Math.abs(card.getBoundingClientRect().height - state.defaults.height) <= 2 &&
+                    rect.top >= 0 &&
+                    rect.bottom <= innerHeight &&
+                    rect.height > 0
+                );
+            }),
+        { timeoutMsg: 'The search surface did not settle with an accessible idle editor.' }
+    );
+}
+
+/** Compare the visible card; the transparent host also reserves room for overlays. */
+export async function expectSearchSurfaceSnapshot(tag) {
+    const card = await waitForTestIdDisplayed('search-view-card');
+    await browser.waitUntil(
+        async () =>
+            browser.execute(() => {
+                const card = document.querySelector('[data-testid="search-view-card"]');
+                if (!card) return false;
+                const rect = card.getBoundingClientRect();
+                return (
+                    card.getAnimations().length === 0 &&
+                    rect.top >= 0 &&
+                    rect.bottom <= innerHeight + 1 &&
+                    rect.left >= 0 &&
+                    rect.right <= innerWidth + 1
+                );
+            }),
+        { timeoutMsg: 'The search card did not settle inside the native viewport.' }
+    );
+    await expect(card).toMatchElementSnapshot(tag, await visualMismatchTolerance());
+}
+
 /**
  * The interface language every E2E run uses.
  *

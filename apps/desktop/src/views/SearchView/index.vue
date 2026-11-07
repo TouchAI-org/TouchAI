@@ -998,6 +998,10 @@
         shouldClearSessionAfterTimeout,
         reconcileSearchOverlays: hideAllOverlays,
         remeasureSearchWindowHeight: remeasureTargetHeight,
+        onSurfaceVisibilityChange: (visible) => {
+            surfaceHiding.value = !visible;
+            if (visible) handleHostViewportChange();
+        },
         onSurfaceHidden: clearSurfaceUiAfterHidden,
         handleSearchSurfaceCommand: (payload) => {
             routeSearchSurfaceCommand?.(payload);
@@ -1016,7 +1020,7 @@
         getViewport: async () => {
             const [position, size, scaleFactor] = await Promise.all([
                 searchHostWindow.outerPosition(),
-                searchHostWindow.outerSize(),
+                searchHostWindow.innerSize(),
                 searchHostWindow.scaleFactor(),
             ]);
             return {
@@ -1032,16 +1036,8 @@
         settle: settleSearchSurfaceViewport,
         flush: (preparation) =>
             searchWindowRegionReporter.flush('surface-preparation', true, preparation),
-        onShown: async (payload) => {
-            surfaceHiding.value = false;
-            handleHostViewportChange();
-            await remeasureTargetHeight();
-            await handleSearchSurfaceShown(payload);
-        },
-        onHidden: (payload) => {
-            surfaceHiding.value = true;
-            return handleSearchSurfaceHidden(payload);
-        },
+        onShown: handleSearchSurfaceShown,
+        onHidden: handleSearchSurfaceHidden,
         onError: (error) => {
             log.error('[SearchView] Failed to commit search surface preparation:', error);
             void native.window.hideSearchWindow().catch((hideError) => {
@@ -2558,6 +2554,7 @@
                             <div
                                 v-if="searchViewContentReady && sessionHistory.length > 0"
                                 ref="conversationContainer"
+                                data-testid="conversation-panel-host"
                                 class="min-h-0 w-full flex-1 overflow-hidden"
                             >
                                 <ConversationPanel
