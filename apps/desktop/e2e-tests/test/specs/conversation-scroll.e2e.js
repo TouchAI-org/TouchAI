@@ -237,7 +237,10 @@ describe('user scrolls a long conversation', () => {
         await browser.pause(1500);
 
         for (const index of [4, 14, 4, 4]) {
-            const samples = await sampleConversationNavigation(index, `e2e-scroll-${index * 2}`);
+            const { samples, ...diagnostics } = await sampleConversationNavigation(
+                index,
+                `e2e-scroll-${index * 2}`
+            );
             const excursion = targetExcursionAfterArrival(samples);
             const changedFrames = samples.filter(
                 (sample, frame) =>
@@ -245,6 +248,9 @@ describe('user scrolls a long conversation', () => {
                     sample.top !== samples[frame - 1].top ||
                     sample.afterLayout.top !== sample.top
             );
+            if (excursion > 2) {
+                console.error(`[navigation diagnostics] ${JSON.stringify(diagnostics)}`);
+            }
             assertVisible(
                 excursion <= 2,
                 `Question ${index} moved after arriving (${excursion}px); changed frames: ${JSON.stringify(changedFrames.slice(0, 16))}.`
