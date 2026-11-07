@@ -190,19 +190,16 @@ export function createClient({ token, owner, repo }) {
         },
 
         async getDiff(number) {
-            const response = await fetch(`${API}${repoPath}/pulls/${number}`, {
-                headers: headers(token, { Accept: 'application/vnd.github.diff' }),
-            });
-
-            if (!response.ok) {
-                throw new GitHubError(
-                    `GET pull request diff failed with ${response.status}`,
-                    response.status,
-                    (await response.text()).slice(0, 500)
-                );
-            }
-
-            return response.text();
+            // The aggregate diff endpoint rejects PRs above 20,000 lines.
+            // File patches use the existing pagination and the planner's UI-only budget.
+            const files = await this.listPullRequestFiles(number);
+            return files
+                .map(
+                    (file) =>
+                        `diff --git a/${file.previous_filename ?? file.filename} b/${file.filename}\n` +
+                        `${file.patch ?? 'Patch unavailable from GitHub (binary or oversized file).'}\n`
+                )
+                .join('');
         },
 
         /**
