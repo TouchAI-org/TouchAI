@@ -262,6 +262,12 @@ export async function initializeApp() {
 
     if (shouldUseLightweightBootstrap()) {
         app.mount('#app');
+        // Keep tray motion preferences synchronized without delaying its first paint.
+        void useSettingsStore(pinia)
+            .initialize()
+            .catch((error) => {
+                log.warn('Failed to initialize tray preferences.', error);
+            });
         return;
     }
 

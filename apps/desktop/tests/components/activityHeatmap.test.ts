@@ -343,7 +343,15 @@ describe('user reads the legend', () => {
     it('user reads the calendar immediately when reduced motion is requested', async () => {
         // Nothing animates, so the cells are readable on the very first paint
         // even though requestAnimationFrame never runs.
-        vi.stubGlobal('matchMedia', () => ({ matches: true }) as MediaQueryList);
+        vi.stubGlobal(
+            'matchMedia',
+            () =>
+                ({
+                    matches: true,
+                    addEventListener: vi.fn(),
+                    removeEventListener: vi.fn(),
+                }) as unknown as MediaQueryList
+        );
         vi.stubGlobal('requestAnimationFrame', () => 1);
 
         const wrapper = mountHeatmap();

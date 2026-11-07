@@ -15,6 +15,7 @@
      */
     import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 
+    import { useMotion } from '@/composables/useMotion';
     import { t } from '@/i18n';
 
     import { columnPath, fittingLabels, niceScale } from './geometry';
@@ -166,10 +167,12 @@
     // ===== Growth animation =====
 
     /** 0 to 1: the whole plot grows from the baseline. */
-    const grown = ref(false);
+    const { reducedMotion, duration } = useMotion();
+    const grown = ref(reducedMotion.value);
     let entryFrame = 0;
 
     onMounted(() => {
+        if (reducedMotion.value) return;
         // Wait a frame before enabling the transition, so the first paint does
         // not animate from 0.
         entryFrame = requestAnimationFrame(() => {
@@ -185,7 +188,7 @@
 
     /** Per-bar entry delay: staggered left to right, capped at 240ms. */
     function delayOf(index: number): string {
-        return `${Math.min(index * 14, 240)}ms`;
+        return `${duration(Math.min(index * 14, 240))}ms`;
     }
 
     // ===== Interaction =====
@@ -344,8 +347,8 @@
                             :key="column.key"
                             :style="{
                                 transformOrigin: `0px ${plotHeight}px`,
-                                transform: grown ? 'scaleY(1)' : 'scaleY(0)',
-                                transition: `transform 620ms cubic-bezier(.22,.61,.36,1) ${delayOf(index)}`,
+                                transform: grown || reducedMotion ? 'scaleY(1)' : 'scaleY(0)',
+                                transition: `transform ${duration(620)}ms cubic-bezier(.22,.61,.36,1) ${delayOf(index)}`,
                             }"
                         >
                             <path

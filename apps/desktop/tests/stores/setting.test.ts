@@ -23,6 +23,8 @@ import { JSON_SETTINGS_SECTIONS } from '@/stores/setting/sections/registry';
 import { DEFAULT_SEARCH_SETTINGS } from '@/stores/setting/sections/search';
 
 const EXPECTED_GENERAL_SETTING_KEYS: GeneralSettingKey[] = [
+    'animation_speed',
+    'automatically_reduce_motion',
     'global_shortcut',
     'start_on_boot',
     'start_minimized',
@@ -116,6 +118,8 @@ describe('user changes a persisted setting', () => {
 
     it('user declares stable computed and updater bindings in the settings registry', () => {
         expect(GENERAL_SETTING_COMPUTED_BINDINGS.map((binding) => binding.exposedName)).toEqual([
+            'animationSpeed',
+            'automaticallyReduceMotion',
             'globalShortcut',
             'outputScrollBehavior',
             'searchWindowSizePreset',
@@ -131,6 +135,8 @@ describe('user changes a persisted setting', () => {
         ]);
 
         expect(GENERAL_SETTING_UPDATER_BINDINGS.map((binding) => binding.exposedName)).toEqual([
+            'updateAnimationSpeed',
+            'updateAutomaticallyReduceMotion',
             'updateGlobalShortcut',
             'updateStartOnBoot',
             'updateStartMinimized',

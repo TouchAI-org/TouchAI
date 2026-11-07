@@ -19,3 +19,6 @@ normal/reduced motion and 100%/150% scale. They cover cancellation, streaming, a
 bounds, centered expansion, interrupted transitions, popup alignment/focus and resize
 recovery. Native IPC and unrelated renderers are fixtures; native desktop and release
 performance acceptance remain separate. Measurements and screenshots go to the output directory.
+
+The motion-preferences layer also tests OS reduction halfway through growth/shrink,
+accepted geometry after cleanup, and animation recovery without remounting.

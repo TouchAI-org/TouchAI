@@ -1,12 +1,20 @@
 /* TouchAI motion: transitions-dev semantics, adapted for Vue and Reka presence. */
 :root {
-    --duration-stagger: 40ms;
-    --duration-micro: 80ms;
-    --duration-quick: 150ms;
-    --duration-fast: 250ms;
-    --duration-medium: 350ms;
-    --duration-slow: 400ms;
-    --duration-very-slow: 500ms;
+    --motion-duration-scale: 1;
+    --duration-stagger-base: 40ms;
+    --duration-micro-base: 80ms;
+    --duration-quick-base: 150ms;
+    --duration-fast-base: 250ms;
+    --duration-medium-base: 350ms;
+    --duration-slow-base: 400ms;
+    --duration-very-slow-base: 500ms;
+    --duration-stagger: calc(var(--duration-stagger-base) * var(--motion-duration-scale));
+    --duration-micro: calc(var(--duration-micro-base) * var(--motion-duration-scale));
+    --duration-quick: calc(var(--duration-quick-base) * var(--motion-duration-scale));
+    --duration-fast: calc(var(--duration-fast-base) * var(--motion-duration-scale));
+    --duration-medium: calc(var(--duration-medium-base) * var(--motion-duration-scale));
+    --duration-slow: calc(var(--duration-slow-base) * var(--motion-duration-scale));
+    --duration-very-slow: calc(var(--duration-very-slow-base) * var(--motion-duration-scale));
     --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
     --ease-in-out: ease-in-out;
     --ease-out: ease-out;
@@ -306,6 +314,20 @@
 
 /* Preserve animationend for presence cleanup. Transitions stay immediate: a
    global nonzero duration also animates static visibility and rejects focus. */
+:root[data-reduced-motion] *,
+:root[data-reduced-motion] *::before,
+:root[data-reduced-motion] *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+}
+:root[data-reduced-motion] .t-press:active {
+    scale: 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
     *,
     *::before,

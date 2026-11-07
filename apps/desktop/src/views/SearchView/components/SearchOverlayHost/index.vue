@@ -1,8 +1,17 @@
 <!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
 
 <script setup lang="ts">
-    import { type CSSProperties, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+    import {
+        computed,
+        type CSSProperties,
+        nextTick,
+        onMounted,
+        onUnmounted,
+        ref,
+        watch,
+    } from 'vue';
 
+    import { useMotion } from '@/composables/useMotion';
     import { SEARCH_OVERLAY_EASING, SEARCH_OVERLAY_MOTION } from '@/config/searchWindow';
 
     import {
@@ -61,6 +70,7 @@
         gap: 8,
         viewportPadding: 8,
         allowFlip: false,
+        maxViewportHeight: undefined,
     });
 
     const emit = defineEmits<{
@@ -78,14 +88,18 @@
     const overlayMotionState = ref<'entering' | 'open' | 'closing'>(
         props.open ? 'entering' : 'closing'
     );
-    const overlayMotionStyle = {
-        '--dropdown-open-dur': `${SEARCH_OVERLAY_MOTION.openDurationMs}ms`,
-        '--dropdown-close-dur': `${SEARCH_OVERLAY_MOTION.closeDurationMs}ms`,
-        '--dropdown-enter-offset': `${SEARCH_OVERLAY_MOTION.enterOffsetPx}px`,
-        '--dropdown-enter-scale': SEARCH_OVERLAY_MOTION.enterScale,
-        '--dropdown-closing-scale': SEARCH_OVERLAY_MOTION.closingScale,
-        '--dropdown-ease': SEARCH_OVERLAY_EASING,
-    } as CSSProperties;
+    const { reducedMotion, duration } = useMotion();
+    const overlayMotionStyle = computed(
+        () =>
+            ({
+                '--dropdown-open-dur': `${duration(SEARCH_OVERLAY_MOTION.openDurationMs)}ms`,
+                '--dropdown-close-dur': `${duration(SEARCH_OVERLAY_MOTION.closeDurationMs)}ms`,
+                '--dropdown-enter-offset': `${SEARCH_OVERLAY_MOTION.enterOffsetPx}px`,
+                '--dropdown-enter-scale': SEARCH_OVERLAY_MOTION.enterScale,
+                '--dropdown-closing-scale': SEARCH_OVERLAY_MOTION.closingScale,
+                '--dropdown-ease': SEARCH_OVERLAY_EASING,
+            }) as CSSProperties
+    );
     let resizeObserver: ResizeObserver | null = null;
     let positionFrame: number | null = null;
     let openTransitionFrame: number | null = null;
@@ -208,7 +222,7 @@
     }
 
     function finishCloseTransition(token: number) {
-        if (token !== closeTransitionToken || props.open || !isMounted) {
+        if (token !== closeTransitionToken || props.open || !isMounted || !renderOverlay.value) {
             return;
         }
 
@@ -229,6 +243,11 @@
         overlayMotionState.value = 'closing';
         const token = closeTransitionToken;
 
+        if (reducedMotion.value) {
+            finishCloseTransition(token);
+            return;
+        }
+
         void nextTick().then(() => {
             if (!isMounted || props.open || token !== closeTransitionToken) {
                 return;
@@ -242,11 +261,8 @@
                 return;
             }
 
-            const reducedMotion =
-                typeof window.matchMedia === 'function' &&
-                window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-            if (reducedMotion) {
-                requestAnimationFrame(() => finishCloseTransition(token));
+            if (reducedMotion.value) {
+                finishCloseTransition(token);
                 return;
             }
 
@@ -254,7 +270,7 @@
             motionElement.addEventListener('transitionend', handleCloseTransitionEnd);
             closeTimer = setTimeout(
                 () => finishCloseTransition(token),
-                SEARCH_OVERLAY_MOTION.closeDurationMs
+                duration(SEARCH_OVERLAY_MOTION.closeDurationMs)
             );
         });
     }
@@ -270,6 +286,10 @@
             updatePosition();
         });
     }
+
+    watch(reducedMotion, (reduced) => {
+        if (reduced && !props.open) finishCloseTransition(closeTransitionToken);
+    });
 
     function observePositionTargets() {
         resizeObserver?.disconnect();

@@ -1,6 +1,7 @@
 import { computed, type ComputedRef, type Ref } from 'vue';
 
 import type { AppUpdateChannel } from '@/config/appUpdate';
+import type { AnimationSpeed } from '@/config/motion';
 import {
     createDefaultSearchKeybindings,
     normalizeSearchKeybindings,
@@ -32,6 +33,8 @@ export type GeneralSettingKey = GeneralScalarSettingKey | 'search_keybindings' |
 export type GeneralSettingValue = string | number | boolean | SearchKeybindings | null;
 
 export interface GeneralSettingsData {
+    animationSpeed: AnimationSpeed;
+    automaticallyReduceMotion: boolean;
     globalShortcut: string;
     searchKeybindings: SearchKeybindings;
     startOnBoot: boolean;
@@ -94,6 +97,8 @@ export interface GeneralSettingDefinition {
 }
 
 export interface GeneralSettingsComputedRefs {
+    animationSpeed: ComputedRef<AnimationSpeed>;
+    automaticallyReduceMotion: ComputedRef<boolean>;
     outputScrollBehavior: ComputedRef<OutputScrollBehavior>;
     globalShortcut: ComputedRef<string>;
     searchKeybindings: ComputedRef<SearchKeybindings>;
@@ -109,6 +114,8 @@ export interface GeneralSettingsComputedRefs {
 }
 
 export interface GeneralSettingUpdaters {
+    updateAnimationSpeed(speed: AnimationSpeed): Promise<void>;
+    updateAutomaticallyReduceMotion(enabled: boolean): Promise<void>;
     updateGlobalShortcut(shortcut: string): Promise<void>;
     updateSearchKeybindings(searchKeybindings: SearchKeybindings): Promise<void>;
     updateStartOnBoot(enabled: boolean): Promise<void>;

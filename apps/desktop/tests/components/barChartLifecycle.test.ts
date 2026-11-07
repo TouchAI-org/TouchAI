@@ -1,7 +1,10 @@
 import { mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { defineComponent, h, nextTick, ref } from 'vue';
 
 import BarChart from '@/components/ui/bar-chart/BarChart.vue';
+import { provideMotionPreferences } from '@/composables/useMotion';
+import type { AnimationSpeed } from '@/config/motion';
 
 const data = [
     { key: 'a', label: 'A', values: { s: 3 } },
@@ -37,6 +40,27 @@ describe('user opens a bar chart', () => {
         const wrapper = mount(BarChart, { props: { data, series, label: 'test' } });
 
         expect(wrapper.findAll('svg path')).toHaveLength(data.length * series.length);
+        wrapper.unmount();
+    });
+
+    it('user changes chart speed and stagger together', async () => {
+        const speed = ref<AnimationSpeed>('slower');
+        const wrapper = mount(
+            defineComponent({
+                setup() {
+                    provideMotionPreferences(speed, ref(false));
+                    return () => h(BarChart, { data, series, label: 'test' });
+                },
+            })
+        );
+        const secondBar = () =>
+            (wrapper.findAll('g[style]')[1]!.element as SVGElement).style.transition;
+        expect(secondBar()).toContain('744ms');
+        expect(secondBar()).toContain('16.8ms');
+        speed.value = 'faster';
+        await nextTick();
+        expect(secondBar()).toContain('403ms');
+        expect(secondBar()).toContain('9.1ms');
         wrapper.unmount();
     });
 });
