@@ -84,4 +84,27 @@ describe('attachment materialization', () => {
 
         expect(readAttachmentAsBase64Mock).toHaveBeenCalledTimes(2);
     });
+
+    it('user keeps readable attachments when one source cannot be read', async () => {
+        const attachments = [
+            createAttachment('missing'),
+            createAttachment('missing'),
+            createAttachment('ok'),
+        ];
+        inspectAttachmentsMock.mockResolvedValue(
+            attachments.map((attachment) => ({
+                attachment,
+                kind: 'image',
+                mimeType: 'image/png',
+                size: 10,
+                meta: {},
+            }))
+        );
+        readAttachmentAsBase64Mock.mockRejectedValueOnce(new Error('File unavailable'));
+        const parts = await buildAttachmentParts(attachments, { includeAnchorText: false });
+        expect(parts).toEqual([
+            expect.objectContaining({ sourcePath: 'D:/ok.png', data: 'base64' }),
+        ]);
+        expect(readAttachmentAsBase64Mock).toHaveBeenCalledTimes(2);
+    });
 });

@@ -4,11 +4,13 @@ import { expect, test } from '@playwright/test';
 
 const motionStyles = fileURLToPath(new URL('../../src/styles/motion.css', import.meta.url));
 
-for (const preference of ['no-preference', 'reduce'] as const) {
+for (const preference of ['no-preference', 'reduce', 'shared-policy'] as const) {
     test(`user with ${preference} motion keeps their reading position when list offsets change`, async ({
         page,
     }) => {
-        await page.emulateMedia({ reducedMotion: preference });
+        await page.emulateMedia({
+            reducedMotion: preference === 'reduce' ? 'reduce' : 'no-preference',
+        });
         await page.setContent(`
             <section style="height:600px;overflow:auto;overflow-anchor:none">
                 <div style="position:relative;height:8000px">
@@ -19,6 +21,9 @@ for (const preference of ['no-preference', 'reduce'] as const) {
             </section>
         `);
         await page.addStyleTag({ path: motionStyles });
+        await page.evaluate((shared) => {
+            document.documentElement.toggleAttribute('data-reduced-motion', shared);
+        }, preference === 'shared-policy');
 
         const offsets = await page.evaluate(async () => {
             const viewport = document.querySelector('section')!;

@@ -2,6 +2,7 @@
 
 <script setup lang="ts">
     import MarkdownContent from '@components/MarkdownContent.vue';
+    import { useMotion } from '@composables/useMotion';
     import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -16,6 +17,7 @@
     }>();
 
     const contentId = useId();
+    const { windowVisible } = useMotion();
     const preview = computed(() => buildReasoningPreview(props.content));
     const reasoningContentRef = ref<HTMLElement | null>(null);
     const isExpanded = ref(props.isStreaming);
@@ -52,7 +54,7 @@
 
     /** 窗口隐藏时不需要逐秒刷新展示文本；恢复可见时按时间戳重算即可。 */
     function isDocumentHidden(): boolean {
-        return typeof document !== 'undefined' && document.visibilityState === 'hidden';
+        return !windowVisible.value || document.visibilityState === 'hidden';
     }
 
     function updateElapsed() {
@@ -79,6 +81,8 @@
 
         startElapsedTimer();
     }
+
+    watch(windowVisible, handleVisibilityChange);
 
     function isScrolledToBottom(element: HTMLElement): boolean {
         return element.scrollHeight - element.scrollTop - element.clientHeight <= 8;

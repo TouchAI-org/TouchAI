@@ -114,6 +114,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import MotionCollapse from '@components/MotionCollapse.vue';
+    import { useMotion } from '@composables/useMotion';
     import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -151,6 +152,7 @@
     }
 
     const props = defineProps<Props>();
+    const { windowVisible } = useMotion();
 
     const isExpanded = ref(false);
     const isCommandExpanded = ref(false);
@@ -290,7 +292,7 @@
     );
 
     function isDocumentHidden(): boolean {
-        return typeof document !== 'undefined' && document.visibilityState === 'hidden';
+        return !windowVisible.value || document.visibilityState === 'hidden';
     }
 
     function startDurationTimer() {
@@ -330,6 +332,8 @@
         durationNow.value = Date.now();
         startDurationTimer();
     }
+
+    watch(windowVisible, handleVisibilityChange);
 
     // 输出内容持续增长时，如果用户之前就在底部，则继续跟随最新内容；
     // 用户主动向上翻阅时保留阅读位置，直到再次滚到底部。

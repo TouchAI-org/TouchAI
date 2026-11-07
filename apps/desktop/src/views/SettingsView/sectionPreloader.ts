@@ -3,7 +3,7 @@
 export interface SectionPreloaderOptions {
     load: (section: string) => Promise<unknown>;
     /** 调度下一次加载；默认在空闲时执行，避免与首屏交互抢主线程。 */
-    schedule?: (run: () => void) => void;
+    schedule?: (run: () => void) => void | (() => void);
     onError?: (section: string, error: unknown) => void;
 }
 
@@ -20,6 +20,8 @@ export function createSectionPreloader(options: SectionPreloaderOptions) {
     const inFlightSections = new Set<string>();
     const queue: string[] = [];
     let draining = false;
+    let disposed = false;
+    let cancelScheduled: (() => void) | undefined;
 
     const schedule =
         options.schedule ??
@@ -34,18 +36,22 @@ export function createSectionPreloader(options: SectionPreloaderOptions) {
             ).requestIdleCallback;
 
             if (typeof requestIdle === 'function') {
-                requestIdle(() => run(), { timeout: 1200 });
-                return;
+                const handle = requestIdle(() => run(), { timeout: 1200 });
+                return () => globalThis.cancelIdleCallback(handle);
             }
 
-            setTimeout(run, 200);
+            const handle = setTimeout(run, 200);
+            return () => clearTimeout(handle);
         });
 
-    function isQueued(section: string): boolean {
-        return queue.includes(section);
+    function scheduleDrain(): void {
+        const cancel = schedule(drainQueue);
+        cancelScheduled = typeof cancel === 'function' ? cancel : undefined;
     }
 
     function drainQueue(): void {
+        cancelScheduled = undefined;
+        if (disposed) return;
         const nextSection = queue.shift();
         if (nextSection === undefined) {
             draining = false;
@@ -63,8 +69,8 @@ export function createSectionPreloader(options: SectionPreloaderOptions) {
             })
             .finally(() => {
                 inFlightSections.delete(nextSection);
-                if (queue.length > 0) {
-                    schedule(drainQueue);
+                if (!disposed && queue.length > 0) {
+                    scheduleDrain();
                 } else {
                     draining = false;
                 }
@@ -72,8 +78,14 @@ export function createSectionPreloader(options: SectionPreloaderOptions) {
     }
 
     function prefetch(section: string, prefetchOptions: { priority?: boolean } = {}): void {
-        if (loadedSections.has(section) || inFlightSections.has(section) || isQueued(section)) {
+        if (disposed || loadedSections.has(section) || inFlightSections.has(section)) {
             return;
+        }
+
+        const queuedIndex = queue.indexOf(section);
+        if (queuedIndex >= 0) {
+            if (!prefetchOptions.priority) return;
+            queue.splice(queuedIndex, 1);
         }
 
         if (prefetchOptions.priority) {
@@ -87,11 +99,17 @@ export function createSectionPreloader(options: SectionPreloaderOptions) {
         }
 
         draining = true;
-        schedule(drainQueue);
+        scheduleDrain();
     }
 
     return {
         prefetch,
+        dispose() {
+            disposed = true;
+            cancelScheduled?.();
+            cancelScheduled = undefined;
+            queue.length = 0;
+        },
         isLoaded: (section: string) => loadedSections.has(section),
         pendingCount: () => queue.length + inFlightSections.size,
     };

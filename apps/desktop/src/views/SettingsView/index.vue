@@ -161,6 +161,7 @@
     const activeContentSection = computed(() => settingsContentSections[activeSection.value]);
     // 每个设置分区各记一份滚动位置：容器只有一个，不记就会互相污染。
     const sectionScrollSnapshots = new Map<NavigationSection, number>();
+    let scrollRestoreSection: NavigationSection | null = null;
 
     /** 记录当前分区的滚动位置（切走之前调用）。 */
     function rememberSectionScroll() {
@@ -174,7 +175,7 @@
     async function restoreSectionScroll(section: NavigationSection) {
         await nextTick();
         const element = contentElementRef.value;
-        if (!element) {
+        if (!element || unmounted || section !== activeSection.value) {
             return;
         }
 
@@ -207,7 +208,8 @@
         rememberSectionScroll();
         if (activeSection.value !== section) resolvedSection.value = null;
         activeSection.value = section;
-        void restoreSectionScroll(section);
+        scrollRestoreSection = section;
+        if (resolvedSection.value === section) void restoreSectionScroll(section);
         sectionPreloader.prefetch(section, { priority: true });
     };
 
@@ -259,6 +261,7 @@
 
     const handleSearchSelect = async (result: SettingsSearchResult) => {
         cancelPendingSearch();
+        scrollRestoreSection = null;
         rememberSectionScroll();
         if (activeSection.value !== result.section) resolvedSection.value = null;
         pendingSearchResult = result;
@@ -300,6 +303,10 @@
         if (section !== activeSection.value) return;
 
         resolvedSection.value = section;
+        if (scrollRestoreSection === section) {
+            scrollRestoreSection = null;
+            await restoreSectionScroll(section);
+        }
         if (section === 'general') {
             void invokePendingUpdateRequest();
         }
@@ -310,6 +317,7 @@
 
     const scrollGeneralUpdateSectionIntoView = async (options?: ShowUpdateSettingsOptions) => {
         cancelPendingSearch();
+        scrollRestoreSection = null;
         pendingUpdateRequest.value = options?.checkAndOpen ? options : null;
         activeSection.value = 'general';
         await nextTick();
@@ -390,6 +398,7 @@
 
     onBeforeUnmount(() => {
         unmounted = true;
+        sectionPreloader.dispose();
         cancelPendingSearch();
         unlistenSettingsOpened?.();
         unlistenShowUpdates?.();

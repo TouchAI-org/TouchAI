@@ -36,6 +36,7 @@ describe('createSectionPreloader', () => {
 
         preloader.prefetch('slow');
         preloader.prefetch('queued');
+        preloader.prefetch('hovered');
         preloader.prefetch('hovered', { priority: true });
 
         await Promise.resolve();
@@ -49,6 +50,26 @@ describe('createSectionPreloader', () => {
         }
 
         expect(load.mock.calls.map((call) => call[0])).toEqual(['slow', 'hovered', 'queued']);
+    });
+
+    it('user closing settings cancels queued background imports', () => {
+        let run!: () => void;
+        const cancel = vi.fn();
+        const load = vi.fn(async () => undefined);
+        const preloader = createSectionPreloader({
+            load,
+            schedule: (callback) => {
+                run = callback;
+                return cancel;
+            },
+        });
+        preloader.prefetch('queued');
+        preloader.dispose();
+        run();
+        preloader.prefetch('after-close');
+        expect(cancel).toHaveBeenCalledOnce();
+        expect(load).not.toHaveBeenCalled();
+        expect(preloader.pendingCount()).toBe(0);
     });
 
     it('keeps draining after a failure and reports the error', async () => {

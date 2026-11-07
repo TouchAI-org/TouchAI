@@ -21,6 +21,7 @@ import {
 import {
     assertVisible,
     callE2eBridge,
+    resetSearchSurface,
     useInterfaceLanguage,
     useProductFont,
     waitForE2eBridge,
@@ -114,18 +115,17 @@ describe('user scrolls a long conversation', () => {
         await waitForE2eBridge();
         await useInterfaceLanguage();
         await useProductFont();
+        await resetSearchSurface();
     });
 
     after(async () => {
         // Leave the app empty so the specs that follow stay independent.
-        await callE2eBridge('setConversation', []);
-        await browser.pause(300);
+        await resetSearchSurface();
     });
 
     it('user sees the newest message when a long conversation opens', async () => {
         await callE2eBridge('setConversation', buildConversation());
 
-        await browser.setWindowSize(750, 620);
         await waitForTestIdDisplayed('conversation-panel-host');
         await browser.pause(1200);
 

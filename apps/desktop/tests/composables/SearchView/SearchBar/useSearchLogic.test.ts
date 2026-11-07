@@ -347,6 +347,7 @@ describe('when the search input first appears', () => {
                 emitRemoveAttachmentRequest: vi.fn(),
                 emitDragStart: vi.fn(),
                 emitDragEnd: vi.fn(),
+                startDragging: vi.fn().mockResolvedValue(undefined),
             })
         );
 

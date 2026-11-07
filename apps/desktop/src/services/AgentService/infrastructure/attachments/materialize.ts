@@ -115,14 +115,24 @@ export async function materializeAttachmentParts(
     } = {}
 ): Promise<AiContentPart[]> {
     const parts: AiContentPart[] = [];
+    const payloadBySource = new Map<string, AttachmentPreparedPayload | null>();
 
     for (const inspection of inspections) {
-        try {
-            const payload = await prepareAttachmentPayload(inspection);
-            pushMaterializedPart(parts, inspection, payload, options);
-        } catch (error) {
-            log.error('[AttachmentMaterialize] Failed to read attachment:', error);
+        const sourceKey = JSON.stringify([
+            inspection.attachment.path,
+            inspection.kind,
+            inspection.mimeType,
+        ]);
+        if (!payloadBySource.has(sourceKey)) {
+            try {
+                payloadBySource.set(sourceKey, await prepareAttachmentPayload(inspection));
+            } catch (error) {
+                log.error('[AttachmentMaterialize] Failed to read attachment:', error);
+                payloadBySource.set(sourceKey, null);
+            }
         }
+        const payload = payloadBySource.get(sourceKey);
+        if (payload) pushMaterializedPart(parts, inspection, payload, options);
     }
 
     return parts;
@@ -137,21 +147,5 @@ export async function buildAttachmentParts(
     const usableAttachments = attachments.filter((attachment) => isAttachmentSupported(attachment));
     const inspections = await inspectAttachments(usableAttachments);
 
-    // 同一源路径在同一批次里只读一次：消息可能引用同一附件两次，
-    // 图片/PDF 的 base64 读取成本很高，重复读取会阻塞整个请求准备。
-    const payloadBySource = new Map<string, Promise<AttachmentPreparedPayload>>();
-    for (const inspection of inspections) {
-        const sourceKey = inspection.attachment.path;
-        if (!payloadBySource.has(sourceKey)) {
-            payloadBySource.set(sourceKey, prepareAttachmentPayload(inspection));
-        }
-    }
-
-    const parts: AiContentPart[] = [];
-    for (const inspection of inspections) {
-        const payload = await payloadBySource.get(inspection.attachment.path)!;
-        pushMaterializedPart(parts, inspection, payload, options);
-    }
-
-    return parts;
+    return materializeAttachmentParts(inspections, options);
 }

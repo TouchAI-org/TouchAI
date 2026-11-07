@@ -42,6 +42,7 @@ interface UseSearchRequestFlowOptions {
 }
 
 const SESSION_LIST_LIMIT = 40;
+const SESSION_SEARCH_DEBOUNCE_MS = 150;
 
 export interface HistorySelection {
     readonly interaction: Promise<SearchInteraction>;
@@ -95,6 +96,21 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     let sessionListResolvedKey: string | null = null;
     let stopSessionStatusListener: (() => void) | null = null;
     let sessionStatusListenerDisposed = false;
+    let pendingSessionSearch: { timer: ReturnType<typeof setTimeout>; resolve: () => void } | null =
+        null;
+
+    function cancelScheduledSessionSearch() {
+        if (!pendingSessionSearch) return;
+        clearTimeout(pendingSessionSearch.timer);
+        pendingSessionSearch.resolve();
+        pendingSessionSearch = null;
+    }
+
+    function invalidateSessionListRequest() {
+        sessionListRequestId += 1;
+        sessionListInFlightKey = null;
+        sessionListLoadPromise = null;
+    }
 
     // One history-search interaction settles once per popup session, using the
     // stable result count rather than any intermediate query. Selecting a
@@ -345,6 +361,8 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         });
 
     onUnmounted(() => {
+        cancelScheduledSessionSearch();
+        invalidateSessionListRequest();
         sessionStatusListenerDisposed = true;
         stopSessionStatusListener?.();
         stopSessionStatusListener = null;
@@ -374,6 +392,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
      * 这里用递增 requestId 丢弃过时响应，避免快速输入时列表回跳。
      */
     async function refreshSessionList() {
+        cancelScheduledSessionSearch();
         const requestKey = buildSessionListRequestKey();
         if (sessionListLoadPromise && sessionListInFlightKey === requestKey) {
             return sessionListLoadPromise;
@@ -407,9 +426,6 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             } finally {
                 if (requestId === sessionListRequestId) {
                     isSessionListLoading.value = false;
-                }
-
-                if (sessionListInFlightKey === requestKey) {
                     sessionListInFlightKey = null;
                     sessionListLoadPromise = null;
                 }
@@ -445,12 +461,11 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         }
 
         settleHistoryInteraction();
+        cancelScheduledSessionSearch();
         const canReuseDefaultList = sessionListResolvedKey === buildDefaultSessionListRequestKey();
 
         // 关闭弹窗后要立刻作废当前筛选条件对应的请求，避免迟到响应覆盖默认列表。
-        sessionListRequestId += 1;
-        sessionListInFlightKey = null;
-        sessionListLoadPromise = null;
+        invalidateSessionListRequest();
         isSessionListLoading.value = false;
         sessionListQuery.value = '';
 
@@ -463,10 +478,20 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     }
 
     async function updateSessionSearchQuery(query: string) {
+        cancelScheduledSessionSearch();
+        // Invalidate on input, before the debounce, so an older response cannot publish meanwhile.
+        invalidateSessionListRequest();
         sessionListQuery.value = query;
-        if (sessionHistoryOverlayOpen.value) {
-            await refreshSessionList();
-        }
+        isSessionListLoading.value = sessionHistoryOverlayOpen.value;
+        if (!sessionHistoryOverlayOpen.value) return;
+
+        await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => {
+                pendingSessionSearch = null;
+                void refreshSessionList().then(resolve, reject);
+            }, SESSION_SEARCH_DEBOUNCE_MS);
+            pendingSessionSearch = { timer, resolve };
+        });
     }
 
     async function handleSubmit(query: string, inputSnapshotOverride?: InputHistorySnapshot) {

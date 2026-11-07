@@ -87,6 +87,7 @@
 <script setup lang="ts">
     import ActionButton from '@components/ActionButton.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
+    import { useMotion } from '@composables/useMotion';
     import { notify } from '@services/NotificationService';
     import { log } from '@services/ObservabilityService';
     import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
@@ -177,15 +178,17 @@
     const currentTip = computed(() => t(TIPS[currentTipIndex.value] ?? DEFAULT_LOADING_TIP_KEY));
 
     const askUserStore = useAskUserStore();
+    const { windowVisible } = useMotion();
 
     let tipTimer: ReturnType<typeof setInterval> | null = null;
     let tipDelayTimer: ReturnType<typeof setTimeout> | null = null;
 
     function isDocumentHidden(): boolean {
-        return typeof document !== 'undefined' && document.visibilityState === 'hidden';
+        return !windowVisible.value || document.visibilityState === 'hidden';
     }
 
     function startTipRotation() {
+        stopTipRotation();
         const len = TIPS.length;
         if (len <= 1) return;
         // 窗口隐藏时不轮播：用户看不到 tip，定时器只会白占主线程。
@@ -225,6 +228,8 @@
 
         startTipRotation();
     }
+
+    watch(windowVisible, handleVisibilityChange);
 
     // 跟随 streaming 状态启停轮播（组件生命周期可能跨多次请求）
     watch(
@@ -338,17 +343,7 @@
             }
 
             if (part.type === 'widget') {
-                // 流式草稿阶段 widgetId 可能还停在 callId 上；用 callId 回退，
-                // 避免 id 切换瞬间把部件过滤掉造成整块闪现。
-                // 回退只在候选确实有内容时成立：用空 html 的候选去渲染会把已画好的部件清空。
-                const widget =
-                    widgetMap.get(part.widgetId) ??
-                    (props.message.widgets ?? []).find(
-                        (candidate) =>
-                            candidate.callId === part.widgetId &&
-                            typeof candidate.html === 'string' &&
-                            candidate.html.length > 0
-                    );
+                const widget = widgetMap.get(part.widgetId);
                 if (widget) {
                     parts.push({
                         id: part.id,

@@ -28,9 +28,7 @@ function mountScroller(itemScrollTarget: (id: string, options: unknown) => boole
             itemScrollTarget,
         },
         slots: {
-            default: items
-                .map((item) => `<div data-message-scroller-item="${item.id}">${item.label}</div>`)
-                .join(''),
+            default: '<div data-message-scroller-item="m1">First question</div>',
         },
     });
     mountedWrappers.push(wrapper);
@@ -48,6 +46,7 @@ describe('when the message list is virtualized', () => {
         const target = vi.fn(() => true);
         const wrapper = mountScroller(target);
         await flushPromises();
+        expect(wrapper.find('[data-message-scroller-item="a1"]').exists()).toBe(false);
 
         const scroller = wrapper.vm as unknown as MessageScrollerHandle;
         const scrolled = scroller.scrollToItem('a1', { align: 'start', offset: 12 });

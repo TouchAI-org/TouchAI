@@ -13,6 +13,7 @@
 
     import { cn } from '@/lib/utils';
 
+    import { type RailRange, resolveRailItemAtOffset } from './railRange';
     import type {
         MessageScrollerItem,
         MessageScrollerScrollBehavior,
@@ -48,6 +49,9 @@
         viewportClass?: string;
         contentClass?: string;
         viewportStyle?: StyleValue;
+        itemScrollTarget?: (id: string, options: MessageScrollerScrollOptions) => boolean;
+        itemRanges?: (id: string) => RailRange | null;
+        railInsetTop?: number;
     }
 
     const props = withDefaults(defineProps<Props>(), {
@@ -60,6 +64,9 @@
         viewportClass: '',
         contentClass: '',
         viewportStyle: undefined,
+        itemScrollTarget: undefined,
+        itemRanges: undefined,
+        railInsetTop: 12,
     });
 
     const emit = defineEmits<{
@@ -148,6 +155,7 @@
 
     const railStyle = computed(() => ({
         gridTemplateRows: `repeat(${displayItems.value.length}, ${railItemSize.value}px)`,
+        top: `${props.railInsetTop}px`,
     }));
 
     const previewStyle = computed(() => {
@@ -205,6 +213,7 @@
     let measureFollowsOutput = false;
     let lastEmittedState = '';
     let lastContentHeight = -1;
+    let measuredState: MessageScrollerState | null = null;
     let touchStartScrollTop = 0;
 
     type FrameCallback = (timestamp: number) => void;
@@ -307,22 +316,27 @@
         const viewportBottom =
             viewportRect.height > 0 ? viewportRect.bottom : viewportRect.top + state.clientHeight;
         const viewportCenter = viewportRect.top + viewportRect.height / 2;
+        const rangeFor = (id: string): RailRange | null => {
+            const logicalRange = props.itemRanges?.(id);
+            if (logicalRange) return logicalRange;
+            const target = findItemElement(id);
+            if (!target) return null;
+            const rect = target.getBoundingClientRect();
+            return {
+                top: state.scrollTop + rect.top - viewportRect.top,
+                bottom: state.scrollTop + rect.bottom - viewportRect.top,
+            };
+        };
         const nextIds = new Set<string>();
-        let nearestId = displayItems.value[0]?.id ?? '';
-        let nearestDistance = Number.POSITIVE_INFINITY;
 
         for (const item of displayItems.value) {
-            const target = findItemElement(item.id);
-            if (!target) continue;
-            const rect = target.getBoundingClientRect();
-            if (rect.bottom > viewportRect.top && rect.top < viewportBottom) {
+            const range = rangeFor(item.id);
+            if (!range) continue;
+            if (
+                range.bottom > state.scrollTop &&
+                range.top < state.scrollTop + viewportBottom - viewportRect.top
+            ) {
                 nextIds.add(item.id);
-            }
-            const center = rect.top + rect.height / 2;
-            const itemDistance = Math.abs(center - viewportCenter);
-            if (itemDistance < nearestDistance) {
-                nearestDistance = itemDistance;
-                nearestId = item.id;
             }
         }
 
@@ -335,11 +349,16 @@
                 ? (displayItems.value[0]?.id ?? '')
                 : distance <= props.followThreshold
                   ? (displayItems.value[displayItems.value.length - 1]?.id ?? '')
-                  : nearestId;
+                  : (resolveRailItemAtOffset(
+                        displayItems.value,
+                        rangeFor,
+                        state.scrollTop + viewportCenter - viewportRect.top
+                    ) ?? '');
     }
 
     function measure(updateFollowing = false): void {
         const state = readState(updateFollowing);
+        measuredState = state;
         updateActiveItem(state);
         railHeight.value = rail.value?.clientHeight ?? 0;
         emitState(state);
@@ -410,7 +429,7 @@
             () => {
                 programmaticScroll = false;
                 programmaticScrollTimer = null;
-                scheduleMeasure(true);
+                scheduleMeasure();
             },
             effectiveBehavior === 'smooth' ? PROGRAMMATIC_SCROLL_SETTLE_MS : 0
         );
@@ -425,6 +444,7 @@
     }
 
     function scrollToItem(id: string, options: MessageScrollerScrollOptions = {}): boolean {
+        if (props.itemScrollTarget?.(id, options)) return true;
         const element = viewport.value;
         const target = findItemElement(id);
         if (!element || !target) return false;
@@ -477,7 +497,18 @@
     }
 
     function handleScroll(): void {
-        scheduleMeasure(!programmaticScroll);
+        const element = viewport.value;
+        if (!element) return;
+        // Virtualization and content growth also dispatch scroll. Only a position
+        // change within the same layout can revoke following without user input.
+        const layoutChanged =
+            measuredState?.scrollHeight !== element.scrollHeight ||
+            measuredState?.clientHeight !== element.clientHeight;
+        const positionChanged = measuredState?.scrollTop !== element.scrollTop;
+        scheduleMeasure(
+            !programmaticScroll && positionChanged && (!following.value || !layoutChanged),
+            layoutChanged
+        );
     }
 
     function handleWheel(event: WheelEvent): void {
@@ -629,12 +660,14 @@
     defineExpose({
         focus,
         getState,
+        getViewportElement: () => viewport.value,
         getContentHeight,
         isAtEnd,
         recalculate: () => measure(true),
         scrollBy,
         scrollToEnd,
         scrollToItem,
+        setFollowing,
     });
 </script>
 

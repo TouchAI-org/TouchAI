@@ -58,22 +58,18 @@ describe('when the dev build logs sql statements', () => {
         expect(message).toContain('…');
     });
 
-    it('user gets the real parameters when they opt in from the console', () => {
+    it('user data stays out of logs without serializing large parameter objects', () => {
         setParamLogging(true);
         const logger = createSqlLogger();
 
-        logger.logQuery('select 1', ['alpha']);
-
-        expect(debugMock).toHaveBeenCalledWith('Query: select 1 -- params: ["alpha"]');
-    });
-
-    it('user gets a truncated preview for very large parameters even after opting in', () => {
-        setParamLogging(true);
-        const logger = createSqlLogger();
-
-        logger.logQuery('insert into "message_parts" values (?)', ['x'.repeat(5000)]);
-
-        const message = String(debugMock.mock.calls[0]?.[0] ?? '');
-        expect(message).toContain('…(5004 chars)');
+        logger.logQuery('select ?', [
+            {
+                toJSON() {
+                    throw new Error('Must not serialize');
+                },
+            },
+        ]);
+        expect(debugMock).toHaveBeenCalledWith('Query: select ? -- params: 1');
+        setParamLogging(undefined);
     });
 });

@@ -25,7 +25,7 @@ function createImageMessage() {
 }
 
 describe('UserMessage attachment images', () => {
-    it('decodes off the main thread and defers offscreen images', () => {
+    it('user keeps the source image while offscreen decoding is deferred', async () => {
         const wrapper = mount(UserMessage, {
             props: {
                 message: createImageMessage() as unknown as SessionMessage,
@@ -36,22 +36,14 @@ describe('UserMessage attachment images', () => {
         expect(image.exists()).toBe(true);
         expect(image.attributes('decoding')).toBe('async');
         expect(image.attributes('loading')).toBe('lazy');
-
-        wrapper.unmount();
-    });
-
-    it('falls back to the original preview when thumbnail generation is unavailable', async () => {
-        const preview = 'data:image/png;base64,AAAA';
-        const wrapper = mount(UserMessage, {
-            props: {
-                message: {
-                    ...createImageMessage(),
-                    attachments: [{ type: 'image', name: 'photo.png', preview }],
-                } as unknown as SessionMessage,
-            },
+        expect(image.attributes('src')).toBe(createImageMessage().attachments[0]?.preview);
+        const preview = 'data:image/gif;base64,BBBB';
+        await wrapper.setProps({
+            message: {
+                ...createImageMessage(),
+                attachments: [{ type: 'image', name: 'animation.gif', preview }],
+            } as unknown as SessionMessage,
         });
-
-        const image = wrapper.find('.image-attachment img');
         expect(image.attributes('src')).toBe(preview);
 
         wrapper.unmount();
