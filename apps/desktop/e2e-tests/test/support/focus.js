@@ -20,11 +20,40 @@ export async function startFocusTrace() {
             if (events.length > 80) events.shift();
         };
         const onFocus = (event) => record({ kind: 'focusin', target: describe(event.target) });
+        const describeAncestors = (element) => {
+            const ancestors = [];
+            if (element.closest('[data-search-overlay-host]')) {
+                for (let node = element; node && ancestors.length < 12; node = node.parentElement) {
+                    const style = getComputedStyle(node);
+                    ancestors.push({
+                        ...describe(node),
+                        inlineVisibility: node.style.visibility,
+                        display: style.display,
+                        opacity: style.opacity,
+                        transition: style.transition,
+                        animations: node.getAnimations().map((animation) => ({
+                            state: animation.playState,
+                            keyframes: animation.effect?.getKeyframes().map((frame) => ({
+                                visibility: frame.visibility,
+                                opacity: frame.opacity,
+                            })),
+                        })),
+                    });
+                }
+            }
+            return ancestors;
+        };
         HTMLElement.prototype.focus = function (...args) {
             const target = describe(this);
             const stack = new Error().stack?.split('\n').slice(1, 7).join('\n');
             original.apply(this, args);
-            record({ kind: 'focus', target, accepted: document.activeElement === this, stack });
+            record({
+                kind: 'focus',
+                target,
+                accepted: document.activeElement === this,
+                stack,
+                ancestors: document.activeElement === this ? [] : describeAncestors(this),
+            });
         };
         document.addEventListener('focusin', onFocus);
         window.__TOUCHAI_E2E_FOCUS_TRACE__ = {
