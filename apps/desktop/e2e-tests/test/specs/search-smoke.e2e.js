@@ -285,6 +285,25 @@ describe('TouchAI search smoke', () => {
 
     it('keeps model and history overlays in the main WebView with shortcut mutual exclusion', async () => {
         await browser.execute(() => {
+            const originalFocus = HTMLElement.prototype.focus;
+            const focusEvents = [];
+            HTMLElement.prototype.focus = function (...args) {
+                focusEvents.push({
+                    tag: this.tagName,
+                    overlay: Boolean(this.closest('[data-search-overlay-host]')),
+                    visibility: getComputedStyle(this).visibility,
+                    stack: new Error().stack,
+                });
+                return originalFocus.apply(this, args);
+            };
+            window.__TOUCHAI_FOCUS_DIAGNOSTICS__ = {
+                events: focusEvents,
+                restore: () => {
+                    HTMLElement.prototype.focus = originalFocus;
+                },
+            };
+        });
+        await browser.execute(() => {
             window.__TOUCHAI_E2E__.setSearchQuery('');
         });
         const quickSearchPanel = await $("[data-testid='quick-search-panel']");
@@ -319,10 +338,20 @@ describe('TouchAI search smoke', () => {
                 }
             );
         } catch {
+            const focusEvents = await browser.execute(() => {
+                const diagnostics = window.__TOUCHAI_FOCUS_DIAGNOSTICS__;
+                diagnostics?.restore();
+                delete window.__TOUCHAI_FOCUS_DIAGNOSTICS__;
+                return diagnostics?.events;
+            });
             throw new Error(
-                `Expected model filter to receive focus after opening the overlay; active element: ${activeElementSnapshot}`
+                `Expected model filter to receive focus after opening the overlay; active element: ${activeElementSnapshot}; focus events: ${JSON.stringify(focusEvents)}`
             );
         }
+        await browser.execute(() => {
+            window.__TOUCHAI_FOCUS_DIAGNOSTICS__?.restore();
+            delete window.__TOUCHAI_FOCUS_DIAGNOSTICS__;
+        });
         await modelFilter.setValue('no-match-model');
         const modelFilterValue = await modelFilter.getValue();
         if (modelFilterValue !== 'no-match-model') {

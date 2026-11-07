@@ -1039,13 +1039,19 @@
         onShown: handleSearchSurfaceShown,
         onHidden: handleSearchSurfaceHidden,
         onError: (error) => {
+            const surface = pageContainer.value?.getBoundingClientRect();
+            const card = searchViewCard.value?.getBoundingClientRect();
             log.error('[SearchView] Failed to commit search surface preparation:', error, {
                 ready: viewReady.value,
                 contentReady: searchViewContentReady.value,
                 monitorHost: usesMonitorHost.value,
-                viewport: { width: innerWidth, height: innerHeight, scale: devicePixelRatio },
-                surface: pageContainer.value?.getBoundingClientRect().toJSON() ?? null,
-                card: searchViewCard.value?.getBoundingClientRect().toJSON() ?? null,
+                viewportWidth: innerWidth,
+                viewportHeight: innerHeight,
+                scale: devicePixelRatio,
+                surfaceWidth: surface?.width ?? 0,
+                surfaceHeight: surface?.height ?? 0,
+                cardWidth: card?.width ?? 0,
+                cardHeight: card?.height ?? 0,
             });
             void native.window.hideSearchWindow().catch((hideError) => {
                 log.error('[SearchView] Failed to hide unsafe prepared surface:', hideError);
