@@ -49,15 +49,7 @@ Read the owning code first and expect cross-window or cross-process consequences
 
 Window labels, event ordering, and session identity are cross-window contracts. Search overlays share the main Vue tree and its state; they have no standalone popup window or event transport. Duplicate listeners, stale IDs, and races are correctness bugs, not polish.
 
-## Search window geometry
-
-`useSearchWindowResize` owns the logical panel height. It measures natural conversation content and direct control rows; the rendered viewport and animated card height are outputs, never measurement inputs. Manual sizing, maximization, overlay reservation, and work-area bounds resolve the effective target before a transition starts.
-
-`SearchOverlayHost` owns anchored placement and scrollable overlay bounds inside the same WebView. Rust's `search_host` accepts bounded host geometry, and `search_region` applies the union of visible panel and overlay regions on Windows. The renderer reconciles the accepted native snapshot instead of assuming a requested size was applied. Native updates occur at transition boundaries, not on every animation frame.
-
-Dragging owns position, not size. A position-only move may leave the card partly outside the screen and must preserve its dimensions and client-space placement after release. Card capacity comes from the host viewport and monitor dimensions, independently of the host's screen position. Only overlays use the intersection with the visible work area. Explicit reset, maximize/restore, and changes to monitor capacity retain their separate bounds policies.
-
-`apps/desktop/tests/layout/README.md` describes the browser layout regression and its native-boundary mocks. Physical monitor/DPI changes, cross-application click-through, and release latency/memory budgets still require native acceptance.
+`useSearchWindowResize` owns card geometry from natural content and accepted native bounds; `SearchOverlayHost` owns overlay placement. Rust's `search_host` and `search_region` own the native viewport and Windows clipping region. Dragging changes position only and may leave the card off-screen; overlays stay within the visible work area. Native geometry updates occur at transition boundaries, not on every animation frame.
 
 ## Subsystems
 
