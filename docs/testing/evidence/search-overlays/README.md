@@ -80,3 +80,23 @@ repository desktop E2E gate could not establish its WebDriver session. The norma
 `cargo check --all-targets` subsequently passed with incremental compilation disabled
 after the initial disk-space failure. These recordings
 do not certify those paths or long-hidden wake latency.
+
+## Off-screen dragging follow-up
+
+Dragging may leave the card partly outside the screen. Movement alone no longer
+reduces card dimensions or shifts the card inside its host after release. The native
+host also preserves an off-screen horizontal origin during content changes. Popup
+placement still uses the visible work area, independently of card capacity.
+
+The previous native application reproduced a height reduction from 660px to 397px
+after a bottom-edge move through the native window-position API and the production
+drag preparation/completion path. Regression tests cover automatic and manual sizes,
+all four edges, release followed by remeasurement, and content growth. The separate
+monitor-capacity, reset/restore, and overlay bounds tests remain in place.
+
+The rebuilt native debug application passed all four edge moves at 150% scale:
+the 660px conversation kept its width, height, native origin, and client-space card
+position after release. These checks use the native position API and production
+drag lifecycle, not physical mouse input. The focused frontend suites passed 124
+tests on the base and 167 on the combined motion branch; 53 extracted production
+Rust geometry tests passed. Full physical-input and release acceptance remain open.

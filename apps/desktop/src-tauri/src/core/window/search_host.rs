@@ -78,13 +78,9 @@ pub fn resolve_search_host_target_frame(
         SearchHostPlacement::PreserveOrigin | SearchHostPlacement::PreserveCenter
             if current.height == idle_frame.height =>
         {
-            // A user may have dragged the visible card vertically. Content changes
+            // A user may have dragged the visible card off-screen. Content changes
             // keep that viewport; restore and monitor refresh always clamp it.
-            let bounded = preserve_host_origin_within_work_area(current, idle_frame, work_area);
-            Ok(PhysicalHostFrame {
-                y: current.y,
-                ..bounded
-            })
+            Ok(preserve_host_origin(current, idle_frame))
         }
         SearchHostPlacement::PreserveOrigin => Ok(preserve_host_origin_within_work_area(
             current, idle_frame, work_area,
@@ -900,6 +896,34 @@ mod tests {
     }
 
     #[test]
+    fn user_keeps_an_offscreen_origin_when_content_or_width_changes_in_the_same_viewport() {
+        let area = PhysicalWorkArea {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1080,
+        };
+        let current = bounded_host_frame_for_panel(area, 750.0, 290.0, 1.0).unwrap();
+        let target = bounded_host_frame_for_panel(area, 800.0, 660.0, 1.0).unwrap();
+        for (x, y) in [(-500, 0), (1800, 0), (0, -600), (0, 900)] {
+            let dragged = PhysicalHostFrame { x, y, ..current };
+            for placement in [
+                SearchHostPlacement::PreserveOrigin,
+                SearchHostPlacement::PreserveCenter,
+            ] {
+                let accepted =
+                    resolve_search_host_target_frame(dragged, target, area, placement, None)
+                        .unwrap();
+                assert_eq!((accepted.x, accepted.y), (x, y));
+                assert_eq!(
+                    (accepted.width, accepted.height),
+                    (target.width, target.height)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn bounded_default_panel_reserves_dpi_scaled_shadow_envelope() {
         let area = PhysicalWorkArea {
             left: 0,
@@ -1221,7 +1245,7 @@ mod tests {
     }
 
     #[test]
-    fn user_keeps_the_resized_frame_inside_the_work_area_when_origin_exceeds_its_edges() {
+    fn user_keeps_the_requested_origin_outside_the_work_area_in_an_unchanged_viewport() {
         let area = PhysicalWorkArea {
             left: -1920,
             top: -120,
@@ -1230,9 +1254,9 @@ mod tests {
         };
         let target = bounded_host_frame_for_panel(area, 800.0, 350.0, 1.5).unwrap();
 
-        for (origin, expected) in [
-            (PhysicalHostOrigin { x: -3000, y: -120 }, (-1920, -120)),
-            (PhysicalHostOrigin { x: 100, y: -120 }, (-1344, -120)),
+        for origin in [
+            PhysicalHostOrigin { x: -3000, y: -120 },
+            PhysicalHostOrigin { x: 100, y: -120 },
         ] {
             let resized = resolve_search_host_target_frame_with_origin(
                 target,
@@ -1244,7 +1268,7 @@ mod tests {
             )
             .unwrap();
 
-            assert_eq!((resized.x, resized.y), expected);
+            assert_eq!((resized.x, resized.y), (origin.x, origin.y));
             assert_eq!((resized.width, resized.height), (1344, 1200));
         }
     }

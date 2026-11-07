@@ -102,21 +102,25 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     const minimumPanelHeight = computed(() =>
         Math.max(SEARCH_PANEL_MIN_HEIGHT, options.defaultSize.value.height)
     );
-    const visibleHeight = computed(() => visibleViewport.value.bottom - visibleViewport.value.top);
+    const panelViewportHeight = computed(() =>
+        workAreaHeight.value === null
+            ? viewportHeight.value
+            : Math.min(viewportHeight.value, workAreaHeight.value / scaleFactor())
+    );
     const panelBounds = computed(() => {
         const topInset = SEARCH_WINDOW_TOP_INSET / scaleFactor();
-        // Sacrifice shadow space before shrinking below the native editor minimum.
+        // Card capacity belongs to the host; moving it off-screen only limits overlays.
         const insetScale = Math.min(
             1,
             Math.max(
                 0,
-                (visibleHeight.value - minimumPanelHeight.value) /
+                (panelViewportHeight.value - minimumPanelHeight.value) /
                     (topInset + SEARCH_WINDOW_VISUAL_OUTSET)
             )
         );
         return {
-            top: visibleViewport.value.top + topInset * insetScale,
-            bottom: visibleViewport.value.bottom - SEARCH_WINDOW_VISUAL_OUTSET * insetScale,
+            top: topInset * insetScale,
+            bottom: panelViewportHeight.value - SEARCH_WINDOW_VISUAL_OUTSET * insetScale,
         };
     });
     const availablePanelHeight = computed(() =>
@@ -416,9 +420,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             current: activeHeightChange.value?.toHeight ?? from.height,
             next: target,
         });
-        const restoreVisibleHost =
-            monitorHost.value && visibleHeight.value < minimumPanelHeight.value;
-        if (!commitOptions.placement && !heightChanged && !restoreVisibleHost) return true;
+        if (!commitOptions.placement && !heightChanged) return true;
 
         const revealFrom = Math.max(
             1,
@@ -434,8 +436,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         if (commitOptions.reset) desiredMaximized.value = false;
         const change = { fromHeight: revealFrom, toHeight: target, fromTop: revealTop };
         activeHeightChange.value = change;
-        const placement =
-            commitOptions.placement ?? (restoreVisibleHost ? 'idle' : 'preserve-origin');
+        const placement = commitOptions.placement ?? 'preserve-origin';
         const animatesCard = Math.abs(revealFrom - target) > 1;
 
         return (
@@ -470,12 +471,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                         applyState(state);
                         nativeCommitted = true;
                         failedMeasurement = null;
-                        if (restoreVisibleHost) {
-                            const origin = await currentWindow.outerPosition();
-                            if (!isCurrentGeometry(generation)) return false;
-                            hostOrigin.value = origin;
-                        }
-                        if (commitOptions.reset || restoreVisibleHost) panelCenterY.value = null;
+                        if (commitOptions.reset) panelCenterY.value = null;
                         await syncSearchWindowMinSizeConstraints();
                         if (!isCurrentGeometry(generation)) return false;
                         // Keep the old card visible until the OS can paint the full transition envelope.
@@ -1146,14 +1142,10 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
         if (!held) scheduleMeasurement();
     });
 
-    watch([availablePanelHeight, visibleHeight, nativeDragLayout], () => {
+    watch([availablePanelHeight, nativeDragLayout], () => {
         if (nativeDragLayout.value) return;
-        // Visibility is a hard constraint even when content autosizing is disabled.
-        if (
-            monitorHost.value &&
-            (currentHeight.value > availablePanelHeight.value ||
-                visibleHeight.value < minimumPanelHeight.value)
-        ) {
+        // A smaller monitor can reduce host capacity; position-only movement cannot.
+        if (monitorHost.value && currentHeight.value > availablePanelHeight.value) {
             void commitPanelHeight(currentHeight.value);
         } else scheduleMeasurement();
     });
@@ -1236,7 +1228,15 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
             monitorHost.value ? visibleViewport.value.top : undefined
         ),
         overlayMaxViewportHeight: computed(() =>
-            monitorHost.value ? panelBounds.value.bottom : undefined
+            monitorHost.value
+                ? Math.max(
+                      visibleViewport.value.top,
+                      Math.min(
+                          panelBounds.value.bottom,
+                          visibleViewport.value.bottom - SEARCH_WINDOW_VISUAL_OUTSET
+                      )
+                  )
+                : undefined
         ),
         panelStyle,
         cardStyle,
