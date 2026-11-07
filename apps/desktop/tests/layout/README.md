@@ -19,6 +19,9 @@ functions with the real conversation components and geometry owner. It exercises
 pending/cancelled messages, streaming, short-session reopening, input-row resizing,
 a QuickSearch handoff during animation, manual sizing/remeasurement, native failure
 recovery and maximize at two widths and both motion settings.
+Approval focus and toolbar bounds also run at a 720px viewport, where the work-area
+cap leaves less room for the transcript. The approval must remain fully visible
+without scrolling the outer card.
 It saves measurements and fixture screenshots in the scratch directory.
 
 Native IPC has a controlled acknowledgement delay. The editor, result list and
@@ -31,3 +34,6 @@ at both widths. It runs the real WAAPI and overlay component, with a stable nati
 screen-space centers and checks that the picker stays outside the editor and inside
 its hard bounds. Moving the host is a separate user drag operation; content growth
 does not move it.
+The same runner checks that a popup receives focus on its first opening and after
+reopening, using the production CSS under normal and reduced motion. A hidden
+preparation frame reproduces the native region-acknowledgement boundary.

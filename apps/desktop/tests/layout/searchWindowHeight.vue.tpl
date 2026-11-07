@@ -130,9 +130,14 @@
             await pause(750);
             sampling = false;
             const focused = document.activeElement?.getAttribute('data-proximity-index') === '0';
+            const card = searchViewCard.value.getBoundingClientRect();
+            const approval = document
+                .querySelector('[data-testid="ask-user-panel"]')
+                .getBoundingClientRect();
+            const bounds = { top: approval.top - card.top, bottom: approval.bottom - card.bottom };
             askUserStore.rejectCurrentApproval();
             await pause(750);
-            return { samples, focused };
+            return { samples, focused, bounds };
         },
         focusConversation() {
             conversationPanel.value.focus();

@@ -139,10 +139,15 @@ const browser = await chromium.launch({
 });
 const results = [];
 try {
-    for (const width of [420, 750]) {
+    for (const { width, viewportHeight } of [
+        { width: 420, viewportHeight: 720 },
+        { width: 750, viewportHeight: 720 },
+        { width: 420, viewportHeight: 1000 },
+        { width: 750, viewportHeight: 1000 },
+    ]) {
         for (const reducedMotion of ['no-preference', 'reduce']) {
             const page = await browser.newPage({
-                viewport: { width: width + 96, height: 1000 },
+                viewport: { width: width + 96, height: viewportHeight },
                 reducedMotion,
             });
             const errors = [];
@@ -199,6 +204,24 @@ try {
             });
             const stream = await page.evaluate(() => window.probe.stream());
             const approval = await page.evaluate(() => window.probe.approval());
+            assert.deepEqual(errors, [], 'user opens a conversation without renderer failures');
+            assert.ok(approval.focused, 'user can answer an approval from the keyboard');
+            assert.ok(
+                approval.samples.every(
+                    (sample) =>
+                        sample.cardScroll === 0 && sample.pageScroll === 0 && sample.toolbar >= 0
+                ),
+                'user receives approval focus with a stable card and visible toolbar'
+            );
+            assert.ok(
+                approval.bounds.top >= 0 && approval.bounds.bottom <= 1,
+                'user can see the complete approval inside the accepted card height'
+            );
+            if (viewportHeight === 720) {
+                results.push({ width, viewportHeight, reducedMotion, approval, errors });
+                await page.close();
+                continue;
+            }
             const reopened = await page.evaluate(() => window.probe.reopen());
             const tallerInput = await page.evaluate(() => window.probe.resizeInput(160));
             const restoredInput = await page.evaluate(() => window.probe.resizeInput(60));
@@ -210,6 +233,7 @@ try {
             const commits = await page.evaluate(() => window.commits);
             const result = {
                 width,
+                viewportHeight,
                 reducedMotion,
                 start,
                 conversationFocus,
@@ -228,14 +252,6 @@ try {
                 errors,
             };
             results.push(result);
-            assert.deepEqual(errors, [], 'user opens a conversation without renderer failures');
-            assert.ok(approval.focused, 'user can answer an approval from the keyboard');
-            assert.ok(
-                approval.samples.every(
-                    (sample) => sample.cardScroll === 0 && sample.pageScroll === 0
-                ),
-                'user receives approval focus without scrolling the animated card or its layout'
-            );
             assert.ok(
                 Math.abs(start.card - cancel.card) <= 1,
                 'user cancels before the first answer without a height jump'
@@ -293,5 +309,5 @@ try {
     await writeFile(`${base}/height-layout-results.json`, JSON.stringify(results, null, 2));
 }
 console.log(
-    `PASS: ${results.length} width/motion combinations; cancellation, streaming and reopen geometry`
+    `PASS: ${results.length} viewport/width/motion combinations; approval bounds, cancellation, streaming and reopen geometry`
 );

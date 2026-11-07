@@ -119,6 +119,28 @@ describe('user works in the main window with a conversation', () => {
         await browser.pause(800);
 
         assertVisible(await panel.isDisplayed(), 'The ask-user panel was not visible.');
+        const layout = await browser.execute(() => {
+            const card = document.querySelector('[data-testid="search-view-card"]');
+            const cardBounds = card.getBoundingClientRect();
+            const toolbar = card.querySelector('.toolbar-fade-overlay').getBoundingClientRect();
+            const approval = card
+                .querySelector('[data-testid="ask-user-panel"]')
+                .getBoundingClientRect();
+            return {
+                cardHeight: cardBounds.height,
+                cardScroll: card.scrollTop,
+                toolbarTop: toolbar.top - cardBounds.top,
+                approvalTop: approval.top - cardBounds.top,
+                approvalBottom: approval.bottom - cardBounds.bottom,
+            };
+        });
+        assertVisible(
+            layout.cardScroll === 0 &&
+                layout.toolbarTop >= 0 &&
+                layout.approvalTop >= 0 &&
+                layout.approvalBottom <= 1,
+            `The toolbar and complete approval must fit inside the card: ${JSON.stringify(layout)}`
+        );
         await expectSearchSurfaceSnapshot('main-window-ask-user');
     });
 });
