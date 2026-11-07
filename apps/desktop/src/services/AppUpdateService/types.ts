@@ -4,6 +4,7 @@ import type {
     AppUpdateCheckResult,
     AppUpdateDownload,
     AppUpdateInfo,
+    AppUpdateInstallAnalytics,
     AppUpdateRequirement,
 } from '@services/NativeService/types';
 
@@ -13,6 +14,7 @@ export type {
     AppUpdateCheckResult,
     AppUpdateDownload,
     AppUpdateInfo,
+    AppUpdateInstallAnalytics,
     AppUpdateRequirement,
 };
 export type AppUpdateUnsupportedReason = Extract<

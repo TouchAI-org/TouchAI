@@ -1,5 +1,8 @@
 import { execFileSync } from 'node:child_process';
 
+import { useSearchFixture, waitForE2eBridge } from '../support/desktop.js';
+import { SEARCH_FIXTURE_RESULTS } from '../support/fixtures.js';
+
 function sendTestGlobalShortcut(count = 1) {
     execFileSync(
         'powershell.exe',
@@ -15,16 +18,21 @@ function sendTestGlobalShortcut(count = 1) {
 }
 
 describe('TouchAI search smoke', () => {
+    before(async () => {
+        await waitForE2eBridge();
+        await useSearchFixture('touchai', SEARCH_FIXTURE_RESULTS);
+    });
+
     it('user keeps the reopened window visible when pinning and unpinning with Ctrl+P', async () => {
         await browser.waitUntil(async () => browser.execute(() => Boolean(window.__TOUCHAI_E2E__)));
         for (let cycle = 0; cycle < 2; cycle += 1) {
-            await browser.executeAsync((done) => {
-                void window.__TAURI_INTERNALS__
+            await browser.execute(async () => {
+                return window.__TAURI_INTERNALS__
                     .invoke('hide_search_window')
                     .then(() => window.__TAURI_INTERNALS__.invoke('show_search_window'))
                     .then(
-                        () => done(null),
-                        (error) => done(String(error))
+                        () => null,
+                        (error) => String(error)
                     );
             });
             await browser.waitUntil(() =>
@@ -264,14 +272,14 @@ describe('TouchAI search smoke', () => {
             );
         }
 
-        await browser.executeAsync((done) => {
-            void window.__TOUCHAI_E2E__
+        await browser.execute(async () => {
+            return window.__TOUCHAI_E2E__
                 .clearSessionToIdle()
                 .then(() => {
                     window.__TOUCHAI_E2E__.setSearchQuery('');
-                    done(null);
+                    return null;
                 })
-                .catch((error) => done(String(error)));
+                .catch((error) => String(error));
         });
     });
 
@@ -409,86 +417,74 @@ describe('TouchAI search smoke', () => {
     });
 
     it('keeps history interactive after a concrete session and native hide/show', async () => {
-        const fixtureError = await browser.executeAsync((done) => {
-            void (async () => {
-                try {
-                    await window.__TAURI_INTERNALS__.invoke('database_query', {
-                        request: {
-                            sql: `INSERT INTO sessions
+        const fixtureError = await browser.execute(async () => {
+            try {
+                await window.__TAURI_INTERNALS__.invoke('database_query', {
+                    request: {
+                        sql: `INSERT INTO sessions
                                 (id, session_id, title, model, last_message_preview, last_message_at, message_count, created_at, updated_at)
                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                            params: [
-                                9001,
-                                'e2e-history-toolbar-session',
-                                'E2E history toolbar session',
-                                'e2e-model',
-                                'History toolbar fixture',
-                                '2026-09-18 12:00:00',
-                                1,
-                                '2026-09-18 12:00:00',
-                                '2026-09-18 12:00:00',
-                            ],
-                            method: 'run',
-                        },
-                    });
-                    await window.__TAURI_INTERNALS__.invoke('database_query', {
-                        request: {
-                            sql: `INSERT INTO messages
+                        params: [
+                            9001,
+                            'e2e-history-toolbar-session',
+                            'E2E history toolbar session',
+                            'e2e-model',
+                            'History toolbar fixture',
+                            '2026-09-18 12:00:00',
+                            1,
+                            '2026-09-18 12:00:00',
+                            '2026-09-18 12:00:00',
+                        ],
+                        method: 'run',
+                    },
+                });
+                await window.__TAURI_INTERNALS__.invoke('database_query', {
+                    request: {
+                        sql: `INSERT INTO messages
                                 (id, session_id, role, created_at, updated_at)
                                 VALUES (?, ?, ?, ?, ?)`,
-                            params: [
-                                9001,
-                                9001,
-                                'user',
-                                '2026-09-18 12:00:00',
-                                '2026-09-18 12:00:00',
-                            ],
-                            method: 'run',
-                        },
-                    });
-                    await window.__TAURI_INTERNALS__.invoke('database_query', {
-                        request: {
-                            sql: 'INSERT INTO message_parts (message_id, type, content, sort_order) VALUES (?, ?, ?, ?)',
-                            params: [9001, 'text', 'History toolbar fixture', 0],
-                            method: 'run',
-                        },
-                    });
-                    done(null);
-                } catch (error) {
-                    done(String(error));
-                }
-            })();
+                        params: [9001, 9001, 'user', '2026-09-18 12:00:00', '2026-09-18 12:00:00'],
+                        method: 'run',
+                    },
+                });
+                await window.__TAURI_INTERNALS__.invoke('database_query', {
+                    request: {
+                        sql: 'INSERT INTO message_parts (message_id, type, content, sort_order) VALUES (?, ?, ?, ?)',
+                        params: [9001, 'text', 'History toolbar fixture', 0],
+                        method: 'run',
+                    },
+                });
+                return null;
+            } catch (error) {
+                return String(error);
+            }
         });
         if (fixtureError !== null) {
             throw new Error(`Failed to seed the history toolbar fixture: ${fixtureError}`);
         }
 
-        const manualOverrideError = await browser.executeAsync((done) => {
-            void (async () => {
-                try {
-                    const current =
-                        await window.__TAURI_INTERNALS__.invoke('get_search_window_state');
-                    await window.__TAURI_INTERNALS__.invoke(
-                        'set_search_window_allow_height_override',
-                        { allow: true }
-                    );
-                    await window.__TAURI_INTERNALS__.invoke('commit_search_panel_resize', {
-                        resize: {
-                            from: {
-                                width: current.currentWidth,
-                                height: current.currentHeight,
-                            },
-                            to: {
-                                width: current.currentWidth,
-                                height: current.currentHeight + 16,
-                            },
+        const manualOverrideError = await browser.execute(async () => {
+            try {
+                const current = await window.__TAURI_INTERNALS__.invoke('get_search_window_state');
+                await window.__TAURI_INTERNALS__.invoke('set_search_window_allow_height_override', {
+                    allow: true,
+                });
+                await window.__TAURI_INTERNALS__.invoke('commit_search_panel_resize', {
+                    resize: {
+                        from: {
+                            width: current.currentWidth,
+                            height: current.currentHeight,
                         },
-                    });
-                    done(null);
-                } catch (error) {
-                    done(String(error));
-                }
-            })();
+                        to: {
+                            width: current.currentWidth,
+                            height: current.currentHeight + 16,
+                        },
+                    },
+                });
+                return null;
+            } catch (error) {
+                return String(error);
+            }
         });
         if (manualOverrideError !== null) {
             throw new Error(
@@ -542,16 +538,14 @@ describe('TouchAI search smoke', () => {
         }
 
         const editor = await $(`[data-testid='search-editor-host'] .ProseMirror`);
-        const hideShowError = await browser.executeAsync((done) => {
-            void (async () => {
-                try {
-                    await window.__TAURI_INTERNALS__.invoke('hide_search_window');
-                    await window.__TAURI_INTERNALS__.invoke('show_search_window');
-                    done(null);
-                } catch (error) {
-                    done(String(error));
-                }
-            })();
+        const hideShowError = await browser.execute(async () => {
+            try {
+                await window.__TAURI_INTERNALS__.invoke('hide_search_window');
+                await window.__TAURI_INTERNALS__.invoke('show_search_window');
+                return null;
+            } catch (error) {
+                return String(error);
+            }
         });
         if (hideShowError !== null) {
             throw new Error(`Native hide/show before toolbar history failed: ${hideShowError}`);
@@ -607,17 +601,15 @@ describe('TouchAI search smoke', () => {
         const editor = await $("[data-testid='search-editor-host'] .ProseMirror");
         await editor.waitForDisplayed();
 
-        const hideShowError = await browser.executeAsync((done) => {
-            void (async () => {
-                try {
-                    await window.__TAURI_INTERNALS__.invoke('hide_search_window');
-                    await new Promise((resolve) => window.setTimeout(resolve, 50));
-                    await window.__TAURI_INTERNALS__.invoke('show_search_window');
-                    done(null);
-                } catch (error) {
-                    done(String(error));
-                }
-            })();
+        const hideShowError = await browser.execute(async () => {
+            try {
+                await window.__TAURI_INTERNALS__.invoke('hide_search_window');
+                await new Promise((resolve) => window.setTimeout(resolve, 50));
+                await window.__TAURI_INTERNALS__.invoke('show_search_window');
+                return null;
+            } catch (error) {
+                return String(error);
+            }
         });
         if (hideShowError !== null) {
             throw new Error(`Native hide/show cycle failed: ${hideShowError}`);
@@ -638,11 +630,11 @@ describe('TouchAI search smoke', () => {
 
         await editor.waitForDisplayed();
         await editor.click();
-        const hideError = await browser.executeAsync((done) => {
-            void window.__TAURI_INTERNALS__
+        const hideError = await browser.execute(async () => {
+            return window.__TAURI_INTERNALS__
                 .invoke('hide_search_window')
-                .then(() => done(null))
-                .catch((error) => done(String(error)));
+                .then(() => null)
+                .catch((error) => String(error));
         });
         if (hideError !== null) {
             throw new Error(`Native hide before history regression failed: ${hideError}`);
@@ -652,11 +644,11 @@ describe('TouchAI search smoke', () => {
                 'Expected the native hide to hide the search surface before reopening history',
         });
 
-        const showError = await browser.executeAsync((done) => {
-            void window.__TAURI_INTERNALS__
+        const showError = await browser.execute(async () => {
+            return window.__TAURI_INTERNALS__
                 .invoke('show_search_window')
-                .then(() => done(null))
-                .catch((error) => done(String(error)));
+                .then(() => null)
+                .catch((error) => String(error));
         });
         if (showError !== null) {
             throw new Error(`Native show before history regression failed: ${showError}`);
@@ -706,19 +698,19 @@ describe('TouchAI search smoke', () => {
     });
 
     it('serializes rapid global-shortcut toggles and restores focused input', async () => {
-        const registrationError = await browser.executeAsync((done) => {
-            void window.__TAURI_INTERNALS__
+        const registrationError = await browser.execute(async () => {
+            return window.__TAURI_INTERNALS__
                 .invoke('register_global_shortcut', { shortcut: 'Ctrl+Alt+Shift+F12' })
-                .then(() => done(null))
-                .catch((error) => done(String(error)));
+                .then(() => null)
+                .catch((error) => String(error));
         });
         if (registrationError !== null) {
             throw new Error(`Failed to register the E2E global shortcut: ${registrationError}`);
         }
 
-        await browser.executeAsync((done) => {
+        await browser.execute(async () => {
             window.__TOUCHAI_E2E_SURFACE_EVENTS__ = [];
-            void Promise.all([
+            return Promise.all([
                 window.__TAURI__.event.listen('search-surface-hidden', (event) => {
                     window.__TOUCHAI_E2E_SURFACE_EVENTS__.push({
                         at: performance.now(),
@@ -755,9 +747,9 @@ describe('TouchAI search smoke', () => {
             ])
                 .then((unlisteners) => {
                     window.__TOUCHAI_E2E_SURFACE_UNLISTENERS__ = unlisteners;
-                    done(null);
+                    return null;
                 })
-                .catch((error) => done(String(error)));
+                .catch((error) => String(error));
         });
 
         const isVisible = () =>
@@ -833,13 +825,13 @@ describe('TouchAI search smoke', () => {
             timeoutMsg: 'Expected focused input after two rapid global shortcuts',
         });
 
-        await browser.executeAsync((done) => {
+        await browser.execute(async () => {
             const unlisteners = window.__TOUCHAI_E2E_SURFACE_UNLISTENERS__ ?? [];
             delete window.__TOUCHAI_E2E_SURFACE_UNLISTENERS__;
             delete window.__TOUCHAI_E2E_SURFACE_EVENTS__;
-            void Promise.all(unlisteners.map((unlisten) => unlisten()))
-                .then(() => done(null))
-                .catch((error) => done(String(error)));
+            return Promise.all(unlisteners.map((unlisten) => unlisten()))
+                .then(() => null)
+                .catch((error) => String(error));
         });
     });
 
@@ -855,31 +847,38 @@ describe('TouchAI search smoke', () => {
         await editor.waitForDisplayed();
         await editor.click();
 
-        const samples = await browser.executeAsync((done) => {
-            const frames = [];
-            const startedAt = performance.now();
-            const sample = () => {
-                const card = document.querySelector('[data-testid="search-view-card"]');
-                const message = document.querySelector('[data-message-role="user"]');
-                const viewport = document.querySelector('[data-slot="message-scroller"] section');
-                if (card && message && viewport) {
-                    const cardRect = card.getBoundingClientRect();
-                    frames.push({
-                        height: cardRect.height,
-                        messageTop: message.getBoundingClientRect().top - cardRect.top,
-                        overflow: viewport.scrollHeight - viewport.clientHeight,
-                        jumpVisible: Boolean(document.querySelector('.scroll-fade-overlay')),
-                    });
-                }
-                if (performance.now() - startedAt >= 1500) {
-                    done(frames);
-                    return;
-                }
-                requestAnimationFrame(sample);
-            };
-            requestAnimationFrame(sample);
-            window.sendPrompt('Short conversation layout');
-        });
+        const samples = await browser.execute(
+            () =>
+                new Promise((done) => {
+                    const frames = [];
+                    const startedAt = performance.now();
+                    const sample = () => {
+                        const card = document.querySelector('[data-testid="search-view-card"]');
+                        const message = document.querySelector('[data-message-role="user"]');
+                        const viewport = document.querySelector(
+                            '[data-slot="message-scroller"] section'
+                        );
+                        if (card && message && viewport) {
+                            const cardRect = card.getBoundingClientRect();
+                            frames.push({
+                                height: cardRect.height,
+                                messageTop: message.getBoundingClientRect().top - cardRect.top,
+                                overflow: viewport.scrollHeight - viewport.clientHeight,
+                                jumpVisible: Boolean(
+                                    document.querySelector('.scroll-fade-overlay')
+                                ),
+                            });
+                        }
+                        if (performance.now() - startedAt >= 1500) {
+                            done(frames);
+                            return;
+                        }
+                        requestAnimationFrame(sample);
+                    };
+                    requestAnimationFrame(sample);
+                    window.sendPrompt('Short conversation layout');
+                })
+        );
 
         const settled = samples.at(-1);
         expect(settled?.height).toBeGreaterThan(100);
@@ -907,16 +906,15 @@ describe('TouchAI search smoke', () => {
             }
         );
 
-        const clearError = await browser.executeAsync((done) => {
+        const clearError = await browser.execute(async () => {
             const bridge = window.__TOUCHAI_E2E__;
             if (!bridge?.clearSessionToIdle) {
-                done('missing clearSessionToIdle');
-                return;
+                return 'missing clearSessionToIdle';
             }
-            void bridge
+            return bridge
                 .clearSessionToIdle()
-                .then(() => done(null))
-                .catch((error) => done(String(error)));
+                .then(() => null)
+                .catch((error) => String(error));
         });
         if (clearError) {
             throw new Error(`Failed to return the search surface to idle: ${clearError}`);

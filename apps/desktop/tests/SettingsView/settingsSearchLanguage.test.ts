@@ -98,4 +98,20 @@ describe('user searches settings by the section they belong to', () => {
         // A label hit outranks a description or section hit.
         expect(results[0]!.label).toContain('启动');
     });
+
+    it('user finds diagnostics and product analytics in data and privacy', () => {
+        setLocale('zh-CN');
+
+        const diagnostics = searchSettings('诊断');
+        const analytics = searchSettings('产品使用统计');
+
+        expect(diagnostics.length).toBeGreaterThan(0);
+        expect(diagnostics.every((result) => result.section === 'data-management')).toBe(true);
+        expect(
+            analytics.some(
+                (result) =>
+                    result.section === 'data-management' && result.id.includes('settings.analytics')
+            )
+        ).toBe(true);
+    });
 });

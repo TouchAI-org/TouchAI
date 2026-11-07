@@ -21,12 +21,15 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use tokio::sync::{Mutex, Notify};
 
 use crate::core::database::DatabaseRuntime;
-use crate::core::product_config::product_config;
+use crate::core::product_config::{product_config, ProductAnalytics, ANALYTICS_PROTOCOL_VERSION};
 
 use super::events;
 use super::queue::{self, AnalyticsQueue, EnqueueOutcome, QueueInsert, QueuedEvent};
 use super::store::{self, AnalyticsStateRow, MetadataOutcome, PendingUpdate};
-use super::transport::{AnalyticsEventEnvelope, AnalyticsTransport, EventSender, SendOutcome};
+use super::transport::{
+    prepare_batch, AnalyticsEventEnvelope, AnalyticsTransport, EventSender, PreparedAnalyticsBatch,
+    SendOutcome,
+};
 use super::{
     AnalyticsConsentStatus, AnalyticsLifecycleContext, AnalyticsOperationHandle,
     AnalyticsStartupKind, AnalyticsState, AnalyticsSubmitResult, AnalyticsSubmitStatus,
@@ -49,7 +52,7 @@ const HEALTH_INTERVAL: Duration = Duration::from_secs(60 * 60);
 /// measured on the native monotonic clock, never on a caller timestamp.
 const SESSION_IDLE: Duration = Duration::from_secs(30 * 60);
 /// Upper bound for the bounded pending-update metadata blob.
-const PENDING_UPDATE_MAX_BYTES: usize = 512;
+const PENDING_UPDATE_MAX_BYTES: usize = 640;
 /// Bounded native operation registry. Handles expire and the map is capped so a
 /// long-lived process cannot grow it without limit.
 const OPERATION_TTL: Duration = Duration::from_secs(2 * 60 * 60);
@@ -99,6 +102,7 @@ impl StartupActivation {
 struct OperationRecord {
     session_id: Option<String>,
     consent_epoch: i64,
+    interaction_admitted: bool,
     created: Instant,
 }
 
@@ -117,6 +121,7 @@ impl OperationRegistry {
             OperationRecord {
                 session_id,
                 consent_epoch,
+                interaction_admitted: false,
                 created: Instant::now(),
             },
         );
@@ -129,16 +134,21 @@ impl OperationRegistry {
         id
     }
 
-    fn get(&mut self, id: &str) -> Option<(Option<String>, i64)> {
+    fn get(&mut self, id: &str) -> Option<(Option<String>, i64, bool)> {
         self.prune();
-        self.records
-            .get(id)
-            .map(|record| (record.session_id.clone(), record.consent_epoch))
+        self.records.get(id).map(|record| {
+            (
+                record.session_id.clone(),
+                record.consent_epoch,
+                record.interaction_admitted,
+            )
+        })
     }
 
-    fn set_session(&mut self, id: &str, session_id: String) {
+    fn set_session(&mut self, id: &str, session_id: String, interaction_admitted: bool) {
         if let Some(record) = self.records.get_mut(id) {
             record.session_id = Some(session_id);
+            record.interaction_admitted |= interaction_admitted;
         }
     }
 
@@ -171,9 +181,28 @@ impl OperationRegistry {
 struct AnalyticsConfig {
     policy_version: i64,
     default_enabled: bool,
+    build_eligible: bool,
     transport: Option<Arc<dyn EventSender>>,
     /// The endpoint + project id this build delivers to.
     deployment_key: String,
+}
+
+#[derive(Debug, Clone)]
+struct PendingBatchMember {
+    event_id: String,
+    consent_epoch: i64,
+}
+
+/// The exact immutable request reserved for retry. New events cannot join it
+/// and a transient retry reuses its ordered members, body and batch id.
+#[derive(Debug, Clone)]
+struct PendingDeliveryBatch {
+    generation: u64,
+    prepared: PreparedAnalyticsBatch,
+    members: Vec<PendingBatchMember>,
+    attempt_count: i64,
+    retry_at_ms: i64,
+    expires_at_ms: i64,
 }
 
 #[derive(Default)]
@@ -192,12 +221,20 @@ struct AnalyticsRuntimeInner {
     config: Option<AnalyticsConfig>,
     enabled: AtomicBool,
     consent_epoch: AtomicI64,
+    /// Wall-clock instant of the latest consent status/epoch transition. A
+    /// WebView operation started before this instant cannot prove which
+    /// generation it belonged to, so native refuses to issue a handle.
+    consent_changed_at_ms: AtomicI64,
+    build_eligible: bool,
     transport_ready: bool,
     session: Mutex<Option<NativeSession>>,
     operations: Mutex<OperationRegistry>,
     exposures: Mutex<HashSet<String>>,
     /// Best-effort events for this process only. Restarting the app drops them.
     queue: Mutex<AnalyticsQueue>,
+    /// A request awaiting an acknowledgement, configuration failure or expiry.
+    pending_batch: Mutex<Option<PendingDeliveryBatch>>,
+    pending_batch_generation: AtomicU64,
     /// Serializes consent and session transitions that accompany queue changes.
     state_lock: Mutex<()>,
     /// Process-wide run identity. Native-owned; the WebView reads it and never
@@ -235,6 +272,7 @@ impl AnalyticsRuntime {
             .as_ref()
             .map(|config| config.transport.is_some())
             .unwrap_or(false);
+        let build_eligible = config.as_ref().is_some_and(|config| config.build_eligible);
         let run_id = uuid::Uuid::new_v4().to_string();
         let startup_source = normalize_startup_source(&startup_source);
 
@@ -245,11 +283,15 @@ impl AnalyticsRuntime {
                 config,
                 enabled: AtomicBool::new(false),
                 consent_epoch: AtomicI64::new(0),
+                consent_changed_at_ms: AtomicI64::new(0),
+                build_eligible,
                 transport_ready,
                 session: Mutex::new(None),
                 operations: Mutex::new(OperationRegistry::default()),
                 exposures: Mutex::new(HashSet::new()),
                 queue: Mutex::new(AnalyticsQueue::default()),
+                pending_batch: Mutex::new(None),
+                pending_batch_generation: AtomicU64::new(0),
                 state_lock: Mutex::new(()),
                 run_id: run_id.clone(),
                 startup_source: startup_source.clone(),
@@ -369,6 +411,9 @@ impl AnalyticsRuntime {
         let Some(config) = &self.inner.config else {
             return self.inner.build_state().await;
         };
+        if enabled && (!self.inner.build_eligible || !self.inner.transport_ready) {
+            return self.inner.build_state().await;
+        }
         let _state = self.inner.state_lock.lock().await;
         let updated = store::set_enabled(
             self.inner.database.pool(),
@@ -380,6 +425,7 @@ impl AnalyticsRuntime {
         if let Some(row) = updated {
             if !enabled {
                 self.inner.queue.lock().await.clear();
+                self.inner.invalidate_pending_batch().await;
             }
             self.inner.refresh_state(&row).await;
             if enabled {
@@ -397,6 +443,7 @@ impl AnalyticsRuntime {
         match store::clear_pending(self.inner.database.pool(), expected_epoch).await? {
             Some(row) => {
                 self.inner.queue.lock().await.clear();
+                self.inner.invalidate_pending_batch().await;
                 self.inner.apply_state(&row);
                 // A cleared start must not be referenced by later operations.
                 self.inner.clear_session().await;
@@ -460,15 +507,40 @@ impl AnalyticsRuntime {
     /// Issues an opaque operation handle. Native binds the current session (if
     /// any) and the current consent epoch; the caller only passes the handle back
     /// on later events, so the WebView never supplies a session id.
+    #[cfg(test)]
     pub async fn begin_operation(&self) -> AnalyticsOperationHandle {
+        self.begin_operation_at(store::now_millis()).await
+    }
+
+    /// Issues a handle only when the caller's synchronous action-start instant
+    /// is newer than every observed consent transition. Passing an older or
+    /// future timestamp fails closed instead of binding the action to current
+    /// consent that the user enabled while the IPC request was queued.
+    pub(crate) async fn begin_operation_at(&self, started_at_ms: i64) -> AnalyticsOperationHandle {
         let _state = self.inner.state_lock.lock().await;
+        let now = store::now_millis();
+        let consent_changed_at_ms = self.inner.consent_changed_at_ms.load(Ordering::SeqCst);
+        if !self.inner.build_eligible
+            || !self.inner.transport_ready
+            || started_at_ms < MIN_OCCURRED_AT_MS
+            || started_at_ms > now
+            || started_at_ms <= consent_changed_at_ms
+        {
+            return AnalyticsOperationHandle {
+                operation_id: String::new(),
+                enabled: false,
+                consent_epoch: self.inner.consent_epoch.load(Ordering::SeqCst),
+            };
+        }
         let session_id = self
             .inner
             .session
             .lock()
             .await
             .as_ref()
-            .map(|session| session.id.clone());
+            .and_then(|session| {
+                (session.last_activity.elapsed() <= SESSION_IDLE).then(|| session.id.clone())
+            });
         let enabled = self.inner.enabled.load(Ordering::SeqCst);
         let consent_epoch = self.inner.consent_epoch.load(Ordering::SeqCst);
         let operation_id = self
@@ -484,11 +556,93 @@ impl AnalyticsRuntime {
         }
     }
 
+    /// Captures an operation without letting analytics writer contention delay a
+    /// user action. Cancellation while waiting for the writer leaves no handle.
+    pub async fn begin_operation_with_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Option<AnalyticsOperationHandle> {
+        tokio::time::timeout(timeout, self.begin_operation_at(store::now_millis()))
+            .await
+            .ok()
+    }
+
     pub async fn complete_operation(&self, operation_id: &str) {
         self.inner.operations.lock().await.remove(operation_id);
     }
 
     pub async fn track(&self, request: AnalyticsTrackRequest) -> AnalyticsSubmitResult {
+        self.track_with_install_handoff(request, None).await
+    }
+
+    /// Records an install handoff using native-authoritative versions. The
+    /// event attributes remain constrained by the public wire contract; the
+    /// exact versions are carried separately into pending metadata so a valid
+    /// long SemVer can still be confirmed after the restart.
+    pub(crate) async fn track_install_handoff(
+        &self,
+        mut request: AnalyticsTrackRequest,
+        from_version: Option<String>,
+        to_version: String,
+    ) -> AnalyticsSubmitResult {
+        request.attributes.remove("from_version");
+        request.attributes.remove("to_version");
+        if let Some(from_version) = from_version
+            .as_deref()
+            .filter(|value| events::is_version_shaped(value))
+        {
+            request.attributes.insert(
+                "from_version".to_string(),
+                JsonValue::String(from_version.to_string()),
+            );
+        }
+        if events::is_version_shaped(&to_version) {
+            request.attributes.insert(
+                "to_version".to_string(),
+                JsonValue::String(to_version.clone()),
+            );
+        }
+        self.track_with_install_handoff(
+            request,
+            Some(InstallHandoffVersions {
+                from_version,
+                to_version,
+            }),
+        )
+        .await
+    }
+
+    /// Records the install handoff and releases its original operation under one
+    /// total deadline. Installer exit must never wait on the analytics writer or
+    /// SQLite contention; a timed-out handoff is best-effort telemetry.
+    pub(crate) async fn track_install_handoff_before_exit(
+        &self,
+        request: AnalyticsTrackRequest,
+        from_version: Option<String>,
+        to_version: String,
+        operation_id: Option<&str>,
+        timeout: Duration,
+    ) {
+        let Some(operation_id) = operation_id.filter(|operation_id| !operation_id.is_empty())
+        else {
+            return;
+        };
+        let handoff = async {
+            let _ = self
+                .track_install_handoff(request, from_version, to_version)
+                .await;
+            self.complete_operation(operation_id).await;
+        };
+        if tokio::time::timeout(timeout, handoff).await.is_err() {
+            log::debug!(target: "analytics", "install handoff deadline expired");
+        }
+    }
+
+    async fn track_with_install_handoff(
+        &self,
+        request: AnalyticsTrackRequest,
+        install_versions: Option<InstallHandoffVersions>,
+    ) -> AnalyticsSubmitResult {
         if let Some(id) = request.operation_id.as_deref() {
             if self.inner.operations.lock().await.get(id).is_none() {
                 return AnalyticsSubmitResult::with_reason(
@@ -520,6 +674,12 @@ impl AnalyticsRuntime {
             return AnalyticsSubmitResult::with_reason(
                 AnalyticsSubmitStatus::Unavailable,
                 "not_configured",
+            );
+        }
+        if !self.inner.build_eligible {
+            return AnalyticsSubmitResult::with_reason(
+                AnalyticsSubmitStatus::Unavailable,
+                "development_build",
             );
         }
         // An unprovisioned or unreadable deployment fails closed: no event is
@@ -582,24 +742,42 @@ impl AnalyticsRuntime {
         // opt-out: the event belongs to an operation the runtime no longer
         // describes, so it fails closed instead of borrowing the current session
         // or a newer consent epoch.
-        let (operation, captured_session, epoch) = match request.operation_id.as_deref() {
-            Some(id) => match self.inner.operations.lock().await.get(id) {
-                Some((session_id, epoch)) => (Some(id.to_string()), session_id, epoch),
-                None => {
-                    return AnalyticsSubmitResult::with_reason(
-                        AnalyticsSubmitStatus::Rejected,
-                        "stale_operation",
-                    )
-                }
-            },
-            None => (None, None, self.inner.consent_epoch.load(Ordering::SeqCst)),
-        };
+        let (operation, captured_session, epoch, interaction_admitted) =
+            match request.operation_id.as_deref() {
+                Some(id) => match self.inner.operations.lock().await.get(id) {
+                    Some((session_id, epoch, interaction_admitted)) => (
+                        Some(id.to_string()),
+                        session_id,
+                        epoch,
+                        interaction_admitted,
+                    ),
+                    None => {
+                        return AnalyticsSubmitResult::with_reason(
+                            AnalyticsSubmitStatus::Rejected,
+                            "stale_operation",
+                        )
+                    }
+                },
+                None => (
+                    None,
+                    None,
+                    self.inner.consent_epoch.load(Ordering::SeqCst),
+                    false,
+                ),
+            };
 
         let is_interaction = is_user_interaction(&request.event_name, &request.attributes);
-        let (session_id, started_session) = match captured_session {
-            // Immutable original session: never rebound to a later one.
-            Some(session_id) => (Some(session_id), false),
-            None => self.inner.resolve_session(is_interaction).await,
+        let (session_id, started_session) = match (captured_session, is_interaction) {
+            // A handle captures a session at action start, but its first real
+            // interaction must still admit that session. Crossing the idle
+            // boundary while capture is pending opens a fresh session.
+            (Some(session_id), true) if !interaction_admitted => {
+                self.inner.admit_operation_interaction(session_id).await
+            }
+            // Once an interaction has been admitted, every later completion is
+            // immutable even if that original session has since gone idle.
+            (Some(session_id), _) => (Some(session_id), false),
+            (None, _) => self.inner.resolve_session(is_interaction).await,
         };
         // A freshly started session is provisional until its `session_started`
         // row and the triggering event commit together below. Exposures are only
@@ -658,9 +836,18 @@ impl AnalyticsRuntime {
             }
         }
 
-        let pending = install_handoff_pending(&request, epoch)
-            .map(PendingUpdate::Set)
-            .unwrap_or(PendingUpdate::Unchanged);
+        let pending = install_handoff_pending(
+            &request,
+            epoch,
+            install_versions.as_ref().map(|versions| {
+                (
+                    versions.to_version.as_str(),
+                    versions.from_version.as_deref(),
+                )
+            }),
+        )
+        .map(PendingUpdate::Set)
+        .unwrap_or(PendingUpdate::Unchanged);
         let primary_event_id = inserts.last().map(|insert| insert.event_id.clone());
         let result = self
             .inner
@@ -680,11 +867,11 @@ impl AnalyticsRuntime {
                 self.inner.exposures.lock().await.clear();
             }
             if let (Some(operation), Some(session_id)) = (&operation, &session_id) {
-                self.inner
-                    .operations
-                    .lock()
-                    .await
-                    .set_session(operation, session_id.clone());
+                self.inner.operations.lock().await.set_session(
+                    operation,
+                    session_id.clone(),
+                    is_interaction,
+                );
             }
             // The exposure key is recorded only after the event was queued.
             if let Some(key) = exposure_key {
@@ -732,6 +919,12 @@ impl AnalyticsRuntime {
             return AnalyticsSubmitResult::with_reason(
                 AnalyticsSubmitStatus::Unavailable,
                 "not_configured",
+            );
+        }
+        if !self.inner.build_eligible {
+            return AnalyticsSubmitResult::with_reason(
+                AnalyticsSubmitStatus::Unavailable,
+                "development_build",
             );
         }
         if !self.inner.transport_ready {
@@ -782,6 +975,9 @@ impl AnalyticsRuntime {
     }
 
     async fn flush_impl(&self) -> Result<(), String> {
+        if !self.inner.build_eligible {
+            return Ok(());
+        }
         let Some(config) = &self.inner.config else {
             return Ok(());
         };
@@ -801,115 +997,238 @@ impl AnalyticsRuntime {
             self.inner.purge_expired_sessions(now).await?;
         }
         let started = Instant::now();
-        let (batch, mut pending_starts) = {
-            let queue = self.inner.queue.lock().await;
-            (
-                queue.due_batch(now, queue::SEND_BATCH_LIMIT),
-                queue.pending_session_starts(),
-            )
-        };
 
-        for row in batch {
+        loop {
             if started.elapsed() >= FLUSH_BUDGET {
                 break;
             }
-            // Consent can be withdrawn while a batch is in flight; re-check the
-            // gate before each send so no new send starts after a withdrawal. An
-            // already in-flight HTTP request cannot be cancelled locally, so a
-            // remote commit during the opt-out window is possible and is not
-            // treated as a client failure.
+            // Consent can be withdrawn while a batch is being built or retried;
+            // re-check the gate before every HTTP attempt. An in-flight request
+            // cannot be recalled locally.
             if !self.inner.enabled.load(Ordering::SeqCst) {
                 break;
             }
-            if !self
-                .inner
-                .queue
-                .lock()
-                .await
-                .contains(&row.event_id, row.consent_epoch, now)
-            {
-                continue;
-            }
-            let session_id = queue::session_id_from_payload(&row.payload_json);
-            if row.event_name != "analytics.session_started" {
-                if let Some(retry_at) = session_id
-                    .as_deref()
-                    .and_then(|session_id| pending_starts.get(session_id).copied())
-                {
-                    // Fail closed: the receiver must see the session start first.
+
+            let now = store::now_millis();
+            let pending = self.inner.pending_batch.lock().await.clone();
+            let (prepared, generation, members, attempt_count) = if let Some(pending) = pending {
+                if now < pending.retry_at_ms {
+                    break;
+                }
+                if now >= pending.expires_at_ms {
                     self.inner
-                        .queue
-                        .lock()
-                        .await
-                        .hold_until(&row.event_id, retry_at);
+                        .discard_pending_batch(pending.generation, &pending.members)
+                        .await;
                     continue;
                 }
-            }
-            match self.send_row(transport, &row).await {
-                SendOutcome::Accepted => {
-                    self.inner.queue.lock().await.remove(&row.event_id);
-                    // Health reports describe the product-event counters. Counting
-                    // their own delivery would make those counters self-referential.
-                    if row.event_name != "analytics.health_reported" {
-                        self.inner.counters.accepted.fetch_add(1, Ordering::Relaxed);
-                    }
-                    if row.event_name == "analytics.session_started" {
-                        if let Some(session_id) = session_id.as_deref() {
-                            // The start is delivered, so its dependents may follow.
-                            pending_starts.remove(session_id);
-                        }
-                    }
+                (
+                    pending.prepared,
+                    pending.generation,
+                    pending.members,
+                    pending.attempt_count,
+                )
+            } else {
+                let (rows, pending_starts) = {
+                    let queue = self.inner.queue.lock().await;
+                    (
+                        queue.due_batch(now, queue::SEND_BATCH_LIMIT),
+                        queue.pending_session_starts(),
+                    )
+                };
+                if rows.is_empty() {
+                    break;
                 }
-                SendOutcome::PermanentRejection { reason } => {
-                    self.inner.counters.rejected.fetch_add(1, Ordering::Relaxed);
-                    log::debug!(target: "analytics", "permanent rejection: {reason}");
-                    if row.event_name == "analytics.session_started" {
-                        // The receiver will never accept this session, so nothing
-                        // that references it can be attributed. Drop the session
-                        // and continue with independent rows.
-                        self.inner.abandon_session(session_id.as_deref()).await?;
+                // A due dependent must never overtake its session start while
+                // that start is backing off. A start is kept in its own batch.
+                let mut batch: Vec<(QueuedEvent, AnalyticsEventEnvelope)> = Vec::new();
+
+                for row in rows {
+                    if started.elapsed() >= FLUSH_BUDGET {
+                        break;
+                    }
+                    if !self.inner.queue.lock().await.contains(
+                        &row.event_id,
+                        row.consent_epoch,
+                        now,
+                    ) {
                         continue;
                     }
-                    self.inner.queue.lock().await.remove(&row.event_id);
+                    let envelope: AnalyticsEventEnvelope =
+                        match serde_json::from_str(&row.payload_json) {
+                            Ok(envelope) => envelope,
+                            Err(error) => {
+                                self.drop_corrupt_row(
+                                    &row,
+                                    format!("stored_payload_corrupt:{error}"),
+                                )
+                                .await?;
+                                continue;
+                            }
+                        };
+                    if row.event_name != "analytics.session_started" {
+                        if let Some(retry_at) = envelope
+                            .analytics_session_id
+                            .as_deref()
+                            .and_then(|session_id| pending_starts.get(session_id).copied())
+                        {
+                            // `hold_until` never moves an event earlier, so its
+                            // own backoff is preserved.
+                            self.inner
+                                .queue
+                                .lock()
+                                .await
+                                .hold_until(&row.event_id, retry_at);
+                            continue;
+                        }
+                    }
+                    let is_session_start = row.event_name == "analytics.session_started";
+                    batch.push((row, envelope));
+                    if is_session_start {
+                        break;
+                    }
+                }
+
+                if batch.is_empty() {
+                    break;
+                }
+                // Consent withdrawal or clear-pending can remove entries while
+                // the batch is assembled. A partial stale batch is deferred.
+                let sendable_now = store::now_millis();
+                let all_sendable = {
+                    let queue = self.inner.queue.lock().await;
+                    batch.iter().all(|(row, _)| {
+                        queue.contains(&row.event_id, row.consent_epoch, sendable_now)
+                    })
+                };
+                if !all_sendable || !self.inner.enabled.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                let wire_events: Vec<AnalyticsEventEnvelope> =
+                    batch.iter().map(|(_, envelope)| envelope.clone()).collect();
+                let prepared = prepare_batch(&wire_events)?;
+                let members: Vec<PendingBatchMember> = batch
+                    .iter()
+                    .map(|(row, _)| PendingBatchMember {
+                        event_id: row.event_id.clone(),
+                        consent_epoch: row.consent_epoch,
+                    })
+                    .collect();
+                let attempt_count = batch
+                    .iter()
+                    .map(|(row, _)| row.attempt_count)
+                    .max()
+                    .unwrap_or(0);
+                let expires_at_ms = batch
+                    .iter()
+                    .map(|(row, _)| row.expires_at)
+                    .min()
+                    .unwrap_or(sendable_now);
+
+                let generation = {
+                    let mut pending = self.inner.pending_batch.lock().await;
+                    if pending.is_some() {
+                        continue;
+                    }
+                    if !self.inner.enabled.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let generation = self
+                        .inner
+                        .pending_batch_generation
+                        .fetch_add(1, Ordering::SeqCst)
+                        + 1;
+                    *pending = Some(PendingDeliveryBatch {
+                        generation,
+                        prepared: prepared.clone(),
+                        members: members.clone(),
+                        attempt_count,
+                        retry_at_ms: sendable_now,
+                        expires_at_ms,
+                    });
+                    generation
+                };
+                (prepared, generation, members, attempt_count)
+            };
+
+            let sendable_now = store::now_millis();
+            let all_sendable = {
+                let queue = self.inner.queue.lock().await;
+                members.iter().all(|member| {
+                    queue.contains(&member.event_id, member.consent_epoch, sendable_now)
+                })
+            };
+            if !all_sendable || !self.inner.enabled.load(Ordering::SeqCst) {
+                self.inner.discard_pending_batch(generation, &members).await;
+                continue;
+            }
+
+            match transport.send_batch(&prepared).await {
+                SendOutcome::Accepted => {
+                    {
+                        let mut queue = self.inner.queue.lock().await;
+                        for (member, envelope) in members.iter().zip(&prepared.events) {
+                            queue.remove(&member.event_id);
+                            // Health reports describe the product-event counters.
+                            // Counting their own delivery makes those counters
+                            // self-referential.
+                            if envelope.event_name != "analytics.health_reported" {
+                                self.inner.counters.accepted.fetch_add(1, Ordering::Relaxed);
+                            }
+                        }
+                    }
+                    self.inner.clear_pending_batch_if(generation).await;
+                    continue;
                 }
                 SendOutcome::ConfigurationFailure { reason } => {
                     let next = store::now_millis() + CONFIG_RETRY_MS;
-                    self.inner
-                        .queue
-                        .lock()
-                        .await
-                        .reschedule(&row.event_id, next);
+                    if self.inner.clear_pending_batch_if(generation).await {
+                        let mut queue = self.inner.queue.lock().await;
+                        for member in &members {
+                            queue.reschedule(&member.event_id, next);
+                        }
+                    }
                     self.inner
                         .counters
                         .send_failure
-                        .fetch_add(1, Ordering::Relaxed);
+                        .fetch_add(members.len() as u64, Ordering::Relaxed);
                     log::warn!(target: "analytics", "analytics send paused: {reason}");
                     break;
                 }
                 SendOutcome::RetryAfter { delay_ms } => {
                     let next = store::now_millis() + delay_ms;
-                    self.inner
-                        .queue
-                        .lock()
+                    if self
+                        .inner
+                        .reschedule_pending_batch(generation, &members, next, attempt_count)
                         .await
-                        .reschedule(&row.event_id, next);
+                    {
+                        let mut queue = self.inner.queue.lock().await;
+                        for member in &members {
+                            queue.reschedule(&member.event_id, next);
+                        }
+                    }
                     self.inner
                         .counters
                         .send_failure
-                        .fetch_add(1, Ordering::Relaxed);
+                        .fetch_add(members.len() as u64, Ordering::Relaxed);
                     break;
                 }
                 SendOutcome::Retry { reason } => {
-                    let next = store::now_millis() + backoff_ms(row.attempt_count);
-                    self.inner
-                        .queue
-                        .lock()
+                    let next = store::now_millis() + backoff_ms(attempt_count);
+                    if self
+                        .inner
+                        .reschedule_pending_batch(generation, &members, next, attempt_count)
                         .await
-                        .reschedule(&row.event_id, next);
+                    {
+                        let mut queue = self.inner.queue.lock().await;
+                        for member in &members {
+                            queue.reschedule(&member.event_id, next);
+                        }
+                    }
                     self.inner
                         .counters
                         .send_failure
-                        .fetch_add(1, Ordering::Relaxed);
+                        .fetch_add(members.len() as u64, Ordering::Relaxed);
                     log::debug!(target: "analytics", "retry scheduled: {reason}");
                     break;
                 }
@@ -926,16 +1245,16 @@ impl AnalyticsRuntime {
         Ok(())
     }
 
-    async fn send_row(&self, transport: &Arc<dyn EventSender>, row: &QueuedEvent) -> SendOutcome {
-        let envelope: AnalyticsEventEnvelope = match serde_json::from_str(&row.payload_json) {
-            Ok(envelope) => envelope,
-            Err(error) => {
-                return SendOutcome::PermanentRejection {
-                    reason: format!("stored_payload_corrupt:{error}"),
-                };
-            }
-        };
-        transport.send(&envelope).await
+    async fn drop_corrupt_row(&self, row: &QueuedEvent, reason: String) -> Result<(), String> {
+        self.inner.counters.rejected.fetch_add(1, Ordering::Relaxed);
+        log::debug!(target: "analytics", "local permanent rejection: {reason}");
+        if row.event_name == "analytics.session_started" {
+            let session_id = queue::session_id_from_payload(&row.payload_json);
+            self.inner.abandon_session(session_id.as_deref()).await?;
+        } else {
+            self.inner.queue.lock().await.remove(&row.event_id);
+        }
+        Ok(())
     }
 }
 
@@ -951,7 +1270,7 @@ impl AnalyticsRuntimeInner {
     ) -> AnalyticsSubmitResult {
         let _state = self.state_lock.lock().await;
         if let Some(operation_id) = operation_id {
-            let Some((_, epoch)) = self.operations.lock().await.get(operation_id) else {
+            let Some((_, epoch, _)) = self.operations.lock().await.get(operation_id) else {
                 return AnalyticsSubmitResult::with_reason(
                     AnalyticsSubmitStatus::Rejected,
                     "stale_operation",
@@ -1098,7 +1417,7 @@ impl AnalyticsRuntimeInner {
     /// Emits `app.started` at most once for this process, and only when the
     /// stored state is enabled and the deployment was deliverable at init.
     async fn emit_app_started(&self, state: &AnalyticsStateRow) -> Result<(), String> {
-        if state.status != "enabled" || !self.transport_ready {
+        if state.status != "enabled" || !self.build_eligible || !self.transport_ready {
             return Ok(());
         }
         if self.app_started_emitted.swap(true, Ordering::SeqCst) {
@@ -1127,7 +1446,11 @@ impl AnalyticsRuntimeInner {
     /// depth. It never starts/refreshes a session and does not run while the
     /// user has disabled analytics.
     async fn emit_health_once(&self) -> Result<(), String> {
-        if self.config.is_none() || !self.transport_ready || !self.enabled.load(Ordering::SeqCst) {
+        if self.config.is_none()
+            || !self.build_eligible
+            || !self.transport_ready
+            || !self.enabled.load(Ordering::SeqCst)
+        {
             return Ok(());
         }
         let state = store::load_state(self.database.pool())
@@ -1214,13 +1537,68 @@ impl AnalyticsRuntimeInner {
             .store(row.consent_epoch, Ordering::SeqCst);
     }
 
+    async fn invalidate_pending_batch(&self) {
+        let mut pending = self.pending_batch.lock().await;
+        self.pending_batch_generation.fetch_add(1, Ordering::SeqCst);
+        *pending = None;
+    }
+
+    async fn clear_pending_batch_if(&self, generation: u64) -> bool {
+        let mut pending = self.pending_batch.lock().await;
+        if pending
+            .as_ref()
+            .is_none_or(|batch| batch.generation != generation)
+        {
+            return false;
+        }
+        self.pending_batch_generation.fetch_add(1, Ordering::SeqCst);
+        *pending = None;
+        true
+    }
+
+    async fn reschedule_pending_batch(
+        &self,
+        generation: u64,
+        _members: &[PendingBatchMember],
+        next_attempt_at: i64,
+        attempt_count: i64,
+    ) -> bool {
+        let mut pending = self.pending_batch.lock().await;
+        let Some(batch) = pending
+            .as_mut()
+            .filter(|batch| batch.generation == generation)
+        else {
+            return false;
+        };
+        batch.retry_at_ms = next_attempt_at;
+        batch.attempt_count = attempt_count.saturating_add(1);
+        true
+    }
+
+    async fn discard_pending_batch(&self, generation: u64, members: &[PendingBatchMember]) {
+        if !self.clear_pending_batch_if(generation).await {
+            return;
+        }
+        let mut queue = self.queue.lock().await;
+        for member in members {
+            queue.remove(&member.event_id);
+        }
+    }
+
     /// Imports can adopt consent through the shared database transaction. Retire
     /// native bindings when the durable epoch moves before collecting or sending.
     /// Caller holds the writer lock.
     async fn refresh_state(&self, row: &AnalyticsStateRow) {
-        if row.status != "enabled" || row.consent_epoch != self.consent_epoch.load(Ordering::SeqCst)
-        {
+        let enabled = row.status == "enabled";
+        let previous_enabled = self.enabled.load(Ordering::SeqCst);
+        let previous_epoch = self.consent_epoch.load(Ordering::SeqCst);
+        if enabled != previous_enabled || row.consent_epoch != previous_epoch {
+            self.consent_changed_at_ms
+                .store(store::now_millis(), Ordering::SeqCst);
+        }
+        if !enabled || row.consent_epoch != previous_epoch {
             self.queue.lock().await.clear();
+            self.invalidate_pending_batch().await;
             self.clear_session().await;
         }
         self.apply_state(row);
@@ -1254,6 +1632,7 @@ impl AnalyticsRuntimeInner {
                 let mut queue = self.queue.lock().await;
                 let dropped = queue.stats().0 as u64;
                 queue.clear();
+                self.invalidate_pending_batch().await;
                 self.clear_session().await;
                 dropped
             }
@@ -1308,6 +1687,28 @@ impl AnalyticsRuntimeInner {
             }
         }
         (guard.as_ref().map(|session| session.id.clone()), false)
+    }
+
+    /// Admits the first interaction for an operation that captured a session at
+    /// action start. If the still-current session has crossed the idle boundary,
+    /// return a fresh provisional id; otherwise refresh the original session.
+    async fn admit_operation_interaction(
+        &self,
+        captured_session_id: String,
+    ) -> (Option<String>, bool) {
+        let mut guard = self.session.lock().await;
+        let Some(current) = guard.as_mut() else {
+            return (Some(captured_session_id), false);
+        };
+        if current.id != captured_session_id {
+            return (Some(captured_session_id), false);
+        }
+        let now = Instant::now();
+        if now.duration_since(current.last_activity) > SESSION_IDLE {
+            return (Some(uuid::Uuid::new_v4().to_string()), true);
+        }
+        current.last_activity = now;
+        (Some(captured_session_id), false)
     }
 
     /// Builds the native `analytics.session_started` row for a new session,
@@ -1399,6 +1800,7 @@ impl AnalyticsRuntimeInner {
             consent_epoch,
             queue_depth,
             pending_bytes,
+            build_eligible: self.build_eligible,
             transport_ready: self.transport_ready,
         })
     }
@@ -1446,16 +1848,22 @@ impl AnalyticsRuntimeInner {
             "phase".to_string(),
             JsonValue::String("restart_confirmed".to_string()),
         );
-        if let Some(from_version) = &pending.from_version {
+        if let Some(from_version) = pending
+            .from_version
+            .as_deref()
+            .filter(|value| events::is_version_shaped(value))
+        {
             attributes.insert(
                 "from_version".to_string(),
-                JsonValue::String(from_version.clone()),
+                JsonValue::String(from_version.to_string()),
             );
         }
-        attributes.insert(
-            "to_version".to_string(),
-            JsonValue::String(pending.to_version.clone()),
-        );
+        if events::is_version_shaped(&pending.to_version) {
+            attributes.insert(
+                "to_version".to_string(),
+                JsonValue::String(pending.to_version.clone()),
+            );
+        }
         attributes.insert(
             "result".to_string(),
             JsonValue::String("success".to_string()),
@@ -1564,6 +1972,12 @@ fn elapsed_ms(started_at: Instant) -> i64 {
         .min(MAX_DURATION_MS)
 }
 
+#[derive(Debug, Clone)]
+struct InstallHandoffVersions {
+    from_version: Option<String>,
+    to_version: String,
+}
+
 /// Bounded pending-update metadata stored when a real install handoff succeeds,
 /// so the next native start can confirm the restart once and atomically.
 #[derive(serde::Deserialize)]
@@ -1585,13 +1999,14 @@ fn parse_pending_update(json: &str) -> Option<PendingUpdateMeta> {
         return None;
     }
     let pending: PendingUpdateMeta = serde_json::from_str(json).ok()?;
-    // Stored metadata is written from validated attributes, but a restored or
-    // hand-edited row must not put a value outside the registry on the wire.
-    if !events::is_version_shaped(&pending.to_version) {
+    // Pending metadata may retain a valid long SemVer that cannot fit in the
+    // public wire attribute. A restored or hand-edited row is still bounded and
+    // shape-checked before it can influence a confirmation.
+    if !events::is_pending_version_shaped(&pending.to_version) {
         return None;
     }
     if let Some(from_version) = &pending.from_version {
-        if !events::is_version_shaped(from_version) {
+        if !events::is_pending_version_shaped(from_version) {
             return None;
         }
     }
@@ -1615,7 +2030,11 @@ fn normalize_update_source(source: Option<&str>) -> &'static str {
 
 /// Builds the bounded pending metadata for an `install_handoff` transition that
 /// succeeded. `None` for every other transition, so nothing else writes it.
-fn install_handoff_pending(request: &AnalyticsTrackRequest, consent_epoch: i64) -> Option<String> {
+fn install_handoff_pending(
+    request: &AnalyticsTrackRequest,
+    consent_epoch: i64,
+    authoritative_versions: Option<(&str, Option<&str>)>,
+) -> Option<String> {
     if request.event_name != "app.update_transition" {
         return None;
     }
@@ -1625,10 +2044,23 @@ fn install_handoff_pending(request: &AnalyticsTrackRequest, consent_epoch: i64) 
     if request.attributes.get("result").and_then(JsonValue::as_str) != Some("success") {
         return None;
     }
-    let to_version = request
-        .attributes
-        .get("to_version")
-        .and_then(JsonValue::as_str)?;
+    let (to_version, from_version) = match authoritative_versions {
+        Some((to_version, from_version)) => (to_version, from_version),
+        None => (
+            request
+                .attributes
+                .get("to_version")
+                .and_then(JsonValue::as_str)?,
+            request
+                .attributes
+                .get("from_version")
+                .and_then(JsonValue::as_str),
+        ),
+    };
+    if !events::is_pending_version_shaped(to_version) {
+        return None;
+    }
+    let from_version = from_version.filter(|value| events::is_pending_version_shaped(value));
     let mut metadata = JsonMap::new();
     if let Some(value) = request
         .attributes
@@ -1640,11 +2072,7 @@ fn install_handoff_pending(request: &AnalyticsTrackRequest, consent_epoch: i64) 
             JsonValue::String(value.to_string()),
         );
     }
-    if let Some(value) = request
-        .attributes
-        .get("from_version")
-        .and_then(JsonValue::as_str)
-    {
+    if let Some(value) = from_version {
         metadata.insert(
             "fromVersion".to_string(),
             JsonValue::String(value.to_string()),
@@ -1676,39 +2104,40 @@ fn backoff_ms(attempt_count: i64) -> i64 {
     (capped + jitter).min(BACKOFF_MAX_MS + 1_000)
 }
 
-fn resolve_config() -> Option<AnalyticsConfig> {
-    let config = product_config().ok()?;
-    let analytics = config.services.analytics.as_ref()?;
-    if analytics.protocol_version != 1 {
+fn resolve_analytics_config(
+    analytics: &ProductAnalytics,
+    build_eligible: bool,
+) -> Option<AnalyticsConfig> {
+    if analytics.protocol_version != ANALYTICS_PROTOCOL_VERSION {
         return None;
     }
     // Release eligibility is a build property; the deployment default only
     // participates in an eligible build. Nothing here is a persisted user choice.
-    let transport: Option<Arc<dyn EventSender>> = if analytics.is_transport_ready() {
-        analytics
-            .send_url()
-            .ok()
-            .and_then(|send_url| {
-                AnalyticsTransport::new(send_url, analytics.website_id.trim().to_string()).ok()
-            })
-            .map(|transport| Arc::new(transport) as Arc<dyn EventSender>)
-    } else {
-        None
-    };
+    let transport: Option<Arc<dyn EventSender>> =
+        if build_eligible && analytics.is_transport_ready() {
+            analytics
+                .batch_url()
+                .ok()
+                .and_then(|batch_url| {
+                    AnalyticsTransport::new(batch_url, analytics.project_id.trim().to_string()).ok()
+                })
+                .map(|transport| Arc::new(transport) as Arc<dyn EventSender>)
+        } else {
+            None
+        };
     // The derived default only turns collection on once this build can actually
     // deliver. It is a non-explicit value, so real provisioning re-derives it
     // later without overwriting an explicit user choice, and a community build
     // never queues events that a later official build would flush.
-    let default_enabled =
-        !cfg!(debug_assertions) && analytics.default_enabled && transport.is_some();
+    let default_enabled = build_eligible && analytics.default_enabled && transport.is_some();
     // Bind the queue to one deployment target. The same official build always
     // resolves the same key; a community/self build that points at its own
     // endpoint (or one with no project id) resolves a different key, so its
     // queued rows are cleared before they could flush through another target.
-    let deployment_key = if analytics.is_transport_ready() {
+    let deployment_key = if build_eligible && analytics.is_transport_ready() {
         analytics
-            .send_url()
-            .map(|send_url| format!("{send_url}|{}", analytics.website_id.trim()))
+            .batch_url()
+            .map(|batch_url| format!("{batch_url}|{}", analytics.project_id.trim()))
             .unwrap_or_default()
     } else {
         String::new()
@@ -1716,9 +2145,19 @@ fn resolve_config() -> Option<AnalyticsConfig> {
     Some(AnalyticsConfig {
         policy_version: POLICY_VERSION,
         default_enabled,
+        build_eligible,
         transport,
         deployment_key,
     })
+}
+
+fn resolve_config() -> Option<AnalyticsConfig> {
+    let config = product_config().ok()?;
+    config
+        .services
+        .analytics
+        .as_ref()
+        .and_then(|analytics| resolve_analytics_config(analytics, !cfg!(debug_assertions)))
 }
 
 async fn resolve_release_channel(database: &DatabaseRuntime) -> String {
@@ -1765,6 +2204,7 @@ impl AnalyticsRuntime {
             default_enabled,
             "foreground",
             Instant::now(),
+            true,
         )
         .await
     }
@@ -1775,10 +2215,12 @@ impl AnalyticsRuntime {
         default_enabled: bool,
         startup_source: &str,
         started_at: Instant,
+        build_eligible: bool,
     ) -> Result<Self, String> {
         let config = AnalyticsConfig {
             policy_version: POLICY_VERSION,
             default_enabled,
+            build_eligible,
             transport: sender,
             deployment_key: String::new(),
         };
@@ -1788,13 +2230,17 @@ impl AnalyticsRuntime {
             inner: Arc::new(AnalyticsRuntimeInner {
                 database,
                 transport_ready: config.transport.is_some(),
+                build_eligible: config.build_eligible,
                 config: Some(config),
                 enabled: AtomicBool::new(false),
                 consent_epoch: AtomicI64::new(0),
+                consent_changed_at_ms: AtomicI64::new(0),
                 session: Mutex::new(None),
                 operations: Mutex::new(OperationRegistry::default()),
                 exposures: Mutex::new(HashSet::new()),
                 queue: Mutex::new(AnalyticsQueue::default()),
+                pending_batch: Mutex::new(None),
+                pending_batch_generation: AtomicU64::new(0),
                 state_lock: Mutex::new(()),
                 run_id: run_id.clone(),
                 startup_source: startup_source.clone(),
@@ -1847,6 +2293,14 @@ impl AnalyticsRuntime {
         });
     }
 
+    async fn age_session_for_tests(&self, idle: Duration) {
+        if let Some(session) = self.inner.session.lock().await.as_mut() {
+            session.last_activity = Instant::now()
+                .checked_sub(idle)
+                .expect("test idle duration fits the monotonic clock");
+        }
+    }
+
     /// Every persisted envelope, oldest first, for asserting session binding.
     async fn outbox_payloads_for_tests(&self) -> Vec<AnalyticsEventEnvelope> {
         self.inner
@@ -1861,6 +2315,7 @@ impl AnalyticsRuntime {
 
     async fn clear_outbox_for_tests(&self) {
         self.inner.queue.lock().await.clear();
+        self.inner.invalidate_pending_batch().await;
     }
 
     async fn queue_depth_for_tests(&self) -> i64 {
@@ -1886,10 +2341,21 @@ impl AnalyticsRuntime {
 
     async fn set_all_queue_next_attempts_for_tests(&self, next: i64) {
         self.inner.queue.lock().await.set_all_next_attempts(next);
+        if let Some(pending) = self.inner.pending_batch.lock().await.as_mut() {
+            pending.retry_at_ms = next;
+        }
     }
 
     async fn expire_session_starts_for_tests(&self) {
         self.inner.queue.lock().await.expire_session_starts();
+    }
+
+    async fn corrupt_session_start_for_tests(&self) {
+        self.inner
+            .queue
+            .lock()
+            .await
+            .corrupt_session_start_for_tests();
     }
 }
 
@@ -2016,6 +2482,29 @@ mod tests {
         ])
     }
 
+    #[test]
+    fn user_gets_protocol_two_analytics_transport_resolved_and_protocol_one_rejected() {
+        let mut analytics = ProductAnalytics {
+            base_url: "https://analytics.touch-ai.org/touchai-app/v1".to_string(),
+            protocol_version: ANALYTICS_PROTOCOL_VERSION,
+            project_id: "8b6c4a1e-2f5d-4c9a-9b7e-1d3f5a7c9e2b".to_string(),
+            default_enabled: true,
+        };
+
+        let config = resolve_analytics_config(&analytics, true).expect("protocol two transport");
+        assert!(config.transport.is_some());
+        assert!(!config.deployment_key.is_empty());
+        assert!(config.build_eligible);
+
+        let ineligible =
+            resolve_analytics_config(&analytics, false).expect("ineligible build config");
+        assert!(ineligible.transport.is_none());
+        assert!(!ineligible.build_eligible);
+
+        analytics.protocol_version = 1;
+        assert!(resolve_analytics_config(&analytics, true).is_none());
+    }
+
     struct Probe {
         active: AtomicI64,
         max_active: AtomicI64,
@@ -2037,9 +2526,9 @@ mod tests {
     }
 
     impl EventSender for Probe {
-        fn send<'a>(
+        fn send_batch<'a>(
             &'a self,
-            _envelope: &'a AnalyticsEventEnvelope,
+            _batch: &'a PreparedAnalyticsBatch,
         ) -> Pin<Box<dyn Future<Output = SendOutcome> + Send + 'a>> {
             Box::pin(async move {
                 let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
@@ -2071,7 +2560,11 @@ mod tests {
         second.expect("second flush");
 
         assert_eq!(probe.max_active.load(Ordering::SeqCst), 1);
-        assert_eq!(probe.sends.load(Ordering::SeqCst), 4);
+        assert_eq!(
+            probe.sends.load(Ordering::SeqCst),
+            1,
+            "four due events share one batch"
+        );
         assert_eq!(runtime.queue_depth_for_tests().await, 0);
     }
 
@@ -2151,6 +2644,7 @@ mod tests {
             true,
             "autostart",
             Instant::now(),
+            true,
         )
         .await
         .expect("runtime");
@@ -2197,6 +2691,76 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn user_gets_no_collection_from_a_development_build_even_with_stored_consent() {
+        let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
+        let (_root, database) = test_database().await;
+        let runtime = AnalyticsRuntime::initialize_with_sender_and_startup_for_tests(
+            database,
+            Some(probe.clone()),
+            true,
+            "foreground",
+            Instant::now(),
+            false,
+        )
+        .await
+        .expect("runtime");
+
+        let state = runtime.state().await.expect("state");
+        assert_eq!(state.status, AnalyticsConsentStatus::Enabled);
+        assert!(!state.build_eligible);
+        assert!(runtime.outbox_payloads_for_tests().await.is_empty());
+
+        let operation = runtime.begin_operation().await;
+        assert!(!operation.enabled);
+        assert!(operation.operation_id.is_empty());
+
+        let result = runtime
+            .track(track_request("product.surface_opened", JsonMap::new()))
+            .await;
+        assert_eq!(result.status, AnalyticsSubmitStatus::Unavailable);
+        assert_eq!(result.reason.as_deref(), Some("development_build"));
+
+        runtime.flush().await.expect("flush");
+        assert_eq!(probe.sends.load(Ordering::SeqCst), 0);
+        assert!(runtime.outbox_payloads_for_tests().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn user_can_withdraw_sharing_in_an_ineligible_build_without_enabling_it() {
+        let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
+        let (_root, database) = test_database().await;
+        let runtime = AnalyticsRuntime::initialize_with_sender_and_startup_for_tests(
+            database,
+            Some(probe),
+            true,
+            "foreground",
+            Instant::now(),
+            false,
+        )
+        .await
+        .expect("runtime");
+
+        let enabled = runtime.state().await.expect("enabled state");
+        assert_eq!(enabled.status, AnalyticsConsentStatus::Enabled);
+        assert!(!enabled.build_eligible);
+
+        let disabled = runtime
+            .set_enabled(false, enabled.consent_epoch)
+            .await
+            .expect("withdraw consent");
+        assert_eq!(disabled.status, AnalyticsConsentStatus::Disabled);
+        assert_eq!(disabled.consent_epoch, enabled.consent_epoch + 1);
+        assert!(!disabled.build_eligible);
+
+        let still_disabled = runtime
+            .set_enabled(true, disabled.consent_epoch)
+            .await
+            .expect("enable attempt");
+        assert_eq!(still_disabled.status, AnalyticsConsentStatus::Disabled);
+        assert_eq!(still_disabled.consent_epoch, disabled.consent_epoch);
+    }
+
+    #[tokio::test]
     async fn user_gets_no_app_started_when_transport_was_not_ready_at_start() {
         let (_root, database) = test_database().await;
         let runtime = AnalyticsRuntime::initialize_with_sender_for_tests(database, None, true)
@@ -2204,6 +2768,33 @@ mod tests {
             .expect("runtime");
 
         assert!(runtime.outbox_payloads_for_tests().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn user_can_withdraw_sharing_when_transport_is_not_ready_without_enabling_it() {
+        let (_root, database) = test_database().await;
+        let runtime = AnalyticsRuntime::initialize_with_sender_for_tests(database, None, true)
+            .await
+            .expect("runtime");
+
+        let enabled = runtime.state().await.expect("enabled state");
+        assert_eq!(enabled.status, AnalyticsConsentStatus::Enabled);
+        assert!(!enabled.transport_ready);
+
+        let disabled = runtime
+            .set_enabled(false, enabled.consent_epoch)
+            .await
+            .expect("withdraw consent");
+        assert_eq!(disabled.status, AnalyticsConsentStatus::Disabled);
+        assert_eq!(disabled.consent_epoch, enabled.consent_epoch + 1);
+        assert!(!disabled.transport_ready);
+
+        let still_disabled = runtime
+            .set_enabled(true, disabled.consent_epoch)
+            .await
+            .expect("enable attempt");
+        assert_eq!(still_disabled.status, AnalyticsConsentStatus::Disabled);
+        assert_eq!(still_disabled.consent_epoch, disabled.consent_epoch);
     }
 
     #[tokio::test]
@@ -2240,6 +2831,7 @@ mod tests {
             true,
             "foreground",
             Instant::now() - Duration::from_secs(2),
+            true,
         )
         .await
         .expect("runtime");
@@ -2331,6 +2923,7 @@ mod tests {
             true,
             "autostart",
             Instant::now() - Duration::from_secs(5),
+            true,
         )
         .await
         .expect("runtime");
@@ -2558,6 +3151,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn user_does_not_wait_for_analytics_while_another_event_is_being_saved() {
+        let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
+        let (_root, runtime) = test_runtime(probe).await;
+        let writer = runtime.inner.state_lock.lock().await;
+
+        let operation = runtime
+            .begin_operation_with_timeout(Duration::from_millis(20))
+            .await;
+
+        assert!(operation.is_none());
+        drop(writer);
+        assert!(runtime
+            .begin_operation_with_timeout(Duration::from_millis(20))
+            .await
+            .is_some());
+    }
+
+    #[tokio::test]
     async fn user_keeps_a_completion_on_its_original_session_when_another_window_opens_a_later_one()
     {
         let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
@@ -2638,6 +3249,169 @@ mod tests {
         assert!(
             runtime.session_id_for_tests().await.is_none(),
             "withdrawing consent drops the in-memory session"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_gets_no_telemetry_when_sharing_turns_on_after_the_action_starts() {
+        let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
+        let (_root, runtime) = test_runtime(probe).await;
+
+        runtime.set_enabled(false, 0).await.expect("disable");
+        let started_at_ms = store::now_millis();
+        // The native begin command is delayed until after the user has enabled
+        // sharing again. The action-start timestamp still proves it began
+        // during the disabled generation.
+        runtime.set_enabled(true, 1).await.expect("enable");
+
+        let operation = runtime.begin_operation_at(started_at_ms).await;
+        assert!(
+            operation.operation_id.is_empty(),
+            "a stale start must not receive a bindable handle"
+        );
+        assert!(!operation.enabled);
+
+        let result = runtime
+            .track(with_operation(
+                track_request("agent.request_submitted", request_submitted_attributes()),
+                &operation.operation_id,
+            ))
+            .await;
+        assert_eq!(result.status, AnalyticsSubmitStatus::Rejected);
+        assert_eq!(result.reason.as_deref(), Some("stale_operation"));
+        assert!(runtime.outbox_payloads_for_tests().await.is_empty());
+        assert!(runtime.session_id_for_tests().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_fresh_session_after_idle_while_the_old_completion_keeps_its_original_session(
+    ) {
+        let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
+        let (_root, runtime) = test_runtime(probe).await;
+
+        let old_operation = runtime.begin_operation().await;
+        let submitted = runtime
+            .track(with_operation(
+                track_request("agent.request_submitted", request_submitted_attributes()),
+                &old_operation.operation_id,
+            ))
+            .await;
+        assert_eq!(submitted.status, AnalyticsSubmitStatus::Queued);
+        let old_session = runtime.session_id_for_tests().await.expect("old session");
+
+        // The second real action captures the old session while it is still
+        // active, then the session crosses the idle boundary before its first
+        // interaction is admitted.
+        let new_operation = runtime.begin_operation().await;
+        runtime
+            .age_session_for_tests(Duration::from_secs(30 * 60 + 1))
+            .await;
+
+        let surface = runtime
+            .track(with_operation(
+                track_request(
+                    "product.surface_opened",
+                    JsonMap::from_iter([(
+                        "surface".to_string(),
+                        JsonValue::String("main".to_string()),
+                    )]),
+                ),
+                &new_operation.operation_id,
+            ))
+            .await;
+        assert_eq!(surface.status, AnalyticsSubmitStatus::Queued);
+        let new_session = runtime.session_id_for_tests().await.expect("new session");
+        assert_ne!(new_session, old_session);
+
+        let completed = runtime
+            .track(with_operation(
+                track_request("agent.request_completed", request_completed_attributes()),
+                &old_operation.operation_id,
+            ))
+            .await;
+        assert_eq!(completed.status, AnalyticsSubmitStatus::Queued);
+
+        let envelopes = runtime.outbox_payloads_for_tests().await;
+        let surface_event = envelopes
+            .iter()
+            .find(|envelope| envelope.event_name == "product.surface_opened")
+            .expect("surface event");
+        assert_eq!(
+            surface_event.analytics_session_id.as_deref(),
+            Some(new_session.as_str())
+        );
+        let completion = envelopes
+            .iter()
+            .find(|envelope| envelope.event_name == "agent.request_completed")
+            .expect("completion");
+        assert_eq!(
+            completion.analytics_session_id.as_deref(),
+            Some(old_session.as_str()),
+            "an already-bound operation keeps its original completion session"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_keeps_the_same_session_when_interactions_stay_inside_the_idle_window() {
+        let probe = Arc::new(Probe::new(|| SendOutcome::Accepted));
+        let (_root, runtime) = test_runtime(probe).await;
+        let first_operation = runtime.begin_operation().await;
+        let first = runtime
+            .track(with_operation(
+                track_request("agent.request_submitted", request_submitted_attributes()),
+                &first_operation.operation_id,
+            ))
+            .await;
+        assert_eq!(first.status, AnalyticsSubmitStatus::Queued);
+        let session = runtime.session_id_for_tests().await.expect("session");
+
+        runtime
+            .age_session_for_tests(Duration::from_secs(29 * 60))
+            .await;
+        let second_operation = runtime.begin_operation().await;
+        let second = runtime
+            .track(with_operation(
+                track_request(
+                    "product.surface_opened",
+                    JsonMap::from_iter([(
+                        "surface".to_string(),
+                        JsonValue::String("main".to_string()),
+                    )]),
+                ),
+                &second_operation.operation_id,
+            ))
+            .await;
+        assert_eq!(second.status, AnalyticsSubmitStatus::Queued);
+        assert_eq!(
+            runtime.session_id_for_tests().await.as_deref(),
+            Some(session.as_str()),
+            "an interaction inside the idle window refreshes rather than reopens the session"
+        );
+
+        runtime
+            .age_session_for_tests(Duration::from_secs(2 * 60))
+            .await;
+        let third_operation = runtime.begin_operation().await;
+        let third = runtime
+            .track(with_operation(
+                track_request("agent.request_submitted", request_submitted_attributes()),
+                &third_operation.operation_id,
+            ))
+            .await;
+        assert_eq!(third.status, AnalyticsSubmitStatus::Queued);
+        assert_eq!(
+            runtime.session_id_for_tests().await.as_deref(),
+            Some(session.as_str())
+        );
+        assert_eq!(
+            runtime
+                .outbox_payloads_for_tests()
+                .await
+                .iter()
+                .filter(|event| event.event_name == "analytics.session_started")
+                .count(),
+            1,
+            "the refreshed interaction must not open a second session"
         );
     }
 
@@ -2728,11 +3502,14 @@ mod tests {
         ));
     }
 
-    /// A sender that records the order in which events reach the wire and
-    /// applies a caller-supplied outcome to each one.
+    /// A sender that records batch boundaries and applies a caller-supplied
+    /// outcome to each batch.
     struct RecordingSender {
         names: StdMutex<Vec<String>>,
-        make: Box<dyn Fn(&AnalyticsEventEnvelope) -> SendOutcome + Send + Sync>,
+        batches: StdMutex<Vec<Vec<String>>>,
+        batch_ids: StdMutex<Vec<String>>,
+        bodies: StdMutex<Vec<Vec<u8>>>,
+        make: Box<dyn Fn(&[AnalyticsEventEnvelope]) -> SendOutcome + Send + Sync>,
     }
 
     impl RecordingSender {
@@ -2741,10 +3518,13 @@ mod tests {
         }
 
         fn with_outcome(
-            make: impl Fn(&AnalyticsEventEnvelope) -> SendOutcome + Send + Sync + 'static,
+            make: impl Fn(&[AnalyticsEventEnvelope]) -> SendOutcome + Send + Sync + 'static,
         ) -> Self {
             Self {
                 names: StdMutex::new(Vec::new()),
+                batches: StdMutex::new(Vec::new()),
+                batch_ids: StdMutex::new(Vec::new()),
+                bodies: StdMutex::new(Vec::new()),
                 make: Box::new(make),
             }
         }
@@ -2755,21 +3535,358 @@ mod tests {
                 .unwrap_or_else(|poison| poison.into_inner())
                 .clone()
         }
+
+        fn sent_batches(&self) -> Vec<Vec<String>> {
+            self.batches
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .clone()
+        }
+
+        fn sent_batch_ids(&self) -> Vec<String> {
+            self.batch_ids
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .clone()
+        }
+
+        fn sent_bodies(&self) -> Vec<Vec<u8>> {
+            self.bodies
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .clone()
+        }
     }
 
     impl EventSender for RecordingSender {
-        fn send<'a>(
+        fn send_batch<'a>(
             &'a self,
-            envelope: &'a AnalyticsEventEnvelope,
+            batch: &'a super::super::transport::PreparedAnalyticsBatch,
         ) -> Pin<Box<dyn Future<Output = SendOutcome> + Send + 'a>> {
             Box::pin(async move {
-                self.names
+                let names: Vec<String> = batch
+                    .events
+                    .iter()
+                    .map(|envelope| envelope.event_name.clone())
+                    .collect();
+                {
+                    let mut recorded = self
+                        .names
+                        .lock()
+                        .unwrap_or_else(|poison| poison.into_inner());
+                    recorded.extend(names.iter().cloned());
+                }
+                self.batches
                     .lock()
                     .unwrap_or_else(|poison| poison.into_inner())
-                    .push(envelope.event_name.clone());
-                (self.make)(envelope)
+                    .push(names);
+                self.batch_ids
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner())
+                    .push(batch.batch_id.clone());
+                self.bodies
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner())
+                    .push(batch.encoded_body.clone());
+                (self.make)(&batch.events)
             })
         }
+    }
+
+    #[tokio::test]
+    async fn user_keeps_one_stable_batch_when_retry_attempts_and_jitter_differ() {
+        let attempts = Arc::new(AtomicI64::new(0));
+        let sender = Arc::new(RecordingSender::with_outcome({
+            let attempts = Arc::clone(&attempts);
+            move |_batch| {
+                if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                    SendOutcome::Retry {
+                        reason: "offline".to_string(),
+                    }
+                } else {
+                    SendOutcome::Accepted
+                }
+            }
+        }));
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        for event_id in [
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+        ] {
+            assert_eq!(
+                runtime.enqueue_for_tests(outbox_insert(event_id)).await,
+                EnqueueOutcome::Queued
+            );
+        }
+        runtime
+            .inner
+            .queue
+            .lock()
+            .await
+            .set_attempt_count("22222222-2222-4222-8222-222222222222", 9);
+
+        runtime.flush_once().await.expect("first flush");
+
+        assert_eq!(
+            sender.sent_batches(),
+            vec![vec!["app.started".to_string(), "app.started".to_string()]],
+            "both due events share one batch"
+        );
+        assert_eq!(runtime.queue_depth_for_tests().await, 2);
+        let attempts_after_failure: Vec<i64> = runtime
+            .inner
+            .queue
+            .lock()
+            .await
+            .events_for_tests()
+            .iter()
+            .map(|event| event.attempt_count)
+            .collect();
+        assert_eq!(
+            attempts_after_failure,
+            vec![1, 10],
+            "a batch failure increments each member from its prior attempt count"
+        );
+        let deadlines_after_failure: Vec<i64> = runtime
+            .inner
+            .queue
+            .lock()
+            .await
+            .events_for_tests()
+            .iter()
+            .map(|event| event.next_attempt_at)
+            .collect();
+        assert_eq!(
+            deadlines_after_failure.len(),
+            2,
+            "both original members remain reserved"
+        );
+        assert!(
+            deadlines_after_failure
+                .iter()
+                .all(|deadline| *deadline == deadlines_after_failure[0]),
+            "one shared retry deadline prevents jitter from splitting the batch"
+        );
+        assert_eq!(
+            runtime
+                .inner
+                .pending_batch
+                .lock()
+                .await
+                .as_ref()
+                .expect("the unconfirmed batch remains reserved")
+                .attempt_count,
+            10,
+            "the whole batch advances from the highest member attempt count"
+        );
+
+        runtime.set_all_queue_next_attempts_for_tests(0).await;
+        runtime.flush_once().await.expect("retry flush");
+
+        let batch_ids = sender.sent_batch_ids();
+        let bodies = sender.sent_bodies();
+        assert_eq!(batch_ids.len(), 2);
+        assert_eq!(
+            batch_ids[0], batch_ids[1],
+            "retrying the same ordered rows preserves the receiver idempotency key"
+        );
+        assert_eq!(
+            bodies[0], bodies[1],
+            "a lost acknowledgement retries the exact immutable wire body"
+        );
+        assert_eq!(runtime.queue_depth_for_tests().await, 0);
+    }
+
+    #[tokio::test]
+    async fn user_keeps_a_new_event_out_of_an_unconfirmed_batch() {
+        let attempts = Arc::new(AtomicI64::new(0));
+        let sender = Arc::new(RecordingSender::with_outcome({
+            let attempts = Arc::clone(&attempts);
+            move |_batch| {
+                if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                    SendOutcome::Retry {
+                        reason: "lost acknowledgement".to_string(),
+                    }
+                } else {
+                    SendOutcome::Accepted
+                }
+            }
+        }));
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        for event_id in [
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+        ] {
+            assert_eq!(
+                runtime.enqueue_for_tests(outbox_insert(event_id)).await,
+                EnqueueOutcome::Queued
+            );
+        }
+
+        runtime.flush_once().await.expect("first flush");
+        assert_eq!(
+            runtime
+                .enqueue_for_tests(outbox_insert("33333333-3333-4333-8333-333333333333"))
+                .await,
+            EnqueueOutcome::Queued
+        );
+        runtime.set_all_queue_next_attempts_for_tests(0).await;
+        runtime.flush_once().await.expect("retry flush");
+
+        let batches = sender.sent_batches();
+        let bodies = sender.sent_bodies();
+        let batch_ids = sender.sent_batch_ids();
+        assert_eq!(
+            batches[0],
+            vec!["app.started".to_string(), "app.started".to_string()]
+        );
+        assert_eq!(
+            batches[1], batches[0],
+            "the retry keeps the original ordered membership"
+        );
+        assert_eq!(bodies[1], bodies[0], "the retry keeps the exact body");
+        assert_eq!(batch_ids[1], batch_ids[0]);
+        assert_eq!(
+            batches[2],
+            vec!["app.started".to_string()],
+            "the event enqueued during retry forms a separate later batch"
+        );
+        assert_ne!(batch_ids[2], batch_ids[0]);
+        assert_eq!(runtime.queue_depth_for_tests().await, 0);
+    }
+
+    #[tokio::test]
+    async fn user_gets_the_reservation_released_after_a_configuration_failure() {
+        let attempts = Arc::new(AtomicI64::new(0));
+        let sender = Arc::new(RecordingSender::with_outcome({
+            let attempts = Arc::clone(&attempts);
+            move |_batch| {
+                if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                    SendOutcome::ConfigurationFailure {
+                        reason: "contract mismatch".to_string(),
+                    }
+                } else {
+                    SendOutcome::Accepted
+                }
+            }
+        }));
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        for event_id in [
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+        ] {
+            assert_eq!(
+                runtime.enqueue_for_tests(outbox_insert(event_id)).await,
+                EnqueueOutcome::Queued
+            );
+        }
+
+        runtime.flush_once().await.expect("configuration failure");
+        assert_eq!(
+            runtime
+                .enqueue_for_tests(outbox_insert("33333333-3333-4333-8333-333333333333"))
+                .await,
+            EnqueueOutcome::Queued
+        );
+        runtime.set_all_queue_next_attempts_for_tests(0).await;
+        runtime.flush_once().await.expect("retry flush");
+
+        assert_eq!(
+            sender.sent_batches()[1].len(),
+            3,
+            "a configuration failure releases the old reservation so due rows can regroup"
+        );
+        assert_eq!(runtime.queue_depth_for_tests().await, 0);
+    }
+
+    #[tokio::test]
+    async fn user_gets_the_reservation_discarded_when_an_unconfirmed_batch_expires() {
+        let attempts = Arc::new(AtomicI64::new(0));
+        let sender = Arc::new(RecordingSender::with_outcome({
+            let attempts = Arc::clone(&attempts);
+            move |_batch| {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                SendOutcome::Retry {
+                    reason: "offline".to_string(),
+                }
+            }
+        }));
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        for event_id in [
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+        ] {
+            assert_eq!(
+                runtime.enqueue_for_tests(outbox_insert(event_id)).await,
+                EnqueueOutcome::Queued
+            );
+        }
+
+        runtime.flush_once().await.expect("first flush");
+        {
+            let mut pending = runtime.inner.pending_batch.lock().await;
+            let batch = pending.as_mut().expect("unconfirmed reservation");
+            batch.retry_at_ms = 0;
+            batch.expires_at_ms = 0;
+        }
+        runtime.set_all_queue_next_attempts_for_tests(0).await;
+        runtime.flush_once().await.expect("expiry flush");
+
+        assert_eq!(sender.sent_batches().len(), 1);
+        assert_eq!(runtime.queue_depth_for_tests().await, 0);
+        assert!(runtime.inner.pending_batch.lock().await.is_none());
+
+        assert_eq!(
+            runtime
+                .enqueue_for_tests(outbox_insert("33333333-3333-4333-8333-333333333333"))
+                .await,
+            EnqueueOutcome::Queued
+        );
+        runtime.flush_once().await.expect("new batch after expiry");
+
+        assert_eq!(
+            sender.sent_batches()[1].len(),
+            1,
+            "an expired reservation must not absorb a later event"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_splits_due_events_into_bounded_batches() {
+        let sender = Arc::new(RecordingSender::new());
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        for index in 0..25 {
+            assert_eq!(
+                runtime
+                    .enqueue_for_tests(outbox_insert(&format!("event-{index:03}")))
+                    .await,
+                EnqueueOutcome::Queued
+            );
+        }
+
+        runtime.flush_once().await.expect("flush");
+
+        let batches = sender.sent_batches();
+        assert_eq!(
+            batches.iter().map(Vec::len).collect::<Vec<_>>(),
+            vec![10, 10, 5]
+        );
+        assert_eq!(runtime.queue_depth_for_tests().await, 0);
+    }
+
+    #[tokio::test]
+    async fn user_gets_no_transport_call_when_consent_is_disabled_before_send() {
+        let sender = Arc::new(RecordingSender::new());
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        assert_eq!(
+            runtime.enqueue_for_tests(outbox_insert("pending")).await,
+            EnqueueOutcome::Queued
+        );
+
+        runtime.set_enabled(false, 0).await.expect("disable");
+        runtime.flush_once().await.expect("flush");
+
+        assert!(sender.sent_batches().is_empty());
     }
 
     #[tokio::test]
@@ -2809,6 +3926,14 @@ mod tests {
             ],
             "the receiver must see the session start before the event using it"
         );
+        assert_eq!(
+            sender.sent_batches(),
+            vec![
+                vec!["analytics.session_started".to_string()],
+                vec!["agent.request_submitted".to_string()],
+            ],
+            "the session start gets its own batch so unrelated rows are not held by it"
+        );
     }
 
     #[tokio::test]
@@ -2817,10 +3942,11 @@ mod tests {
             let attempts = Arc::new(AtomicI64::new(0));
             let sender = Arc::new(RecordingSender::with_outcome({
                 let attempts = Arc::clone(&attempts);
-                move |envelope: &AnalyticsEventEnvelope| {
-                    if envelope.event_name == "analytics.session_started"
-                        && attempts.fetch_add(1, Ordering::SeqCst) == 0
-                    {
+                move |batch: &[AnalyticsEventEnvelope]| {
+                    let contains_start = batch
+                        .iter()
+                        .any(|envelope| envelope.event_name == "analytics.session_started");
+                    if contains_start && attempts.fetch_add(1, Ordering::SeqCst) == 0 {
                         match failure {
                             "retry_after" => SendOutcome::RetryAfter {
                                 delay_ms: 3_600_000,
@@ -2908,16 +4034,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn user_gets_no_orphan_event_when_the_receiver_rejects_a_session_start() {
-        let sender = Arc::new(RecordingSender::with_outcome(|envelope| {
-            if envelope.event_name == "analytics.session_started" {
-                SendOutcome::PermanentRejection {
-                    reason: "rejected_status_400".to_string(),
-                }
-            } else {
-                SendOutcome::Accepted
-            }
-        }));
+    async fn user_gets_all_pending_rows_abandoned_when_a_stored_session_start_is_corrupt() {
+        let sender = Arc::new(RecordingSender::new());
         let (_root, runtime) = test_runtime(sender.clone()).await;
 
         let handle = runtime.begin_operation().await;
@@ -2945,21 +4063,18 @@ mod tests {
                 .await,
             EnqueueOutcome::Queued
         );
+        runtime.corrupt_session_start_for_tests().await;
 
         runtime.flush_once().await.expect("flush");
 
-        assert_eq!(
-            sender.sent_names(),
-            vec![
-                "analytics.session_started".to_string(),
-                "app.started".to_string()
-            ],
-            "independent events continue after a rejected start; its dependents never send"
+        assert!(
+            sender.sent_names().is_empty(),
+            "a corrupt start is dropped before any batch reaches the sender"
         );
         assert_eq!(
             runtime.queue_depth_for_tests().await,
             0,
-            "the rejected session's queued rows are dropped in one step"
+            "all pending rows are cleared because no session binding can be proven"
         );
         assert!(
             runtime.session_id_for_tests().await.is_none(),
@@ -3003,8 +4118,11 @@ mod tests {
     #[tokio::test]
     async fn user_gets_independent_events_sent_on_the_next_pass_when_a_session_start_has_a_configuration_fault(
     ) {
-        let sender = Arc::new(RecordingSender::with_outcome(|envelope| {
-            if envelope.event_name == "analytics.session_started" {
+        let sender = Arc::new(RecordingSender::with_outcome(|batch| {
+            if batch
+                .iter()
+                .any(|envelope| envelope.event_name == "analytics.session_started")
+            {
                 SendOutcome::ConfigurationFailure {
                     reason: "bot_rejected".to_string(),
                 }
@@ -3395,6 +4513,250 @@ mod tests {
             JsonValue::Number(consent_epoch.into()),
         );
         JsonValue::Object(metadata).to_string()
+    }
+
+    fn install_handoff_attributes() -> JsonMap<String, JsonValue> {
+        JsonMap::from_iter([
+            (
+                "update_operation_id".to_string(),
+                JsonValue::String("11111111-1111-4111-8111-111111111111".to_string()),
+            ),
+            (
+                "phase".to_string(),
+                JsonValue::String("install_handoff".to_string()),
+            ),
+            (
+                "result".to_string(),
+                JsonValue::String("success".to_string()),
+            ),
+            ("source".to_string(), JsonValue::String("user".to_string())),
+        ])
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_bounded_install_exit_when_the_analytics_writer_is_occupied() {
+        let sender = Arc::new(RecordingSender::new());
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        let handle = runtime.begin_operation().await;
+        let request = with_operation(
+            track_request("app.update_transition", install_handoff_attributes()),
+            &handle.operation_id,
+        );
+        let writer = runtime.inner.state_lock.lock().await;
+        let started = Instant::now();
+
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            runtime.track_install_handoff_before_exit(
+                request,
+                Some("1.0.0".to_string()),
+                "2.0.0".to_string(),
+                Some(&handle.operation_id),
+                Duration::from_millis(20),
+            ),
+        )
+        .await
+        .expect("install exit must not wait for the analytics writer");
+
+        assert!(started.elapsed() >= Duration::from_millis(20));
+        assert!(started.elapsed() < Duration::from_secs(1));
+        drop(writer);
+        assert!(runtime.outbox_payloads_for_tests().await.is_empty());
+        assert!(sender.sent_names().is_empty());
+    }
+
+    #[tokio::test]
+    async fn user_gets_no_install_handoff_from_a_revoked_operation() {
+        let sender = Arc::new(RecordingSender::new());
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        let handle = runtime.begin_operation().await;
+        runtime.set_enabled(false, 0).await.expect("disable");
+        runtime.set_enabled(true, 1).await.expect("enable");
+        let request = with_operation(
+            track_request("app.update_transition", install_handoff_attributes()),
+            &handle.operation_id,
+        );
+
+        runtime
+            .track_install_handoff_before_exit(
+                request,
+                Some("1.0.0".to_string()),
+                "2.0.0".to_string(),
+                Some(&handle.operation_id),
+                Duration::from_millis(50),
+            )
+            .await;
+
+        assert!(runtime.outbox_payloads_for_tests().await.is_empty());
+        assert!(sender.sent_names().is_empty());
+    }
+
+    #[tokio::test]
+    async fn user_gets_no_install_handoff_from_an_expired_or_missing_operation() {
+        let sender = Arc::new(RecordingSender::new());
+        let (_root, runtime) = test_runtime(sender.clone()).await;
+        let handle = runtime.begin_operation().await;
+        if let Some(record) = runtime
+            .inner
+            .operations
+            .lock()
+            .await
+            .records
+            .get_mut(&handle.operation_id)
+        {
+            record.created = Instant::now() - OPERATION_TTL - Duration::from_secs(1);
+        }
+        let request = with_operation(
+            track_request("app.update_transition", install_handoff_attributes()),
+            &handle.operation_id,
+        );
+
+        runtime
+            .track_install_handoff_before_exit(
+                request,
+                Some("1.0.0".to_string()),
+                "2.0.0".to_string(),
+                Some(&handle.operation_id),
+                Duration::from_millis(50),
+            )
+            .await;
+        runtime
+            .track_install_handoff_before_exit(
+                with_operation(
+                    track_request("app.update_transition", install_handoff_attributes()),
+                    "missing-operation",
+                ),
+                Some("1.0.0".to_string()),
+                "2.0.0".to_string(),
+                Some("missing-operation"),
+                Duration::from_millis(50),
+            )
+            .await;
+
+        assert!(runtime.outbox_payloads_for_tests().await.is_empty());
+        assert!(sender.sent_names().is_empty());
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_restart_confirmed_when_native_versions_are_longer_than_the_wire_limit() {
+        for length in [65, 200] {
+            let from_version = format!("1.0.0+{}", "b".repeat(length - 6));
+            let to_version = format!("2.0.0+{}", "a".repeat(length - 6));
+            assert_eq!(from_version.len(), length);
+            assert_eq!(to_version.len(), length);
+
+            let sender = Arc::new(RecordingSender::new());
+            let (_root, runtime) = test_runtime(sender).await;
+            let handle = runtime.begin_operation().await;
+            let request = with_operation(
+                track_request("app.update_transition", install_handoff_attributes()),
+                &handle.operation_id,
+            );
+
+            assert_eq!(
+                runtime
+                    .track_install_handoff(request, Some(from_version.clone()), to_version.clone(),)
+                    .await
+                    .status,
+                AnalyticsSubmitStatus::Queued
+            );
+            let install_events = runtime.outbox_payloads_for_tests().await;
+            let install_handoff = install_events
+                .iter()
+                .find(|event| {
+                    event.attributes.get("phase").and_then(JsonValue::as_str)
+                        == Some("install_handoff")
+                })
+                .expect("install handoff event");
+            assert!(!install_handoff.attributes.contains_key("from_version"));
+            assert!(!install_handoff.attributes.contains_key("to_version"));
+
+            let row = store::load_state(runtime.inner.database.pool())
+                .await
+                .expect("load state")
+                .expect("state row");
+            let pending = row.pending_update_json.clone().expect("pending handoff");
+            assert!(pending.len() <= PENDING_UPDATE_MAX_BYTES);
+            let pending: JsonValue = serde_json::from_str(&pending).expect("pending json");
+            assert_eq!(
+                pending["fromVersion"],
+                JsonValue::String(from_version.clone())
+            );
+            assert_eq!(pending["toVersion"], JsonValue::String(to_version.clone()));
+
+            runtime
+                .inner
+                .resolve_restart_confirmation(&row, &to_version)
+                .await
+                .expect("confirm restart");
+            let confirmations = runtime
+                .outbox_payloads_for_tests()
+                .await
+                .into_iter()
+                .filter(|event| {
+                    event.attributes.get("phase").and_then(JsonValue::as_str)
+                        == Some("restart_confirmed")
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(confirmations.len(), 1);
+            assert!(!confirmations[0].attributes.contains_key("from_version"));
+            assert!(!confirmations[0].attributes.contains_key("to_version"));
+            assert!(store::load_state(runtime.inner.database.pool())
+                .await
+                .expect("load state")
+                .expect("state row")
+                .pending_update_json
+                .is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn user_gets_sanitized_install_handoff_when_native_versions_are_not_wire_shaped() {
+        let too_long_pending_version = format!("2.0.0+{}", "a".repeat(195));
+        assert_eq!(too_long_pending_version.len(), 201);
+        for (from_version, to_version) in [
+            ("/tmp/current", "https://updates.touch-ai.org/2.0.0"),
+            ("1.0.0", "/tmp/release/2.0.0"),
+            ("1.0.0", "1.2.3_rc1"),
+            ("1.0.0", too_long_pending_version.as_str()),
+        ] {
+            let sender = Arc::new(RecordingSender::new());
+            let (_root, runtime) = test_runtime(sender).await;
+            let handle = runtime.begin_operation().await;
+            let request = with_operation(
+                track_request("app.update_transition", install_handoff_attributes()),
+                &handle.operation_id,
+            );
+
+            assert_eq!(
+                runtime
+                    .track_install_handoff(
+                        request,
+                        Some(from_version.to_string()),
+                        to_version.to_string(),
+                    )
+                    .await
+                    .status,
+                AnalyticsSubmitStatus::Queued
+            );
+            let events = runtime.outbox_payloads_for_tests().await;
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].attributes["phase"], "install_handoff");
+            assert_eq!(
+                events[0].attributes.contains_key("from_version"),
+                events::is_version_shaped(from_version)
+            );
+            assert_eq!(
+                events[0].attributes.contains_key("to_version"),
+                events::is_version_shaped(to_version)
+            );
+            assert!(store::load_state(runtime.inner.database.pool())
+                .await
+                .expect("load state")
+                .expect("state row")
+                .pending_update_json
+                .is_none());
+        }
     }
 
     #[tokio::test]

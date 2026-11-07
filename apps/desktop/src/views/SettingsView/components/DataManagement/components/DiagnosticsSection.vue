@@ -163,8 +163,9 @@
                 :label="t('settings.diagnostics.exportBundle')"
             >
                 <Button
-                    variant="outline-neutral"
+                    variant="strong"
                     class="ml-auto"
+                    data-testid="settings-diagnostics-export"
                     :disabled="exporting"
                     @click="exportDiagnostics"
                 >

@@ -143,6 +143,77 @@ describe('search surface preparation controller', () => {
         controller.dispose();
     });
 
+    it.each(['before layout', 'while settling'])(
+        'user sees the initial window when only its screen position changes %s',
+        async (timing) => {
+            const initial = preparation(7);
+            const shiftedViewport = {
+                physicalViewport: { ...initial.physicalViewport, x: -1848, y: 24 },
+                scaleFactor: initial.scaleFactor,
+            };
+            const harness = createHarness({
+                markRendererReady: vi.fn(async () => initial),
+            });
+            if (timing === 'before layout') {
+                harness.setViewport(shiftedViewport);
+            } else {
+                harness.options.settle = async () => harness.setViewport(shiftedViewport);
+            }
+            const controller = createSearchSurfacePreparationController(harness.options);
+            let shown = false;
+            const starting = controller.start().then((committed) => {
+                shown = committed;
+            });
+            try {
+                for (let index = 0; index < 30; index += 1) await Promise.resolve();
+                expect(shown).toBe(true);
+                expect(harness.options.flush).toHaveBeenCalledWith(initial);
+                expect(harness.options.onError).not.toHaveBeenCalled();
+            } finally {
+                controller.dispose();
+                await starting;
+            }
+        }
+    );
+
+    it.each(['size', 'scale'])(
+        'user waits for the matching viewport when its %s changes during preparation',
+        async (change) => {
+            const initial = preparation(7);
+            const harness = createHarness({
+                markRendererReady: vi.fn(async () => initial),
+            });
+            harness.setViewport({
+                physicalViewport: {
+                    ...initial.physicalViewport,
+                    width: initial.physicalViewport.width + (change === 'size' ? 1 : 0),
+                },
+                scaleFactor: initial.scaleFactor + (change === 'scale' ? 0.25 : 0),
+            });
+            const controller = createSearchSurfacePreparationController(harness.options);
+            let shown = false;
+            const starting = controller.start().then((committed) => {
+                shown = committed;
+            });
+            try {
+                for (let index = 0; index < 30; index += 1) await Promise.resolve();
+                expect(shown).toBe(false);
+                expect(harness.options.flush).not.toHaveBeenCalled();
+
+                harness.setViewport({
+                    physicalViewport: initial.physicalViewport,
+                    scaleFactor: initial.scaleFactor,
+                });
+                controller.notifyViewportChanged();
+                await starting;
+                expect(shown).toBe(true);
+            } finally {
+                controller.dispose();
+                await starting;
+            }
+        }
+    );
+
     it('waits for the expected physical viewport and settle before flushing the token', async () => {
         const settling = deferred<void>();
         const settle = vi.fn(() => settling.promise);

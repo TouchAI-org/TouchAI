@@ -4,6 +4,10 @@
  */
 import { useAlert } from '@composables/useAlert';
 import {
+    mapSearchSurfaceSource,
+    trackSurfaceOpened,
+} from '@services/AnalyticsService/productInteractions';
+import {
     AppEvent,
     type AppEventMap,
     type AppEventName,
@@ -284,6 +288,10 @@ export function useSearchPageController(options: {
         quickSearchOpen.value = false;
     }
 
+    function settleQuickSearchInteraction() {
+        quickSearchPanel.value?.settleInteraction();
+    }
+
     function moveQuickSearchSelection(direction: 'up' | 'down' | 'left' | 'right') {
         quickSearchPanel.value?.moveSelection(direction);
     }
@@ -344,6 +352,7 @@ export function useSearchPageController(options: {
         isQuickSearchItemHighlighted,
         openQuickSearch,
         closeQuickSearch,
+        settleQuickSearchInteraction,
         moveQuickSearchSelection,
         openHighlightedQuickSearchItem,
         triggerQuickSearch,
@@ -730,6 +739,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         const isCurrent = () =>
             lifecycleEpoch === surfaceLifecycleEpoch && interactionContext.state.windowVisible;
         interactionContext.markWindowVisible();
+        void trackSurfaceOpened(mapSearchSurfaceSource(payload.source));
         handleReminderSurfaceVisible();
         await handleSearchWindowActivated(payload.source, isCurrent);
     }
@@ -739,6 +749,7 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
         cancelPendingBlurReconcile();
         latestSurfaceSequence = payload.sequence;
         surfaceLifecycleEpoch += 1;
+        controller.settleQuickSearchInteraction();
         interactionContext.markWindowHidden({
             hideReason: payload.reason,
             hiddenAt: Date.now(),

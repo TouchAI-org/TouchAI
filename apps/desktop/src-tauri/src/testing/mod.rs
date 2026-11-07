@@ -20,6 +20,7 @@ use crate::{
             search::surface::SearchSurfaceRuntime, search_host::SearchHostRefreshRuntime,
             search_region::SearchRegionRuntime,
             status_reminder::SessionStatusReminderNotificationRuntime, tray::TrayStatusRuntime,
+            webview_recovery::WebviewRecoveryRuntime,
         },
     },
 };
@@ -42,6 +43,7 @@ pub fn test_builder() -> Builder<MockRuntime> {
         .manage(SearchSurfaceRuntime::for_tests())
         .manage(SearchHostRefreshRuntime::for_tests())
         .manage(SearchRegionRuntime::for_tests())
+        .manage(WebviewRecoveryRuntime::new())
         .manage(SessionStatusReminderNotificationRuntime::for_tests())
         .manage(TrayStatusRuntime::new())
         .manage(BrowserRuntime::new())

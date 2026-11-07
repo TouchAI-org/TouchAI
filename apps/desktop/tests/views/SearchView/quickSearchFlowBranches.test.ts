@@ -407,19 +407,20 @@ describe('when the user opens the highlighted result', () => {
 });
 
 describe('when the panel open state changes', () => {
-    it('user gets the layout refreshed when the panel reopens with results', async () => {
-        const { result, open, unmount } = await mountWithResults();
-        result.highlightedIndex.value = 0;
-        layoutMock.updateLayout.mockClear();
+    it('user sees fresh results when the panel reopens after its close has completed', async () => {
+        const { result, open, deps, unmount } = await mountWithResults();
 
         open.value = false;
         await nextTick();
-        open.value = true;
-        await nextTick();
+        expect(result.results.value).toEqual([]);
+        deps.searchShortcuts.mockResolvedValue(createSearchResult([createShortcut('Fresh')]));
 
-        // Reopening with results already loaded re-measures instead of refetching.
-        expect(layoutMock.updateLayout).toHaveBeenCalled();
-        expect(layoutMock.scrollHighlightedIntoView).toHaveBeenCalled();
+        result.open();
+        await flushAsyncWork();
+
+        expect(open.value).toBe(true);
+        expect(result.results.value.map((item) => item.name)).toEqual(['Fresh']);
+        expect(result.highlightedIndex.value).toBe(-1);
 
         unmount();
     });

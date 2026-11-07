@@ -292,6 +292,10 @@ vi.mock('@/views/SearchView/composables/useSearchRequest', async () => {
                 isSessionListLoading: ref(false),
                 clearSession: vi.fn(),
                 setSessionHistoryOverlayOpen: vi.fn(),
+                beginHistoryInteraction: vi.fn(),
+                reportHistoryInteractionOpened: vi.fn(),
+                markHistorySelectionPending: vi.fn(() => null),
+                abandonHistorySelection: vi.fn(),
                 updateSessionSearchQuery: vi.fn().mockResolvedValue(undefined),
                 refreshSessionList: vi.fn().mockResolvedValue(undefined),
                 ensureSessionListLoaded: vi.fn().mockResolvedValue(undefined),
@@ -979,6 +983,27 @@ describe('SearchView async overlay and listener lifecycle', () => {
 
         expect(runtimeModeState.isE2eTestMode).toHaveBeenCalledOnce();
         expect((window as Window & { __TOUCHAI_E2E__?: unknown }).__TOUCHAI_E2E__).toBeDefined();
+    });
+
+    it('user can supply deterministic search results through the ready E2E bridge', async () => {
+        runtimeModeState.isE2eTestMode.mockResolvedValue(true);
+        mountSearchView();
+        await flushPromises();
+        await flushPromises();
+
+        const bridge = (
+            window as Window & {
+                __TOUCHAI_E2E__?: {
+                    setSearchFixture: (query: string, results: unknown[]) => void;
+                    getQuickSearchFallbackResults: (query: string) => unknown[];
+                };
+            }
+        ).__TOUCHAI_E2E__!;
+        expect(bridge.getQuickSearchFallbackResults('touchai')).toEqual([]);
+        const results = [{ name: 'Fixture', path: 'D:/fixture.txt', source: 'file' }];
+        bridge.setSearchFixture('Fixture', results);
+        expect(bridge.getQuickSearchFallbackResults(' fixture ')).toEqual(results);
+        expect(bridge.getQuickSearchFallbackResults('another query')).toEqual([]);
     });
 
     it('user submitting from idle waits for response content before the window expands', async () => {

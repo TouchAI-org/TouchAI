@@ -107,6 +107,29 @@ beforeEach(() => {
     mocks.extractMcpToolAttachments.mockResolvedValue(undefined);
 });
 
+describe('user connects MCP servers with the real origin', () => {
+    it('user gets startup auto-connect attributed as background, never user', async () => {
+        mocks.findEnabledMcpServers.mockResolvedValue([server()]);
+
+        await new McpManager().autoConnect();
+
+        expect(mocks.connectServer).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 1 }),
+            'background'
+        );
+        expect(mocks.connectServer).not.toHaveBeenCalledWith(expect.anything(), 'user');
+    });
+
+    it('user gets a manual settings connect attributed as user', async () => {
+        await new McpManager().connectServer(server());
+
+        expect(mocks.connectServer).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 1 }),
+            'user'
+        );
+    });
+});
+
 describe('user sees a server connection state', () => {
     it('user gets a server reported disconnected before anything connects', () => {
         // The UI must not claim a connection it has not made.

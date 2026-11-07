@@ -113,6 +113,7 @@ function createController(overrides: Record<string, unknown> = {}) {
         isQuickSearchContextMenuOpen: vi.fn(() => false),
         closeQuickSearchContextMenu: vi.fn(),
         closeQuickSearch: vi.fn(),
+        settleQuickSearchInteraction: vi.fn(),
         openQuickSearch: vi.fn(),
         moveQuickSearchSelection: vi.fn(),
         openHighlightedQuickSearchItem: vi.fn().mockResolvedValue(undefined),

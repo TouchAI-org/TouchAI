@@ -265,9 +265,9 @@ function viewportMatchesPreparation(
 ) {
     const expected = preparation.physicalViewport;
     const actual = viewport.physicalViewport;
+    // Regions use client coordinates. Native recentering changes only the screen
+    // origin and must not strand a preparation with an otherwise matching viewport.
     return (
-        actual.x === expected.x &&
-        actual.y === expected.y &&
         actual.width === expected.width &&
         actual.height === expected.height &&
         Math.abs(viewport.scaleFactor - preparation.scaleFactor) < 0.000_001

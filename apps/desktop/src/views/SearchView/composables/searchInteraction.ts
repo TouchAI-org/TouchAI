@@ -538,6 +538,10 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
         }
     }
 
+    // The getter creates a new object even when a dependency is reassigned to
+    // the same value. Skip those no-op syncs so hide cleanup cannot reopen a
+    // settled Quick Search interaction.
+    let lastQuickSearchSyncState: string | null = null;
     watch(
         () => ({
             query: queryText.value,
@@ -549,9 +553,14 @@ export function useQuickSearchCoordinator(options: UseQuickSearchCoordinatorOpti
             activeOverlay: activeOverlay.value,
             quickSearchHandoff: options.quickSearchHandoff?.value ?? false,
         }),
-        ({ query, quickSearchHandoff }) => {
-            if (quickSearchHandoff) return;
-            syncQuickSearchPanel(query);
+        (state) => {
+            if (state.quickSearchHandoff) return;
+            const nextState = JSON.stringify(state);
+            if (nextState === lastQuickSearchSyncState) {
+                return;
+            }
+            lastQuickSearchSyncState = nextState;
+            syncQuickSearchPanel(state.query);
         },
         { flush: 'post' }
     );

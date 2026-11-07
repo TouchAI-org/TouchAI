@@ -493,20 +493,45 @@ describe('when quick search is not available on this machine', () => {
     });
 
     it('user sees the panel close before its results are released when the feature is disabled', async () => {
-        const { result, open, enabled, shortcut, unmount } = await mountWithResults();
+        const shortcut = createShortcut('TouchAI');
+        const deps = createDeps({
+            searchShortcuts: vi.fn().mockResolvedValue(createSearchResult([shortcut])),
+        });
+        const open = ref(false);
+        const enabled = ref(true);
+        const closeRequested = ref(false);
+        const { result, unmount } = await mountComposable(() =>
+            useQuickSearchLogic(
+                {
+                    open,
+                    searchQuery: ref('touch'),
+                    enabled,
+                    emitOpenUpdate: (value) => {
+                        if (value) open.value = true;
+                        else closeRequested.value = true;
+                    },
+                },
+                deps
+            )
+        );
+        result.open();
+        await flushAsyncWork();
+        await nextTick();
         expect(open.value).toBe(true);
 
         enabled.value = false;
         await nextTick();
         await flushAsyncWork();
 
-        expect(open.value).toBe(false);
+        expect(closeRequested.value).toBe(true);
         expect(result.results.value).toEqual([shortcut]);
 
-        await vi.advanceTimersByTimeAsync(419);
+        await vi.advanceTimersByTimeAsync(5000);
         expect(result.results.value).toEqual([shortcut]);
 
-        await vi.advanceTimersByTimeAsync(1);
+        // The geometry owner acknowledges the completed fold through the open prop.
+        open.value = false;
+        await nextTick();
         expect(result.results.value).toEqual([]);
 
         unmount();

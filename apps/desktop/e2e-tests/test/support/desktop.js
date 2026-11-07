@@ -32,10 +32,53 @@ export function assertVisible(condition, message) {
 }
 
 export async function waitForE2eBridge(timeoutMs = DEFAULT_TIMEOUT_MS) {
-    await browser.waitUntil(async () => browser.execute(() => Boolean(window.__TOUCHAI_E2E__)), {
-        timeout: timeoutMs,
-        timeoutMsg: 'TouchAI E2E bridge did not become available in the renderer.',
-    });
+    try {
+        await browser.waitUntil(
+            async () => browser.execute(() => Boolean(window.__TOUCHAI_E2E__)),
+            {
+                timeout: timeoutMs,
+                timeoutMsg: 'TouchAI E2E bridge did not become available in the renderer.',
+            }
+        );
+    } catch (error) {
+        // Report readiness and geometry only; never dump prompts or persisted settings.
+        const diagnostics = await browser
+            .execute(async () => {
+                const internals = window.__TAURI_INTERNALS__;
+                const read = async (command) => {
+                    if (!internals) return 'Tauri IPC unavailable';
+                    let timer;
+                    try {
+                        return await Promise.race([
+                            internals.invoke(command),
+                            new Promise((resolve) => {
+                                timer = setTimeout(() => resolve('IPC timed out'), 1000);
+                            }),
+                        ]);
+                    } catch (failure) {
+                        return String(failure);
+                    } finally {
+                        clearTimeout(timer);
+                    }
+                };
+                const surface = document.querySelector('[data-testid="search-view"]');
+                return {
+                    path: location.pathname,
+                    readyState: document.readyState,
+                    visibility: document.visibilityState,
+                    windowLabel: internals?.metadata?.currentWindow?.label,
+                    viewport: { width: innerWidth, height: innerHeight, scale: devicePixelRatio },
+                    surface: surface?.getBoundingClientRect().toJSON() ?? null,
+                    rendererEpoch: await read('get_search_window_renderer_epoch'),
+                    windowState: await read('get_search_window_state'),
+                    runtime: await read('get_runtime_info'),
+                };
+            })
+            .catch((failure) => ({ diagnosticsError: String(failure) }));
+        throw new Error(`${error.message}\nReadiness diagnostics: ${JSON.stringify(diagnostics)}`, {
+            cause: error,
+        });
+    }
 }
 
 export async function callE2eBridge(methodName, ...args) {

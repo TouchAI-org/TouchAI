@@ -22,21 +22,24 @@
         SEARCH_SURFACE_MOTION,
         SEARCH_SURFACE_REVEAL_EASING,
     } from '@/config/searchWindow';
-    import { t } from '@/i18n';
+    import { type AppLocale, t } from '@/i18n';
+    import type { ToolApprovalDecisionRequest } from '@/services/AgentService/contracts/tooling';
     import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
     import type { SessionTaskStatus } from '@/services/AgentService/task/types';
     import { clipboardService } from '@/services/ClipboardService';
     import type {
         ClipboardPayload,
         SearchSurfacePreparation,
+        SearchWindowState,
     } from '@/services/NativeService/types';
-    import { useAskUserStore } from '@/stores/askUser';
+    import { type AskUserConfirmOptions, useAskUserStore } from '@/stores/askUser';
     import { useMcpStore } from '@/stores/mcp';
     import { useSettingsStore } from '@/stores/settings';
     import {
         createInputHistorySnapshot,
         getInputHistorySnapshotKey,
         type InputHistorySnapshot,
+        type SessionMessage,
     } from '@/types/session';
     import { isE2eTestMode } from '@/utils/runtimeMode';
 
@@ -309,12 +312,24 @@
     const { searchWindowDefaultSize, searchKeybindings } = storeToRefs(settingsStore);
     const { sessionStatuses, refreshAllStatuses: refreshSessionStatuses } = useSessionStatus();
     const { isPinned, syncWindowPinState, setWindowPinned, toggleWindowPin } = useSearchWindowPin();
+    type E2eAskUserRequest =
+        | { kind: 'confirm'; options: AskUserConfirmOptions }
+        | { kind: 'approval'; payload: ToolApprovalDecisionRequest };
     const widgetBridgeWindow = window as Window & {
         sendPrompt?: (text: string) => void;
         openLink?: (url: string) => void;
         __TOUCHAI_E2E__?: {
             openSettingsWindow: () => Promise<void>;
             setSearchQuery: (text: string) => void;
+            sendPrompt: (text: string) => Promise<void>;
+            getSearchWindowState: () => Promise<SearchWindowState>;
+            resizeWindowHeight: typeof native.window.resizeWindowHeight;
+            resetSearchWindowBounds: () => Promise<void>;
+            setSearchFixture: (query: string, results: QuickShortcutItem[]) => void;
+            setConversation: (messages: SessionMessage[]) => void;
+            setAskUserRequest: (request: E2eAskUserRequest) => void;
+            clearAskUser: () => void;
+            setLanguage: (locale: AppLocale) => Promise<void>;
             getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
             clearSessionToIdle?: () => Promise<void>;
             getSessionExpandDebug?: () => { events: unknown[] } | null;
@@ -493,6 +508,10 @@
         isSessionListLoading,
         clearSession,
         setSessionHistoryOverlayOpen,
+        beginHistoryInteraction,
+        markHistorySelectionPending,
+        abandonHistorySelection,
+        reportHistoryInteractionOpened,
         updateSessionSearchQuery,
         refreshSessionList,
         ensureSessionListLoaded,
@@ -862,6 +881,10 @@
                     );
                     if (regionsAccepted && isCurrentOverlay() && overlayFitsViewport()) {
                         overlayPositionReady.value = true;
+                        if (activeOverlay.value === 'session-history') {
+                            beginHistoryInteraction();
+                            reportHistoryInteractionOpened();
+                        }
                         await nextTick();
                         focusPendingOverlayWhenReady();
                     }
@@ -1946,20 +1969,33 @@
         }
     }
 
-    async function handleOpenSession(sessionId: number) {
+    async function handleOpenSession(sessionId: number, origin: 'history' | 'other' = 'other') {
+        // The history popup closes before the session opens, so keep that
+        // specific interaction's handle alive until its selection event is
+        // recorded. Notification/navigation opens are not history selections.
+        const selection = origin === 'history' ? markHistorySelectionPending() : null;
         controller.closeQuickSearch();
-        closeOverlayImmediately.value = true;
-        await hideAllOverlays(false);
-        // Session content must be measured without the closing history region
-        // contributing its old bottom edge to the bounded native host.
-        await nextTick();
+        try {
+            closeOverlayImmediately.value = true;
+            await hideAllOverlays(false);
+            // Session content must be measured without the closing history region
+            // contributing its old bottom edge to the bounded native host.
+            await nextTick();
+        } catch (error) {
+            if (origin === 'history') {
+                // The selection never reached the real open path; settle and
+                // release the history interaction instead of leaking its handle.
+                abandonHistorySelection(selection);
+            }
+            throw error;
+        }
         resetSessionInputHistoryTracking();
 
         surfaceMeasurementHold.value = true;
         try {
             // Keep the native host put until the opened session has a measured
             // height. The visible card then grows in CSS inside that frame.
-            await openSession(sessionId);
+            await openSession(sessionId, origin, selection);
             await nextTick();
             const contentHeight = await waitForSessionExpandContentHeight();
             await playSessionExpandAnimation(contentHeight ?? undefined).catch((error) => {
@@ -2076,20 +2112,8 @@
         queryText.value = restoredText;
     }
 
-    function getE2eQuickSearchFallbackResults(query: string): QuickShortcutItem[] {
-        const normalizedQuery = query.trim().toLowerCase();
-        if (!normalizedQuery.includes('touchai')) {
-            return [];
-        }
-
-        return [
-            {
-                name: 'TouchAI E2E Smoke Result',
-                path: 'C:/Windows/explorer.exe',
-                source: 'file',
-            },
-        ];
-    }
+    // Fixtures come from the test runner so production holds no synthetic search results.
+    const e2eSearchFixture = ref<{ query: string; results: QuickShortcutItem[] } | null>(null);
 
     async function installE2eBridge() {
         if (searchViewListenersDisposed || !(await isE2eTestMode())) {
@@ -2106,8 +2130,43 @@
             setSearchQuery(text: string) {
                 applyE2eSearchQuery(text);
             },
+            async sendPrompt(text: string) {
+                const snapshot = createInputHistorySnapshot({
+                    text,
+                    attachments: [],
+                    excludeFromHistory: true,
+                });
+                applyE2eSearchQuery(text);
+                await submitSearchQuery(text, snapshot);
+            },
             getQuickSearchFallbackResults(query: string) {
-                return getE2eQuickSearchFallbackResults(query);
+                const fixture = e2eSearchFixture.value;
+                return fixture?.query.trim().toLowerCase() === query.trim().toLowerCase()
+                    ? fixture.results
+                    : [];
+            },
+            getSearchWindowState: native.window.getSearchWindowState,
+            resizeWindowHeight: native.window.resizeWindowHeight,
+            resetSearchWindowBounds: native.window.resetSearchWindowBounds,
+            setSearchFixture(query: string, results: QuickShortcutItem[]) {
+                e2eSearchFixture.value = { query, results };
+            },
+            setConversation(messages: SessionMessage[]) {
+                sessionHistory.value = messages;
+            },
+            setAskUserRequest(request: E2eAskUserRequest) {
+                if (request.kind === 'confirm') {
+                    askUserStore.enqueueConfirm(request.options, () => undefined);
+                } else {
+                    askUserStore.enqueueApproval(request.payload, () => undefined);
+                }
+            },
+            clearAskUser() {
+                askUserStore.clearAll('e2e request reset');
+            },
+            async setLanguage(locale: AppLocale) {
+                await settingsStore.initialize();
+                await settingsStore.updateLanguage(locale);
             },
             async clearSessionToIdle() {
                 await clearSessionToIdle();
@@ -2658,7 +2717,7 @@
                 v-else-if="renderedOverlay === 'session-history'"
                 ref="sessionHistoryPopover"
                 :data="getSessionHistoryOverlayData()"
-                :on-session-open="handleOpenSession"
+                :on-session-open="(sessionId) => handleOpenSession(sessionId, 'history')"
                 :on-search-query-change="handleSessionSearchQueryChange"
                 @close="closeSessionHistoryOverlay()"
             />

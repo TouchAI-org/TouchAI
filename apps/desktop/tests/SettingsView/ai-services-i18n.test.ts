@@ -369,6 +369,30 @@ describe('user reads the provider and model settings', () => {
         expect(wrapper.text()).not.toContain('服务商配置');
     });
 
+    it('user gets one edit attempt and the final endpoint after successive changes', async () => {
+        vi.useFakeTimers();
+        const wrapper = mount(ProviderConfig, {
+            props: {
+                provider: createProvider(),
+            },
+        });
+        const endpoint = wrapper.findAll('input')[0]!;
+
+        await endpoint.setValue('https://new.example.com');
+        expect(wrapper.emitted('edit-start')).toHaveLength(1);
+
+        await endpoint.setValue('https://newer.example.com');
+        expect(wrapper.emitted('edit-start')).toHaveLength(1);
+
+        await vi.advanceTimersByTimeAsync(800);
+        expect(wrapper.emitted('update')?.[0]?.[0]).toMatchObject({
+            api_endpoint: 'https://newer.example.com',
+        });
+
+        wrapper.unmount();
+        vi.useRealTimers();
+    });
+
     it('user does not let the global DOM localizer rewrite dynamic provider payload text', () => {
         setLocale('en-US');
 

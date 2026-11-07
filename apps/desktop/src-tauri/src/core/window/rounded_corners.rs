@@ -104,11 +104,9 @@ mod win {
             }
 
             if SetWindowRgn(hwnd, Some(region), true) == 0 {
+                let error = windows::core::Error::from_thread();
                 let _ = DeleteObject(HGDIOBJ(region.0));
-                return Err(format!(
-                    "Failed to apply rounded window region: {}",
-                    windows::core::Error::from_thread()
-                ));
+                return Err(format!("Failed to apply rounded window region: {}", error));
             }
         }
 

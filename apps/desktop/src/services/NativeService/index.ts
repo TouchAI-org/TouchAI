@@ -15,6 +15,7 @@ import { updater } from './updater';
 import { window } from './window';
 
 export type {
+    McpConnectionOrigin,
     McpServerConfig,
     McpServerStatus,
     McpServerStatusInfo,
@@ -30,6 +31,7 @@ export type {
     AppUpdateCheckResult,
     AppUpdateDownload,
     AppUpdateInfo,
+    AppUpdateInstallAnalytics,
     AppUpdateRequirement,
     BrowserActRequest,
     BrowserActResponse,

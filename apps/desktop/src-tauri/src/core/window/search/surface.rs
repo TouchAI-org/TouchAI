@@ -438,12 +438,19 @@ pub fn show_surface_on_main_thread<R: Runtime>(
     app_handle: &AppHandle<R>,
     source: SearchSurfaceShowSource,
 ) -> Result<(), String> {
-    let runtime = app_handle
-        .try_state::<SearchWindowRuntime>()
-        .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
     let window = app_handle
         .get_webview_window("main")
         .ok_or_else(|| "Failed to get main window".to_string())?;
+    if crate::core::window::webview_recovery::defer_show_if_recovering(
+        &window,
+        crate::core::window::webview_recovery::ShowIntent::SearchSurface(source),
+    ) {
+        return Ok(());
+    }
+    let runtime = app_handle
+        .try_state::<SearchWindowRuntime>()
+        .ok_or_else(|| "Search window runtime is not initialized".to_string())?;
+
     let _visibility_guard = runtime
         .visibility_transaction
         .lock()
@@ -546,6 +553,7 @@ pub fn hide_surface_on_main_thread<R: Runtime>(
         super::hide_search_window_without_animation(&window)
     })?;
     drop(state);
+    crate::core::window::webview_recovery::cancel_pending_show(app_handle, "main");
     app_handle
         .emit(
             "search-surface-hidden",

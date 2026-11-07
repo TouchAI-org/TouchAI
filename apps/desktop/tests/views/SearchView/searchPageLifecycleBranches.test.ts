@@ -87,6 +87,7 @@ function createController(overrides: Record<string, unknown> = {}) {
         isQuickSearchItemHighlighted: vi.fn(() => false),
         isQuickSearchContextMenuOpen: vi.fn(() => false),
         closeQuickSearch: vi.fn(),
+        settleQuickSearchInteraction: vi.fn(),
         closeQuickSearchContextMenu: vi.fn(),
         prepareModelDropdownOpen: vi.fn().mockResolvedValue(undefined),
         selectModelFromDropdown: vi.fn().mockResolvedValue({ modelId: null, providerId: null }),
@@ -282,6 +283,34 @@ describe('when a stale surface event arrives', () => {
         await mounted.result.handleSearchSurfaceHidden({ reason: 'manual-dismiss', sequence: 2 });
         await flushLifecycle();
         expect(interactionContext.state.windowVisible).toBe(false);
+
+        mounted.unmount();
+    });
+
+    it('user gets quick search settled without closing when the surface hides', async () => {
+        const controller = createController();
+        const mounted = await mountComposable(() =>
+            useSearchPageLifecycle({
+                controller: controller as never,
+                viewReady: ref(true),
+                isDragging: ref(false),
+                isPinned: ref(false),
+                interactionContext: createSearchInteractionContext(),
+                syncWindowPinState: vi.fn().mockResolvedValue(false),
+                clearSession: vi.fn(),
+                shouldClearSessionAfterTimeout: () => false,
+            })
+        );
+        await flushLifecycle();
+
+        await mounted.result.handleSearchSurfaceHidden({
+            sequence: 1,
+            reason: 'app-blur-hide',
+        });
+        await flushLifecycle();
+
+        expect(controller.settleQuickSearchInteraction).toHaveBeenCalledTimes(1);
+        expect(controller.closeQuickSearch).not.toHaveBeenCalled();
 
         mounted.unmount();
     });
