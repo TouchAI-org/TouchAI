@@ -174,7 +174,13 @@ try {
                 window.probe.focusConversation();
                 const viewport = document.activeElement;
                 const style = getComputedStyle(viewport);
+                const cardStyle = getComputedStyle(
+                    document.querySelector('[data-testid="search-view-card"]')
+                );
                 return {
+                    cardBorders: ['Top', 'Right', 'Bottom', 'Left'].map(
+                        (side) => cardStyle[`border${side}Width`]
+                    ),
                     scrollerFocused: viewport.matches('[data-slot="message-scroller"] section'),
                     boxShadow: style.boxShadow,
                     outlineWidth: style.outlineWidth,
@@ -186,6 +192,11 @@ try {
             assert.ok(
                 conversationFocus.scrollerFocused,
                 'the conversation retains keyboard scrolling'
+            );
+            assert.deepEqual(
+                conversationFocus.cardBorders,
+                ['0px', '0px', '0px', '0px'],
+                'the main card keeps its original borderless content box'
             );
             assert.equal(
                 conversationFocus.boxShadow,
@@ -261,7 +272,7 @@ try {
                 'user keeps the toolbar visible throughout streaming'
             );
             assert.ok(
-                stream.every((sample) => Math.abs(sample.input + 1) <= 1),
+                stream.every((sample) => Math.abs(sample.input) <= 1),
                 'user keeps the input at the card bottom throughout streaming'
             );
             assert.ok(
