@@ -20,7 +20,7 @@ let position={x:0,y:0},size={width:846*scale,height:1080*scale};
 let moved=()=>{};
 window.hostPosition=()=>position;
 const noop=async()=>{};
-export const native={window:{getSearchWindowState:async()=>state,setSearchWindowDefaults:noop,setSearchWindowMinSize:noop,setSearchWindowAllowHeightOverride:noop,resetSearchWindowBounds:noop,commitSearchPanelResize:async({to})=>{
+export const native={window:{getSearchWindowState:async()=>({...state,monitorHost:window.monitorHost ?? true}),setSearchWindowDefaults:noop,setSearchWindowMinSize:noop,setSearchWindowAllowHeightOverride:noop,resetSearchWindowBounds:noop,commitSearchPanelResize:async({to})=>{
 size={width:(to.width+96)*scale,height:1080*scale};
 await new Promise(resolve=>setTimeout(resolve,24));
 moved({payload:position});
@@ -38,6 +38,7 @@ const height=computed(()=>resize.cardHeight.value || 60);
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 onMounted(()=>{ready.value=true});
 window.geometryProbe={
+async prepareHidden(){window.monitorHost=false;await resize.syncWindowState();await nextTick();return {panel:card.value.parentElement.getBoundingClientRect().toJSON(),card:card.value.getBoundingClientRect().toJSON()}},
 async expand(interrupt=false){await pause(100);const samples=[];let done=false;const read=()=>{const r=card.value.getBoundingClientRect();samples.push({height:r.height,top:r.top,hostY:window.hostPosition().y,center:window.hostPosition().y+(r.top+r.height/2)*window.devicePixelRatio});if(!done)requestAnimationFrame(read)};read();await resize.playSessionExpandAnimation(660);if(interrupt){await pause(80);await resize.playSessionExpandAnimation(600)}await pause(500);done=true;return samples},
 async showMenu(){open.value=true;await nextTick();await menu.value.refreshPosition();await pause(220);return {card:card.value.getBoundingClientRect().toJSON(),editor:editor.value.getBoundingClientRect().toJSON(),menu:document.querySelector('[data-search-overlay-host]').getBoundingClientRect().toJSON()}},
 async hideMenu(){open.value=false;await pause(200)}
@@ -105,6 +106,17 @@ const browser = await chromium.launch({
 });
 const reports = [];
 try {
+    const hiddenPage = await browser.newPage();
+    await hiddenPage.setContent(
+        `<style>${css}#probe{width:0;height:0}</style><div id="probe"></div>`
+    );
+    await hiddenPage.addScriptTag({ content: bundle });
+    const hidden = await hiddenPage.evaluate(() => window.geometryProbe.prepareHidden());
+    assert.equal(hidden.panel.width, 750, 'hidden native-sized panel has its accepted width');
+    assert.equal(hidden.panel.height, 60, 'hidden native-sized panel has its accepted height');
+    assert.equal(hidden.card.width, 750, 'hidden card can be measured before native show');
+    await writeFile(`${outputDirectory}/hidden-geometry.json`, JSON.stringify(hidden, null, 2));
+    await hiddenPage.close();
     for (const width of [516, 846]) {
         for (const scale of [1, 1.5]) {
             for (const interrupt of [false, true]) {

@@ -290,7 +290,20 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
     );
     // Reserve the union before animating; tightening the native region never clips an in-flight frame.
     const panelStyle = computed(() => {
-        if (!monitorHost.value) return undefined;
+        if (!monitorHost.value) {
+            const style = resolveSurfacePanelStyle({
+                scaleFactor: displayScaleFactor.value,
+                maximized: true,
+            });
+            if (effectiveWindowMaximized.value) return style;
+            // Hidden WebKit can have a 0×0 viewport. Lay out the accepted panel
+            // independently so its first region can be measured before native show.
+            return {
+                ...style,
+                width: `${currentWidth.value || options.defaultSize.value.width}px`,
+                height: `${Math.max(currentHeight.value || options.defaultSize.value.height, activeHeightChange.value?.fromHeight ?? 0)}px`,
+            };
+        }
         const style = { position: 'fixed' as const, ...settledPanelStyle.value };
         const change = activeHeightChange.value;
         if (!change || effectiveWindowMaximized.value) return style;

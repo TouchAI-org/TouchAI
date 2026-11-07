@@ -289,6 +289,22 @@ describe('useSearchWindowResize', () => {
         return { mounted, target, sessionCount, quickSearchOpen, ready };
     }
 
+    it('user opens a hidden native-sized window, then its panel has measurable bounds before WebKit allocates the viewport', async () => {
+        vi.stubGlobal('innerWidth', 0);
+        vi.stubGlobal('innerHeight', 0);
+        nativeMock.window.getSearchWindowState.mockResolvedValue(
+            createWindowState({ monitorHost: false })
+        );
+        const { mounted } = await mount();
+        await flushLifecycle();
+
+        expect(mounted.result.panelStyle.value).toMatchObject({
+            width: '750px',
+            height: '60px',
+        });
+        mounted.unmount();
+    });
+
     it('applies the idle defaults and pins the min-height to the configured idle height', async () => {
         const { mounted } = await mount();
 

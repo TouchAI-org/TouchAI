@@ -66,6 +66,7 @@
         outsideClick: [event: PointerEvent];
         positioned: [position: SearchOverlayPosition];
         regionChange: [element: HTMLElement | null];
+        revealed: [];
     }>();
 
     const overlayElement = ref<HTMLElement | null>(null);
@@ -189,11 +190,13 @@
         overlayMotionState.value = 'entering';
         const token = openTransitionToken;
 
-        void nextTick().then(() => {
+        void refreshPosition().then(async () => {
+            await nextTick();
             if (!isMounted || !props.open || !props.reveal || token !== openTransitionToken) {
                 return;
             }
 
+            emit('revealed');
             openTransitionFrame = requestAnimationFrame(() => {
                 openTransitionFrame = null;
                 if (!props.open || !props.reveal || token !== openTransitionToken) {
@@ -366,9 +369,10 @@
                 if (!isMounted || !props.open) {
                     return;
                 }
-                void refreshPosition();
                 if (props.reveal) {
                     scheduleOpenTransition();
+                } else {
+                    void refreshPosition();
                 }
             });
         },
@@ -385,11 +389,7 @@
             }
 
             if (props.open) {
-                void refreshPosition().then(() => {
-                    if (isMounted && props.open && props.reveal) {
-                        scheduleOpenTransition();
-                    }
-                });
+                scheduleOpenTransition();
             }
         },
         { flush: 'post' }

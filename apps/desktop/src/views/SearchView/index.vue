@@ -809,16 +809,6 @@
             return;
         }
         await overlayHost.value?.refreshPosition();
-        if (!isOverlayIntentCurrent(intentEpoch) || activeOverlay.value !== overlayToFocus) {
-            return;
-        }
-
-        // The host stays hidden while its bounded native viewport is being
-        // measured. Keep the request pending until the host is revealed;
-        // focusing a visibility:hidden input is ignored by WebView2.
-        if (overlayPositionReady.value) {
-            focusPendingOverlayWhenReady();
-        }
     }
 
     function focusPendingOverlayWhenReady() {
@@ -841,19 +831,7 @@
         if (!overlayHandle) return;
 
         clearPendingOverlayFocus();
-        window.setTimeout(() => {
-            if (overlayToFocus !== activeOverlay.value || !isOverlayIntentCurrent(focusEpoch)) {
-                return;
-            }
-
-            const currentOverlayHandle =
-                overlayToFocus === 'model-dropdown'
-                    ? modelDropdownOverlay.value
-                    : sessionHistoryPopover.value;
-            if (currentOverlayHandle !== overlayHandle) return;
-
-            overlayHandle.handleOverlayShown();
-        }, 0);
+        overlayHandle.handleOverlayShown();
     }
 
     function handleOverlayPositioned(position: SearchOverlayPosition) {
@@ -885,8 +863,6 @@
                             beginHistoryInteraction();
                             reportHistoryInteractionOpened();
                         }
-                        await nextTick();
-                        focusPendingOverlayWhenReady();
                     }
                 } catch (error) {
                     log.error('[SearchView] Failed to settle positioned overlay bounds:', error);
@@ -901,7 +877,6 @@
                 log.error('[SearchView] Failed to remeasure positioned overlay bounds:', error);
             });
         }
-        focusPendingOverlayWhenReady();
     }
 
     async function closeModelDropdownForIntent(intentEpoch: number, restoreFocus: boolean) {
@@ -2714,6 +2689,7 @@
             @outside-click="handleOverlayOutsideClick"
             @positioned="handleOverlayPositioned"
             @region-change="handleOverlayRegionChange"
+            @revealed="focusPendingOverlayWhenReady"
         >
             <ModelDropdownPopup
                 v-if="renderedOverlay === 'model-dropdown'"

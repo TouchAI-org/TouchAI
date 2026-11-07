@@ -226,7 +226,7 @@ describe('SearchOverlayHost', () => {
         wrapper.unmount();
     });
 
-    it('animates from an entering state into its final visual state', async () => {
+    it('user opens the overlay, then sees its final state after positioning and the enter frame', async () => {
         const anchor = document.createElement('button');
         vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue(rect(20, 20));
 
@@ -243,9 +243,11 @@ describe('SearchOverlayHost', () => {
             wrapper.get('[data-search-overlay-motion="true"]').attributes('data-motion-state')
         ).toBe('entering');
 
-        runFrames();
+        for (let tick = 0; tick < 4; tick += 1) {
+            await nextTick();
+            runFrames();
+        }
         await nextTick();
-        runFrames();
 
         expect(
             wrapper.get('[data-search-overlay-host="true"]').attributes('data-motion-state')
@@ -281,6 +283,39 @@ describe('SearchOverlayHost', () => {
             'visibility: visible'
         );
 
+        wrapper.unmount();
+    });
+
+    it('user opens a prepared overlay, then its filter receives focus only after the DOM is visible', async () => {
+        const anchor = document.createElement('button');
+        vi.spyOn(anchor, 'getBoundingClientRect').mockReturnValue(rect(20, 20));
+        let focusVisibility: string | undefined;
+        const wrapper = mount(SearchOverlayHost, {
+            attachTo: document.body,
+            props: {
+                open: true,
+                reveal: false,
+                anchor,
+                onRevealed: () => {
+                    const field = wrapper.get('input').element as HTMLInputElement;
+                    focusVisibility = getComputedStyle(field).visibility;
+                    field.focus();
+                },
+            },
+            slots: { default: '<input aria-label="Filter" />' },
+        });
+        await nextTick();
+        runFrames();
+        expect(focusVisibility).toBeUndefined();
+
+        await wrapper.setProps({ reveal: true });
+        for (let tick = 0; tick < 4; tick += 1) {
+            await nextTick();
+            runFrames();
+        }
+
+        expect(focusVisibility).toBe('visible');
+        expect(document.activeElement).toBe(wrapper.get('input').element);
         wrapper.unmount();
     });
 
