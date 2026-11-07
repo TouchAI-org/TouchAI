@@ -56,9 +56,9 @@ const nativeState = {
 };
 await writeFile(
     `${base}/probe-entry.ts`,
-    "import {createApp} from 'vue';import App from 'probe:fixture.vue';import '" +
+    "import {createApp} from 'vue';import {createPinia} from 'pinia';import App from 'probe:fixture.vue';import '" +
         root +
-        "/src/styles/tailwind.css';const app=createApp(App);app.mount('#probe');"
+        "/src/styles/tailwind.css';const app=createApp(App);app.use(createPinia());app.mount('#probe');"
 );
 const modules = {
     'probe:fixture.vue': fixture,
@@ -67,7 +67,6 @@ const modules = {
     'probe:native': `let s=${JSON.stringify(nativeState)};window.commits=[];const noop=async()=>{};export const native={window:{getSearchWindowState:async()=>s,setSearchWindowDefaults:noop,setSearchWindowMinSize:noop,setSearchWindowAllowHeightOverride:noop,resetSearchWindowBounds:async()=>{s.currentHeight=60},commitSearchPanelResize:async p=>{window.commits.push({t:performance.now(),height:p.to.height});if(window.rejectResizes)throw new Error('resize unavailable');await new Promise(r=>setTimeout(r,24));if(p.auto&&p.respectManualOverride!==false&&s.heightMode==='manual_override')return s;return s={...s,currentWidth:p.to.width,currentHeight:p.to.height,heightMode:p.auto?'auto':'manual_override'}},resizeWindowHeight:noop}};`,
     'probe:window': `const noop=async()=>()=>{};const w={outerPosition:async()=>({x:0,y:0}),outerSize:async()=>({width:846,height:1000}),setPosition:async()=>{},onMoved:noop,onResized:noop,onScaleChanged:noop,isMaximized:async()=>false};export const getCurrentWindow=()=>w;export const currentMonitor=async()=>({workArea:{position:{x:0,y:0},size:{width:1920,height:1000}}});`,
     'probe:settings': `import{ref}from'vue';const state={outputScrollBehavior:ref('follow_output'),initialize:async()=>{}};export const useSettingsStore=()=>state;`,
-    'probe:ask': `export const useAskUserStore=()=>({current:null});`,
     'probe:log': `export const log=console;`,
     'probe:notification': `export const notify=async()=>{};`,
     'probe:clipboard': `export const clipboardService={writeText:async()=>{}};`,
@@ -78,7 +77,6 @@ const aliases = {
     '@services/NativeService': 'probe:native',
     '@tauri-apps/api/window': 'probe:window',
     '@/stores/settings': 'probe:settings',
-    '@/stores/askUser': 'probe:ask',
     '@services/ObservabilityService': 'probe:log',
     '@services/NotificationService': 'probe:notification',
     '@/services/ClipboardService': 'probe:clipboard',
@@ -107,7 +105,7 @@ const result = await build({
     plugins: [plugin, tailwind(), vue()],
     logLevel: 'warn',
     resolve: {
-        dedupe: ['vue', 'motion-v'],
+        dedupe: ['vue', 'motion-v', 'pinia'],
         alias: {
             ...aliases,
             '@': `${root}/src`,
@@ -156,6 +154,10 @@ try {
                     headers: { 'Access-Control-Allow-Origin': '*' },
                 })
             );
+            await page.route('https://layout.test/', (route) =>
+                route.fulfill({ body: '<div id="probe"></div>', contentType: 'text/html' })
+            );
+            await page.goto('https://layout.test/');
             await page.setContent(
                 `<style>${css} @font-face{font-family:'TouchAI Source Han Serif SC';src:url('https://layout.test/font.woff2') format('woff2-variations');font-weight:200 900;}</style><div id="probe"></div>`
             );
@@ -196,6 +198,7 @@ try {
                 path: `${base}/height-${width}-${reducedMotion}-cancelled.png`,
             });
             const stream = await page.evaluate(() => window.probe.stream());
+            const approval = await page.evaluate(() => window.probe.approval());
             const reopened = await page.evaluate(() => window.probe.reopen());
             const tallerInput = await page.evaluate(() => window.probe.resizeInput(160));
             const restoredInput = await page.evaluate(() => window.probe.resizeInput(60));
@@ -220,11 +223,19 @@ try {
                 manualRemeasure,
                 maximized,
                 stream,
+                approval,
                 commits,
                 errors,
             };
             results.push(result);
             assert.deepEqual(errors, [], 'user opens a conversation without renderer failures');
+            assert.ok(approval.focused, 'user can answer an approval from the keyboard');
+            assert.ok(
+                approval.samples.every(
+                    (sample) => sample.cardScroll === 0 && sample.pageScroll === 0
+                ),
+                'user receives approval focus without scrolling the animated card or its layout'
+            );
             assert.ok(
                 Math.abs(start.card - cancel.card) <= 1,
                 'user cancels before the first answer without a height jump'

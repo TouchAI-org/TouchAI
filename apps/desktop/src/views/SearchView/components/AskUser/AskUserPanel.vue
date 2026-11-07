@@ -35,7 +35,7 @@
 
     import { useMotion } from '@composables/useMotion';
     import { AnimatePresence, motion } from 'motion-v';
-    import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+    import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
     import type { AskUserAnswer as StoreAnswer } from '@/services/AgentService/contracts/tooling';
@@ -232,15 +232,11 @@
         if (!root) return;
         const firstRow = root.querySelector('[data-proximity-index="0"]') as HTMLElement | null;
         if (firstRow) {
-            firstRow.focus();
+            firstRow.focus({ preventScroll: true });
         } else {
-            root.focus();
+            root.focus({ preventScroll: true });
         }
     }
-
-    onMounted(() => {
-        // nothing — focus handled by watch above
-    });
 
     onUnmounted(() => {
         clearArmTimer();

@@ -2,6 +2,8 @@
 <script setup lang="ts">
     import { computed, nextTick, ref } from 'vue';
     import ConversationPanel from '../../src/views/SearchView/components/ConversationPanel/index.vue';
+    import AskUserPanel from '../../src/views/SearchView/components/AskUser/AskUserPanel.vue';
+    import { useAskUserStore } from '../../src/stores/askUser';
     import SearchBar from 'probe:searchbar';
     import { useMotion } from '../../src/composables/useMotion';
     import {
@@ -25,7 +27,7 @@
         quickSearchHandoff = ref(false),
         quickSearchHandoffShell = ref(null);
     const quickSearchRevealPhase = ref('idle'),
-        askUserStore = { current: null };
+        askUserStore = useAskUserStore();
     const {
         contentReady: searchViewContentReady,
         cardHeight: cardPixelHeight,
@@ -96,6 +98,42 @@
         };
     };
     window.probe = {
+        async approval() {
+            const samples = [];
+            const record = () => {
+                const geometry = read();
+                samples.push({
+                    ...geometry,
+                    cardScroll: searchViewCard.value.scrollTop,
+                    pageScroll: pageContent.value.scrollTop,
+                });
+            };
+            const sample = () => {
+                record();
+                if (sampling) requestAnimationFrame(sample);
+            };
+            let sampling = true;
+            sample();
+            askUserStore.enqueueApproval(
+                {
+                    callId: 'layout-approval',
+                    title: 'Run shell command',
+                    command: 'ls -la',
+                    keyboardApproveDelayMs: 0,
+                },
+                () => {}
+            );
+            await nextTick();
+            await nextTick();
+            await nextTick();
+            record();
+            await pause(750);
+            sampling = false;
+            const focused = document.activeElement?.getAttribute('data-proximity-index') === '0';
+            askUserStore.rejectCurrentApproval();
+            await pause(750);
+            return { samples, focused };
+        },
         focusConversation() {
             conversationPanel.value.focus();
         },
