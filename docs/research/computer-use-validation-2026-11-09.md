@@ -2,6 +2,59 @@
 
 日期：2026-11-09。范围：RFC #111 / PR #730；历史修复基于 `48dad078`，随后 rebase 到远端 main `e9d1dd59a9d85d37691ebafc93535ff20d53ccb6`。
 
+## 最新实机结果 `7d37c7d2`
+
+Magpie `auto/deepseek-v4.1-flash` 在 Xiaomi-MacBook-Pro（实际为 Windows 11 AMD64）
+验证源码 `7d37c7d254f4f25c73db46b7d0d781dd59ef85d4`。前端重新构建 45 秒、Rust 增量
+构建 253 秒，均 exit 0；核对实际 exe、文件摘要、WebView2 父进程及新前端 chunk。
+本轮解决了真实输入时自绘光标始终为空的问题，未改动用户旧实例及其待审批任务。
+
+| 验收项 | 实测结果 |
+| --- | --- |
+| 先红后绿 | 新 helper 跑旧 `569eb56e` 二进制时仅自动光标失败；新构建上的同一 helper 17/17 通过 |
+| 线程死锁回归 | 开启真实光标采样的前台调用期间，200/200 次 snapshot 返回，进程持续响应 |
+| 真实服务链路 | `ComputerUseService` 两点移动、点击、隐藏光标、取消及清理共 25 项断言通过，无超时 |
+| 自动跟随与 DPI | 150% 缩放下，物理 `(290,200)` / `(380,245)` 分别映射到 `(193.333,133.333)` / `(253.333,163.333)`，snapshot 与预期差值为 0；实际 DOM 光标可见且为 32×32 CSS px |
+| 驱动叠层独立性 | 相同驱动 session 仍返回 `enabled:false / position:null`，TouchAI 自动光标正常；没有开启驱动叠层或手工 pulse 冒充跟随 |
+| 前台范围与身份 | 注册等待、后台观察、操作结束后隐藏；同一 signal 两次前台操作保持同一活动 ID；排队取消阻止执行 |
+| 光标开关 | 关闭光标的前台调用中，11 个样本均无指针，其中 10 个样本辉光可见；结束后隐藏 |
+| 白字与外观 | 状态、Esc、光标标签均为白色，石墨底、阴影、32px 指针通过；文字和指针不参与呼吸 |
+| 呼吸与减少动态效果 | 12.417 秒 / 60 样本，opacity 为 0.65–0.999383、周期 5.2 秒；减少动态效果时恒为 1，animation 为 none |
+| 取消与恢复 | 前台取消后活动为 0、辉光隐藏；隔离设置恢复 `allowForeground:false / approval:each / cursorVisible:true` |
+
+真实输入只针对自建空白 WinForms 窗口，两个目标均先确认命中该窗口。两次移动分别采样
+14 次，其中 13 次包含正确光标；真实 click 返回成功，单次服务调用约 166ms，完成后辉光
+隐藏。这个单样本不代表任务 P50/P95，也不是模型端到端速度提升。
+
+首次外观 runner 在真实移动前就取第一个非空坐标，造成目标位置及“静态采样不移动”误判；
+修正为有界等待系统鼠标和反馈都到达目标后再采样，保留首轮 JSON。首次 helper 的
+`remainingIdentity` 也失败：前置死锁 runner 漏释放自己的注册活动，破坏空活动基线；
+首次原始 remaining payload 未保留，不能声称其具体 ordinal。清理测试活动后，未经修改
+的仓库 helper 与独立时序诊断均通过。没有改产品行为、断言、超时阈值来获得通过。
+部分外部探针的退出额外等待来自未清理的 Promise.race 超时定时器，不计为产品耗时。
+
+本轮是实际 Tauri 主 WebView 中的仓库 helper 和真实服务调用，非完整 WDIO 套件。
+未测试物理 Esc（hook 忽略注入键）、本机未安装的 agent-desktop、多物理显示器、非 Windows 或新的模型
+素材下载任务；没有新增官方 benchmark 分数或模型成功率结论。当前两驱动共享原生采样
+实现，但本轮真实输入证据仅覆盖 cua-driver 0.38.0。
+
+运行产物为 Xiaomi 的 `G:/TouchAI/cache/pr730-target/debug/TouchAI-verify-7d37c7d25.exe`，
+SHA256 `AABB1B367F09CA7670DA8020B889F1DE3BAD98ED3F8A4474EC81CDD6C7F6DC15`。
+验证使用独立 1421/9223 实例；新版窗口保留可见，用户 1420/9222 实例未替换。
+原始证据位于 `G:/TouchAI/cache/pr730-logs/`：
+
+- `verification-report-7d37c7d2.md`：DeepSeek 完整实机报告。
+- `red-newhelper-569eb56ec.json`：同一新 helper 在旧二进制上的自动光标失败。
+- `deadlock-repro-7d37c7d25.json`：200 次并发状态读取回归。
+- `glow-verify-7d37c7d25.json`：17 项、外观、呼吸及减少动态效果；首轮保存在 `glow-verify-7d37c7d25-run1.json`。
+- `service-pointer-verify-7d37c7d25.json`：真实服务的两点坐标、同 session 驱动对照、光标开关、取消和恢复。
+- `helper-trace-7d37c7d25.json`：未经修改的 helper 与活动时序。
+- `evidence-process-7d37c7d25.json`、`final-state-7d37c7d25.json`：实际进程身份及最终窗口状态。
+- `glow-verify-7d37c7d25-overlay.png`、`final-main-7d37c7d25.png`：真实 WebView 渲染截图。
+
+验证线程：
+<t3-thread://v2/61b57258-fe2b-4bec-8b0d-74e4c7152b91/mcp:launch:07114ba42cb5936955f3f51f4b4eee432e98089a404468d8ee32eeb55586c9c5>
+
 ## 前台反馈范围调整
 
 按最新要求，任务注册与反馈可见性分离。原生输入队列取得执行资格后，仅前台动作显示
@@ -21,7 +74,7 @@ agent-desktop 使用 headed 模式和工具类别，cua 使用工具及 delivery
 前端叠层、活动与 token 共 3 文件 38/38 通过。定向 ESLint 通过。
 原生 E2E helper 现在通过已安装 cua-driver 的真实调用验证显示生命周期，使用无输入副作用的
 有界脚本作为前台期间 fixture，包含失败与取消；运行前需准备已固定版本的驱动。
-新版原生渲染、呼吸采样及 E2E 结果见下方 `569eb56e` 实测，不沿用旧版 9/9 作为新行为证明。
+新版原生渲染、呼吸采样及 E2E 结果见顶部 `7d37c7d2` 实测，不沿用旧版 9/9 作为新行为证明。
 
 ### Xiaomi 原生反馈阻塞回归 `04674749`
 
@@ -62,9 +115,10 @@ session 下，`get_agent_cursor_state` 返回 `enabled:false / position:null`，
 移除前端每 100ms 发起的驱动光标查询、独立超时和结束后查询。位置不变不重复发布，
 结束/取消与原生调用同寿命，不增加模型请求。系统鼠标只有一个，前台输入继续串行。
 仓库 E2E 将第一项指针断言改为真实移动后自动出现，结束时恢复原鼠标位置；其他手工指针
-仅用于展示和迟到事件检查。此修复的新版本实机结果待追加，不能把本轮红测记为通过。
+仅用于展示和迟到事件检查。修复后的实机绿测见顶部 `7d37c7d2`；本节保留旧版本红测。
 本机服务回归先得到 4 项额外驱动查询失败，修复后服务、活动、坐标与原生桥共 4 文件
 79/79 通过；Rust 电脑控制回归 78 passed / 4 external integrations ignored，定向 ESLint 通过。
+应用与测试类型检查、提交时 Rust 检查和格式检查通过。
 
 两处外观 runner 误判已按 WebView2 实际 CSS 序列化修正，并保留首轮记录；输入 fixture
 修正 DPI、UTF-8 BOM 和工具参数后才执行。自动光标的产品失败独立于这些 runner 问题。
