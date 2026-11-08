@@ -71,10 +71,6 @@ pub fn database_path_for_tests<R: Runtime>(webview: &WebviewWindow<R>) -> PathBu
         .to_path_buf()
 }
 
-pub fn popup_registry_has<R: Runtime>(app: &App<R>, id: &str) -> bool {
-    app.state::<PopupRegistry>().has(id)
-}
-
 pub fn search_surface_policies<R: Runtime>(app: &App<R>) -> SearchSurfacePolicySnapshot {
     let runtime = app.state::<SearchSurfaceRuntime>();
     SearchSurfacePolicySnapshot {

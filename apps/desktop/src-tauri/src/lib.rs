@@ -247,10 +247,8 @@ pub fn run() {
             }
 
             if matches!(event, WindowEvent::Destroyed) {
-                let app_handle = window.app_handle().clone();
                 let window_label = window.label().to_string();
-                core::window::webview_recovery::forget_window(&app_handle, &window_label);
-                core::window::search::surface::handle_window_destroyed(&app_handle, &window_label);
+                core::window::webview_recovery::forget_window(window.app_handle(), &window_label);
             }
         })
         .invoke_handler(commands::invoke_handler::<tauri::Wry>());
