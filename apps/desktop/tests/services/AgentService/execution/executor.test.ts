@@ -335,6 +335,58 @@ describe('user sends a prompt and receives a streamed answer', () => {
         expect(result.calls[0]?.finishReason).toBe('aborted');
     });
 
+    it.each([false, true])(
+        'user on WebKit without AbortSignal.any can compact with cancellation=%s',
+        async (cancel) => {
+            const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'any');
+            Object.defineProperty(AbortSignal, 'any', { configurable: true, value: undefined });
+            const controller = new AbortController();
+            const summarySignals: AbortSignal[] = [];
+            try {
+                providerMock.stream.mockImplementation(async function* (request: AiRequestOptions) {
+                    if (request.toolChoice === 'none') {
+                        summarySignals.push(request.signal!);
+                        expect(request.signal?.aborted).toBe(false);
+                        if (cancel) {
+                            controller.abort();
+                            expect(request.signal?.aborted).toBe(true);
+                        }
+                    }
+                    yield {
+                        content: request.toolChoice === 'none' ? 'Goal: finish.' : 'Final answer',
+                        done: true,
+                        finishReason: 'stop',
+                    };
+                });
+                const result = await new AiRequestExecutor().runAttempt({
+                    startCheckpoint: createLongCheckpoint(),
+                    signal: controller.signal,
+                    persister: {
+                        getSessionId: () => 42,
+                        loadContextSummary: async () => undefined,
+                        persistContextSummary: async () => undefined,
+                        persistOutputProgress: async () => undefined,
+                    } as never,
+                });
+                if (cancel) {
+                    expect(result).toMatchObject({
+                        type: 'failed',
+                        error: { code: AiErrorCode.REQUEST_CANCELLED },
+                        response: '',
+                    });
+                } else {
+                    expect(result).toMatchObject({ type: 'completed', response: 'Final answer' });
+                    expect(controller.signal.aborted).toBe(false);
+                }
+                expect(summarySignals.length).toBeGreaterThan(0);
+                expect(summarySignals.every((signal) => signal.aborted)).toBe(true);
+            } finally {
+                if (descriptor) Object.defineProperty(AbortSignal, 'any', descriptor);
+                else Reflect.deleteProperty(AbortSignal, 'any');
+            }
+        }
+    );
+
     it('user rejects tool-calling summaries without executing them and retains their reported costs', async () => {
         providerMock.stream.mockImplementation(async function* () {
             yield {

@@ -753,12 +753,19 @@ export class PersistenceProjector {
     }
 
     loadContextSummary(): Promise<ContextSummary | undefined> {
-        this.contextSummary ??=
-            this.sessionId === null
-                ? Promise.resolve(undefined)
-                : findLatestContextCompaction(this.sessionId).then((part) =>
-                      part ? readContextSummary(part) : undefined
-                  );
+        if (!this.contextSummary) {
+            const loading = (
+                this.sessionId === null
+                    ? Promise.resolve(undefined)
+                    : findLatestContextCompaction(this.sessionId).then((part) =>
+                          part ? readContextSummary(part) : undefined
+                      )
+            ).catch((error: unknown) => {
+                if (this.contextSummary === loading) this.contextSummary = undefined;
+                throw error;
+            });
+            this.contextSummary = loading;
+        }
         return this.contextSummary;
     }
 

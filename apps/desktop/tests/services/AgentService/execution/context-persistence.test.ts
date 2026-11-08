@@ -12,7 +12,7 @@ import {
     openMigratedDatabase,
     routeQueriesTo,
 } from '@tests/database/sqliteHarness';
-import { getTauriInvokeCalls } from '@tests/utils/tauri';
+import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { ContextSummary } from '@/services/AgentService/contracts/context';
@@ -260,6 +260,20 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         expect(await findMessagesBySessionId(1)).toHaveLength(25);
     });
 
+    it('user retries a failed checkpoint read in the same session and recovers the saved summary', async () => {
+        const first = projector();
+        await first.recordTurnStart(checkpoint());
+        await new ContextWindow().prepare(prepare(first, await request()));
+        const saved = await first.loadContextSummary();
+        const reopened = projector();
+        interceptTauriInvoke(() => {
+            throw new Error('Storage temporarily unavailable');
+        });
+        await expect(reopened.loadContextSummary()).rejects.toThrow();
+        routeQueriesTo(database);
+        expect(await reopened.loadContextSummary()).toEqual(saved);
+    });
+
     it('user keeps the divider before tool activity when the pending response becomes a tool round', async () => {
         const first = projector();
         await first.recordTurnStart(checkpoint());
@@ -312,7 +326,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         expect(JSON.stringify(rebuilt.messages)).toContain(summaryText);
     });
 
-    it.each(['success', 'error'] as const)(
+    it.each(['success', 'error', 'rejected', 'timeout'] as const)(
         'user reopens after a tool round with status %s was summarized and reuses the persisted checkpoint',
         async (status) => {
             const row = database
@@ -343,7 +357,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
             await first.recordTurnStart(checkpoint());
             const live = await request();
             const toolResult = live.messages.find((message) => message.role === 'tool')!;
-            toolResult.isError = status === 'error';
+            toolResult.isError = status !== 'success';
             live.messages.find((message) => message.tool_calls?.length)!.tool_calls![0]!.arguments =
                 '{\n "lines": 10, "path": "src/index.ts"\n}';
             const initial = await new ContextWindow().prepare(prepare(first, live));

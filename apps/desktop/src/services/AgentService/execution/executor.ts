@@ -566,15 +566,17 @@ export class AiRequestExecutor {
     ): Promise<SummaryResult> {
         const startedAt = Date.now();
         const controller = new AbortController();
-        const signal = request.signal
-            ? AbortSignal.any([request.signal, controller.signal])
-            : controller.signal;
+        const signal = controller.signal;
+        const forwardAbort = () => controller.abort(request.signal?.reason);
+        if (request.signal?.aborted) forwardAbort();
+        else request.signal?.addEventListener('abort', forwardAbort, { once: true });
         let text = '';
         let usage = emptyAiUsage();
         let usageReported = false;
         let finishReason: string | undefined;
         let hasToolCalls = false;
         try {
+            throwIfAborted(signal);
             for await (const chunk of runtime.provider.stream({
                 ...request,
                 signal,
@@ -597,6 +599,7 @@ export class AiRequestExecutor {
             finishReason = request.signal?.aborted ? 'aborted' : 'error';
             throw error;
         } finally {
+            request.signal?.removeEventListener('abort', forwardAbort);
             controller.abort();
             runtime.calls.push({
                 iteration: runtime.iteration,

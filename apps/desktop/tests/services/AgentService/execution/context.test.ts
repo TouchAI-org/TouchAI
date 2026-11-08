@@ -69,6 +69,30 @@ describe('given a conversation with a known context budget', () => {
         expect(result.maxOutputTokens).toBe(65_536);
     });
 
+    it.each([0, 12])(
+        'user with no declared output limit keeps provider defaults after preparing %s turns',
+        async (turns) => {
+            const summaryRequests: AiRequestOptions[] = [];
+            const result = await new ContextWindow().prepare({
+                ...options(request(history(turns))),
+                outputLimit: null,
+                summarize: async (call) => {
+                    summaryRequests.push(call);
+                    return summary;
+                },
+            });
+            expect(result.maxOutputTokens).toBeUndefined();
+            expect(result.inputBudget).toBe(4800);
+            if (turns > 0) {
+                expect(summaryRequests.length).toBeGreaterThan(0);
+                expect(summaryRequests.every((call) => call.maxOutputTokens === 2000)).toBe(true);
+                expect(result.estimatedTokens).toBeLessThan(result.inputBudget);
+            } else {
+                expect(summaryRequests).toEqual([]);
+            }
+        }
+    );
+
     it('user rejects a summary when its source history changes during generation', async () => {
         const context = new ContextWindow();
         const input = request();

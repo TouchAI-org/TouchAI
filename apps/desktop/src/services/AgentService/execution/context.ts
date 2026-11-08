@@ -230,7 +230,7 @@ export class ContextWindow {
         const { request } = options;
         checkCancellation(request.signal);
         const limit = options.contextLimit;
-        const maxOutputTokens = positive(limit)
+        const outputReserve = positive(limit)
             ? Math.max(
                   1,
                   Math.floor(
@@ -241,8 +241,9 @@ export class ContextWindow {
                   )
               )
             : undefined;
+        const maxOutputTokens = positive(options.outputLimit) ? outputReserve : undefined;
         const inputBudget = positive(limit)
-            ? Math.max(0, Math.floor(limit - maxOutputTokens! - Math.min(16_384, limit * 0.15)))
+            ? Math.max(0, Math.floor(limit - outputReserve! - Math.min(16_384, limit * 0.15)))
             : Infinity;
         const key = this.key(request);
         for (const [entryKey, entry] of this.summaries) {
@@ -318,8 +319,8 @@ export class ContextWindow {
         try {
             const sourceFingerprint = await fingerprint(request, cut);
             const summaryOutputTokens = options.preserveSummaryOutputBudget
-                ? maxOutputTokens!
-                : Math.min(maxOutputTokens!, 8192);
+                ? outputReserve!
+                : Math.min(outputReserve!, 8192);
             let covered = entry?.covered ?? systemEnd;
             let text = entry?.text ?? '';
             const accept = (result: SummaryResult): string => {
