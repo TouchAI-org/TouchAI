@@ -1,7 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 import { native } from '@services/NativeService';
 import type { DatabaseQueryMethod } from '@services/NativeService/database';
-import { log } from '@services/ObservabilityService';
 import { createTableRelationsHelpers, extractTablesRelationalConfig } from 'drizzle-orm/relations';
 import { SQLiteAsyncDialect } from 'drizzle-orm/sqlite-core/dialect';
 import { SqliteRemoteDatabase } from 'drizzle-orm/sqlite-proxy/driver';
