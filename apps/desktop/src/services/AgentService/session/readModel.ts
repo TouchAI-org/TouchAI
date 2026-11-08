@@ -37,13 +37,11 @@ export function createSessionReadModel(): SessionReadModel {
                         summary.invalidatedAt === undefined &&
                         summary.firstKeptMessageId <= part!.message_id
                     ) {
-                        const ids = [
-                            ...summary.systemMessageIds,
-                            ...(summary.pinnedUserMessageId === undefined
-                                ? []
-                                : [summary.pinnedUserMessageId]),
-                        ];
-                        const retained = await findContextMessageRows(sessionId, { ids }, tx);
+                        const retained = await findContextMessageRows(
+                            sessionId,
+                            { ids: summary.systemMessageIds },
+                            tx
+                        );
                         const tail = await findContextMessageRows(
                             sessionId,
                             { firstId: summary.firstKeptMessageId },
@@ -52,11 +50,7 @@ export function createSessionReadModel(): SessionReadModel {
                         const byId = new Map(retained.map((row) => [row.id, row]));
                         if (
                             tail[0]?.id === summary.firstKeptMessageId &&
-                            summary.systemMessageIds.every(
-                                (id) => byId.get(id)?.role === 'system'
-                            ) &&
-                            (summary.pinnedUserMessageId === undefined ||
-                                byId.get(summary.pinnedUserMessageId)?.role === 'user')
+                            summary.systemMessageIds.every((id) => byId.get(id)?.role === 'system')
                         ) {
                             return {
                                 messages: [...retained, ...tail],

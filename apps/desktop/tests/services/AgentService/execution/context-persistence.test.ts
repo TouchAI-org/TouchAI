@@ -311,13 +311,9 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         await first.recordTurnStart(checkpoint());
         await new ContextWindow().prepare(prepare(first, await request()));
         for (let i = 0; i < 14; i++) {
-            const row = database
-                .prepare(
-                    "INSERT INTO messages(session_id, role) VALUES (1, 'tool_call') RETURNING id"
-                )
-                .get()!;
+            const messageId = await first.persistToolCallMessage([]);
             await createToolPart('builtin', {
-                message_id: Number(row.id),
+                message_id: messageId,
                 session_id: 1,
                 tool_call_id: `new-${i}`,
                 tool_id: 'read_file',
@@ -326,17 +322,16 @@ describe('given a long conversation in the shipped SQLite schema', () => {
                 status: 'success',
             });
         }
-        const next = projector();
-        await next.recordTurnStart(checkpoint());
         const observed: AiRequestOptions[] = [];
         const result = await new ContextWindow().prepare({
-            ...prepare(next, await request()),
+            ...prepare(first, await request()),
             summarize: async (input) => {
                 observed.push(input);
                 return { text: `${summaryText} New tool evidence verified.`, finishReason: 'stop' };
             },
         });
         expect(JSON.stringify(observed[0]?.messages)).toContain(summaryText);
+        expect(result.messages.some((message) => message.content === prompt)).toBe(false);
         expect(result.messages.filter((message) => message.contextSummary)).toHaveLength(1);
         const callIds = result.messages.flatMap(
             (message) => message.tool_calls?.map((call) => call.id) ?? []
@@ -350,6 +345,12 @@ describe('given a long conversation in the shipped SQLite schema', () => {
             version: 2,
             text: `${summaryText} New tool evidence verified.`,
         });
+        expect((await request()).messages).toEqual(result.messages);
+        expect(
+            (await findMessagesBySessionId(1)).some((row) =>
+                row.parts.some((part) => part.type === 'text' && part.content === prompt)
+            )
+        ).toBe(true);
     });
 
     it('user reopens after completion and keeps one divider in its original place with a reusable summary', async () => {

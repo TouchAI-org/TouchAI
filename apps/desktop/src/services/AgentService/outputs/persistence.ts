@@ -912,12 +912,7 @@ export class PersistenceProjector {
             : [];
         const rows = [...retained, ...range];
         const byId = new Map(rows.map((row) => [row.id, row]));
-        if (
-            summary.systemMessageIds.some((id) => byId.get(id)?.role !== 'system') ||
-            (summary.pinnedUserMessageId !== undefined &&
-                byId.get(summary.pinnedUserMessageId)?.role !== 'user')
-        )
-            return fail();
+        if (summary.systemMessageIds.some((id) => byId.get(id)?.role !== 'system')) return fail();
         for (const row of rows) {
             const expected = sources.get(row.id);
             // A summary-only assistant row emits no transport; a concurrent addition of text does.

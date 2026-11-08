@@ -11,16 +11,13 @@ const contextSummarySchema = z
         id: z.string().uuid(),
         text: z.string().trim().min(1).max(MAX_SUMMARY_CHARS),
         firstKeptMessageId: z.number().int().positive(),
-        pinnedUserMessageId: z.number().int().positive().optional(),
         systemMessageIds: z.array(z.number().int().positive()),
         invalidatedAt: z.number().int().nonnegative().optional(),
     })
     .refine(
         (value) =>
             value.invalidatedAt !== undefined ||
-            ((value.pinnedUserMessageId === undefined ||
-                value.pinnedUserMessageId < value.firstKeptMessageId) &&
-                value.systemMessageIds.every((id) => id < value.firstKeptMessageId) &&
+            (value.systemMessageIds.every((id) => id < value.firstKeptMessageId) &&
                 new Set(value.systemMessageIds).size === value.systemMessageIds.length)
     );
 

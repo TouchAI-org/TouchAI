@@ -26,7 +26,6 @@ function sourceDatabase() {
                 version: 2,
                 id: '00000000-0000-4000-8000-000000000001',
                 firstKeptMessageId: 3,
-                pinnedUserMessageId: 1,
                 systemMessageIds: [],
                 model: 'test',
                 createdAt: 100,
@@ -74,7 +73,6 @@ function saved(target: DatabaseSync) {
         .get()!;
     return JSON.parse(String(row.data)) as {
         firstKeptMessageId: number;
-        pinnedUserMessageId: number;
         invalidatedAt?: number;
     };
 }
@@ -135,7 +133,7 @@ describe('given context checkpoints in a conversation backup', () => {
         expect(target.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     });
 
-    it('user imports into a populated database and reuses remapped checkpoints after repeated identical imports', () => {
+    it('user imports into a populated database and reuses remapped checkpoints after repeated identical imports', async () => {
         const source = sourceDatabase();
         const target = openMigratedDatabase();
         target.exec(
@@ -143,10 +141,19 @@ describe('given context checkpoints in a conversation backup', () => {
         );
         attachSource(target, source);
         merge(target);
-        expect(saved(target)).toMatchObject({ firstKeptMessageId: 103, pinnedUserMessageId: 101 });
+        expect(saved(target)).toMatchObject({ firstKeptMessageId: 103 });
         expect(saved(target).invalidatedAt).toBeUndefined();
         merge(target);
         expect(saved(target).invalidatedAt).toBeUndefined();
+        routeQueriesTo(target);
+        const sessionId = Number(
+            target.prepare("SELECT id FROM sessions WHERE session_id='import-context'").get()!.id
+        );
+        const restored = await loadSessionTransportMessages({ sessionId });
+        expect(restored.map((message) => message.content)).toEqual([
+            expect.stringContaining('Verified previous work.'),
+            'Current request',
+        ]);
         expect(target.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
     });
 
@@ -186,11 +193,7 @@ describe('given context checkpoints in a conversation backup', () => {
         expect(saved(target).invalidatedAt).toBeTypeOf('number');
     });
 
-    it.each([
-        "'$.firstKeptMessageId', 5",
-        "'$.pinnedUserMessageId', 2",
-        "'$.systemMessageIds', json('[1]')",
-    ])(
+    it.each(["'$.firstKeptMessageId', 5", "'$.systemMessageIds', json('[1]')"])(
         'user imports inconsistent checkpoint references (%s) and retains only historical evidence',
         (patch) => {
             const source = sourceDatabase();

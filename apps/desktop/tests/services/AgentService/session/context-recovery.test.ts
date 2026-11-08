@@ -45,7 +45,6 @@ describe('given a saved context boundary and archived attachments', () => {
                     version: 2,
                     id: '00000000-0000-4000-8000-000000000001',
                     firstKeptMessageId: 5,
-                    pinnedUserMessageId: 4,
                     systemMessageIds: [1],
                     model: 'original',
                     providerId: 1,
@@ -71,7 +70,7 @@ describe('given a saved context boundary and archived attachments', () => {
                     WHERE type = 'context_compaction'`);
             }
             const readModel = createSessionReadModel();
-            expect((await readModel.getMessages(1)).map((row) => row.id)).toEqual([1, 4, 5, 6]);
+            expect((await readModel.getMessages(1)).map((row) => row.id)).toEqual([1, 5, 6]);
             expect(
                 await findUnsupportedSessionAttachmentTypes({
                     sessionId: 1,
@@ -82,7 +81,6 @@ describe('given a saved context boundary and archived attachments', () => {
             const messages = await loadSessionTransportMessages({ sessionId: 1, readModel });
             expect(messages.map((message) => message.role)).toEqual([
                 'system',
-                'user',
                 'user',
                 'assistant',
                 'tool',
@@ -125,7 +123,7 @@ describe('given a saved context boundary and archived attachments', () => {
             )
         );
         expect((await createSessionReadModel().getMessages(1)).map((row) => row.id)).toEqual([
-            1, 4, 5, 6,
+            1, 5, 6,
         ]);
     });
 

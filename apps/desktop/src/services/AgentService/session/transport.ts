@@ -226,7 +226,6 @@ export async function loadSessionTransportMessages(options: {
             contextSummary: summary,
             contextSummaryPartId: summaryPartId,
         },
-        ...messages.filter((message) => message.contextSource!.id === summary.pinnedUserMessageId),
         ...messages.filter((message) => message.contextSource!.id >= summary.firstKeptMessageId),
     ];
 }

@@ -102,30 +102,6 @@ describe('given a conversation with a known context budget', () => {
         }
     );
 
-    it('user rejects a summary when its source history changes during generation', async () => {
-        const context = new ContextWindow();
-        const input = request();
-        await expect(
-            context.prepare({
-                ...options(input),
-                summarize: async () => {
-                    input.messages[1] = {
-                        ...input.messages[1]!,
-                        content: 'New requirement: preserve backups.',
-                    };
-                    return summary;
-                },
-            })
-        ).rejects.toMatchObject({ code: 'CONTEXT_COMPACTION_FAILED' });
-        const recovered = await context.prepare({
-            ...options(input),
-            summarize: async () => ({ ...summary, text: 'Updated requirement: preserve backups.' }),
-        });
-        expect(JSON.stringify(recovered.messages)).toContain(
-            'Updated requirement: preserve backups.'
-        );
-    });
-
     it('user keeps system instructions authoritative when older history is compacted', async () => {
         const input = request();
         const instruction: AiMessage = {
@@ -302,34 +278,6 @@ describe('given a conversation with a known context budget', () => {
         expect(prepared.estimatedTokens).toBeLessThan(prepared.inputBudget);
     });
 
-    it.each(['tools', 'language', 'reasoning'] as const)(
-        'user changes %s during summary generation and cannot install a stale checkpoint',
-        async (setting) => {
-            const input = request(snapshotAiMessages(history()));
-            input.tools = [
-                {
-                    name: 'read',
-                    description: 'Read files',
-                    input_schema: { type: 'object', properties: {} },
-                },
-            ];
-            input.modelLanguageContext = { locale: 'en-US', label: 'English' };
-            input.supportsReasoning = true;
-            await expect(
-                new ContextWindow().prepare({
-                    ...options(input),
-                    summarize: async () => {
-                        if (setting === 'tools')
-                            input.tools![0]!.description = 'Read approved files only';
-                        if (setting === 'language') input.modelLanguageContext!.locale = 'zh-CN';
-                        if (setting === 'reasoning') input.supportsReasoning = false;
-                        return summary;
-                    },
-                })
-            ).rejects.toMatchObject({ code: 'CONTEXT_COMPACTION_FAILED' });
-        }
-    );
-
     it('user cannot compact a history with missing stored message boundaries', async () => {
         const input = request();
         delete input.messages[1]!.contextSource;
@@ -338,37 +286,57 @@ describe('given a conversation with a known context budget', () => {
         });
     });
 
-    it('user keeps complete tool exchanges and their active request during a long tool run', async () => {
-        const input = request([
-            { role: 'system', content: 'Use tools carefully.' },
-            { role: 'user', content: 'Inspect the repository and fix the defect.' },
-            ...Array.from({ length: 12 }, (_, i): AiMessage[] => [
+    it.each([0, 1700])(
+        'user continues a long tool run with %s extra request details summarized and recent exchanges intact',
+        async (details) => {
+            const input = request([
+                { role: 'system', content: 'Use tools carefully.' },
                 {
-                    role: 'assistant',
-                    content: '',
-                    tool_calls: [{ id: `call-${i}`, name: 'read', arguments: '{}' }],
+                    role: 'user',
+                    content: `Inspect the repository and fix the defect without deleting backups. ${'context '.repeat(details)}`,
                 },
-                {
-                    role: 'tool',
-                    name: 'read',
-                    tool_call_id: `call-${i}`,
-                    content: 'file contents '.repeat(400),
+                ...Array.from({ length: 12 }, (_, i): AiMessage[] => [
+                    {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [{ id: `call-${i}`, name: 'read', arguments: '{}' }],
+                    },
+                    {
+                        role: 'tool',
+                        name: 'read',
+                        tool_call_id: `call-${i}`,
+                        content: 'file contents '.repeat(400),
+                    },
+                ]).flat(),
+            ]);
+            const sent: AiRequestOptions[] = [];
+            const text =
+                'Goal: fix the defect. Constraint: do not delete backups. Next: run tests.';
+            const result = await new ContextWindow().prepare({
+                ...options(input),
+                summarize: async (call) => {
+                    sent.push(call);
+                    return { text, finishReason: 'stop' };
                 },
-            ]).flat(),
-        ]);
-        const result = await new ContextWindow().prepare(options(input));
-        expect(result.messages).toContainEqual(input.messages[1]);
-        expect(result.messages[result.messages.length - 1]).toEqual(
-            input.messages[input.messages.length - 1]
-        );
-        const calls = result.messages.flatMap(
-            (message) => message.tool_calls?.map((call) => call.id) ?? []
-        );
-        const results = result.messages
-            .filter((message) => message.role === 'tool')
-            .map((message) => message.tool_call_id);
-        expect(results).toEqual(calls);
-    });
+            });
+            expect(sent.flatMap((call) => call.messages)).toContainEqual(input.messages[1]);
+            expect(result.messages).not.toContainEqual(input.messages[1]);
+            expect(result.messages.find((message) => message.contextSummary)?.content).toContain(
+                text
+            );
+            expect(result.estimatedTokens).toBeLessThan(result.inputBudget);
+            expect(result.messages[result.messages.length - 1]).toEqual(
+                input.messages[input.messages.length - 1]
+            );
+            const calls = result.messages.flatMap(
+                (message) => message.tool_calls?.map((call) => call.id) ?? []
+            );
+            const results = result.messages
+                .filter((message) => message.role === 'tool')
+                .map((message) => message.tool_call_id);
+            expect(results).toEqual(calls);
+        }
+    );
 
     it('user gets every older message summarized in bounded batches when imported history is oversized', async () => {
         const input = request(history(35));

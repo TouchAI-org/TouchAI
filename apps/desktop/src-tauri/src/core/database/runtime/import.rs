@@ -308,7 +308,7 @@ mod tests {
              INSERT INTO message_parts(message_id, type, content, sort_order) VALUES (1, 'text', 'Old request', 0), (2, 'text', 'Verified', 0), (3, 'text', 'Continue', 0);"
         ).execute(&source).await.unwrap();
         sqlx::query("INSERT INTO message_parts(message_id, type, content, data, sort_order) VALUES (4, 'context_compaction', 'Verified old work', ?, 0)")
-            .bind(json!({"version": 2, "id": "00000000-0000-4000-8000-000000000001", "firstKeptMessageId": 3, "pinnedUserMessageId": 1, "systemMessageIds": [], "model": "test", "createdAt": 100, "tokensBefore": 5000, "tokensAfter": 200}).to_string())
+            .bind(json!({"version": 2, "id": "00000000-0000-4000-8000-000000000001", "firstKeptMessageId": 3, "systemMessageIds": [], "model": "test", "createdAt": 100, "tokensBefore": 5000, "tokensAfter": 200}).to_string())
             .execute(&source).await.unwrap();
         let target_path = root.path().join("target.db");
         let target = backup(&target_path, usize::MAX).await;
@@ -334,7 +334,6 @@ mod tests {
             .unwrap();
             let saved: Value = serde_json::from_str(&data).unwrap();
             assert_eq!(saved["firstKeptMessageId"], 103);
-            assert_eq!(saved["pinnedUserMessageId"], 101);
             assert!(saved.get("invalidatedAt").is_none());
         }
         sqlx::query("UPDATE message_parts SET content='Local correction' WHERE message_id=102")

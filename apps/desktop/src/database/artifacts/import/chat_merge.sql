@@ -286,12 +286,6 @@ SELECT
                 WHERE reference.id = json_extract(source_parts.data, '$.firstKeptMessageId')
                   AND reference.session_id = source_messages.session_id
             ), json_extract(source_parts.data, '$.firstKeptMessageId')),
-            'pinnedUserMessageId', coalesce((
-                SELECT mapping.target_message_id FROM temp_message_map AS mapping
-                INNER JOIN imported.messages AS reference ON reference.id = mapping.source_message_id
-                WHERE reference.id = json_extract(source_parts.data, '$.pinnedUserMessageId')
-                  AND reference.session_id = source_messages.session_id
-            ), json_extract(source_parts.data, '$.pinnedUserMessageId')),
             'systemMessageIds', json((
                 SELECT json_group_array(coalesce(mapping.target_message_id, reference.value))
                 FROM json_each(source_parts.data, '$.systemMessageIds') AS reference
@@ -371,11 +365,6 @@ WHERE checkpoint.type = 'context_compaction' AND json_extract(checkpoint.data, '
           WHERE original.message_id = checkpoint.source_message_id AND original.sort_order = checkpoint.sort_order
             AND (
                 json_extract(original.data, '$.firstKeptMessageId') > original.message_id
-                OR (json_extract(original.data, '$.pinnedUserMessageId') IS NOT NULL AND NOT EXISTS (
-                    SELECT 1 FROM imported.messages AS reference
-                    WHERE reference.id = json_extract(original.data, '$.pinnedUserMessageId')
-                      AND reference.role = 'user' AND reference.id < json_extract(original.data, '$.firstKeptMessageId')
-                ))
                 OR EXISTS (SELECT 1 FROM json_each(original.data, '$.systemMessageIds') AS reference
                     WHERE NOT EXISTS (SELECT 1 FROM imported.messages AS message
                         WHERE message.id = reference.value AND message.role = 'system'
@@ -386,8 +375,7 @@ WHERE checkpoint.type = 'context_compaction' AND json_extract(checkpoint.data, '
       EXISTS (
           SELECT 1 FROM imported.message_parts AS original,
               json_each(json_insert(json_extract(original.data, '$.systemMessageIds'), '$[#]',
-                  json_extract(original.data, '$.firstKeptMessageId'), '$[#]',
-                  json_extract(original.data, '$.pinnedUserMessageId'))) AS reference
+                  json_extract(original.data, '$.firstKeptMessageId'))) AS reference
           WHERE original.message_id = checkpoint.source_message_id AND original.sort_order = checkpoint.sort_order
             AND reference.value IS NOT NULL AND NOT EXISTS (
                 SELECT 1 FROM imported.messages AS referenced
