@@ -1,4 +1,5 @@
 import type { SessionEntity } from '@database/types';
+import type { DatabaseOperation } from '@services/NativeService/database';
 import { mountComposable } from '@tests/utils/composables';
 import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
 import { mockTauriCommand } from '@tests/utils/tauri';
@@ -6,6 +7,7 @@ import { flushPromises } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ref } from 'vue';
 
+import type { SessionData } from '@/services/AgentService/session/manager';
 import { createInputHistorySnapshot } from '@/types/session';
 import { useSearchRequestFlow } from '@/views/SearchView/composables/useSearchRequest';
 
@@ -28,8 +30,14 @@ function session(id: number): SessionEntity {
     };
 }
 
-function response(rows: object[] = []) {
-    return { rows, rowsAffected: 0, lastInsertId: null };
+function sessionData(id: number): SessionData {
+    return {
+        session: session(id),
+        messages: [],
+        turns: [],
+        attempts: [],
+        model: null,
+    };
 }
 
 async function mountFlow() {
@@ -56,25 +64,29 @@ async function openHistory(flow: Awaited<ReturnType<typeof mountFlow>>['result']
 describe('user selects conversation history', () => {
     let telemetry: ReturnType<typeof installProductAnalytics>;
     let rows: SessionEntity[];
-    const pending = new Map<number, ReturnType<typeof deferred<ReturnType<typeof response>>>>();
+    const pending = new Map<number, ReturnType<typeof deferred<SessionData>>>();
     const unmounts: Array<() => void> = [];
 
     beforeEach(() => {
         telemetry = installProductAnalytics();
         rows = [session(7)];
         pending.clear();
-        mockTauriCommand('database_query', (payload: unknown) => {
-            const { request } = payload as {
-                request: { sql: string; method: string; params: unknown[] };
-            };
-            if (request.sql.includes('from "sessions"')) {
-                if (request.method === 'get') {
-                    const id = Number(request.params[request.params.length - 1]);
-                    return pending.get(id)?.promise ?? response([session(id)]);
-                }
-                return response(rows);
+        mockTauriCommand('database_operation', (payload: unknown) => {
+            const { request } = payload as { request: DatabaseOperation };
+            switch (request.kind) {
+                case 'session_list':
+                    return rows;
+                case 'session_history':
+                    return (
+                        pending.get(request.sessionId)?.promise ?? sessionData(request.sessionId)
+                    );
+                case 'session_dismiss_terminal_status':
+                    return null;
+                case 'mcp_server_list':
+                    return [];
+                default:
+                    return null;
             }
-            return response();
         });
     });
 
@@ -111,8 +123,8 @@ describe('user selects conversation history', () => {
     });
 
     it('user keeps two pending history selections tied to their own results when the first finishes first', async () => {
-        const first = deferred<ReturnType<typeof response>>();
-        const second = deferred<ReturnType<typeof response>>();
+        const first = deferred<SessionData>();
+        const second = deferred<SessionData>();
         pending.set(7, first);
         pending.set(8, second);
         const { result } = await flow();
@@ -130,14 +142,14 @@ describe('user selects conversation history', () => {
         await flushPromises();
         expect(telemetry.released).toEqual([]);
 
-        first.resolve(response([session(7)]));
+        first.resolve(sessionData(7));
         await expect(openingA).resolves.toMatchObject({ sessionId: 7 });
         await flushPromises();
         expect(selected().map((event) => event.operationId)).toEqual(['operation-1']);
         expect(telemetry.released).toEqual(['operation-1']);
         expect(telemetry.active.has('operation-2')).toBe(true);
 
-        second.resolve(response([session(8)]));
+        second.resolve(sessionData(8));
         await expect(openingB).resolves.toMatchObject({ sessionId: 8 });
         await flushPromises();
         expect(completed().map((event) => event.attributes.result_count_bucket)).toEqual([
@@ -155,7 +167,7 @@ describe('user selects conversation history', () => {
     });
 
     it('user keeps a failed older selection separate from a newer abandoned selection', async () => {
-        const first = deferred<ReturnType<typeof response>>();
+        const first = deferred<SessionData>();
         pending.set(7, first);
         const { result } = await flow();
         await openHistory(result);

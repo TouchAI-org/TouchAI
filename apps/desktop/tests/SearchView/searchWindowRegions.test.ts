@@ -392,21 +392,28 @@ describe('createSearchWindowRegionReporter', () => {
             throw new Error('session storage unavailable');
         });
         const reloadedModule = await import('@/views/SearchView/searchWindowRegions');
+        let staleGeneration = 0;
         const report = vi
             .fn()
-            .mockResolvedValueOnce({
-                status: 'stale',
-                requestedGeneration: 1,
-                activeGeneration: 100,
+            .mockImplementationOnce((generation: number) => {
+                staleGeneration = generation;
+                return Promise.resolve({
+                    status: 'stale',
+                    requestedGeneration: generation,
+                    activeGeneration: generation + 100,
+                });
             })
-            .mockResolvedValueOnce({ status: 'applied', generation: 101 });
+            .mockImplementation((generation: number) => Promise.resolve(appliedUpdate(generation)));
         const reporter = reloadedModule.createSearchWindowRegionReporter(
             () => ({ signature: 'reloaded-geometry', report }),
             100
         );
 
         await expect(reporter.flush('renderer-ready', true)).resolves.toBe(true);
-        expect(report.mock.calls.map(([generation]) => generation)).toEqual([1, 101]);
+        expect(report.mock.calls.map(([generation]) => generation)).toEqual([
+            staleGeneration,
+            staleGeneration + 101,
+        ]);
         reporter.dispose();
     });
 

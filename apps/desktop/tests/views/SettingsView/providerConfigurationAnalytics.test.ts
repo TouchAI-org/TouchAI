@@ -1,4 +1,5 @@
 import type { Provider } from '@database/schema';
+import type { DatabaseOperation } from '@services/NativeService/database';
 import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
 import { mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises, mount } from '@vue/test-utils';
@@ -37,7 +38,7 @@ describe('user saves provider configuration', () => {
     let telemetry: ReturnType<typeof installProductAnalytics>;
     let pendingSave: ReturnType<typeof deferred<void>> | null;
     let saveError: Error | null;
-    const writes: Array<{ sql: string; params: unknown[] }> = [];
+    const writes: Array<Extract<DatabaseOperation, { kind: 'provider_update' }>> = [];
     const wrappers: ReturnType<typeof mount>[] = [];
 
     beforeEach(() => {
@@ -55,28 +56,30 @@ describe('user saves provider configuration', () => {
         pendingSave = null;
         saveError = null;
         writes.length = 0;
-        mockTauriCommand('database_query', async (payload: unknown) => {
-            const { request } = payload as {
-                request: { sql: string; params: unknown[]; method: string };
-            };
-            if (request.sql.startsWith('update "providers"')) {
-                writes.push(request);
-                if (saveError) throw saveError;
-                await pendingSave?.promise;
-                return { rows: [], rowsAffected: 1, lastInsertId: null };
+        mockTauriCommand('database_operation', async (payload: unknown) => {
+            const { request } = payload as { request: DatabaseOperation };
+            switch (request.kind) {
+                case 'provider_list':
+                    return [provider(1), provider(2)];
+                case 'provider_find':
+                    return provider(request.id);
+                case 'provider_update':
+                    writes.push(request);
+                    if (saveError) throw saveError;
+                    await pendingSave?.promise;
+                    return null;
+                case 'model_find_default':
+                    return null;
+                case 'model_list_with_provider':
+                    return [];
+                case 'statistic_get':
+                    return new Date().toISOString();
+                case 'llm_metadata_is_empty':
+                case 'llm_metadata_alias_is_empty':
+                    return false;
+                default:
+                    return null;
             }
-            let rows: object[] = [];
-            if (request.sql.includes('from "providers"') && !request.sql.includes('join')) {
-                rows =
-                    request.method === 'get'
-                        ? [provider(Number(request.params[0]))]
-                        : [provider(1), provider(2)];
-            } else if (request.sql.includes('from "statistics"')) {
-                rows = [{ key: request.params[0], value: new Date().toISOString() }];
-            } else if (request.sql.includes('count(*)')) {
-                rows = [{ count: 1 }];
-            }
-            return { rows, rowsAffected: 0, lastInsertId: null };
         });
     });
 
@@ -112,8 +115,8 @@ describe('user saves provider configuration', () => {
         await flushPromises();
 
         expect(writes).toHaveLength(1);
-        expect(writes[0]?.params).toContain('https://edited.example/v1');
-        expect(writes[0]?.params[writes[0].params.length - 1]).toBe(1);
+        expect(writes[0]?.data.api_endpoint).toBe('https://edited.example/v1');
+        expect(writes[0]?.id).toBe(1);
         expect(starts()).toHaveLength(1);
         expect(completions()).toEqual([
             expect.objectContaining({
@@ -145,8 +148,8 @@ describe('user saves provider configuration', () => {
         await vi.advanceTimersByTimeAsync(800);
         await flushPromises();
         expect(writes).toHaveLength(1);
-        expect(writes[0]?.params).toContain('https://second.example/v1');
-        expect(writes[0]?.params[writes[0].params.length - 1]).toBe(2);
+        expect(writes[0]?.data.api_endpoint).toBe('https://second.example/v1');
+        expect(writes[0]?.id).toBe(2);
         expect(starts()).toHaveLength(2);
         expect(completions()[0]?.operationId).toBe('operation-2');
     });
@@ -163,7 +166,7 @@ describe('user saves provider configuration', () => {
         pendingSave.resolve();
         await flushPromises();
 
-        expect(writes[0]?.params[writes[0].params.length - 1]).toBe(1);
+        expect(writes[0]?.id).toBe(1);
         expect(
             wrapper.get('[data-settings-search-target="provider-endpoint"] input').element
         ).toHaveProperty('value', 'https://provider-2.example/v1');
