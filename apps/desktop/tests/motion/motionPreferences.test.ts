@@ -1,13 +1,13 @@
+import {
+    applyPersistedGeneralSettingValue,
+    createDefaultGeneralSettings,
+    serializeGeneralSetting,
+} from '@services/SettingsService/domain';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { effectScope, nextTick, ref } from 'vue';
 
 import { useMotionPressure } from '@/composables/useMotionPressure';
 import { normalizeAnimationSpeed, resolveMotionDuration } from '@/config/motion';
-import {
-    applyPersistedGeneralSettingValue,
-    createDefaultGeneralSettings,
-    serializeGeneralSetting,
-} from '@/stores/setting';
 
 afterEach(() => {
     vi.useRealTimers();
