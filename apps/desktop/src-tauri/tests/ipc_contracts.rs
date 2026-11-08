@@ -55,40 +55,56 @@ fn user_sees_a_snake_case_key_rejected_when_the_rust_argument_is_snake_case() {
 }
 
 /// Nested argument structs do not follow the top-level rule; their serde casing is their own.
-/// A popup command whose nested struct renames to camelCase must accept the camelCase fields.
+/// A status reminder command whose nested struct renames to camelCase must accept those fields.
 #[test]
-fn user_sees_nested_popup_parameters_applied_when_their_fields_are_camel_case() {
+fn user_sees_nested_status_reminder_parameters_applied_when_their_fields_are_camel_case() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     let response: () = invoke_command_ok(
         &test_app.main_webview,
-        "hide_popup_window",
+        "show_session_status_reminder_notification",
         json!({
-            "params": {
-                "popupId": "session-history",
-                "windowLabel": "popup-session-history",
-                "popupSessionVersion": 3
+            "payload": {
+                "title": "Task completed",
+                "body": "The task finished",
+                "sessionId": 7,
+                "taskId": "task-7",
+                "kind": "completed",
+                "approval": null,
+                "openLabel": "Open",
+                "replyPlaceholder": "Reply",
+                "replyLabel": "Send"
             }
         }),
     );
 
     assert_eq!(response, ());
+    assert_eq!(
+        testing::session_status_reminder_notifications(&test_app.app).len(),
+        1
+    );
 }
 
 /// The nested struct's casing is fixed, so the snake_case spelling of its fields is rejected
 /// even though the top-level argument name happens to read the same in either casing.
 #[test]
-fn user_sees_nested_popup_parameters_rejected_when_their_fields_are_snake_case() {
+fn user_sees_nested_status_reminder_parameters_rejected_when_their_fields_are_snake_case() {
     let test_app = build_test_app(TestAppOptions::default()).expect("test app");
 
     invoke_command_err(
         &test_app.main_webview,
-        "hide_popup_window",
+        "show_session_status_reminder_notification",
         json!({
-            "params": {
-                "popup_id": "session-history",
-                "window_label": "popup-session-history",
-                "popup_session_version": 3
+            "payload": {
+                "title": "Task completed",
+                "body": "The task finished",
+                "session_id": 7,
+                "task_id": "task-7",
+                "kind": "completed",
+                "approval": null,
+                "open_label": "Open",
+                "reply_placeholder": "Reply",
+                "reply_label": "Send"
             }
         }),
     );
