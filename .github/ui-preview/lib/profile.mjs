@@ -69,6 +69,29 @@ export const SEARCH_WINDOW_IDLE_HEIGHT = 60;
 export const SEARCH_WINDOW_RESULTS_HEIGHT = 420;
 
 /**
+ * Floating top-level windows reserve transparent room for their CSS shadow.
+ * The search host has its own 48px visual outset and must not use this gutter.
+ */
+export const WINDOW_SHADOW_GUTTER = 24;
+export const SETTINGS_WINDOW_CONTENT_WIDTH = 1120;
+export const SETTINGS_WINDOW_CONTENT_HEIGHT = 700;
+export const SETTINGS_WINDOW_WIDTH = SETTINGS_WINDOW_CONTENT_WIDTH + WINDOW_SHADOW_GUTTER * 2;
+export const SETTINGS_WINDOW_HEIGHT = SETTINGS_WINDOW_CONTENT_HEIGHT + WINDOW_SHADOW_GUTTER * 2;
+
+/**
+ * The inverse of the native frame expansion, used to crop a native capture
+ * back to the content a reviewer should see.
+ */
+export function contentWindowFrame(frame, gutter = WINDOW_SHADOW_GUTTER) {
+    return {
+        width: Math.max(1, frame.width - gutter * 2),
+        height: Math.max(1, frame.height - gutter * 2),
+        x: frame.x + gutter,
+        y: frame.y + gutter,
+    };
+}
+
+/**
  * @param {{ width: number, height: number }} stage
  * @param {{ expanded?: boolean, contentHeight?: number }} [options]
  */

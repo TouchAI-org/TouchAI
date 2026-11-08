@@ -921,9 +921,6 @@ fn show_recovered_window<R: Runtime>(window: &WebviewWindow<R>, intent: Option<S
         ) {
             return;
         }
-        if window_label == "settings" {
-            let _ = crate::core::window::rounded_corners::sync_window_corner_style(&window);
-        }
         let _ = window.unminimize();
         if let Err(error) = window.show() {
             log::warn!(
@@ -932,9 +929,6 @@ fn show_recovered_window<R: Runtime>(window: &WebviewWindow<R>, intent: Option<S
                 error
             );
             return;
-        }
-        if window_label == "settings" {
-            let _ = crate::core::window::rounded_corners::sync_window_corner_style(&window);
         }
         if let Err(error) = window.set_focus() {
             log::warn!(

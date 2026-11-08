@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
     buildAss,
+    contentCaptureFrame,
+    contentInsetFromShellMetrics,
     DESKTOP_COLOUR,
     finalizeRecording,
     isPaintedWindowFrame,
@@ -156,6 +158,33 @@ describe('user keeps compact search screenshots', () => {
         } finally {
             fs.rmSync(directory, { recursive: true, force: true });
         }
+    });
+});
+
+describe('user reviews shell content without the settings shadow gutter', () => {
+    it('user gets no crop when the settings shell is maximized', () => {
+        expect(contentInsetFromShellMetrics({ left: 0, top: 0, right: 0, bottom: 0 })).toBe(0);
+    });
+
+    it('user gets the real shell gutter when the window is floating', () => {
+        expect(contentInsetFromShellMetrics({ left: 24, top: 24, right: 24, bottom: 24 })).toBe(24);
+    });
+
+    it('user keeps the profile fallback when the shell edges differ', () => {
+        expect(contentInsetFromShellMetrics({ left: 24, top: 0, right: 24, bottom: 0 })).toBeNull();
+    });
+
+    it('user gets the visible 1120x700 settings frame from a native capture', () => {
+        expect(contentCaptureFrame({ width: 1168, height: 748 })).toEqual({
+            width: 1120,
+            height: 700,
+            x: 24,
+            y: 24,
+        });
+    });
+
+    it('user keeps a capture that is too small to contain the gutter', () => {
+        expect(contentCaptureFrame({ width: 48, height: 40 })).toBeNull();
     });
 });
 

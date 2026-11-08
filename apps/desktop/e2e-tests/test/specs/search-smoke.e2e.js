@@ -82,6 +82,34 @@ describe('TouchAI search smoke', () => {
         }
     });
 
+    it('user sees the native gray ring on the search card', async () => {
+        const styles = await browser.execute(() => {
+            const card = document.querySelector('[data-testid="search-view-card"]');
+            if (!(card instanceof HTMLElement)) {
+                return null;
+            }
+            const style = getComputedStyle(card);
+            return {
+                radius: style.borderRadius,
+                shadow: style.boxShadow,
+            };
+        });
+
+        if (!styles) {
+            throw new Error('The search card was not available for style inspection.');
+        }
+        if (
+            !styles.shadow.includes('inset') ||
+            !styles.shadow.includes('0px 0px 0px 1px') ||
+            !styles.shadow.includes('0.4')
+        ) {
+            throw new Error(`The search card lost its native gray ring: ${styles.shadow}.`);
+        }
+        if (styles.radius === '0px') {
+            throw new Error('The search card lost its rounded native surface.');
+        }
+    });
+
     it('opens the quick-search panel after typing into the search editor', async () => {
         const editor = await $("[data-testid='search-editor-host'] .ProseMirror");
         const quickSearchPanel = await $("[data-testid='quick-search-panel']");

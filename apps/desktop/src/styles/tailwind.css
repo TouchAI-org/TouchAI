@@ -14,8 +14,10 @@
 :root {
     --search-surface-background: rgb(251 251 246);
     --search-surface-border: rgb(209 213 219);
-    --search-surface-radius: 0.5rem;
-    --search-surface-shadow: 0 8px 18px -3px rgb(0 0 0 / 0.36), 0 2px 6px -1px rgb(0 0 0 / 0.18);
+    --search-surface-radius: var(--radius-window);
+    /* Popovers are in-window surfaces; the native search card overrides this. */
+    --search-surface-shadow:
+        var(--shadow-window-halo), var(--shadow-window-mid), var(--shadow-window-far);
 }
 
 /* 全局基础样式 */
@@ -31,32 +33,17 @@
     #app {
         width: 100%;
         height: 100%;
+        background: transparent;
     }
 
     #app {
-        background: transparent;
         overflow: visible;
-    }
-
-    /* Linux 桌面窗口是透明的，圆角只能由 #app 自己裁剪。body 必须保持透明，
-       否则矩形背景会整块盖住 #app 的圆角；其余平台仍由系统层（DWM 等）负责圆角。 */
-    :root[data-platform='linux'] body {
-        background: transparent;
-    }
-
-    :root[data-platform='linux'] #app {
-        background: var(--color-background-primary);
-    }
-
-    /* 最大化后窗口贴住屏幕边缘，保留圆角会在四角露出桌面。 */
-    :root[data-platform='linux'][data-window-maximized='true'] #app {
-        border-radius: 0;
     }
 
     body {
         overflow: hidden;
         background: transparent;
-        font-family: var(--font-sans), system-ui;
+        font-family: var(--font-sans);
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
         /* 禁止文本选择 */
@@ -183,6 +170,43 @@
         --color-selection-bg: var(--color-neutral-200);
         --color-selection-outline: var(--color-neutral-400);
         --touchai-markdown-foreground: var(--color-foreground);
+    }
+
+    /*
+     * Every top-level route paints its own background inside this shell. The
+     * transparent native window lets the browser anti-alias the radius; a
+     * native window region is 1-bit and produces stair-stepped corners on
+     * Windows Server and some Linux compositors.
+     */
+    .window-shell {
+        background: var(--color-background-primary);
+        border-radius: var(--radius-window);
+        overflow: hidden;
+    }
+
+    /*
+     * A window that needs a drop shadow keeps transparent room for it inside
+     * the native window. The native window is sized with the same gutter, so
+     * the visible surface keeps its designed size.
+     */
+    .window-frame {
+        padding: var(--spacing-window-gutter);
+    }
+
+    .window-shell-floating {
+        box-shadow: var(--shadow-window);
+    }
+
+    :root[data-window-maximized='true'] .window-shell {
+        border-radius: 0;
+    }
+
+    :root[data-window-maximized='true'] .window-frame {
+        @apply p-0;
+    }
+
+    :root[data-window-maximized='true'] .window-shell-floating {
+        @apply shadow-none;
     }
 
     .settings-page {

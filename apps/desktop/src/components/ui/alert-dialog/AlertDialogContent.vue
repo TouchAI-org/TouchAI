@@ -12,6 +12,8 @@
 
     import { cn } from '@/lib/utils';
 
+    import { useSettingsModalTarget } from '../settingsModalTarget';
+
     defineOptions({ inheritAttrs: false });
 
     interface Props extends AlertDialogContentProps {
@@ -33,14 +35,16 @@
 
     const forwarded = useForwardPropsEmits(delegatedProps, emits);
     const forwardedWithAttrs = computed(() => mergeProps(forwarded.value, attrs));
+    const { portalTarget, inSettingsShell } = useSettingsModalTarget();
 </script>
 
 <template>
-    <AlertDialogPortal>
+    <AlertDialogPortal :to="portalTarget">
         <AlertDialogOverlay
             :class="
                 cn(
-                    'fixed inset-0 z-50 bg-black/40 backdrop-blur-sm',
+                    inSettingsShell ? 'absolute' : 'fixed',
+                    'pointer-events-auto inset-0 z-50 bg-black/40 backdrop-blur-sm',
                     't-overlay',
                     props.overlayClass
                 )
@@ -57,7 +61,8 @@
                      * unreachable. `ConfirmDialog` puts its slot here directly, so the
                      * scroll container has to live at this level.
                      */
-                    'fixed inset-0 z-50 m-auto grid h-fit max-h-[calc(100dvh-4rem)] w-full max-w-md overflow-y-auto',
+                    inSettingsShell ? 'absolute' : 'fixed',
+                    'pointer-events-auto inset-0 z-50 m-auto grid h-fit max-h-[calc(100dvh-4rem)] w-full max-w-md overflow-y-auto',
                     't-modal',
                     props.class
                 )

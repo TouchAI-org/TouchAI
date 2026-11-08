@@ -33,6 +33,7 @@ let initialized = false;
 let visibilityListenerInstalled = false;
 let shutdownFlushInstalled = false;
 let flushUnlisten: UnlistenFn | null = null;
+let closeUnlisten: UnlistenFn | null = null;
 
 /** 关闭前等待日志落盘的上限；后端卡住时不能让窗口关不掉。 */
 const SHUTDOWN_FLUSH_TIMEOUT_MS = 800;
@@ -93,17 +94,50 @@ function installShutdownFlush(): void {
 
     try {
         const currentWindow = getCurrentWindow();
-        void currentWindow
-            .onCloseRequested(async (event) => {
-                event.preventDefault();
-                await flushBeforeExit();
-                try {
-                    await currentWindow.destroy();
-                } catch (error) {
+        let closeListenerPromise: Promise<UnlistenFn | null> | null = null;
+        let handleCloseRequested: ((event: WindowCloseEvent) => Promise<void>) | null = null;
+
+        const listenForClose = (): void => {
+            if (!handleCloseRequested) return;
+
+            closeListenerPromise = currentWindow
+                .onCloseRequested(handleCloseRequested)
+                .then((unlisten) => {
+                    closeUnlisten = unlisten;
+                    return unlisten;
+                })
+                .catch((error) => {
                     reportLoggingFailure(error);
-                }
-            })
-            .catch(reportLoggingFailure);
+                    return null;
+                });
+        };
+
+        /*
+         * Tauri's JS wrapper calls destroy() when the handler does not call
+         * preventDefault(). The app grants allow-close but not allow-destroy,
+         * so the first close is prevented and this listener must be removed
+         * before the approved close runs. Otherwise the second native event
+         * reaches the wrapper and fails with a permission error.
+         */
+        const closeWindowAfterFlush = async (): Promise<void> => {
+            const unlisten = closeUnlisten ?? (await closeListenerPromise);
+            // The event API's unlisten function performs an async IPC call even
+            // though its public type is `() => void`; let it settle before
+            // triggering the native close so the old listener cannot destroy.
+            await unlisten?.();
+            closeUnlisten = null;
+            closeListenerPromise = null;
+
+            try {
+                await currentWindow.close();
+            } catch (error) {
+                listenForClose();
+                throw error;
+            }
+        };
+
+        handleCloseRequested = createWindowCloseHandler(closeWindowAfterFlush);
+        listenForClose();
 
         void listen(QUIT_FLUSH_EVENT, async () => {
             await flushBeforeExit();
@@ -122,6 +156,48 @@ function installShutdownFlush(): void {
     } catch {
         // 非 Tauri 环境（测试、浏览器预览）没有关闭钩子。
     }
+}
+
+type WindowCloseEvent = {
+    preventDefault: () => void;
+};
+
+/**
+ * Flush once, then close the window again. The close-requested listener
+ * prevents the first close, and the approved second call lets the native close
+ * proceed without a destructive window-destroy permission.
+ */
+export function createWindowCloseHandler(
+    closeWindow: () => Promise<void>,
+    flush: () => Promise<void> = flushBeforeExit
+): (event: WindowCloseEvent) => Promise<void> {
+    let closeApproved = false;
+    let closeRequest: Promise<void> | null = null;
+
+    return async (event) => {
+        if (closeApproved) return;
+
+        event.preventDefault();
+        if (closeRequest) {
+            await closeRequest;
+            return;
+        }
+
+        closeRequest = (async () => {
+            try {
+                await flush();
+                closeApproved = true;
+                await closeWindow();
+            } catch (error) {
+                closeApproved = false;
+                reportLoggingFailure(error);
+            } finally {
+                closeRequest = null;
+            }
+        })();
+
+        await closeRequest;
+    };
 }
 
 /** 有上限地刷一次队列；后端卡住时也要让退出继续。 */
@@ -294,6 +370,8 @@ export function observabilityQueueSize(): number {
 export function resetObservabilityForTests(): void {
     queue?.stop();
     flushUnlisten?.();
+    closeUnlisten?.();
+    closeUnlisten = null;
     flushUnlisten = null;
     queue = null;
     windowLabel = null;

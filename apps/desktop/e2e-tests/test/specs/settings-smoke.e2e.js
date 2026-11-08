@@ -65,6 +65,38 @@ describe('user works in the settings window', () => {
                 'The general section was not visible.'
             );
         });
+
+        it('user sees the settings window as a rounded floating surface with a shadow', async () => {
+            const styles = await browser.execute(() => {
+                const shell = document.querySelector('[data-testid="settings-window-shell"]');
+                const frame = document.querySelector('[data-testid="settings-view"]');
+                const shellStyle = getComputedStyle(shell);
+                return {
+                    radius: shellStyle.borderRadius,
+                    shadow: shellStyle.boxShadow,
+                    padding: getComputedStyle(frame).paddingTop,
+                };
+            });
+
+            assertVisible(
+                styles.radius !== '0px',
+                `The settings window lost its rounded shell: ${styles.radius}.`
+            );
+            assertVisible(
+                styles.shadow !== 'none' && !styles.shadow.includes('rgba(0, 0, 0, 0) 0px 0px'),
+                `The settings window lost its drop shadow: ${styles.shadow}.`
+            );
+            assertVisible(
+                styles.shadow.includes('inset') &&
+                    styles.shadow.includes('0px 0px 0px 1px') &&
+                    styles.shadow.includes('0.4'),
+                `The settings window lost its native gray ring: ${styles.shadow}.`
+            );
+            assertVisible(
+                styles.padding === '24px',
+                `The settings window has no room for its shadow: ${styles.padding}.`
+            );
+        });
     });
 
     describe('user changes a persisted preference', () => {

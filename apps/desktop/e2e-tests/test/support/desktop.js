@@ -15,7 +15,8 @@ import { SEARCH_FIXTURE_QUERY, SEARCH_FIXTURE_RESULTS } from './fixtures.js';
 const DEFAULT_TIMEOUT_MS = 15000;
 
 /**
- * The settings window size the app opens with.
+ * The native settings window size the app opens with. It includes the 24 px
+ * transparent shadow gutter on each side; the visible surface remains 1120x700.
  *
  * Mirrors `SETTINGS_WINDOW_WIDTH`/`SETTINGS_WINDOW_HEIGHT` in
  * `src-tauri/src/core/window/settings/mod.rs`. Visual baselines use it so they
@@ -23,7 +24,7 @@ const DEFAULT_TIMEOUT_MS = 15000;
  * Rust file asserts those constants stay in a sane range, and
  * `tests/ci/e2e-visual-coverage.test.ts` asserts this copy matches them.
  */
-export const SETTINGS_WINDOW_DEFAULT_SIZE = [1120, 700];
+export const SETTINGS_WINDOW_DEFAULT_SIZE = [1168, 748];
 
 export function assertVisible(condition, message) {
     if (!condition) {

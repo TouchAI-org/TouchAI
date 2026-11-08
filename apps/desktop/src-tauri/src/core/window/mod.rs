@@ -12,8 +12,13 @@ pub mod search_region;
 pub mod settings;
 pub mod status_reminder;
 pub mod tray;
+#[cfg(target_os = "linux")]
+pub(crate) mod webkit_cors;
 pub(crate) mod webview_defaults;
 pub(crate) mod webview_recovery;
+
+/// Transparent room reserved around floating windows for their CSS shadow.
+pub(crate) const WINDOW_SHADOW_GUTTER: f64 = 24.0;
 
 pub use search::{
     hide_search_window_on_main_thread, show_search_window_for_testing_on_main_thread,
