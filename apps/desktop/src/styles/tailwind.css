@@ -176,7 +176,7 @@
         --color-muted: var(--color-neutral-100);
         --color-text-primary: var(--color-foreground);
         --color-text-secondary: var(--color-muted-foreground);
-        --color-text-tertiary: var(--color-neutral-400);
+        --color-text-tertiary: var(--color-muted-foreground);
         --color-surface-raised: var(--color-white);
         --color-surface-hover: var(--color-muted);
         --color-border-subtle: var(--color-border);
