@@ -218,9 +218,7 @@ pub async fn computer_use_invoke<R: Runtime>(
         .transpose()?;
     let scope = activity_id.clone();
     let execution = execution_id.clone();
-    let progress = selected == DriverId::AgentDesktop
-        && foreground_operation.is_some()
-        && cursor_visible == Some(true);
+    let progress = foreground_operation.is_some() && cursor_visible == Some(true);
     let report_pointer = |pointer| {
         if let Err(error) =
             crate::core::window::computer_use_glow::pulse(&app, Some(pointer), feedback_id)
@@ -278,12 +276,7 @@ pub async fn computer_use_invoke<R: Runtime>(
     tokio::pin!(operation);
     let mut tick = tokio::time::interval(Duration::from_millis(80));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut previous = app.cursor_position().ok().map(|position| {
-        crate::core::window::computer_use_glow::PointerPosition {
-            x: position.x,
-            y: position.y,
-        }
-    });
+    let mut previous = None;
     loop {
         tokio::select! {
             biased;

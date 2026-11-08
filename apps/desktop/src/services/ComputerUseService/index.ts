@@ -11,7 +11,6 @@ import { getLocale } from '@/i18n';
 import { AppEvent, eventService } from '@/services/EventService';
 
 import { COMPUTER_USE_GROUPS, type ComputerUseGroup, type ComputerUseGroups } from './capabilities';
-import { reportedPointer } from './pointer';
 
 export async function isEnabled(): Promise<boolean> {
     return (await findBuiltInToolByToolId('computer_use'))?.enabled === 1;
@@ -440,106 +439,6 @@ function recordingDirectoryKey(driver: ComputerUseDriverId): string {
         : `${RECORDING_DIRECTORY_KEY}.${driver}`;
 }
 
-const POINTER_ACTIONS = new Set([
-    'click',
-    'double_click',
-    'right_click',
-    'drag',
-    'type_text',
-    'press_key',
-    'hotkey',
-    'scroll',
-    'set_value',
-    'move_cursor',
-    'run_steps',
-    'run_script',
-    'replay_trajectory',
-    'browser_click',
-    'browser_type',
-    'browser_select',
-    'browser_pointer',
-    'page',
-]);
-
-function trackOperationPointer(
-    settings: ComputerUseSettings,
-    args: Record<string, unknown>,
-    signal: AbortSignal,
-    driver: ComputerUseDriverId = 'cua-driver'
-): (final?: boolean, result?: Record<string, unknown>) => void {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let reading: Promise<void> | undefined;
-    let stopped = false;
-    let failed = false;
-    let previous = '';
-    const refresh = (final = false): Promise<void> => {
-        if (signal.aborted || finishedActivities.has(signal) || failed) return Promise.resolve();
-        const executionId = crypto.randomUUID();
-        let expired = false;
-        const deadline = setTimeout(() => {
-            expired = true;
-            failed = true;
-            void computerUse.cancel(executionId).catch((error) => {
-                log.warn('[ComputerUse] Cursor probe cancellation failed:', error);
-            });
-        }, 750);
-        const probe =
-            driver === 'agent-desktop'
-                ? computerUse
-                      .cursorPosition()
-                      .then(
-                          (position) =>
-                              ({ structuredContent: { position } }) as Record<string, unknown>
-                      )
-                : computerUse.call({
-                      executionId,
-                      tool: 'get_agent_cursor_state',
-                      arguments: typeof args.session === 'string' ? { session: args.session } : {},
-                      fullAccess: settings.approval === 'full-access',
-                      activityId: activities.get(signal)?.id,
-                  });
-        return probe
-            .then(async (result) => {
-                if (expired || result.isError === true || (stopped && !final)) return;
-                const state = result.structuredContent as
-                    | { position?: { x?: unknown; y?: unknown } }
-                    | undefined;
-                const point = state?.position;
-                if (
-                    typeof point?.x !== 'number' ||
-                    typeof point.y !== 'number' ||
-                    !Number.isFinite(point.x) ||
-                    !Number.isFinite(point.y)
-                )
-                    return;
-                const coordinates = `${point.x}:${point.y}`;
-                if (coordinates === previous) return;
-                previous = coordinates;
-                await pulseGlow({ x: point.x, y: point.y }, signal);
-            })
-            .catch((error: unknown) => {
-                failed = true;
-                log.warn('[ComputerUse] Cursor feedback unavailable:', error);
-            })
-            .finally(() => clearTimeout(deadline));
-    };
-    const poll = (): void => {
-        reading = refresh().finally(() => {
-            reading = undefined;
-            if (!stopped && !failed && !signal.aborted) timer = setTimeout(poll, 100);
-        });
-    };
-    timer = setTimeout(poll, 100);
-    return (final = true, result) => {
-        if (stopped) return;
-        stopped = true;
-        clearTimeout(timer);
-        if (final && !(result && reportedPointer(result))) {
-            void (reading ?? Promise.resolve()).then(() => refresh(true));
-        }
-    };
-}
-
 /**
  * Start one driver call. Callers own approval; this only wires cancellation.
  */
@@ -550,8 +449,6 @@ export function execute(
 ): ComputerUseInvocation {
     const executionId = crypto.randomUUID();
     let cancelled = false;
-    let stopPointerTracking: (final?: boolean, result?: Record<string, unknown>) => void = () =>
-        undefined;
     return {
         executionId,
         result: loadSettings().then(async (settings) => {
@@ -597,35 +494,21 @@ export function execute(
             }
             if (cancelled || signal?.aborted || (signal && finishedActivities.has(signal)))
                 throw new Error('computer use cancelled');
-            if (
-                signal &&
-                settings.cursorVisible &&
-                driver === 'cua-driver' &&
-                POINTER_ACTIONS.has(tool)
-            ) {
-                stopPointerTracking = trackOperationPointer(settings, args, signal, driver);
-            }
-            let result: Record<string, unknown> | undefined;
-            try {
-                result = await computerUse.call({
-                    driver,
-                    activityId: activity?.id,
-                    cursorVisible: settings.cursorVisible,
-                    allowForeground: settings.allowForeground,
-                    arguments: args,
-                    executionId,
-                    tool,
-                    fullAccess: settings.approval === 'full-access',
-                });
-                if (tool === 'end_session') configuredSessions.clear();
-                return result;
-            } finally {
-                stopPointerTracking(!cancelled, result);
-            }
+            const result = await computerUse.call({
+                driver,
+                activityId: activity?.id,
+                cursorVisible: settings.cursorVisible,
+                allowForeground: settings.allowForeground,
+                arguments: args,
+                executionId,
+                tool,
+                fullAccess: settings.approval === 'full-access',
+            });
+            if (tool === 'end_session') configuredSessions.clear();
+            return result;
         }),
         cancel: () => {
             cancelled = true;
-            stopPointerTracking(false);
             return computerUse.cancel(executionId);
         },
     };

@@ -38,10 +38,11 @@ export async function exerciseComputerUseGlow() {
             arguments: { ...args, session: activityId },
             fullAccess: true,
             allowForeground: true,
+            cursorVisible: true,
         });
-    const pause = (activityId, duration) =>
+    const pause = (activityId, duration, pointer) =>
         call(activityId, 'run_script', {
-            script: `await cua.sleep(${duration}); return 'fixture complete';`,
+            script: `${pointer ? `await cua.call('move_cursor', ${JSON.stringify({ ...pointer, scope: 'desktop' })});` : ''} await cua.sleep(${duration}); return 'fixture complete';`,
             timeout_ms: 5000,
         }).then(
             (value) => ({ value }),
@@ -58,6 +59,8 @@ export async function exerciseComputerUseGlow() {
     };
     const result = {};
     const pending = [];
+    const originalPointer = await invoke('computer_use_cursor_position');
+    const targetPointer = { x: originalPointer.x === 240 ? 260 : 240, y: 180 };
     await invoke('plugin:window|show', { label: 'main' });
     await invoke('plugin:window|set_focus', { label: 'main' });
     try {
@@ -68,15 +71,35 @@ export async function exerciseComputerUseGlow() {
         if (observation.isError) throw new Error('The background observation failed.');
         result.hiddenAfterObservation = await hidden();
         await activity(second, true);
-        const firstOperation = pause(first, 1500);
+        const firstOperation = pause(first, 1500, targetPointer);
         pending.push(firstOperation);
         await waitForActivity(first);
         result.visibleDuringInput = await visible();
         result.focusedDuringInput = await focused();
-        await invoke('computer_use_glow_pulse', { activityId: first, pointer: { x: 240, y: 180 } });
-        const feedback = await invoke('computer_use_glow_snapshot');
-        result.activePointer =
-            feedback.activities.length === 1 && Boolean(feedback.activities[0].pointer);
+        const origin = await invoke('plugin:window|inner_position', {
+            label: 'computer-use-glow',
+        });
+        const scale = await invoke('plugin:window|scale_factor', { label: 'computer-use-glow' });
+        const expectedPointer = {
+            x: (targetPointer.x - origin.x) / scale,
+            y: (targetPointer.y - origin.y) / scale,
+        };
+        const pointerDeadline = Date.now() + 1000;
+        result.activePointer = false;
+        while (Date.now() < pointerDeadline) {
+            const feedback = await invoke('computer_use_glow_snapshot');
+            const pointer = feedback.activities[0]?.pointer;
+            if (
+                feedback.activities.length === 1 &&
+                pointer &&
+                Math.abs(pointer.x - expectedPointer.x) < 1 &&
+                Math.abs(pointer.y - expectedPointer.y) < 1
+            ) {
+                result.activePointer = true;
+                break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 25));
+        }
         const firstResult = await firstOperation;
         if (firstResult.error || firstResult.value.isError)
             throw new Error('The first foreground fixture failed.');
@@ -145,5 +168,14 @@ export async function exerciseComputerUseGlow() {
         await activity(second, false);
         await invoke('computer_use_cancel', { executionId: direct });
         await Promise.all(pending);
+        await invoke('computer_use_invoke', {
+            executionId: crypto.randomUUID(),
+            driver: 'cua-driver',
+            tool: 'move_cursor',
+            arguments: { ...originalPointer, scope: 'desktop' },
+            fullAccess: true,
+            allowForeground: true,
+            cursorVisible: false,
+        });
     }
 }

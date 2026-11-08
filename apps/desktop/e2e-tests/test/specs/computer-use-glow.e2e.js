@@ -21,7 +21,10 @@ describe('user runs computer control with activity feedback', () => {
         assertVisible(result.hiddenAfterObservation, 'A background read displayed feedback.');
         assertVisible(result.visibleDuringInput, 'Foreground input did not display feedback.');
         assertVisible(result.focusedDuringInput, 'The activity glow took keyboard focus.');
-        assertVisible(result.activePointer, 'The active input did not show its pointer.');
+        assertVisible(
+            result.activePointer,
+            'Real cursor movement did not show an automatic pointer.'
+        );
         assertVisible(
             result.hiddenBetweenActions,
             'Waiting between actions kept feedback visible.'

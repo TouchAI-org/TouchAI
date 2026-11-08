@@ -224,63 +224,51 @@ describe('agent operation cursor feedback', () => {
         await endActivity(second.signal);
     });
 
-    it('user given agent desktop foreground input when it waits then delegates feedback to the executing native session', async () => {
-        vi.useFakeTimers();
-        await selectDriver('agent-desktop');
-        await saveSettings({ cursorVisible: true, allowForeground: true });
-        const controller = new AbortController();
-        await startActivity(controller.signal);
-        let finish: (value: Record<string, unknown>) => void = () => undefined;
-        nativeCall.mockImplementation(
-            () =>
-                new Promise((resolve) => {
-                    finish = resolve;
-                })
-        );
-        const invocation = execute('desktop_click', { ref_id: '@s123:e2' }, controller.signal);
-        await vi.advanceTimersByTimeAsync(250);
-        expect(nativeCall.mock.calls[0]?.[0]).toMatchObject({
-            activityId: expect.any(String),
-            cursorVisible: true,
-        });
-        expect(nativePulseGlow).not.toHaveBeenCalled();
-        finish({});
-        await invocation.result;
-        await endActivity(controller.signal);
-        nativePulseGlow.mockClear();
-        await vi.advanceTimersByTimeAsync(1000);
-        expect(nativePulseGlow).not.toHaveBeenCalled();
-    });
-    it.each(['type_text', 'run_steps', 'browser_click'])(
-        'user given a visible cursor when %s executes then sees its real position during input and stops updates at completion',
-        async (toolName) => {
+    it.each([
+        ['agent-desktop', 'desktop_click'],
+        ['cua-driver', 'type_text'],
+        ['cua-driver', 'run_steps'],
+        ['cua-driver', 'run_script'],
+        ['cua-driver', 'browser_click'],
+    ] as const)(
+        'user given %s foreground input when %s executes then delegates feedback without additional driver operations',
+        async (driver, tool) => {
             vi.useFakeTimers();
-            await saveSettings({ approval: 'full-access', cursorVisible: true });
+            await selectDriver(driver);
+            await saveSettings({ cursorVisible: true, allowForeground: true });
             const controller = new AbortController();
             await startActivity(controller.signal);
-            let complete: ((value: Record<string, unknown>) => void) | undefined;
+            let finish: (value: Record<string, unknown>) => void = () => undefined;
             nativeCall.mockImplementation(async (request: unknown) => {
-                const call = request as { tool: string };
-                if (call.tool === toolName)
+                if ((request as { tool: string }).tool === tool) {
                     return new Promise((resolve) => {
-                        complete = resolve;
+                        finish = resolve;
                     });
-                if (call.tool === 'get_agent_cursor_state')
-                    return { structuredContent: { enabled: false, position: { x: -120, y: 300 } } };
+                }
                 return {};
             });
-            const invocation = execute(toolName, { session: 'cursor-fixture' }, controller.signal);
-            await vi.advanceTimersByTimeAsync(350);
-            expect(nativePulseGlow).toHaveBeenCalledWith({ x: -120, y: 300 }, expect.any(String));
-            complete?.({ content: [{ type: 'text', text: 'done' }] });
-            expect(await invocation.result).toMatchObject({ content: [{ text: 'done' }] });
+            const invocation = execute(tool, {}, controller.signal);
+            await vi.advanceTimersByTimeAsync(250);
+            expect(nativeCall).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    driver,
+                    tool,
+                    activityId: expect.any(String),
+                    cursorVisible: true,
+                })
+            );
+            expect(
+                nativeCall.mock.calls.map(([request]) => (request as { tool: string }).tool)
+            ).not.toContain('get_agent_cursor_state');
+            expect(nativePulseGlow).not.toHaveBeenCalled();
+            finish({});
+            await invocation.result;
             await endActivity(controller.signal);
             nativePulseGlow.mockClear();
-            await vi.advanceTimersByTimeAsync(60_000);
+            await vi.advanceTimersByTimeAsync(1000);
             expect(nativePulseGlow).not.toHaveBeenCalled();
         }
     );
-
     it('user given hidden cursor feedback when typing then gets the action result without cursor probes', async () => {
         vi.useFakeTimers();
         await saveSettings({ cursorVisible: false });
