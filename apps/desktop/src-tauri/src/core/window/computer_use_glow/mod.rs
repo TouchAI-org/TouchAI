@@ -465,8 +465,30 @@ pub fn pulse<R: Runtime>(
             activity.pointer = Some(pointer);
         }
     }
-    let window = ensure_window(app)?;
     state.generation = state.generation.wrapping_add(1);
+    drop(state);
+
+    let task_app = app.clone();
+    app.run_on_main_thread(move || {
+        if let Err(error) = show_current(&task_app) {
+            warn!("Failed to display computer-use feedback: {error}");
+        }
+    })
+    .map_err(|error| error.to_string())
+}
+
+fn show_current<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    {
+        let runtime = app.state::<ComputerUseGlowRuntime>();
+        let state = runtime
+            .state
+            .lock()
+            .map_err(|_| "Computer-use glow runtime is poisoned")?;
+        if state.can_hide(state.generation) {
+            return Ok(());
+        }
+    }
+    let window = ensure_window(app)?;
 
     let show_result = (|| -> Result<(), String> {
         let bounds = current_screen_bounds(app)?;
@@ -484,10 +506,13 @@ pub fn pulse<R: Runtime>(
         window.set_ignore_cursor_events(true).map_err(|error| {
             format!("Failed to keep the computer-use glow click-through: {error}")
         })?;
+        let feedback = snapshot(app)?;
+        if feedback.activities.is_empty() {
+            return set_visible(&window, false);
+        }
         set_visible(&window, true)?;
         let _ = window.set_content_protected(true);
-        let payload = payload(app, &state, bounds, window.scale_factor().unwrap_or(1.0))?;
-        app.emit_to(WINDOW_LABEL, PULSE_EVENT, payload)
+        app.emit_to(WINDOW_LABEL, PULSE_EVENT, feedback)
             .map_err(|error| format!("Failed to restart the computer-use glow: {error}"))?;
         Ok(())
     })();
@@ -500,24 +525,13 @@ pub fn pulse<R: Runtime>(
     Ok(())
 }
 
-fn payload<R: Runtime>(
-    app: &AppHandle<R>,
+fn payload(
     state: &GlowState,
     bounds: ScreenRect,
     scale: f64,
-) -> Result<PulsePayload, String> {
-    let monitor = app.primary_monitor().map_err(|error| error.to_string())?;
-    let banner = monitor.and_then(|monitor| {
-        local_pointer(
-            PointerPosition {
-                x: f64::from(monitor.position().x) + f64::from(monitor.size().width) / 2.0,
-                y: f64::from(monitor.position().y),
-            },
-            bounds,
-            scale,
-        )
-    });
-    Ok(PulsePayload {
+    banner: Option<PointerPosition>,
+) -> PulsePayload {
+    PulsePayload {
         generation: state.generation,
         activities: state.pointers(bounds, scale),
         banner,
@@ -526,21 +540,34 @@ fn payload<R: Runtime>(
         } else {
             state.locale.clone()
         },
-    })
+    }
 }
 
 pub fn snapshot<R: Runtime>(app: &AppHandle<R>) -> Result<PulsePayload, String> {
-    let runtime = app.state::<ComputerUseGlowRuntime>();
-    let state = runtime
-        .state
-        .lock()
-        .map_err(|_| "Computer-use glow runtime is poisoned")?;
     let bounds = current_screen_bounds(app)?;
     let scale = app
         .get_webview_window(WINDOW_LABEL)
         .and_then(|window| window.scale_factor().ok())
         .unwrap_or(1.0);
-    payload(app, &state, bounds, scale)
+    let banner = app
+        .primary_monitor()
+        .map_err(|error| error.to_string())?
+        .and_then(|monitor| {
+            local_pointer(
+                PointerPosition {
+                    x: f64::from(monitor.position().x) + f64::from(monitor.size().width) / 2.0,
+                    y: f64::from(monitor.position().y),
+                },
+                bounds,
+                scale,
+            )
+        });
+    let runtime = app.state::<ComputerUseGlowRuntime>();
+    let state = runtime
+        .state
+        .lock()
+        .map_err(|_| "Computer-use glow runtime is poisoned")?;
+    Ok(payload(&state, bounds, scale, banner))
 }
 
 fn publish<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
@@ -605,23 +632,29 @@ pub fn stop_all<R: Runtime>(app: &AppHandle<R>) -> Result<usize, String> {
 }
 
 fn hide_if_current<R: Runtime>(app: &AppHandle<R>, generation: u64) {
-    let Some(runtime) = app.try_state::<ComputerUseGlowRuntime>() else {
-        return;
-    };
-    let Ok(state) = runtime.state.lock() else {
-        return;
-    };
-    if !state.can_hide(generation) {
-        return;
-    }
-    if let Err(error) = stop_shortcut::uninstall(app) {
-        warn!("Failed to release computer-use stop shortcut: {error}");
-    }
-
-    if let Some(window) = app.get_webview_window(WINDOW_LABEL) {
-        if let Err(error) = set_visible(&window, false) {
-            warn!("Failed to hide computer-use feedback: {error}");
+    let task_app = app.clone();
+    if let Err(error) = app.run_on_main_thread(move || {
+        let Some(runtime) = task_app.try_state::<ComputerUseGlowRuntime>() else {
+            return;
+        };
+        let Ok(state) = runtime.state.lock() else {
+            return;
+        };
+        if !state.can_hide(generation) {
+            return;
         }
+        drop(state);
+        if let Err(error) = stop_shortcut::uninstall(&task_app) {
+            warn!("Failed to release computer-use stop shortcut: {error}");
+        }
+
+        if let Some(window) = task_app.get_webview_window(WINDOW_LABEL) {
+            if let Err(error) = set_visible(&window, false) {
+                warn!("Failed to hide computer-use feedback: {error}");
+            }
+        }
+    }) {
+        warn!("Failed to queue computer-use feedback cleanup: {error}");
     }
 }
 
