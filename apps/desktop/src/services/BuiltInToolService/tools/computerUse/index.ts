@@ -830,9 +830,13 @@ class ComputerUseTool extends BuiltInTool<ComputerUseConfig> {
                 },
             };
         }
+        const settings = await computerUseService.loadSettings();
+        const foreground = settings.allowForeground
+            ? 'Foreground access is enabled.'
+            : 'Foreground access is disabled. For browser_prepare use allow_launch:false and omit foreground delivery; do not retry focus or foreground input without a settings change.';
         return {
             ...definition,
-            description: `${definition.description}\nEnabled native tools: ${tools.map((tool) => tool.name).join(', ') || 'Driver not loaded; install it in Computer use settings.'}`,
+            description: `${definition.description}\nPermission mode: ${settings.approval}. ${foreground}\nEnabled native tools: ${tools.map((tool) => tool.name).join(', ') || 'Driver not loaded; install it in Computer use settings.'}`,
             input_schema: {
                 ...this.inputSchema,
                 properties: {
@@ -1047,6 +1051,13 @@ class ComputerUseTool extends BuiltInTool<ComputerUseConfig> {
         }
         const effectiveArgs = nativeInvocation?.args ?? { ...nativeArgs };
         if (nativeCall) {
+            if (
+                nativeTool === 'browser_prepare' &&
+                !settings.allowForeground &&
+                effectiveArgs.allow_launch === undefined
+            ) {
+                effectiveArgs.allow_launch = false;
+            }
             if (['run_script', 'replay_trajectory'].includes(nativeTool)) {
                 if (settings.approval !== 'full-access') return failure('full_access_required');
                 if (settings.allowedApps.length > 0)
@@ -1474,6 +1485,12 @@ function normalizeNativeInput(
         };
     }
     const args = { ...input };
+    if (tool === 'launch_app' && args.app !== undefined) {
+        if (args.name !== undefined && args.name !== args.app)
+            throw new Error('conflicting_argument:name; provide one application name');
+        args.name = args.app;
+        delete args.app;
+    }
     if (args.foreground !== undefined) {
         if (typeof args.foreground !== 'boolean') throw new Error('foreground_must_be_a_boolean');
         const delivery = args.foreground ? 'foreground' : 'background';

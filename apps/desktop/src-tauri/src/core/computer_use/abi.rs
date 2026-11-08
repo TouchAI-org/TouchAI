@@ -438,7 +438,7 @@ impl Driver {
                 "too many active computer use sessions; end an unused session".to_string(),
             ));
         }
-        let options = serde_json::json!({"public_session": label, "transport_session": format!("touchai:{label}"), "mode": "unrestricted", "ttl_seconds": 86400, "idle_ttl_seconds": 3600}).to_string();
+        let options = serde_json::json!({"public_session": label, "transport_session": label, "mode": "unrestricted", "ttl_seconds": 86400, "idle_ttl_seconds": 3600}).to_string();
         let mut handle = std::ptr::null_mut();
         let mut error = empty_buffer();
         let status = unsafe {
@@ -602,6 +602,82 @@ mod tests {
                 result => panic!("native call did not complete: {result:?}"),
             }
         }
+    }
+
+    #[test]
+    #[ignore = "requires TOUCHAI_TEST_CUA_DLL"]
+    fn user_given_permission_mode_changes_when_reusing_a_session_then_keeps_one_usable_owner() {
+        let path = std::env::var("TOUCHAI_TEST_CUA_DLL").expect("native fixture library");
+        let driver = Arc::new(AbiLibrary::open(path).expect("installed driver").create(
+            &serde_json::json!({"authorization":{"allowed_modes":["standard","unrestricted"],"compatibility_mode":"standard","unrestricted_acknowledged":true,"max_session_ttl_seconds":86400,"max_idle_ttl_seconds":3600}}).to_string()
+        ).expect("driver runtime"));
+        for modes in [[false, true, false, true], [true, false, true, false]] {
+            let args =
+                serde_json::json!({"session": format!("mode-change-{}", uuid::Uuid::new_v4())});
+            for full_access in modes {
+                let result = complete(
+                    driver
+                        .invoke("get_config", &args, full_access)
+                        .expect("read configuration"),
+                );
+                assert_ne!(
+                    result["isError"], true,
+                    "full_access={full_access}: {result}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires TOUCHAI_TEST_CUA_DLL"]
+    fn user_given_a_full_access_session_when_returning_to_standard_then_keeps_standard_restrictions(
+    ) {
+        let path = std::env::var("TOUCHAI_TEST_CUA_DLL").expect("native fixture library");
+        let options = serde_json::json!({
+            "authorization": {
+                "allowed_modes": ["standard", "unrestricted"],
+                "compatibility_mode": "standard",
+                "unrestricted_acknowledged": true,
+                "max_session_ttl_seconds": 86400,
+                "max_idle_ttl_seconds": 3600
+            }
+        });
+        let driver = Arc::new(
+            AbiLibrary::open(path)
+                .expect("installed driver")
+                .create(&options.to_string())
+                .expect("driver runtime"),
+        );
+        let session = "touchai-native-mode-restrictions";
+        let configured = complete(
+            driver
+                .invoke("get_config", &serde_json::json!({"session": session}), true)
+                .expect("full access configuration"),
+        );
+        assert_ne!(configured["isError"], true, "{configured}");
+        let result = complete(
+            driver
+                .invoke(
+                    "page",
+                    &serde_json::json!({
+                        "session": session,
+                        "action": "execute_javascript",
+                        "pid": u32::MAX,
+                        "window_id": 1,
+                        "javascript": "1 + 1"
+                    }),
+                    false,
+                )
+                .expect("standard mode invocation"),
+        );
+        assert_eq!(result["isError"], true, "{result}");
+        assert_eq!(
+            result
+                .pointer("/structuredContent/refusal/code")
+                .and_then(Value::as_str),
+            Some("unbounded_operation_requires_unrestricted"),
+            "{result}"
+        );
     }
 
     #[test]

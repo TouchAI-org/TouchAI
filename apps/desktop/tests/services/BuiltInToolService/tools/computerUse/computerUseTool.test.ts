@@ -33,6 +33,16 @@ const agentCatalog = [
 }));
 const catalog = [
     {
+        name: 'browser_prepare',
+        description: 'Prepare an existing browser',
+        inputSchema: { type: 'object' },
+    },
+    {
+        name: 'launch_app',
+        description: 'Launch an application',
+        inputSchema: { type: 'object' },
+    },
+    {
         name: 'browser_dialog',
         description: 'Inspect or answer a browser dialog',
         inputSchema: { type: 'object' },
@@ -152,6 +162,69 @@ beforeEach(() => {
 });
 
 describe('computer use tool', () => {
+    it('user given foreground control is off when attaching an existing browser then the driver may attach without launching', async () => {
+        const result = await tool.execute(
+            {
+                action: 'browser_prepare',
+                arguments: { pid: 123, window_id: 456, strategy: { kind: 'existing_profile' } },
+            },
+            tool.defaultConfig,
+            context()
+        );
+        expect(result.isError).toBe(false);
+        expect(execute).toHaveBeenCalledWith('browser_prepare', {
+            pid: 123,
+            window_id: 456,
+            strategy: { kind: 'existing_profile' },
+            allow_launch: false,
+        });
+    });
+
+    it.each([{ allow_launch: true }, { delivery_mode: 'foreground' }])(
+        'user given foreground control is off when explicitly requesting browser foreground work %j then remains refused',
+        async (request) => {
+            const result = await tool.execute(
+                {
+                    action: 'browser_prepare',
+                    arguments: { ...request, strategy: { kind: 'existing_profile' } },
+                },
+                tool.defaultConfig,
+                context()
+            );
+            expect(result.result).toBe('foreground_not_allowed');
+            expect(execute).not.toHaveBeenCalled();
+        }
+    );
+
+    it('user given foreground control is off when preparing model tools then receives the current restriction and no-launch option', async () => {
+        const definition = await tool.buildToolDefinition('computer_use', tool.defaultConfig);
+        expect(definition.description).toContain('Foreground access is disabled');
+        expect(definition.description).toContain('allow_launch:false');
+    });
+
+    it('user given an app name when using the native launch action then reaches the driver with the correct field', async () => {
+        const result = await tool.execute(
+            { action: 'launch_app', arguments: { app: 'Notepad', start_minimized: true } },
+            tool.defaultConfig,
+            context()
+        );
+        expect(result.isError).toBe(false);
+        expect(execute).toHaveBeenCalledWith('launch_app', {
+            name: 'Notepad',
+            start_minimized: true,
+        });
+    });
+
+    it('user given conflicting app names when launching then sees the conflict before any app is opened', async () => {
+        const result = await tool.execute(
+            { action: 'launch_app', arguments: { app: 'Notepad', name: 'Calculator' } },
+            tool.defaultConfig,
+            context()
+        );
+        expect(result.result).toContain('conflicting_argument:name');
+        expect(execute).not.toHaveBeenCalled();
+    });
+
     it('user given a partially failed native batch when it returns then sees failure and keeps completed results', async () => {
         selectedDriver = 'agent-desktop';
         settings.approval = 'full-access';
