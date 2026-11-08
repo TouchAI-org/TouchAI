@@ -65,6 +65,7 @@
 <template>
     <div data-computer-use-glow>
         <div
+            v-if="feedback.activities.length > 0"
             data-computer-use-frame
             :data-active="feedback.activities.length > 0"
             aria-hidden="true"
@@ -248,7 +249,7 @@
     @keyframes computer-use-breathe {
         0%,
         100% {
-            opacity: 0.82;
+            opacity: 0.65;
         }
         50% {
             opacity: 1;

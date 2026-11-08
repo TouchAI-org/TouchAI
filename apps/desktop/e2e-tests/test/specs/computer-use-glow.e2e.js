@@ -7,27 +7,41 @@ import { assertVisible, switchToWindowContaining, waitForE2eBridge } from '../su
 describe('user runs computer control with activity feedback', () => {
     before(async () => {
         await waitForE2eBridge();
+        await browser.execute(async () => {
+            await window.__TAURI_INTERNALS__.invoke('computer_use_prepare', {
+                driver: 'cua-driver',
+            });
+        });
     });
 
-    it('user given active computer tasks when pausing and finishing then keeps focus and sees feedback until the last task ends', async () => {
+    it('user given computer tasks when executing foreground input then sees feedback only until that input ends', async () => {
         const result = await browser.execute(exerciseComputerUseGlow);
         assertVisible(result.focusedBefore, 'The foreground fixture was not focused.');
-        assertVisible(result.visibleDuringPause, 'The activity glow disappeared during the task.');
-        assertVisible(result.focusedDuringPause, 'The activity glow took keyboard focus.');
-        assertVisible(result.visibleWithSecondTask, 'Ending one task hid another active task.');
+        assertVisible(result.hiddenWhileWaiting, 'Waiting for input displayed feedback.');
+        assertVisible(result.hiddenAfterObservation, 'A background read displayed feedback.');
+        assertVisible(result.visibleDuringInput, 'Foreground input did not display feedback.');
+        assertVisible(result.focusedDuringInput, 'The activity glow took keyboard focus.');
+        assertVisible(result.activePointer, 'The active input did not show its pointer.');
         assertVisible(
-            result.independentPointers,
-            'Concurrent sessions overwrote each other’s pointer.'
+            result.hiddenBetweenActions,
+            'Waiting between actions kept feedback visible.'
         );
+        assertVisible(result.hiddenAfterLatePointer, 'A late pointer reopened feedback.');
+        assertVisible(
+            result.queuedTaskHidden,
+            'A queued task displayed feedback before execution.'
+        );
+        assertVisible(
+            result.queuedCallCancelled,
+            'Cancelling a queued task did not prevent input.'
+        );
+        assertVisible(result.visibleWithSecondOperation, 'Ending an idle task hid active input.');
         assertVisible(result.remainingIdentity, 'The remaining session lost its identity.');
-        assertVisible(result.stoppedAll, 'Stopping control left a session active.');
+        assertVisible(result.hiddenAfterFailure, 'A failed operation left feedback visible.');
+        assertVisible(result.cancelledFeedback, 'Cancelled input left feedback visible.');
         assertVisible(
             !result.visibleAfterCompletion,
             'The activity glow remained after completion.'
-        );
-        assertVisible(
-            !result.visibleAfterLatePointer,
-            'A late pointer reopened the activity glow.'
         );
     });
 
@@ -40,6 +54,28 @@ describe('user runs computer control with activity feedback', () => {
                     activityId: id,
                     active: true,
                 });
+                window.__computerUseAppearance = window.__TAURI_INTERNALS__
+                    .invoke('computer_use_invoke', {
+                        activityId: id,
+                        executionId: id,
+                        driver: 'cua-driver',
+                        fullAccess: true,
+                        allowForeground: true,
+                        tool: 'run_script',
+                        arguments: {
+                            script: "await cua.sleep(10000); return 'appearance fixture';",
+                            session: id,
+                        },
+                    })
+                    .catch(() => undefined);
+                const deadline = Date.now() + 5000;
+                while (Date.now() < deadline) {
+                    const feedback = await window.__TAURI_INTERNALS__.invoke(
+                        'computer_use_glow_snapshot'
+                    );
+                    if (feedback.activities.some((entry) => entry.id === id)) break;
+                    await new Promise((resolve) => setTimeout(resolve, 25));
+                }
                 await window.__TAURI_INTERNALS__.invoke('computer_use_glow_pulse', {
                     activityId: id,
                     pointer: { x: 240, y: 180 },
@@ -69,6 +105,8 @@ describe('user runs computer control with activity feedback', () => {
                     activityId: id,
                     active: false,
                 });
+                await window.__computerUseAppearance;
+                delete window.__computerUseAppearance;
             }, activityId);
         }
     });

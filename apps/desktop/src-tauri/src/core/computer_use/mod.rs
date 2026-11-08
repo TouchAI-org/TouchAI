@@ -7,6 +7,7 @@ pub mod agent_desktop;
 mod agent_desktop_manifest;
 pub mod backend;
 pub mod driver;
+pub mod foreground;
 pub mod http;
 pub mod manifest;
 pub mod provision;

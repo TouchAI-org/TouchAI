@@ -45,7 +45,7 @@ describe('computer use task activity', () => {
         expect(pointers).toEqual([]);
     });
 
-    it('user given a running desktop task when waiting between actions then keeps one active glow until completion', async () => {
+    it('user given a running desktop task when waiting between actions then keeps its cancellation identity until completion', async () => {
         vi.useFakeTimers();
         const controller = new AbortController();
         await computerUseService.startActivity(controller.signal);
@@ -56,7 +56,7 @@ describe('computer use task activity', () => {
         expect(activeTasks.size).toBe(0);
     });
 
-    it('user given two active tasks when ending one then keeps the other task visible', async () => {
+    it('user given two active tasks when ending one then keeps the other task registered', async () => {
         const first = new AbortController();
         const second = new AbortController();
         await computerUseService.startActivity(first.signal);

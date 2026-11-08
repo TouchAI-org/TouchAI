@@ -10,7 +10,6 @@ mod stop_shortcut;
 
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::time::Duration;
 
 use log::warn;
 use serde::{Deserialize, Serialize};
@@ -24,7 +23,6 @@ pub const WINDOW_LABEL: &str = "computer-use-glow";
 pub(crate) const WINDOW_TITLE: &str = "TouchAI computer use";
 const WINDOW_ROUTE: &str = "#/computer-use-glow";
 const PULSE_EVENT: &str = "computer-use-glow-pulse";
-const PULSE_DURATION: Duration = Duration::from_millis(1500);
 
 #[derive(Default)]
 struct GlowState {
@@ -37,16 +35,23 @@ struct GlowState {
 struct Activity {
     ordinal: u32,
     pointer: Option<PointerPosition>,
+    foreground_calls: usize,
     cancellation: tokio::sync::watch::Sender<bool>,
 }
 
 impl GlowState {
     fn accepts_pulse(&self, activity_id: Option<&str>) -> bool {
-        activity_id.is_none_or(|id| self.active_tasks.contains_key(id))
+        activity_id
+            .and_then(|id| self.active_tasks.get(id))
+            .is_some_and(|activity| activity.foreground_calls > 0)
     }
 
     fn can_hide(&self, generation: u64) -> bool {
-        self.generation == generation && self.active_tasks.is_empty()
+        self.generation == generation
+            && self
+                .active_tasks
+                .values()
+                .all(|activity| activity.foreground_calls == 0)
     }
 
     fn begin(&mut self, activity_id: &str) -> Result<bool, String> {
@@ -65,6 +70,7 @@ impl GlowState {
             Activity {
                 ordinal: self.next_ordinal,
                 pointer: None,
+                foreground_calls: 0,
                 cancellation: tokio::sync::watch::channel(false).0,
             },
         );
@@ -79,10 +85,29 @@ impl GlowState {
         false
     }
 
+    fn begin_foreground(&mut self, activity_id: &str) -> Result<(), String> {
+        let activity = self
+            .active_tasks
+            .get_mut(activity_id)
+            .ok_or_else(|| "computer use cancelled".to_string())?;
+        activity.foreground_calls += 1;
+        Ok(())
+    }
+
+    fn end_foreground(&mut self, activity_id: &str) {
+        if let Some(activity) = self.active_tasks.get_mut(activity_id) {
+            activity.foreground_calls = activity.foreground_calls.saturating_sub(1);
+            if activity.foreground_calls == 0 {
+                activity.pointer = None;
+            }
+        }
+    }
+
     fn pointers(&self, bounds: ScreenRect, scale: f64) -> Vec<ActivityPayload> {
         let mut activities: Vec<_> = self
             .active_tasks
             .iter()
+            .filter(|(_, activity)| activity.foreground_calls > 0)
             .map(|(id, activity)| ActivityPayload {
                 id: id.clone(),
                 ordinal: activity.ordinal,
@@ -326,26 +351,79 @@ pub fn set_active<R: Runtime>(
         if let Some(locale) = locale.filter(|locale| matches!(*locale, "zh-CN" | "en-US")) {
             state.locale = locale.into();
         }
-        if let Err(error) = stop_shortcut::install(app) {
-            state.finish(activity_id);
-            return Err(error);
-        }
-        drop(state);
-        if let Err(error) = pulse(app, None, Some(activity_id)) {
-            set_active(app, activity_id, false, None)?;
-            return Err(error);
-        }
     } else if state.finish(activity_id) {
         state.generation = state.generation.wrapping_add(1);
-        let empty = state.active_tasks.is_empty();
         let generation = state.generation;
         drop(state);
         publish(app)?;
-        if empty {
-            hide_if_current(app, generation);
-        }
+        hide_if_current(app, generation);
     }
     Ok(())
+}
+
+pub struct ForegroundOperation<R: Runtime> {
+    app: AppHandle<R>,
+    activity_id: String,
+    owns_activity: bool,
+}
+
+impl<R: Runtime> ForegroundOperation<R> {
+    pub fn begin(
+        app: &AppHandle<R>,
+        activity_id: Option<&str>,
+        execution_id: &str,
+    ) -> Result<Self, String> {
+        let owns_activity = activity_id.is_none();
+        let activity_id = activity_id.unwrap_or(execution_id);
+        if owns_activity {
+            set_active(app, activity_id, true, None)?;
+        }
+        {
+            let runtime = app.state::<ComputerUseGlowRuntime>();
+            let mut state = runtime
+                .state
+                .lock()
+                .map_err(|_| "Computer-use glow runtime is poisoned".to_string())?;
+            state.begin_foreground(activity_id)?;
+        }
+        let operation = Self {
+            app: app.clone(),
+            activity_id: activity_id.into(),
+            owns_activity,
+        };
+        stop_shortcut::install(app)?;
+        pulse(app, None, Some(activity_id))?;
+        Ok(operation)
+    }
+
+    pub fn activity_id(&self) -> &str {
+        &self.activity_id
+    }
+}
+
+impl<R: Runtime> Drop for ForegroundOperation<R> {
+    fn drop(&mut self) {
+        let result = (|| -> Result<(), String> {
+            let runtime = self.app.state::<ComputerUseGlowRuntime>();
+            let mut state = runtime
+                .state
+                .lock()
+                .map_err(|_| "Computer-use glow runtime is poisoned".to_string())?;
+            state.end_foreground(&self.activity_id);
+            if self.owns_activity {
+                state.finish(&self.activity_id);
+            }
+            state.generation = state.generation.wrapping_add(1);
+            let generation = state.generation;
+            drop(state);
+            let published = publish(&self.app);
+            hide_if_current(&self.app, generation);
+            published
+        })();
+        if let Err(error) = result {
+            warn!("Failed to release foreground feedback: {error}");
+        }
+    }
 }
 
 pub fn clear<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
@@ -389,7 +467,6 @@ pub fn pulse<R: Runtime>(
     }
     let window = ensure_window(app)?;
     state.generation = state.generation.wrapping_add(1);
-    let generation = state.generation;
 
     let show_result = (|| -> Result<(), String> {
         let bounds = current_screen_bounds(app)?;
@@ -418,17 +495,6 @@ pub fn pulse<R: Runtime>(
     if let Err(error) = show_result {
         let _ = set_visible(&window, false);
         return Err(error);
-    }
-
-    let transient = state.active_tasks.is_empty();
-    drop(state);
-
-    if transient {
-        let app_handle = app.clone();
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(PULSE_DURATION).await;
-            hide_if_current(&app_handle, generation);
-        });
     }
 
     Ok(())
@@ -564,10 +630,29 @@ mod tests {
     use super::{local_pointer, union_screen_bounds, GlowState, PointerPosition, ScreenRect};
 
     #[test]
+    fn user_given_a_registered_task_when_waiting_for_foreground_input_then_feedback_stays_hidden() {
+        let mut state = GlowState::default();
+        state.begin("waiting").expect("registered task");
+        let cancelled = state.active_tasks["waiting"].cancellation.subscribe();
+        assert!(state.can_hide(state.generation));
+        assert!(state.pointers(rect(0, 0, 1920, 1080), 1.0).is_empty());
+        assert!(!state.accepts_pulse(Some("waiting")));
+        assert!(!*cancelled.borrow());
+    }
+
+    #[test]
+    fn user_given_no_foreground_operation_when_an_unscoped_pointer_arrives_then_feedback_stays_hidden(
+    ) {
+        assert!(!GlowState::default().accepts_pulse(None));
+    }
+
+    #[test]
     fn user_given_two_sessions_when_one_finishes_then_keeps_the_other_position_and_identity() {
         let mut state = GlowState::default();
         state.begin("one").expect("one");
         state.begin("two").expect("two");
+        state.begin_foreground("one").expect("first operation");
+        state.begin_foreground("two").expect("second operation");
         state.active_tasks.get_mut("one").expect("one").pointer =
             Some(PointerPosition { x: 10.0, y: 20.0 });
         state.active_tasks.get_mut("two").expect("two").pointer =
@@ -589,25 +674,68 @@ mod tests {
     }
 
     #[test]
-    fn user_given_active_desktop_tasks_when_a_pulse_expires_then_keeps_the_glow() {
+    fn user_given_overlapping_foreground_operations_when_one_finishes_then_keeps_the_other_visible()
+    {
         let mut state = GlowState::default();
         state.begin("first").expect("first");
         state.begin("second").expect("second");
+        state.begin_foreground("first").expect("first operation");
+        state.begin_foreground("second").expect("second operation");
         assert!(!state.can_hide(state.generation));
-        state.finish("first");
+        state.end_foreground("first");
         assert!(!state.can_hide(state.generation));
-        state.finish("second");
+        state.end_foreground("second");
         assert!(state.can_hide(state.generation));
+        assert!(state.pointers(rect(0, 0, 1920, 1080), 1.0).is_empty());
     }
 
     #[test]
     fn user_given_a_finished_task_when_a_late_pointer_arrives_then_cannot_reopen_the_glow() {
         let mut state = GlowState::default();
         state.begin("current").expect("current");
+        state.begin_foreground("current").expect("operation");
         assert!(state.accepts_pulse(Some("current")));
         assert!(!state.accepts_pulse(Some("finished")));
         state.finish("current");
         assert!(!state.accepts_pulse(Some("current")));
+    }
+
+    #[test]
+    fn user_given_completed_foreground_input_when_the_next_action_runs_then_keeps_the_same_uncancelled_session(
+    ) {
+        let mut state = GlowState::default();
+        state.begin("task").expect("task");
+        let cancelled = state.active_tasks["task"].cancellation.subscribe();
+        state.begin_foreground("task").expect("first input");
+        state.active_tasks.get_mut("task").expect("task").pointer =
+            Some(PointerPosition { x: 20.0, y: 30.0 });
+        state.end_foreground("task");
+        assert!(state.can_hide(state.generation));
+        assert!(!state.accepts_pulse(Some("task")));
+        assert!(!*cancelled.borrow());
+        state.begin_foreground("task").expect("second input");
+        let visible = state.pointers(rect(0, 0, 1920, 1080), 1.0);
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].id, "task");
+        assert_eq!(visible[0].ordinal, 1);
+        assert_eq!(visible[0].pointer, None);
+        state.finish("task");
+        assert!(*cancelled.borrow());
+        assert!(state.can_hide(state.generation));
+        assert!(state.begin_foreground("task").is_err());
+    }
+
+    #[test]
+    fn user_given_overlapping_input_in_one_task_when_one_call_returns_then_feedback_waits_for_the_last_call(
+    ) {
+        let mut state = GlowState::default();
+        state.begin("task").expect("task");
+        state.begin_foreground("task").expect("first");
+        state.begin_foreground("task").expect("second");
+        state.end_foreground("task");
+        assert!(!state.can_hide(state.generation));
+        state.end_foreground("task");
+        assert!(state.can_hide(state.generation));
     }
 
     #[test]

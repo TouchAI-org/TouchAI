@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Runtime, State};
 
 use crate::core::computer_use::{
-    agent_desktop, backend::DriverId, driver, http::HttpWheelFetcher, manifest,
+    agent_desktop, backend::DriverId, driver, foreground, http::HttpWheelFetcher, manifest,
     storage::DriverStorage,
 };
 use crate::core::system::paths::{app_directory_path, AppDirectory};
@@ -193,19 +193,34 @@ pub async fn computer_use_invoke<R: Runtime>(
             permit = INPUT_QUEUE.lock() => permit,
         })
     };
+    let foreground_operation = if foreground::uses_foreground(
+        selected,
+        &tool,
+        &arguments,
+        allow_foreground.unwrap_or(false),
+    ) {
+        Some(
+            crate::core::window::computer_use_glow::ForegroundOperation::begin(
+                &app,
+                activity_id.as_deref(),
+                &execution_id,
+            )?,
+        )
+    } else {
+        None
+    };
+    let feedback_id = foreground_operation
+        .as_ref()
+        .map(|operation| operation.activity_id());
     let scope = activity_id.clone();
     let execution = execution_id.clone();
     let progress = selected == DriverId::AgentDesktop
-        && !read_only
-        && allow_foreground == Some(true)
-        && cursor_visible == Some(true)
-        && activity_id.is_some();
+        && foreground_operation.is_some()
+        && cursor_visible == Some(true);
     let report_pointer = |pointer| {
-        if let Err(error) = crate::core::window::computer_use_glow::pulse(
-            &app,
-            Some(pointer),
-            activity_id.as_deref(),
-        ) {
+        if let Err(error) =
+            crate::core::window::computer_use_glow::pulse(&app, Some(pointer), feedback_id)
+        {
             log::warn!("Failed to display desktop target: {error}");
         }
     };
@@ -220,7 +235,7 @@ pub async fn computer_use_invoke<R: Runtime>(
                 allow_foreground.unwrap_or(false),
                 scope.as_deref(),
                 activity_cancelled,
-                if cursor_visible == Some(true) {
+                if cursor_visible == Some(true) && foreground_operation.is_some() {
                     Some(&report_pointer)
                 } else {
                     None
@@ -279,10 +294,10 @@ pub async fn computer_use_invoke<R: Runtime>(
                 return Err("computer use cancelled".into());
             }
             result = &mut operation => {
-                if progress { publish_system_pointer(&app, activity_id.as_deref(), &mut previous); }
+                if progress { publish_system_pointer(&app, feedback_id, &mut previous); }
                 return result;
             }
-            _ = tick.tick(), if progress => publish_system_pointer(&app, activity_id.as_deref(), &mut previous),
+            _ = tick.tick(), if progress => publish_system_pointer(&app, feedback_id, &mut previous),
         }
     }
 }

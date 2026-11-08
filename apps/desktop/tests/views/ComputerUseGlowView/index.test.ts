@@ -26,6 +26,25 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe('computer use activity overlay', () => {
+    it('user given foreground input when it ends before the next model round then sees no glow or operation feedback', async () => {
+        const wrapper = mount(ComputerUseGlowView, { global: { plugins: [i18n] } });
+        await nextTick();
+        events.handler?.({
+            payload: {
+                generation: 1,
+                activities: [{ id: 'first', ordinal: 1, pointer: { x: 240, y: 180 } }],
+            },
+        });
+        await nextTick();
+        expect(wrapper.get('[data-computer-use-frame]').isVisible()).toBe(true);
+        events.handler?.({ payload: { generation: 2, activities: [] } });
+        await nextTick();
+        expect(wrapper.find('[data-computer-use-frame]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="computer-use-status"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="computer-use-pointer"]').exists()).toBe(false);
+        wrapper.unmount();
+    });
+
     it('user given two sessions when one finishes then retains the other pointer and the stop banner', async () => {
         setLocale('zh-CN');
         const wrapper = mount(ComputerUseGlowView, { global: { plugins: [i18n] } });
@@ -63,7 +82,7 @@ describe('computer use activity overlay', () => {
         wrapper.unmount();
     });
 
-    it('user given an active task when waiting between model rounds then keeps the operation pointer visible', async () => {
+    it('user given a foreground operation when it is still executing then keeps the operation pointer visible', async () => {
         vi.useFakeTimers();
         const wrapper = mount(ComputerUseGlowView, { global: { plugins: [i18n] } });
         await nextTick();
