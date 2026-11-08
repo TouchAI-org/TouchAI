@@ -11,8 +11,7 @@ import { selectToolCalls } from '@/utils/session';
 
 /**
  * Complements the other projection tests with the per-event arms the panel renders while a
- * tool round runs: result streaming, structured payloads, rejections, model switches, and
- * widget create/remove events.
+ * tool round runs: result streaming, structured payloads, rejections, and model switches.
  *
  * Why these matter: each one is a distinct thing the user watches appear (or not) in the
  * conversation, and a missed arm leaves a tool stuck on "running" forever.
@@ -291,57 +290,6 @@ describe('user watches the agent move to a stronger model', () => {
 
         expect(snapshot.modelSwitchCount).toBe(2);
         expect(snapshot.currentModel).toMatchObject({ modelId: 'large' });
-    });
-});
-
-describe('user watches a widget appear and disappear', () => {
-    it('user sees a generated widget added to the reply', () => {
-        const { snapshot, projection } = createProjection();
-        projection.bootstrap([], 'Hello', []);
-
-        projection.handleChunk({
-            content: '',
-            done: false,
-            toolEvent: {
-                type: 'widget_upsert',
-                callId: 'call-1',
-                widgetId: 'w1',
-                title: 'Sales',
-                description: 'by region',
-                html: '<div>chart</div>',
-                mode: 'render',
-                phase: 'ready',
-            },
-        } as never);
-
-        const widgets = assistantMessage(snapshot)?.widgets ?? [];
-        expect(widgets[0]).toMatchObject({ widgetId: 'w1', title: 'Sales' });
-    });
-
-    it('user sees a removed widget disappear from the reply', () => {
-        const { snapshot, projection } = createProjection();
-        projection.bootstrap([], 'Hello', []);
-        projection.handleChunk({
-            content: '',
-            done: false,
-            toolEvent: {
-                type: 'widget_upsert',
-                callId: 'call-1',
-                widgetId: 'w1',
-                title: 'Sales',
-                html: '<div>chart</div>',
-                mode: 'render',
-                phase: 'ready',
-            },
-        } as never);
-
-        projection.handleChunk({
-            content: '',
-            done: false,
-            toolEvent: { type: 'widget_remove', widgetId: 'w1' },
-        } as never);
-
-        expect(assistantMessage(snapshot)?.widgets ?? []).toHaveLength(0);
     });
 });
 

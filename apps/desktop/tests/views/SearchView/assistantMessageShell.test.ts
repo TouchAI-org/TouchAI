@@ -2,7 +2,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
-import type { SessionMessage, ToolCallInfo, WidgetInfo } from '@/types/session';
+import type { LegacyArtifactInfo, SessionMessage, ToolCallInfo } from '@/types/session';
 import AssistantMessage from '@/views/SearchView/components/ConversationPanel/components/AssistantMessage.vue';
 
 /*
@@ -36,12 +36,15 @@ vi.mock('@/views/SearchView/components/ConversationPanel/components/ToolCallItem
         template: '<div class="tool-call" :data-name="toolCall?.namespacedName" />',
     },
 }));
-vi.mock('@/views/SearchView/components/ConversationPanel/components/WidgetFrame.vue', () => ({
-    default: {
-        props: ['widget'],
-        template: '<div class="widget" :data-id="widget?.widgetId" />',
-    },
-}));
+vi.mock(
+    '@/views/SearchView/components/ConversationPanel/components/VisualArtifactFrame.vue',
+    () => ({
+        default: {
+            props: ['html', 'title'],
+            template: '<div class="widget" :data-title="title">{{ html }}</div>',
+        },
+    })
+);
 vi.mock(
     '@/views/SearchView/components/ConversationPanel/components/ToolApprovalHistoryCard.vue',
     () => ({
@@ -247,7 +250,7 @@ function toolCall(id: string, namespacedName: string): ToolCallInfo {
     };
 }
 
-function widget(callId: string): WidgetInfo {
+function widget(callId: string): LegacyArtifactInfo {
     return {
         id: `widget-${callId}`,
         widgetId: `widget-${callId}`,
@@ -262,6 +265,25 @@ function widget(callId: string): WidgetInfo {
 }
 
 describe('user sees an answer whose parts are backed by richer records', () => {
+    it('user does not execute an Artifact until the answer finishes streaming', async () => {
+        const message: Partial<SessionMessage> = {
+            isStreaming: true,
+            parts: [
+                {
+                    id: 't1',
+                    type: 'text',
+                    content: '```touchai-artifact\n<button>Run</button>\n```',
+                },
+            ],
+        };
+        const wrapper = render(message);
+
+        expect(wrapper.find('.widget').exists()).toBe(false);
+        await wrapper.setProps({ message: { ...wrapper.props('message'), isStreaming: false } });
+
+        expect(wrapper.get('.widget').text()).toBe('<button>Run</button>');
+    });
+
     it('user sees a tool call inside the answer', () => {
         const wrapper = render({
             parts: [{ id: 'p1', type: 'tool_call', toolCall: toolCall('call-1', 'builtin__bash') }],
@@ -270,7 +292,7 @@ describe('user sees an answer whose parts are backed by richer records', () => {
         expect(wrapper.get('.tool-call').attributes('data-name')).toBe('builtin__bash');
     });
 
-    it('user does not see the tool call behind a widget twice', () => {
+    it('user does not see the retired visualization tool call twice', () => {
         const wrapper = render({
             parts: [
                 {
@@ -280,7 +302,7 @@ describe('user sees an answer whose parts are backed by richer records', () => {
                 },
                 { id: 'p2', type: 'widget', widgetId: 'widget-call-1' },
             ],
-            widgets: [widget('call-1')],
+            legacyArtifacts: [widget('call-1')],
         });
 
         expect(wrapper.find('.widget').exists()).toBe(true);

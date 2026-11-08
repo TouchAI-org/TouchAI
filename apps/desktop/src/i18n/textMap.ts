@@ -282,17 +282,7 @@ export const zhToEnTextMap = {
     '当前仅支持 HTML、JSON、Markdown、XML 和普通文本响应。':
         'Only HTML, JSON, Markdown, XML, and plain text responses are supported.',
     升级当前请求模型: 'Upgrade the current request model',
-    聊天内联可交互可视化: 'Inline interactive visualization in chat',
     可视化: 'Visualization',
-    '读取 ShowWidget 规范': 'Read the ShowWidget specification',
-    可视化规范: 'visualization specification',
-    自定义可视化已移除: 'Custom visualization removed',
-    自定义可视化已渲染: 'Custom visualization rendered',
-    'HTML 字符数': 'HTML characters',
-    '完整 HTML 未写入工具结果，以免污染后续上下文。':
-        'Full HTML was not written to the tool result to avoid polluting later context.',
-    '接下来请继续自然解释这个可视化的重点，而不是重复输出 HTML 源码。':
-        'Continue explaining the visualization naturally instead of repeating the HTML source.',
     生成中的可视化: 'Generating visualization',
     '模型正在按已加载规范流式生成内联可视化内容。':
         'The model is streaming inline visualization content based on the loaded specification.',

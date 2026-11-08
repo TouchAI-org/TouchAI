@@ -17,16 +17,13 @@ import {
     buildBuiltInToolConversationPresentation,
     resolveBuiltInToolConversationSemantic,
 } from '@/services/BuiltInToolService/presentation';
-import {
-    SHOW_WIDGET_TOOL_NAME,
-    type ShowWidgetPayload,
-} from '@/services/BuiltInToolService/tools/widgetTool';
 import type { BuiltInToolConversationSemantic } from '@/services/BuiltInToolService/types';
+import { LEGACY_SHOW_WIDGET_TOOL_NAME } from '@/services/VisualReplyService/protocol';
 import {
     createInputHistorySnapshot,
+    type LegacyArtifactPayload,
     type SessionMessage,
     type ToolCallInfo,
-    type WidgetInfo,
 } from '@/types/session';
 import { parseDbDateTimestamp } from '@/utils/date';
 import {
@@ -41,16 +38,8 @@ import { readContextSummary } from '../contracts/context';
 import { AiError } from '../contracts/errors';
 import { getRetryStatusMessage } from '../execution/retry';
 import type { PromptSnapshot } from '../prompt/types';
+import { LegacyArtifactHistory } from './legacyArtifacts';
 import { getSessionData, type SessionData } from './manager';
-import {
-    ensureAssistantWidgets,
-    ensureWidgetPart,
-    findWidgetTarget,
-    findWidgetTargetByCallId,
-    retargetWidgetPart,
-    type WidgetTarget,
-    type WidgetTargetLookups,
-} from './widgets';
 
 type PersistedHistoryEntry = Omit<MessageRow, 'attachments'> & {
     attachments?: Awaited<ReturnType<typeof hydratePersistedAttachments>>;
@@ -223,8 +212,8 @@ function isPersistedToolResultErrorStatus(
     return mapPersistedToolResultStatus(toolStatus, resultText) === 'error';
 }
 
-function buildPersistedShowWidgetPayload(toolCall: ToolCallInfo): ShowWidgetPayload | null {
-    if (toolCall.namespacedName !== SHOW_WIDGET_TOOL_NAME) {
+function buildPersistedLegacyArtifactPayload(toolCall: ToolCallInfo): LegacyArtifactPayload | null {
+    if (toolCall.namespacedName !== LEGACY_SHOW_WIDGET_TOOL_NAME) {
         return null;
     }
 
@@ -235,7 +224,7 @@ function buildPersistedShowWidgetPayload(toolCall: ToolCallInfo): ShowWidgetPayl
         return null;
     }
 
-    const title = normalizeString(toolCall.arguments.title) || widgetId || 'ShowWidget';
+    const title = normalizeString(toolCall.arguments.title) || widgetId || 'Legacy artifact';
     const description =
         normalizeString(toolCall.arguments.description) ||
         'Inline generative artifact rendered in the answer.';
@@ -408,30 +397,7 @@ function convertEntriesToSessionHistory(
     const historyIndexByPersistedMessageId = new Map<number, number>();
     let activeAssistantMessage: SessionMessage | null = null;
     let activeAssistantEntryIds: number[] = [];
-    const widgetsByCallId = new Map<string, WidgetTarget>();
-    const widgetsByWidgetId = new Map<string, WidgetTarget>();
-    const widgetLookups: WidgetTargetLookups = {
-        widgetsByCallId,
-        widgetsByWidgetId,
-    };
-
-    const indexPersistedWidget = (message: SessionMessage, widget: WidgetInfo): void => {
-        const target = { message, widget };
-        widgetsByCallId.set(widget.callId, target);
-        widgetsByWidgetId.set(widget.widgetId, target);
-    };
-
-    const unindexPersistedWidget = (widget: WidgetInfo): void => {
-        const widgetTarget = widgetsByWidgetId.get(widget.widgetId);
-        if (widgetTarget?.widget === widget) {
-            widgetsByWidgetId.delete(widget.widgetId);
-        }
-
-        const callTarget = widgetsByCallId.get(widget.callId);
-        if (callTarget?.widget === widget) {
-            widgetsByCallId.delete(widget.callId);
-        }
-    };
+    const legacyArtifacts = new LegacyArtifactHistory();
 
     const flushAssistantMessage = () => {
         if (!activeAssistantMessage) {
@@ -463,95 +429,6 @@ function convertEntriesToSessionHistory(
         }
 
         return activeAssistantMessage;
-    };
-
-    /**
-     * ShowWidget 的 artifact 生命周期允许跨轮次更新或移除同一 widget。
-     *
-     * 历史回放需要按整段会话顺序重放这些变更，因此这里会跨 assistant message
-     * 查找已登记的 widget，而不是只看当前消息。
-     */
-    const upsertPersistedWidget = (
-        preferredMessage: SessionMessage,
-        payload: ShowWidgetPayload,
-        updatedAt: number
-    ): WidgetInfo => {
-        const preferredMessageId = preferredMessage.id;
-        const targetMessage =
-            findWidgetTarget(history, payload.widgetId, preferredMessageId, widgetLookups)
-                ?.message ??
-            findWidgetTargetByCallId(history, payload.callId, preferredMessageId, widgetLookups)
-                ?.message ??
-            preferredMessage;
-        const widgets = ensureAssistantWidgets(targetMessage);
-        const existingWidget =
-            findWidgetTarget(history, payload.widgetId, targetMessage.id, widgetLookups)?.widget ??
-            findWidgetTargetByCallId(history, payload.callId, targetMessage.id, widgetLookups)
-                ?.widget;
-
-        if (existingWidget) {
-            const previousWidgetId = existingWidget.widgetId;
-            unindexPersistedWidget(existingWidget);
-            Object.assign(existingWidget, payload, {
-                id: payload.widgetId,
-                updatedAt,
-            });
-            retargetWidgetPart(targetMessage, previousWidgetId, payload.widgetId);
-            ensureWidgetPart(targetMessage, payload.widgetId);
-            indexPersistedWidget(targetMessage, existingWidget);
-            return existingWidget;
-        }
-
-        const widget: WidgetInfo = {
-            id: payload.widgetId,
-            ...payload,
-            updatedAt,
-        };
-        widgets.push(widget);
-        ensureWidgetPart(targetMessage, payload.widgetId);
-        indexPersistedWidget(targetMessage, widget);
-        return widget;
-    };
-
-    const removePersistedWidgetByWidgetId = (widgetId: string): void => {
-        const target = findWidgetTarget(
-            history,
-            widgetId,
-            activeAssistantMessage?.id,
-            widgetLookups
-        );
-        if (!target) {
-            return;
-        }
-
-        unindexPersistedWidget(target.widget);
-        target.message.widgets = target.message.widgets?.filter(
-            (widget) => widget.widgetId !== widgetId
-        );
-        target.message.parts = target.message.parts.filter(
-            (part) => !(part.type === 'widget' && part.widgetId === widgetId)
-        );
-    };
-
-    const removePersistedWidgetByCallId = (callId: string): void => {
-        const target = findWidgetTargetByCallId(
-            history,
-            callId,
-            activeAssistantMessage?.id,
-            widgetLookups
-        );
-        if (!target) {
-            return;
-        }
-
-        const removedWidgetId = target.widget.widgetId;
-        unindexPersistedWidget(target.widget);
-        target.message.widgets = target.message.widgets?.filter(
-            (widget) => widget.callId !== callId
-        );
-        target.message.parts = target.message.parts.filter(
-            (part) => !(part.type === 'widget' && part.widgetId === removedWidgetId)
-        );
     };
 
     for (const entry of entries) {
@@ -605,22 +482,28 @@ function convertEntriesToSessionHistory(
                     toolCall.result = fallbackResult;
                 }
 
-                if (toolCall.namespacedName !== SHOW_WIDGET_TOOL_NAME) {
+                if (toolCall.namespacedName !== LEGACY_SHOW_WIDGET_TOOL_NAME) {
                     assistantMessage.parts.push(createToolCallPart(toolCall));
                 }
 
-                if (toolCall.namespacedName === SHOW_WIDGET_TOOL_NAME) {
-                    const payload = buildPersistedShowWidgetPayload(toolCall);
+                if (toolCall.namespacedName === LEGACY_SHOW_WIDGET_TOOL_NAME) {
+                    const payload = buildPersistedLegacyArtifactPayload(toolCall);
+                    const legacyHistory = [...history, assistantMessage];
                     if (toolCall.isError) {
-                        removePersistedWidgetByCallId(toolCall.id);
+                        legacyArtifacts.removeArtifactByCallId(legacyHistory, toolCall.id);
                     } else if (payload?.mode === 'remove') {
-                        removePersistedWidgetByWidgetId(payload.widgetId);
-                    } else if (payload?.mode === 'render') {
-                        upsertPersistedWidget(
-                            assistantMessage,
-                            payload,
-                            parseDbDateTimestamp(entry.created_at)
+                        legacyArtifacts.removeArtifactById(
+                            legacyHistory,
+                            payload.widgetId,
+                            assistantMessage.id
                         );
+                    } else if (payload?.mode === 'render') {
+                        const widget = legacyArtifacts.upsertArtifact(
+                            legacyHistory,
+                            assistantMessage.id,
+                            payload
+                        );
+                        if (widget) widget.updatedAt = parseDbDateTimestamp(entry.created_at);
                     }
                 }
             }

@@ -43,8 +43,6 @@ vi.mock('@/i18n/textMap', () => {
         读取和修改应用设置: 'Read and modify application settings',
         抓取网页并提取易读文本: 'Fetch web pages and extract readable text',
         升级当前请求模型: 'Upgrade the current request model',
-        聊天内联可交互可视化: 'Inline interactive visualization in chat',
-        '读取 ShowWidget 规范': 'Read the ShowWidget specification',
         暂无描述: 'No description',
         尚未调用: 'Not called yet',
         成功: 'Success',

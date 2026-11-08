@@ -346,12 +346,12 @@ describe('user reopens a conversation with a widget that was updated in place', 
             }),
         ]);
 
-        expect(history[1]?.widgets?.[0]).toMatchObject({
+        expect(history[1]?.legacyArtifacts?.[0]).toMatchObject({
             widgetId: 'w1',
             html: '<div>v2</div>',
         });
         // The widget lives in the reply that first created it.
-        expect(history[3]?.widgets ?? []).toHaveLength(0);
+        expect(history[3]?.legacyArtifacts ?? []).toHaveLength(0);
     });
 
     it('user sees the widget removed by call id when a later turn failed on the same call', async () => {
@@ -366,7 +366,7 @@ describe('user reopens a conversation with a widget that was updated in place', 
             widgetRow(4, 'call-1', { widgetId: 'w1', title: 'Sales' }, 'error'),
         ]);
 
-        expect(history[1]?.widgets ?? []).toHaveLength(0);
+        expect(history[1]?.legacyArtifacts ?? []).toHaveLength(0);
     });
 
     it('user sees the widget titled by its id when the model gave no title', async () => {
@@ -375,7 +375,7 @@ describe('user reopens a conversation with a widget that was updated in place', 
             widgetRow(2, 'call-1', { widgetId: 'chart-9', widget_code: '<div>chart</div>' }),
         ]);
 
-        expect(history[1]?.widgets?.[0]).toMatchObject({
+        expect(history[1]?.legacyArtifacts?.[0]).toMatchObject({
             widgetId: 'chart-9',
             title: 'chart-9',
         });
@@ -387,6 +387,6 @@ describe('user reopens a conversation with a widget that was updated in place', 
             widgetRow(2, 'call-1', { widgetId: 'w1', title: 'Sales', html: '<div>legacy</div>' }),
         ]);
 
-        expect(history[1]?.widgets?.[0]).toMatchObject({ html: '<div>legacy</div>' });
+        expect(history[1]?.legacyArtifacts?.[0]).toMatchObject({ html: '<div>legacy</div>' });
     });
 });

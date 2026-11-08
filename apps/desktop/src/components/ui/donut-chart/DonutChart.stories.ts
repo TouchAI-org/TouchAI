@@ -21,7 +21,7 @@ const DATA = [
     { key: 'bash', label: 'Bash', value: 286 },
     { key: 'search', label: 'FileSearch', value: 168 },
     { key: 'webfetch', label: 'WebFetch', value: 94 },
-    { key: 'widget', label: 'ShowWidget', value: 41 },
+    { key: 'widget', label: 'Interactive reply', value: 41 },
 ];
 
 export const Ring: Story = {

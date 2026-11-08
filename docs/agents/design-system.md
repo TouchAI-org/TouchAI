@@ -148,8 +148,9 @@ evidence.
 
 ## Not covered
 
-- Runtime styling in the `show-widget` renderer, which is generated from tokens at
-  runtime rather than compiled.
+- Runtime styling inside visual replies: OpenUI components use the compiled token surface;
+  free-form `touchai-artifact` replies use the explicit Artifact theme snapshot and iframe
+  profile instead of a second compiled design-token contract.
 - The `settings-*` and `t-*` classes live in `@layer components` and are whitelisted
   from the unknown-utility rule; only visual regression can catch a change inside them.
 - Unknown utilities written in script class strings.

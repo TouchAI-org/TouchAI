@@ -23,15 +23,32 @@
                                 :ended-at="part.endedAt"
                             />
                             <MarkdownContent
-                                v-else-if="part.type === 'text'"
+                                v-else-if="part.type === 'text' && part.visualType === 'markdown'"
                                 :content="part.content"
                                 :final="!message.isStreaming"
+                            />
+                            <OpenUIReply
+                                v-else-if="part.type === 'text' && part.visualType === 'openui'"
+                                :response="part.content"
+                                :is-streaming="!!message.isStreaming"
+                            />
+                            <VisualArtifactFrame
+                                v-else-if="
+                                    part.type === 'text' &&
+                                    part.visualType === 'artifact' &&
+                                    !message.isStreaming
+                                "
+                                :html="part.content"
+                            />
+                            <VisualArtifactFrame
+                                v-else-if="part.type === 'widget' && !message.isStreaming"
+                                :html="part.html"
+                                :title="part.title"
                             />
                             <ToolCallItem
                                 v-else-if="part.type === 'tool_call'"
                                 :tool-call="part.toolCall"
                             />
-                            <WidgetFrame v-else-if="part.type === 'widget'" :widget="part.widget" />
                             <ToolApprovalHistoryCard
                                 v-else-if="part.type === 'approval'"
                                 :approval="part.approval"
@@ -110,15 +127,17 @@
     import { type MessageKey, t, tt } from '@/i18n';
     import { runResultAction } from '@/services/AnalyticsService/productInteractions';
     import type { WebSearchSource } from '@/services/BuiltInToolService/tools/webSearch/sources';
-    import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import { clipboardService } from '@/services/ClipboardService';
+    import {
+        LEGACY_SHOW_WIDGET_TOOL_NAME,
+        parseVisualReplySegments,
+    } from '@/services/VisualReplyService/protocol';
     import { useAskUserStore } from '@/stores/askUser';
     import type {
         ContextCompactionMessagePart,
         SessionMessage,
         ToolApprovalInfo,
         ToolCallInfo,
-        WidgetInfo,
     } from '@/types/session';
     import {
         normalizeCitationUrl,
@@ -127,10 +146,11 @@
         type WebSearchCitationRegistry,
     } from '@/views/SearchView/components/WebSearch/citations';
 
+    import OpenUIReply from './OpenUIReply.vue';
     import ReasoningBlock from './ReasoningBlock.vue';
     import ToolApprovalHistoryCard from './ToolApprovalHistoryCard.vue';
     import ToolCallItem from './ToolCallItem.vue';
-    import WidgetFrame from './WidgetFrame.vue';
+    import VisualArtifactFrame from './VisualArtifactFrame.vue';
 
     interface Props {
         message: SessionMessage;
@@ -156,6 +176,7 @@
               id: string;
               type: 'text';
               content: string;
+              visualType: 'markdown' | 'openui' | 'artifact';
           }
         | {
               id: string;
@@ -164,13 +185,14 @@
           }
         | {
               id: string;
-              type: 'widget';
-              widget: WidgetInfo;
+              type: 'approval';
+              approval: ToolApprovalInfo;
           }
         | {
               id: string;
-              type: 'approval';
-              approval: ToolApprovalInfo;
+              type: 'widget';
+              html: string;
+              title: string;
           };
 
     type LoadingTipKey = Extract<MessageKey, `assistant.loadingTip.${string}`>;
@@ -322,13 +344,10 @@
         const approvalMap = new Map(
             (props.message.approvals ?? []).map((approval) => [approval.callId, approval])
         );
-        const widgetMap = new Map(
-            (props.message.widgets ?? []).map((widget) => [widget.widgetId, widget])
+        const legacyWidgetMap = new Map(
+            (props.message.legacyArtifacts ?? []).map((widget) => [widget.widgetId, widget])
         );
         const parts: RenderedPart[] = [];
-        const widgetBackedToolCallIds = new Set(
-            (props.message.widgets ?? []).map((widget) => widget.callId)
-        );
 
         for (const part of props.message.parts) {
             if (part.type === 'context_compaction') {
@@ -344,20 +363,24 @@
             }
             if (part.type === 'text') {
                 if (part.content) {
-                    parts.push({
-                        id: part.id,
-                        type: 'text',
-                        content: normalizeContent(part.content),
-                    });
+                    for (const segment of parseVisualReplySegments(part.content)) {
+                        parts.push({
+                            id: `${part.id}-${segment.id}`,
+                            type: 'text',
+                            visualType: segment.type,
+                            content:
+                                segment.type === 'markdown'
+                                    ? normalizeContent(segment.content)
+                                    : segment.content,
+                        });
+                    }
                 }
                 continue;
             }
 
             if (part.type === 'tool_call') {
                 const toolCall = part.toolCall;
-                const shouldHideToolCall =
-                    toolCall.namespacedName === SHOW_WIDGET_TOOL_NAME ||
-                    widgetBackedToolCallIds.has(toolCall.id);
+                const shouldHideToolCall = toolCall.namespacedName === LEGACY_SHOW_WIDGET_TOOL_NAME;
                 if (!shouldHideToolCall) {
                     parts.push({
                         id: part.id,
@@ -369,12 +392,13 @@
             }
 
             if (part.type === 'widget') {
-                const widget = widgetMap.get(part.widgetId);
+                const widget = legacyWidgetMap.get(part.widgetId);
                 if (widget) {
                     parts.push({
                         id: part.id,
                         type: 'widget',
-                        widget,
+                        html: widget.html,
+                        title: widget.title,
                     });
                 }
                 continue;

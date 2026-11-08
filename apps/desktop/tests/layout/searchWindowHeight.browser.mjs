@@ -70,7 +70,6 @@ const modules = {
     'probe:log': `export const log=console;`,
     'probe:notification': `export const notify=async()=>{};`,
     'probe:clipboard': `export const clipboardService={writeText:async()=>{}};`,
-    'probe:widget': `export const SHOW_WIDGET_TOOL_NAME='show-widget';`,
     'probe:empty': `import{defineComponent,h}from'vue';export default defineComponent({props:['content'],setup(p){return()=>h('div',{style:{whiteSpace:'pre-wrap'}},p.content)}});`,
 };
 const aliases = {
@@ -80,7 +79,6 @@ const aliases = {
     '@services/ObservabilityService': 'probe:log',
     '@services/NotificationService': 'probe:notification',
     '@/services/ClipboardService': 'probe:clipboard',
-    '@/services/BuiltInToolService/tools/widgetTool': 'probe:widget',
     '@components/MarkdownContent.vue': 'probe:empty',
     '@components/AppIcon.vue': 'probe:empty',
 };
@@ -91,7 +89,7 @@ const plugin = {
         if (source === `${base}/probe-entry.ts`) return `${base}/probe-entry.ts`;
         if (aliases[source]) return aliases[source];
         if (source.startsWith('probe:')) return source;
-        if (/\/(ToolCallItem|WidgetFrame|ToolApprovalHistoryCard)\.vue$/.test(source))
+        if (/\/(ToolCallItem|VisualArtifactFrame|ToolApprovalHistoryCard)\.vue$/.test(source))
             return 'probe:empty';
     },
     load(id) {

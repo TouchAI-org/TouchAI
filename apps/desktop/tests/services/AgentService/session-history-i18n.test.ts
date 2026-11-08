@@ -31,10 +31,6 @@ vi.mock('@/services/BuiltInToolService/registry', () => ({
     },
 }));
 
-vi.mock('@/services/BuiltInToolService/tools/widgetTool', () => ({
-    SHOW_WIDGET_TOOL_NAME: 'builtin__show_widget',
-}));
-
 function createTurn(overrides: Partial<SessionTurnHistoryRow>): SessionTurnHistoryRow {
     return {
         id: 1,

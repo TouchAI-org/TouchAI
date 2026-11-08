@@ -14,7 +14,7 @@ interface LatestCompletedMessageMarkerParts {
     parts: string[];
     toolCalls: string[];
     approvals: string[];
-    widgets: string[];
+    legacyArtifacts: string[];
 }
 
 export interface SearchAutoShrinkEligibilityInput {
@@ -103,7 +103,10 @@ function buildLatestCompletedMessageMarkerParts(
             (toolCall) => `${toolCall.id}:${toolCall.status}:${toolCall.result}`
         ),
         approvals: message.approvals?.map((approval) => `${approval.id}:${approval.status}`) ?? [],
-        widgets: message.widgets?.map((widget) => `${widget.id}:${widget.updatedAt}`) ?? [],
+        legacyArtifacts:
+            message.legacyArtifacts?.map(
+                (widget) => `${widget.id}:${widget.updatedAt}:${widget.html.length}`
+            ) ?? [],
     };
 }
 

@@ -19,9 +19,12 @@ vi.mock('@/components/MarkdownContent.vue', () => ({
 vi.mock('@/views/SearchView/components/ConversationPanel/components/ToolCallItem.vue', () => ({
     default: { template: '<div>Tool</div>' },
 }));
-vi.mock('@/views/SearchView/components/ConversationPanel/components/WidgetFrame.vue', () => ({
-    default: { template: '<div>Widget</div>' },
-}));
+vi.mock(
+    '@/views/SearchView/components/ConversationPanel/components/VisualArtifactFrame.vue',
+    () => ({
+        default: { template: '<div data-testid="visual-artifact-frame">Artifact</div>' },
+    })
+);
 vi.mock(
     '@/views/SearchView/components/ConversationPanel/components/ToolApprovalHistoryCard.vue',
     () => ({ default: { template: '<div>Approval</div>' } })

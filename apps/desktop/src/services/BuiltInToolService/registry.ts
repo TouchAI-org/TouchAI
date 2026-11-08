@@ -9,7 +9,6 @@ import { builtInTools as settingTools } from './tools/setting';
 import { builtInTools as upgradeModelTools } from './tools/upgradeModel';
 import { builtInTools as webFetchTools } from './tools/webFetch';
 import { builtInTools as webSearchTools } from './tools/webSearch';
-import { builtInTools as widgetToolTools } from './tools/widgetTool';
 import type { BuiltInTool, BuiltInToolGroup, BuiltInToolId } from './types';
 
 /**
@@ -64,4 +63,3 @@ builtInToolRegistry.register(settingTools);
 builtInToolRegistry.register(webSearchTools);
 builtInToolRegistry.register(webFetchTools);
 builtInToolRegistry.register(upgradeModelTools);
-builtInToolRegistry.register(widgetToolTools);

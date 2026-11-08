@@ -11,7 +11,6 @@ import type {
     BuiltInToolConversationPresentation,
     BuiltInToolConversationSemantic,
 } from '@/services/BuiltInToolService';
-import type { ShowWidgetPayload } from '@/services/BuiltInToolService/tools/widgetTool';
 
 /**
  * SearchView 与 agent 运行时共享的会话展示模型。
@@ -87,7 +86,8 @@ export interface ApprovalMessagePart {
     callId: string;
 }
 
-export interface WidgetMessagePart {
+/** Read-only compatibility pointer for artifacts stored by pre-OpenUI ShowWidget. */
+export interface LegacyArtifactMessagePart {
     id: string;
     type: 'widget';
     widgetId: string;
@@ -100,20 +100,26 @@ export interface ContextCompactionMessagePart {
     state: 'compacting' | 'compacted';
 }
 
+export interface LegacyArtifactPayload {
+    callId: string;
+    widgetId: string;
+    title: string;
+    description: string;
+    html: string;
+    mode: 'render' | 'remove';
+    phase: 'draft' | 'ready';
+}
+
 export type SessionPart =
     | TextMessagePart
     | ReasoningMessagePart
     | ToolCallMessagePart
     | ApprovalMessagePart
-    | WidgetMessagePart
+    | LegacyArtifactMessagePart
     | ContextCompactionMessagePart;
 
-/**
- * 会话区里真正被渲染出来的 widget 实体。
- *
- * `show_widget` 只是生成/更新它的工具动作；UI 与持久化层统一只关心 widget 本身。
- */
-export interface WidgetInfo extends ShowWidgetPayload {
+/** Pre-OpenUI artifact shape retained only for reading existing tool-call history. */
+export interface LegacyArtifactInfo extends LegacyArtifactPayload {
     id: string;
     updatedAt: number;
 }
@@ -261,7 +267,8 @@ export interface SessionMessage {
     attachments?: Index[];
     inputSnapshot?: InputHistorySnapshot;
     approvals?: ToolApprovalInfo[];
-    widgets?: WidgetInfo[];
+    /** Pre-OpenUI artifacts reconstructed for backward-compatible replay. */
+    legacyArtifacts?: LegacyArtifactInfo[];
     parts: SessionPart[];
     timestamp: number;
     isStreaming?: boolean;

@@ -4,6 +4,7 @@ import {
     type AttachmentIndex,
     inspectAttachments,
 } from '@/services/AgentService/infrastructure/attachments';
+import { visualReplySystemPrompt } from '@/services/VisualReplyService/library';
 import type { InputHistorySnapshot } from '@/types/session';
 
 import {
@@ -90,6 +91,7 @@ async function buildPromptAssembly(options: ComposePromptSnapshotOptions): Promi
     const platformFragments = [
         ...(options.platform ?? [TOUCHAI_BUILTIN_SYSTEM_PROMPT]),
         buildCurrentLanguageSystemPrompt(modelLanguageContext),
+        ...(options.platform ? [] : [visualReplySystemPrompt]),
     ];
     const fragmentsBySource: Record<PromptFragmentSource, PromptFragment[]> = {
         override: buildFragments('override', options.override ?? []),

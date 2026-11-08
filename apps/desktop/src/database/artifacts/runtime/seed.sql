@@ -168,18 +168,6 @@ WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'upgrade_model');
 INSERT INTO built_in_tools (
     tool_id, display_name, description, enabled, risk_level, config_json
 )
-SELECT 'show_widget', 'ShowWidget', '在聊天中渲染内联可交互自定义可视化', 1, 'low', NULL
-WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'show_widget');
-
-INSERT INTO built_in_tools (
-    tool_id, display_name, description, enabled, risk_level, config_json
-)
-SELECT 'visualize_read_me', 'VisualizeReadMe', '读取 ShowWidget 生成规范', 1, 'low', NULL
-WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'visualize_read_me');
-
-INSERT INTO built_in_tools (
-    tool_id, display_name, description, enabled, risk_level, config_json
-)
 SELECT 'ask_user_question', 'AskUserQuestion', '向用户提出结构化问题', 1, 'low', NULL
 WHERE NOT EXISTS (SELECT 1 FROM built_in_tools WHERE tool_id = 'ask_user_question');
 

@@ -62,6 +62,7 @@
     --color-text-primary: #4a4039;
     --color-text-secondary: #6b5f54;
     --color-text-tertiary: #968b7d;
+    --color-text-danger: var(--color-error-800);
 
     /* ── Borders ─────────────────────────────────────────────────────────── */
 
@@ -110,54 +111,4 @@
     --shadow-window:
         var(--shadow-window-ring), var(--shadow-window-halo), var(--shadow-window-mid),
         var(--shadow-window-far);
-
-    /*
-     * ── Widget contract ───────────────────────────────────────────────────
-     *
-     * The `show-widget` tool asks the model to style generated HTML against a
-     * fixed set of variables (documented in prompts/show-widget/
-     * core_design_system.md). Twenty of them did not exist here, so the runtime
-     * papered over the gap with hardcoded fallbacks in runtimeConstants.ts:
-     * a second text colour (#2c2c2a against the app's #4a4039), a different
-     * radius scale (8px where the app uses 10px), and a duplicate mono stack.
-     *
-     * Declaring them here makes the contract real and lets the fallbacks shrink
-     * to genuine last resorts. Every value below is the one the fallback already
-     * used, so widgets render identically — they simply now inherit from the
-     * app's palette instead of from a copy of it.
-     *
-     * These are aliases, not a second palette. New code should use the roles
-     * above; this block exists for the widget contract's sake.
-     */
-
-    --color-background-secondary: rgba(246, 243, 238, 0.98);
-    --color-background-tertiary: rgba(239, 235, 228, 0.96);
-    --color-background-info: var(--color-info-50);
-    --color-background-danger: var(--color-error-50);
-    --color-background-success: var(--color-success-50);
-    --color-background-warning: var(--color-warning-50);
-
-    --color-text-info: var(--color-info-800);
-    --color-text-danger: var(--color-error-800);
-    --color-text-success: var(--color-success-800);
-    --color-text-warning: var(--color-warning-800);
-
-    --color-border-primary: rgba(95, 94, 90, 0.4);
-    --color-border-secondary: rgba(95, 94, 90, 0.3);
-    --color-border-tertiary: rgba(95, 94, 90, 0.15);
-    --color-border-info: rgba(12, 68, 124, 0.35);
-    --color-border-danger: rgba(121, 31, 31, 0.35);
-    --color-border-success: rgba(39, 80, 10, 0.35);
-    --color-border-warning: rgba(99, 56, 6, 0.35);
-}
-
-/*
- * The widget contract spells radii with a `--border-radius-*` prefix rather than
- * Tailwind's `--radius-*`. Declared outside `@theme` on purpose: these are not
- * utilities, they are values the runtime reads and copies into the widget host.
- */
-:root {
-    --border-radius-md: var(--radius-control);
-    --border-radius-lg: var(--radius-card);
-    --border-radius-xl: var(--radius-panel);
 }

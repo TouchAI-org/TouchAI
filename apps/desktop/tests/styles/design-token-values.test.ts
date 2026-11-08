@@ -269,17 +269,6 @@ describe('token layering', () => {
     it('declares every token inside @theme, which is the only block that generates utilities', () => {
         // A token declared in :root produces no utility class and fails silently
         // when used as a class name, which is exactly the bug this structure fixes.
-        //
-        // The widget radius aliases are the deliberate exception: they are not
-        // utilities, they are values the show-widget runtime reads and copies into
-        // the widget host. They must stay out of @theme, and this test names them
-        // explicitly rather than letting the rule grow a blanket ignore.
-        const nonUtilityTokens = new Set([
-            '--border-radius-md',
-            '--border-radius-lg',
-            '--border-radius-xl',
-        ]);
-
         for (const [name, source] of [
             ['primitive', primitiveCss],
             ['semantic', semanticCss],
@@ -290,26 +279,10 @@ describe('token layering', () => {
 
             expect(declared.length, `${name} declares no tokens`).toBeGreaterThan(0);
             for (const token of declared) {
-                if (nonUtilityTokens.has(token)) {
-                    continue;
-                }
-
                 expect(themeBody, `${token} in ${name}.css is declared outside @theme`).toContain(
                     token
                 );
             }
-        }
-    });
-
-    it('keeps the widget radius aliases out of @theme', () => {
-        // Declaring these in @theme would also generate rounded-md / rounded-lg /
-        // rounded-xl utilities with widget values, colliding with the app scale.
-        const themeBlocks = [...semanticCss.matchAll(/@theme\s*\{([\s\S]*?)\n\}/g)];
-        const themeBody = themeBlocks.map((block) => block[1]).join('\n');
-
-        for (const token of ['--border-radius-md', '--border-radius-lg', '--border-radius-xl']) {
-            expect(semanticCss, `${token} missing from semantic.css`).toContain(token);
-            expect(themeBody, `${token} must not be in @theme`).not.toContain(token);
         }
     });
 

@@ -4,7 +4,7 @@
  * 投影器共享工具函数。
  *
  * 这里只放不依赖任何投影器内部状态的纯函数，
- * 供 `widgets`、`approvals`、`toolCalls` 和主投影器统一复用。
+ * 供 `approvals`、`toolCalls` 和主投影器统一复用。
  */
 
 import type { SessionMessage } from '@/types/session';

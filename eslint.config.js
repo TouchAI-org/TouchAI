@@ -47,6 +47,8 @@ const PROJECT_COMPONENT_CLASS_PATTERNS = [
     '^search-surface.*',
     '^custom-scrollbar.*',
     '^tool-call-log.*',
+    '^visual-reply-.*',
+    '^openui-reply.*',
     '^toolbar-button$',
     '^dot$',
     '^web-search-sources__.*',

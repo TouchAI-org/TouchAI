@@ -133,22 +133,6 @@ export interface ToolEventBuiltInConversationSemantic {
     target?: string;
 }
 
-export type ShowWidgetMode = 'render' | 'remove';
-export type ShowWidgetPhase = 'draft' | 'ready';
-
-/**
- * widget 类工具向前端发出的渲染事件载荷。
- */
-export interface ShowWidgetEventPayload {
-    callId: string;
-    widgetId: string;
-    title: string;
-    description: string;
-    html: string;
-    mode: ShowWidgetMode;
-    phase: ShowWidgetPhase;
-}
-
 /**
  * 工具产出的结构化载荷。
  *
@@ -202,12 +186,6 @@ export type ToolEvent =
           callId: string;
           approved: boolean;
           resolutionText?: string;
-      }
-    | ({ type: 'widget_upsert' } & ShowWidgetEventPayload)
-    | {
-          type: 'widget_remove';
-          callId: string;
-          widgetId: string;
       }
     | {
           type: 'model_switched';

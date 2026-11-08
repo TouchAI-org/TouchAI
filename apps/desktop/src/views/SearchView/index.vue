@@ -32,6 +32,7 @@
         SearchSurfacePreparation,
         SearchWindowState,
     } from '@/services/NativeService/types';
+    import { registerVisualReplyHost } from '@/services/VisualReplyService/bridge';
     import { type AskUserConfirmOptions, useAskUserStore } from '@/stores/askUser';
     import { useMcpStore } from '@/stores/mcp';
     import { useSettingsStore } from '@/stores/settings';
@@ -314,9 +315,7 @@
     type E2eAskUserRequest =
         | { kind: 'confirm'; options: AskUserConfirmOptions }
         | { kind: 'approval'; payload: ToolApprovalDecisionRequest };
-    const widgetBridgeWindow = window as Window & {
-        sendPrompt?: (text: string) => void;
-        openLink?: (url: string) => void;
+    const e2eBridgeWindow = window as Window & {
         __TOUCHAI_E2E__?: {
             openSettingsWindow: () => Promise<void>;
             setSearchQuery: (text: string) => void;
@@ -334,6 +333,7 @@
             getSessionExpandDebug?: () => { events: unknown[] } | null;
         };
     };
+    let disposeVisualReplyHost: (() => void) | null = null;
     const searchInteractionContext = createSearchInteractionContext();
     const searchEntryPolicy = createSearchEntryPolicy();
     const suppressQuickSearchAutoOpenOnce = ref(false);
@@ -2163,7 +2163,7 @@
             return;
         }
 
-        widgetBridgeWindow.__TOUCHAI_E2E__ = {
+        e2eBridgeWindow.__TOUCHAI_E2E__ = {
             async openSettingsWindow() {
                 await native.window.openSettingsWindow();
             },
@@ -2223,7 +2223,7 @@
         };
     }
 
-    function handleWidgetSendPrompt(text: string) {
+    function handleVisualReplySendPrompt(text: string) {
         const normalizedText = text.trim();
         if (!normalizedText) {
             return;
@@ -2234,15 +2234,15 @@
             return;
         }
 
-        const widgetSnapshot = createInputHistorySnapshot({
+        const visualReplySnapshot = createInputHistorySnapshot({
             text: normalizedText,
             attachments: [],
             excludeFromHistory: true,
         });
-        void submitSearchQuery(normalizedText, widgetSnapshot);
+        void submitSearchQuery(normalizedText, visualReplySnapshot);
     }
 
-    function handleWidgetOpenLink(url: string) {
+    function handleVisualReplyOpenLink(url: string) {
         const normalizedUrl = url.trim();
         if (!normalizedUrl) {
             return;
@@ -2497,8 +2497,10 @@
 
     onMounted(() => {
         searchViewListenersDisposed = false;
-        widgetBridgeWindow.sendPrompt = handleWidgetSendPrompt;
-        widgetBridgeWindow.openLink = handleWidgetOpenLink;
+        disposeVisualReplyHost = registerVisualReplyHost({
+            sendPrompt: handleVisualReplySendPrompt,
+            openLink: handleVisualReplyOpenLink,
+        });
         window.addEventListener('resize', handleSearchWindowResize);
         void initialize()
             .then((initialCommitSucceeded) => {
@@ -2524,16 +2526,11 @@
             log.error('[SearchView] Failed to finish search panel resizing:', error);
         });
         searchWindowRegionReporter.dispose();
-        if (widgetBridgeWindow.sendPrompt === handleWidgetSendPrompt) {
-            delete widgetBridgeWindow.sendPrompt;
-        }
+        disposeVisualReplyHost?.();
+        disposeVisualReplyHost = null;
 
-        if (widgetBridgeWindow.openLink === handleWidgetOpenLink) {
-            delete widgetBridgeWindow.openLink;
-        }
-
-        if (widgetBridgeWindow.__TOUCHAI_E2E__) {
-            delete widgetBridgeWindow.__TOUCHAI_E2E__;
+        if (e2eBridgeWindow.__TOUCHAI_E2E__) {
+            delete e2eBridgeWindow.__TOUCHAI_E2E__;
         }
     });
 </script>

@@ -45,8 +45,6 @@ const BUILT_IN_TOOL_SEED_RISK_LEVELS: Record<BuiltInToolId, 'low' | 'medium' | '
     web_search: 'low',
     web_fetch: 'low',
     upgrade_model: 'medium',
-    show_widget: 'low',
-    visualize_read_me: 'low',
     ask_user_question: 'low',
     browser: 'medium',
     browser_session: 'medium',

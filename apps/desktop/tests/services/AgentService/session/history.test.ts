@@ -436,7 +436,7 @@ describe('user reopens a conversation that generated a widget', () => {
             }),
         ]);
 
-        const widgets = history[1]?.widgets ?? [];
+        const widgets = history[1]?.legacyArtifacts ?? [];
         expect(widgets).toHaveLength(1);
         expect(widgets[0]).toMatchObject({
             widgetId: 'w1',
@@ -462,7 +462,7 @@ describe('user reopens a conversation that generated a widget', () => {
             widgetRow(4, 'call-2', { widgetId: 'w1', mode: 'remove' }),
         ]);
 
-        expect(history[1]?.widgets ?? []).toHaveLength(0);
+        expect(history[1]?.legacyArtifacts ?? []).toHaveLength(0);
         expect(history[1]?.parts.filter((part) => part.type === 'widget')).toHaveLength(0);
     });
 
@@ -477,7 +477,7 @@ describe('user reopens a conversation that generated a widget', () => {
             ),
         ]);
 
-        expect(history[1]?.widgets ?? []).toHaveLength(0);
+        expect(history[1]?.legacyArtifacts ?? []).toHaveLength(0);
     });
 });
 
@@ -871,12 +871,12 @@ describe('user reopens a conversation whose widget updates are replayed', () => 
             }),
         ]);
 
-        expect(history[1]?.widgets ?? []).toHaveLength(1);
-        expect(history[1]?.widgets?.[0]).toMatchObject({
+        expect(history[1]?.legacyArtifacts ?? []).toHaveLength(1);
+        expect(history[1]?.legacyArtifacts?.[0]).toMatchObject({
             widgetId: 'w2',
             html: '<div>v2</div>',
         });
-        expect(history[3]?.widgets ?? []).toHaveLength(0);
+        expect(history[3]?.legacyArtifacts ?? []).toHaveLength(0);
         expect(
             history[1]?.parts.filter((part) => part.type === 'widget').map((part) => part.widgetId)
         ).toEqual(['w2']);
@@ -894,7 +894,7 @@ describe('user reopens a conversation whose widget updates are replayed', () => 
             widgetRow(4, 'call-2', { mode: 'remove' }),
         ]);
 
-        expect(history[1]?.widgets?.[0]).toMatchObject({ widgetId: 'w1' });
+        expect(history[1]?.legacyArtifacts?.[0]).toMatchObject({ widgetId: 'w1' });
     });
 
     it('user does not see a widget whose render carried no markup', async () => {
@@ -903,7 +903,7 @@ describe('user reopens a conversation whose widget updates are replayed', () => 
             widgetRow(2, 'call-1', { widgetId: 'w1', title: 'Sales' }),
         ]);
 
-        expect(history[1]?.widgets ?? []).toHaveLength(0);
+        expect(history[1]?.legacyArtifacts ?? []).toHaveLength(0);
         expect(history[1]?.parts.filter((part) => part.type === 'widget')).toHaveLength(0);
     });
 
@@ -916,7 +916,7 @@ describe('user reopens a conversation whose widget updates are replayed', () => 
         ]);
 
         expect(history.map((message) => message.role)).toEqual(['user', 'user', 'assistant']);
-        expect(history[2]?.widgets ?? []).toHaveLength(0);
+        expect(history[2]?.legacyArtifacts ?? []).toHaveLength(0);
     });
 
     it('user sees the widget dropped when a later render of the same call failed', async () => {
@@ -931,7 +931,7 @@ describe('user reopens a conversation whose widget updates are replayed', () => 
             widgetRow(4, 'call-1', { widgetId: 'w1', title: 'Sales' }, 'error'),
         ]);
 
-        expect(history[1]?.widgets ?? []).toHaveLength(0);
+        expect(history[1]?.legacyArtifacts ?? []).toHaveLength(0);
         expect(history[1]?.parts.filter((part) => part.type === 'widget')).toHaveLength(0);
     });
 });

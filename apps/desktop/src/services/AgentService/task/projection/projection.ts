@@ -4,11 +4,12 @@
  * 任务投影器（协调层）。
  *
  * 负责把底层运行事件整理成 UI 可直接消费的任务快照。
- * Widget、审批、工具调用三个子关注点分别由同目录下的对应模块承载，
+ * 审批、工具调用两个子关注点分别由同目录下的对应模块承载，
  * 本文件只保留核心生命周期、消息管理和跨子关注点的编排逻辑。
  */
 
 import { tt } from '@/i18n';
+import { LEGACY_SHOW_WIDGET_TOOL_NAME } from '@/services/VisualReplyService/protocol';
 import {
     cloneInputHistorySnapshot,
     createInputHistorySnapshot,
@@ -46,7 +47,6 @@ import {
     removeToolApproval,
     updateToolApproval,
 } from './userPrompts';
-import { ProjectionWidgets } from './widgets';
 
 interface CheckpointPresentation {
     sessionHistory: SessionMessage[];
@@ -72,10 +72,6 @@ export class SessionTaskProjection {
     private activeAssistantMessageId: string | null = null;
     private lastCheckpointPresentation: CheckpointPresentation | null = null;
 
-    private readonly widgets = new ProjectionWidgets(() => {
-        this.touch();
-        this.publish();
-    });
     private readonly userPrompts = new ProjectionUserPrompts();
 
     constructor(
@@ -325,26 +321,6 @@ export class SessionTaskProjection {
             }
         }
 
-        if (chunk.toolCallDeltas?.length) {
-            for (const toolCallDelta of chunk.toolCallDeltas) {
-                this.widgets.handleToolCallDelta(
-                    this.snapshot.sessionHistory,
-                    assistantMessage.id,
-                    toolCallDelta
-                );
-            }
-        }
-
-        if (chunk.done && chunk.toolCalls?.length) {
-            for (const toolCall of chunk.toolCalls) {
-                this.widgets.processFinishedToolCall(
-                    this.snapshot.sessionHistory,
-                    assistantMessage.id,
-                    toolCall
-                );
-            }
-        }
-
         if (chunk.toolEvent) {
             this.handleToolEvent(assistantMessage, chunk.toolEvent);
         }
@@ -354,7 +330,6 @@ export class SessionTaskProjection {
     }
 
     markCompleted(): void {
-        this.widgets.resetTransientState();
         const assistantMessage = this.getActiveAssistantMessage();
         if (assistantMessage) {
             this.clearPendingCompaction(assistantMessage);
@@ -369,7 +344,6 @@ export class SessionTaskProjection {
     }
 
     markFailed(errorMessage: string, displayMessage = errorMessage): void {
-        this.widgets.resetTransientState();
         const statusText = tt('请求失败: {error}', { error: displayMessage });
         let shouldCreateStandaloneStatus = true;
         const assistantMessage = this.getActiveAssistantMessage();
@@ -401,7 +375,6 @@ export class SessionTaskProjection {
     }
 
     markCancelled(): void {
-        this.widgets.resetTransientState();
         const cancellationText = tt('请求已取消');
         this.markActiveToolCallsCancelled(cancellationText);
 
@@ -549,7 +522,6 @@ export class SessionTaskProjection {
         this.activeAssistantMessageId = this.lastCheckpointPresentation.activeAssistantMessageId;
         this.response = this.lastCheckpointPresentation.response;
         this.reasoning = this.lastCheckpointPresentation.reasoning;
-        this.widgets.resetTransientState();
         return true;
     }
 
@@ -571,11 +543,6 @@ export class SessionTaskProjection {
         const approvalCallIds = new Set(
             (message.approvals ?? []).map((approval) => approval.callId)
         );
-        const widgetIds = new Set((message.widgets ?? []).map((widget) => widget.widgetId));
-        const widgetBackedToolCallIds = new Set(
-            (message.widgets ?? []).map((widget) => widget.callId)
-        );
-
         return message.parts.some((part) => {
             if (part.type === 'context_compaction') return part.state === 'compacted';
             if (part.type === 'text' || part.type === 'reasoning') {
@@ -583,17 +550,17 @@ export class SessionTaskProjection {
             }
 
             if (part.type === 'tool_call') {
-                return (
-                    !this.widgets.isHiddenBuiltinToolCall(part.toolCall.namespacedName) &&
-                    !widgetBackedToolCallIds.has(part.toolCall.id)
-                );
+                return part.toolCall.namespacedName !== LEGACY_SHOW_WIDGET_TOOL_NAME;
             }
 
             if (part.type === 'approval') {
                 return approvalCallIds.has(part.callId);
             }
 
-            return widgetIds.has(part.widgetId);
+            return (
+                part.type === 'widget' &&
+                !!message.legacyArtifacts?.some((widget) => widget.widgetId === part.widgetId)
+            );
         });
     }
 
@@ -735,8 +702,7 @@ export class SessionTaskProjection {
     /**
      * 批量标记活跃工具调用为已取消。
      *
-     * 横跨工具调用和 widget 两个子关注点：
-     * 先通过 widget 管理器清理草稿，再更新工具调用状态。
+     * Mark any active calls after the request is cancelled.
      */
     private markActiveToolCallsCancelled(cancellationText: string): void {
         for (const message of this.snapshot.sessionHistory) {
@@ -755,9 +721,6 @@ export class SessionTaskProjection {
                     continue;
                 }
 
-                this.widgets.finalizeToolCall(this.snapshot.sessionHistory, toolCall.id, {
-                    removeDraft: true,
-                });
                 toolCall.status = 'cancelled';
                 toolCall.isError = false;
                 toolCall.result = cancellationText;
@@ -850,24 +813,7 @@ export class SessionTaskProjection {
             return;
         }
 
-        if (toolEvent.type === 'widget_upsert') {
-            this.widgets.upsertWidget(this.snapshot.sessionHistory, message.id, toolEvent);
-            return;
-        }
-
-        if (toolEvent.type === 'widget_remove') {
-            this.widgets.removeWidgetByWidgetId(
-                this.snapshot.sessionHistory,
-                toolEvent.widgetId,
-                message.id
-            );
-            return;
-        }
-
         if (toolEvent.type === 'call_end') {
-            this.widgets.finalizeToolCall(this.snapshot.sessionHistory, toolEvent.callId, {
-                removeDraft: toolEvent.isError || toolEvent.finalStatus === 'rejected',
-            });
             updateToolCallStatus(
                 this.snapshot.sessionHistory,
                 message.id,

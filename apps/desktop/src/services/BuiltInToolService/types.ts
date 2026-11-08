@@ -26,8 +26,6 @@ export type BuiltInToolId =
     | 'web_search'
     | 'web_fetch'
     | 'upgrade_model'
-    | 'show_widget'
-    | 'visualize_read_me'
     | 'ask_user_question'
     | 'browser'
     | 'browser_session'

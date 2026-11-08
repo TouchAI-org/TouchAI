@@ -1,6 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 import './utils/early-errors';
 import '@styles/tailwind.css';
+import '@styles/visual-reply.css';
 
 import { log } from '@services/ObservabilityService';
 
