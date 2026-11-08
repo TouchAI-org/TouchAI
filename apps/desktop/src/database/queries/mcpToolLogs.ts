@@ -31,7 +31,5 @@ export const findMcpToolLogById = async (id: number) =>
     (await findToolPartById('mcp', id)) as McpToolLogEntity | undefined;
 export const createMcpToolLog = async (data: McpToolLogCreateData) =>
     (await createToolPart('mcp', { ...data })) as McpToolLogEntity;
-export const updateMcpToolLogByCallId = async (id: string, data: McpToolLogUpdateData) =>
-    (await updateToolPart('mcp', eq(messageParts.tool_call_id, id), { ...data })) as
-        | McpToolLogEntity
-        | undefined;
+export const updateMcpToolLogById = async (id: number, data: McpToolLogUpdateData) =>
+    (await updateToolPart('mcp', id, data)) as McpToolLogEntity | undefined;

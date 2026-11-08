@@ -1,4 +1,9 @@
-﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+﻿import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type {
@@ -14,10 +19,10 @@ const providerMock = vi.hoisted(() => ({
     classifyError: vi.fn(),
 }));
 
-const { createMcpToolLogMock, updateMcpToolLogByCallIdMock, resolveToolCallMock, executeToolMock } =
+const { createMcpToolLogMock, updateMcpToolLogByIdMock, resolveToolCallMock, executeToolMock } =
     vi.hoisted(() => ({
         createMcpToolLogMock: vi.fn(),
-        updateMcpToolLogByCallIdMock: vi.fn(),
+        updateMcpToolLogByIdMock: vi.fn(),
         resolveToolCallMock: vi.fn(),
         executeToolMock: vi.fn(),
     }));
@@ -42,7 +47,7 @@ const {
 
 vi.mock('@database/queries', () => ({
     createMcpToolLog: createMcpToolLogMock,
-    updateMcpToolLogByCallId: updateMcpToolLogByCallIdMock,
+    updateMcpToolLogById: updateMcpToolLogByIdMock,
 }));
 
 vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
@@ -167,6 +172,21 @@ function createLongCheckpoint(): AttemptCheckpoint {
     }));
     return checkpoint;
 }
+
+function prepareToolMessage(sessionId: number) {
+    const database = openMigratedDatabase();
+    routeQueriesTo(database);
+    database
+        .prepare(
+            "INSERT INTO sessions (id, session_id, title, model) VALUES (?, 'test', 'Test', 'test')"
+        )
+        .run(sessionId);
+    database
+        .prepare("INSERT INTO messages (id, session_id, role) VALUES (1, ?, 'tool_call')")
+        .run(sessionId);
+}
+
+afterEach(closeTestDatabases);
 
 describe('user sends a prompt and receives a streamed answer', () => {
     beforeEach(() => {
@@ -579,6 +599,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
     });
 
     it('user sees interleaved output kept in order on the next tool-loop request', async () => {
+        prepareToolMessage(42);
         providerMock.stream
             .mockImplementationOnce(async function* () {
                 yield {
@@ -706,7 +727,7 @@ function createToolCall(): AiToolCall {
 describe('user runs a tool call and watches it start', () => {
     it('user sees a tool call start reported before the tool runs', async () => {
         createMcpToolLogMock.mockResolvedValue({ id: 23 });
-        updateMcpToolLogByCallIdMock.mockResolvedValue(undefined);
+        updateMcpToolLogByIdMock.mockResolvedValue(undefined);
         resolveToolCallMock.mockResolvedValue({
             serverId: 1,
             originalName: 'search',
@@ -762,7 +783,7 @@ describe('user runs a tool call and watches it start', () => {
     it('user does not get mcp tool secrets stored in the audit log', async () => {
         vi.clearAllMocks();
         createMcpToolLogMock.mockResolvedValue({ id: 23 });
-        updateMcpToolLogByCallIdMock.mockResolvedValue(undefined);
+        updateMcpToolLogByIdMock.mockResolvedValue(undefined);
         resolveToolCallMock.mockResolvedValue({
             serverId: 1,
             originalName: 'search',
@@ -783,7 +804,7 @@ describe('user runs a tool call and watches it start', () => {
         });
 
         const storedInput = createMcpToolLogMock.mock.calls[0]?.[0] as { input: string };
-        const storedOutput = updateMcpToolLogByCallIdMock.mock.calls[0]?.[1] as {
+        const storedOutput = updateMcpToolLogByIdMock.mock.calls[0]?.[1] as {
             output: string;
         };
 
@@ -799,6 +820,7 @@ describe('user runs a tool call and watches it start', () => {
 
 describe('user calls a tool the agent does not have', () => {
     beforeEach(() => {
+        prepareToolMessage(1);
         vi.clearAllMocks();
         // The once-queue survives clearAllMocks, so reset it to keep rounds per-test.
         providerMock.stream.mockReset();
@@ -867,7 +889,7 @@ describe('user calls a tool the agent does not have', () => {
             toolTimeout: 30000,
         });
         createMcpToolLogMock.mockResolvedValue({ id: 23 });
-        updateMcpToolLogByCallIdMock.mockResolvedValue(undefined);
+        updateMcpToolLogByIdMock.mockResolvedValue(undefined);
         // A non-Error rejection must still surface a readable failure, not crash the turn.
         executeToolMock.mockRejectedValue('server went away');
         providerMock.stream

@@ -126,6 +126,41 @@ function prepare(persister: PersistenceProjector, input: AiRequestOptions) {
     };
 }
 
+function attachBackup(target: DatabaseSync, source: DatabaseSync) {
+    target.exec('PRAGMA foreign_keys = OFF');
+    target.exec("ATTACH DATABASE ':memory:' AS imported");
+    const tables = source
+        .prepare(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'message_search_fts%'"
+        )
+        .all();
+    for (const table of tables) {
+        target.exec(String(table.sql).replace('CREATE TABLE ', 'CREATE TABLE imported.'));
+        const columns = source
+            .prepare(`PRAGMA table_xinfo("${table.name}")`)
+            .all()
+            .filter((column) => column.hidden === 0)
+            .map((column) => String(column.name));
+        const quoted = columns.map((column) => `"${column}"`).join(',');
+        const insert = target.prepare(
+            `INSERT INTO imported."${table.name}" (${quoted}) VALUES (${columns.map(() => '?').join(',')})`
+        );
+        for (const row of source.prepare(`SELECT ${quoted} FROM "${table.name}"`).all())
+            insert.run(...columns.map((column) => row[column] as SQLInputValue));
+    }
+    target.exec('PRAGMA foreign_keys = ON');
+}
+
+function importChangedHistory(database: DatabaseSync) {
+    attachBackup(database, database);
+    database.exec(
+        "UPDATE imported.message_parts SET content='Divergent backup evidence' WHERE message_id=2 AND type='text'"
+    );
+    database.exec('BEGIN IMMEDIATE');
+    database.exec(readFileSync(resolve('src/database/artifacts/import/chat_merge.sql'), 'utf8'));
+    database.exec('COMMIT');
+}
+
 describe('given a long conversation in the shipped SQLite schema', () => {
     let database: DatabaseSync;
     beforeEach(() => {
@@ -179,22 +214,19 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         expect(await findMessagesBySessionId(1)).toHaveLength(26);
     });
 
-    it('user edits the source while a summary is being generated and never commits a stale checkpoint', async () => {
+    it('user imports divergent history while a summary is being generated and never commits a stale checkpoint', async () => {
         const first = projector();
         await first.recordTurnStart(checkpoint());
         const input = await request();
+        let imported = false;
         await expect(
             new ContextWindow().prepare({
                 ...prepare(first, input),
                 summarize: async () => {
-                    await syncOutputParts(2, [
-                        {
-                            message_id: 2,
-                            type: 'text',
-                            content: 'Corrected while summarizing',
-                            sort_order: 0,
-                        },
-                    ]);
+                    if (!imported) {
+                        importChangedHistory(database);
+                        imported = true;
+                    }
                     return { text: summaryText, finishReason: 'stop' };
                 },
             })
@@ -256,18 +288,22 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         }
     );
 
-    it('user edits covered history during a running request and cannot continue with its invalidated summary', async () => {
+    it('user imports divergent history during a running request and cannot continue with its invalidated summary', async () => {
         const first = projector();
         await first.recordTurnStart(checkpoint());
         const prepared = await new ContextWindow().prepare(prepare(first, await request()));
         const summary = prepared.messages.find((message) => message.contextSummary)!;
         await first.validateContextSummary(summary);
-        await syncOutputParts(2, [
-            { message_id: 2, type: 'text', content: 'Correction', sort_order: 0 },
-        ]);
+        importChangedHistory(database);
         await expect(first.validateContextSummary(summary)).rejects.toMatchObject({
             code: 'CONTEXT_COMPACTION_FAILED',
         });
+        expect((await createSessionReadModel().getContext(1)).summary).toBeUndefined();
+        expect(
+            (await loadSessionHistory(1))
+                .flatMap((message) => message.parts)
+                .filter((part) => part.type === 'context_compaction')
+        ).toHaveLength(1);
     });
 
     it('user continues a long tool conversation and updates the previous summary while keeping complete exchanges', async () => {
@@ -653,28 +689,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         await new ContextWindow().prepare(prepare(first, await request()));
         const saved = (await createSessionReadModel().getContext(1)).summary;
         const target = openMigratedDatabase();
-        target.exec('PRAGMA foreign_keys = OFF');
-        target.exec("ATTACH DATABASE ':memory:' AS imported");
-        const tables = database
-            .prepare(
-                "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'message_search_fts%'"
-            )
-            .all();
-        for (const table of tables) {
-            target.exec(String(table.sql).replace('CREATE TABLE ', 'CREATE TABLE imported.'));
-            const columns = database
-                .prepare(`PRAGMA table_xinfo("${table.name}")`)
-                .all()
-                .filter((column) => column.hidden === 0)
-                .map((column) => String(column.name));
-            const quoted = columns.map((column) => `"${column}"`).join(',');
-            const insert = target.prepare(
-                `INSERT INTO imported."${table.name}" (${quoted}) VALUES (${columns.map(() => '?').join(',')})`
-            );
-            for (const row of database.prepare(`SELECT ${quoted} FROM "${table.name}"`).all())
-                insert.run(...columns.map((column) => row[column] as SQLInputValue));
-        }
-        target.exec('PRAGMA foreign_keys = ON');
+        attachBackup(target, database);
         target.exec(readFileSync(resolve('src/database/artifacts/import/chat_merge.sql'), 'utf8'));
         routeQueriesTo(target);
         expect((await createSessionReadModel().getContext(1)).summary).toEqual(saved);

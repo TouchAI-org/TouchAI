@@ -12,7 +12,7 @@ const {
     findBuiltInToolByToolIdMock,
     findEnabledBuiltInToolsMock,
     touchBuiltInToolLastUsedMock,
-    updateBuiltInToolLogByCallIdMock,
+    updateBuiltInToolLogByIdMock,
 } = vi.hoisted(() => {
     const fakeTool = {
         id: 'setting',
@@ -40,7 +40,7 @@ const {
         findBuiltInToolByToolIdMock: vi.fn(),
         findEnabledBuiltInToolsMock: vi.fn(),
         touchBuiltInToolLastUsedMock: vi.fn(),
-        updateBuiltInToolLogByCallIdMock: vi.fn(),
+        updateBuiltInToolLogByIdMock: vi.fn(),
     };
 });
 
@@ -51,7 +51,7 @@ vi.mock('@database/queries', () => ({
     findBuiltInToolByToolId: findBuiltInToolByToolIdMock,
     findEnabledBuiltInTools: findEnabledBuiltInToolsMock,
     touchBuiltInToolLastUsed: touchBuiltInToolLastUsedMock,
-    updateBuiltInToolLogByCallId: updateBuiltInToolLogByCallIdMock,
+    updateBuiltInToolLogById: updateBuiltInToolLogByIdMock,
 }));
 
 vi.mock('@/services/BuiltInToolService/registry', () => ({
@@ -143,7 +143,7 @@ describe('user reads built-in tool activity in their own language', () => {
         });
         createBuiltInToolLogMock.mockResolvedValue({ id: 11 });
         createBuiltInToolMock.mockResolvedValue({ id: 12 });
-        updateBuiltInToolLogByCallIdMock.mockResolvedValue(undefined);
+        updateBuiltInToolLogByIdMock.mockResolvedValue(undefined);
         findAllBuiltInToolsMock.mockResolvedValue([]);
         findEnabledBuiltInToolsMock.mockResolvedValue([]);
     });
@@ -235,8 +235,8 @@ describe('user reads built-in tool activity in their own language', () => {
             result: '工具执行失败：boom',
             isError: true,
         });
-        expect(updateBuiltInToolLogByCallIdMock).toHaveBeenLastCalledWith(
-            'tool-call-1',
+        expect(updateBuiltInToolLogByIdMock).toHaveBeenLastCalledWith(
+            11,
             expect.objectContaining({
                 output: '工具执行失败：boom',
                 error_message: 'boom',
@@ -256,8 +256,8 @@ describe('user reads built-in tool activity in their own language', () => {
             builtInToolService.executeTool(createExecutionOptions(controller.signal))
         ).rejects.toThrow('请求已取消');
 
-        expect(updateBuiltInToolLogByCallIdMock).toHaveBeenCalledWith(
-            'tool-call-1',
+        expect(updateBuiltInToolLogByIdMock).toHaveBeenCalledWith(
+            11,
             expect.objectContaining({
                 status: 'cancelled',
                 error_message: '请求已取消',

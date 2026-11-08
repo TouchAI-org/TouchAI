@@ -86,7 +86,10 @@ function parseToolArguments(raw: string | null): Record<string, unknown> {
     }
 
     try {
-        return JSON.parse(raw) as Record<string, unknown>;
+        const parsed: unknown = JSON.parse(raw);
+        return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : {};
     } catch {
         return {};
     }

@@ -78,7 +78,7 @@ vi.mock('@database/queries', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@database/queries')>()),
     updateModelLastUsed: updateModelLastUsedMock,
     createMcpToolLog: vi.fn(async () => ({ id: 23 })),
-    updateMcpToolLogByCallId: vi.fn(async () => undefined),
+    updateMcpToolLogById: vi.fn(async () => undefined),
 }));
 
 vi.mock('@database/queries/llmMetadata', () => ({

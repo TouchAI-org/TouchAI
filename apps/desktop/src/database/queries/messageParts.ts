@@ -65,31 +65,6 @@ export async function findLatestContextCompaction(
     return row?.part;
 }
 
-/** Caller owns the write transaction; append-only writes after a boundary leave it reusable. */
-export async function invalidateContextCompactions(
-    messageIds: number[],
-    database: DatabaseExecutor
-): Promise<void> {
-    if (!messageIds.length) return;
-    await database.run(sql`
-        UPDATE message_parts SET data = json_set(data, '$.invalidatedAt', ${Date.now()})
-        WHERE id IN (
-            SELECT checkpoint.id FROM messages AS changed
-            CROSS JOIN messages AS owner
-            CROSS JOIN message_parts AS checkpoint INDEXED BY message_parts_message_id_sort_order_idx
-            WHERE changed.id IN (${sql.join(
-                [...new Set(messageIds)].map((id) => sql`${id}`),
-                sql`, `
-            )})
-              AND owner.session_id = changed.session_id AND owner.id > changed.id
-              AND checkpoint.message_id = owner.id AND checkpoint.type = 'context_compaction'
-              AND json_extract(checkpoint.data, '$.version') = 2
-              AND json_extract(checkpoint.data, '$.invalidatedAt') IS NULL
-              AND json_extract(checkpoint.data, '$.firstKeptMessageId') > changed.id
-        )
-    `);
-}
-
 /**
  * 按工具调用 id 反查 tool_call 片段。
  *
@@ -129,13 +104,6 @@ export const createMessageParts = async (
     if (parts.length === 0) {
         return;
     }
-    if (database === db) return db.transaction((tx) => createMessageParts(parts, tx));
-    await invalidateContextCompactions(
-        parts
-            .filter((part) => !['llm_call', 'context_compaction'].includes(part.type))
-            .map((part) => part.message_id),
-        database
-    );
     await database.insert(messageParts).values(parts).run();
 };
 
@@ -150,8 +118,6 @@ export const appendMessagePart = async (
     database: DatabaseExecutor = db
 ): Promise<MessagePartEntity> => {
     if (database === db) return db.transaction((tx) => appendMessagePart(messageId, part, tx));
-    if (!['llm_call', 'context_compaction'].includes(part.type))
-        await invalidateContextCompactions([messageId], database);
     const maximum = await database
         .select({
             value: sql<number>`coalesce(max(${messageParts.sort_order}), -1)`.as('value'),
@@ -198,8 +164,6 @@ export const mergeMessagePartData = async (
         ...(JSON.parse(part.data) as Record<string, unknown>),
         ...patch,
     });
-    if (data !== part.data && !['llm_call', 'context_compaction'].includes(part.type))
-        await invalidateContextCompactions([part.message_id], database);
     await database
         .update(messageParts)
         .set({ data, updated_at: sql`datetime('now')` })
@@ -247,17 +211,6 @@ export async function syncOutputParts(
         )
         .all();
     const byOrder = new Map(existing.map((part) => [part.sort_order, part]));
-    const unchanged =
-        existing.length === drafts.length &&
-        drafts.every((draft) => {
-            const previous = byOrder.get(draft.sort_order);
-            return (
-                previous?.type === draft.type &&
-                previous.content === draft.content &&
-                previous.data === (draft.data ?? '{}')
-            );
-        });
-    if (!unchanged) await invalidateContextCompactions([messageId], database);
     for (const draft of drafts) {
         const previous = byOrder.get(draft.sort_order);
         if (!previous) {

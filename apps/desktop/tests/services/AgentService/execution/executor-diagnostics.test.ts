@@ -2,6 +2,11 @@
  * Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
  */
 
+import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
@@ -341,12 +346,19 @@ describe('user gets an answer the model never produced', () => {
 
 describe('user watches a tool loop commit its progress', () => {
     beforeEach(() => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        database.exec(`
+            INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'diagnostics', 'Test', 'test');
+            INSERT INTO messages (id, session_id, role) VALUES (1, 1, 'tool_call');
+        `);
         vi.clearAllMocks();
         // clearAllMocks keeps the mockImplementationOnce queue; drain it so rounds stay per-test.
         providerMock.stream.mockReset();
         createProviderForModelMock.mockReturnValue(providerMock);
         resolveToolDefinitionsMock.mockResolvedValue([]);
     });
+    afterEach(closeTestDatabases);
 
     function persisterStub() {
         return {

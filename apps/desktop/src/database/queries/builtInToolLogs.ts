@@ -41,7 +41,5 @@ export const findBuiltInToolLogById = async (id: number) =>
 
 export const createBuiltInToolLog = async (data: BuiltInToolLogCreateData) =>
     (await createToolPart('builtin', { ...data })) as BuiltInToolLogEntity;
-export const updateBuiltInToolLogByCallId = async (id: string, data: BuiltInToolLogUpdateData) =>
-    (await updateToolPart('builtin', eq(messageParts.tool_call_id, id), { ...data })) as
-        | BuiltInToolLogEntity
-        | undefined;
+export const updateBuiltInToolLogById = async (id: number, data: BuiltInToolLogUpdateData) =>
+    (await updateToolPart('builtin', id, data)) as BuiltInToolLogEntity | undefined;

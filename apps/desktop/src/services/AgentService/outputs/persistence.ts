@@ -846,7 +846,7 @@ export class PersistenceProjector {
         return contextMessageSource(row);
     }
 
-    /** A concurrent import/edit must stop the next model step from using an invalidated summary. */
+    /** A concurrent import must stop the next model step from using an invalidated summary. */
     async validateContextSummary(message: AiMessage): Promise<void> {
         if (!message.contextSummary) return;
         const part =

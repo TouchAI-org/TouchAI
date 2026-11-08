@@ -5,7 +5,6 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { type DatabaseExecutor, db } from '../index';
 import { attachments, messageParts, messages } from '../schema';
 import type { AttachmentCreateData, AttachmentEntity, MessageAttachmentCreateData } from '../types';
-import { invalidateContextCompactions } from './messageParts';
 
 export interface MessageAttachmentRow extends AttachmentEntity {
     message_id: number;
@@ -60,7 +59,6 @@ export async function createMessageAttachment(
     database: DatabaseExecutor = db
 ): Promise<void> {
     if (database === db) return db.transaction((tx) => createMessageAttachment(data, tx));
-    await invalidateContextCompactions([data.message_id], database);
     const maximum = await database
         .select({ value: sql<number>`coalesce(max(${messageParts.sort_order}), -1)`.as('value') })
         .from(messageParts)

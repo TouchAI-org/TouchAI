@@ -1,11 +1,7 @@
 import type { SQLInputValue } from 'node:sqlite';
 
-import { db } from '@database';
 import { findAttachmentsByMessageIds } from '@database/queries/attachments';
-import {
-    findLatestContextCompaction,
-    invalidateContextCompactions,
-} from '@database/queries/messageParts';
+import { findLatestContextCompaction } from '@database/queries/messageParts';
 import { getTauriInvokeCalls } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -74,36 +70,6 @@ describe('given completed checkpoints across multiple sessions', () => {
         ).toEqual([expect.objectContaining({ id: 1, message_id: 1 })]);
         const calls = getTauriInvokeCalls('database_query');
         const call = calls[calls.length - 1]!;
-        const { request } = call.payload as { request: { sql: string; params: SQLInputValue[] } };
-        const plan = database.prepare(`EXPLAIN QUERY PLAN ${request.sql}`).all(...request.params);
-        const details = plan.map((row) => String(row.detail)).join('\n');
-        expect(details).toContain('message_parts_message_id_sort_order_idx');
-        expect(details).not.toContain('message_parts_llm_call_idx');
-    });
-
-    it('user edits covered history and invalidates only its session through bounded part lookups', async () => {
-        const database = openMigratedDatabase();
-        routeQueriesTo(database);
-        database.exec(`
-            INSERT INTO sessions(id, session_id, title, model) VALUES (1, 'edited', 'Edited', 'test'), (2, 'other', 'Other', 'test');
-            INSERT INTO messages(id, session_id, role) VALUES (1, 1, 'user'), (2, 1, 'assistant'), (3, 2, 'assistant');
-            INSERT INTO message_parts(message_id, type, content, data, sort_order) VALUES
-                (2, 'context_compaction', 'Edited session', '{"version":2,"firstKeptMessageId":2}', 0),
-                (3, 'context_compaction', 'Other session', '{"version":2,"firstKeptMessageId":3}', 0);
-        `);
-        await db.transaction((tx) => invalidateContextCompactions([1], tx));
-        expect(
-            database
-                .prepare(
-                    "SELECT message_id FROM message_parts WHERE json_extract(data, '$.invalidatedAt') IS NOT NULL"
-                )
-                .all()
-        ).toEqual([{ message_id: 2 }]);
-        const call = getTauriInvokeCalls('database_tx_query').find((call) =>
-            (call.payload as { request: { sql: string } }).request.sql.includes(
-                'UPDATE message_parts'
-            )
-        )!;
         const { request } = call.payload as { request: { sql: string; params: SQLInputValue[] } };
         const plan = database.prepare(`EXPLAIN QUERY PLAN ${request.sql}`).all(...request.params);
         const details = plan.map((row) => String(row.detail)).join('\n');

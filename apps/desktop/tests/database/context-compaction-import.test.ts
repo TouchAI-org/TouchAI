@@ -4,7 +4,9 @@ import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { closeTestDatabases, openMigratedDatabase } from './sqliteHarness';
+import { loadSessionTransportMessages } from '@/services/AgentService/session/transport';
+
+import { closeTestDatabases, openMigratedDatabase, routeQueriesTo } from './sqliteHarness';
 
 function sourceDatabase() {
     const database = openMigratedDatabase();
@@ -79,6 +81,59 @@ function saved(target: DatabaseSync) {
 
 describe('given context checkpoints in a conversation backup', () => {
     afterEach(closeTestDatabases);
+
+    it('user imports rejected calls and preserves opaque or missing-server names while remapping known servers', async () => {
+        const source = sourceDatabase();
+        source.exec(`
+            DELETE FROM message_parts WHERE message_id IN (2, 4);
+            UPDATE messages SET role='tool_call' WHERE id=2;
+            INSERT INTO mcp_servers (id, name, transport_type, enabled)
+            VALUES (7, 'Original server', 'stdio', 0);
+        `);
+        const calls = [
+            { toolCallId: 'canonical', server_id: 7, tool_name: 'missing' },
+            { toolCallId: 'opaque', server_id: null, tool_name: 'ghost', requestedName: 'ghost' },
+            {
+                toolCallId: 'absent-server',
+                server_id: null,
+                tool_name: 'mcp__999__missing',
+                requestedName: 'mcp__999__missing',
+            },
+        ];
+        calls.forEach((identity, index) =>
+            source
+                .prepare(
+                    "INSERT INTO message_parts (message_id, type, content, data, sort_order) VALUES (2, 'tool_call', '', ?, ?)"
+                )
+                .run(
+                    JSON.stringify({
+                        ...identity,
+                        toolKind: 'mcp',
+                        input: '{bad',
+                        output: 'Call rejected.',
+                        status: 'error',
+                    }),
+                    index
+                )
+        );
+        const target = openMigratedDatabase();
+        target.exec(
+            "INSERT INTO mcp_servers (id, name, transport_type) VALUES (100, 'Unrelated server', 'stdio')"
+        );
+        attachSource(target, source);
+        merge(target);
+        routeQueriesTo(target);
+        const restored = await loadSessionTransportMessages({ sessionId: 1 });
+        expect(restored.find((message) => message.tool_calls?.length)?.tool_calls).toEqual([
+            { id: 'canonical', name: 'mcp__101__missing', arguments: '{bad' },
+            { id: 'opaque', name: 'ghost', arguments: '{bad' },
+            { id: 'absent-server', name: 'mcp__999__missing', arguments: '{bad' },
+        ]);
+        expect(restored.filter((message) => message.role === 'tool')).toHaveLength(3);
+        merge(target);
+        expect(await loadSessionTransportMessages({ sessionId: 1 })).toEqual(restored);
+        expect(target.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    });
 
     it('user imports into a populated database and reuses remapped checkpoints after repeated identical imports', () => {
         const source = sourceDatabase();

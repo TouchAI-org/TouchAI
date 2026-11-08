@@ -118,7 +118,7 @@ describe('when conversations are stored as ordered message parts', () => {
             toolKind: 'builtin',
             status: 'pending',
         });
-        const updated = await updateToolPart('builtin', eq(messageParts.id, created.id), {
+        const updated = await updateToolPart('builtin', created.id, {
             tool_call_id: 'call-renamed',
             status: 'success',
             output: 'result',
@@ -161,7 +161,7 @@ describe('when conversations are stored as ordered message parts', () => {
             message_id: 2,
             created_at: '2026-10-02 00:00:00',
         };
-        const updated = await updateToolPart('builtin', eq(messageParts.id, created.id), patch);
+        const updated = await updateToolPart('builtin', created.id, patch);
         expect(updated).toMatchObject({
             id: created.id,
             message_id: 1,

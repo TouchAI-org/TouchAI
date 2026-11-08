@@ -1,7 +1,9 @@
 ﻿// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { createMcpToolLog, updateMcpToolLogByCallId } from '@database/queries';
+import { createMcpToolLog, updateMcpToolLogById } from '@database/queries';
+import { findMcpServerById } from '@database/queries/mcpServers';
 import type { ModelWithProvider } from '@database/queries/models';
+import { createToolPart } from '@database/queries/toolParts';
 import type { ProviderDriver } from '@database/schema';
 import type { Span } from '@opentelemetry/api';
 import { error as obsError, event, log } from '@services/ObservabilityService';
@@ -637,6 +639,62 @@ export class AiRequestExecutor {
         };
     }
 
+    /** A rejected call is still conversation history; commit its error before continuing. */
+    private async rejectToolCall(options: {
+        toolCall: AiToolCall;
+        input: string;
+        result: string;
+        iteration: number;
+        toolCallMessageId: number | null;
+        sessionId: number | null;
+        durationMs: number;
+        signal?: AbortSignal;
+        onChunk?: RequestExecutionCallbacks['onChunk'];
+    }): Promise<ToolExecutionResult> {
+        throwIfAborted(options.signal);
+        const { toolCall } = options;
+        const builtinId = toolCall.name.startsWith('builtin__')
+            ? toolCall.name.slice('builtin__'.length)
+            : undefined;
+        const mcp = toolCall.name.match(/^mcp__(\d+)__(.+)$/);
+        const serverId = mcp ? Number(mcp[1]) : NaN;
+        // Only real, exactly represented server identities can be remapped on import.
+        const server =
+            mcp && Number.isSafeInteger(serverId) && String(serverId) === mcp[1]
+                ? await findMcpServerById(serverId)
+                : undefined;
+        const identity =
+            builtinId !== undefined
+                ? { tool_id: builtinId }
+                : server
+                  ? { server_id: server.id, tool_name: mcp![2]! }
+                  : { server_id: null, tool_name: toolCall.name, requestedName: toolCall.name };
+        const result = serializeAuditPayload(options.result);
+        throwIfAborted(options.signal);
+        const saved = await createToolPart(builtinId !== undefined ? 'builtin' : 'mcp', {
+            ...identity,
+            tool_call_id: toolCall.id,
+            session_id: options.sessionId,
+            message_id: options.toolCallMessageId,
+            iteration: options.iteration,
+            input: options.input,
+            output: result,
+            status: 'error',
+            duration_ms: options.durationMs,
+            error_message: result,
+        });
+        throwIfAborted(options.signal);
+        this.emitToolEvent(options.onChunk, {
+            type: 'call_end',
+            callId: toolCall.id,
+            result,
+            isError: true,
+            durationMs: options.durationMs,
+            finalStatus: 'error',
+        });
+        return { toolCall, input: options.input, result, isError: true, toolLogId: saved.id };
+    }
+
     private async executeMcpToolCall(options: {
         toolCall: AiToolCall;
         toolArgs: Record<string, unknown>;
@@ -646,37 +704,17 @@ export class AiRequestExecutor {
         sessionId: number | null;
         onChunk?: RequestExecutionCallbacks['onChunk'];
         requestedTimeoutMs?: number;
-    }): Promise<{
-        toolCall: AiToolCall;
-        result: string;
-        isError: boolean;
-        toolLogId: number | null;
-        attachments?: AttachmentIndex[];
-        builtInToolId?: undefined;
-        controlSignal?: undefined;
-    }> {
+    }): Promise<ToolExecutionResult> {
         const callStartTime = Date.now();
         const mapping = await mcpManager.resolveToolCall(options.toolCall.name);
 
         if (!mapping) {
-            const errorResult = formatToolNotFoundError(options.toolCall.name);
-            const durationMs = Date.now() - callStartTime;
-            this.emitToolEvent(options.onChunk, {
-                type: 'call_end',
-                callId: options.toolCall.id,
-                result: errorResult,
-                isError: true,
-                durationMs,
-                finalStatus: 'error',
+            return this.rejectToolCall({
+                ...options,
+                input: serializeAuditPayload(options.toolArgs),
+                result: formatToolNotFoundError(options.toolCall.name),
+                durationMs: Date.now() - callStartTime,
             });
-
-            return {
-                toolCall: options.toolCall,
-                result: errorResult,
-                isError: true,
-                toolLogId: null,
-                controlSignal: undefined,
-            };
         }
 
         this.emitToolEvent(options.onChunk, {
@@ -756,14 +794,15 @@ export class AiRequestExecutor {
             finalStatus: toolResult.isError ? 'error' : 'completed',
         });
 
-        await updateMcpToolLogByCallId(options.toolCall.id, {
-            output: serializeAuditPayload(toolResult.result),
-            status: toolResult.isError ? 'error' : 'success',
-            duration_ms: durationMs,
-            error_message: toolResult.isError ? serializeAuditPayload(toolResult.result) : null,
-        }).catch((error) => {
-            log.error('[AiRequestExecutor] Failed to update MCP tool log:', error);
-        });
+        if (toolLogId !== null)
+            await updateMcpToolLogById(toolLogId, {
+                output: serializeAuditPayload(toolResult.result),
+                status: toolResult.isError ? 'error' : 'success',
+                duration_ms: durationMs,
+                error_message: toolResult.isError ? serializeAuditPayload(toolResult.result) : null,
+            }).catch((error) => {
+                log.error('[AiRequestExecutor] Failed to update MCP tool log:', error);
+            });
 
         if (cancellation) throw cancellation;
 
@@ -1195,21 +1234,14 @@ export class AiRequestExecutor {
         if (!parsedToolArguments.ok) {
             // 参数解析失败是「结构化输出能力」的直接信号，计入 attempt 级计数。
             runtime.toolArgumentErrors += 1;
-            this.emitToolEvent(options.onChunk, {
-                type: 'call_end',
-                callId: options.toolCall.id,
+            return this.rejectToolCall({
+                ...options,
+                iteration: runtime.iteration,
+                sessionId: options.persister.getSessionId(),
+                input: serializeAuditPayload(options.toolCall.arguments),
                 result: parsedToolArguments.errorResult,
-                isError: true,
                 durationMs: 0,
-                finalStatus: 'error',
             });
-
-            return {
-                toolCall: options.toolCall,
-                result: parsedToolArguments.errorResult,
-                isError: true,
-                toolLogId: null,
-            };
         }
 
         // 只有声明了自适应超时的工具才会把 `_meta` 当作超时信封剥离；

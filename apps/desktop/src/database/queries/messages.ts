@@ -6,7 +6,7 @@ import { type DatabaseExecutor, db } from '../index';
 import { messages } from '../schema';
 import type { MessageCreateData, MessageEntity, MessagePartEntity } from '../types';
 import { findAttachmentsByMessageIds, type MessageAttachmentRow } from './attachments';
-import { findMessagePartsByMessageIds, invalidateContextCompactions } from './messageParts';
+import { findMessagePartsByMessageIds } from './messageParts';
 
 /** A database message is returned once, with its ordered parts and resolved attachments. */
 export interface MessageRow extends MessageEntity {
@@ -105,14 +105,6 @@ export const updateMessage = async (
     patch: Partial<Pick<MessageEntity, 'role'>>,
     database: DatabaseExecutor = db
 ): Promise<void> => {
-    if (database === db) return db.transaction((tx) => updateMessage(messageId, patch, tx));
-    const previous = await database
-        .select({ role: messages.role })
-        .from(messages)
-        .where(eq(messages.id, messageId))
-        .get();
-    if (patch.role !== undefined && previous?.role !== patch.role)
-        await invalidateContextCompactions([messageId], database);
     await database
         .update(messages)
         .set({ ...patch, updated_at: sql`datetime('now')` })

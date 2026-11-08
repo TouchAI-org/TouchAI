@@ -9,13 +9,13 @@ const {
     findBuiltInToolByToolIdMock,
     findEnabledBuiltInToolsMock,
     touchBuiltInToolLastUsedMock,
-    updateBuiltInToolLogByCallIdMock,
+    updateBuiltInToolLogByIdMock,
 } = vi.hoisted(() => ({
     createBuiltInToolLogMock: vi.fn(),
     findBuiltInToolByToolIdMock: vi.fn(),
     findEnabledBuiltInToolsMock: vi.fn(),
     touchBuiltInToolLastUsedMock: vi.fn(),
-    updateBuiltInToolLogByCallIdMock: vi.fn(),
+    updateBuiltInToolLogByIdMock: vi.fn(),
 }));
 
 vi.mock('@database/queries', () => ({
@@ -23,7 +23,7 @@ vi.mock('@database/queries', () => ({
     findBuiltInToolByToolId: findBuiltInToolByToolIdMock,
     findEnabledBuiltInTools: findEnabledBuiltInToolsMock,
     touchBuiltInToolLastUsed: touchBuiltInToolLastUsedMock,
-    updateBuiltInToolLogByCallId: updateBuiltInToolLogByCallIdMock,
+    updateBuiltInToolLogById: updateBuiltInToolLogByIdMock,
 }));
 
 const currentModel = {
@@ -53,7 +53,7 @@ describe('user runs a browser tool', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         createBuiltInToolLogMock.mockResolvedValue({ id: 11 });
-        updateBuiltInToolLogByCallIdMock.mockResolvedValue(undefined);
+        updateBuiltInToolLogByIdMock.mockResolvedValue(undefined);
         touchBuiltInToolLastUsedMock.mockResolvedValue(undefined);
         findBuiltInToolByToolIdMock.mockResolvedValue(createBrowserRow());
         findEnabledBuiltInToolsMock.mockResolvedValue([{ tool_id: 'browser' }]);

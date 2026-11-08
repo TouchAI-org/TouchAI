@@ -7,13 +7,13 @@ const {
     createBuiltInToolLogMock,
     findBuiltInToolByToolIdMock,
     touchBuiltInToolLastUsedMock,
-    updateBuiltInToolLogByCallIdMock,
+    updateBuiltInToolLogByIdMock,
     registryGetMock,
 } = vi.hoisted(() => ({
     createBuiltInToolLogMock: vi.fn(),
     findBuiltInToolByToolIdMock: vi.fn(),
     touchBuiltInToolLastUsedMock: vi.fn(),
-    updateBuiltInToolLogByCallIdMock: vi.fn(),
+    updateBuiltInToolLogByIdMock: vi.fn(),
     registryGetMock: vi.fn(),
 }));
 
@@ -22,7 +22,7 @@ vi.mock('@database/queries', () => ({
     findBuiltInToolByToolId: findBuiltInToolByToolIdMock,
     findEnabledBuiltInTools: vi.fn(),
     touchBuiltInToolLastUsed: touchBuiltInToolLastUsedMock,
-    updateBuiltInToolLogByCallId: updateBuiltInToolLogByCallIdMock,
+    updateBuiltInToolLogById: updateBuiltInToolLogByIdMock,
 }));
 
 vi.mock('@/services/BuiltInToolService/registry', () => ({
@@ -81,7 +81,7 @@ beforeEach(() => {
         config_json: null,
     });
     touchBuiltInToolLastUsedMock.mockResolvedValue(undefined);
-    updateBuiltInToolLogByCallIdMock.mockResolvedValue(undefined);
+    updateBuiltInToolLogByIdMock.mockResolvedValue(undefined);
     registryGetMock.mockReturnValue(createRegistryTool());
 });
 
@@ -127,8 +127,8 @@ describe('user runs a built-in tool', () => {
                 input: expect.not.stringContaining('sk-live-secret-123456'),
             })
         );
-        expect(updateBuiltInToolLogByCallIdMock).toHaveBeenLastCalledWith(
-            'call-builtin-1',
+        expect(updateBuiltInToolLogByIdMock).toHaveBeenLastCalledWith(
+            19,
             expect.objectContaining({
                 output: expect.not.stringContaining('sk-live-secret-123456'),
             })
@@ -157,7 +157,7 @@ describe('user runs a built-in tool', () => {
 
         await executeBuiltInTool(await loadBuiltInToolService());
 
-        const payload = updateBuiltInToolLogByCallIdMock.mock.lastCall?.[1] as {
+        const payload = updateBuiltInToolLogByIdMock.mock.lastCall?.[1] as {
             conversation_semantic_json: string;
             structured_payload_json: string;
         };
@@ -173,7 +173,7 @@ describe('user runs a built-in tool', () => {
             config_json: null,
         });
         touchBuiltInToolLastUsedMock.mockResolvedValue(undefined);
-        updateBuiltInToolLogByCallIdMock.mockResolvedValue(undefined);
+        updateBuiltInToolLogByIdMock.mockResolvedValue(undefined);
         registryGetMock.mockReturnValue({
             id: 'bash',
             displayName: 'Bash',
@@ -240,7 +240,7 @@ describe('user runs a built-in tool', () => {
 
     it('user sees the tool call start reported before slow preparation finishes', async () => {
         createBuiltInToolLogMock.mockResolvedValue({ id: 18 });
-        updateBuiltInToolLogByCallIdMock.mockResolvedValue(undefined);
+        updateBuiltInToolLogByIdMock.mockResolvedValue(undefined);
         findBuiltInToolByToolIdMock.mockResolvedValue({
             tool_id: 'bash',
             enabled: 1,
@@ -345,8 +345,8 @@ describe('user still runs a built-in tool when bookkeeping fails', () => {
                 buildApprovalRequest: vi.fn(async () => ({ reason: 'needs approval' })),
             })
         );
-        updateBuiltInToolLogByCallIdMock.mockImplementation(
-            async (_callId: string, patch: { status?: string }) => {
+        updateBuiltInToolLogByIdMock.mockImplementation(
+            async (_id: number, patch: { status?: string }) => {
                 if (patch.status === 'awaiting_approval') {
                     throw new Error('database is locked');
                 }
@@ -372,8 +372,8 @@ describe('user still runs a built-in tool when bookkeeping fails', () => {
                 buildApprovalRequest: vi.fn(async () => ({ reason: 'needs approval' })),
             })
         );
-        updateBuiltInToolLogByCallIdMock.mockImplementation(
-            async (_callId: string, patch: { status?: string }) => {
+        updateBuiltInToolLogByIdMock.mockImplementation(
+            async (_id: number, patch: { status?: string }) => {
                 if (patch.status === 'rejected') {
                     throw new Error('database is locked');
                 }
@@ -394,8 +394,8 @@ describe('user still runs a built-in tool when bookkeeping fails', () => {
                 buildApprovalRequest: vi.fn(async () => ({ reason: 'needs approval' })),
             })
         );
-        updateBuiltInToolLogByCallIdMock.mockImplementation(
-            async (_callId: string, patch: { status?: string }) => {
+        updateBuiltInToolLogByIdMock.mockImplementation(
+            async (_id: number, patch: { status?: string }) => {
                 if (patch.status === 'approved') {
                     throw new Error('database is locked');
                 }
@@ -411,7 +411,7 @@ describe('user still runs a built-in tool when bookkeeping fails', () => {
     });
 
     it('user gets the tool result when the final log update fails', async () => {
-        updateBuiltInToolLogByCallIdMock.mockRejectedValue(new Error('database is locked'));
+        updateBuiltInToolLogByIdMock.mockRejectedValue(new Error('database is locked'));
         const builtInToolService = await loadBuiltInToolService();
 
         const result = await executeBuiltInTool(builtInToolService);
@@ -427,7 +427,7 @@ describe('user still runs a built-in tool when bookkeeping fails', () => {
                 }),
             })
         );
-        updateBuiltInToolLogByCallIdMock.mockRejectedValue(new Error('database is locked'));
+        updateBuiltInToolLogByIdMock.mockRejectedValue(new Error('database is locked'));
         const builtInToolService = await loadBuiltInToolService();
 
         await expect(executeBuiltInTool(builtInToolService)).rejects.toMatchObject({

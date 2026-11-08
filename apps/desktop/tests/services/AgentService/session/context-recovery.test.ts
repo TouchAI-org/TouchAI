@@ -1,11 +1,5 @@
 import { db } from '@database';
-import { createMessageAttachment } from '@database/queries/attachments';
-import {
-    appendMessagePart,
-    mergeMessagePartData,
-    syncOutputParts,
-} from '@database/queries/messageParts';
-import { updateMessage } from '@database/queries/messages';
+import { syncOutputParts } from '@database/queries/messageParts';
 import {
     closeTestDatabases,
     openMigratedDatabase,
@@ -85,25 +79,7 @@ describe('given a saved context boundary and archived attachments', () => {
         expect(messages.find((message) => message.role === 'tool')?.content).toBe('Verified');
     });
 
-    it('user changes covered history and gets the full original conversation while the divider stays stored', async () => {
-        await db.transaction((tx) =>
-            syncOutputParts(
-                3,
-                [{ message_id: 3, type: 'text', content: 'Corrected evidence', sort_order: 0 }],
-                tx
-            )
-        );
-        expect((await createSessionReadModel().getMessages(1)).map((row) => row.id)).toEqual([
-            1, 2, 3, 4, 5, 6,
-        ]);
-        const saved = database
-            .prepare("SELECT data, content FROM message_parts WHERE type = 'context_compaction'")
-            .get()!;
-        expect(JSON.parse(String(saved.data))).toHaveProperty('invalidatedAt');
-        expect(saved.content).toContain('Tests are pending');
-    });
-
-    it('user updates a retained answer and continues reusing the checkpoint', async () => {
+    it('user receives more text in the current answer and continues reusing the checkpoint', async () => {
         await db.transaction((tx) =>
             syncOutputParts(
                 6,
@@ -123,49 +99,5 @@ describe('given a saved context boundary and archived attachments', () => {
         expect((await createSessionReadModel().getMessages(1)).map((row) => row.id)).toEqual([
             1, 2, 3, 4, 5, 6,
         ]);
-    });
-
-    it.each(['role', 'attachment', 'part', 'tool result'] as const)(
-        'user changes covered %s and invalidates the checkpoint atomically',
-        async (change) => {
-            if (change === 'role') await updateMessage(3, { role: 'user' });
-            if (change === 'attachment')
-                await createMessageAttachment({
-                    message_id: 3,
-                    attachment_id: 1,
-                    origin_path: '/missing/old.png',
-                });
-            if (change === 'part')
-                await appendMessagePart(3, { type: 'text', content: 'New evidence' });
-            if (change === 'tool result') {
-                const part = await appendMessagePart(3, {
-                    type: 'tool_call',
-                    content: '',
-                    data: '{"toolCallId":"archived","toolKind":"builtin","tool_id":"read_file","input":"{}","output":"Old","status":"success"}',
-                });
-                database.exec(
-                    "UPDATE message_parts SET data=json_remove(data, '$.invalidatedAt') WHERE type='context_compaction'"
-                );
-                await mergeMessagePartData(part.id, { output: 'Correction' });
-            }
-            expect((await createSessionReadModel().getContext(1)).summary).toBeUndefined();
-        }
-    );
-
-    it('user rolls back a history edit and keeps both the original content and reusable summary', async () => {
-        await expect(
-            db.transaction(async (tx) => {
-                await syncOutputParts(
-                    3,
-                    [{ message_id: 3, type: 'text', content: 'Uncommitted', sort_order: 0 }],
-                    tx
-                );
-                throw new Error('Cancelled edit');
-            })
-        ).rejects.toThrow('Cancelled edit');
-        expect((await createSessionReadModel().getContext(1)).summary).toBeDefined();
-        expect(
-            database.prepare('SELECT content FROM message_parts WHERE message_id=3').get()?.content
-        ).toBe('Old response');
     });
 });
