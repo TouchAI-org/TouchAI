@@ -482,13 +482,11 @@
                     <h2 id="computer-use-driver-heading" class="settings-section-title">
                         {{ t('settings.computerUse.group.driver') }}
                     </h2>
-                    <div class="settings-row-group divide-y divide-border-subtle">
+                    <div class="settings-row-group divide-y divide-border/70">
                         <SettingsRow
                             data-settings-search-target="computer-use-driver"
                             control-width="320"
                             control-class="pr-10"
-                            label-class="text-text-primary"
-                            description-class="text-text-tertiary"
                             :label="t('settings.computerUse.field.driver')"
                             :description="status?.error || undefined"
                         >
@@ -575,7 +573,6 @@
                             control-class="flex items-center gap-2"
                             label-as="label"
                             label-for="computer-use-driver-directory"
-                            label-class="text-text-primary"
                             :label="t('settings.computerUse.field.driverDirectory')"
                         >
                             <div class="relative min-w-0 flex-1">
@@ -623,12 +620,11 @@
                     <h2 id="computer-use-permission-heading" class="settings-section-title">
                         {{ t('settings.computerUse.group.permission') }}
                     </h2>
-                    <div class="settings-row-group divide-y divide-border-subtle">
+                    <div class="settings-row-group divide-y divide-border/70">
                         <SettingsRow
                             data-settings-search-target="computer-use-approval-mode"
                             control-width="320"
                             control-class="pr-10"
-                            label-class="text-text-primary"
                             :label="t('settings.computerUse.field.approval')"
                         >
                             <CustomSelect
@@ -643,16 +639,14 @@
 
                         <div
                             data-settings-search-target="computer-use-capabilities"
-                            class="divide-y divide-border-subtle"
+                            class="divide-y divide-border/70"
                         >
                             <SettingsRow
                                 v-for="group in visibleGroups"
                                 :key="group"
                                 control-width="auto"
-                                label-class="text-text-primary"
                                 :label="capabilityLabel(group)"
                                 :description="capabilityDescription(group)"
-                                description-class="text-text-tertiary"
                             >
                                 <Switch
                                     :data-testid="`computer-use-group-${group}`"
@@ -671,12 +665,10 @@
                     <h2 id="computer-use-behavior-heading" class="settings-section-title">
                         {{ t('settings.computerUse.group.behavior') }}
                     </h2>
-                    <div class="settings-row-group divide-y divide-border-subtle">
+                    <div class="settings-row-group divide-y divide-border/70">
                         <SettingsRow
                             data-settings-search-target="computer-use-foreground"
                             control-width="auto"
-                            label-class="text-text-primary"
-                            description-class="text-text-tertiary"
                             :label="t('settings.computerUse.field.foreground')"
                             :description="t('settings.computerUse.hint.foreground')"
                         >
@@ -694,7 +686,6 @@
                         <SettingsRow
                             data-settings-search-target="computer-use-cursor"
                             control-width="auto"
-                            label-class="text-text-primary"
                             :label="t('settings.computerUse.field.cursor')"
                         >
                             <Switch
@@ -713,8 +704,6 @@
                             data-settings-search-target="computer-use-max-image"
                             control-width="320"
                             control-class="pr-10"
-                            label-class="text-text-primary"
-                            description-class="text-text-tertiary"
                             :label="t('settings.computerUse.field.maxImage')"
                         >
                             <CustomSelect
@@ -730,8 +719,6 @@
                         <SettingsRow
                             data-settings-search-target="computer-use-recording"
                             control-width="auto"
-                            label-class="text-text-primary"
-                            description-class="text-text-tertiary"
                             :label="t('settings.computerUse.field.recording')"
                             :description="t('settings.computerUse.hint.recording')"
                         >
@@ -750,7 +737,6 @@
                             control-class="flex items-center gap-2"
                             label-as="label"
                             label-for="computer-use-recording-directory"
-                            label-class="text-text-primary"
                             :label="t('settings.computerUse.field.recordingDirectory')"
                         >
                             <Input
