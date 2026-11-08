@@ -208,7 +208,7 @@
     .toolbar-button--pinned {
         background: var(--color-muted);
         color: var(--color-foreground);
-        box-shadow: inset 0 0 0 1px var(--color-border);
+        box-shadow: inset 0 0 0 1px var(--color-muted-foreground);
     }
 
     .toolbar-button--pinned:hover {
