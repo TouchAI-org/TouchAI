@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9d9e6a0d-ce5d-4c46-9646-630bcd1506d2",
+  "id": "f26168fa-1e14-4ed2-ada6-a5d4179ba990",
   "prevId": "51c90d49-1108-41e8-9ca1-0145856bf19a",
   "tables": {
     "attachment_remote_refs": {
@@ -825,28 +825,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(datetime('now'))"
-        },
-        "tool_id": {
-          "name": "tool_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "generated": {
-            "as": "(CASE WHEN \"type\" = 'tool_call' THEN json_extract(\"data\", '$.\"tool_id\"') END)",
-            "type": "virtual"
-          }
-        },
-        "server_id": {
-          "name": "server_id",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "generated": {
-            "as": "(CASE WHEN \"type\" = 'tool_call' THEN json_extract(\"data\", '$.\"server_id\"') END)",
-            "type": "virtual"
-          }
         }
       },
       "indexes": {
@@ -880,26 +858,6 @@
             "sort_order"
           ],
           "isUnique": true
-        },
-        "message_parts_tool_id_idx": {
-          "name": "message_parts_tool_id_idx",
-          "columns": [
-            "tool_kind",
-            "tool_id",
-            "created_at",
-            "id"
-          ],
-          "isUnique": false
-        },
-        "message_parts_server_id_idx": {
-          "name": "message_parts_server_id_idx",
-          "columns": [
-            "tool_kind",
-            "server_id",
-            "created_at",
-            "id"
-          ],
-          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -984,16 +942,7 @@
           "default": "(datetime('now'))"
         }
       },
-      "indexes": {
-        "messages_session_id_id_idx": {
-          "name": "messages_session_id_id_idx",
-          "columns": [
-            "session_id",
-            "id"
-          ],
-          "isUnique": false
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
         "messages_session_id_sessions_id_fk": {
           "name": "messages_session_id_sessions_id_fk",
@@ -1845,15 +1794,6 @@
             "created_at"
           ],
           "isUnique": false
-        },
-        "session_turns_session_created_idx": {
-          "name": "session_turns_session_created_idx",
-          "columns": [
-            "session_id",
-            "created_at",
-            "id"
-          ],
-          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -2045,13 +1985,6 @@
           "name": "sessions_last_message_at_idx",
           "columns": [
             "last_message_at"
-          ],
-          "isUnique": false
-        },
-        "sessions_activity_idx": {
-          "name": "sessions_activity_idx",
-          "columns": [
-            "coalesce(\"last_message_at\", \"updated_at\") DESC, \"id\" DESC"
           ],
           "isUnique": false
         }
@@ -2393,14 +2326,6 @@
     "columns": {}
   },
   "internal": {
-    "indexes": {
-      "sessions_activity_idx": {
-        "columns": {
-          "coalesce(\"last_message_at\", \"updated_at\") DESC, \"id\" DESC": {
-            "isExpression": true
-          }
-        }
-      }
-    }
+    "indexes": {}
   }
 }
