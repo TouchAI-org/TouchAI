@@ -136,6 +136,7 @@ describe('user upgrades a database through the committed migration contract', ()
             '0002_quick_search_click_stats_unique',
             '0003_tough_amazoness',
             '0004_ordinary_solo',
+            '0005_performance_query_indexes',
         ]);
     });
 });
