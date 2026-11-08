@@ -302,6 +302,7 @@ describe('user runs desktop E2E from one freshly built application', () => {
         expect(getRun(update).trim()).toBe('pnpm --filter @touchai/desktop test:e2e:visual:update');
         expect(specs).toEqual([
             'app-start.e2e.js',
+            'computer-use-glow.e2e.js',
             'product-font.e2e.js',
             'main-window-visual.e2e.js',
             'conversation-scroll.e2e.js',
