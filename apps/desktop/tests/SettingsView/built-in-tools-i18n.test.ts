@@ -22,13 +22,17 @@ import {
 } from '@/views/SettingsView/components/common/toolLogStatus';
 import ToolLogStatusBadge from '@/views/SettingsView/components/common/ToolLogStatusBadge.vue';
 
-const { findBuiltInToolLogsByToolIdMock, findModelsWithProviderMock, dialogOpenMock } = vi.hoisted(
-    () => ({
-        findBuiltInToolLogsByToolIdMock: vi.fn(),
-        findModelsWithProviderMock: vi.fn(),
-        dialogOpenMock: vi.fn(),
-    })
-);
+const {
+    findBuiltInToolLogByIdMock,
+    findBuiltInToolLogsByToolIdMock,
+    findModelsWithProviderMock,
+    dialogOpenMock,
+} = vi.hoisted(() => ({
+    findBuiltInToolLogByIdMock: vi.fn(),
+    findBuiltInToolLogsByToolIdMock: vi.fn(),
+    findModelsWithProviderMock: vi.fn(),
+    dialogOpenMock: vi.fn(),
+}));
 
 vi.mock('@/i18n/textMap', () => {
     const zhToEnTextMap: Record<string, string> = {
@@ -96,6 +100,8 @@ vi.mock('@/i18n/textMap', () => {
 
 vi.mock('@database/queries', () => ({
     findBuiltInToolLogsByToolId: findBuiltInToolLogsByToolIdMock,
+    findBuiltInToolLogSummariesByToolId: findBuiltInToolLogsByToolIdMock,
+    findBuiltInToolLogById: findBuiltInToolLogByIdMock,
     findModelsWithProvider: findModelsWithProviderMock,
 }));
 
@@ -250,15 +256,36 @@ function createLog(patch: Partial<BuiltInToolLogEntity> = {}): BuiltInToolLogEnt
     };
 }
 
-describe('user reads the built-in tool settings', () => {
+/** 列表走摘要投影，展开时才按 id 取完整正文。 */
+function setToolLogs(logs: BuiltInToolLogEntity[]) {
+    findBuiltInToolLogsByToolIdMock.mockResolvedValue(
+        logs.map((log) => ({
+            id: log.id,
+            tool_call_id: log.tool_call_id,
+            tool_name: log.tool_id,
+            session_id: log.session_id,
+            message_id: log.message_id ?? 0,
+            created_at: log.created_at,
+            status: log.status,
+            duration_ms: log.duration_ms,
+            input_preview: log.input,
+            output_length: log.output?.length ?? 0,
+        }))
+    );
+    findBuiltInToolLogByIdMock.mockImplementation(async (id: number) =>
+        logs.find((log) => log.id === id)
+    );
+}
+
+describe('built-in tools settings i18n', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setLocale('zh-CN');
-        findBuiltInToolLogsByToolIdMock.mockResolvedValue([]);
+        setToolLogs([]);
         findModelsWithProviderMock.mockResolvedValue([]);
     });
 
-    it('user sees built-in tool descriptions for the active locale', () => {
+    it('localizes built-in tool descriptions for the active locale', () => {
         setLocale('en-US');
 
         expect(getBuiltInToolSummary('bash')).toBe('Execute terminal commands');
@@ -271,18 +298,18 @@ describe('user reads the built-in tool settings', () => {
         expect(getBuiltInToolSummary('unknown_tool', null)).toBe('No description');
     });
 
-    it('user sees the ask-user tool as an empty-config built-in tool', () => {
+    it('shows the ask-user tool as an empty-config built-in tool', () => {
         expect(isBuiltInToolVisibleInSettings('ask_user_question')).toBe(true);
         expect(usesBuiltInToolEmptyConfig('ask_user_question')).toBe(true);
     });
 
-    it('user sees built-in tool last-used fallback text', () => {
+    it('localizes built-in tool last-used fallback text', () => {
         setLocale('en-US');
 
         expect(formatToolLastUsed(null)).toBe('Not called yet');
     });
 
-    it('user sees tool log status labels for filter chips and badges', () => {
+    it('localizes tool log status labels for filter chips and badges', () => {
         setLocale('en-US');
 
         expect(getToolLogStatusText('success')).toBe('Success');
@@ -296,7 +323,7 @@ describe('user reads the built-in tool settings', () => {
         expect(getBuiltInToolApprovalStateText('none')).toBeNull();
     });
 
-    it('user sees built-in tool list text and toggle title in English without squeezing long summaries', () => {
+    it('renders built-in tool list text and toggle title in English without squeezing long summaries', () => {
         setLocale('en-US');
 
         const wrapper = mount(BuiltInToolList, {
@@ -313,7 +340,7 @@ describe('user reads the built-in tool settings', () => {
         expect(wrapper.get('p').classes()).toContain('break-words');
     });
 
-    it('user does not let the global DOM localizer rewrite dynamic built-in tool names', () => {
+    it('does not let the global DOM localizer rewrite dynamic built-in tool names', () => {
         setLocale('en-US');
 
         const wrapper = mount(BuiltInToolList, {
@@ -342,7 +369,7 @@ describe('user reads the built-in tool settings', () => {
         wrapper.unmount();
     });
 
-    it('user sees bash configuration labels, placeholders, titles, and aria labels in English', () => {
+    it('renders bash configuration labels, placeholders, titles, and aria labels in English', () => {
         setLocale('en-US');
 
         const wrapper = mount(BashToolConfig, {
@@ -372,9 +399,9 @@ describe('user reads the built-in tool settings', () => {
         expect(folderButtons[0]?.attributes('title')).toBe('Choose folder');
     });
 
-    it('user sees log dates and content without internal metadata or tool descriptions', async () => {
+    it('renders log dates and content without internal metadata or tool descriptions', async () => {
         setLocale('en-US');
-        findBuiltInToolLogsByToolIdMock.mockResolvedValue([
+        setToolLogs([
             createLog({
                 approval_state: 'approved',
             }),
@@ -398,6 +425,7 @@ describe('user reads the built-in tool settings', () => {
         expect(wrapper.text()).not.toContain('迭代');
 
         await wrapper.get('button.w-full').trigger('click');
+        await flushMountedPromises();
 
         expect(wrapper.get('[data-testid="tool-log-content"]').text()).toContain('done');
         expect(wrapper.find('[data-testid="built-in-tool-log-detail-metadata"]').exists()).toBe(
@@ -411,9 +439,9 @@ describe('user reads the built-in tool settings', () => {
         expect(wrapper.text()).not.toContain('Detailed tool description');
     });
 
-    it('user keeps dynamic tool names unchanged after expanding a log', async () => {
+    it('keeps dynamic tool names unchanged after expanding a log', async () => {
         setLocale('en-US');
-        findBuiltInToolLogsByToolIdMock.mockResolvedValue([
+        setToolLogs([
             createLog({
                 tool_call_id: '设置',
                 approval_state: 'approved',
@@ -438,6 +466,7 @@ describe('user reads the built-in tool settings', () => {
 
         await wrapper.get('button.w-full').trigger('click');
         await nextTick();
+        await flushMountedPromises();
         localizer.translateNow();
 
         expect(toolTitle.text()).toBe('工具');
@@ -449,9 +478,9 @@ describe('user reads the built-in tool settings', () => {
         wrapper.unmount();
     });
 
-    it('user sees empty tool logs in English after filtering', async () => {
+    it('renders empty tool logs in English after filtering', async () => {
         setLocale('en-US');
-        findBuiltInToolLogsByToolIdMock.mockResolvedValue([createLog({ input: 'alpha' })]);
+        setToolLogs([createLog({ input: 'alpha' })]);
 
         const wrapper = mount(BuiltInToolLogViewer, {
             props: {
@@ -468,9 +497,9 @@ describe('user reads the built-in tool settings', () => {
         expect(wrapper.text()).not.toContain('未找到匹配的日志');
     });
 
-    it('user does not render the default none approval state in log details', async () => {
+    it('does not render the default none approval state in log details', async () => {
         setLocale('en-US');
-        findBuiltInToolLogsByToolIdMock.mockResolvedValue([
+        setToolLogs([
             createLog({
                 approval_state: 'none',
             }),
@@ -492,7 +521,7 @@ describe('user reads the built-in tool settings', () => {
         expect(wrapper.text()).not.toContain('none');
     });
 
-    it('user sees upgrade model configuration text in English and allows long model names to shrink', async () => {
+    it('renders upgrade model configuration text in English and allows long model names to shrink', async () => {
         setLocale('en-US');
         findModelsWithProviderMock.mockResolvedValue([
             {
@@ -536,7 +565,7 @@ describe('user reads the built-in tool settings', () => {
         expect(wrapper.get('.upgrade-model-chain-card > div').classes()).toContain('min-w-0');
     });
 
-    it('user sees status badge text as a non-wrapping English label', () => {
+    it('renders status badge text as a non-wrapping English label', () => {
         setLocale('en-US');
 
         const wrapper = mount(ToolLogStatusBadge, {

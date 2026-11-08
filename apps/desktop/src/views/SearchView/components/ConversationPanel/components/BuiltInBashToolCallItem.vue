@@ -114,6 +114,7 @@
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import MotionCollapse from '@components/MotionCollapse.vue';
+    import { useMotion } from '@composables/useMotion';
     import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -151,6 +152,7 @@
     }
 
     const props = defineProps<Props>();
+    const { windowVisible } = useMotion();
 
     const isExpanded = ref(false);
     const isCommandExpanded = ref(false);
@@ -289,22 +291,49 @@
         { immediate: true }
     );
 
+    function isDocumentHidden(): boolean {
+        return !windowVisible.value || document.visibilityState === 'hidden';
+    }
+
+    function startDurationTimer() {
+        if (durationTimer !== null) {
+            return;
+        }
+        durationTimer = setInterval(() => {
+            durationNow.value = Date.now();
+        }, 1000);
+    }
+
     watch(
         [isAutoExpandedStatus, () => props.toolCall.startedAt],
         ([isLive]) => {
             stopDurationTimer();
             durationNow.value = Date.now();
 
-            if (!isLive || typeof props.toolCall.startedAt !== 'number') {
+            if (!isLive || typeof props.toolCall.startedAt !== 'number' || isDocumentHidden()) {
                 return;
             }
 
-            durationTimer = setInterval(() => {
-                durationNow.value = Date.now();
-            }, 1000);
+            startDurationTimer();
         },
         { immediate: true }
     );
+
+    function handleVisibilityChange() {
+        if (!isAutoExpandedStatus.value || typeof props.toolCall.startedAt !== 'number') {
+            return;
+        }
+
+        if (isDocumentHidden()) {
+            stopDurationTimer();
+            return;
+        }
+
+        durationNow.value = Date.now();
+        startDurationTimer();
+    }
+
+    watch(windowVisible, handleVisibilityChange);
 
     // 输出内容持续增长时，如果用户之前就在底部，则继续跟随最新内容；
     // 用户主动向上翻阅时保留阅读位置，直到再次滚到底部。
@@ -322,10 +351,12 @@
     });
 
     onMounted(() => {
+        document.addEventListener('visibilitychange', handleVisibilityChange);
         void syncExpandedOutput();
     });
 
     onBeforeUnmount(() => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
         stopDurationTimer();
     });
 

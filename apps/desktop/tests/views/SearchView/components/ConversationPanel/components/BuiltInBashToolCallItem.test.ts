@@ -83,6 +83,42 @@ describe('user reviews a bash command in the conversation', () => {
         expect(wrapper.find('.tool-call-bash-panel-header-duration').text()).toBe('3s');
     });
 
+    it('user resumes the duration timer when returning to a hidden command', async () => {
+        const intervalSpy = vi.spyOn(window, 'setInterval');
+        Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            value: 'hidden',
+        });
+
+        const wrapper = mount(BuiltInBashToolCallItem, {
+            props: {
+                toolCall: createToolCall({
+                    status: 'executing',
+                    startedAt: Date.now(),
+                    result: createBashResult('stream-1'),
+                }),
+                verbText: '正在执行',
+                summaryText: 'Write-Output "stream-1"',
+                durationText: null,
+            },
+        });
+
+        await nextTick();
+        expect(intervalSpy).not.toHaveBeenCalled();
+
+        Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            value: 'visible',
+        });
+        document.dispatchEvent(new Event('visibilitychange'));
+        await nextTick();
+        expect(intervalSpy).toHaveBeenCalled();
+
+        wrapper.unmount();
+        intervalSpy.mockRestore();
+        delete (document as { visibilityState?: string }).visibilityState;
+    });
+
     it('user auto-expands and keeps a live timer while awaiting approval', async () => {
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-05-29T00:00:00.000Z'));

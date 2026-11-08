@@ -372,10 +372,62 @@ describe('when the user browses the session history list', () => {
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         document.body.innerHTML = '';
     });
 
+    it('user typing rapidly searches only the final query and all superseded calls settle', async () => {
+        vi.useFakeTimers();
+        const { result, unmount } = await mountFlow();
+        await result.setSessionHistoryOverlayOpen(true);
+        const first = result.updateSessionSearchQuery('dep');
+        const second = result.updateSessionSearchQuery('deploy');
+
+        expect(listSessionsMock).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(150);
+        await Promise.all([first, second]);
+        expect(listSessionsMock).toHaveBeenCalledExactlyOnceWith({ query: 'deploy', limit: 40 });
+        expect(result.isSessionListLoading.value).toBe(false);
+        unmount();
+    });
+
+    it.each(['close', 'unmount'] as const)(
+        'user leaving history via %s cancels and settles a scheduled search',
+        async (action) => {
+            vi.useFakeTimers();
+            const { result, unmount } = await mountFlow();
+            await result.setSessionHistoryOverlayOpen(true);
+            const load = result.updateSessionSearchQuery('deploy');
+            if (action === 'close') await result.setSessionHistoryOverlayOpen(false);
+            else unmount();
+            await load;
+            await vi.advanceTimersByTimeAsync(200);
+            expect(listSessionsMock).not.toHaveBeenCalled();
+            if (action === 'close') unmount();
+        }
+    );
+
+    it('user typing a new query cannot receive the old results during the debounce', async () => {
+        vi.useFakeTimers();
+        const old = createDeferred<SessionEntity[]>();
+        listSessionsMock.mockImplementationOnce(() => old.promise);
+        const { result, unmount } = await mountFlow();
+        await result.setSessionHistoryOverlayOpen(true);
+        const first = result.updateSessionSearchQuery('old');
+        await vi.advanceTimersByTimeAsync(150);
+        const second = result.updateSessionSearchQuery('new');
+        old.resolve([createSessionEntity(1, { title: 'Stale' })]);
+        await first;
+        expect(result.sessionList.value).toEqual([]);
+        expect(result.isSessionListLoading.value).toBe(true);
+        await vi.advanceTimersByTimeAsync(150);
+        await second;
+        expect(result.sessionList.value).toEqual([createSessionEntity(42)]);
+        unmount();
+    });
+
     it('user keeps the newest history query when an older response arrives late', async () => {
+        vi.useFakeTimers();
         const olderRequest = createDeferred<SessionEntity[]>();
         const newerRequest = createDeferred<SessionEntity[]>();
         listSessionsMock
@@ -395,9 +447,9 @@ describe('when the user browses the session history list', () => {
 
         await mounted.result.setSessionHistoryOverlayOpen(true);
         const olderLoad = mounted.result.updateSessionSearchQuery('old');
-        await flushAsyncWork();
+        await vi.advanceTimersByTimeAsync(150);
         const newerLoad = mounted.result.updateSessionSearchQuery('new');
-        await flushAsyncWork();
+        await vi.advanceTimersByTimeAsync(150);
 
         newerRequest.resolve([createSessionEntity(2, { title: 'New result' })]);
         await newerLoad;

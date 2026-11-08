@@ -13,7 +13,7 @@ const { save, emit, handlers, error } = vi.hoisted(() => ({
     error: vi.fn(),
 }));
 vi.mock('@database/queries', () => ({
-    getSettingValue: vi.fn(async () => null),
+    getSettingValues: vi.fn(async () => ({})),
     setSetting: save,
 }));
 vi.mock('@services/EventService', () => ({

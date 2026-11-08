@@ -5,21 +5,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLocale, tt } from '@/i18n';
 import GeneralSection from '@/views/SettingsView/components/General/index.vue';
 
-const resolveSettingKey = (input: unknown, fallback?: string) => {
-    if (typeof input === 'object' && input !== null && 'key' in input) {
-        return String((input as { key: unknown }).key);
-    }
-    return fallback ?? '';
-};
-
-const { getSettingValueMock } = vi.hoisted(() => ({
-    getSettingValueMock: vi.fn(async (input: unknown, key?: string) =>
-        resolveSettingKey(input, key) === 'language' ? 'en-US' : null
-    ),
+const { getSettingValuesMock } = vi.hoisted(() => ({
+    getSettingValuesMock: vi.fn(async () => ({ language: 'en-US' })),
 }));
 
 vi.mock('@database/queries', () => ({
-    getSettingValue: getSettingValueMock,
+    getSettingValues: getSettingValuesMock,
     setSetting: vi.fn(async () => undefined),
 }));
 
@@ -98,9 +89,7 @@ describe('user captures a shortcut in general settings', () => {
     beforeEach(() => {
         setActivePinia(createPinia());
         vi.clearAllMocks();
-        getSettingValueMock.mockImplementation(async (input: unknown, key?: string) =>
-            resolveSettingKey(input, key) === 'language' ? 'en-US' : null
-        );
+        getSettingValuesMock.mockResolvedValue({ language: 'en-US' });
         setLocale('zh-CN');
     });
 

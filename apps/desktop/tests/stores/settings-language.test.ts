@@ -4,27 +4,35 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getLocale, setLocale } from '@/i18n';
 
-const { eventHandlers, eventServiceMock, getSettingValueMock, setSettingMock, windowMock } =
-    vi.hoisted(() => ({
-        eventHandlers: new Map<string, (payload: unknown) => void>(),
-        eventServiceMock: {
-            emit: vi.fn(),
-            on: vi.fn(async (event: string, handler: (payload: unknown) => void) => {
-                eventHandlers.set(event, handler);
-                return () => {
-                    eventHandlers.delete(event);
-                };
-            }),
-        },
-        getSettingValueMock: vi.fn(),
-        setSettingMock: vi.fn(),
-        windowMock: {
-            label: 'settings',
-        },
-    }));
+const {
+    eventHandlers,
+    eventServiceMock,
+    getSettingValueMock,
+    getSettingValuesMock,
+    setSettingMock,
+    windowMock,
+} = vi.hoisted(() => ({
+    eventHandlers: new Map<string, (payload: unknown) => void>(),
+    eventServiceMock: {
+        emit: vi.fn(),
+        on: vi.fn(async (event: string, handler: (payload: unknown) => void) => {
+            eventHandlers.set(event, handler);
+            return () => {
+                eventHandlers.delete(event);
+            };
+        }),
+    },
+    getSettingValueMock: vi.fn(),
+    getSettingValuesMock: vi.fn(),
+    setSettingMock: vi.fn(),
+    windowMock: {
+        label: 'settings',
+    },
+}));
 
 vi.mock('@database/queries', () => ({
     getSettingValue: getSettingValueMock,
+    getSettingValues: getSettingValuesMock,
     setSetting: setSettingMock,
 }));
 
@@ -54,6 +62,9 @@ function mockSystemLanguage(language: string, languages: string[] = [language]) 
 
 function mockSettings(values: Record<string, string | null>) {
     getSettingValueMock.mockImplementation(async ({ key }: { key: string }) => values[key] ?? null);
+    getSettingValuesMock.mockImplementation(async ({ keys }: { keys: string[] }) =>
+        Object.fromEntries(keys.map((key) => [key, values[key] ?? null]))
+    );
     setSettingMock.mockImplementation(async ({ key, value }: { key: string; value: string }) => ({
         id: 1,
         key,
@@ -63,7 +74,7 @@ function mockSettings(values: Record<string, string | null>) {
     }));
 }
 
-describe('user changes the app language', () => {
+describe('settings language state', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         eventHandlers.clear();
@@ -73,7 +84,20 @@ describe('user changes the app language', () => {
         mockSystemLanguage('zh-CN');
     });
 
-    it('user loads persisted language and applies it to the i18n runtime', async () => {
+    it('loads persisted settings with one batched query instead of per-key reads', async () => {
+        mockSettings({ language: 'en-US' });
+
+        const { useSettingsStore } = await import('@/stores/settings');
+        const store = useSettingsStore();
+
+        await store.initialize();
+
+        expect(getSettingValuesMock).toHaveBeenCalledTimes(1);
+        expect(getSettingValueMock).not.toHaveBeenCalled();
+        expect(store.settings.language).toBe('en-US');
+    }, 15000);
+
+    it('loads persisted language and applies it to the i18n runtime', async () => {
         mockSettings({
             global_shortcut: 'Alt+Space',
             start_on_boot: 'false',
@@ -95,7 +119,7 @@ describe('user changes the app language', () => {
         );
     }, 15000);
 
-    it('user persists zh-CN when the language row is missing and the system language is Chinese', async () => {
+    it('persists zh-CN when the language row is missing and the system language is Chinese', async () => {
         mockSettings({});
         mockSystemLanguage('zh-TW', ['zh-TW', 'en-US']);
 
@@ -109,7 +133,7 @@ describe('user changes the app language', () => {
         expect(setSettingMock).toHaveBeenCalledWith({ key: 'language', value: 'zh-CN' });
     });
 
-    it('user persists en-US when the language row is missing and the system language is not Chinese', async () => {
+    it('persists en-US when the language row is missing and the system language is not Chinese', async () => {
         mockSettings({});
         mockSystemLanguage('en-GB', ['en-GB', 'fr-FR']);
 
@@ -123,7 +147,7 @@ describe('user changes the app language', () => {
         expect(setSettingMock).toHaveBeenCalledWith({ key: 'language', value: 'en-US' });
     });
 
-    it('user falls back to zh-CN for invalid language values without overwriting the row', async () => {
+    it('falls back to zh-CN for invalid language values without overwriting the row', async () => {
         mockSettings({
             language: 'fr-FR',
         });
@@ -140,7 +164,7 @@ describe('user changes the app language', () => {
         );
     });
 
-    it('user updates language, persists it, applies it, and broadcasts the change', async () => {
+    it('updates language, persists it, applies it, and broadcasts the change', async () => {
         mockSettings({});
 
         const { useSettingsStore } = await import('@/stores/settings');
@@ -160,7 +184,7 @@ describe('user changes the app language', () => {
         });
     });
 
-    it('user does not apply language when persisting the language update fails', async () => {
+    it('does not apply language when persisting the language update fails', async () => {
         mockSettings({ language: 'zh-CN' });
 
         const { useSettingsStore } = await import('@/stores/settings');
@@ -177,7 +201,7 @@ describe('user changes the app language', () => {
         expect(eventServiceMock.emit).not.toHaveBeenCalled();
     });
 
-    it('user rolls back non-language setting state when persisting the update fails', async () => {
+    it('rolls back non-language setting state when persisting the update fails', async () => {
         mockSettings({
             output_scroll_behavior: 'follow_output',
         });
@@ -197,7 +221,7 @@ describe('user changes the app language', () => {
         expect(eventServiceMock.emit).not.toHaveBeenCalled();
     });
 
-    it('user applies language changes from another window without rebroadcasting', async () => {
+    it('applies language changes from another window without rebroadcasting', async () => {
         mockSettings({
             language: 'zh-CN',
         });

@@ -304,6 +304,7 @@ describe('user runs desktop E2E from one freshly built application', () => {
             'app-start.e2e.js',
             'product-font.e2e.js',
             'main-window-visual.e2e.js',
+            'conversation-scroll.e2e.js',
             'search-smoke.e2e.js',
             'settings-smoke.e2e.js',
             'prompt-compose.e2e.js',

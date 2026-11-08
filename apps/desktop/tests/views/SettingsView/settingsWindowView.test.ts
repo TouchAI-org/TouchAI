@@ -198,6 +198,8 @@ const mountSettingsWindow = (suspenseTemplate = '<div><slot /></div>') =>
                 SettingsWindowTitleBar: false,
                 KeepAlive: false,
                 Suspense: {
+                    name: 'SuspenseStub',
+                    emits: ['resolve'],
                     template: suspenseTemplate,
                 },
             },
@@ -417,6 +419,32 @@ describe('user opens the settings window', () => {
             (wrapper.get('[data-testid="ai-services-model-filter"]').element as HTMLInputElement)
                 .value
         ).toBe('gpt');
+        wrapper.unmount();
+    });
+
+    it('user returning to a section restores its position after async content resolves', async () => {
+        const wrapper = mountSettingsWindow();
+        await flushPromises();
+        const viewport = wrapper.get('.t-page').element as HTMLElement;
+        let ready = true;
+        Object.defineProperty(viewport, 'scrollHeight', { get: () => (ready ? 1200 : 100) });
+        Object.defineProperty(viewport, 'clientHeight', { value: 100 });
+        viewport.scrollTop = 350;
+        const nav = wrapper.findComponent({ name: 'NavigationSidebar' });
+        const suspense = wrapper.findComponent({ name: 'SuspenseStub' });
+        nav.vm.$emit('navigate', 'shortcuts');
+        await flushPromises();
+        suspense.vm.$emit('resolve');
+        await flushPromises();
+        expect(viewport.scrollTop).toBe(0);
+
+        ready = false;
+        nav.vm.$emit('navigate', 'general');
+        await flushPromises();
+        ready = true;
+        suspense.vm.$emit('resolve');
+        await flushPromises();
+        expect(viewport.scrollTop).toBe(350);
         wrapper.unmount();
     });
 

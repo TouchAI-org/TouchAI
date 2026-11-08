@@ -7,6 +7,7 @@ import { type DatabaseExecutor, db } from '../index';
 import { messages, models, sessions, sessionTurns } from '../schema';
 import type { SessionCreateData, SessionEntity, SessionUpdateData } from '../types';
 import { messageText } from './messageParts';
+import { buildSessionSearchTrigramExpression } from './sessionSearchTrigrams';
 
 export interface ListSessionsOptions {
     query?: string;
@@ -118,17 +119,16 @@ export const listSessions = async (options: ListSessionsOptions = {}): Promise<S
         const pattern = `%${escapeLikePattern(query)}%`;
         const titleMatches = sql`lower(${sessions.title}) LIKE ${pattern} ESCAPE '\\'`;
         // The compact trigram index only supplies candidates, never the source text.
-        // Quote a single three-codepoint token to keep MATCH literal and bounded;
-        // the full LIKE check below rejects false positives and preserves old semantics.
+        // Several necessary trigrams are AND-ed to narrow the candidate set; the full
+        // LIKE check below still rejects false positives and preserves old semantics.
         // Short queries (and NUL-containing input) cannot safely use trigram MATCH.
-        const token = Array.from(query).slice(0, 3);
-        const indexedCandidates =
-            token.length === 3 && !query.includes('\0')
-                ? sql`${searchableMessages.id} IN (
+        const trigramExpression = buildSessionSearchTrigramExpression(query);
+        const indexedCandidates = trigramExpression
+            ? sql`${searchableMessages.id} IN (
                     SELECT rowid FROM message_search_fts
-                    WHERE message_search_fts MATCH ${'"' + token.join('').replace(/"/g, '""') + '"'}
+                    WHERE message_search_fts MATCH ${trigramExpression}
                 )`
-                : undefined;
+            : undefined;
         const contentMatches = inArray(
             sessions.id,
             drizzle
