@@ -18,15 +18,6 @@
         "issue": "#710"
     },
     {
-        "rule": "database-no-service-reverse",
-        "importer": "database/sqlLogger",
-        "target": "services/ObservabilityService/index",
-        "kind": "value",
-        "reason": "The existing SQL debug logger writes through the observability service. The database runtime is removed by RFC #710's final database phase, so rewriting this temporary bridge would only add churn.",
-        "exit": "Remove together with the Drizzle database runtime and sqlLogger.",
-        "issue": "#710"
-    },
-    {
         "rule": "no-self-barrel",
         "importer": "services/AgentService/infrastructure/modelMetadata/syncEntry",
         "target": "services/AgentService/infrastructure/modelMetadata/index",
