@@ -32,6 +32,44 @@
     --motion-spinner-cycle: 800ms;
 }
 
+/* Shared by reasoning and context status; text geometry stays unchanged. */
+.t-text-shimmer {
+    background-image: linear-gradient(
+        90deg,
+        var(--text-shimmer-base, currentColor) 35%,
+        var(--text-shimmer-highlight, var(--color-foreground)) 50%,
+        var(--text-shimmer-base, currentColor) 65%
+    );
+    background-size: 220% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: t-text-shimmer var(--motion-status-cycle) linear infinite;
+}
+
+@keyframes t-text-shimmer {
+    from {
+        background-position: 100% 0;
+    }
+    to {
+        background-position: -100% 0;
+    }
+}
+
+:root[data-reduced-motion] .t-text-shimmer {
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+    animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .t-text-shimmer {
+        background-image: none;
+        -webkit-text-fill-color: currentColor;
+        animation: none;
+    }
+}
+
 /* Keep presence mounted until its CSS exit finishes. Different names are
    intentional: Reka uses animation identity to detect closed surfaces. */
 .t-overlay[data-state='open'] {

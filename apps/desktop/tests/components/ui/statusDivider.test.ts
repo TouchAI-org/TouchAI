@@ -14,6 +14,9 @@ describe('given a conversation status divider', () => {
             'aria-busy': 'true',
         });
         expect(status.text()).toBe('正在压缩上下文');
+        expect(wrapper.get('svg').classes()).not.toContain('animate-spin');
+        expect(wrapper.find('.t-text-shimmer').text()).toBe('正在压缩上下文');
+        const icon = wrapper.get('svg').html();
         const loadingClasses = status.classes().sort();
         expect(loadingClasses).toMatchSnapshot('divider');
         expect(wrapper.get('svg').classes().sort()).toMatchSnapshot('loading icon');
@@ -24,6 +27,8 @@ describe('given a conversation status divider', () => {
         await wrapper.setProps({ label: '上下文已压缩', loading: false });
         expect(status.attributes('aria-busy')).toBe('false');
         expect(status.text()).toBe('上下文已压缩');
+        expect(wrapper.get('svg').html()).toBe(icon);
+        expect(wrapper.find('.t-text-shimmer').exists()).toBe(false);
         expect(status.classes().sort()).toEqual(loadingClasses);
         expect(wrapper.get('svg').classes().sort()).toMatchSnapshot('completed icon');
         wrapper.unmount();

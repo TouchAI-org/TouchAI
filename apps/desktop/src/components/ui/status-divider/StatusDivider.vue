@@ -20,13 +20,10 @@
             class="h-px min-w-0 flex-1 scale-y-50 bg-border contrast-more:scale-y-100"
         />
         <span class="flex min-w-0 items-center gap-2">
-            <AppIcon
-                :name="loading ? 'loader' : icon"
-                aria-hidden="true"
-                class="size-3.5 shrink-0"
-                :class="{ 'animate-spin motion-reduce:animate-none': loading }"
-            />
-            <span class="min-w-0 text-center">{{ label }}</span>
+            <AppIcon :name="icon" aria-hidden="true" class="size-3.5 shrink-0" />
+            <span class="min-w-0 text-center" :class="{ 't-text-shimmer': loading }">
+                {{ label }}
+            </span>
         </span>
         <span
             aria-hidden="true"
@@ -34,3 +31,9 @@
         />
     </div>
 </template>
+
+<style scoped>
+    .t-text-shimmer {
+        --text-shimmer-highlight: var(--color-muted-foreground);
+    }
+</style>

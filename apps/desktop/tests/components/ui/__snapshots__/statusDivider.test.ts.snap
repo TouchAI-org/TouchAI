@@ -25,9 +25,7 @@ exports[`given a conversation status divider > user sees progress become complet
 
 exports[`given a conversation status divider > user sees progress become completed with the same spacing and a polite announcement > loading icon 1`] = `
 [
-  "animate-spin",
   "app-icon",
-  "motion-reduce:animate-none",
   "shrink-0",
   "size-3.5",
 ]
