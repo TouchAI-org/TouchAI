@@ -108,6 +108,7 @@ function persisterStub() {
         getSessionId: vi.fn(() => 1),
         persistToolCallMessage: vi.fn().mockResolvedValue(1),
         persistToolResult: vi.fn().mockResolvedValue(undefined),
+        getContextMessageSource: async () => undefined,
         persistCheckpoint: vi.fn().mockResolvedValue(undefined),
     };
 }

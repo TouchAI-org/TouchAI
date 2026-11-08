@@ -6,7 +6,6 @@ import {
     type ContextSummary,
     type ContextSummarySource,
     contextSummaryText,
-    type LegacyContextSummary,
     MAX_SUMMARY_CHARS,
 } from '../contracts/context';
 import { AiError, AiErrorCode } from '../contracts/errors';
@@ -17,11 +16,9 @@ import type {
     ContextCompactionEvent,
 } from '../contracts/protocol';
 import { canonicalJson } from '../infrastructure/providers/ai-sdk/cache';
-import { isMessageSnapshot, messageSnapshotIdentity, snapshotAiMessages } from './messages';
+import { isMessageSnapshot, snapshotAiMessages } from './messages';
 
-const MAX_SUMMARIES = 16;
-const SUMMARY_TTL_MS = 30 * 60_000;
-const MAX_VALIDATED_MESSAGES = 8192;
+const MAX_CALIBRATIONS = 16;
 
 // Adapted from pi's initial/update checkpoints; keep the typed request prefix for caching.
 function summaryInstruction(updating: boolean): string {
@@ -61,24 +58,9 @@ interface PrepareOptions {
     contextLimit: number | null;
     outputLimit: number | null;
     preserveSummaryOutputBudget?: boolean;
-    requireDurableBoundary?: boolean;
     onCompaction?: (event: ContextCompactionEvent) => void;
     summarize: (request: AiRequestOptions) => Promise<SummaryResult>;
-    loadSummary?: () => Promise<ContextSummary | undefined>;
-    saveSummary?: (
-        summary: ContextSummary,
-        source?: ContextSummarySource
-    ) => Promise<number | void>;
-}
-
-interface SummaryEntry extends LegacyContextSummary {
-    expiresAt: number;
-    validation?: {
-        settings: string;
-        source: symbol[];
-        systemIndexes: number[];
-        summary: AiMessage;
-    };
+    saveSummary: (summary: ContextSummary, source: ContextSummarySource) => Promise<number>;
 }
 
 export interface PreparedContext {
@@ -127,42 +109,7 @@ function safeBoundaries(messages: AiMessage[]): number[] {
     return boundaries;
 }
 
-async function fingerprint(request: AiRequestOptions, covered: number): Promise<string> {
-    const normalizeArguments = (raw: string): unknown => {
-        try {
-            return JSON.parse(raw) as unknown;
-        } catch {
-            return raw;
-        }
-    };
-    const bytes = new TextEncoder().encode(
-        canonicalJson([
-            ...fingerprintSettings(request),
-            request.messages.slice(0, covered).map((message) => ({
-                role: message.role,
-                content:
-                    typeof message.content === 'string'
-                        ? message.content
-                            ? [{ type: 'text', text: message.content }]
-                            : []
-                        : message.content,
-                tool_calls: message.tool_calls?.map((call) => ({
-                    ...call,
-                    arguments: normalizeArguments(call.arguments),
-                })),
-                tool_call_id: message.tool_call_id,
-                name: message.name,
-                isError: message.isError ?? false,
-            })),
-        ])
-    );
-    const digest = await crypto.subtle.digest('SHA-256', bytes);
-    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join(
-        ''
-    );
-}
-
-function fingerprintSettings(request: AiRequestOptions): unknown[] {
+function compactionSettings(request: AiRequestOptions): unknown[] {
     return [
         request.model,
         request.providerId,
@@ -176,69 +123,13 @@ function fingerprintSettings(request: AiRequestOptions): unknown[] {
     ];
 }
 
-function summaryPrefix(
-    request: AiRequestOptions,
-    entry: Pick<LegacyContextSummary, 'covered' | 'text' | 'pinnedUser'>,
-    validation?: SummaryEntry['validation']
-): AiMessage[] {
-    const systems = validation
-        ? validation.systemIndexes.map((index) => request.messages[index]!)
-        : request.messages.slice(0, entry.covered).filter((message) => message.role === 'system');
-    return [
-        ...systems,
-        validation?.summary ?? summaryMessage(entry.text),
-        ...(entry.pinnedUser !== undefined ? [request.messages[entry.pinnedUser]!] : []),
-    ];
-}
-
-function createValidation(
-    entry: LegacyContextSummary,
-    request: AiRequestOptions,
-    settings: string
-): SummaryEntry['validation'] {
-    if (entry.covered > MAX_VALIDATED_MESSAGES) return undefined;
-    const source = request.messages.slice(0, entry.covered);
-    // Retain identities, not archived messages or their attachment payloads.
-    return source.every(isMessageSnapshot)
-        ? {
-              settings,
-              source: source.map((message) => messageSnapshotIdentity(message)!),
-              systemIndexes: source.flatMap((message, index) =>
-                  message.role === 'system' ? [index] : []
-              ),
-              summary: snapshotAiMessages([summaryMessage(entry.text)])[0]!,
-          }
-        : undefined;
-}
-
-function matchesValidation(
-    validation: SummaryEntry['validation'],
-    request: AiRequestOptions,
-    settings: string
-): boolean {
-    return (
-        validation?.settings === settings &&
-        validation.source.every(
-            (source, index) => source === messageSnapshotIdentity(request.messages[index]!)
-        )
-    );
-}
-
-/** Rebuildable model projection with optional durable checkpoints; never rewrites history. */
+/** Model projection from durable checkpoints; never rewrites history. */
 export class ContextWindow {
-    private readonly summaries = new Map<string, SummaryEntry>();
     private readonly estimates = new WeakMap<AiMessage, number>();
     private readonly scales = new Map<string, number>();
 
     private key(request: AiRequestOptions): string {
         return JSON.stringify([request.promptCacheKey, request.providerId, request.model]);
-    }
-
-    private remember(key: string, entry: SummaryEntry): void {
-        this.summaries.delete(key);
-        this.summaries.set(key, entry);
-        while (this.summaries.size > MAX_SUMMARIES)
-            this.summaries.delete(this.summaries.keys().next().value!);
     }
 
     private messageTokens(message: AiMessage): number {
@@ -299,12 +190,15 @@ export class ContextWindow {
         const estimate = this.estimate(request);
         if (estimate > 0)
             this.scales.set(key, Math.max(scale, ((scale * actual) / estimate) * 1.1));
-        while (this.scales.size > MAX_SUMMARIES)
+        while (this.scales.size > MAX_CALIBRATIONS)
             this.scales.delete(this.scales.keys().next().value!);
     }
 
     async prepare(options: PrepareOptions): Promise<PreparedContext> {
-        const { request } = options;
+        const request = {
+            ...options.request,
+            messages: snapshotAiMessages(options.request.messages),
+        };
         checkCancellation(request.signal);
         const limit = options.contextLimit;
         const outputReserve = positive(limit)
@@ -325,60 +219,20 @@ export class ContextWindow {
         const key = this.key(request);
         const retainedMessage = request.messages.find((message) => message.contextSummary);
         const retainedSummary = retainedMessage?.contextSummary;
-        for (const [entryKey, entry] of this.summaries) {
-            if (entry.expiresAt <= Date.now()) this.summaries.delete(entryKey);
-        }
-        let entry =
-            !retainedSummary && request.promptCacheKey ? this.summaries.get(key) : undefined;
-        if (!entry && !retainedSummary && positive(limit) && options.loadSummary) {
-            const saved = await options.loadSummary();
-            if (saved?.version === 1) entry = { ...saved, expiresAt: Date.now() + SUMMARY_TTL_MS };
-        }
-        const settings = entry ? canonicalJson(fingerprintSettings(request)) : '';
-        const validated = matchesValidation(entry?.validation, request, settings);
-        const validation =
-            entry && !validated ? createValidation(entry, request, settings) : undefined;
-        if (
-            entry &&
-            (entry.model !== request.model ||
-                entry.providerId !== request.providerId ||
-                entry.covered >= request.messages.length ||
-                (entry.pinnedUser !== undefined &&
-                    request.messages[entry.pinnedUser]?.role !== 'user') ||
-                (!validated &&
-                    (entry.fingerprint !== (await fingerprint(request, entry.covered)) ||
-                        (validation &&
-                            !matchesValidation(
-                                validation,
-                                request,
-                                canonicalJson(fingerprintSettings(request))
-                            )))))
-        ) {
-            this.summaries.delete(key);
-            entry = undefined;
-        }
-        if (entry && !validated) entry.validation = validation;
         const systemsBefore = (covered: number) =>
             request.messages.slice(0, covered).filter((message) => message.role === 'system');
         const project = (covered: number, text: string, pinnedUser?: number): AiMessage[] => [
-            ...summaryPrefix(request, { covered, text, pinnedUser }),
+            ...systemsBefore(covered),
+            summaryMessage(text),
+            ...(pinnedUser === undefined ? [] : [request.messages[pinnedUser]!]),
             ...request.messages.slice(covered),
         ];
-        let messages = entry
-            ? [
-                  ...summaryPrefix(request, entry, entry.validation),
-                  ...request.messages.slice(entry.covered),
-              ]
-            : request.messages;
+        let messages = request.messages;
         let estimatedTokens = this.estimate(request, messages);
         checkCancellation(request.signal);
         if (estimatedTokens <= inputBudget) {
             if (retainedSummary)
                 options.onCompaction?.({ id: retainedSummary.id, state: 'compacted' });
-            if (entry) {
-                if (request.promptCacheKey) this.remember(key, entry);
-                options.onCompaction?.({ id: entry.id, state: 'compacted' });
-            }
             return { messages, estimatedTokens, inputBudget, maxOutputTokens };
         }
 
@@ -394,9 +248,9 @@ export class ContextWindow {
                 break;
             }
         }
-        const previousCovered =
-            entry?.covered ??
-            (retainedMessage ? request.messages.indexOf(retainedMessage) + 1 : systemEnd);
+        const previousCovered = retainedMessage
+            ? request.messages.indexOf(retainedMessage) + 1
+            : systemEnd;
         const boundaries = safeBoundaries(request.messages).filter(
             (index) => index > previousCovered && index < request.messages.length
         );
@@ -423,27 +277,22 @@ export class ContextWindow {
         try {
             const prefix = request.messages.slice(0, cut);
             const firstKeptMessageId = request.messages[cut]?.contextSource?.id;
-            const durable =
-                firstKeptMessageId !== undefined &&
-                prefix.every(
+            if (
+                firstKeptMessageId === undefined ||
+                !prefix.every(
                     (message) =>
                         message.role === 'system' ||
                         message.contextSummary ||
                         (message.contextSource && message.contextSource.id < firstKeptMessageId)
-                );
-            if (options.requireDurableBoundary && !durable)
+                )
+            )
                 throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
-            const sourceFingerprint = durable ? undefined : await fingerprint(request, cut);
-            const sourceSettings = canonicalJson(fingerprintSettings(request));
-            const immutablePrefix = prefix.every(isMessageSnapshot);
-            const sourceIdentity = prefix.map(messageSnapshotIdentity);
-            const mutableFingerprint =
-                durable && !immutablePrefix ? await fingerprint(request, cut) : undefined;
+            const sourceSettings = canonicalJson(compactionSettings(request));
             const summaryOutputTokens = options.preserveSummaryOutputBudget
                 ? outputReserve!
                 : Math.min(outputReserve!, 8192);
             let covered = previousCovered;
-            let text = retainedSummary?.text ?? entry?.text ?? '';
+            let text = retainedSummary?.text ?? '';
             const accept = (result: SummaryResult): string => {
                 checkCancellation(request.signal);
                 if (
@@ -510,7 +359,8 @@ export class ContextWindow {
             const after = this.estimate(request, messages);
             if (after >= estimatedTokens || after > inputBudget)
                 throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
-            const metadata = {
+            const checkpoint: ContextSummary = {
+                version: 2,
                 id: compactionId,
                 text,
                 model: request.model,
@@ -518,75 +368,42 @@ export class ContextWindow {
                 createdAt: Date.now(),
                 tokensBefore: estimatedTokens,
                 tokensAfter: after,
+                firstKeptMessageId,
+                pinnedUserMessageId:
+                    pinnedUser === undefined
+                        ? undefined
+                        : request.messages[pinnedUser]!.contextSource?.id,
+                systemMessageIds: prefix
+                    .filter((message) => message.role === 'system' && message.contextSource)
+                    .map((message) => message.contextSource!.id),
             };
-            const checkpoint: ContextSummary = durable
-                ? {
-                      ...metadata,
-                      version: 2,
-                      firstKeptMessageId,
-                      pinnedUserMessageId:
-                          pinnedUser === undefined
-                              ? undefined
-                              : request.messages[pinnedUser]!.contextSource?.id,
-                      systemMessageIds: prefix
-                          .filter((message) => message.role === 'system' && message.contextSource)
-                          .map((message) => message.contextSource!.id),
-                  }
-                : { ...metadata, version: 1, covered, pinnedUser, fingerprint: sourceFingerprint! };
-            const validation =
-                checkpoint.version === 1
-                    ? createValidation(
-                          checkpoint,
-                          request,
-                          canonicalJson(fingerprintSettings(request))
-                      )
-                    : undefined;
+            // Production passes immutable messages, so the common path compares references.
+            // Mutable callers are compared with the snapshot used for generation.
             if (
-                (sourceFingerprint !== undefined &&
-                    sourceFingerprint !== (await fingerprint(request, covered))) ||
-                (mutableFingerprint !== undefined &&
-                    mutableFingerprint !== (await fingerprint(request, covered))) ||
-                (durable &&
-                    (sourceSettings !== canonicalJson(fingerprintSettings(request)) ||
-                        (immutablePrefix &&
-                            sourceIdentity.some(
-                                (identity, index) =>
-                                    identity !== messageSnapshotIdentity(request.messages[index]!)
-                            )))) ||
-                (validation &&
-                    !matchesValidation(
-                        validation,
-                        request,
-                        canonicalJson(fingerprintSettings(request))
-                    ))
+                sourceSettings !== canonicalJson(compactionSettings(options.request)) ||
+                request.messages.length !== options.request.messages.length ||
+                request.messages.some(
+                    (message, index) =>
+                        message !== options.request.messages[index] &&
+                        canonicalJson(message) !== canonicalJson(options.request.messages[index])
+                )
             )
                 throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
             checkCancellation(request.signal);
-            const partId = await options.saveSummary?.(
-                checkpoint,
-                durable
-                    ? {
-                          messages: prefix.flatMap((message) =>
-                              message.contextSource ? [message.contextSource] : []
-                          ),
-                          previous: retainedSummary,
-                      }
-                    : undefined
-            );
+            const partId = await options.saveSummary(checkpoint, {
+                messages: prefix.flatMap((message) =>
+                    message.contextSource ? [message.contextSource] : []
+                ),
+                previous: retainedSummary,
+            });
             completed = true;
             estimatedTokens = after;
-            if (checkpoint.version === 2) {
-                const summaryIndex = messages.findIndex((message) => message.role !== 'system');
-                messages[summaryIndex] = {
-                    ...messages[summaryIndex]!,
-                    contextSummary: checkpoint,
-                    ...(typeof partId === 'number' ? { contextSummaryPartId: partId } : {}),
-                };
-                this.summaries.delete(key);
-            } else if (request.promptCacheKey) {
-                const saved = { ...checkpoint, expiresAt: Date.now() + SUMMARY_TTL_MS, validation };
-                this.remember(key, saved);
-            }
+            const summaryIndex = messages.findIndex((message) => message.role !== 'system');
+            messages[summaryIndex] = {
+                ...messages[summaryIndex]!,
+                contextSummary: checkpoint,
+                contextSummaryPartId: partId,
+            };
             options.onCompaction?.({ id: compactionId, state: 'compacted' });
             // A cancellation racing with COMMIT must not erase a recoverable checkpoint.
             checkCancellation(request.signal);

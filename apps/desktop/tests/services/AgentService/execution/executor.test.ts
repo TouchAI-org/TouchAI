@@ -160,8 +160,11 @@ function createLongCheckpoint(): AttemptCheckpoint {
             { role: 'user' as const, content: `Request ${i}: ${'context '.repeat(150)}` },
             { role: 'assistant' as const, content: 'evidence '.repeat(200) },
         ]).flat(),
-        { role: 'user', content: 'Finish the task.' },
-    ];
+        { role: 'user' as const, content: 'Finish the task.' },
+    ].map((message, index) => ({
+        ...message,
+        contextSource: { id: index + 1, fingerprint: 'a'.repeat(64) },
+    }));
     return checkpoint;
 }
 
@@ -201,14 +204,15 @@ describe('user sends a prompt and receives a streamed answer', () => {
             startCheckpoint: checkpoint,
             persister: {
                 getSessionId: () => 42,
-                loadContextSummary: async () => undefined,
-                persistContextSummary: async () => undefined,
+
+                persistContextSummary: async () => 1,
                 persistOutputProgress: async () => undefined,
                 persistToolCallMessage: async (parts: PersistedOutputPart[]) => {
                     storedToolParts.push(parts);
                     return 5;
                 },
                 persistToolResult: async () => undefined,
+                getContextMessageSource: async () => undefined,
                 persistCheckpoint: async () => undefined,
             } as never,
         });
@@ -262,6 +266,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
 
     it('user receives the answer with summary costs included when history exceeds the model budget', async () => {
         const checkpoint = createLongCheckpoint();
+        const originalMessageCount = checkpoint.messages.length;
         const compactionStates: string[] = [];
         const sent: AiRequestOptions[] = [];
         providerMock.stream.mockImplementation(async function* (request: AiRequestOptions) {
@@ -290,8 +295,8 @@ describe('user sends a prompt and receives a streamed answer', () => {
             },
             persister: {
                 getSessionId: () => 42,
-                loadContextSummary: async () => undefined,
-                persistContextSummary: async () => undefined,
+
+                persistContextSummary: async () => 1,
                 persistOutputProgress: async () => undefined,
             } as never,
         });
@@ -305,7 +310,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         expect(sent.map((request) => request.attachmentRequestIndex)).toEqual(
             sent.map((_, index) => index)
         );
-        expect(sent[sent.length - 1]!.messages.length).toBeLessThan(checkpoint.messages.length);
+        expect(sent[sent.length - 1]!.messages.length).toBeLessThan(originalMessageCount);
     });
 
     it('user keeps Anthropic cache settings consistent when summarizing long history', async () => {
@@ -317,7 +322,10 @@ describe('user sends a prompt and receives a streamed answer', () => {
             ...checkpoint.messages,
             ...checkpoint.messages,
             ...checkpoint.messages,
-        ];
+        ].map((message, index) => ({
+            ...message,
+            contextSource: { id: index + 1, fingerprint: 'a'.repeat(64) },
+        }));
         const sent: AiRequestOptions[] = [];
         providerMock.stream.mockImplementation(async function* (request: AiRequestOptions) {
             sent.push(request);
@@ -331,8 +339,8 @@ describe('user sends a prompt and receives a streamed answer', () => {
             startCheckpoint: checkpoint,
             persister: {
                 getSessionId: () => 42,
-                loadContextSummary: async () => undefined,
-                persistContextSummary: async () => undefined,
+
+                persistContextSummary: async () => 1,
                 persistOutputProgress: async () => undefined,
             } as never,
         });
@@ -366,7 +374,6 @@ describe('user sends a prompt and receives a streamed answer', () => {
             signal: controller.signal,
             persister: {
                 getSessionId: () => 42,
-                loadContextSummary: async () => undefined,
             } as never,
         });
         expect(result.type).toBe('failed');
@@ -406,8 +413,8 @@ describe('user sends a prompt and receives a streamed answer', () => {
                     signal: controller.signal,
                     persister: {
                         getSessionId: () => 42,
-                        loadContextSummary: async () => undefined,
-                        persistContextSummary: async () => undefined,
+
+                        persistContextSummary: async () => 1,
                         persistOutputProgress: async () => undefined,
                     } as never,
                 });
@@ -451,7 +458,6 @@ describe('user sends a prompt and receives a streamed answer', () => {
             startCheckpoint: createLongCheckpoint(),
             persister: {
                 getSessionId: () => 42,
-                loadContextSummary: async () => undefined,
             } as never,
         });
         expect(result.type).toBe('failed');
@@ -628,6 +634,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
                 persistOutputProgress: vi.fn().mockResolvedValue(undefined),
                 persistToolCallMessage: vi.fn().mockResolvedValue(1),
                 persistToolResult: vi.fn().mockResolvedValue(undefined),
+                getContextMessageSource: async () => undefined,
                 persistCheckpoint: vi.fn().mockResolvedValue(undefined),
             } as never,
         });
@@ -813,6 +820,7 @@ describe('user calls a tool the agent does not have', () => {
             getSessionId: vi.fn(() => 1),
             persistToolCallMessage: vi.fn().mockResolvedValue(1),
             persistToolResult: vi.fn().mockResolvedValue(undefined),
+            getContextMessageSource: async () => undefined,
             persistCheckpoint: vi.fn().mockResolvedValue(undefined),
         };
     }
@@ -996,6 +1004,7 @@ describe('user asks the agent to switch to a stronger model', () => {
             getSessionId: vi.fn(() => 1),
             persistToolCallMessage: vi.fn().mockResolvedValue(1),
             persistToolResult: vi.fn().mockResolvedValue(undefined),
+            getContextMessageSource: async () => undefined,
             persistCheckpoint: vi.fn().mockResolvedValue(undefined),
         };
     }

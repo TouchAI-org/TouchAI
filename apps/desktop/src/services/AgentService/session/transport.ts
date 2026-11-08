@@ -1,7 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import { getMessageText } from '@database/queries/messageParts';
-import { findMessagesBySessionId } from '@database/queries/messages';
 import { getToolCallName, readToolCallData } from '@database/queries/toolParts';
 import type { MessagePartEntity } from '@database/types';
 
@@ -15,7 +14,7 @@ import {
     getUnsupportedAttachmentTypes,
     hydratePersistedAttachments,
 } from '../infrastructure/attachments';
-import type { SessionReadModel } from './readModel';
+import { createSessionReadModel, type SessionReadModel } from './readModel';
 
 /** 读取 reasoning 片段持久化的 providerOptions；无有效内容时返回 undefined。 */
 function readReasoningProviderOptions(data: string): Record<string, JsonObject> | undefined {
@@ -61,9 +60,9 @@ export async function findUnsupportedSessionAttachmentTypes(options: {
         return [];
     }
 
-    const rows = options.readModel
-        ? await options.readModel.getMessages(options.sessionId)
-        : await findMessagesBySessionId(options.sessionId);
+    const rows = await (options.readModel ?? createSessionReadModel()).getMessages(
+        options.sessionId
+    );
     const transportAttachmentRows = rows
         .filter((row) => row.role === 'user' || row.role === 'tool_call')
         .flatMap((row) => row.attachments);
@@ -104,19 +103,15 @@ export async function loadSessionTransportMessages(options: {
     attachmentCapabilities?: AttachmentCapabilities;
     readModel?: SessionReadModel;
 }): Promise<AiMessage[]> {
-    const context =
-        options.sessionId && options.readModel
-            ? await options.readModel.getContext(options.sessionId)
-            : undefined;
-    const rows =
-        context?.messages ??
-        (options.sessionId ? await findMessagesBySessionId(options.sessionId) : []);
+    if (!options.sessionId) return [];
+    const context = await (options.readModel ?? createSessionReadModel()).getContext(
+        options.sessionId
+    );
     const attachmentCapabilities = resolveTransportAttachmentCapabilities(options);
     const messages: AiMessage[] = [];
 
-    for (const row of rows) {
-        const contextSource = options.readModel ? await contextMessageSource(row) : undefined;
-        const provenance = contextSource ? { contextSource } : {};
+    for (const row of context.messages) {
+        const contextSource = await contextMessageSource(row);
         if (row.role === 'tool_call') {
             const callParts = row.parts.filter((part) => part.type === 'tool_call');
             const calls: AiToolCall[] = callParts.map((part) => {
@@ -128,7 +123,7 @@ export async function loadSessionTransportMessages(options: {
                 };
             });
             messages.push({
-                ...provenance,
+                contextSource,
                 role: 'assistant',
                 content: buildAssistantTransportContent(row),
                 tool_calls: calls,
@@ -157,7 +152,7 @@ export async function loadSessionTransportMessages(options: {
                 const content =
                     typeof data.output === 'string' ? data.output : MISSING_TOOL_RESULT_PLACEHOLDER;
                 messages.push({
-                    ...provenance,
+                    contextSource,
                     role: 'tool',
                     tool_call_id: call.id,
                     name: call.name,
@@ -189,7 +184,7 @@ export async function loadSessionTransportMessages(options: {
                 attachments.length > 0 ? await buildAttachmentParts(attachments) : [];
 
             messages.push({
-                ...provenance,
+                contextSource,
                 role: 'user',
                 content:
                     attachmentParts.length > 0
@@ -213,7 +208,7 @@ export async function loadSessionTransportMessages(options: {
         }
 
         messages.push({
-            ...provenance,
+            contextSource,
             role: row.role as 'user' | 'assistant' | 'system',
             content,
         });

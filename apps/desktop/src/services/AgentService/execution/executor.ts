@@ -114,8 +114,6 @@ export interface RequestExecutionCallbacks {
 }
 
 export interface AttemptCheckpoint {
-    /** Session-backed requests require a stored boundary before installing a new summary. */
-    durableContext?: boolean;
     activeModel: ModelWithProvider;
     messages: AiMessage[];
     response: string;
@@ -129,7 +127,6 @@ export interface AttemptCheckpoint {
 }
 
 interface AttemptRuntime {
-    durableContext: boolean;
     promptCacheKey: string;
     nextAttachmentRequestIndex: number;
     activeModel: ModelWithProvider;
@@ -786,7 +783,6 @@ export class AiRequestExecutor {
         modelLanguageContext: ModelLanguageContext;
     }): AttemptCheckpoint {
         return {
-            durableContext: true,
             activeModel: options.initialModel,
             messages: snapshotAiMessages(options.baseMessages),
             response: '',
@@ -806,7 +802,6 @@ export class AiRequestExecutor {
         const { activeModel, modelLanguageContext, modelSwitchCount } = startCheckpoint;
 
         return {
-            durableContext: startCheckpoint.durableContext === true,
             promptCacheKey: `${this.cacheNamespace}:${sessionId ?? crypto.randomUUID()}`,
             nextAttachmentRequestIndex: startCheckpoint.iteration,
             activeModel,
@@ -841,7 +836,6 @@ export class AiRequestExecutor {
 
     private createCheckpoint(runtime: AttemptRuntime): AttemptCheckpoint {
         return {
-            durableContext: runtime.durableContext,
             activeModel: runtime.activeModel,
             messages: snapshotAiMessages(runtime.messages),
             response: runtime.response,
@@ -919,8 +913,6 @@ export class AiRequestExecutor {
             contextLimit: runtime.activeModel.context_limit,
             outputLimit: runtime.activeModel.output_limit,
             preserveSummaryOutputBudget: preserveReasoningCache,
-            requireDurableBoundary: runtime.durableContext,
-            loadSummary: () => options.persister.loadContextSummary(),
             saveSummary: (summary, source) =>
                 options.persister.persistContextSummary(summary, runtime.calls, source),
             onCompaction: (contextCompaction) =>
@@ -1375,19 +1367,17 @@ export class AiRequestExecutor {
             });
         }
 
-        if (runtime.durableContext) {
-            const source = await options.persister.getContextMessageSource(toolCallMessageId, {
-                outputParts: options.step.outputParts,
-                results: toolResults,
-            });
-            if (source) {
-                const start = runtime.messages.length - options.step.toolCalls.length - 1;
-                for (let index = start; index < runtime.messages.length; index++) {
-                    runtime.messages[index] = {
-                        ...runtime.messages[index]!,
-                        contextSource: source,
-                    };
-                }
+        const source = await options.persister.getContextMessageSource(toolCallMessageId, {
+            outputParts: options.step.outputParts,
+            results: toolResults,
+        });
+        if (source) {
+            const start = runtime.messages.length - options.step.toolCalls.length - 1;
+            for (let index = start; index < runtime.messages.length; index++) {
+                runtime.messages[index] = {
+                    ...runtime.messages[index]!,
+                    contextSource: source,
+                };
             }
         }
 

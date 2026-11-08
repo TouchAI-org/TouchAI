@@ -213,7 +213,6 @@ export class PersistenceProjector {
     private assistantMessageId: number | null;
     private pendingOutputMessageId: number | null = null;
     private pendingOutputOffset = 0;
-    private contextSummary: Promise<ContextSummary | undefined> | undefined;
     private turn: SessionTurnEntity | null;
     private turnStartedAtMs: number | null;
     private attemptState: AttemptState | null;
@@ -287,11 +286,9 @@ export class PersistenceProjector {
                 });
             }
 
-            const source = initialCheckpoint.durableContext
-                ? await contextMessageSource(
-                      (await findContextMessageRows(sessionId, { ids: [userMessageId] }, tx))[0]!
-                  )
-                : undefined;
+            const source = await contextMessageSource(
+                (await findContextMessageRows(sessionId, { ids: [userMessageId] }, tx))[0]!
+            );
             return { sessionId, userMessageId, turn, attemptState, source };
         });
 
@@ -299,15 +296,13 @@ export class PersistenceProjector {
         this.userMessageId = result.userMessageId;
         this.turn = result.turn;
         this.attemptState = result.attemptState;
-        if (result.source) {
-            const lastIndex = initialCheckpoint.messages.length - 1;
-            const current = initialCheckpoint.messages[lastIndex];
-            if (current?.role === 'user') {
-                initialCheckpoint.messages[lastIndex] = {
-                    ...current,
-                    contextSource: result.source,
-                };
-            }
+        const lastIndex = initialCheckpoint.messages.length - 1;
+        const current = initialCheckpoint.messages[lastIndex];
+        if (current?.role === 'user') {
+            initialCheckpoint.messages[lastIndex] = {
+                ...current,
+                contextSource: result.source,
+            };
         }
     }
 
@@ -780,23 +775,6 @@ export class PersistenceProjector {
         return messageId;
     }
 
-    loadContextSummary(): Promise<ContextSummary | undefined> {
-        if (!this.contextSummary) {
-            const loading = (
-                this.sessionId === null
-                    ? Promise.resolve(undefined)
-                    : findLatestContextCompaction(this.sessionId).then((part) =>
-                          part ? readContextSummary(part) : undefined
-                      )
-            ).catch((error: unknown) => {
-                if (this.contextSummary === loading) this.contextSummary = undefined;
-                throw error;
-            });
-            this.contextSummary = loading;
-        }
-        return this.contextSummary;
-    }
-
     async getContextMessageSource(
         messageId: number,
         expected: {
@@ -877,7 +855,7 @@ export class PersistenceProjector {
                 : await findMessagePartById(message.contextSummaryPartId);
         const saved = part ? readContextSummary(part) : undefined;
         if (
-            saved?.version !== 2 ||
+            !saved ||
             saved.invalidatedAt !== undefined ||
             canonicalJson(saved) !== canonicalJson(message.contextSummary)
         ) {
@@ -887,19 +865,18 @@ export class PersistenceProjector {
 
     private async validateSummarySource(
         summary: ContextSummary,
-        source: ContextSummarySource | undefined,
+        source: ContextSummarySource,
         database: DatabaseExecutor
     ): Promise<void> {
-        if (summary.version !== 2) return;
         const fail = () => {
             throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
         };
-        if (!source || this.sessionId === null) return fail();
+        if (this.sessionId === null) return fail();
         if (source.previous) {
             const previous = await findLatestContextCompaction(this.sessionId, database);
             const saved = previous ? readContextSummary(previous) : undefined;
             if (
-                saved?.version !== 2 ||
+                !saved ||
                 saved.invalidatedAt !== undefined ||
                 canonicalJson(saved) !== canonicalJson(source.previous)
             )
@@ -961,7 +938,7 @@ export class PersistenceProjector {
     async persistContextSummary(
         summary: ContextSummary,
         calls: AiCallRecord[],
-        source?: ContextSummarySource
+        source: ContextSummarySource
     ): Promise<number> {
         if (!this.turn || !this.attemptState) throw new Error('Compaction requires an active turn');
         const turnId = this.turn.id;
@@ -997,7 +974,6 @@ export class PersistenceProjector {
         this.pendingOutputMessageId = result.messageId;
         this.pendingOutputOffset = result.offset;
         this.turn = { ...this.turn, response_message_id: result.messageId };
-        this.contextSummary = Promise.resolve(summary);
         return result.partId;
     }
 

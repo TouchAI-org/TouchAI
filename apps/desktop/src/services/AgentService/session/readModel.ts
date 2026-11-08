@@ -8,11 +8,11 @@ import {
     type MessageRow,
 } from '@database/queries/messages';
 
-import { readContextSummary, type RetainedContextSummary } from '../contracts/context';
+import { type ContextSummary, readContextSummary } from '../contracts/context';
 
 interface SessionContext {
     messages: MessageRow[];
-    summary?: RetainedContextSummary;
+    summary?: ContextSummary;
     summaryPartId?: number;
 }
 
@@ -33,7 +33,7 @@ export function createSessionReadModel(): SessionReadModel {
                     const part = await findLatestContextCompaction(sessionId, tx);
                     const summary = part ? readContextSummary(part) : undefined;
                     if (
-                        summary?.version === 2 &&
+                        summary &&
                         summary.invalidatedAt === undefined &&
                         summary.firstKeptMessageId <= part!.message_id
                     ) {

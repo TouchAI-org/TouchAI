@@ -5,23 +5,7 @@ import { z } from '@/utils/zod';
 export const MAX_SUMMARY_CHARS = 32_000;
 
 /** A completed checkpoint. The original transcript remains the source of truth. */
-const legacyContextSummarySchema = z
-    .object({
-        version: z.literal(1),
-        id: z.string().uuid(),
-        text: z.string().trim().min(1).max(MAX_SUMMARY_CHARS),
-        covered: z.number().int().positive(),
-        fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
-        pinnedUser: z.number().int().nonnegative().optional(),
-        model: z.string().min(1),
-        providerId: z.number().int().positive().optional(),
-        createdAt: z.number().int().nonnegative(),
-        tokensBefore: z.number().int().nonnegative(),
-        tokensAfter: z.number().int().nonnegative(),
-    })
-    .refine((value) => value.pinnedUser === undefined || value.pinnedUser < value.covered);
-
-const retainedContextSummarySchema = z
+const contextSummarySchema = z
     .object({
         version: z.literal(2),
         id: z.string().uuid(),
@@ -45,9 +29,7 @@ const retainedContextSummarySchema = z
                 new Set(value.systemMessageIds).size === value.systemMessageIds.length)
     );
 
-export type LegacyContextSummary = z.infer<typeof legacyContextSummarySchema>;
-export type RetainedContextSummary = z.infer<typeof retainedContextSummarySchema>;
-export type ContextSummary = LegacyContextSummary | RetainedContextSummary;
+export type ContextSummary = z.infer<typeof contextSummarySchema>;
 
 /** In-memory proof of the stored message used to produce a model message. */
 export interface ContextMessageSource {
@@ -57,7 +39,7 @@ export interface ContextMessageSource {
 
 export interface ContextSummarySource {
     messages: ContextMessageSource[];
-    previous?: RetainedContextSummary;
+    previous?: ContextSummary;
 }
 
 export function contextSummaryText(text: string): string {
@@ -97,9 +79,7 @@ export function readContextSummary(part: {
     try {
         const metadata: unknown = JSON.parse(part.data);
         if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
-        const result = z
-            .union([legacyContextSummarySchema, retainedContextSummarySchema])
-            .safeParse({ ...metadata, text: part.content });
+        const result = contextSummarySchema.safeParse({ ...metadata, text: part.content });
         return result.success ? result.data : undefined;
     } catch {
         return undefined;

@@ -1,6 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import type { ContextSummary } from '@/services/AgentService/contracts/context';
 import type { AiMessage, AiRequestOptions } from '@/services/AgentService/contracts/protocol';
 import { ContextWindow, type SummaryResult } from '@/services/AgentService/execution/context';
 import { snapshotAiMessages } from '@/services/AgentService/execution/messages';
@@ -20,7 +19,17 @@ function history(turns = 12): AiMessage[] {
     ];
 }
 function request(messages = history()): AiRequestOptions {
-    return { model: 'test-model', providerId: 1, promptCacheKey: 'session-a', messages };
+    let id = Math.max(0, ...messages.map((message) => message.contextSource?.id ?? 0));
+    return {
+        model: 'test-model',
+        providerId: 1,
+        promptCacheKey: 'session-a',
+        messages: messages.map((message) =>
+            message.contextSummary || message.contextSource
+                ? message
+                : { ...message, contextSource: { id: ++id, fingerprint: 'a'.repeat(64) } }
+        ),
+    };
 }
 function options(input = request()) {
     return {
@@ -28,12 +37,11 @@ function options(input = request()) {
         contextLimit: 8_000,
         outputLimit: 1_000,
         summarize: async () => summary,
+        saveSummary: async () => 1,
     };
 }
 
 describe('given a conversation with a known context budget', () => {
-    afterEach(() => vi.useRealTimers());
-
     it('user gets one progress lifecycle for batched compaction and the same identity on reuse', async () => {
         const context = new ContextWindow();
         const events: { id: string; state: string }[] = [];
@@ -42,10 +50,10 @@ describe('given a conversation with a known context budget', () => {
             ...options(input),
             onCompaction: (event: { id: string; state: string }) => events.push(event),
         };
-        await context.prepare(prepareOptions);
+        const first = await context.prepare(prepareOptions);
         expect(events.map((event) => event.state)).toEqual(['compacting', 'compacted']);
         expect(events[1]!.id).toBe(events[0]!.id);
-        await context.prepare(prepareOptions);
+        await context.prepare({ ...prepareOptions, request: request(first.messages) });
         expect(events[2]).toEqual(events[1]);
     });
 
@@ -102,7 +110,7 @@ describe('given a conversation with a known context budget', () => {
                 ...options(input),
                 summarize: async () => {
                     input.messages[1] = {
-                        role: 'user',
+                        ...input.messages[1]!,
                         content: 'New requirement: preserve backups.',
                     };
                     return summary;
@@ -127,28 +135,6 @@ describe('given a conversation with a known context budget', () => {
         input.messages.splice(4, 0, instruction);
         const result = await new ContextWindow().prepare(options(input));
         expect(result.messages).toContainEqual(instruction);
-    });
-
-    it('user reuses the summary after history is reloaded with equivalent text parts', async () => {
-        const input = request();
-        const context = new ContextWindow();
-        await context.prepare(options(input));
-        const reloaded = request(
-            input.messages.map((message) => ({
-                ...message,
-                content:
-                    typeof message.content === 'string'
-                        ? [{ type: 'text', text: message.content }]
-                        : message.content,
-            }))
-        );
-        const result = await context.prepare({
-            ...options(reloaded),
-            summarize: async () => {
-                throw new Error('Equivalent persisted history should reuse its summary');
-            },
-        });
-        expect(JSON.stringify(result.messages)).toContain(summary.text);
     });
 
     it('user gets a safer budget when actual cached input exceeds the estimate', async () => {
@@ -220,34 +206,11 @@ describe('given a conversation with a known context budget', () => {
         ]);
         const first = await context.prepare(options(input));
         const next = await context.prepare(
-            options(request([...input.messages, { role: 'user', content: 'Also check tests.' }]))
+            options(request([...first.messages, { role: 'user', content: 'Also check tests.' }]))
         );
         expect(next.messages.slice(0, first.messages.length)).toEqual(first.messages);
     });
 
-    it('user rebuilds an expired summary from the original conversation', async () => {
-        vi.useFakeTimers();
-        const context = new ContextWindow();
-        const input = request();
-        await context.prepare(options(input));
-        vi.advanceTimersByTime(31 * 60_000);
-        const result = await context.prepare({
-            ...options(input),
-            summarize: async () => ({ ...summary, text: 'Rebuilt after expiry.' }),
-        });
-        expect(JSON.stringify(result.messages)).toContain('Rebuilt after expiry.');
-    });
-
-    it('user rebuilds the oldest summary when many sessions exceed the memory limit', async () => {
-        const context = new ContextWindow();
-        for (let i = 0; i < 17; i++)
-            await context.prepare(options({ ...request(), promptCacheKey: `session-${i}` }));
-        const rebuilt = await context.prepare({
-            ...options({ ...request(), promptCacheKey: 'session-0' }),
-            summarize: async () => ({ ...summary, text: 'Rebuilt evicted session.' }),
-        });
-        expect(JSON.stringify(rebuilt.messages)).toContain('Rebuilt evicted session.');
-    });
     it('user continues a small conversation without a summary request or changed history', async () => {
         const input = request([{ role: 'user', content: 'Hello' }]);
         const result = await new ContextWindow().prepare({
@@ -290,7 +253,7 @@ describe('given a conversation with a known context budget', () => {
         const input = request();
         const first = await context.prepare(options(input));
         const continuation = request([
-            ...input.messages,
+            ...first.messages,
             { role: 'assistant', content: 'Ready' },
             { role: 'user', content: 'Continue' },
         ]);
@@ -302,19 +265,6 @@ describe('given a conversation with a known context budget', () => {
         });
         expect(next.messages.slice(0, first.messages.length)).toEqual(first.messages);
         expect(next.messages[next.messages.length - 1]?.content).toBe('Continue');
-    });
-
-    it('user gets updated context when previously summarized history is edited', async () => {
-        const context = new ContextWindow();
-        const input = request();
-        await context.prepare(options(input));
-        input.messages[1] = { role: 'user', content: 'Changed requirement: preserve all backups.' };
-        const result = await context.prepare({
-            ...options(input),
-            summarize: async () => ({ ...summary, text: 'Updated goal: preserve all backups.' }),
-        });
-        expect(JSON.stringify(result.messages)).toContain('Updated goal: preserve all backups.');
-        expect(JSON.stringify(result.messages)).not.toContain(summary.text);
     });
 
     it('user changes nested evidence after taking a checkpoint and keeps the checkpoint isolated', () => {
@@ -330,7 +280,7 @@ describe('given a conversation with a known context budget', () => {
         if (typeof part === 'string' || part[0]?.type !== 'tool_use') throw new Error('fixture');
         part[0].input.path = 'new';
         const next = snapshotAiMessages([...first, { role: 'user', content: 'Continue' }]);
-        expect(next[0]).toEqual({
+        expect(next[0]).toMatchObject({
             role: 'assistant',
             content: [{ type: 'tool_use', id: 'read', name: 'read', input: { path: 'old' } }],
         });
@@ -339,33 +289,6 @@ describe('given a conversation with a known context budget', () => {
             if (typeof content !== 'string' && content[0]?.type === 'tool_use')
                 content[0].input.path = 'corrupted';
         }).toThrow(TypeError);
-    });
-
-    it('user continues an immutable checkpoint and replaces old evidence without reusing a stale summary', async () => {
-        const context = new ContextWindow();
-        const input = request(snapshotAiMessages(history()));
-        const first = await context.prepare(options(input));
-        const next = request(
-            snapshotAiMessages([...input.messages, { role: 'user', content: 'Next' }])
-        );
-        const reused = await context.prepare({
-            ...options(next),
-            summarize: async () => {
-                throw new Error('Checkpoint already summarized');
-            },
-        });
-        expect(reused.messages.slice(0, first.messages.length)).toEqual(first.messages);
-        next.messages = snapshotAiMessages(
-            next.messages.map((message, index) =>
-                index === 1 ? { role: 'user', content: 'Preserve all backups.' } : message
-            )
-        );
-        const updated = await context.prepare({
-            ...options(next),
-            summarize: async () => ({ ...summary, text: 'Preserve all backups.' }),
-        });
-        expect(JSON.stringify(updated.messages)).toContain('Preserve all backups.');
-        expect(JSON.stringify(updated.messages)).not.toContain(summary.text);
     });
 
     it('user grows mutable evidence after a budget estimate and still receives compaction', async () => {
@@ -380,9 +303,8 @@ describe('given a conversation with a known context budget', () => {
     });
 
     it.each(['tools', 'language', 'reasoning'] as const)(
-        'user changes %s with immutable history and gets a compatible checkpoint',
+        'user changes %s during summary generation and cannot install a stale checkpoint',
         async (setting) => {
-            const context = new ContextWindow();
             const input = request(snapshotAiMessages(history()));
             input.tools = [
                 {
@@ -393,61 +315,27 @@ describe('given a conversation with a known context budget', () => {
             ];
             input.modelLanguageContext = { locale: 'en-US', label: 'English' };
             input.supportsReasoning = true;
-            await context.prepare(options(input));
-            if (setting === 'tools') input.tools[0]!.description = 'Read approved files only';
-            if (setting === 'language') input.modelLanguageContext.locale = 'zh-CN';
-            if (setting === 'reasoning') input.supportsReasoning = false;
-            const next = await context.prepare({
-                ...options(input),
-                summarize: async () => ({ ...summary, text: 'Checkpoint for the new settings.' }),
-            });
-            expect(JSON.stringify(next.messages)).toContain('Checkpoint for the new settings.');
-            expect(JSON.stringify(next.messages)).not.toContain(summary.text);
+            await expect(
+                new ContextWindow().prepare({
+                    ...options(input),
+                    summarize: async () => {
+                        if (setting === 'tools')
+                            input.tools![0]!.description = 'Read approved files only';
+                        if (setting === 'language') input.modelLanguageContext!.locale = 'zh-CN';
+                        if (setting === 'reasoning') input.supportsReasoning = false;
+                        return summary;
+                    },
+                })
+            ).rejects.toMatchObject({ code: 'CONTEXT_COMPACTION_FAILED' });
         }
     );
 
-    it('user resumes thousands of archived exchanges and still rejects replaced evidence', async () => {
-        const context = new ContextWindow();
-        const input = request(
-            snapshotAiMessages([
-                ...Array.from(
-                    { length: 9000 },
-                    (_, index): AiMessage => ({
-                        role: index % 2 ? 'assistant' : 'user',
-                        content: `Evidence ${index}: ${'detail '.repeat(10)}`,
-                    })
-                ),
-                { role: 'user', content: 'Continue the task.' },
-            ])
-        );
-        const first = await context.prepare(options(input));
-        const restored = await context.prepare({
-            ...options(input),
-            summarize: async () => {
-                throw new Error('Checkpoint is still valid');
-            },
-        });
-        expect(restored.messages).toEqual(first.messages);
-        input.messages[0] = snapshotAiMessages([
-            { role: 'user', content: 'Preserve backups.' },
-        ])[0]!;
-        const updated = await context.prepare({
-            ...options(input),
-            summarize: async () => ({ ...summary, text: 'Preserve backups.' }),
-        });
-        expect(JSON.stringify(updated.messages)).toContain('Preserve backups.');
-        expect(JSON.stringify(updated.messages)).not.toContain(summary.text);
-    });
-
-    it('user gets a fresh summary when changing models', async () => {
-        const context = new ContextWindow();
+    it('user cannot compact a history with missing stored message boundaries', async () => {
         const input = request();
-        await context.prepare(options(input));
-        const next = await context.prepare({
-            ...options({ ...input, model: 'other-model' }),
-            summarize: async () => ({ ...summary, text: 'Summary for another model.' }),
+        delete input.messages[1]!.contextSource;
+        await expect(new ContextWindow().prepare(options(input))).rejects.toMatchObject({
+            code: 'CONTEXT_COMPACTION_FAILED',
         });
-        expect(JSON.stringify(next.messages)).toContain('Summary for another model.');
     });
 
     it('user keeps complete tool exchanges and their active request during a long tool run', async () => {
@@ -559,30 +447,6 @@ describe('given a conversation with a known context budget', () => {
 });
 
 describe('given a conversation with durable compaction checkpoints', () => {
-    afterEach(() => vi.useRealTimers());
-
-    it('user reopens the conversation after restart and expiry without paying for the same summary again', async () => {
-        vi.useFakeTimers();
-        let saved: ContextSummary | undefined;
-        const input = request();
-        const first = await new ContextWindow().prepare({
-            ...options(input),
-            saveSummary: async (value: ContextSummary) => {
-                saved = structuredClone(value);
-            },
-        });
-        expect(saved).toBeDefined();
-        vi.advanceTimersByTime(31 * 60_000);
-        const reopened = await new ContextWindow().prepare({
-            ...options({ ...input, promptCacheKey: 'new-process' }),
-            loadSummary: async () => saved,
-            summarize: async () => {
-                throw new Error('A durable checkpoint should survive restart and cache expiry');
-            },
-        });
-        expect(reopened.messages).toEqual(first.messages);
-    });
-
     it('user sees storage failure before an unsaved summary can be used or reported as completed', async () => {
         const events: string[] = [];
         await expect(
@@ -597,83 +461,6 @@ describe('given a conversation with durable compaction checkpoints', () => {
         expect(events).toEqual(['compacting', 'failed']);
     });
 
-    it('user keeps a fully committed checkpoint when cancellation arrives during the commit', async () => {
-        const controller = new AbortController();
-        let saved: ContextSummary | undefined;
-        const events: string[] = [];
-        await expect(
-            new ContextWindow().prepare({
-                ...options({ ...request(), signal: controller.signal }),
-                saveSummary: async (value: ContextSummary) => {
-                    saved = structuredClone(value);
-                    controller.abort();
-                },
-                onCompaction: (event: { state: string }) => events.push(event.state),
-            })
-        ).rejects.toMatchObject({ code: 'REQUEST_CANCELLED' });
-        expect(saved?.text).toBe(summary.text);
-        expect(events).toEqual(['compacting', 'compacted']);
-        const reopened = await new ContextWindow().prepare({
-            ...options(),
-            loadSummary: async () => saved,
-            summarize: async () => {
-                throw new Error('The committed checkpoint must remain reusable');
-            },
-        });
-        expect(JSON.stringify(reopened.messages)).toContain(summary.text);
-    });
-
-    it('user rejects a saved checkpoint after its covered history is edited', async () => {
-        let saved: ContextSummary | undefined;
-        const input = request();
-        await new ContextWindow().prepare({
-            ...options(input),
-            saveSummary: async (value: ContextSummary) => {
-                saved = structuredClone(value);
-            },
-        });
-        input.messages[1] = { role: 'user', content: 'New constraint: preserve the archive.' };
-        const reopened = await new ContextWindow().prepare({
-            ...options(input),
-            loadSummary: async () => saved,
-            summarize: async () => ({ ...summary, text: 'Preserve the archive.' }),
-        });
-        expect(JSON.stringify(reopened.messages)).toContain('Preserve the archive.');
-        expect(JSON.stringify(reopened.messages)).not.toContain(summary.text);
-    });
-
-    it('user replaces immutable evidence while a restored fingerprint is checked and gets a fresh summary', async () => {
-        let saved: ContextSummary | undefined;
-        const input = request(snapshotAiMessages(history()));
-        await new ContextWindow().prepare({
-            ...options(input),
-            saveSummary: async (value) => {
-                saved = value;
-            },
-        });
-        const nativeDigest = crypto.subtle.digest.bind(crypto.subtle);
-        const digest = vi
-            .spyOn(crypto.subtle, 'digest')
-            .mockImplementationOnce(async (algorithm, data) => {
-                const result = await nativeDigest(algorithm, data);
-                input.messages[1] = snapshotAiMessages([
-                    { role: 'user', content: 'Preserve backups.' },
-                ])[0]!;
-                return result;
-            });
-        try {
-            const restored = await new ContextWindow().prepare({
-                ...options(input),
-                loadSummary: async () => saved,
-                summarize: async () => ({ ...summary, text: 'Preserve backups.' }),
-            });
-            expect(JSON.stringify(restored.messages)).toContain('Preserve backups.');
-            expect(JSON.stringify(restored.messages)).not.toContain(summary.text);
-        } finally {
-            digest.mockRestore();
-        }
-    });
-
     it('user keeps previous requirements in an explicit structured update when compaction runs again', async () => {
         const context = new ContextWindow();
         const input = request();
@@ -682,7 +469,7 @@ describe('given a conversation with durable compaction checkpoints', () => {
             instructions.push(String(call.messages[call.messages.length - 1]?.content));
             return summary;
         };
-        await context.prepare({ ...options(input), summarize });
+        const first = await context.prepare({ ...options(input), summarize });
         expect(instructions[0]).toContain('## Constraints & Preferences');
         expect(instructions[0]).toContain('### Blocked');
         expect(instructions[0]).toContain('pending approvals');
@@ -690,7 +477,7 @@ describe('given a conversation with durable compaction checkpoints', () => {
         expect(instructions[0]).toContain('conversation language');
         instructions.length = 0;
         await context.prepare({
-            ...options(request([...input.messages, ...history(12).slice(1)])),
+            ...options(request([...first.messages, ...history(12).slice(1)])),
             summarize,
         });
         expect(instructions.length).toBeGreaterThan(0);

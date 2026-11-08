@@ -100,6 +100,7 @@ function persister() {
         persistOutputProgress: vi.fn().mockResolvedValue(undefined),
         persistToolCallMessage: vi.fn().mockResolvedValue(1),
         persistToolResult: vi.fn().mockResolvedValue(undefined),
+        getContextMessageSource: async () => undefined,
         persistCheckpoint: vi.fn().mockResolvedValue(undefined),
         getSessionId: vi.fn(() => 1),
     } as never;

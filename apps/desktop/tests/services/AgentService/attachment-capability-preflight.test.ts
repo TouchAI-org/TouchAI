@@ -1,8 +1,13 @@
 import type { MessageAttachmentRow } from '@database/queries/attachments';
 import type { MessageRow } from '@database/queries/messages';
 import type { ModelWithProvider } from '@database/queries/models';
+import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
 import { createMessageRow } from '@tests/utils/messages';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiErrorCode } from '@/services/AgentService/contracts/errors';
 import { AiConversationRuntime } from '@/services/AgentService/execution/runtime';
@@ -15,18 +20,50 @@ import { findUnsupportedSessionAttachmentTypes } from '@/services/AgentService/s
 
 const BASE_TIME = '2026-06-03T10:00:00.000Z';
 
-const mocks = vi.hoisted(() => ({
-    findMessagesBySessionId: vi.fn<() => Promise<MessageRow[]>>(),
-}));
+let database: ReturnType<typeof openMigratedDatabase>;
 
-vi.mock('@database/queries/messages', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('@database/queries/messages')>();
-
-    return {
-        ...actual,
-        findMessagesBySessionId: mocks.findMessagesBySessionId,
-    };
-});
+function storeRows(rows: MessageRow[]): void {
+    for (const row of rows) {
+        database
+            .prepare('INSERT INTO messages(id, session_id, role) VALUES (?, 1, ?)')
+            .run(row.id, row.role);
+        for (const part of row.parts) {
+            database
+                .prepare(
+                    'INSERT INTO message_parts(message_id, type, content, data, sort_order) VALUES (?, ?, ?, ?, ?)'
+                )
+                .run(row.id, part.type, part.content, part.data, part.sort_order);
+        }
+        for (const attachment of row.attachments) {
+            database
+                .prepare(
+                    'INSERT OR IGNORE INTO attachments(id, hash, type, original_name, origin_path, mime_type, size) VALUES (?, ?, ?, ?, ?, ?, ?)'
+                )
+                .run(
+                    attachment.id,
+                    attachment.hash,
+                    attachment.type,
+                    attachment.original_name,
+                    attachment.origin_path,
+                    attachment.mime_type,
+                    attachment.size
+                );
+            database
+                .prepare(
+                    "INSERT INTO message_parts(message_id, type, content, data, sort_order) VALUES (?, 'attachment', '', ?, ?)"
+                )
+                .run(
+                    row.id,
+                    JSON.stringify({
+                        attachmentId: attachment.id,
+                        toolCallId: attachment.tool_call_id,
+                        toolKind: attachment.tool_kind,
+                    }),
+                    row.parts.length
+                );
+        }
+    }
+}
 
 function createAttachment(overrides: Partial<AttachmentIndex> = {}): AttachmentIndex {
     const type = overrides.type ?? 'image';
@@ -97,8 +134,14 @@ function createModel(overrides: Partial<ModelWithProvider> = {}): ModelWithProvi
 
 describe('user sends attachments to a model that may not read them', () => {
     beforeEach(() => {
-        mocks.findMessagesBySessionId.mockReset();
+        database = openMigratedDatabase();
+        routeQueriesTo(database);
+        database.exec(
+            "INSERT INTO sessions(id, session_id, title, model) VALUES (1, 'capability', 'Capability', 'test')"
+        );
     });
+
+    afterEach(closeTestDatabases);
 
     it('user sees image and file support decided separately from model metadata', () => {
         expect(
@@ -126,7 +169,7 @@ describe('user sends attachments to a model that may not read them', () => {
     });
 
     it('user is warned about unsupported attachments already in the conversation', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        storeRows([
             createMessageRow({
                 id: 10,
                 role: 'user',
@@ -162,7 +205,7 @@ describe('user sends attachments to a model that may not read them', () => {
     });
 
     it('user is told which attachments are unsupported before the first model attempt', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        storeRows([
             createMessageRow({
                 id: 10,
                 role: 'user',
