@@ -191,8 +191,8 @@
         width: 1.9rem;
         align-items: center;
         justify-content: center;
-        border-radius: 0.75rem;
-        color: rgb(156, 163, 175);
+        border-radius: var(--radius-lg);
+        color: var(--color-muted-foreground);
         transition:
             color var(--duration-quick) var(--ease-smooth-out),
             background-color var(--duration-quick) var(--ease-smooth-out),
@@ -201,22 +201,19 @@
 
     .toolbar-button:hover,
     .toolbar-button--active {
-        background: rgba(255, 255, 255, 0.92);
-        color: rgb(82, 82, 91);
-        box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+        background: var(--color-muted);
+        color: var(--color-foreground);
     }
 
     .toolbar-button--pinned {
-        background: color-mix(in srgb, var(--color-primary-100) 90%, white);
-        color: var(--color-primary-600);
-        box-shadow:
-            inset 0 0 0 1px color-mix(in srgb, var(--color-primary-200) 78%, transparent),
-            0 6px 18px rgba(107, 95, 84, 0.12);
+        background: var(--color-muted);
+        color: var(--color-foreground);
+        box-shadow: inset 0 0 0 1px var(--color-border);
     }
 
     .toolbar-button--pinned:hover {
-        background: color-mix(in srgb, var(--color-primary-100) 95%, white);
-        color: var(--color-primary-700);
+        background: var(--color-border);
+        color: var(--color-foreground);
     }
 
     .toolbar-button--disabled {

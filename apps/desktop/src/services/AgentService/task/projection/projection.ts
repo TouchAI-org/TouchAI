@@ -19,7 +19,7 @@ import {
 import { createReasoningPart, createTextPart, selectToolCalls } from '@/utils/session';
 
 import { AiError } from '../../contracts/errors';
-import type { AiStreamChunk } from '../../contracts/protocol';
+import type { AiStreamChunk, ContextCompactionEvent } from '../../contracts/protocol';
 import type {
     AskUserAnswer,
     AskUserQuestion,
@@ -234,13 +234,44 @@ export class SessionTaskProjection {
         if (!part.content.trim()) message.parts.pop();
     }
 
+    private clearPendingCompaction(message: SessionMessage): void {
+        message.parts = message.parts.filter(
+            (part) => part.type !== 'context_compaction' || part.state !== 'compacting'
+        );
+    }
+
+    private handleCompaction(message: SessionMessage, event: ContextCompactionEvent): void {
+        // Cached summaries can be replayed after a retry or view reattachment.
+        for (const item of this.snapshot.sessionHistory) {
+            const existing = item.parts.find(
+                (part) => part.type === 'context_compaction' && part.id === event.id
+            );
+            if (existing?.type !== 'context_compaction') continue;
+            if (event.state === 'failed')
+                item.parts = item.parts.filter((part) => part !== existing);
+            else existing.state = event.state;
+            return;
+        }
+        if (event.state === 'failed') return;
+        this.finishReasoningPart(message);
+        message.parts.push({ id: event.id, type: 'context_compaction', state: event.state });
+    }
+
     handleChunk(chunk: AiStreamChunk): void {
         const assistantMessage = this.getActiveAssistantMessage();
         if (!assistantMessage) {
             return;
         }
 
+        if (chunk.contextCompaction) {
+            this.handleCompaction(assistantMessage, chunk.contextCompaction);
+            this.touch();
+            this.publish();
+            return;
+        }
+
         if (chunk.toolEvent?.type === 'request_retry') {
+            this.clearPendingCompaction(assistantMessage);
             this.finishReasoningPart(assistantMessage);
             this.handleRetryEvent(assistantMessage, chunk.toolEvent);
             return;
@@ -315,6 +346,7 @@ export class SessionTaskProjection {
     markCompleted(): void {
         const assistantMessage = this.getActiveAssistantMessage();
         if (assistantMessage) {
+            this.clearPendingCompaction(assistantMessage);
             this.finishReasoningPart(assistantMessage);
             assistantMessage.isStreaming = false;
         }
@@ -330,6 +362,7 @@ export class SessionTaskProjection {
         let shouldCreateStandaloneStatus = true;
         const assistantMessage = this.getActiveAssistantMessage();
         if (assistantMessage) {
+            this.clearPendingCompaction(assistantMessage);
             this.finishReasoningPart(assistantMessage);
             const shouldKeepAssistantMessage = this.hasVisibleAssistantContent(assistantMessage);
             if (shouldKeepAssistantMessage) {
@@ -362,6 +395,7 @@ export class SessionTaskProjection {
         let shouldCreateStandaloneStatus = true;
         const assistantMessage = this.getActiveAssistantMessage();
         if (assistantMessage) {
+            this.clearPendingCompaction(assistantMessage);
             this.finishReasoningPart(assistantMessage);
             const shouldKeepAssistantMessage = this.hasVisibleAssistantContent(assistantMessage);
             if (!shouldKeepAssistantMessage) {
@@ -530,6 +564,7 @@ export class SessionTaskProjection {
         );
 
         return message.parts.some((part) => {
+            if (part.type === 'context_compaction') return part.state === 'compacted';
             if (part.type === 'text' || part.type === 'reasoning') {
                 return !!part.content.trim();
             }

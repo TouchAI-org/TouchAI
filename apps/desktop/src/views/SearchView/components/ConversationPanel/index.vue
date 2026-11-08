@@ -3,7 +3,9 @@
   -->
 
 <template>
-    <div class="relative h-full min-h-0 w-full">
+    <div
+        class="conversation-surface relative h-full min-h-0 w-full bg-background-primary font-serif text-foreground"
+    >
         <ConversationToolbar
             ref="conversationToolbar"
             :is-pinned="isPinned"

@@ -144,6 +144,11 @@ export interface AiRequestOptions {
     model: string;
     providerId?: number;
     messages: AiMessage[];
+    /** Opaque conversation routing hint; never contains prompt content. */
+    promptCacheKey?: string;
+    /** Total output budget, including reasoning. */
+    maxOutputTokens?: number;
+    toolChoice?: 'auto' | 'none';
     supportsReasoning?: boolean;
     reasoningLevel?: SelectableReasoningLevel;
     /** 上游 /models 或本地 metadata 声明的 reasoning 能力。 */
@@ -158,8 +163,15 @@ export interface AiRequestOptions {
     ) => Promise<void> | void;
 }
 
+/** Live UI lifecycle only; never included in the model prompt or persisted transcript. */
+export interface ContextCompactionEvent {
+    id: string;
+    state: 'compacting' | 'compacted' | 'failed';
+}
+
 export interface AiStreamChunk {
     content: string;
+    contextCompaction?: ContextCompactionEvent;
     reasoning?: string;
     /** 保留 provider 的思考边界，避免用整个消息的流式状态推断。 */
     reasoningState?: 'start' | 'end';

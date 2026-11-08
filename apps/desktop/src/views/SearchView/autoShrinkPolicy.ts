@@ -38,6 +38,9 @@ function isAssistantMessageSettled(message: SessionMessage): boolean {
     return (
         message.role === 'assistant' &&
         message.isStreaming !== true &&
+        !message.parts.some(
+            (part) => part.type === 'context_compaction' && part.state === 'compacting'
+        ) &&
         !hasPendingToolCalls(message) &&
         !hasPendingApprovals(message)
     );
@@ -93,6 +96,8 @@ function buildLatestCompletedMessageMarkerParts(
                     return `${part.type}:${part.id}:${part.callId}`;
                 case 'widget':
                     return `${part.type}:${part.id}:${part.widgetId}`;
+                case 'context_compaction':
+                    return `${part.type}:${part.id}:${part.state}`;
                 default:
                     return `${part.type}:${part.id}:${part.content}`;
             }

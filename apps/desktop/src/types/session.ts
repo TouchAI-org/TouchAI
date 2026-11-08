@@ -93,12 +93,20 @@ export interface WidgetMessagePart {
     widgetId: string;
 }
 
+/** Disposable timeline marker, excluded from the persisted message-part schema. */
+export interface ContextCompactionMessagePart {
+    id: string;
+    type: 'context_compaction';
+    state: 'compacting' | 'compacted';
+}
+
 export type SessionPart =
     | TextMessagePart
     | ReasoningMessagePart
     | ToolCallMessagePart
     | ApprovalMessagePart
-    | WidgetMessagePart;
+    | WidgetMessagePart
+    | ContextCompactionMessagePart;
 
 /**
  * 会话区里真正被渲染出来的 widget 实体。

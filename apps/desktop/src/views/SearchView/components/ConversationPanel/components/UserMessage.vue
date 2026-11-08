@@ -2,12 +2,12 @@
 
 <template>
     <div class="mb-4 flex flex-col items-end">
-        <div class="max-w-[80%] rounded-lg bg-primary-100 px-4 py-2 break-words">
+        <div class="max-w-[80%] rounded-lg bg-muted px-4 py-2 break-words">
             <div class="text-reading leading-[1.6]">
                 <!-- 文本内容 -->
                 <div
                     v-if="message.content"
-                    class="user-text whitespace-pre-wrap text-gray-900 select-text"
+                    class="user-text font-serif whitespace-pre-wrap text-foreground select-text"
                     data-no-i18n="true"
                     translate="no"
                 >
@@ -25,7 +25,7 @@
                             <img
                                 :src="attachment.preview"
                                 :alt="attachment.name || t('conversation.attachment.unnamedImage')"
-                                class="block max-h-[200px] max-w-xs rounded-lg border border-gray-200 object-contain"
+                                class="block max-h-[200px] max-w-xs rounded-lg border border-border object-contain"
                                 data-no-i18n="true"
                                 translate="no"
                             />
@@ -34,10 +34,14 @@
                         <!-- 文件附件 -->
                         <div
                             v-else
-                            class="inline-flex max-w-fit items-center gap-2 rounded border border-gray-200 bg-white p-2"
+                            class="inline-flex max-w-fit items-center gap-2 rounded border border-border bg-surface-raised p-2"
                         >
-                            <AppIcon name="file" class="h-4 w-4 text-gray-500" />
-                            <span class="text-sm text-gray-700" data-no-i18n="true" translate="no">
+                            <AppIcon name="file" class="h-4 w-4 text-muted-foreground" />
+                            <span
+                                class="text-sm text-foreground"
+                                data-no-i18n="true"
+                                translate="no"
+                            >
                                 {{ attachment.name || t('conversation.attachment.unnamedFile') }}
                             </span>
                         </div>
@@ -85,12 +89,8 @@
 </script>
 
 <style scoped>
-    .user-text {
-        font-family: 'TouchAI Source Han Serif SC', 'Noto Serif SC', serif;
-    }
-
     .user-text::selection {
-        background-color: var(--color-primary-200);
+        background-color: var(--color-selection-bg);
         color: inherit;
     }
 </style>

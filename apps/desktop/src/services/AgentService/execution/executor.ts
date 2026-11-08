@@ -24,6 +24,7 @@ import {
     addAiUsage,
     type AiCallRecord,
     type AiMessage,
+    type AiRequestOptions,
     type AiStreamChunk,
     type AiUsage,
     emptyAiUsage,
@@ -31,12 +32,7 @@ import {
     normalizeOutputParts,
     type PersistedOutputPart,
 } from '../contracts/protocol';
-import {
-    DEFAULT_REASONING_LEVEL,
-    parseReasoningOptions,
-    type ReasoningOption,
-    type SelectableReasoningLevel,
-} from '../contracts/reasoning';
+import { DEFAULT_REASONING_LEVEL, parseReasoningOptions } from '../contracts/reasoning';
 import type {
     AiToolCall,
     AiToolDefinition,
@@ -60,6 +56,7 @@ import {
 } from '../infrastructure/providers';
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
+import { ContextWindow, MAX_SUMMARY_CHARS, type SummaryResult } from './context';
 import type { TurnEvent } from './runtime';
 
 const BUILT_IN_UPGRADE_TOOL_NAME = 'builtin__upgrade_model';
@@ -118,6 +115,8 @@ export interface RequestExecutionCallbacks {
 }
 
 export interface AttemptCheckpoint {
+    /** In-memory routing identity; the persisted checkpoint schema is unchanged. */
+    promptCacheKey?: string;
     activeModel: ModelWithProvider;
     messages: AiMessage[];
     response: string;
@@ -131,6 +130,8 @@ export interface AttemptCheckpoint {
 }
 
 interface AttemptRuntime {
+    promptCacheKey: string;
+    nextAttachmentRequestIndex: number;
     activeModel: ModelWithProvider;
     provider: AiProvider;
     tools?: AiToolDefinition[];
@@ -529,6 +530,8 @@ function parseToolCallArguments(toolCall: AiToolCall):
  * - 设置快照
  */
 export class AiRequestExecutor {
+    private readonly contextWindow = new ContextWindow();
+    private readonly cacheNamespace = crypto.randomUUID();
     /**
      * 获取模型（统一入口）
      * - 不传参数：返回默认模型
@@ -566,35 +569,64 @@ export class AiRequestExecutor {
      */
     private async *stream(
         provider: AiProvider,
-        providerId: number,
-        modelId: string,
-        messages: AiMessage[],
-        tools?: AiToolDefinition[],
-        modelLanguageContext?: ModelLanguageContext,
-        signal?: AbortSignal,
-        attachmentRequestIndex?: number,
-        onAttachmentManifestResolved?: RequestExecutionCallbacks['onAttachmentManifestResolved'],
-        supportsReasoning = true,
-        reasoningLevel?: SelectableReasoningLevel,
-        reasoningOptions?: ReasoningOption[]
-    ): AsyncGenerator<AiStreamChunk, void, unknown> {
-        log.debug(
-            `[AiRequestExecutor] Start stream request, model=${modelId}, messages=${messages.length}, tools=${tools?.length ?? 0}`
-        );
-        for await (const chunk of provider.stream({
-            model: modelId,
-            providerId,
-            messages,
-            supportsReasoning,
-            reasoningLevel,
-            reasoningOptions,
-            tools,
-            modelLanguageContext,
-            signal,
-            attachmentRequestIndex,
-            onAttachmentManifestResolved,
-        })) {
-            yield chunk;
+        request: AiRequestOptions
+    ): AsyncGenerator<AiStreamChunk> {
+        for await (const chunk of provider.stream(request)) yield chunk;
+    }
+
+    private async summarizeContext(
+        runtime: AttemptRuntime,
+        request: AiRequestOptions
+    ): Promise<SummaryResult> {
+        const startedAt = Date.now();
+        const controller = new AbortController();
+        const signal = request.signal
+            ? AbortSignal.any([request.signal, controller.signal])
+            : controller.signal;
+        let text = '';
+        let usage = emptyAiUsage();
+        let usageReported = false;
+        let finishReason: string | undefined;
+        let hasToolCalls = false;
+        try {
+            for await (const chunk of runtime.provider.stream({
+                ...request,
+                signal,
+                attachmentRequestIndex: runtime.nextAttachmentRequestIndex++,
+            })) {
+                if (chunk.done) {
+                    usage = chunk.usage ?? emptyAiUsage();
+                    usageReported = chunk.usageReported === true;
+                    finishReason = chunk.finishReason;
+                }
+                throwIfAborted(signal);
+                text += chunk.content;
+                hasToolCalls ||= Boolean(chunk.toolCalls?.length || chunk.toolCallDeltas?.length);
+                if (text.length > MAX_SUMMARY_CHARS)
+                    throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
+                if (chunk.done) break;
+            }
+            return { text, finishReason, hasToolCalls };
+        } catch (error) {
+            finishReason = request.signal?.aborted ? 'aborted' : 'error';
+            throw error;
+        } finally {
+            controller.abort();
+            runtime.calls.push({
+                iteration: runtime.iteration,
+                modelId: runtime.activeModel.id,
+                modelName: runtime.activeModel.model_id,
+                providerId: runtime.activeModel.provider_id,
+                providerName: runtime.activeModel.provider_name,
+                usage,
+                usageReported,
+                timing: { durationMs: Date.now() - startedAt },
+                finishReason,
+                toolCallsInStep: 0,
+                toolArgumentErrors: 0,
+            });
+            runtime.totalUsage = addAiUsage(runtime.totalUsage, usage);
+            if (usageReported) runtime.usageReportedCalls++;
         }
     }
 
@@ -782,6 +814,8 @@ export class AiRequestExecutor {
         const { activeModel, modelLanguageContext, modelSwitchCount } = startCheckpoint;
 
         return {
+            promptCacheKey: startCheckpoint.promptCacheKey ?? crypto.randomUUID(),
+            nextAttachmentRequestIndex: startCheckpoint.iteration,
             activeModel,
             provider: this.createProviderForModel(activeModel),
             tools: await resolveToolDefinitions(activeModel, {
@@ -814,6 +848,7 @@ export class AiRequestExecutor {
 
     private createCheckpoint(runtime: AttemptRuntime): AttemptCheckpoint {
         return {
+            promptCacheKey: runtime.promptCacheKey,
             activeModel: runtime.activeModel,
             messages: cloneAiMessages(runtime.messages),
             response: runtime.response,
@@ -846,20 +881,44 @@ export class AiRequestExecutor {
         // while still requiring an explicit reasoning option to expose reasoning.
         // The executor always passes TouchAI's canonical level; each provider
         // driver translates it into the vendor-specific request parameter.
-        const stream = this.stream(
-            runtime.provider,
-            runtime.activeModel.provider_id,
-            runtime.activeModel.model_id,
-            runtime.messages,
-            runtime.tools,
-            runtime.modelLanguageContext,
-            options.signal,
-            runtime.iteration,
-            options.onAttachmentManifestResolved,
-            runtime.activeModel.reasoning === 1,
-            DEFAULT_REASONING_LEVEL,
-            parseReasoningOptions(runtime.activeModel.reasoning_options)
-        );
+        const request: AiRequestOptions = {
+            model: runtime.activeModel.model_id,
+            providerId: runtime.activeModel.provider_id,
+            messages: runtime.messages,
+            tools: runtime.tools,
+            modelLanguageContext: runtime.modelLanguageContext,
+            signal: options.signal,
+            onAttachmentManifestResolved: options.onAttachmentManifestResolved,
+            supportsReasoning: runtime.activeModel.reasoning === 1,
+            reasoningLevel: DEFAULT_REASONING_LEVEL,
+            reasoningOptions: parseReasoningOptions(runtime.activeModel.reasoning_options),
+            promptCacheKey: `${this.cacheNamespace}:${runtime.promptCacheKey}`,
+        };
+        // Anthropic renders tool choice and thinking budgets into the cache prefix.
+        // The summary stream never executes tools, even with automatic tool choice.
+        const preserveReasoningCache =
+            runtime.activeModel.provider_driver === 'anthropic' ||
+            runtime.activeModel.provider_driver === 'anthropic-compatible';
+        const prepared = await this.contextWindow.prepare({
+            request,
+            contextLimit: runtime.activeModel.context_limit,
+            outputLimit: runtime.activeModel.output_limit,
+            preserveSummaryOutputBudget: preserveReasoningCache,
+            onCompaction: (contextCompaction) =>
+                options.onChunk?.({ content: '', done: false, contextCompaction }),
+            summarize: (summaryRequest) =>
+                this.summarizeContext(runtime, {
+                    ...summaryRequest,
+                    toolChoice: preserveReasoningCache ? 'auto' : summaryRequest.toolChoice,
+                }),
+        });
+        const modelRequest = {
+            ...request,
+            messages: prepared.messages,
+            maxOutputTokens: prepared.maxOutputTokens,
+            attachmentRequestIndex: runtime.nextAttachmentRequestIndex++,
+        };
+        const stream = this.stream(runtime.provider, modelRequest);
         let finishReason: string | undefined;
         let toolCalls: AiToolCall[] | undefined;
         let finalUsage: AiUsage | undefined;
@@ -1059,6 +1118,7 @@ export class AiRequestExecutor {
         // token sums must never be used to infer it.
         if (usageReported) {
             runtime.usageReportedCalls += 1;
+            this.contextWindow.observe(modelRequest, usage);
         }
         runtime.toolArgumentErrors += stepToolArgumentErrors;
         if (runtime.firstTtftMs === null && call.timing.ttftMs !== undefined) {
@@ -1322,6 +1382,9 @@ export class AiRequestExecutor {
      * - turn 的最终落库状态
      */
     async runAttempt(options: RunAttemptOptions): Promise<AttemptExecutionResult> {
+        options.startCheckpoint.promptCacheKey ??= String(
+            options.persister.getSessionId?.() ?? crypto.randomUUID()
+        );
         const runtime = await this.createAttemptRuntime(options.startCheckpoint);
         let resumeCheckpoint = options.startCheckpoint;
         try {

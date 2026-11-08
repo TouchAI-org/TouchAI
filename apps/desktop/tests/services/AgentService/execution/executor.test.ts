@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
+import type { AiRequestOptions } from '@/services/AgentService/contracts/protocol';
 import type { AiToolCall } from '@/services/AgentService/contracts/tooling';
 import { AiRequestExecutor } from '@/services/AgentService/execution';
 import type { AttemptCheckpoint } from '@/services/AgentService/execution/executor';
@@ -145,6 +146,20 @@ function createCheckpoint(): AttemptCheckpoint {
     };
 }
 
+function createLongCheckpoint(): AttemptCheckpoint {
+    const checkpoint = createCheckpoint();
+    checkpoint.activeModel.context_limit = 8000;
+    checkpoint.activeModel.output_limit = 1000;
+    checkpoint.messages = [
+        ...Array.from({ length: 12 }, (_, i) => [
+            { role: 'user' as const, content: `Request ${i}: ${'context '.repeat(150)}` },
+            { role: 'assistant' as const, content: 'evidence '.repeat(200) },
+        ]).flat(),
+        { role: 'user', content: 'Finish the task.' },
+    ];
+    return checkpoint;
+}
+
 describe('user sends a prompt and receives a streamed answer', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -154,6 +169,147 @@ describe('user sends a prompt and receives a streamed answer', () => {
     });
     afterEach(() => {
         vi.useRealTimers();
+    });
+
+    it('user receives the answer with summary costs included when history exceeds the model budget', async () => {
+        const checkpoint = createLongCheckpoint();
+        const compactionStates: string[] = [];
+        const sent: AiRequestOptions[] = [];
+        providerMock.stream.mockImplementation(async function* (request: AiRequestOptions) {
+            sent.push(request);
+            yield {
+                content:
+                    request.toolChoice === 'none'
+                        ? 'Goal: finish. Next: validate.'
+                        : 'Final answer',
+                done: true,
+                finishReason: 'stop',
+                usageReported: true,
+                usage: {
+                    inputTokens: 10,
+                    cacheReadTokens: 20,
+                    cacheWriteTokens: 0,
+                    outputTokens: 5,
+                    reasoningTokens: 0,
+                },
+            };
+        });
+        const result = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: checkpoint,
+            onChunk: (chunk) => {
+                if (chunk.contextCompaction) compactionStates.push(chunk.contextCompaction.state);
+            },
+            persister: {
+                getSessionId: () => 42,
+                persistOutputProgress: async () => undefined,
+            } as never,
+        });
+        expect(result.type).toBe('completed');
+        expect(result.response).toBe('Final answer');
+        expect(compactionStates).toEqual(['compacting', 'compacted']);
+        expect(sent.some((request) => request.toolChoice === 'none')).toBe(true);
+        expect(result.totalUsage.inputTokens).toBe(sent.length * 10);
+        expect(result.totalUsage.cacheReadTokens).toBe(sent.length * 20);
+        expect(result.calls).toHaveLength(sent.length);
+        expect(sent.map((request) => request.attachmentRequestIndex)).toEqual(
+            sent.map((_, index) => index)
+        );
+        expect(sent[sent.length - 1]!.messages.length).toBeLessThan(checkpoint.messages.length);
+    });
+
+    it('user keeps Anthropic cache settings consistent when summarizing long history', async () => {
+        const checkpoint = createLongCheckpoint();
+        checkpoint.activeModel.provider_driver = 'anthropic';
+        checkpoint.activeModel.context_limit = 40_000;
+        checkpoint.activeModel.output_limit = 16_384;
+        checkpoint.messages = [
+            ...checkpoint.messages,
+            ...checkpoint.messages,
+            ...checkpoint.messages,
+        ];
+        const sent: AiRequestOptions[] = [];
+        providerMock.stream.mockImplementation(async function* (request: AiRequestOptions) {
+            sent.push(request);
+            yield {
+                content: 'Goal: finish the task. Preserve the requirements.',
+                done: true,
+                finishReason: 'stop',
+            };
+        });
+        const result = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: checkpoint,
+            persister: {
+                getSessionId: () => 42,
+                persistOutputProgress: async () => undefined,
+            } as never,
+        });
+        expect(result.type).toBe('completed');
+        expect(sent.length).toBeGreaterThan(1);
+        expect(sent.every((request) => request.toolChoice !== 'none')).toBe(true);
+        expect(new Set(sent.map((request) => request.maxOutputTokens)).size).toBe(1);
+        expect(sent[0]!.maxOutputTokens).toBeGreaterThan(8192);
+    });
+
+    it('user retains reported summary costs when cancellation arrives with the final provider usage', async () => {
+        const controller = new AbortController();
+        providerMock.stream.mockImplementation(async function* () {
+            controller.abort();
+            yield {
+                content: 'Summary must not be installed.',
+                done: true,
+                finishReason: 'stop',
+                usageReported: true,
+                usage: {
+                    inputTokens: 10,
+                    cacheReadTokens: 20,
+                    cacheWriteTokens: 0,
+                    outputTokens: 5,
+                    reasoningTokens: 0,
+                },
+            };
+        });
+        const result = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createLongCheckpoint(),
+            signal: controller.signal,
+            persister: { getSessionId: () => 42 } as never,
+        });
+        expect(result.type).toBe('failed');
+        if (result.type !== 'failed') throw new Error('Expected cancellation');
+        expect(result.error.code).toBe(AiErrorCode.REQUEST_CANCELLED);
+        expect(result.response).toBe('');
+        expect(result.totalUsage.cacheReadTokens).toBe(20);
+        expect(result.usageReportedCalls).toBe(1);
+        expect(result.calls[0]?.finishReason).toBe('aborted');
+    });
+
+    it('user rejects tool-calling summaries without executing them and retains their reported costs', async () => {
+        providerMock.stream.mockImplementation(async function* () {
+            yield {
+                content: '',
+                done: true,
+                finishReason: 'tool_calls',
+                toolCalls: [{ id: 'unexpected', name: 'delete_file', arguments: '{}' }],
+                usageReported: true,
+                usage: {
+                    inputTokens: 10,
+                    cacheReadTokens: 20,
+                    cacheWriteTokens: 0,
+                    outputTokens: 5,
+                    reasoningTokens: 0,
+                },
+            };
+        });
+        const result = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createLongCheckpoint(),
+            persister: { getSessionId: () => 42 } as never,
+        });
+        expect(result.type).toBe('failed');
+        if (result.type !== 'failed') throw new Error('Expected summary rejection');
+        expect(result.error.code).toBe(AiErrorCode.CONTEXT_COMPACTION_FAILED);
+        expect(result.response).toBe('');
+        expect(result.hasToolActivitySinceCheckpoint).toBe(false);
+        expect(result.totalUsage.outputTokens).toBe(5);
+        expect(executeToolMock).not.toHaveBeenCalled();
     });
 
     it('user sees the requested reasoning level honored even when metadata says it is unsupported', async () => {
