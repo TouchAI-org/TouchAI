@@ -255,7 +255,8 @@ pub fn run() {
                 let window_label = window.label().to_string();
                 core::window::webview_recovery::forget_window(window.app_handle(), &window_label);
                 if window_label == "main" {
-                    if let Err(error) = core::window::computer_use_glow::clear(window.app_handle()) {
+                    if let Err(error) = core::window::computer_use_glow::clear(window.app_handle())
+                    {
                         warn!("Failed to clear computer-use feedback on window close: {error}");
                     }
                 }

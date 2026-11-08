@@ -545,6 +545,53 @@ describe('useSearchWindowResize', () => {
     });
 
     it.each([false, true])(
+        'user given a manually sized window with monitor host %s when approval opens then sees the full approval panel',
+        async (monitorHost) => {
+            const askUserOpen = ref(false);
+            const measured = createMeasuredElement(60);
+            const { mounted, target, sessionCount } = await mount({ askUserOpen });
+            await flushLifecycle();
+            sessionCount.value = 1;
+            let state = createWindowState({
+                monitorHost,
+                heightMode: SearchWindowHeightMode.ManualOverride,
+            });
+            nativeMock.window.getSearchWindowState.mockImplementation(async () => state);
+            nativeMock.window.commitSearchPanelResize.mockImplementation(
+                async ({ to, auto, respectManualOverride = true }) => {
+                    if (
+                        auto &&
+                        respectManualOverride &&
+                        state.heightMode === SearchWindowHeightMode.ManualOverride
+                    )
+                        return state;
+                    state = { ...state, currentHeight: to.height };
+                    return state;
+                }
+            );
+            nativeMock.window.resizeWindowHeight.mockImplementation(
+                async ({ targetHeight, respectManualOverride = true }) => {
+                    if (!respectManualOverride) {
+                        state = { ...state, currentHeight: targetHeight };
+                    }
+                }
+            );
+            await mounted.result.syncWindowState();
+            target.value = measured.element;
+            await flushLifecycle();
+
+            measured.setHeight(324);
+            askUserOpen.value = true;
+            await flushLifecycle();
+            await advanceMeasurementTimers();
+
+            expect(mounted.result.cardHeight.value).toBe(324);
+            expect(state.currentHeight).toBe(324);
+            mounted.unmount();
+        }
+    );
+
+    it.each([false, true])(
         'user gets no automatic resize retry loop after a native failure with an overlay %s',
         async (withOverlay) => {
             const measured = createMeasuredElement(240);

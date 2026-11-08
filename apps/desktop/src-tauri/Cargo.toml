@@ -39,7 +39,6 @@ tar = "0.4"
 zip = { version = "9.1", default-features = false, features = ["deflate"] }
 
 [dependencies]
-flate2 = "1.1"
 tar = "0.4"
 tauri = { version = "2", features = ["macos-private-api", "protocol-asset", "test", "tray-icon"] }
 libloading = "0.8"

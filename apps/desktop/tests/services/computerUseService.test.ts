@@ -16,10 +16,8 @@ vi.mock('@database/queries/builtInTools', () => ({
 }));
 
 vi.mock('@database/queries/settings', () => ({
-    getSettingValues: async (keys: string[]) =>
-        Object.fromEntries(
-            keys.flatMap((key) => (settingsStore.has(key) ? [[key, settingsStore.get(key)]] : []))
-        ),
+    getSettingValues: async ({ keys }: { keys: string[] }) =>
+        Object.fromEntries(keys.map((key) => [key, settingsStore.get(key) ?? null])),
     getSettingValue: vi.fn(async ({ key }: { key: string }) => settingsStore.get(key) ?? null),
     setSetting: vi.fn(async ({ key, value }: { key: string; value: string }) => {
         settingsStore.set(key, value);

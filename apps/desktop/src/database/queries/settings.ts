@@ -28,20 +28,6 @@ export const getSettingValue = async ({
     return setting?.value ?? null;
 };
 
-export const getSettingValues = async (
-    keys: SettingIdentifier[]
-): Promise<Record<string, string>> => {
-    if (keys.length === 0) return {};
-    const rows = await db
-        .select({ key: settings.key, value: settings.value })
-        .from(settings)
-        .where(inArray(settings.key, keys))
-        .all();
-    return Object.fromEntries(
-        rows.flatMap((row) => (row.value === null ? [] : [[row.key, row.value]]))
-    );
-};
-
 /**
  * 批量获取设置值。
  *

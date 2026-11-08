@@ -28,9 +28,9 @@ export async function setEnabled(enabled: boolean): Promise<void> {
 }
 
 export async function loadGroups(): Promise<ComputerUseGroups> {
-    const stored = await getSettingValues(
-        COMPUTER_USE_GROUPS.map((group) => `computer_use.group.${group}`)
-    );
+    const stored = await getSettingValues({
+        keys: COMPUTER_USE_GROUPS.map((group) => `computer_use.group.${group}`),
+    });
     return Object.fromEntries(
         COMPUTER_USE_GROUPS.map((group) => [
             group,
@@ -108,7 +108,7 @@ const DRIVER_DIRECTORY_KEY = 'computer_use.driver_directory';
 let observedDriverDirectory: string | undefined;
 
 export async function loadDriver(): Promise<ComputerUseDriverId> {
-    const values = await getSettingValues([DRIVER_KEY, DRIVER_DIRECTORY_KEY]);
+    const values = await getSettingValues({ keys: [DRIVER_KEY, DRIVER_DIRECTORY_KEY] });
     const directory = values[DRIVER_DIRECTORY_KEY] ?? '';
     if (observedDriverDirectory !== directory) {
         observedDriverDirectory = directory;

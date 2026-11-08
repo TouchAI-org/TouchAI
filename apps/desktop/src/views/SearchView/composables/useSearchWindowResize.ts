@@ -522,12 +522,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
                                       searchWindowHeightMode.value ===
                                           SearchWindowHeightMode.ManualOverride
                                   ),
-                                  ...(commitOptions.respectManualOverride === undefined
-                                      ? {}
-                                      : {
-                                            respectManualOverride:
-                                                commitOptions.respectManualOverride,
-                                        }),
+                                  respectManualOverride,
                                   placement,
                               });
                         if (!isCurrentGeometry(generation)) return false;
