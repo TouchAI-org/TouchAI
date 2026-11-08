@@ -36,4 +36,10 @@
     .t-text-shimmer {
         --text-shimmer-highlight: var(--color-muted-foreground);
     }
+
+    @media (prefers-contrast: more) {
+        .t-text-shimmer {
+            --text-shimmer-highlight: var(--color-foreground);
+        }
+    }
 </style>
