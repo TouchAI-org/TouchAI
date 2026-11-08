@@ -16,6 +16,7 @@ export async function exerciseComputerUseGlow() {
     const invoke = window.__TAURI_INTERNALS__.invoke;
     const first = `glow-e2e-${crypto.randomUUID()}`;
     const second = `glow-e2e-${crypto.randomUUID()}`;
+    const direct = `glow-direct-${crypto.randomUUID()}`;
     const visible = () => invoke('plugin:window|is_visible', { label: 'computer-use-glow' });
     const focused = () => invoke('plugin:window|is_focused', { label: 'main' });
     const hidden = async () => {
@@ -121,10 +122,28 @@ export async function exerciseComputerUseGlow() {
         result.visibleAfterCompletion = !(await hidden());
         result.cancelledFeedback =
             (await invoke('computer_use_glow_snapshot')).activities.length === 0;
+        const directOperation = invoke('computer_use_invoke', {
+            executionId: direct,
+            driver: 'cua-driver',
+            tool: 'run_script',
+            arguments: { script: "await cua.sleep(4000); return 'direct fixture';" },
+            fullAccess: true,
+            allowForeground: true,
+        }).then(
+            (value) => ({ value }),
+            (error) => ({ error: String(error) })
+        );
+        pending.push(directOperation);
+        await waitForActivity(direct);
+        await invoke('computer_use_cancel_all');
+        const directResult = await directOperation;
+        result.directCallStopped = Boolean(directResult.error || directResult.value.isError);
+        result.hiddenAfterDirectCall = await hidden();
         return result;
     } finally {
         await activity(first, false);
         await activity(second, false);
+        await invoke('computer_use_cancel', { executionId: direct });
         await Promise.all(pending);
     }
 }

@@ -158,7 +158,6 @@ pub async fn computer_use_invoke<R: Runtime>(
         .as_deref()
         .map(|id| crate::core::window::computer_use_glow::cancellation(&app, id))
         .transpose()?;
-    let activity_cancelled = cancellation.clone();
     let selected = driver.unwrap_or_default();
     let read_only = if selected == DriverId::AgentDesktop {
         agent_desktop::is_read_only(&tool)
@@ -212,6 +211,11 @@ pub async fn computer_use_invoke<R: Runtime>(
     let feedback_id = foreground_operation
         .as_ref()
         .map(|operation| operation.activity_id());
+    let activity_cancelled = activity_id
+        .as_deref()
+        .or(feedback_id)
+        .map(|id| crate::core::window::computer_use_glow::cancellation(&app, id))
+        .transpose()?;
     let scope = activity_id.clone();
     let execution = execution_id.clone();
     let progress = selected == DriverId::AgentDesktop
@@ -244,17 +248,13 @@ pub async fn computer_use_invoke<R: Runtime>(
             .await;
         }
         driver::restore_installed(selected.root(&root)).await?;
-        let cancelled = scope
-            .as_deref()
-            .map(|id| crate::core::window::computer_use_glow::cancellation(&app, id))
-            .transpose()?;
         let result = tauri::async_runtime::spawn_blocking(move || {
             invoke_blocking(
                 execution_id,
                 tool,
                 arguments,
                 full_access.unwrap_or(false),
-                cancelled,
+                activity_cancelled,
             )
         })
         .await

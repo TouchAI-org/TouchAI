@@ -40,6 +40,11 @@ describe('user runs computer control with activity feedback', () => {
         assertVisible(result.hiddenAfterFailure, 'A failed operation left feedback visible.');
         assertVisible(result.cancelledFeedback, 'Cancelled input left feedback visible.');
         assertVisible(
+            result.directCallStopped,
+            'Stopping control left a direct native call running.'
+        );
+        assertVisible(result.hiddenAfterDirectCall, 'A direct native call left feedback visible.');
+        assertVisible(
             !result.visibleAfterCompletion,
             'The activity glow remained after completion.'
         );
