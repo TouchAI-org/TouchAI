@@ -87,6 +87,12 @@ describe('user works in the settings window', () => {
                 `The settings window lost its drop shadow: ${styles.shadow}.`
             );
             assertVisible(
+                styles.shadow.includes('inset') &&
+                    styles.shadow.includes('0px 0px 0px 1px') &&
+                    styles.shadow.includes('0.4'),
+                `The settings window lost its native gray ring: ${styles.shadow}.`
+            );
+            assertVisible(
                 styles.padding === '24px',
                 `The settings window has no room for its shadow: ${styles.padding}.`
             );

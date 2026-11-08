@@ -98,6 +98,18 @@
     --color-ui-700: #e9e9e7;
     --color-ui-800: #e2e2df;
 
+    /*
+     * WinUI's `SurfaceStrokeColorDefault` is ARGB #66757575: a 40% #757575
+     * stroke. CSS hex is RRGGBBAA, so the equivalent CSS value is #75757566.
+     */
+    --color-window-stroke: rgb(117 117 117 / 0.4);
+
+    /*
+     * The transparent room around a floating window. Keep this in sync with
+     * WINDOW_SHADOW_GUTTER in src-tauri/src/core/window/mod.rs.
+     */
+    --spacing-window-gutter: 24px;
+
     /* ── Radius ──────────────────────────────────────────────────────────── */
     /*
      * The existing sm/md/lg entries are kept at their current values (8/10/12px)
@@ -129,7 +141,7 @@
      * smooth. The 8px offset plus 16px blur ends exactly at the 24px
      * transparent gutter, so no layer is cut off by the native window edge.
      */
-    --shadow-window-key: 0 0 0 1px rgb(15 23 42 / 0.06);
+    --shadow-window-ring: inset 0 0 0 1px var(--color-window-stroke);
     --shadow-window-halo: 0 1px 2px rgb(15 23 42 / 0.05);
     --shadow-window-mid: 0 4px 8px -1px rgb(15 23 42 / 0.06);
     --shadow-window-far: 0 8px 16px rgb(15 23 42 / 0.12);

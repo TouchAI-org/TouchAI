@@ -14,8 +14,8 @@
 :root {
     --search-surface-background: rgb(251 251 246);
     --search-surface-border: rgb(209 213 219);
-    --search-surface-radius: 0.5rem;
-    /* The card is borderless; keep only the ambient layers of the window shadow. */
+    --search-surface-radius: var(--radius-window);
+    /* Popovers are in-window surfaces; the native search card overrides this. */
     --search-surface-shadow:
         var(--shadow-window-halo), var(--shadow-window-mid), var(--shadow-window-far);
 }
@@ -164,7 +164,7 @@
      */
     .window-shell {
         background: var(--color-background-primary);
-        border-radius: var(--radius-sm);
+        border-radius: var(--radius-window);
         overflow: hidden;
     }
 
@@ -174,7 +174,7 @@
      * the visible surface keeps its designed size.
      */
     .window-frame {
-        @apply p-6;
+        padding: var(--spacing-window-gutter);
     }
 
     .window-shell-floating {

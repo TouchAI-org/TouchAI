@@ -16,11 +16,11 @@ primitives, or view-layer styling.
 
 Three token layers, each with one job. A value belongs to exactly one of them.
 
-| Layer | File | Contains | May reference |
-| --- | --- | --- | --- |
-| Primitive | `apps/desktop/src/styles/tokens/primitive.css` | Raw palettes, type scale, radii, font families | Nothing |
-| Semantic | `apps/desktop/src/styles/tokens/semantic.css` | Roles: canvas, surface, text, border, interactive | Primitives |
-| Component | component scope or `:root` | Button/Settings/Markdown/Widget specifics | Semantics |
+| Layer     | File                                           | Contains                                          | May reference |
+| --------- | ---------------------------------------------- | ------------------------------------------------- | ------------- |
+| Primitive | `apps/desktop/src/styles/tokens/primitive.css` | Raw palettes, type scale, radii, font families    | Nothing       |
+| Semantic  | `apps/desktop/src/styles/tokens/semantic.css`  | Roles: canvas, surface, text, border, interactive | Primitives    |
+| Component | component scope or `:root`                     | Button/Settings/Markdown/Widget specifics         | Semantics     |
 
 The rule that makes this worth doing: **components read semantic tokens, never a ramp
 step.** `bg-surface-sunken` survives a palette change; `bg-[#f0f0ef]` and
@@ -36,8 +36,7 @@ pollute the utility namespace.
 
 - **One role, one name.** `danger` is the only danger role. `error` and `destructive`
   were removed as separate concepts; if you find one, it is legacy.
-- **Ramps stay continuous.** A palette step that exists for 50–700 should not skip to
-  900. Missing steps are added, not worked around.
+- **Ramps stay continuous.** A palette step that exists for 50–700 should not skip to 900. Missing steps are added, not worked around.
 - **No arbitrary values in class names.** `bg-[#…]`, `text-[Npx]`, `rounded-[…]` and
   `z-[…]` are all drift. If a value is genuinely missing, add a token.
 - **Never override a Tailwind default with a different meaning.** The `--radius-sm/md/lg`
@@ -65,10 +64,10 @@ cheaper than a new component.
 
 Every change declares its visual scope in the PR template.
 
-| Scope | Meaning | Requirement |
-| --- | --- | --- |
-| `none` | Class output is byte-identical | Class snapshot diff empty and visual baselines unchanged |
-| `additive` | New variant or token, existing output unchanged | Snapshot diff has only `+` lines |
+| Scope      | Meaning                                          | Requirement                                                      |
+| ---------- | ------------------------------------------------ | ---------------------------------------------------------------- |
+| `none`     | Class output is byte-identical                   | Class snapshot diff empty and visual baselines unchanged         |
+| `additive` | New variant or token, existing output unchanged  | Snapshot diff has only `+` lines                                 |
 | `breaking` | Any existing class output or token value changes | Call-site inventory, before/after screenshots, reviewer sign-off |
 
 Adding a token is `additive`. Changing a token's value is `breaking`, even when the
@@ -267,6 +266,24 @@ includes the transparent 24 px shadow gutter on each side. Both mirror the conte
 native constants in `src-tauri/src/core/window/settings/mod.rs`. A GitHub-hosted runner
 only has a 1024x768 desktop, but Windows does not clamp a window to the desktop and
 WebDriver captures the window rather than the screen, so the real size works there.
+
+**Native window chrome.** Every floating top-level window uses the same 1 px WinUI
+surface stroke. The source value is `SurfaceStrokeColorDefault` in
+`microsoft/microsoft-ui-xaml` (`Common_themeresources_any.xaml`): ARGB `#66757575`,
+which is 40% of `#757575`. CSS hex is `RRGGBBAA`, so the token is
+`rgb(117 117 117 / 0.4)` (or `#75757566`), never the ARGB string itself.
+
+The stroke is an inset `box-shadow` ring, not a `border`: it follows the window
+radius, does not consume layout, survives the search card's `border-0`, and
+composites over the window surface the way the reference stroke does. Settings and
+the search card use the full `--shadow-window`; in-window popovers keep their own
+card border and ambient-only shadow. The tray menu is size-constrained, so it keeps
+its existing inset 1 px border but reads the same `--color-window-border` token.
+
+`--spacing-window-gutter: 24px` mirrors Rust's `WINDOW_SHADOW_GUTTER = 24.0`; it is
+the transparent room around the settings window, not the search host's separate
+48 px visual outset or 24 px native-region outset. Maximized and fullscreen windows
+reset the ring, radius, gutter, and shadow together.
 
 #### Text, language, and tolerance
 

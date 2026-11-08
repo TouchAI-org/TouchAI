@@ -25,6 +25,8 @@ const stylesDirectory = resolve(testDirectory, '../../src/styles');
 
 const readStyle = (relativePath: string) =>
     readFileSync(resolve(stylesDirectory, relativePath), 'utf8');
+const readAppFile = (relativePath: string) =>
+    readFileSync(resolve(testDirectory, '../../', relativePath), 'utf8');
 
 const primitiveCss = readStyle('tokens/primitive.css');
 const semanticCss = readStyle('tokens/semantic.css');
@@ -326,7 +328,7 @@ describe('desktop window shell', () => {
     it('user gets anti-aliased CSS window corners from a transparent shell', () => {
         expect(tailwindCss).toContain('.window-shell {');
         expect(tailwindCss).toMatch(
-            /\.window-shell\s*\{[^}]*background:\s*var\(--color-background-primary\);[^}]*border-radius:\s*var\(--radius-sm\);[^}]*overflow:\s*hidden;/s
+            /\.window-shell\s*\{[^}]*background:\s*var\(--color-background-primary\);[^}]*border-radius:\s*var\(--radius-window\);[^}]*overflow:\s*hidden;/s
         );
         expect(tailwindCss).toContain(":root[data-window-maximized='true'] .window-shell");
         expect(tailwindCss).toMatch(/html,\s*body,\s*#app\s*\{[^}]*background:\s*transparent;/s);
@@ -334,7 +336,10 @@ describe('desktop window shell', () => {
     });
 
     it('user gets a drop shadow with transparent room around a floating window', () => {
-        expect(tailwindCss).toMatch(/\.window-frame\s*\{\s*@apply p-6;/s);
+        expect(tokenValue(primitiveCss, '--spacing-window-gutter')).toBe('24px');
+        expect(tailwindCss).toMatch(
+            /\.window-frame\s*\{\s*padding:\s*var\(--spacing-window-gutter\);/s
+        );
         expect(tailwindCss).toMatch(
             /\.window-shell-floating\s*\{\s*box-shadow:\s*var\(--shadow-window\);/s
         );
@@ -346,10 +351,10 @@ describe('desktop window shell', () => {
         );
     });
 
-    it('user gets an ambient window shadow instead of a dark halo', () => {
+    it('user gets a WinUI gray ring plus the ambient window shadow', () => {
         const resolve = resolveToken(primitiveCss, semanticCss);
         const shadow = [
-            '--shadow-window-key',
+            '--shadow-window-ring',
             '--shadow-window-halo',
             '--shadow-window-mid',
             '--shadow-window-far',
@@ -357,22 +362,38 @@ describe('desktop window shell', () => {
             .map((token) => resolve(token))
             .join(', ');
 
-        // Fluent 2 shadow16: a 1px stroke, a 2px contact, and an 8px/16px ambient layer.
-        expect(shadow).toContain('0 0 0 1px');
+        // Fluent 2 shadow16: a 1px WinUI surface stroke, a 2px contact, and an
+        // 8px/16px ambient layer.
+        expect(shadow).toContain('inset 0 0 0 1px');
+        expect(resolve('--color-window-border')).toBe('rgb(117 117 117 / 0.4)');
+        expect(tokenValue(primitiveCss, '--shadow-window-ring')).toBe(
+            'inset 0 0 0 1px var(--color-window-stroke)'
+        );
         expect(shadow).toContain('0 1px 2px');
         expect(shadow).toContain('0 4px 8px -1px');
         expect(shadow).toContain('0 8px 16px');
         expect(shadow).toContain('rgb(15 23 42 / 0.12)');
     });
 
-    it('user gets a borderless search card with only the ambient shadow layers', () => {
+    it('user gets the native ring on the search card without doubling popover borders', () => {
         const searchShadow = tailwindCss.match(/--search-surface-shadow:\s*([^;]+);/s)?.[1] ?? '';
+        const searchView = readAppFile('src/views/SearchView/index.vue');
 
         expect(searchShadow).toContain('var(--shadow-window-halo)');
         expect(searchShadow).toContain('var(--shadow-window-mid)');
         expect(searchShadow).toContain('var(--shadow-window-far)');
-        expect(searchShadow).not.toContain('--shadow-window-key');
+        expect(searchShadow).not.toContain('--shadow-window-ring');
         expect(searchShadow).not.toContain('var(--shadow-window)');
+        expect(searchView).toContain("'--search-surface-shadow': 'var(--shadow-window)'");
+    });
+
+    it('user gets the same native window token on the tray menu', () => {
+        const trayView = readAppFile('src/views/TrayView/index.vue');
+
+        expect(trayView).toContain('rounded-window');
+        expect(trayView).toContain('border-window-border');
+        expect(trayView).toContain('rounded-t-window');
+        expect(trayView).toContain('rounded-b-window');
     });
 
     it('user gets the shared font stack without a generic family in the middle', () => {

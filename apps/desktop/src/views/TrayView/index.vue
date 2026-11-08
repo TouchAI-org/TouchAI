@@ -111,7 +111,7 @@
 
 <template>
     <div
-        class="tray-menu-container flex h-full w-full flex-col rounded-lg border border-gray-200 bg-white/95 shadow-lg backdrop-blur-sm"
+        class="tray-menu-container flex h-full w-full flex-col rounded-window border border-window-border bg-white/95 shadow-lg backdrop-blur-sm"
     >
         <div
             v-for="(item, index) in menuItems"
@@ -119,8 +119,8 @@
             :class="[
                 'flex cursor-pointer items-center gap-3 px-4 py-3 font-serif text-sm text-gray-700 transition-colors',
                 'hover:bg-primary-50 hover:text-primary-700',
-                index === 0 ? 'rounded-t-lg' : '',
-                index === menuItems.length - 1 ? 'rounded-b-lg' : 'border-b border-gray-100',
+                index === 0 ? 'rounded-t-window' : '',
+                index === menuItems.length - 1 ? 'rounded-b-window' : 'border-b border-gray-100',
             ]"
             @click="item.action()"
         >
