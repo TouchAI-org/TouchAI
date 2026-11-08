@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { ContextSummary } from '@/services/AgentService/contracts/context';
 import type { AiMessage, AiRequestOptions } from '@/services/AgentService/contracts/protocol';
 import { ContextWindow, type SummaryResult } from '@/services/AgentService/execution/context';
 
@@ -164,6 +165,7 @@ describe('given a conversation with a known context budget', () => {
         const sent: AiRequestOptions[] = [];
         await new ContextWindow().prepare({
             ...options(input),
+            contextLimit: 8_600,
             summarize: async (call) => {
                 sent.push(call);
                 return summary;
@@ -406,5 +408,116 @@ describe('given a conversation with a known context budget', () => {
             summarize: async () => ({ ...summary, text: 'Fresh after cancellation.' }),
         });
         expect(JSON.stringify(recovered.messages)).toContain('Fresh after cancellation.');
+    });
+});
+
+describe('given a conversation with durable compaction checkpoints', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('user reopens the conversation after restart and expiry without paying for the same summary again', async () => {
+        vi.useFakeTimers();
+        let saved: ContextSummary | undefined;
+        const input = request();
+        const first = await new ContextWindow().prepare({
+            ...options(input),
+            saveSummary: async (value: ContextSummary) => {
+                saved = structuredClone(value);
+            },
+        });
+        expect(saved).toBeDefined();
+        vi.advanceTimersByTime(31 * 60_000);
+        const reopened = await new ContextWindow().prepare({
+            ...options({ ...input, promptCacheKey: 'new-process' }),
+            loadSummary: async () => saved,
+            summarize: async () => {
+                throw new Error('A durable checkpoint should survive restart and cache expiry');
+            },
+        });
+        expect(reopened.messages).toEqual(first.messages);
+    });
+
+    it('user sees storage failure before an unsaved summary can be used or reported as completed', async () => {
+        const events: string[] = [];
+        await expect(
+            new ContextWindow().prepare({
+                ...options(),
+                saveSummary: async () => {
+                    throw new Error('disk full');
+                },
+                onCompaction: (event: { state: string }) => events.push(event.state),
+            })
+        ).rejects.toThrow('disk full');
+        expect(events).toEqual(['compacting', 'failed']);
+    });
+
+    it('user keeps a fully committed checkpoint when cancellation arrives during the commit', async () => {
+        const controller = new AbortController();
+        let saved: ContextSummary | undefined;
+        const events: string[] = [];
+        await expect(
+            new ContextWindow().prepare({
+                ...options({ ...request(), signal: controller.signal }),
+                saveSummary: async (value: ContextSummary) => {
+                    saved = structuredClone(value);
+                    controller.abort();
+                },
+                onCompaction: (event: { state: string }) => events.push(event.state),
+            })
+        ).rejects.toMatchObject({ code: 'REQUEST_CANCELLED' });
+        expect(saved?.text).toBe(summary.text);
+        expect(events).toEqual(['compacting', 'compacted']);
+        const reopened = await new ContextWindow().prepare({
+            ...options(),
+            loadSummary: async () => saved,
+            summarize: async () => {
+                throw new Error('The committed checkpoint must remain reusable');
+            },
+        });
+        expect(JSON.stringify(reopened.messages)).toContain(summary.text);
+    });
+
+    it('user rejects a saved checkpoint after its covered history is edited', async () => {
+        let saved: ContextSummary | undefined;
+        const input = request();
+        await new ContextWindow().prepare({
+            ...options(input),
+            saveSummary: async (value: ContextSummary) => {
+                saved = structuredClone(value);
+            },
+        });
+        input.messages[1] = { role: 'user', content: 'New constraint: preserve the archive.' };
+        const reopened = await new ContextWindow().prepare({
+            ...options(input),
+            loadSummary: async () => saved,
+            summarize: async () => ({ ...summary, text: 'Preserve the archive.' }),
+        });
+        expect(JSON.stringify(reopened.messages)).toContain('Preserve the archive.');
+        expect(JSON.stringify(reopened.messages)).not.toContain(summary.text);
+    });
+
+    it('user keeps previous requirements in an explicit structured update when compaction runs again', async () => {
+        const context = new ContextWindow();
+        const input = request();
+        const instructions: string[] = [];
+        const summarize = async (call: AiRequestOptions) => {
+            instructions.push(String(call.messages[call.messages.length - 1]?.content));
+            return summary;
+        };
+        await context.prepare({ ...options(input), summarize });
+        expect(instructions[0]).toContain('## Constraints & Preferences');
+        expect(instructions[0]).toContain('### Blocked');
+        expect(instructions[0]).toContain('pending approvals');
+        expect(instructions[0]).toContain('abandoned, rejected or superseded');
+        expect(instructions[0]).toContain('conversation language');
+        instructions.length = 0;
+        await context.prepare({
+            ...options(request([...input.messages, ...history(12).slice(1)])),
+            summarize,
+        });
+        expect(instructions.length).toBeGreaterThan(0);
+        expect(instructions.every((text) => text.includes('Update the existing summary'))).toBe(
+            true
+        );
+        expect(instructions[0]).toContain('Preserve unresolved user requests');
     });
 });

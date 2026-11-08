@@ -145,6 +145,10 @@ export async function loadSessionTransportMessages(options: {
                     role: 'tool',
                     tool_call_id: call.id,
                     name: call.name,
+                    ...(data.status &&
+                    ['error', 'timeout', 'rejected', 'cancelled'].includes(data.status)
+                        ? { isError: true }
+                        : {}),
                     content: attachmentParts.length
                         ? [
                               ...(content ? [{ type: 'text' as const, text: content }] : []),

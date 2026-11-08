@@ -143,7 +143,11 @@ if (live) {
         try {
             providerRow = database
                 .prepare(
-                    "select id, api_endpoint, api_key, config_json from providers where lower(name) = 'magpie' and driver = 'openai-compatible'"
+                    `select id, api_endpoint, api_key, config_json from providers
+                     where lower(name) = 'magpie' and driver = 'openai-compatible'
+                       and exists (select 1 from models where models.provider_id = providers.id
+                                   and lower(model_id) like '%deepseek%')
+                     order by id limit 1`
                 )
                 .get();
             assert.ok(providerRow, 'No Magpie OpenAI-compatible provider in the selected database');

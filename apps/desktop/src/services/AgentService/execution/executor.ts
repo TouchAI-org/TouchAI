@@ -904,6 +904,9 @@ export class AiRequestExecutor {
             contextLimit: runtime.activeModel.context_limit,
             outputLimit: runtime.activeModel.output_limit,
             preserveSummaryOutputBudget: preserveReasoningCache,
+            loadSummary: () => options.persister.loadContextSummary(),
+            saveSummary: (summary) =>
+                options.persister.persistContextSummary(summary, runtime.calls),
             onCompaction: (contextCompaction) =>
                 options.onChunk?.({ content: '', done: false, contextCompaction }),
             summarize: (summaryRequest) =>

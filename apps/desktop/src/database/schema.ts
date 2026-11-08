@@ -113,7 +113,14 @@ export const messageParts = sqliteTable(
             .notNull()
             .references(() => messages.id, { onDelete: 'cascade' }),
         type: text('type', {
-            enum: ['text', 'reasoning', 'tool_call', 'attachment', 'llm_call'],
+            enum: [
+                'text',
+                'reasoning',
+                'tool_call',
+                'attachment',
+                'llm_call',
+                'context_compaction',
+            ],
         }).notNull(),
         content: text('content').notNull(),
         data: text('data').notNull().default('{}'),

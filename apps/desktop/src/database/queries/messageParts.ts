@@ -1,10 +1,10 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { and, asc, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { type DatabaseExecutor, db } from '../index';
-import { messageParts } from '../schema';
+import { messageParts, messages } from '../schema';
 import type { MessagePartCreateData, MessagePartEntity } from '../types';
 
 /** Derive plain text only at consumers that need it; parts remain the source of truth. */
@@ -41,6 +41,21 @@ export const findMessagePartById = async (
     const part = await database.select().from(messageParts).where(eq(messageParts.id, id)).get();
     return part;
 };
+
+/** One completed checkpoint, newest first through the existing type/time index. */
+export async function findLatestContextCompaction(
+    sessionId: number
+): Promise<MessagePartEntity | undefined> {
+    const row = await db
+        .select({ part: messageParts })
+        .from(messageParts)
+        .innerJoin(messages, eq(messages.id, messageParts.message_id))
+        .where(and(eq(messageParts.type, 'context_compaction'), eq(messages.session_id, sessionId)))
+        .orderBy(desc(messageParts.started_at), desc(messageParts.id))
+        .limit(1)
+        .get();
+    return row?.part;
+}
 
 /**
  * 按工具调用 id 反查 tool_call 片段。

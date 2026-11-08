@@ -201,6 +201,8 @@ describe('user sends a prompt and receives a streamed answer', () => {
             },
             persister: {
                 getSessionId: () => 42,
+                loadContextSummary: async () => undefined,
+                persistContextSummary: async () => undefined,
                 persistOutputProgress: async () => undefined,
             } as never,
         });
@@ -240,6 +242,8 @@ describe('user sends a prompt and receives a streamed answer', () => {
             startCheckpoint: checkpoint,
             persister: {
                 getSessionId: () => 42,
+                loadContextSummary: async () => undefined,
+                persistContextSummary: async () => undefined,
                 persistOutputProgress: async () => undefined,
             } as never,
         });
@@ -271,7 +275,10 @@ describe('user sends a prompt and receives a streamed answer', () => {
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createLongCheckpoint(),
             signal: controller.signal,
-            persister: { getSessionId: () => 42 } as never,
+            persister: {
+                getSessionId: () => 42,
+                loadContextSummary: async () => undefined,
+            } as never,
         });
         expect(result.type).toBe('failed');
         if (result.type !== 'failed') throw new Error('Expected cancellation');
@@ -301,7 +308,10 @@ describe('user sends a prompt and receives a streamed answer', () => {
         });
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createLongCheckpoint(),
-            persister: { getSessionId: () => 42 } as never,
+            persister: {
+                getSessionId: () => 42,
+                loadContextSummary: async () => undefined,
+            } as never,
         });
         expect(result.type).toBe('failed');
         if (result.type !== 'failed') throw new Error('Expected summary rejection');

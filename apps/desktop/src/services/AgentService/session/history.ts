@@ -37,6 +37,7 @@ import {
 } from '@/utils/session';
 import { normalizeString } from '@/utils/text';
 
+import { readContextSummary } from '../contracts/context';
 import { AiError } from '../contracts/errors';
 import { getRetryStatusMessage } from '../execution/retry';
 import type { PromptSnapshot } from '../prompt/types';
@@ -341,6 +342,14 @@ function appendAssistantOutput(message: SessionMessage, parts: MessagePartEntity
         } else if (part.type === 'reasoning') {
             appendReasoningPart(message, part);
             message.reasoning = `${message.reasoning ?? ''}${part.content}`;
+        } else if (part.type === 'context_compaction') {
+            const summary = readContextSummary(part);
+            if (summary)
+                message.parts.push({
+                    id: summary.id,
+                    type: 'context_compaction',
+                    state: 'compacted',
+                });
         }
     }
 }

@@ -2,6 +2,7 @@
 
 import { type DatabaseExecutor, db } from '@database';
 import {
+    appendMessagePart,
     createMessage,
     createMessageAttachment,
     createMessageParts,
@@ -10,6 +11,7 @@ import {
     createSessionTurnAttempt,
     findAllBuiltInTools,
     findAllMcpTools,
+    findLatestContextCompaction,
     findToolCallPartByCallId,
     mergeMessagePartData,
     refreshSessionMetadata,
@@ -55,6 +57,7 @@ import {
 } from '@/services/UsageService/contextBreakdown';
 import { toDbTimestamp } from '@/utils/date';
 
+import { type ContextSummary, readContextSummary } from '../contracts/context';
 import {
     type AiCallRecord,
     type AttachmentDeliveryManifest,
@@ -169,6 +172,8 @@ export class PersistenceProjector {
     private userMessageId: number | null;
     private assistantMessageId: number | null;
     private pendingOutputMessageId: number | null = null;
+    private pendingOutputOffset = 0;
+    private contextSummary: Promise<ContextSummary | undefined> | undefined;
     private turn: SessionTurnEntity | null;
     private turnStartedAtMs: number | null;
     private attemptState: AttemptState | null;
@@ -711,7 +716,56 @@ export class PersistenceProjector {
             this.persistMessage({ role: 'tool_call', outputParts, database: tx })
         );
         this.pendingOutputMessageId = null;
+        this.pendingOutputOffset = 0;
         return messageId;
+    }
+
+    loadContextSummary(): Promise<ContextSummary | undefined> {
+        this.contextSummary ??=
+            this.sessionId === null
+                ? Promise.resolve(undefined)
+                : findLatestContextCompaction(this.sessionId).then((part) =>
+                      part ? readContextSummary(part) : undefined
+                  );
+        return this.contextSummary;
+    }
+
+    /** Commit summary, timeline position and already-reported usage as one checkpoint. */
+    async persistContextSummary(summary: ContextSummary, calls: AiCallRecord[]): Promise<void> {
+        if (!this.turn || !this.attemptState) throw new Error('Compaction requires an active turn');
+        const turnId = this.turn.id;
+        const { text, ...metadata } = summary;
+        const result = await db.transaction(async (tx) => {
+            const messageId =
+                this.pendingOutputMessageId ??
+                (await this.persistMessage({
+                    role: 'assistant',
+                    database: tx,
+                }));
+            const part = await appendMessagePart(
+                messageId,
+                {
+                    type: 'context_compaction',
+                    content: text,
+                    data: JSON.stringify(metadata),
+                    started_at: summary.createdAt,
+                    ended_at: summary.createdAt,
+                },
+                tx
+            );
+            await updateSessionTurn({
+                id: turnId,
+                turnPatch: { response_message_id: messageId },
+                database: tx,
+            });
+            const usagePatch = await this.persistUsage({ messageId: null, calls, database: tx });
+            await updateSessionTurnUsage({ id: turnId, usagePatch, database: tx });
+            return { messageId, offset: part.sort_order + 1 };
+        });
+        this.pendingOutputMessageId = result.messageId;
+        this.pendingOutputOffset = result.offset;
+        this.turn = { ...this.turn, response_message_id: result.messageId };
+        this.contextSummary = Promise.resolve(summary);
     }
 
     /**
@@ -931,7 +985,7 @@ export class PersistenceProjector {
                         : {}),
                     started_at: part.type === 'reasoning' ? (part.startedAt ?? null) : null,
                     ended_at: part.type === 'reasoning' ? (part.endedAt ?? null) : null,
-                    sort_order: sortOrder,
+                    sort_order: sortOrder + this.pendingOutputOffset,
                 })),
                 database
             );

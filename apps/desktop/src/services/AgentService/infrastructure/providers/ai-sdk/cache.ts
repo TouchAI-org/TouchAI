@@ -6,18 +6,20 @@ import type { ModelMessage, ToolSet } from 'ai';
 import type { AiRequestOptions, JsonObject } from '../../../contracts/protocol';
 
 /** JSON schemas are JSON values; keep array order, canonicalize object keys only. */
+export function canonicalJson(value: unknown): string {
+    return JSON.stringify(value, (_key, value: unknown) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+        const object = value as Record<string, unknown>;
+        return Object.fromEntries(
+            Object.keys(object)
+                .sort()
+                .map((key) => [key, object[key]])
+        );
+    });
+}
+
 export function canonicalSchema<T>(schema: T): T {
-    return JSON.parse(
-        JSON.stringify(schema, (_key, value: unknown) => {
-            if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-            const object = value as Record<string, unknown>;
-            return Object.fromEntries(
-                Object.keys(object)
-                    .sort()
-                    .map((key) => [key, object[key]])
-            );
-        })
-    ) as T;
+    return JSON.parse(canonicalJson(schema)) as T;
 }
 
 export function prepareCacheOptions(options: {

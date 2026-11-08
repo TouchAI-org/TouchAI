@@ -93,7 +93,7 @@ export interface WidgetMessagePart {
     widgetId: string;
 }
 
-/** Disposable timeline marker, excluded from the persisted message-part schema. */
+/** Live progress or the restored marker of a committed context checkpoint. */
 export interface ContextCompactionMessagePart {
     id: string;
     type: 'context_compaction';
