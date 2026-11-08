@@ -19,7 +19,8 @@ use super::agent_desktop_manifest::MANIFEST;
 use super::driver::{DriverStatus, UpdateInfo};
 use super::manifest::artifact;
 use super::provision::{
-    confirm_install, ensure_installed, installed_binary, InstallLayout, WheelFetcher,
+    confirm_install, ensure_installed, installed_binary, installed_size, InstallLayout,
+    WheelFetcher,
 };
 
 type Service = RunningService<rmcp::RoleClient, ()>;
@@ -90,6 +91,7 @@ pub fn status(root: &Path) -> Result<DriverStatus, String> {
     Ok(DriverStatus {
         installed: binary.is_some(),
         driver_version: binary.as_ref().map(|_| MANIFEST.version.to_string()),
+        installed_size_bytes: binary.as_deref().and_then(installed_size),
         binary: binary.map(|path| path.display().to_string()),
         abi_version: None,
         metadata: Some(json!({"driver": "agent-desktop", "transport": "stdio"})),

@@ -31,8 +31,11 @@
                         class="h-3.5 w-3.5"
                     />
                 </span>
-                <span v-if="!isBrowserBuiltinTool" class="tool-call-log-verb">
-                    {{ isComputerUseBuiltinTool ? ` ${builtinVerbText}` : builtinVerbText }}
+                <span v-if="isComputerUseBuiltinTool" class="tool-call-log-content">
+                    {{ ` ${builtinVerbText}` }}
+                </span>
+                <span v-else-if="!isBrowserBuiltinTool" class="tool-call-log-verb">
+                    {{ builtinVerbText }}
                 </span>
                 <span
                     v-if="activatedSkillName"

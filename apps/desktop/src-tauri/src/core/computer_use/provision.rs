@@ -230,6 +230,27 @@ pub fn installed_binary(
     Ok(is_installed(layout, version, artifact, &binary).then_some(binary))
 }
 
+pub fn installed_size(binary: &Path) -> Option<u64> {
+    let directory = binary.parent()?;
+    let measured = (|| -> Result<u64, std::io::Error> {
+        let mut total = 0;
+        for entry in std::fs::read_dir(directory)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
+                total += entry.metadata()?.len();
+            }
+        }
+        Ok(total)
+    })();
+    match measured {
+        Ok(bytes) => Some(bytes),
+        Err(error) => {
+            log::warn!("Driver installation size unavailable: {error}");
+            None
+        }
+    }
+}
+
 fn is_installed(
     layout: &InstallLayout,
     version: &str,

@@ -27,7 +27,7 @@
     import { open } from '@tauri-apps/plugin-dialog';
     import { computed, nextTick, onMounted, ref } from 'vue';
 
-    import { t } from '@/i18n';
+    import { getLocale, t } from '@/i18n';
 
     defineOptions({ name: 'ComputerUseSettings' });
 
@@ -39,7 +39,9 @@
     const busyDriver = ref<ComputerUseDriverId | null>(null);
     const driverOpen = ref(false);
     const enabled = ref(false);
-    const saving = ref(false);
+    const saving = ref(new Set<keyof ComputerUseSettings>());
+    const savingGroups = ref(new Set<ComputerUseGroup>());
+    const pickingRecordingDirectory = ref(false);
     const recordingDirectory = ref('');
     const driverDirectory = ref('');
     const groups = ref<ComputerUseGroups>({});
@@ -47,7 +49,7 @@
     const { confirm } = useConfirm();
 
     const installed = computed(() => isDriverAvailable(selectedDriver.value));
-    const driverDisabled = computed(() => !enabled.value || busy.value || saving.value);
+    const driverDisabled = computed(() => !enabled.value || busy.value);
     const preferencesDisabled = computed(() => driverDisabled.value || !installed.value);
     const drivers: ComputerUseDriverId[] = ['cua-driver', 'agent-desktop'];
     const driverLogos: Record<ComputerUseDriverId, string> = {
@@ -70,11 +72,30 @@
             label: driver,
             iconSrc: driverLogos[driver],
             disabled: !isDriverAvailable(driver),
-            description: statuses.value[driver]?.driverVersion
-                ? `v${statuses.value[driver]?.driverVersion}`
-                : undefined,
+            description: driverDescription(statuses.value[driver]),
         }))
     );
+
+    function driverDescription(driverStatus?: ComputerUseStatus): string | undefined {
+        const details: string[] = [];
+        if (driverStatus?.driverVersion) details.push(`v${driverStatus.driverVersion}`);
+        const bytes = driverStatus?.installedSizeBytes;
+        if (
+            driverStatus?.installed &&
+            typeof bytes === 'number' &&
+            Number.isFinite(bytes) &&
+            bytes > 0
+        ) {
+            const size = new Intl.NumberFormat(getLocale(), {
+                style: 'unit',
+                unit: 'megabyte',
+                unitDisplay: 'short',
+                maximumFractionDigits: 1,
+            }).format(bytes / 1_000_000);
+            details.push(size);
+        }
+        return details.join(' · ') || undefined;
+    }
 
     const approvalOptions = computed(() =>
         [
@@ -175,7 +196,7 @@
 
     async function selectDriver(driver: ComputerUseDriverId | ''): Promise<void> {
         if (!driver || driverDisabled.value || !isDriverAvailable(driver)) return;
-        saving.value = true;
+        busy.value = true;
         try {
             await computerUseService.selectDriver(driver);
             selectedDriver.value = driver;
@@ -184,7 +205,7 @@
         } catch (error) {
             alert.error(errorMessage(error));
         } finally {
-            saving.value = false;
+            busy.value = false;
         }
     }
 
@@ -202,28 +223,28 @@
     });
 
     async function setEnabled(value: boolean): Promise<void> {
-        if (busy.value || saving.value) return;
-        saving.value = true;
+        if (busy.value || saving.value.has('enabled')) return;
+        saving.value.add('enabled');
         try {
             await computerUseService.setEnabled(value);
             enabled.value = value;
         } catch (error) {
             alert.error(errorMessage(error));
         } finally {
-            saving.value = false;
+            saving.value.delete('enabled');
         }
     }
 
     async function setGroup(group: ComputerUseGroup, value: boolean): Promise<void> {
-        if (preferencesDisabled.value) return;
-        saving.value = true;
+        if (preferencesDisabled.value || savingGroups.value.has(group)) return;
+        savingGroups.value.add(group);
         try {
             await computerUseService.setGroupEnabled(group, value);
             groups.value = { ...groups.value, [group]: value };
         } catch (error) {
             alert.error(errorMessage(error));
         } finally {
-            saving.value = false;
+            savingGroups.value.delete(group);
         }
     }
 
@@ -257,15 +278,19 @@
         }
     }
 
-    async function update(patch: Partial<ComputerUseSettings>): Promise<void> {
-        if (preferencesDisabled.value) return;
-        saving.value = true;
+    async function update<Key extends keyof ComputerUseSettings>(
+        key: Key,
+        value: ComputerUseSettings[Key]
+    ): Promise<void> {
+        if (preferencesDisabled.value || saving.value.has(key)) return;
+        saving.value.add(key);
         try {
-            settings.value = await computerUseService.saveSettings(patch);
-            if (patch.approval !== undefined) {
+            const saved = await computerUseService.saveSettings({ [key]: value });
+            settings.value = { ...settings.value, [key]: saved[key] };
+            if (key === 'approval') {
                 computerUseService.clearSessionApprovals();
             }
-            if ('maxImageDimension' in patch || 'cursorVisible' in patch) {
+            if (key === 'maxImageDimension') {
                 const failures = await computerUseService.applySettings(settings.value);
                 if (failures.length > 0) {
                     alert.warning(failures[0]!);
@@ -274,19 +299,20 @@
         } catch (error) {
             alert.error(errorMessage(error));
         } finally {
-            saving.value = false;
+            saving.value.delete(key);
         }
     }
 
     async function setRecordingEnabled(value: boolean): Promise<void> {
-        if (preferencesDisabled.value) return;
-        saving.value = true;
+        if (preferencesDisabled.value || saving.value.has('recordingEnabled')) return;
+        saving.value.add('recordingEnabled');
         const previous = settings.value.recordingEnabled;
         try {
             if (value) recordingDirectory.value = await computerUseService.loadRecordingDirectory();
             await computerUseService.setRecording(value);
             try {
-                settings.value = await computerUseService.saveSettings({ recordingEnabled: value });
+                const saved = await computerUseService.saveSettings({ recordingEnabled: value });
+                settings.value = { ...settings.value, recordingEnabled: saved.recordingEnabled };
             } catch (error) {
                 await computerUseService.setRecording(previous);
                 throw error;
@@ -294,13 +320,13 @@
         } catch (error) {
             alert.error(errorMessage(error));
         } finally {
-            saving.value = false;
+            saving.value.delete('recordingEnabled');
         }
     }
 
     async function pickDriverDirectory(): Promise<void> {
         if (driverDisabled.value) return;
-        saving.value = true;
+        busy.value = true;
         try {
             const picked = await open({
                 directory: true,
@@ -315,13 +341,18 @@
         } catch (error) {
             alert.error(errorMessage(error));
         } finally {
-            saving.value = false;
+            busy.value = false;
         }
     }
 
     async function pickRecordingDirectory(): Promise<void> {
-        if (preferencesDisabled.value || !settings.value.recordingEnabled) return;
-        saving.value = true;
+        if (
+            preferencesDisabled.value ||
+            !settings.value.recordingEnabled ||
+            pickingRecordingDirectory.value
+        )
+            return;
+        pickingRecordingDirectory.value = true;
         try {
             const picked = await open({
                 directory: true,
@@ -335,7 +366,7 @@
         } catch (error) {
             alert.error(errorMessage(error));
         } finally {
-            saving.value = false;
+            pickingRecordingDirectory.value = false;
         }
     }
 
@@ -387,13 +418,13 @@
     }
 
     function setApproval(approval: ComputerUseApproval): void {
-        void update({ approval });
+        void update('approval', approval);
     }
 
     function setMaxImageDimension(value: number | string): void {
         const dimension = Number(value);
         if (!Number.isFinite(dimension) || dimension <= 0) return;
-        void update({ maxImageDimension: dimension });
+        void update('maxImageDimension', dimension);
     }
 
     function errorMessage(error: unknown): string {
@@ -428,7 +459,7 @@
                     class="ml-auto shrink-0"
                     :aria-label="t('settings.nav.computerUse.label')"
                     :model-value="enabled"
-                    :disabled="busy || saving"
+                    :disabled="busy || saving.has('enabled')"
                     @update:model-value="setEnabled"
                 />
             </header>
@@ -441,7 +472,8 @@
                     <div class="settings-row-group divide-y divide-border-subtle">
                         <SettingsRow
                             data-settings-search-target="computer-use-driver"
-                            control-width="220"
+                            control-width="320"
+                            control-class="pr-10"
                             label-class="text-text-primary"
                             description-class="text-text-tertiary"
                             :label="t('settings.computerUse.field.driver')"
@@ -565,7 +597,8 @@
                     <div class="settings-row-group divide-y divide-border-subtle">
                         <SettingsRow
                             data-settings-search-target="computer-use-approval-mode"
-                            control-width="220"
+                            control-width="320"
+                            control-class="pr-10"
                             label-class="text-text-primary"
                             :label="t('settings.computerUse.field.approval')"
                         >
@@ -574,7 +607,7 @@
                                 :aria-label="t('settings.computerUse.field.approval')"
                                 :model-value="approvalValue"
                                 :options="approvalOptions"
-                                :disabled="preferencesDisabled"
+                                :disabled="preferencesDisabled || saving.has('approval')"
                                 @update:model-value="setApproval"
                             />
                         </SettingsRow>
@@ -597,7 +630,7 @@
                                     size="lg"
                                     :aria-label="capabilityLabel(group)"
                                     :model-value="groups[group] !== false"
-                                    :disabled="preferencesDisabled"
+                                    :disabled="preferencesDisabled || savingGroups.has(group)"
                                     @update:model-value="(value: boolean) => setGroup(group, value)"
                                 />
                             </SettingsRow>
@@ -623,9 +656,9 @@
                                 size="lg"
                                 :aria-label="t('settings.computerUse.field.foreground')"
                                 :model-value="settings.allowForeground"
-                                :disabled="preferencesDisabled"
+                                :disabled="preferencesDisabled || saving.has('allowForeground')"
                                 @update:model-value="
-                                    (value: boolean) => update({ allowForeground: value })
+                                    (value: boolean) => update('allowForeground', value)
                                 "
                             />
                         </SettingsRow>
@@ -640,16 +673,17 @@
                                 size="lg"
                                 :aria-label="t('settings.computerUse.field.cursor')"
                                 :model-value="settings.cursorVisible"
-                                :disabled="preferencesDisabled"
+                                :disabled="preferencesDisabled || saving.has('cursorVisible')"
                                 @update:model-value="
-                                    (value: boolean) => update({ cursorVisible: value })
+                                    (value: boolean) => update('cursorVisible', value)
                                 "
                             />
                         </SettingsRow>
                         <SettingsRow
                             v-if="selectedDriver === 'cua-driver'"
                             data-settings-search-target="computer-use-max-image"
-                            control-width="220"
+                            control-width="320"
+                            control-class="pr-10"
                             label-class="text-text-primary"
                             description-class="text-text-tertiary"
                             :label="t('settings.computerUse.field.maxImage')"
@@ -659,7 +693,7 @@
                                 :aria-label="t('settings.computerUse.field.maxImage')"
                                 :model-value="settings.maxImageDimension"
                                 :options="screenshotOptions"
-                                :disabled="preferencesDisabled"
+                                :disabled="preferencesDisabled || saving.has('maxImageDimension')"
                                 @update:model-value="setMaxImageDimension"
                             />
                         </SettingsRow>
@@ -677,7 +711,7 @@
                                 size="lg"
                                 :aria-label="t('settings.computerUse.field.recording')"
                                 :model-value="settings.recordingEnabled"
-                                :disabled="preferencesDisabled"
+                                :disabled="preferencesDisabled || saving.has('recordingEnabled')"
                                 @update:model-value="setRecordingEnabled"
                             />
                         </SettingsRow>
@@ -697,7 +731,7 @@
                                 class="min-w-0 flex-1"
                                 :model-value="recordingDirectory"
                                 :title="recordingDirectory"
-                                :disabled="preferencesDisabled"
+                                :disabled="preferencesDisabled || pickingRecordingDirectory"
                                 readonly
                             />
                             <Button
@@ -708,7 +742,7 @@
                                     t('settings.computerUse.action.pickRecordingDirectory')
                                 "
                                 :title="t('settings.computerUse.action.pickRecordingDirectory')"
-                                :disabled="preferencesDisabled"
+                                :disabled="preferencesDisabled || pickingRecordingDirectory"
                                 @click="pickRecordingDirectory"
                             >
                                 <AppIcon name="folder-open" class="h-4 w-4" />

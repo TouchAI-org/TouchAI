@@ -475,6 +475,7 @@ export interface ComputerUseDriverStatus {
     abi_version: string | null;
     binary: string | null;
     driver_version: string | null;
+    installed_size_bytes?: number | null;
     error: string | null;
     installed: boolean;
     metadata?: Record<string, unknown> | null;

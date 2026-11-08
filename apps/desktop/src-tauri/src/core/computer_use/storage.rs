@@ -12,19 +12,22 @@ use super::{agent_desktop, driver, provision::sha256_file};
 
 const DIRECTORY_KEY: &str = "computer_use.driver_directory";
 const CLEANUP_KEY: &str = "computer_use.retired_driver_directories";
+const DIRECTORY_NAME: &str = "computer-use-drivers";
 const DRIVERS: [&str; 2] = ["cua-driver", "agent-desktop"];
 
 pub struct DriverStorage {
     database: DatabaseRuntime,
     legacy: PathBuf,
+    default_base: PathBuf,
     directory: RwLock<Option<PathBuf>>,
 }
 
 impl DriverStorage {
-    pub fn new(database: DatabaseRuntime, legacy: PathBuf) -> Self {
+    pub fn new(database: DatabaseRuntime, legacy: PathBuf, default_base: PathBuf) -> Self {
         Self {
             database,
             legacy,
+            default_base,
             directory: RwLock::new(None),
         }
     }
@@ -44,30 +47,27 @@ impl DriverStorage {
             let root = stored
                 .filter(|value| !value.is_empty())
                 .map(PathBuf::from)
-                .unwrap_or_else(|| self.legacy.with_file_name("computer-use-drivers"));
+                .unwrap_or_else(|| self.default_base.join(DIRECTORY_NAME));
             let legacy = self.legacy.clone();
+            let previous = legacy.with_file_name(DIRECTORY_NAME);
             let target = root.clone();
-            let pending = self.cleanup_roots().await?;
+            let mut pending = self.cleanup_roots().await?;
+            pending.extend(DRIVERS.iter().map(|name| target.join(name)));
+            pending.extend(DRIVERS.iter().map(|name| previous.join(name)));
+            pending.push(legacy.clone());
             tauri::async_runtime::spawn_blocking(move || {
                 validate_path(&target)?;
-                for root in pending
-                    .iter()
-                    .chain(
-                        DRIVERS
-                            .iter()
-                            .map(|name| target.join(name))
-                            .collect::<Vec<_>>()
-                            .iter(),
-                    )
-                    .chain(std::iter::once(&legacy))
-                {
+                for root in &pending {
                     if let Err(error) = driver::cleanup_removed_installations(root) {
                         log::warn!("Deferred driver cleanup failed: {error}");
                     }
                 }
                 if migrate {
                     std::fs::create_dir_all(&target).map_err(|error| error.to_string())?;
-                    migrate_legacy(&legacy, &target)?;
+                    for name in DRIVERS {
+                        migrate_installation(&previous.join(name), &target.join(name))?;
+                    }
+                    migrate_installation(&legacy, &target.join("cua-driver"))?;
                 }
                 Ok::<_, String>(())
             })
@@ -81,7 +81,14 @@ impl DriverStorage {
         }))
     }
 
+    pub async fn location(&self) -> Result<PathBuf, String> {
+        Ok(parent_directory(&self.read().await?))
+    }
+
     pub async fn relocate(&self, destination: PathBuf) -> Result<PathBuf, String> {
+        validate_path(&destination)?;
+        let base = parent_directory(&destination);
+        let destination = base.join(DIRECTORY_NAME);
         drop(self.read().await?);
         let mut directory = self.directory.write().await;
         let source = directory
@@ -95,7 +102,7 @@ impl DriverStorage {
                 .await
                 .map_err(|error| error.to_string())??;
         if same {
-            return Ok(source);
+            return Ok(base);
         }
         driver::cancel_all();
         agent_desktop::cancel_all();
@@ -127,7 +134,7 @@ impl DriverStorage {
                 );
             }
         }
-        Ok(destination)
+        Ok(base)
     }
 
     pub async fn exclusive(&self) -> Result<RwLockMappedWriteGuard<'_, PathBuf>, String> {
@@ -187,6 +194,18 @@ impl DriverStorage {
         }
         result
     }
+}
+
+fn parent_directory(directory: &Path) -> PathBuf {
+    if directory
+        .file_name()
+        .is_some_and(|name| name == DIRECTORY_NAME)
+    {
+        if let Some(parent) = directory.parent() {
+            return parent.to_path_buf();
+        }
+    }
+    directory.to_path_buf()
 }
 
 fn validate_path(path: &Path) -> Result<(), String> {
@@ -312,7 +331,7 @@ fn copy_verified(source: &Path, destination: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn migrate_legacy(legacy: &Path, root: &Path) -> Result<(), String> {
+fn migrate_installation(legacy: &Path, destination: &Path) -> Result<(), String> {
     if !legacy.exists()
         || std::fs::read_dir(legacy)
             .map_err(|error| error.to_string())?
@@ -322,15 +341,15 @@ fn migrate_legacy(legacy: &Path, root: &Path) -> Result<(), String> {
         return Ok(());
     }
     validate_path(legacy)?;
-    let destination = root.join("cua-driver");
+    validate_path(destination)?;
     if destination.exists() {
         return Ok(());
     }
     let staging = tempfile::Builder::new()
         .prefix(".touchai-legacy-")
-        .tempdir_in(root)
+        .tempdir_in(destination.parent().ok_or("computer_use_storage_invalid")?)
         .map_err(|error| error.to_string())?;
-    let staged = staging.path().join("cua-driver");
+    let staged = staging.path().join("driver");
     copy_verified(legacy, &staged)?;
     std::fs::rename(staged, destination).map_err(|error| error.to_string())?;
     let retired = legacy.with_extension("removed");

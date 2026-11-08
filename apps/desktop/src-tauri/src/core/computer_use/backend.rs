@@ -77,6 +77,57 @@ impl DriverId {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn user_given_missing_drivers_when_checking_them_then_sees_no_size_without_installing() {
+        let directory = tempfile::tempdir().expect("isolated directory");
+        for driver in [DriverId::Cua, DriverId::AgentDesktop] {
+            let status = driver
+                .status(directory.path().to_path_buf())
+                .await
+                .expect("status");
+            let payload = serde_json::to_value(status).expect("status payload");
+            assert!(!payload["installed"].as_bool().expect("installed flag"));
+            assert!(payload["installed_size_bytes"].is_null());
+            assert_eq!(
+                std::fs::read_dir(directory.path())
+                    .expect("unchanged directory")
+                    .count(),
+                0
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn user_given_an_installed_driver_when_checking_then_sees_actual_version_files_without_unrelated_cache(
+    ) {
+        let directory = tempfile::tempdir().expect("isolated directory");
+        let artifact = manifest::artifact(&manifest::MANIFEST).expect("supported platform");
+        let root = DriverId::Cua.root(directory.path());
+        let version = root.join(manifest::MANIFEST.version);
+        std::fs::create_dir_all(&version).expect("version directory");
+        let binary = version.join(Path::new(artifact.entry).file_name().expect("binary name"));
+        std::fs::write(&binary, b"driver fixture").expect("binary");
+        std::fs::write(version.join("helper"), b"helper fixture").expect("helper");
+        let record = serde_json::json!({
+            "version": manifest::MANIFEST.version,
+            "wheel_sha256": artifact.sha256,
+            "binary_sha256": super::super::provision::sha256_file(&binary).expect("hash"),
+        })
+        .to_string();
+        std::fs::write(version.join("install.json"), &record).expect("install record");
+        std::fs::write(root.join("unrelated-cache"), [0u8; 4096]).expect("cache");
+        let status = DriverId::Cua
+            .status(directory.path().to_path_buf())
+            .await
+            .expect("installed status");
+        let payload = serde_json::to_value(status).expect("status payload");
+        assert_eq!(payload["installed"], true);
+        assert_eq!(
+            payload["installed_size_bytes"].as_u64(),
+            Some((28 + record.len()) as u64)
+        );
+    }
+
     #[test]
     fn user_given_two_drivers_when_removing_either_then_its_directory_cannot_contain_the_other() {
         let legacy = Path::new("/profile/computer-use");

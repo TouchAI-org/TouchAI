@@ -83,6 +83,7 @@ export interface ComputerUseStatus {
     abiVersion: string | null;
     binary: string | null;
     driverVersion: string | null;
+    installedSizeBytes?: number | null;
     error: string | null;
     installed: boolean;
 }
@@ -191,13 +192,21 @@ export async function loadSettings(): Promise<ComputerUseSettings> {
     }
 }
 
-export async function saveSettings(
-    patch: Partial<ComputerUseSettings>
-): Promise<ComputerUseSettings> {
-    const next = { ...(await loadSettings()), ...patch };
-    await setSetting({ key: SETTINGS_KEY, value: JSON.stringify(next) });
-    configuredSessions.clear();
-    return next;
+let pendingSettingsSave: Promise<void> = Promise.resolve();
+
+export function saveSettings(patch: Partial<ComputerUseSettings>): Promise<ComputerUseSettings> {
+    const changes = { ...patch };
+    const saved = pendingSettingsSave.then(async () => {
+        const next = { ...(await loadSettings()), ...changes };
+        await setSetting({ key: SETTINGS_KEY, value: JSON.stringify(next) });
+        configuredSessions.clear();
+        return next;
+    });
+    pendingSettingsSave = saved.then(
+        () => undefined,
+        () => undefined
+    );
+    return saved;
 }
 
 export async function status(driver?: ComputerUseDriverId): Promise<ComputerUseStatus> {
@@ -206,6 +215,7 @@ export async function status(driver?: ComputerUseDriverId): Promise<ComputerUseS
         abiVersion: raw.abi_version ?? null,
         binary: raw.binary ?? null,
         driverVersion: raw.driver_version ?? null,
+        installedSizeBytes: raw.installed_size_bytes ?? null,
         error: raw.error ?? null,
         installed: Boolean(raw.installed),
     };
@@ -219,6 +229,7 @@ export async function prepare(driver?: ComputerUseDriverId): Promise<ComputerUse
         abiVersion: raw.abi_version ?? null,
         binary: raw.binary ?? null,
         driverVersion: raw.driver_version ?? null,
+        installedSizeBytes: raw.installed_size_bytes ?? null,
         error: raw.error ?? null,
         installed: Boolean(raw.installed),
     };

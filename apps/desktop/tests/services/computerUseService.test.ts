@@ -121,6 +121,15 @@ afterEach(() => {
 });
 
 describe('computer control driver selection', () => {
+    it.each([status, prepare])(
+        'user given a measured installation when requesting driver availability then receives its actual size',
+        async (readStatus) => {
+            nativeStatus.mockResolvedValue({ installed: true, installed_size_bytes: 32842600 });
+            await expect(readStatus()).resolves.toMatchObject({ installedSizeBytes: 32842600 });
+            nativeStatus.mockResolvedValue({ installed: false });
+            await expect(readStatus()).resolves.toMatchObject({ installedSizeBytes: null });
+        }
+    );
     it('user given a relocated driver when continuing then reloads behavior settings for the new runtime', async () => {
         await saveSettings({ approval: 'full-access', cursorVisible: false });
         await execute('get_config').result;
@@ -350,6 +359,36 @@ describe('computer use capability preferences', () => {
 });
 
 describe('computer use settings', () => {
+    it('user given independent preferences when saving them together then retains both changes after reopening', async () => {
+        await Promise.all([
+            saveSettings({ allowForeground: true }),
+            saveSettings({ cursorVisible: false }),
+        ]);
+        await expect(loadSettings()).resolves.toMatchObject({
+            allowForeground: true,
+            cursorVisible: false,
+        });
+    });
+
+    it('user given one failed preference write when another is pending then saves the other change and can retry', async () => {
+        vi.mocked(setSetting).mockRejectedValueOnce(new Error('Storage unavailable'));
+        const results = await Promise.allSettled([
+            saveSettings({ allowForeground: true }),
+            saveSettings({ cursorVisible: false }),
+        ]);
+        expect(results[0]).toMatchObject({ status: 'rejected' });
+        expect(results[1]).toMatchObject({ status: 'fulfilled' });
+        await expect(loadSettings()).resolves.toMatchObject({
+            allowForeground: false,
+            cursorVisible: false,
+        });
+        await saveSettings({ allowForeground: true });
+        await expect(loadSettings()).resolves.toMatchObject({
+            allowForeground: true,
+            cursorVisible: false,
+        });
+    });
+
     it('user gets the safe defaults when nothing has been saved', async () => {
         await expect(loadSettings()).resolves.toEqual(DEFAULT_SETTINGS);
         expect(DEFAULT_SETTINGS.enabled).toBe(false);
@@ -415,6 +454,7 @@ describe('computer use driver status', () => {
             abiVersion: '1.1.0',
             binary: 'C:/data/computer-use/0.38.0/cua_driver_sdk.dll',
             driverVersion: '0.38.0',
+            installedSizeBytes: null,
             error: null,
             installed: true,
         });

@@ -193,6 +193,7 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     app.manage(crate::core::computer_use::storage::DriverStorage::new(
         database_runtime.clone(),
         app_directory_path(crate::core::system::paths::AppDirectory::ComputerUse)?,
+        app_directory_path(crate::core::system::paths::AppDirectory::AssetsBin)?,
     ));
     app.manage(database_runtime);
     info!("Database runtime initialized.");

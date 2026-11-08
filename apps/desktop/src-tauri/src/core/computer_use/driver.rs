@@ -16,8 +16,8 @@ use serde_json::Value;
 use super::abi::{AbiError, AbiLibrary, Driver, PendingCall};
 use super::manifest::{artifact, is_publishable, MANIFEST};
 use super::provision::{
-    confirm_install, ensure_installed, installed_binary, InstallLayout, ProvisionError,
-    WheelFetcher,
+    confirm_install, ensure_installed, installed_binary, installed_size, InstallLayout,
+    ProvisionError, WheelFetcher,
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -25,6 +25,7 @@ pub struct DriverStatus {
     pub installed: bool,
     pub binary: Option<String>,
     pub driver_version: Option<String>,
+    pub installed_size_bytes: Option<u64>,
     pub abi_version: Option<String>,
     pub metadata: Option<Value>,
     pub error: Option<String>,
@@ -36,6 +37,7 @@ impl DriverStatus {
             installed: false,
             binary: None,
             driver_version: None,
+            installed_size_bytes: None,
             abi_version: None,
             metadata: None,
             error,
@@ -140,6 +142,7 @@ pub async fn installed_status(root: PathBuf) -> Result<DriverStatus, String> {
             installed: true,
             binary: Some(binary.display().to_string()),
             driver_version: Some(MANIFEST.version.to_string()),
+            installed_size_bytes: installed_size(&binary),
             abi_version: None,
             metadata: None,
             error: None,
@@ -209,6 +212,7 @@ fn load_library(library_path: PathBuf) -> Result<DriverStatus, String> {
     let mut status = status_of(&driver);
     status.abi_version = Some(abi);
     status.installed = true;
+    status.installed_size_bytes = installed_size(&library_path);
     status.binary = Some(library_path.display().to_string());
 
     cache_status(&status);
@@ -226,6 +230,7 @@ fn status_of(driver: &Driver) -> DriverStatus {
             .and_then(|value| value["driver_version"].as_str())
             .map(str::to_string),
         abi_version: None,
+        installed_size_bytes: None,
         metadata,
         error: None,
     }

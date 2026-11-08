@@ -48,22 +48,30 @@ vi.mock('@/services/BuiltInToolService/registry', () => ({
 }));
 
 describe('user reads tool activity in their own language', () => {
-    it('user given a native desktop action when its status changes then receives operation specific activity text', async () => {
-        setLocale('en-US');
-        const { buildBuiltInToolConversationPresentation } =
-            await import('@/services/BuiltInToolService/presentation');
-        expect(
-            buildBuiltInToolConversationPresentation(
-                'builtin__computer_use',
-                {
-                    action: 'call',
-                    tool: 'set_window_frame',
-                    arguments: { app: 'Notepad' },
-                },
-                'error'
-            )
-        ).toEqual({ verb: 'Failed: Adjust window', content: 'Notepad' });
-    });
+    it.each([
+        ['en-US', 'completed', 'Adjust window'],
+        ['en-US', 'error', 'Adjust window'],
+        ['zh-CN', 'completed', '调整窗口'],
+        ['zh-CN', 'error', '调整窗口'],
+    ] as const)(
+        'user given a desktop action in %s when it is %s then sees its operation without a result suffix',
+        async (locale, status, verb) => {
+            setLocale(locale);
+            const { buildBuiltInToolConversationPresentation } =
+                await import('@/services/BuiltInToolService/presentation');
+            expect(
+                buildBuiltInToolConversationPresentation(
+                    'builtin__computer_use',
+                    {
+                        action: 'call',
+                        tool: 'set_window_frame',
+                        arguments: { app: 'Notepad' },
+                    },
+                    status
+                )
+            ).toEqual({ verb, content: 'Notepad' });
+        }
+    );
 
     it('user reads built-in tool verbs in the active runtime language', async () => {
         const { buildBuiltInToolConversationPresentation } =

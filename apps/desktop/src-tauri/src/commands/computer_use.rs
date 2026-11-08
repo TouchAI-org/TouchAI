@@ -53,7 +53,7 @@ pub async fn computer_use_status(
 pub async fn computer_use_driver_directory(
     storage: State<'_, DriverStorage>,
 ) -> Result<String, String> {
-    Ok(storage.read().await?.display().to_string())
+    Ok(storage.location().await?.display().to_string())
 }
 
 #[tauri::command]

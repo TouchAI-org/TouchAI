@@ -32,7 +32,7 @@ describe('computer use conversation activity', () => {
         const wrapper = mountCall({ action: 'click' });
         const line = wrapper.get('.tool-call-log-line');
         expect(line.find('.tool-call-log-icon svg').exists()).toBe(true);
-        expect(line.get('.tool-call-log-verb').text()).toBe('正在点击');
+        expect(line.get('.tool-call-log-content').text()).toBe('正在点击');
         expect(line.get('.tool-call-log-duration').text()).toBe('(340ms)');
         expect(wrapper.find('button').exists()).toBe(false);
     });
@@ -61,14 +61,26 @@ describe('computer use conversation activity', () => {
 
     it.each([
         ['executing', '正在点击'],
-        ['completed', '点击完成'],
-        ['error', '点击失败'],
+        ['completed', '点击'],
+        ['error', '点击'],
         ['awaiting_approval', '等待批准：点击'],
         ['rejected', '已拒绝：点击'],
         ['cancelled', '已取消：点击'],
     ] as const)('user given %s when reading a click then sees %s', (status, label) => {
-        expect(mountCall({ action: 'click' }, status).text()).toContain(label);
+        expect(mountCall({ action: 'click' }, status).get('.tool-call-log-content').text()).toBe(
+            label
+        );
     });
+
+    it.each(['completed', 'error'] as const)(
+        'user given an English %s activity when reading its title then sees the action without a result suffix',
+        (status) => {
+            setLocale('en-US');
+            expect(
+                mountCall({ action: 'click' }, status).get('.tool-call-log-content').text()
+            ).toBe('Click');
+        }
+    );
 
     it('user given a batch when reading its activity then sees the target and step count', () => {
         const wrapper = mountCall({

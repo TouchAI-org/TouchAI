@@ -12,6 +12,7 @@ const STATUS = {
     abi_version: '1.1.0',
     binary: 'C:/data/computer-use/0.38.0/cua_driver_sdk.dll',
     driver_version: '0.38.0',
+    installed_size_bytes: 32842600,
     error: null,
     installed: true,
 };

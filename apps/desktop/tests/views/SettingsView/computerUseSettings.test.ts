@@ -33,7 +33,7 @@ const state = vi.hoisted(() => {
         selectDriver: vi.fn<(driver: string) => Promise<void>>().mockResolvedValue(undefined),
         isEnabled: vi.fn(async () => true),
         loadGroups: vi.fn(async () => ({ clipboard: false })),
-        driverDirectory: 'C:/data/computer-use-drivers',
+        driverDirectory: 'C:/data/assets/bin',
         loadDriverDirectory: vi.fn(async (): Promise<string> => state.driverDirectory),
         saveDriverDirectory: vi.fn(async (directory: string): Promise<string> => {
             state.driverDirectory = directory;
@@ -150,7 +150,7 @@ async function flush() {
 
 beforeEach(() => {
     setLocale('zh-CN');
-    state.driverDirectory = 'C:/data/computer-use-drivers';
+    state.driverDirectory = 'C:/data/assets/bin';
     state.loadDriverDirectory.mockClear();
     state.saveDriverDirectory.mockClear();
     state.isEnabled.mockResolvedValue(true);
@@ -160,8 +160,8 @@ beforeEach(() => {
         state.loadDriver.mockResolvedValue(driver);
         state.recordingDirectory = `C:/cache/computer-use-trajectories/${driver}`;
     });
-    state.setEnabled.mockClear();
-    state.setGroupEnabled.mockClear();
+    state.setEnabled.mockReset().mockResolvedValue(undefined);
+    state.setGroupEnabled.mockReset().mockResolvedValue(undefined);
     settings.approval = 'each';
     settings.allowForeground = false;
     settings.cursorVisible = true;
@@ -176,7 +176,10 @@ beforeEach(() => {
     state.alert.success.mockClear();
     state.alert.warning.mockClear();
     state.clearSessionApprovals.mockClear();
-    saveSettings.mockClear();
+    saveSettings.mockReset().mockImplementation(async (patch: Record<string, unknown>) => {
+        Object.assign(settings, patch);
+        return settings;
+    });
     prepare.mockReset();
     remove.mockReset();
     checkUpdate.mockReset();
@@ -193,6 +196,101 @@ beforeEach(() => {
 });
 
 describe('computer use settings section', () => {
+    it.each([
+        ['zh-CN', '32.8 MB'],
+        ['en-US', '32.8 MB'],
+    ] as const)(
+        'user given installed and missing drivers when opening the %s list then sees actual size only beside the installed driver',
+        async (locale, cuaSize) => {
+            setLocale(locale);
+            status.mockImplementation(async (driver) => ({
+                abiVersion: null,
+                binary: null,
+                driverVersion: driver === 'cua-driver' ? '0.38.0' : null,
+                installedSizeBytes: driver === 'cua-driver' ? 32842600 : null,
+                error: null,
+                installed: driver === 'cua-driver',
+            }));
+            await mountDriverMenu();
+            const cua = document.querySelector('[role="group"][aria-label="cua-driver"]');
+            const agent = document.querySelector('[role="group"][aria-label="agent-desktop"]');
+            expect(cua?.textContent).toContain(`v0.38.0 · ${cuaSize}`);
+            expect(agent?.textContent).not.toContain('MB');
+        }
+    );
+
+    it('user given unknown installation sizes when opening the list then sees no invented size', async () => {
+        await mountDriverMenu();
+        const menu = document.querySelector('[data-testid="computer-use-driver-options"]');
+        expect(menu?.textContent).not.toContain('MB');
+        expect(menu?.textContent).not.toContain('NaN');
+    });
+
+    it.each([
+        ['computer-use-enabled-toggle', 'enabled'],
+        ['computer-use-group-input', 'group'],
+        ['computer-use-foreground-toggle', 'preference'],
+        ['computer-use-cursor-toggle', 'preference'],
+        ['computer-use-recording-toggle', 'recording'],
+    ] as const)(
+        'user given a pending %s change when editing another switch then only the pending switch is disabled and failure unlocks it',
+        async (testId, operation) => {
+            let rejectSave!: (error: Error) => void;
+            const pending = new Promise<never>((_resolve, reject) => {
+                rejectSave = reject;
+            });
+            if (operation === 'enabled') state.setEnabled.mockReturnValueOnce(pending);
+            else if (operation === 'group') state.setGroupEnabled.mockReturnValueOnce(pending);
+            else if (operation === 'recording') state.setRecording.mockReturnValueOnce(pending);
+            else state.saveSettings.mockReturnValueOnce(pending);
+            const wrapper = mount(ComputerUseSettings, { attachTo: document.body });
+            await flush();
+            const control = wrapper.get(`[data-testid="${testId}"]`);
+            await control.trigger('click');
+            await flush();
+            const disabled = wrapper
+                .findAll('button, input')
+                .filter((element) => element.element.matches(':disabled'))
+                .map((element) => element.attributes('data-testid'));
+            expect(disabled).toEqual([testId]);
+            await wrapper.get('[data-testid="computer-use-group-clipboard"]').trigger('click');
+            await flush();
+            expect(state.setGroupEnabled).toHaveBeenCalledWith('clipboard', true);
+            expect(control.element.matches(':disabled')).toBe(true);
+            rejectSave(new Error('Settings unavailable'));
+            await flush();
+            expect(control.element.matches(':disabled')).toBe(false);
+            expect(state.alert.error).toHaveBeenCalledWith('Settings unavailable');
+        }
+    );
+
+    it('user given two preference writes completing out of order when both finish then keeps both displayed choices', async () => {
+        let finishForeground!: (value: typeof settings) => void;
+        saveSettings.mockReturnValueOnce(
+            new Promise((resolve) => {
+                finishForeground = resolve;
+            })
+        );
+        saveSettings.mockResolvedValueOnce({
+            ...settings,
+            allowForeground: true,
+            cursorVisible: false,
+        });
+        const wrapper = mount(ComputerUseSettings, { attachTo: document.body });
+        await flush();
+        await wrapper.get('[data-testid="computer-use-foreground-toggle"]').trigger('click');
+        await wrapper.get('[data-testid="computer-use-cursor-toggle"]').trigger('click');
+        await flush();
+        finishForeground({ ...settings, allowForeground: true, cursorVisible: true });
+        await flush();
+        expect(
+            wrapper.get('[data-testid="computer-use-foreground-toggle"]').attributes('aria-checked')
+        ).toBe('true');
+        expect(
+            wrapper.get('[data-testid="computer-use-cursor-toggle"]').attributes('aria-checked')
+        ).toBe('false');
+    });
+
     it('user given no installed drivers when choosing a storage folder then retains the new location after reopening', async () => {
         status.mockResolvedValue({
             installed: false,
@@ -242,7 +340,7 @@ describe('computer use settings section', () => {
         expect(
             wrapper.get<HTMLInputElement>('[data-testid="computer-use-driver-directory"]').element
                 .value
-        ).toBe('C:/data/computer-use-drivers');
+        ).toBe('C:/data/assets/bin');
         expect(
             wrapper
                 .get('[data-testid="computer-use-driver-directory-pick"]')
@@ -259,7 +357,7 @@ describe('computer use settings section', () => {
         expect(
             wrapper.get<HTMLInputElement>('[data-testid="computer-use-driver-directory"]').element
                 .value
-        ).toBe('C:/data/computer-use-drivers');
+        ).toBe('C:/data/assets/bin');
     });
     it('user given an uninstalled driver when viewing its option then cannot select it but can download it', async () => {
         status.mockImplementation(async (driver) => ({
