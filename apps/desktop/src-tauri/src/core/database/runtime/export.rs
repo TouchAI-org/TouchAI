@@ -88,27 +88,30 @@ async fn validate_snapshot(path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::database::contract::create_sqlite_pool;
+    use crate::core::database::DatabaseRuntime;
 
     #[tokio::test]
     async fn user_keeps_the_database_usable_and_no_snapshot_after_a_failed_export() {
         let root = tempfile::tempdir().unwrap();
-        let database_path = root.path().join("touchai.db");
-        let pool = create_sqlite_pool(&database_path).await.unwrap();
+        let runtime = DatabaseRuntime::initialize_for_tests(root.path())
+            .await
+            .unwrap();
+        let database_path = runtime.database_path_for_tests();
+        let pool = runtime.pool();
         sqlx::query("CREATE TABLE export_probe (id INTEGER PRIMARY KEY, value TEXT NOT NULL)")
-            .execute(&pool)
+            .execute(pool)
             .await
             .unwrap();
         sqlx::query("INSERT INTO export_probe (value) VALUES ('still-usable')")
-            .execute(&pool)
+            .execute(pool)
             .await
             .unwrap();
 
         let blocked_target = root.path().join("blocked.db");
         fs::create_dir(&blocked_target).unwrap();
         let error = run_export_backup(
-            &pool,
-            &database_path,
+            pool,
+            database_path,
             blocked_target.to_string_lossy().as_ref(),
         )
         .await
@@ -116,7 +119,7 @@ mod tests {
 
         assert!(error.contains("Failed to write database backup"), "{error}");
         let value: String = sqlx::query_scalar("SELECT value FROM export_probe WHERE id = 1")
-            .fetch_one(&pool)
+            .fetch_one(pool)
             .await
             .unwrap();
         assert_eq!(value, "still-usable");
