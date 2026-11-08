@@ -1,3 +1,17 @@
+export function readComputerUseFeedbackAppearance() {
+    const status = document.querySelector('[data-testid="computer-use-status"]');
+    const stopKey = status?.querySelector('kbd');
+    const pointer = document.querySelector('[data-testid="computer-use-pointer"]');
+    const label = pointer?.querySelector('[data-pointer-label]');
+    if (!status || !stopKey || !pointer || !label) return null;
+    return {
+        statusColor: getComputedStyle(status).color,
+        stopKeyColor: getComputedStyle(stopKey).color,
+        pointerLabelColor: getComputedStyle(label).color,
+        pointerShadow: getComputedStyle(pointer).filter,
+    };
+}
+
 export async function exerciseComputerUseGlow() {
     const invoke = window.__TAURI_INTERNALS__.invoke;
     const first = `glow-e2e-${crypto.randomUUID()}`;
