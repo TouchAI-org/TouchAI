@@ -7,6 +7,8 @@ import {
 } from '@tests/database/sqliteHarness';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { ContextWindow } from '@/services/AgentService/execution/context';
+import { loadSessionHistory } from '@/services/AgentService/session/history';
 import { createSessionReadModel } from '@/services/AgentService/session/readModel';
 import {
     findUnsupportedSessionAttachmentTypes,
@@ -55,29 +57,64 @@ describe('given a saved context boundary and archived attachments', () => {
     });
     afterEach(closeTestDatabases);
 
-    it('user resumes with a text model and loads only retained rows without opening archived attachments', async () => {
-        const readModel = createSessionReadModel();
-        expect((await readModel.getMessages(1)).map((row) => row.id)).toEqual([1, 4, 5, 6]);
-        expect(
-            await findUnsupportedSessionAttachmentTypes({
-                sessionId: 1,
-                capabilities: { supportsImages: false, supportsFiles: false },
-                readModel,
-            })
-        ).toEqual([]);
-        const messages = await loadSessionTransportMessages({ sessionId: 1, readModel });
-        expect(messages.map((message) => message.role)).toEqual([
-            'system',
-            'user',
-            'user',
-            'assistant',
-            'tool',
-            'assistant',
-        ]);
-        expect(JSON.stringify(messages)).toContain('Tests are pending');
-        expect(JSON.stringify(messages)).not.toContain('Archived image');
-        expect(messages.find((message) => message.role === 'tool')?.content).toBe('Verified');
-    });
+    it.each(['complete', 'missing', 'malformed'])(
+        'user resumes with %s diagnostics and reuses the summary and divider without loading archived attachments',
+        async (diagnostics) => {
+            if (diagnostics === 'missing') {
+                database.exec(`UPDATE message_parts SET data = json_remove(data,
+                    '$.model', '$.providerId', '$.createdAt', '$.tokensBefore', '$.tokensAfter')
+                    WHERE type = 'context_compaction'`);
+            } else if (diagnostics === 'malformed') {
+                database.exec(`UPDATE message_parts SET data = json_set(data,
+                    '$.model', '', '$.providerId', -1, '$.createdAt', 'unknown',
+                    '$.tokensBefore', -1, '$.tokensAfter', null)
+                    WHERE type = 'context_compaction'`);
+            }
+            const readModel = createSessionReadModel();
+            expect((await readModel.getMessages(1)).map((row) => row.id)).toEqual([1, 4, 5, 6]);
+            expect(
+                await findUnsupportedSessionAttachmentTypes({
+                    sessionId: 1,
+                    capabilities: { supportsImages: false, supportsFiles: false },
+                    readModel,
+                })
+            ).toEqual([]);
+            const messages = await loadSessionTransportMessages({ sessionId: 1, readModel });
+            expect(messages.map((message) => message.role)).toEqual([
+                'system',
+                'user',
+                'user',
+                'assistant',
+                'tool',
+                'assistant',
+            ]);
+            expect(JSON.stringify(messages)).toContain('Tests are pending');
+            expect(JSON.stringify(messages)).not.toContain('Archived image');
+            expect(messages.find((message) => message.role === 'tool')?.content).toBe('Verified');
+            const prepared = await new ContextWindow().prepare({
+                request: { model: 'text-model', messages },
+                contextLimit: 8000,
+                outputLimit: 1000,
+                summarize: async () => {
+                    throw new Error('The saved summary must remain reusable');
+                },
+                saveSummary: async () => {
+                    throw new Error('Reopening must not write another summary');
+                },
+            });
+            expect(prepared.messages).toEqual(messages);
+            expect(
+                (await loadSessionHistory(1))
+                    .flatMap((message) => message.parts)
+                    .filter((part) => part.type === 'context_compaction')
+            ).toEqual([
+                expect.objectContaining({
+                    id: '00000000-0000-4000-8000-000000000001',
+                    state: 'compacted',
+                }),
+            ]);
+        }
+    );
 
     it('user receives more text in the current answer and continues reusing the checkpoint', async () => {
         await db.transaction((tx) =>

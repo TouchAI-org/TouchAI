@@ -14,11 +14,6 @@ const contextSummarySchema = z
         pinnedUserMessageId: z.number().int().positive().optional(),
         systemMessageIds: z.array(z.number().int().positive()),
         invalidatedAt: z.number().int().nonnegative().optional(),
-        model: z.string().min(1),
-        providerId: z.number().int().positive().optional(),
-        createdAt: z.number().int().nonnegative(),
-        tokensBefore: z.number().int().nonnegative(),
-        tokensAfter: z.number().int().nonnegative(),
     })
     .refine(
         (value) =>
@@ -30,6 +25,15 @@ const contextSummarySchema = z
     );
 
 export type ContextSummary = z.infer<typeof contextSummarySchema>;
+
+/** Diagnostics are saved with the checkpoint but are not needed to restore it. */
+export interface ContextSummaryRecord extends ContextSummary {
+    model: string;
+    providerId?: number;
+    createdAt: number;
+    tokensBefore: number;
+    tokensAfter: number;
+}
 
 /** In-memory proof of the stored message used to produce a model message. */
 export interface ContextMessageSource {

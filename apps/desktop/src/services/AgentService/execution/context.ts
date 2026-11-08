@@ -4,6 +4,7 @@ import { estimateTokens } from '@/utils/promptBreakdown';
 
 import {
     type ContextSummary,
+    type ContextSummaryRecord,
     type ContextSummarySource,
     contextSummaryText,
     MAX_SUMMARY_CHARS,
@@ -60,7 +61,7 @@ interface PrepareOptions {
     preserveSummaryOutputBudget?: boolean;
     onCompaction?: (event: ContextCompactionEvent) => void;
     summarize: (request: AiRequestOptions) => Promise<SummaryResult>;
-    saveSummary: (summary: ContextSummary, source: ContextSummarySource) => Promise<number>;
+    saveSummary: (summary: ContextSummaryRecord, source: ContextSummarySource) => Promise<number>;
 }
 
 export interface PreparedContext {
@@ -363,11 +364,6 @@ export class ContextWindow {
                 version: 2,
                 id: compactionId,
                 text,
-                model: request.model,
-                providerId: request.providerId,
-                createdAt: Date.now(),
-                tokensBefore: estimatedTokens,
-                tokensAfter: after,
                 firstKeptMessageId,
                 pinnedUserMessageId:
                     pinnedUser === undefined
@@ -390,12 +386,22 @@ export class ContextWindow {
             )
                 throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
             checkCancellation(request.signal);
-            const partId = await options.saveSummary(checkpoint, {
-                messages: prefix.flatMap((message) =>
-                    message.contextSource ? [message.contextSource] : []
-                ),
-                previous: retainedSummary,
-            });
+            const partId = await options.saveSummary(
+                {
+                    ...checkpoint,
+                    model: request.model,
+                    providerId: request.providerId,
+                    createdAt: Date.now(),
+                    tokensBefore: estimatedTokens,
+                    tokensAfter: after,
+                },
+                {
+                    messages: prefix.flatMap((message) =>
+                        message.contextSource ? [message.contextSource] : []
+                    ),
+                    previous: retainedSummary,
+                }
+            );
             completed = true;
             estimatedTokens = after;
             const summaryIndex = messages.findIndex((message) => message.role !== 'system');

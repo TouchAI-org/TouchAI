@@ -17,7 +17,7 @@ import { getTauriInvokeCalls } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type {
-    ContextSummary,
+    ContextSummaryRecord,
     ContextSummarySource,
 } from '@/services/AgentService/contracts/context';
 import {
@@ -120,7 +120,7 @@ function prepare(persister: PersistenceProjector, input: AiRequestOptions) {
         request: input,
         contextLimit: 8000,
         outputLimit: 1000,
-        saveSummary: (summary: ContextSummary, source: ContextSummarySource) =>
+        saveSummary: (summary: ContextSummaryRecord, source: ContextSummarySource) =>
             persister.persistContextSummary(summary, [call], source),
         summarize: async () => ({ text: summaryText, finishReason: 'stop' }),
     };

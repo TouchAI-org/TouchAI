@@ -64,6 +64,7 @@ import {
     type ContextMessageSource,
     contextMessageSource,
     type ContextSummary,
+    type ContextSummaryRecord,
     type ContextSummarySource,
     readContextSummary,
 } from '../contracts/context';
@@ -936,7 +937,7 @@ export class PersistenceProjector {
 
     /** Commit summary, timeline position and already-reported usage as one checkpoint. */
     async persistContextSummary(
-        summary: ContextSummary,
+        summary: ContextSummaryRecord,
         calls: AiCallRecord[],
         source: ContextSummarySource
     ): Promise<number> {
