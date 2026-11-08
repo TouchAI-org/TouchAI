@@ -13,6 +13,8 @@
         calculateSettingsSidebarWidth,
         clampSettingsSidebarWidth,
         getSettingsSidebarMaxWidth,
+        observeSettingsWindowContentWidth,
+        readSettingsWindowContentWidth,
         SETTINGS_PRIMARY_SIDEBAR_RESIZE_EVENT,
         SETTINGS_RESIZE_KEYBOARD_STEP,
         SETTINGS_SECONDARY_PANEL_RESIZE_EVENT,
@@ -46,7 +48,6 @@
 
     const searchQuery = ref('');
     const expandedSidebarWidth = ref(SETTINGS_SIDEBAR_DEFAULT_WIDTH);
-    const windowWidth = ref(window.innerWidth);
     const layoutRevision = ref(0);
     const dragStartClientX = ref(0);
     const dragStartWidth = ref(SETTINGS_SIDEBAR_DEFAULT_WIDTH);
@@ -63,6 +64,7 @@
     const LABEL_FADE_BEFORE_COLLAPSE_MS = 150;
     const LABEL_FADE_AFTER_EXPAND_MS = 180;
     let sidebarAnimationTimer: ReturnType<typeof setTimeout> | null = null;
+    let stopObservingShellWidth: (() => void) | null = null;
 
     const activeSection = computed(() => props.activeSection);
     const repositoryLinks = APP_PRODUCT_CONFIG.repository;
@@ -87,6 +89,8 @@
 
     const readSecondaryPanelWidth = (): number | undefined =>
         readElementWidth('[data-settings-secondary-panel="true"]');
+
+    const windowWidth = ref(readSettingsWindowContentWidth());
 
     const getSidebarClampOptions = () => ({
         availableWidth: windowWidth.value,
@@ -155,7 +159,7 @@
     };
 
     const handleLayoutResize = () => {
-        windowWidth.value = window.innerWidth;
+        windowWidth.value = readSettingsWindowContentWidth();
         reconcileSidebarWidth();
     };
 
@@ -364,6 +368,8 @@
     };
 
     onBeforeUnmount(() => {
+        stopObservingShellWidth?.();
+        stopObservingShellWidth = null;
         window.removeEventListener('resize', handleLayoutResize);
         window.removeEventListener(SETTINGS_SECONDARY_PANEL_RESIZE_EVENT, handleLayoutResize);
         clearSidebarAnimationTimer();
@@ -375,7 +381,8 @@
     onMounted(async () => {
         window.addEventListener('resize', handleLayoutResize);
         window.addEventListener(SETTINGS_SECONDARY_PANEL_RESIZE_EVENT, handleLayoutResize);
-        reconcileSidebarWidth();
+        handleLayoutResize();
+        stopObservingShellWidth = observeSettingsWindowContentWidth(handleLayoutResize);
         await nextTick();
         emit('ready');
     });

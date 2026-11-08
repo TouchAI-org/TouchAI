@@ -272,7 +272,7 @@ export async function initializeApp() {
         return;
     }
 
-    initializeFontLoader();
+    void initializeFontLoader();
     const settingsWindow = isSettingsWindow();
 
     let settingsInitializeError: unknown;

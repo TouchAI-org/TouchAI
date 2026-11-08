@@ -147,3 +147,5 @@ objc2-user-notifications = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 notify-rust = "4.11"
+webkit2gtk = "2.0"
+wuff = { version = "0.2.10", default-features = false, features = ["brotli"] }

@@ -67,6 +67,7 @@
 
     --color-border: #e5e5e5;
     --color-border-subtle: rgba(74, 64, 57, 0.12);
+    --color-window-border: var(--color-window-stroke);
     --color-model-logo-border: var(--color-gray-300);
     --color-model-logo-border-hover: var(--color-gray-400);
     --color-ring: var(--color-primary-300);
@@ -97,6 +98,12 @@
     --color-scrollbar-thumb: rgba(156, 163, 175, 0.4);
     --color-scrollbar-thumb-hover: rgba(156, 163, 175, 0.6);
     --color-overlay-fade: rgba(255, 255, 255, 0.95);
+
+    --radius-window: var(--radius-sm);
+
+    --shadow-window:
+        var(--shadow-window-ring), var(--shadow-window-halo), var(--shadow-window-mid),
+        var(--shadow-window-far);
 
     /*
      * ── Widget contract ───────────────────────────────────────────────────

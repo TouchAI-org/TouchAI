@@ -2562,7 +2562,12 @@
                     <div
                         ref="searchViewCard"
                         data-testid="search-view-card"
-                        :style="cardStyle"
+                        :style="[
+                            cardStyle,
+                            !settledWindowMaximized
+                                ? { '--search-surface-shadow': 'var(--shadow-window)' }
+                                : null,
+                        ]"
                         :class="[
                             'search-view-container search-view-surface-card relative flex h-full min-h-0 w-full flex-col items-center overflow-hidden border-0',
                             isCardGrowing ? 'search-view-surface-card--revealing' : '',

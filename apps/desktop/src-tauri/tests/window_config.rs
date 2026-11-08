@@ -92,3 +92,18 @@ fn base_config_keeps_the_transparent_main_window() {
         "the base window must keep an explicit transparent background"
     );
 }
+
+#[test]
+fn user_gets_a_standard_close_without_the_destroy_permission() {
+    let capabilities = read_config("capabilities/default.json");
+    let permissions = capabilities["permissions"]
+        .as_array()
+        .expect("capabilities.permissions must be an array");
+
+    assert!(
+        !permissions
+            .iter()
+            .any(|permission| permission.as_str() == Some("core:window:allow-destroy")),
+        "flushing logs must use the approved close path, not the destructive destroy capability"
+    );
+}

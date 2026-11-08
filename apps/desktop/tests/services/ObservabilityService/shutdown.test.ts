@@ -4,24 +4,32 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 type CloseHandler = (event: { preventDefault: () => void }) => Promise<void>;
 
-const { closeHandlers, windowMock, ingestMock, flushDoneMock, flushListener } = vi.hoisted(() => {
-    const closeHandlers: CloseHandler[] = [];
+const { closeHandlers, closeOrder, windowMock, ingestMock, flushDoneMock, flushListener } =
+    vi.hoisted(() => {
+        const closeHandlers: CloseHandler[] = [];
+        const closeOrder: string[] = [];
 
-    return {
-        closeHandlers,
-        windowMock: {
-            label: 'main',
-            onCloseRequested: vi.fn(async (handler: CloseHandler) => {
-                closeHandlers.push(handler);
-                return () => {};
-            }),
-            destroy: vi.fn(async () => undefined),
-        },
-        ingestMock: vi.fn(async (): Promise<void> => {}),
-        flushDoneMock: vi.fn(async (): Promise<void> => {}),
-        flushListener: { handler: null as null | (() => Promise<void>) },
-    };
-});
+        return {
+            closeHandlers,
+            closeOrder,
+            windowMock: {
+                label: 'main',
+                onCloseRequested: vi.fn(async (handler: CloseHandler) => {
+                    closeHandlers.push(handler);
+                    return async () => {
+                        await Promise.resolve();
+                        closeOrder.push('unlisten');
+                    };
+                }),
+                close: vi.fn(async () => {
+                    closeOrder.push('close');
+                }),
+            },
+            ingestMock: vi.fn(async (): Promise<void> => {}),
+            flushDoneMock: vi.fn(async (): Promise<void> => {}),
+            flushListener: { handler: null as null | (() => Promise<void>) },
+        };
+    });
 
 vi.mock('@tauri-apps/api/window', () => ({
     getCurrentWindow: () => windowMock,
@@ -44,11 +52,12 @@ afterEach(() => {
     resetObservabilityForTests();
     vi.clearAllMocks();
     closeHandlers.length = 0;
+    closeOrder.length = 0;
     flushListener.handler = null;
 });
 
 describe('user closes a window with logs still queued', () => {
-    it('user gets the queued logs written before the window is destroyed', async () => {
+    it('user gets the queued logs written before the window is closed', async () => {
         initObservability();
         log.info('last line before close');
 
@@ -59,7 +68,8 @@ describe('user closes a window with logs still queued', () => {
 
         expect(closeEvent.preventDefault).toHaveBeenCalled();
         expect(ingestMock).toHaveBeenCalled();
-        expect(windowMock.destroy).toHaveBeenCalled();
+        expect(windowMock.close).toHaveBeenCalled();
+        expect(closeOrder).toEqual(['unlisten', 'close']);
     });
 
     it('user still gets the window closed when the log backend never answers', async () => {
@@ -71,7 +81,23 @@ describe('user closes a window with logs still queued', () => {
 
         await handleClose?.({ preventDefault: vi.fn() });
 
-        expect(windowMock.destroy).toHaveBeenCalled();
+        expect(windowMock.close).toHaveBeenCalled();
+    });
+
+    it('user gets one flush and one close when the close button is pressed twice', async () => {
+        initObservability();
+        log.info('double close');
+
+        const handleClose = closeHandlers[0];
+        const firstEvent = { preventDefault: vi.fn() };
+        const secondEvent = { preventDefault: vi.fn() };
+
+        await Promise.all([handleClose?.(firstEvent), handleClose?.(secondEvent)]);
+
+        expect(firstEvent.preventDefault).toHaveBeenCalledOnce();
+        expect(secondEvent.preventDefault).toHaveBeenCalledOnce();
+        expect(ingestMock).toHaveBeenCalledTimes(1);
+        expect(windowMock.close).toHaveBeenCalledTimes(1);
     });
 
     it('user gets queued logs written when the app quits from the tray', async () => {
