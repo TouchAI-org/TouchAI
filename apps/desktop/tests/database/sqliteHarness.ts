@@ -954,10 +954,7 @@ export function routeDatabaseOperation(
                 request.toolKind === 'builtin'
                     ? 'message_parts.tool_id'
                     : `json_extract(message_parts.data, '$."tool_name"')`;
-            const serverId =
-                request.toolKind === 'builtin'
-                    ? 'NULL'
-                    : 'message_parts.server_id';
+            const serverId = request.toolKind === 'builtin' ? 'NULL' : 'message_parts.server_id';
             return {
                 value: read(
                     `SELECT

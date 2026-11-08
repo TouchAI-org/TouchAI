@@ -82,5 +82,4 @@ describe('when a conversation finishes a turn', () => {
             pending_terminal_status: null,
         });
     });
-
 });
