@@ -428,39 +428,37 @@ describe('TouchAI search smoke', () => {
     it('keeps history interactive after a concrete session and native hide/show', async () => {
         const fixtureError = await browser.execute(async () => {
             try {
-                await window.__TAURI_INTERNALS__.invoke('database_query', {
+                const session = await window.__TAURI_INTERNALS__.invoke('database_operation', {
                     request: {
-                        sql: `INSERT INTO sessions
-                                (id, session_id, title, model, last_message_preview, last_message_at, message_count, created_at, updated_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                        params: [
-                            9001,
-                            'e2e-history-toolbar-session',
-                            'E2E history toolbar session',
-                            'e2e-model',
-                            'History toolbar fixture',
-                            '2026-09-18 12:00:00',
-                            1,
-                            '2026-09-18 12:00:00',
-                            '2026-09-18 12:00:00',
-                        ],
-                        method: 'run',
+                        kind: 'session_create',
+                        data: {
+                            session_id: crypto.randomUUID(),
+                            title: 'E2E history toolbar session',
+                            model: 'e2e-model',
+                            last_message_preview: 'History toolbar fixture',
+                            last_message_at: '2026-09-18 12:00:00',
+                            message_count: 1,
+                            created_at: '2026-09-18 12:00:00',
+                            updated_at: '2026-09-18 12:00:00',
+                        },
                     },
                 });
-                await window.__TAURI_INTERNALS__.invoke('database_query', {
+                await window.__TAURI_INTERNALS__.invoke('database_operation', {
                     request: {
-                        sql: `INSERT INTO messages
-                                (id, session_id, role, created_at, updated_at)
-                                VALUES (?, ?, ?, ?, ?)`,
-                        params: [9001, 9001, 'user', '2026-09-18 12:00:00', '2026-09-18 12:00:00'],
-                        method: 'run',
-                    },
-                });
-                await window.__TAURI_INTERNALS__.invoke('database_query', {
-                    request: {
-                        sql: 'INSERT INTO message_parts (message_id, type, content, sort_order) VALUES (?, ?, ?, ?)',
-                        params: [9001, 'text', 'History toolbar fixture', 0],
-                        method: 'run',
+                        kind: 'task_persist_output_message',
+                        input: {
+                            sessionId: session.id,
+                            turnId: null,
+                            messageId: null,
+                            role: 'assistant',
+                            linkTurn: false,
+                            parts: [
+                                {
+                                    type: 'text',
+                                    content: 'History toolbar fixture',
+                                },
+                            ],
+                        },
                     },
                 });
                 return null;
