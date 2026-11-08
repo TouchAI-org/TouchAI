@@ -55,6 +55,7 @@ import { createProviderFromRegistry } from '../infrastructure/providers/drivers'
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import { ContextWindow, type SummaryResult } from './context';
+import { snapshotAiMessages } from './messages';
 import type { TurnEvent } from './runtime';
 
 const BUILT_IN_UPGRADE_TOOL_NAME = 'builtin__upgrade_model';
@@ -394,10 +395,6 @@ function redactLogUrl(raw: string): string {
 /** 错误文本里的 URL 同样可能带 userinfo 或 query，进日志前替换成脱敏形式。 */
 function redactLogText(text: string): string {
     return text.replace(/\bhttps?:\/\/[^\s"'<>]+/gi, (match) => redactLogUrl(match));
-}
-
-function cloneAiMessages(messages: AiMessage[]): AiMessage[] {
-    return JSON.parse(JSON.stringify(messages)) as AiMessage[];
 }
 
 function buildAssistantToolCallHistoryMessage(
@@ -786,7 +783,7 @@ export class AiRequestExecutor {
     }): AttemptCheckpoint {
         return {
             activeModel: options.initialModel,
-            messages: cloneAiMessages(options.baseMessages),
+            messages: snapshotAiMessages(options.baseMessages),
             response: '',
             reasoning: '',
             iteration: 0,
@@ -814,7 +811,7 @@ export class AiRequestExecutor {
                         ? MODEL_SWITCH_EXCLUDED_TOOL_NAMES
                         : undefined,
             }),
-            messages: cloneAiMessages(startCheckpoint.messages),
+            messages: snapshotAiMessages(startCheckpoint.messages),
             response: startCheckpoint.response,
             reasoning: startCheckpoint.reasoning,
             iteration: startCheckpoint.iteration,
@@ -839,7 +836,7 @@ export class AiRequestExecutor {
     private createCheckpoint(runtime: AttemptRuntime): AttemptCheckpoint {
         return {
             activeModel: runtime.activeModel,
-            messages: cloneAiMessages(runtime.messages),
+            messages: snapshotAiMessages(runtime.messages),
             response: runtime.response,
             reasoning: runtime.reasoning,
             iteration: runtime.iteration,
@@ -870,6 +867,7 @@ export class AiRequestExecutor {
         // while still requiring an explicit reasoning option to expose reasoning.
         // The executor always passes TouchAI's canonical level; each provider
         // driver translates it into the vendor-specific request parameter.
+        runtime.messages = snapshotAiMessages(runtime.messages);
         const request: AiRequestOptions = {
             model: runtime.activeModel.model_id,
             providerId: runtime.activeModel.provider_id,

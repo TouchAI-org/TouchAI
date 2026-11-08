@@ -27,6 +27,8 @@ import type {
     ToolEvent,
 } from '../../contracts/tooling';
 import type { TurnEvent } from '../../execution';
+import type { AttemptCheckpoint } from '../../execution/executor';
+import { snapshotAiMessages } from '../../execution/messages';
 import { getRetryStatusMessage } from '../../execution/retry';
 import type { SessionTaskSnapshot, StartSessionTaskOptions } from '../types';
 import {
@@ -51,6 +53,11 @@ interface CheckpointPresentation {
     activeAssistantMessageId: string | null;
     response: string;
     reasoning: string;
+}
+
+function copyCheckpoint(checkpoint: AttemptCheckpoint): AttemptCheckpoint {
+    const { messages, ...state } = checkpoint;
+    return { ...cloneValue(state), messages: snapshotAiMessages(messages) };
 }
 
 /**
@@ -447,7 +454,7 @@ export class SessionTaskProjection {
         }
 
         if (event.type === 'checkpoint_committed') {
-            this.snapshot.lastCheckpoint = cloneValue(event.checkpoint);
+            this.snapshot.lastCheckpoint = copyCheckpoint(event.checkpoint);
             this.captureCheckpointPresentation();
             this.touch();
             this.publish();
@@ -455,7 +462,7 @@ export class SessionTaskProjection {
         }
 
         if (event.type === 'retry_scheduled') {
-            this.snapshot.lastCheckpoint = cloneValue(event.checkpoint);
+            this.snapshot.lastCheckpoint = copyCheckpoint(event.checkpoint);
             this.snapshot.status = this.userPrompts.hasPending ? 'waiting_approval' : 'running';
             this.touch();
             this.publish();

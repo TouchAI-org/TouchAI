@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ContextSummary } from '@/services/AgentService/contracts/context';
 import type { AiMessage, AiRequestOptions } from '@/services/AgentService/contracts/protocol';
 import { ContextWindow, type SummaryResult } from '@/services/AgentService/execution/context';
+import { snapshotAiMessages } from '@/services/AgentService/execution/messages';
 
 const summary: SummaryResult = {
     text: 'Goal: finish the task. Completed: inspected files. Next: run tests.',
@@ -316,6 +317,128 @@ describe('given a conversation with a known context budget', () => {
         expect(JSON.stringify(result.messages)).not.toContain(summary.text);
     });
 
+    it('user changes nested evidence after taking a checkpoint and keeps the checkpoint isolated', () => {
+        const input = request([
+            {
+                role: 'assistant',
+                content: [{ type: 'tool_use', id: 'read', name: 'read', input: { path: 'old' } }],
+            },
+        ]);
+        Object.freeze(input.messages[0]);
+        const first = snapshotAiMessages(input.messages);
+        const part = input.messages[0]!.content;
+        if (typeof part === 'string' || part[0]?.type !== 'tool_use') throw new Error('fixture');
+        part[0].input.path = 'new';
+        const next = snapshotAiMessages([...first, { role: 'user', content: 'Continue' }]);
+        expect(next[0]).toEqual({
+            role: 'assistant',
+            content: [{ type: 'tool_use', id: 'read', name: 'read', input: { path: 'old' } }],
+        });
+        expect(() => {
+            const content = next[0]!.content;
+            if (typeof content !== 'string' && content[0]?.type === 'tool_use')
+                content[0].input.path = 'corrupted';
+        }).toThrow(TypeError);
+    });
+
+    it('user continues an immutable checkpoint and replaces old evidence without reusing a stale summary', async () => {
+        const context = new ContextWindow();
+        const input = request(snapshotAiMessages(history()));
+        const first = await context.prepare(options(input));
+        const next = request(
+            snapshotAiMessages([...input.messages, { role: 'user', content: 'Next' }])
+        );
+        const reused = await context.prepare({
+            ...options(next),
+            summarize: async () => {
+                throw new Error('Checkpoint already summarized');
+            },
+        });
+        expect(reused.messages.slice(0, first.messages.length)).toEqual(first.messages);
+        next.messages = snapshotAiMessages(
+            next.messages.map((message, index) =>
+                index === 1 ? { role: 'user', content: 'Preserve all backups.' } : message
+            )
+        );
+        const updated = await context.prepare({
+            ...options(next),
+            summarize: async () => ({ ...summary, text: 'Preserve all backups.' }),
+        });
+        expect(JSON.stringify(updated.messages)).toContain('Preserve all backups.');
+        expect(JSON.stringify(updated.messages)).not.toContain(summary.text);
+    });
+
+    it('user grows mutable evidence after a budget estimate and still receives compaction', async () => {
+        const context = new ContextWindow();
+        const input = request(history(1));
+        await context.prepare(options(input));
+        input.messages[1]!.content = 'new evidence '.repeat(1200);
+        input.messages[2]!.content = 'additional evidence '.repeat(400);
+        const prepared = await context.prepare(options(input));
+        expect(JSON.stringify(prepared.messages)).toContain(summary.text);
+        expect(prepared.estimatedTokens).toBeLessThan(prepared.inputBudget);
+    });
+
+    it.each(['tools', 'language', 'reasoning'] as const)(
+        'user changes %s with immutable history and gets a compatible checkpoint',
+        async (setting) => {
+            const context = new ContextWindow();
+            const input = request(snapshotAiMessages(history()));
+            input.tools = [
+                {
+                    name: 'read',
+                    description: 'Read files',
+                    input_schema: { type: 'object', properties: {} },
+                },
+            ];
+            input.modelLanguageContext = { locale: 'en-US', label: 'English' };
+            input.supportsReasoning = true;
+            await context.prepare(options(input));
+            if (setting === 'tools') input.tools[0]!.description = 'Read approved files only';
+            if (setting === 'language') input.modelLanguageContext.locale = 'zh-CN';
+            if (setting === 'reasoning') input.supportsReasoning = false;
+            const next = await context.prepare({
+                ...options(input),
+                summarize: async () => ({ ...summary, text: 'Checkpoint for the new settings.' }),
+            });
+            expect(JSON.stringify(next.messages)).toContain('Checkpoint for the new settings.');
+            expect(JSON.stringify(next.messages)).not.toContain(summary.text);
+        }
+    );
+
+    it('user resumes thousands of archived exchanges and still rejects replaced evidence', async () => {
+        const context = new ContextWindow();
+        const input = request(
+            snapshotAiMessages([
+                ...Array.from(
+                    { length: 9000 },
+                    (_, index): AiMessage => ({
+                        role: index % 2 ? 'assistant' : 'user',
+                        content: `Evidence ${index}: ${'detail '.repeat(10)}`,
+                    })
+                ),
+                { role: 'user', content: 'Continue the task.' },
+            ])
+        );
+        const first = await context.prepare(options(input));
+        const restored = await context.prepare({
+            ...options(input),
+            summarize: async () => {
+                throw new Error('Checkpoint is still valid');
+            },
+        });
+        expect(restored.messages).toEqual(first.messages);
+        input.messages[0] = snapshotAiMessages([
+            { role: 'user', content: 'Preserve backups.' },
+        ])[0]!;
+        const updated = await context.prepare({
+            ...options(input),
+            summarize: async () => ({ ...summary, text: 'Preserve backups.' }),
+        });
+        expect(JSON.stringify(updated.messages)).toContain('Preserve backups.');
+        expect(JSON.stringify(updated.messages)).not.toContain(summary.text);
+    });
+
     it('user gets a fresh summary when changing models', async () => {
         const context = new ContextWindow();
         const input = request();
@@ -517,6 +640,38 @@ describe('given a conversation with durable compaction checkpoints', () => {
         });
         expect(JSON.stringify(reopened.messages)).toContain('Preserve the archive.');
         expect(JSON.stringify(reopened.messages)).not.toContain(summary.text);
+    });
+
+    it('user replaces immutable evidence while a restored fingerprint is checked and gets a fresh summary', async () => {
+        let saved: ContextSummary | undefined;
+        const input = request(snapshotAiMessages(history()));
+        await new ContextWindow().prepare({
+            ...options(input),
+            saveSummary: async (value) => {
+                saved = value;
+            },
+        });
+        const nativeDigest = crypto.subtle.digest.bind(crypto.subtle);
+        const digest = vi
+            .spyOn(crypto.subtle, 'digest')
+            .mockImplementationOnce(async (algorithm, data) => {
+                const result = await nativeDigest(algorithm, data);
+                input.messages[1] = snapshotAiMessages([
+                    { role: 'user', content: 'Preserve backups.' },
+                ])[0]!;
+                return result;
+            });
+        try {
+            const restored = await new ContextWindow().prepare({
+                ...options(input),
+                loadSummary: async () => saved,
+                summarize: async () => ({ ...summary, text: 'Preserve backups.' }),
+            });
+            expect(JSON.stringify(restored.messages)).toContain('Preserve backups.');
+            expect(JSON.stringify(restored.messages)).not.toContain(summary.text);
+        } finally {
+            digest.mockRestore();
+        }
     });
 
     it('user keeps previous requirements in an explicit structured update when compaction runs again', async () => {

@@ -99,7 +99,7 @@ describe('user sees a retry after a failure', () => {
         projection.syncTaskMetadata({
             type: 'checkpoint_committed',
             taskId: 'task-1',
-            checkpoint: { attempt: 1, iteration: 1 },
+            checkpoint: { attempt: 1, iteration: 1, messages: [] },
         } as never);
 
         projection.handleChunk({
@@ -118,7 +118,7 @@ describe('user sees a retry after a failure', () => {
         projection.syncTaskMetadata({
             type: 'checkpoint_committed',
             taskId: 'task-1',
-            checkpoint: { attempt: 1, iteration: 1 },
+            checkpoint: { attempt: 1, iteration: 1, messages: [] },
         } as never);
         projection.handleChunk({ content: ' after checkpoint', done: false } as never);
 
@@ -142,7 +142,7 @@ describe('user sees a retry after a failure', () => {
         projection.syncTaskMetadata({
             type: 'checkpoint_committed',
             taskId: 'task-1',
-            checkpoint: { attempt: 1, iteration: 1 },
+            checkpoint: { attempt: 1, iteration: 1, messages: [] },
         } as never);
 
         projection.handleChunk({

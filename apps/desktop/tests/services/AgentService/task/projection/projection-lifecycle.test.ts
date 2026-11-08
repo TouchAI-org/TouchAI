@@ -301,11 +301,29 @@ describe('user gets task metadata synchronised', () => {
         projection.syncTaskMetadata({
             type: 'checkpoint_committed',
             taskId: 'task-1',
-            checkpoint: { attempt: 1 },
+            checkpoint: { attempt: 1, messages: [] },
         } as never);
 
-        expect(snapshot.lastCheckpoint).toEqual({ attempt: 1 });
+        expect(snapshot.lastCheckpoint).toEqual({ attempt: 1, messages: [] });
     });
+
+    it.each(['checkpoint_committed', 'retry_scheduled'] as const)(
+        'user receives %s and later edits cannot corrupt its saved model context',
+        (type) => {
+            const { snapshot, projection } = createProjection();
+            const messages = [{ role: 'user', content: 'Preserve the archive' }];
+            projection.syncTaskMetadata({
+                type,
+                taskId: 'task-1',
+                checkpoint: { iteration: 1, messages },
+            } as never);
+            messages[0]!.content = 'Changed later';
+            expect(snapshot.lastCheckpoint?.messages[0]?.content).toBe('Preserve the archive');
+            expect(() => {
+                snapshot.lastCheckpoint!.messages[0]!.content = 'Corrupted';
+            }).toThrow(TypeError);
+        }
+    );
 
     it('user gets a completion event ending the task', () => {
         const { snapshot, projection } = createProjection();

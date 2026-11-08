@@ -42,15 +42,21 @@ export const findMessagePartById = async (
     return part;
 };
 
-/** One completed checkpoint, newest first through the existing type/time index. */
+/** CROSS JOIN pins the session index first; never scan checkpoints in unrelated sessions. */
 export async function findLatestContextCompaction(
     sessionId: number
 ): Promise<MessagePartEntity | undefined> {
     const row = await db
         .select({ part: messageParts })
-        .from(messageParts)
-        .innerJoin(messages, eq(messages.id, messageParts.message_id))
-        .where(and(eq(messageParts.type, 'context_compaction'), eq(messages.session_id, sessionId)))
+        .from(messages)
+        .crossJoin(messageParts)
+        .where(
+            and(
+                eq(messages.session_id, sessionId),
+                eq(messageParts.message_id, messages.id),
+                eq(messageParts.type, 'context_compaction')
+            )
+        )
         .orderBy(desc(messageParts.started_at), desc(messageParts.id))
         .limit(1)
         .get();

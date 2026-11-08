@@ -11,9 +11,11 @@ import type {
     ContextCompactionEvent,
 } from '../contracts/protocol';
 import { canonicalJson } from '../infrastructure/providers/ai-sdk/cache';
+import { isMessageSnapshot, messageSnapshotIdentity, snapshotAiMessages } from './messages';
 
 const MAX_SUMMARIES = 16;
 const SUMMARY_TTL_MS = 30 * 60_000;
+const MAX_VALIDATED_MESSAGES = 8192;
 
 // Adapted from pi's initial/update checkpoints; keep the typed request prefix for caching.
 function summaryInstruction(updating: boolean): string {
@@ -61,6 +63,12 @@ interface PrepareOptions {
 
 interface SummaryEntry extends ContextSummary {
     expiresAt: number;
+    validation?: {
+        settings: string;
+        source: symbol[];
+        systemIndexes: number[];
+        summary: AiMessage;
+    };
 }
 
 export interface PreparedContext {
@@ -114,15 +122,7 @@ async function fingerprint(request: AiRequestOptions, covered: number): Promise<
     };
     const bytes = new TextEncoder().encode(
         canonicalJson([
-            request.model,
-            request.providerId,
-            request.modelLanguageContext,
-            request.supportsReasoning,
-            request.reasoningLevel,
-            request.reasoningOptions,
-            request.tools
-                ? [...request.tools].sort((left, right) => left.name.localeCompare(right.name))
-                : undefined,
+            ...fingerprintSettings(request),
             request.messages.slice(0, covered).map((message) => ({
                 role: message.role,
                 content:
@@ -144,6 +144,68 @@ async function fingerprint(request: AiRequestOptions, covered: number): Promise<
     const digest = await crypto.subtle.digest('SHA-256', bytes);
     return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join(
         ''
+    );
+}
+
+function fingerprintSettings(request: AiRequestOptions): unknown[] {
+    return [
+        request.model,
+        request.providerId,
+        request.modelLanguageContext,
+        request.supportsReasoning,
+        request.reasoningLevel,
+        request.reasoningOptions,
+        request.tools
+            ? [...request.tools].sort((left, right) => left.name.localeCompare(right.name))
+            : undefined,
+    ];
+}
+
+function summaryPrefix(
+    request: AiRequestOptions,
+    entry: Pick<ContextSummary, 'covered' | 'text' | 'pinnedUser'>,
+    validation?: SummaryEntry['validation']
+): AiMessage[] {
+    const systems = validation
+        ? validation.systemIndexes.map((index) => request.messages[index]!)
+        : request.messages.slice(0, entry.covered).filter((message) => message.role === 'system');
+    return [
+        ...systems,
+        validation?.summary ?? summaryMessage(entry.text),
+        ...(entry.pinnedUser !== undefined ? [request.messages[entry.pinnedUser]!] : []),
+    ];
+}
+
+function createValidation(
+    entry: ContextSummary,
+    request: AiRequestOptions,
+    settings: string
+): SummaryEntry['validation'] {
+    if (entry.covered > MAX_VALIDATED_MESSAGES) return undefined;
+    const source = request.messages.slice(0, entry.covered);
+    // Retain identities, not archived messages or their attachment payloads.
+    return source.every(isMessageSnapshot)
+        ? {
+              settings,
+              source: source.map((message) => messageSnapshotIdentity(message)!),
+              systemIndexes: source.flatMap((message, index) =>
+                  message.role === 'system' ? [index] : []
+              ),
+              summary: snapshotAiMessages([summaryMessage(entry.text)])[0]!,
+          }
+        : undefined;
+}
+
+function matchesValidation(
+    validation: SummaryEntry['validation'],
+    request: AiRequestOptions,
+    settings: string
+): boolean {
+    return (
+        validation?.settings === settings &&
+        validation.source.every(
+            (source, index) => source === messageSnapshotIdentity(request.messages[index]!)
+        )
     );
 }
 
@@ -200,7 +262,7 @@ export class ContextWindow {
             }
         for (const call of message.tool_calls ?? [])
             tokens += estimateTokens(call.arguments) + estimateTokens(call.name) + 16;
-        this.estimates.set(message, tokens);
+        if (isMessageSnapshot(message)) this.estimates.set(message, tokens);
         return tokens;
     }
 
@@ -254,6 +316,10 @@ export class ContextWindow {
             const saved = await options.loadSummary();
             if (saved) entry = { ...saved, expiresAt: Date.now() + SUMMARY_TTL_MS };
         }
+        const settings = entry ? canonicalJson(fingerprintSettings(request)) : '';
+        const validated = matchesValidation(entry?.validation, request, settings);
+        const validation =
+            entry && !validated ? createValidation(entry, request, settings) : undefined;
         if (
             entry &&
             (entry.model !== request.model ||
@@ -261,27 +327,30 @@ export class ContextWindow {
                 entry.covered >= request.messages.length ||
                 (entry.pinnedUser !== undefined &&
                     request.messages[entry.pinnedUser]?.role !== 'user') ||
-                entry.fingerprint !== (await fingerprint(request, entry.covered)))
+                (!validated &&
+                    (entry.fingerprint !== (await fingerprint(request, entry.covered)) ||
+                        (validation &&
+                            !matchesValidation(
+                                validation,
+                                request,
+                                canonicalJson(fingerprintSettings(request))
+                            )))))
         ) {
             this.summaries.delete(key);
             entry = undefined;
         }
-        let systemEnd = 0;
-        while (request.messages[systemEnd]?.role === 'system') systemEnd++;
+        if (entry && !validated) entry.validation = validation;
         const systemsBefore = (covered: number) =>
             request.messages.slice(0, covered).filter((message) => message.role === 'system');
-        let latestUser = -1;
-        request.messages.forEach((message, index) => {
-            if (message.role === 'user') latestUser = index;
-        });
         const project = (covered: number, text: string, pinnedUser?: number): AiMessage[] => [
-            ...systemsBefore(covered),
-            summaryMessage(text),
-            ...(pinnedUser !== undefined ? [request.messages[pinnedUser]!] : []),
+            ...summaryPrefix(request, { covered, text, pinnedUser }),
             ...request.messages.slice(covered),
         ];
         let messages = entry
-            ? project(entry.covered, entry.text, entry.pinnedUser)
+            ? [
+                  ...summaryPrefix(request, entry, entry.validation),
+                  ...request.messages.slice(entry.covered),
+              ]
             : request.messages;
         let estimatedTokens = this.estimate(request, messages);
         checkCancellation(request.signal);
@@ -293,6 +362,15 @@ export class ContextWindow {
             return { messages, estimatedTokens, inputBudget, maxOutputTokens };
         }
 
+        let systemEnd = 0;
+        while (request.messages[systemEnd]?.role === 'system') systemEnd++;
+        let latestUser = -1;
+        for (let index = request.messages.length - 1; index >= systemEnd; index--) {
+            if (request.messages[index]?.role === 'user') {
+                latestUser = index;
+                break;
+            }
+        }
         const boundaries = safeBoundaries(request.messages).filter(
             (index) => index > (entry?.covered ?? systemEnd) && index < request.messages.length
         );
@@ -389,8 +467,6 @@ export class ContextWindow {
             const after = this.estimate(request, messages);
             if (after >= estimatedTokens || after > inputBudget)
                 throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
-            if (sourceFingerprint !== (await fingerprint(request, covered)))
-                throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
             const checkpoint: ContextSummary = {
                 version: 1,
                 id: compactionId,
@@ -404,12 +480,28 @@ export class ContextWindow {
                 tokensBefore: estimatedTokens,
                 tokensAfter: after,
             };
+            const validation = createValidation(
+                checkpoint,
+                request,
+                canonicalJson(fingerprintSettings(request))
+            );
+            if (
+                sourceFingerprint !== (await fingerprint(request, covered)) ||
+                (validation &&
+                    !matchesValidation(
+                        validation,
+                        request,
+                        canonicalJson(fingerprintSettings(request))
+                    ))
+            )
+                throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
             checkCancellation(request.signal);
             await options.saveSummary?.(checkpoint);
             completed = true;
             estimatedTokens = after;
             if (request.promptCacheKey) {
-                this.remember(key, { ...checkpoint, expiresAt: Date.now() + SUMMARY_TTL_MS });
+                const saved = { ...checkpoint, expiresAt: Date.now() + SUMMARY_TTL_MS, validation };
+                this.remember(key, saved);
             }
             options.onCompaction?.({ id: compactionId, state: 'compacted' });
             // A cancellation racing with COMMIT must not erase a recoverable checkpoint.
