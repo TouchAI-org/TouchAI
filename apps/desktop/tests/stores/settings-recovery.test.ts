@@ -39,12 +39,13 @@ function flush(): Promise<void> {
 
 describe('user recovers settings after the first load fails', () => {
     let bus: ReturnType<typeof createSettingsBus>;
+    let values: Record<string, string | null>;
 
     beforeEach(() => {
         vi.clearAllMocks();
         setActivePinia(createPinia());
         bus = createSettingsBus();
-        const values: Record<string, string | null> = { output_scroll_behavior: 'stay_position' };
+        values = { output_scroll_behavior: 'stay_position' };
         getSettingValueMock.mockImplementation(
             async ({ key }: { key: string }) => values[key] ?? null
         );
@@ -116,7 +117,7 @@ describe('user recovers settings after the first load fails', () => {
         const store = useSettingsStore();
         await store.initialize();
 
-        const values: Record<string, string | null> = {
+        values = {
             output_scroll_behavior: 'jump_to_top',
         };
         getSettingValueMock.mockImplementation(
