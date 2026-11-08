@@ -3,6 +3,7 @@
 import type { ProviderDriver } from '@database/schema';
 
 import type { ModelLanguageContext } from '../languageContext';
+import type { ContextMessageSource, RetainedContextSummary } from './context';
 import type { ReasoningOption, SelectableReasoningLevel } from './reasoning';
 import type { AiToolCall, AiToolCallDelta, AiToolDefinition, ToolEvent } from './tooling';
 
@@ -135,6 +136,10 @@ export interface AiMessage {
     tool_call_id?: string;
     name?: string;
     isError?: boolean;
+    /** Local provenance only; provider adapters send the role/content/tool fields explicitly. */
+    contextSource?: ContextMessageSource;
+    contextSummary?: RetainedContextSummary;
+    contextSummaryPartId?: number;
 }
 
 /**

@@ -114,6 +114,8 @@ export interface RequestExecutionCallbacks {
 }
 
 export interface AttemptCheckpoint {
+    /** Session-backed requests require a stored boundary before installing a new summary. */
+    durableContext?: boolean;
     activeModel: ModelWithProvider;
     messages: AiMessage[];
     response: string;
@@ -127,6 +129,7 @@ export interface AttemptCheckpoint {
 }
 
 interface AttemptRuntime {
+    durableContext: boolean;
     promptCacheKey: string;
     nextAttachmentRequestIndex: number;
     activeModel: ModelWithProvider;
@@ -162,6 +165,7 @@ interface AttemptRuntime {
 
 interface ToolExecutionResult {
     toolCall: AiToolCall;
+    input?: string;
     result: string;
     isError: boolean;
     toolLogId: number | null;
@@ -782,6 +786,7 @@ export class AiRequestExecutor {
         modelLanguageContext: ModelLanguageContext;
     }): AttemptCheckpoint {
         return {
+            durableContext: true,
             activeModel: options.initialModel,
             messages: snapshotAiMessages(options.baseMessages),
             response: '',
@@ -801,6 +806,7 @@ export class AiRequestExecutor {
         const { activeModel, modelLanguageContext, modelSwitchCount } = startCheckpoint;
 
         return {
+            durableContext: startCheckpoint.durableContext === true,
             promptCacheKey: `${this.cacheNamespace}:${sessionId ?? crypto.randomUUID()}`,
             nextAttachmentRequestIndex: startCheckpoint.iteration,
             activeModel,
@@ -835,6 +841,7 @@ export class AiRequestExecutor {
 
     private createCheckpoint(runtime: AttemptRuntime): AttemptCheckpoint {
         return {
+            durableContext: runtime.durableContext,
             activeModel: runtime.activeModel,
             messages: snapshotAiMessages(runtime.messages),
             response: runtime.response,
@@ -861,13 +868,34 @@ export class AiRequestExecutor {
             'signal' | 'onChunk' | 'onAttachmentManifestResolved'
         > & {
             persister: PersistenceProjector;
+            onContextPrepared: () => void;
         }
     ): Promise<AttemptStepResult> {
+        runtime.currentStepOutputParts = [];
+        runtime.currentStepReasoningStartedAt = null;
         // Relay metadata is not authoritative: some models report reasoning=0
         // while still requiring an explicit reasoning option to expose reasoning.
         // The executor always passes TouchAI's canonical level; each provider
         // driver translates it into the vendor-specific request parameter.
         runtime.messages = snapshotAiMessages(runtime.messages);
+        for (const message of runtime.messages) {
+            if (message.contextSummary) await options.persister.validateContextSummary(message);
+        }
+        const activeAttachments = runtime.messages.flatMap((message) =>
+            Array.isArray(message.content)
+                ? message.content.filter((part) => part.type === 'image' || part.type === 'file')
+                : []
+        );
+        const unsupported = getUnsupportedAttachmentTypes(
+            activeAttachments,
+            getModelAttachmentCapabilities(runtime.activeModel)
+        );
+        if (unsupported.length)
+            throw new AiError(AiErrorCode.UNSUPPORTED_INPUT, {
+                unsupportedAttachmentTypes: unsupported,
+                modelId: runtime.activeModel.model_id,
+                providerId: runtime.activeModel.provider_id,
+            });
         const request: AiRequestOptions = {
             model: runtime.activeModel.model_id,
             providerId: runtime.activeModel.provider_id,
@@ -891,9 +919,10 @@ export class AiRequestExecutor {
             contextLimit: runtime.activeModel.context_limit,
             outputLimit: runtime.activeModel.output_limit,
             preserveSummaryOutputBudget: preserveReasoningCache,
+            requireDurableBoundary: runtime.durableContext,
             loadSummary: () => options.persister.loadContextSummary(),
-            saveSummary: (summary) =>
-                options.persister.persistContextSummary(summary, runtime.calls),
+            saveSummary: (summary, source) =>
+                options.persister.persistContextSummary(summary, runtime.calls, source),
             onCompaction: (contextCompaction) =>
                 options.onChunk?.({ content: '', done: false, contextCompaction }),
             summarize: (summaryRequest) =>
@@ -902,6 +931,10 @@ export class AiRequestExecutor {
                     toolChoice: preserveReasoningCache ? 'auto' : summaryRequest.toolChoice,
                 }),
         });
+        if (prepared.messages.some((message) => message.contextSummary)) {
+            runtime.messages = snapshotAiMessages(prepared.messages);
+            options.onContextPrepared();
+        }
         const modelRequest = {
             ...request,
             messages: prepared.messages,
@@ -915,8 +948,6 @@ export class AiRequestExecutor {
         // Each model/tool-loop round is an independent persisted message part.
         // Keep the aggregate on `runtime.outputParts`, but never leak the
         // previous round into this round's final-step result.
-        runtime.currentStepOutputParts = [];
-        runtime.currentStepReasoningStartedAt = null;
 
         // ===== 首字计时与用量采集 =====
         const callStartedAt = Date.now();
@@ -1200,6 +1231,7 @@ export class AiRequestExecutor {
         const { requestedTimeoutMs, sanitizedToolArgs } = supportsAdaptiveTimeout
             ? parseRequestedTimeoutMs(parsedToolArguments.toolArgs)
             : { requestedTimeoutMs: undefined, sanitizedToolArgs: parsedToolArguments.toolArgs };
+        const input = serializeAuditPayload(sanitizedToolArgs);
 
         const builtInResult = await builtInToolService.executeTool({
             toolCall: options.toolCall,
@@ -1217,10 +1249,10 @@ export class AiRequestExecutor {
         });
 
         if (builtInResult) {
-            return builtInResult;
+            return { ...builtInResult, input };
         }
 
-        return this.executeMcpToolCall({
+        const result = await this.executeMcpToolCall({
             toolCall: options.toolCall,
             toolArgs: sanitizedToolArgs,
             iteration: runtime.iteration,
@@ -1230,6 +1262,7 @@ export class AiRequestExecutor {
             onChunk: options.onChunk,
             requestedTimeoutMs,
         });
+        return { ...result, input };
     }
 
     private async runToolRound(
@@ -1252,6 +1285,8 @@ export class AiRequestExecutor {
         const toolCallMessageId = await options.persister.persistToolCallMessage(
             options.step.outputParts
         );
+        runtime.currentStepOutputParts = [];
+        runtime.currentStepReasoningStartedAt = null;
 
         const toolResults = await Promise.all(
             options.step.toolCalls.map((toolCall) =>
@@ -1340,6 +1375,22 @@ export class AiRequestExecutor {
             });
         }
 
+        if (runtime.durableContext) {
+            const source = await options.persister.getContextMessageSource(toolCallMessageId, {
+                outputParts: options.step.outputParts,
+                results: toolResults,
+            });
+            if (source) {
+                const start = runtime.messages.length - options.step.toolCalls.length - 1;
+                for (let index = start; index < runtime.messages.length; index++) {
+                    runtime.messages[index] = {
+                        ...runtime.messages[index]!,
+                        contextSource: source,
+                    };
+                }
+            }
+        }
+
         this.emitToolEvent(options.onChunk, {
             type: 'iteration_end',
             iteration: runtime.iteration,
@@ -1386,7 +1437,8 @@ export class AiRequestExecutor {
             options.startCheckpoint,
             options.persister.getSessionId()
         );
-        let resumeCheckpoint = options.startCheckpoint;
+        // One mutable cursor releases archived payloads for all owners at each safe boundary.
+        const resumeCheckpoint = options.startCheckpoint;
         try {
             while (true) {
                 throwIfAborted(options.signal);
@@ -1405,6 +1457,17 @@ export class AiRequestExecutor {
                                 signal: options.signal,
                                 onChunk: options.onChunk,
                                 persister: options.persister,
+                                onContextPrepared: () => {
+                                    resumeCheckpoint.messages = snapshotAiMessages(
+                                        runtime.messages
+                                    );
+                                    if (options.taskId)
+                                        options.onTurnEvent?.({
+                                            type: 'checkpoint_committed',
+                                            taskId: options.taskId,
+                                            checkpoint: resumeCheckpoint,
+                                        });
+                                },
                                 onAttachmentManifestResolved: async (request) => {
                                     try {
                                         await options.persister.syncDeliveryManifestRequest(
@@ -1447,7 +1510,7 @@ export class AiRequestExecutor {
                 }
 
                 runtime.iteration += 1;
-                resumeCheckpoint = this.commitCheckpoint(runtime);
+                Object.assign(resumeCheckpoint, this.commitCheckpoint(runtime));
                 await options.persister.persistCheckpoint(resumeCheckpoint).catch((error) => {
                     log.error('[AiRequestExecutor] Failed to persist checkpoint:', error);
                 });

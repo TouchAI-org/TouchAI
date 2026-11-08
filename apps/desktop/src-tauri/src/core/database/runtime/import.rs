@@ -298,6 +298,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn user_restores_context_boundaries_and_invalidates_divergent_history() {
+        let root = tempfile::tempdir().unwrap();
+        let source_path = root.path().join("source.db");
+        let source = backup(&source_path, usize::MAX).await;
+        sqlx::raw_sql(
+            "INSERT INTO sessions(id, session_id, title, model) VALUES (1, 'compacted', 'Context', 'test');
+             INSERT INTO messages(id, session_id, role) VALUES (1, 1, 'user'), (2, 1, 'assistant'), (3, 1, 'user'), (4, 1, 'assistant');
+             INSERT INTO message_parts(message_id, type, content, sort_order) VALUES (1, 'text', 'Old request', 0), (2, 'text', 'Verified', 0), (3, 'text', 'Continue', 0);"
+        ).execute(&source).await.unwrap();
+        sqlx::query("INSERT INTO message_parts(message_id, type, content, data, sort_order) VALUES (4, 'context_compaction', 'Verified old work', ?, 0)")
+            .bind(json!({"version": 2, "id": "00000000-0000-4000-8000-000000000001", "firstKeptMessageId": 3, "pinnedUserMessageId": 1, "systemMessageIds": [], "model": "test", "createdAt": 100, "tokensBefore": 5000, "tokensAfter": 200}).to_string())
+            .execute(&source).await.unwrap();
+        let target_path = root.path().join("target.db");
+        let target = backup(&target_path, usize::MAX).await;
+        sqlx::raw_sql("INSERT INTO sessions(id, session_id, title, model) VALUES (10, 'other', 'Other', 'test'); INSERT INTO messages(id, session_id, role) VALUES (100, 10, 'user');")
+            .execute(&target).await.unwrap();
+        for mode in [DatabaseImportMode::ChatOnly, DatabaseImportMode::Full] {
+            run_import_backup(
+                target.clone(),
+                target_path.clone(),
+                contract(),
+                DatabaseImportRequest {
+                    source_path: source_path.to_string_lossy().into_owned(),
+                    mode,
+                },
+            )
+            .await
+            .unwrap();
+            let data: String = sqlx::query_scalar(
+                "SELECT data FROM message_parts WHERE type='context_compaction'",
+            )
+            .fetch_one(&target)
+            .await
+            .unwrap();
+            let saved: Value = serde_json::from_str(&data).unwrap();
+            assert_eq!(saved["firstKeptMessageId"], 103);
+            assert_eq!(saved["pinnedUserMessageId"], 101);
+            assert!(saved.get("invalidatedAt").is_none());
+        }
+        sqlx::query("UPDATE message_parts SET content='Local correction' WHERE message_id=102")
+            .execute(&target)
+            .await
+            .unwrap();
+        run_import_backup(
+            target.clone(),
+            target_path,
+            contract(),
+            DatabaseImportRequest {
+                source_path: source_path.to_string_lossy().into_owned(),
+                mode: DatabaseImportMode::ChatOnly,
+            },
+        )
+        .await
+        .unwrap();
+        let invalidated: Option<i64> = sqlx::query_scalar("SELECT json_extract(data, '$.invalidatedAt') FROM message_parts WHERE type='context_compaction'")
+            .fetch_one(&target).await.unwrap();
+        assert!(invalidated.is_some());
+        assert!(sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&target)
+            .await
+            .unwrap()
+            .is_empty());
+        source.close().await;
+        target.close().await;
+    }
+
+    #[tokio::test]
     async fn upgrades_released_backup_before_import_without_modifying_source() {
         let root = tempfile::tempdir().unwrap();
         let source_path = root.path().join("source.db");

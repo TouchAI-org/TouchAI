@@ -5,6 +5,7 @@ import { findMessagesBySessionId } from '@database/queries/messages';
 import { getToolCallName, readToolCallData } from '@database/queries/toolParts';
 import type { MessagePartEntity } from '@database/types';
 
+import { contextMessageSource, contextSummaryText } from '../contracts/context';
 import type { AiContentPart, AiMessage, JsonObject } from '../contracts/protocol';
 import type { AiToolCall } from '../contracts/tooling';
 import {
@@ -103,15 +104,19 @@ export async function loadSessionTransportMessages(options: {
     attachmentCapabilities?: AttachmentCapabilities;
     readModel?: SessionReadModel;
 }): Promise<AiMessage[]> {
-    const rows = options.sessionId
-        ? options.readModel
-            ? await options.readModel.getMessages(options.sessionId)
-            : await findMessagesBySessionId(options.sessionId)
-        : [];
+    const context =
+        options.sessionId && options.readModel
+            ? await options.readModel.getContext(options.sessionId)
+            : undefined;
+    const rows =
+        context?.messages ??
+        (options.sessionId ? await findMessagesBySessionId(options.sessionId) : []);
     const attachmentCapabilities = resolveTransportAttachmentCapabilities(options);
     const messages: AiMessage[] = [];
 
     for (const row of rows) {
+        const contextSource = options.readModel ? await contextMessageSource(row) : undefined;
+        const provenance = contextSource ? { contextSource } : {};
         if (row.role === 'tool_call') {
             const callParts = row.parts.filter((part) => part.type === 'tool_call');
             const calls: AiToolCall[] = callParts.map((part) => {
@@ -123,6 +128,7 @@ export async function loadSessionTransportMessages(options: {
                 };
             });
             messages.push({
+                ...provenance,
                 role: 'assistant',
                 content: buildAssistantTransportContent(row),
                 tool_calls: calls,
@@ -151,6 +157,7 @@ export async function loadSessionTransportMessages(options: {
                 const content =
                     typeof data.output === 'string' ? data.output : MISSING_TOOL_RESULT_PLACEHOLDER;
                 messages.push({
+                    ...provenance,
                     role: 'tool',
                     tool_call_id: call.id,
                     name: call.name,
@@ -182,6 +189,7 @@ export async function loadSessionTransportMessages(options: {
                 attachments.length > 0 ? await buildAttachmentParts(attachments) : [];
 
             messages.push({
+                ...provenance,
                 role: 'user',
                 content:
                     attachmentParts.length > 0
@@ -205,10 +213,25 @@ export async function loadSessionTransportMessages(options: {
         }
 
         messages.push({
+            ...provenance,
             role: row.role as 'user' | 'assistant' | 'system',
             content,
         });
     }
 
-    return messages;
+    if (!context?.summary) return messages;
+    const { summary, summaryPartId } = context;
+    return [
+        ...messages.filter((message) =>
+            summary.systemMessageIds.includes(message.contextSource!.id)
+        ),
+        {
+            role: 'user',
+            content: contextSummaryText(summary.text),
+            contextSummary: summary,
+            contextSummaryPartId: summaryPartId,
+        },
+        ...messages.filter((message) => message.contextSource!.id === summary.pinnedUserMessageId),
+        ...messages.filter((message) => message.contextSource!.id >= summary.firstKeptMessageId),
+    ];
 }

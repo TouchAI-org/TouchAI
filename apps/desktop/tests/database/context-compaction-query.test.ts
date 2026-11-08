@@ -1,6 +1,11 @@
 import type { SQLInputValue } from 'node:sqlite';
 
-import { findLatestContextCompaction } from '@database/queries/messageParts';
+import { db } from '@database';
+import { findAttachmentsByMessageIds } from '@database/queries/attachments';
+import {
+    findLatestContextCompaction,
+    invalidateContextCompactions,
+} from '@database/queries/messageParts';
 import { getTauriInvokeCalls } from '@tests/utils/tauri';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -8,6 +13,21 @@ import { closeTestDatabases, openMigratedDatabase, routeQueriesTo } from './sqli
 
 describe('given completed checkpoints across multiple sessions', () => {
     afterEach(closeTestDatabases);
+
+    it('user reopens after the clock moves backwards and receives the last committed summary', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        database.exec(`
+            INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'clock-test', 'Test', 'test');
+            INSERT INTO messages (id, session_id, role) VALUES (1, 1, 'assistant'), (2, 1, 'assistant');
+            INSERT INTO message_parts (message_id,type,content,sort_order,started_at) VALUES
+                (1,'context_compaction','older summary',0,200),
+                (2,'context_compaction','last committed summary',0,100);
+        `);
+        expect(await findLatestContextCompaction(1)).toMatchObject({
+            content: 'last committed summary',
+        });
+    });
 
     it('user opens an older session and gets its latest checkpoint with session-bounded reads', async () => {
         const database = openMigratedDatabase();
@@ -32,6 +52,61 @@ describe('given completed checkpoints across multiple sessions', () => {
         const plan = database.prepare(`EXPLAIN QUERY PLAN ${request.sql}`).all(...request.params);
         const details = plan.map((row) => String(row.detail)).join('\n');
         expect(details).toContain('messages_session_id_id_idx');
+        expect(details).toContain('message_parts_message_id_sort_order_idx');
+        expect(details).not.toContain('message_parts_llm_call_idx');
+    });
+
+    it('user restores retained attachments without scanning attachments in unrelated conversations', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        database.exec(`
+            INSERT INTO sessions(id, session_id, title, model) VALUES (1, 'active', 'Active', 'test'), (2, 'other', 'Other', 'test');
+            INSERT INTO messages(id, session_id, role) VALUES (1, 1, 'user'), (2, 2, 'user');
+            INSERT INTO attachments(id, hash, type, original_name, origin_path) VALUES (1, 'a', 'file', 'a.txt', '/a'), (2, 'b', 'file', 'b.txt', '/b');
+            INSERT INTO message_parts(message_id, type, content, data, sort_order) VALUES
+                (1, 'attachment', '', '{"attachmentId":1}', 0), (2, 'attachment', '', '{"attachmentId":2}', 0);
+        `);
+        expect(
+            await findAttachmentsByMessageIds([
+                1,
+                ...Array.from({ length: 31 }, (_, index) => index + 10),
+            ])
+        ).toEqual([expect.objectContaining({ id: 1, message_id: 1 })]);
+        const calls = getTauriInvokeCalls('database_query');
+        const call = calls[calls.length - 1]!;
+        const { request } = call.payload as { request: { sql: string; params: SQLInputValue[] } };
+        const plan = database.prepare(`EXPLAIN QUERY PLAN ${request.sql}`).all(...request.params);
+        const details = plan.map((row) => String(row.detail)).join('\n');
+        expect(details).toContain('message_parts_message_id_sort_order_idx');
+        expect(details).not.toContain('message_parts_llm_call_idx');
+    });
+
+    it('user edits covered history and invalidates only its session through bounded part lookups', async () => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        database.exec(`
+            INSERT INTO sessions(id, session_id, title, model) VALUES (1, 'edited', 'Edited', 'test'), (2, 'other', 'Other', 'test');
+            INSERT INTO messages(id, session_id, role) VALUES (1, 1, 'user'), (2, 1, 'assistant'), (3, 2, 'assistant');
+            INSERT INTO message_parts(message_id, type, content, data, sort_order) VALUES
+                (2, 'context_compaction', 'Edited session', '{"version":2,"firstKeptMessageId":2}', 0),
+                (3, 'context_compaction', 'Other session', '{"version":2,"firstKeptMessageId":3}', 0);
+        `);
+        await db.transaction((tx) => invalidateContextCompactions([1], tx));
+        expect(
+            database
+                .prepare(
+                    "SELECT message_id FROM message_parts WHERE json_extract(data, '$.invalidatedAt') IS NOT NULL"
+                )
+                .all()
+        ).toEqual([{ message_id: 2 }]);
+        const call = getTauriInvokeCalls('database_tx_query').find((call) =>
+            (call.payload as { request: { sql: string } }).request.sql.includes(
+                'UPDATE message_parts'
+            )
+        )!;
+        const { request } = call.payload as { request: { sql: string; params: SQLInputValue[] } };
+        const plan = database.prepare(`EXPLAIN QUERY PLAN ${request.sql}`).all(...request.params);
+        const details = plan.map((row) => String(row.detail)).join('\n');
         expect(details).toContain('message_parts_message_id_sort_order_idx');
         expect(details).not.toContain('message_parts_llm_call_idx');
     });

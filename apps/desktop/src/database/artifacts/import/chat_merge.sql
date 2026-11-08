@@ -255,25 +255,11 @@ INSERT INTO temp_message_map (source_message_id, target_message_id)
 SELECT source_message_id, target_message_id
 FROM temp_new_message_map;
 
--- Synchronize parts by the message-local sort key. Unchanged part rows retain
--- their IDs; removed parts disappear and new parts are inserted.
-DELETE FROM main.message_parts AS target_parts
-WHERE target_parts.message_id IN (SELECT target_message_id FROM temp_message_map)
-  AND NOT EXISTS (
-      SELECT 1
-      FROM imported.message_parts AS source_parts
-      INNER JOIN temp_message_map AS message_map
-          ON message_map.source_message_id = source_parts.message_id
-      WHERE message_map.target_message_id = target_parts.message_id
-        AND source_parts.sort_order = target_parts.sort_order
-  );
-
-INSERT INTO main.message_parts (
-    message_id, type, content, data,
-    started_at, ended_at, sort_order, created_at, updated_at
-)
+CREATE TEMP TABLE temp_resolved_message_parts AS
 SELECT
-    message_map.target_message_id,
+    source_parts.message_id AS source_message_id,
+    source_messages.session_id AS source_session_id,
+    message_map.target_message_id AS message_id,
     source_parts.type,
     source_parts.content,
     -- Remap references at the write boundary; never copy or mutate the source parts.
@@ -292,16 +278,154 @@ SELECT
             FROM temp_mcp_server_map AS server_map
             WHERE server_map.source_server_id = json_extract(source_parts.data, '$.server_id')
         ))
+        WHEN source_parts.type = 'context_compaction' AND json_extract(source_parts.data, '$.version') = 2
+        THEN json_patch(source_parts.data, json_object(
+            'firstKeptMessageId', coalesce((
+                SELECT mapping.target_message_id FROM temp_message_map AS mapping
+                INNER JOIN imported.messages AS reference ON reference.id = mapping.source_message_id
+                WHERE reference.id = json_extract(source_parts.data, '$.firstKeptMessageId')
+                  AND reference.session_id = source_messages.session_id
+            ), json_extract(source_parts.data, '$.firstKeptMessageId')),
+            'pinnedUserMessageId', coalesce((
+                SELECT mapping.target_message_id FROM temp_message_map AS mapping
+                INNER JOIN imported.messages AS reference ON reference.id = mapping.source_message_id
+                WHERE reference.id = json_extract(source_parts.data, '$.pinnedUserMessageId')
+                  AND reference.session_id = source_messages.session_id
+            ), json_extract(source_parts.data, '$.pinnedUserMessageId')),
+            'systemMessageIds', json((
+                SELECT json_group_array(coalesce(mapping.target_message_id, reference.value))
+                FROM json_each(source_parts.data, '$.systemMessageIds') AS reference
+                LEFT JOIN imported.messages AS reference_message ON reference_message.id = reference.value
+                    AND reference_message.session_id = source_messages.session_id
+                LEFT JOIN temp_message_map AS mapping ON mapping.source_message_id = reference_message.id
+            )),
+            'providerId', (SELECT target_provider_id FROM temp_provider_map
+                WHERE source_provider_id = json_extract(source_parts.data, '$.providerId'))
+        ))
         ELSE source_parts.data
-    END,
+    END AS data,
     source_parts.started_at,
     source_parts.ended_at,
     source_parts.sort_order,
     source_parts.created_at,
     source_parts.updated_at
 FROM imported.message_parts AS source_parts
+INNER JOIN imported.messages AS source_messages ON source_messages.id = source_parts.message_id
 INNER JOIN temp_message_map AS message_map
-    ON message_map.source_message_id = source_parts.message_id
+    ON message_map.source_message_id = source_parts.message_id;
+
+-- Avoid rescanning the imported parts for every source message during prefix validation.
+CREATE INDEX temp.temp_context_parts_by_message ON temp_resolved_message_parts (message_id, sort_order);
+
+-- Compare semantic parts before overwriting them; timestamps are not revisions.
+CREATE TEMP TABLE temp_context_changed_messages AS
+SELECT target.target_message_id AS message_id
+FROM temp_ranked_target_messages AS target
+WHERE target.target_message_id IN (SELECT target_message_id FROM temp_message_map)
+  AND (EXISTS (
+      SELECT type, content, data, sort_order FROM main.message_parts
+      WHERE message_id = target.target_message_id AND type NOT IN ('context_compaction', 'llm_call')
+      EXCEPT
+      SELECT type, content, data, sort_order FROM temp_resolved_message_parts
+      WHERE message_id = target.target_message_id AND type NOT IN ('context_compaction', 'llm_call')
+  ) OR EXISTS (
+      SELECT type, content, data, sort_order FROM temp_resolved_message_parts
+      WHERE message_id = target.target_message_id AND type NOT IN ('context_compaction', 'llm_call')
+      EXCEPT
+      SELECT type, content, data, sort_order FROM main.message_parts
+      WHERE message_id = target.target_message_id AND type NOT IN ('context_compaction', 'llm_call')
+  ));
+
+CREATE TEMP TABLE temp_context_message_order AS
+SELECT source.session_id, mapping.source_message_id, mapping.target_message_id,
+       lag(mapping.target_message_id) OVER (PARTITION BY source.session_id ORDER BY source.id) AS previous_target_id
+FROM temp_message_map AS mapping
+INNER JOIN imported.messages AS source ON source.id = mapping.source_message_id;
+
+CREATE INDEX temp.temp_context_order_by_session ON temp_context_message_order (session_id, target_message_id);
+
+UPDATE main.message_parts AS checkpoint
+SET data = json_set(data, '$.invalidatedAt', coalesce(json_extract(data, '$.invalidatedAt'), unixepoch() * 1000))
+WHERE checkpoint.type = 'context_compaction' AND json_extract(data, '$.version') = 2
+  AND EXISTS (
+      SELECT 1 FROM temp_context_changed_messages AS changed
+      INNER JOIN main.messages AS source ON source.id = changed.message_id
+      INNER JOIN main.messages AS owner ON owner.id = checkpoint.message_id
+      WHERE source.session_id = owner.session_id
+        AND changed.message_id < json_extract(checkpoint.data, '$.firstKeptMessageId')
+  );
+
+-- Remapping a boundary is valid only if its source prefix is also the target prefix.
+-- Keep invalidated records as timeline evidence instead of accepting a guessed range.
+UPDATE temp_resolved_message_parts AS checkpoint
+SET data = json_set(data, '$.invalidatedAt', coalesce(json_extract(data, '$.invalidatedAt'), (
+    SELECT json_extract(previous.data, '$.invalidatedAt') FROM main.message_parts AS previous
+    WHERE previous.message_id = checkpoint.message_id AND previous.type = 'context_compaction'
+      AND json_extract(previous.data, '$.id') = json_extract(checkpoint.data, '$.id')
+), unixepoch() * 1000))
+WHERE checkpoint.type = 'context_compaction' AND json_extract(checkpoint.data, '$.version') = 2
+  AND (
+      json_extract(checkpoint.data, '$.firstKeptMessageId') > checkpoint.message_id
+      OR EXISTS (
+          SELECT 1 FROM imported.message_parts AS original
+          WHERE original.message_id = checkpoint.source_message_id AND original.sort_order = checkpoint.sort_order
+            AND (
+                json_extract(original.data, '$.firstKeptMessageId') > original.message_id
+                OR (json_extract(original.data, '$.pinnedUserMessageId') IS NOT NULL AND NOT EXISTS (
+                    SELECT 1 FROM imported.messages AS reference
+                    WHERE reference.id = json_extract(original.data, '$.pinnedUserMessageId')
+                      AND reference.role = 'user' AND reference.id < json_extract(original.data, '$.firstKeptMessageId')
+                ))
+                OR EXISTS (SELECT 1 FROM json_each(original.data, '$.systemMessageIds') AS reference
+                    WHERE NOT EXISTS (SELECT 1 FROM imported.messages AS message
+                        WHERE message.id = reference.value AND message.role = 'system'
+                          AND message.id < json_extract(original.data, '$.firstKeptMessageId')))
+            )
+      )
+      OR
+      EXISTS (
+          SELECT 1 FROM imported.message_parts AS original,
+              json_each(json_insert(json_extract(original.data, '$.systemMessageIds'), '$[#]',
+                  json_extract(original.data, '$.firstKeptMessageId'), '$[#]',
+                  json_extract(original.data, '$.pinnedUserMessageId'))) AS reference
+          WHERE original.message_id = checkpoint.source_message_id AND original.sort_order = checkpoint.sort_order
+            AND reference.value IS NOT NULL AND NOT EXISTS (
+                SELECT 1 FROM imported.messages AS referenced
+                WHERE referenced.id = reference.value AND referenced.session_id = checkpoint.source_session_id
+            )
+      )
+      OR EXISTS (SELECT 1 FROM temp_context_message_order
+          WHERE session_id = checkpoint.source_session_id AND target_message_id <= previous_target_id)
+      OR EXISTS (
+          SELECT 1 FROM main.messages AS retained
+          INNER JOIN main.messages AS owner ON owner.id = checkpoint.message_id
+          WHERE retained.session_id = owner.session_id
+            AND retained.id < json_extract(checkpoint.data, '$.firstKeptMessageId')
+            AND NOT EXISTS (SELECT 1 FROM temp_context_message_order AS mapping
+                WHERE mapping.session_id = checkpoint.source_session_id AND mapping.target_message_id = retained.id)
+      )
+      OR EXISTS (
+          SELECT 1 FROM temp_context_changed_messages AS changed
+          INNER JOIN main.messages AS message ON message.id = changed.message_id
+          INNER JOIN main.messages AS owner ON owner.id = checkpoint.message_id
+          WHERE message.session_id = owner.session_id AND message.id < json_extract(checkpoint.data, '$.firstKeptMessageId')
+      )
+      OR EXISTS (SELECT 1 FROM main.message_parts AS previous
+          WHERE previous.message_id = checkpoint.message_id AND previous.type = 'context_compaction'
+            AND json_extract(previous.data, '$.id') = json_extract(checkpoint.data, '$.id')
+            AND json_extract(previous.data, '$.invalidatedAt') IS NOT NULL)
+  );
+
+-- Synchronize parts by the message-local sort key. Unchanged part rows retain
+-- their IDs; removed parts disappear and new parts are inserted.
+DELETE FROM main.message_parts AS target_parts
+WHERE target_parts.message_id IN (SELECT target_message_id FROM temp_message_map)
+  AND NOT EXISTS (SELECT 1 FROM temp_resolved_message_parts AS source_parts
+      WHERE source_parts.message_id = target_parts.message_id AND source_parts.sort_order = target_parts.sort_order);
+
+INSERT INTO main.message_parts (message_id, type, content, data, started_at, ended_at, sort_order, created_at, updated_at)
+SELECT message_id, type, content, data, started_at, ended_at, sort_order, created_at, updated_at
+FROM temp_resolved_message_parts WHERE true
 ON CONFLICT(message_id, sort_order) DO UPDATE SET
     type = excluded.type,
     content = excluded.content,
@@ -466,6 +590,9 @@ ON CONFLICT(turn_id, attempt_index) DO UPDATE SET
 -- Import workspace lives only for this transaction, not the pooled connection.
 DROP TABLE temp.temp_turn_map;
 DROP TABLE temp.temp_resolved_turns;
+DROP TABLE temp.temp_context_message_order;
+DROP TABLE temp.temp_context_changed_messages;
+DROP TABLE temp.temp_resolved_message_parts;
 DROP TABLE temp.temp_message_map;
 DROP TABLE temp.temp_new_message_map;
 DROP TABLE temp.temp_ranked_target_messages;

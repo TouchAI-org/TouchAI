@@ -1,5 +1,9 @@
-import type { MessageRow } from '@database/queries/messages';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+﻿import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createSessionReadModel } from '@/services/AgentService/session/readModel';
 import {
@@ -7,76 +11,54 @@ import {
     loadSessionTransportMessages,
 } from '@/services/AgentService/session/transport';
 
-const { findMessagesMock } = vi.hoisted(() => ({ findMessagesMock: vi.fn() }));
-
-vi.mock('@database/queries/messages', () => ({
-    findMessagesBySessionId: findMessagesMock,
-}));
-
-const ATTACHMENT_CAPABILITIES = { supportsImages: false, supportsFiles: false };
-
-function createRows(): MessageRow[] {
-    return [
-        {
-            id: 1,
-            session_id: 7,
-            role: 'user',
-            created_at: '2026-01-01T00:00:00.000Z',
-            updated_at: '2026-01-01T00:00:00.000Z',
-            attachments: [],
-            parts: [],
-        },
-    ] as unknown as MessageRow[];
-}
-
-describe('createSessionReadModel', () => {
+describe('given a conversation being read for a new request', () => {
+    let database: ReturnType<typeof openMigratedDatabase>;
     beforeEach(() => {
-        findMessagesMock.mockReset();
-        findMessagesMock.mockResolvedValue(createRows());
+        database = openMigratedDatabase();
+        routeQueriesTo(database);
+        database.exec(`
+            INSERT INTO sessions(id, session_id, title, model) VALUES (7, 'seven', 'Seven', 'test'), (8, 'eight', 'Eight', 'test');
+            INSERT INTO messages(id, session_id, role) VALUES (1, 7, 'user'), (2, 8, 'user');
+            INSERT INTO message_parts(message_id, type, content, sort_order) VALUES (1, 'text', 'Original', 0), (2, 'text', 'Other session', 0);
+        `);
     });
+    afterEach(closeTestDatabases);
 
-    it('reuses one messages read across attachment precheck and transport rebuild', async () => {
+    it('user gets the same history snapshot for capability checking and sending despite a later edit', async () => {
         const readModel = createSessionReadModel();
-
         await findUnsupportedSessionAttachmentTypes({
             sessionId: 7,
-            capabilities: ATTACHMENT_CAPABILITIES,
+            capabilities: { supportsImages: false, supportsFiles: false },
             readModel,
         });
-        await loadSessionTransportMessages({
-            sessionId: 7,
-            attachmentCapabilities: ATTACHMENT_CAPABILITIES,
-            readModel,
-        });
-
-        expect(findMessagesMock).toHaveBeenCalledTimes(1);
-        expect(findMessagesMock).toHaveBeenCalledWith(7);
+        database.exec("UPDATE message_parts SET content='Edited' WHERE message_id=1");
+        expect(await loadSessionTransportMessages({ sessionId: 7, readModel })).toEqual([
+            expect.objectContaining({ content: 'Original' }),
+        ]);
+        expect(await loadSessionTransportMessages({ sessionId: 7 })).toEqual([
+            expect.objectContaining({ content: 'Edited' }),
+        ]);
     });
 
-    it('falls back to a fresh read for each consumer without a read model', async () => {
-        await findUnsupportedSessionAttachmentTypes({
-            sessionId: 7,
-            capabilities: ATTACHMENT_CAPABILITIES,
-        });
-        await loadSessionTransportMessages({
-            sessionId: 7,
-            attachmentCapabilities: ATTACHMENT_CAPABILITIES,
-        });
-
-        expect(findMessagesMock).toHaveBeenCalledTimes(2);
-    });
-
-    it('caches per session id and shares the in-flight promise', async () => {
+    it('user reads concurrently and gets one consistent snapshot isolated from other sessions', async () => {
         const readModel = createSessionReadModel();
-
         const [first, second] = await Promise.all([
-            readModel.getMessages(7),
-            readModel.getMessages(7),
+            readModel.getContext(7),
+            readModel.getContext(7),
         ]);
         expect(first).toBe(second);
-        expect(findMessagesMock).toHaveBeenCalledTimes(1);
+        expect((await readModel.getMessages(8))[0]?.parts[0]?.content).toBe('Other session');
+    });
 
-        await readModel.getMessages(8);
-        expect(findMessagesMock).toHaveBeenCalledTimes(2);
+    it('user retries after a failed read and can recover the conversation', async () => {
+        const readModel = createSessionReadModel();
+        routeQueriesTo(database, {
+            beforeCommit: () => {
+                throw new Error('Read interrupted');
+            },
+        });
+        await expect(readModel.getContext(7)).rejects.toThrow('Read interrupted');
+        routeQueriesTo(database);
+        expect((await readModel.getMessages(7))[0]?.parts[0]?.content).toBe('Original');
     });
 });

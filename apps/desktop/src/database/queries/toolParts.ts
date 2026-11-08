@@ -10,6 +10,7 @@ import type {
     McpToolLogUpdateData,
     MessagePartEntity,
 } from '../types';
+import { invalidateContextCompactions } from './messageParts';
 
 type ToolPartIdentity = 'id' | 'tool_call_id' | 'session_id' | 'message_id' | 'created_at';
 /** The JSON payload stored by tool_call parts, not a flattened message or log reference. */
@@ -212,6 +213,7 @@ async function createToolPartInner(
         }
         const { tool_call_id: callId, created_at: createdAt } = data;
         const payload = toolPayload(data);
+        await invalidateContextCompactions([messageId], tx);
 
         /**
          * `sort_order` 必须原子分配。
@@ -286,10 +288,16 @@ export async function updateToolPart(
         let result: ToolPartEntity | undefined;
         for (const part of existing) {
             const payload = toolPayload({ ...patch });
+            const nextData = JSON.stringify({
+                ...JSON.parse(part.data),
+                ...payload,
+                toolKind: kind,
+            });
+            if (nextData !== part.data) await invalidateContextCompactions([part.message_id], tx);
             const updated = await tx
                 .update(messageParts)
                 .set({
-                    data: JSON.stringify({ ...JSON.parse(part.data), ...payload, toolKind: kind }),
+                    data: nextData,
                     updated_at: sql`datetime('now')`,
                 })
                 .where(eq(messageParts.id, part.id))

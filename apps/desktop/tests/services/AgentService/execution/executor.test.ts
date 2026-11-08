@@ -176,6 +176,49 @@ describe('user sends a prompt and receives a streamed answer', () => {
         vi.useRealTimers();
     });
 
+    it('user sees no duplicated prior output when next-step preparation fails after a complete tool round', async () => {
+        const checkpoint = createCheckpoint();
+        checkpoint.activeModel.context_limit = 8000;
+        checkpoint.activeModel.output_limit = 1000;
+        const call = { id: 'read-1', name: 'builtin__read', arguments: '{}' };
+        providerMock.stream.mockImplementation(async function* () {
+            yield {
+                content: 'I will inspect the file.',
+                toolCalls: [call],
+                done: true,
+                finishReason: 'tool_calls',
+            };
+        });
+        builtInExecuteToolMock.mockResolvedValue({
+            toolCall: call,
+            result: 'large result '.repeat(30000),
+            isError: false,
+            toolLogId: 7,
+            builtInToolId: 'read_file',
+        });
+        const storedToolParts: PersistedOutputPart[][] = [];
+        const result = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: checkpoint,
+            persister: {
+                getSessionId: () => 42,
+                loadContextSummary: async () => undefined,
+                persistContextSummary: async () => undefined,
+                persistOutputProgress: async () => undefined,
+                persistToolCallMessage: async (parts: PersistedOutputPart[]) => {
+                    storedToolParts.push(parts);
+                    return 5;
+                },
+                persistToolResult: async () => undefined,
+                persistCheckpoint: async () => undefined,
+            } as never,
+        });
+        expect(result.type).toBe('failed');
+        if (result.type !== 'failed') throw new Error('Expected a preparation failure');
+        expect(result.error.code).toBe(AiErrorCode.CONTEXT_TOO_LARGE);
+        expect(storedToolParts).toEqual([[{ type: 'text', content: 'I will inspect the file.' }]]);
+        expect(result.partialOutputParts).toEqual([]);
+    });
+
     it('user keeps the same cache route across retries and later turns while other sessions stay separate', async () => {
         const sent: AiRequestOptions[] = [];
         providerMock.stream.mockImplementation(async function* (request: AiRequestOptions) {
@@ -995,6 +1038,54 @@ describe('user asks the agent to switch to a stronger model', () => {
                 }),
             })
         );
+    });
+
+    it('user switches to a text model with a retained image and receives an input error before the next request', async () => {
+        builtInExecuteToolMock.mockImplementation(upgradeStub());
+        resolveToolDefinitionsMock.mockResolvedValue([]);
+        toolRoundThenAnswer(1);
+        const checkpoint = createCheckpoint();
+        checkpoint.activeModel.attachment = 1;
+        checkpoint.activeModel.modalities = JSON.stringify({
+            input: ['text', 'image'],
+            output: ['text'],
+        });
+        checkpoint.messages = [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'image',
+                        data: 'cGl4ZWw=',
+                        mimeType: 'image/png',
+                        name: 'pixel.png',
+                        sourcePath: '/pixel.png',
+                        size: 5,
+                        kind: 'image',
+                        semanticIntent: 'visual-reference',
+                        meta: {
+                            alias: 'image-1',
+                            order: 0,
+                            type: 'image',
+                            name: 'pixel.png',
+                            mimeType: 'image/png',
+                            originPath: '/pixel.png',
+                            attachmentId: 1,
+                            hash: 'pixel',
+                        },
+                    },
+                ],
+            },
+        ];
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: checkpoint,
+            persister: persisterStub() as never,
+        });
+        expect(outcome.type).toBe('failed');
+        if (outcome.type !== 'failed') throw new Error('Expected unsupported retained input');
+        expect(outcome.error.code).toBe(AiErrorCode.UNSUPPORTED_INPUT);
+        expect(outcome.modelSwitchCount).toBe(1);
+        expect(outcome.partialOutputParts).toEqual([]);
     });
 
     it('user is stopped from switching models once the ceiling is reached', async () => {

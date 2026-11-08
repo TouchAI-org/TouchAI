@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 
+import { syncOutputParts } from '@database/queries/messageParts';
 import { findMessagesBySessionId } from '@database/queries/messages';
 import { createToolPart } from '@database/queries/toolParts';
 import {
@@ -15,7 +16,10 @@ import {
 import { getTauriInvokeCalls, interceptTauriInvoke } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import type { ContextSummary } from '@/services/AgentService/contracts/context';
+import type {
+    ContextSummary,
+    ContextSummarySource,
+} from '@/services/AgentService/contracts/context';
 import {
     type AiCallRecord,
     type AiMessage,
@@ -26,6 +30,7 @@ import { ContextWindow } from '@/services/AgentService/execution/context';
 import type { AttemptCheckpoint } from '@/services/AgentService/execution/executor';
 import { PersistenceProjector } from '@/services/AgentService/outputs/persistence';
 import { loadSessionHistory } from '@/services/AgentService/session/history';
+import { createSessionReadModel } from '@/services/AgentService/session/readModel';
 import { loadSessionTransportMessages } from '@/services/AgentService/session/transport';
 
 const summaryText =
@@ -95,12 +100,18 @@ function removeTestScratch(directory: string): void {
     rmSync(target, { recursive: true });
 }
 
-async function request(): Promise<AiRequestOptions> {
+async function request(durable = false): Promise<AiRequestOptions> {
     return {
         model: model.model_id,
         providerId: 1,
         promptCacheKey: crypto.randomUUID(),
-        messages: [system, ...(await loadSessionTransportMessages({ sessionId: 1 }))],
+        messages: [
+            system,
+            ...(await loadSessionTransportMessages({
+                sessionId: 1,
+                ...(durable ? { readModel: createSessionReadModel() } : {}),
+            })),
+        ],
     };
 }
 
@@ -110,7 +121,8 @@ function prepare(persister: PersistenceProjector, input: AiRequestOptions) {
         contextLimit: 8000,
         outputLimit: 1000,
         loadSummary: () => persister.loadContextSummary(),
-        saveSummary: (summary: ContextSummary) => persister.persistContextSummary(summary, [call]),
+        saveSummary: (summary: ContextSummary, source?: ContextSummarySource) =>
+            persister.persistContextSummary(summary, [call], source),
         summarize: async () => ({ text: summaryText, finishReason: 'stop' }),
     };
 }
@@ -139,6 +151,194 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         }
     });
     afterEach(closeTestDatabases);
+
+    it('user reopens a new checkpoint under another model without reading the covered transcript', async () => {
+        const first = projector();
+        await first.recordTurnStart(checkpoint());
+        const input = {
+            ...(await request()),
+            messages: [
+                system,
+                ...(await loadSessionTransportMessages({
+                    sessionId: 1,
+                    readModel: createSessionReadModel(),
+                })),
+            ],
+        };
+        const compacted = await new ContextWindow().prepare({
+            ...prepare(first, input),
+            requireDurableBoundary: true,
+        });
+        const saved = await first.loadContextSummary();
+        expect(saved?.version).toBe(2);
+        const reopened = await loadSessionTransportMessages({
+            sessionId: 1,
+            readModel: createSessionReadModel(),
+        });
+        expect(reopened.length).toBeLessThan(input.messages.length);
+        const result = await new ContextWindow().prepare({
+            ...prepare(projector(), {
+                ...input,
+                model: 'different-model',
+                messages: [system, ...reopened],
+            }),
+            summarize: async () => {
+                throw new Error('Saved summaries survive a model switch');
+            },
+        });
+        expect(result.messages.map((message) => message.content)).toEqual(
+            compacted.messages.map((message) => message.content)
+        );
+        expect(await findMessagesBySessionId(1)).toHaveLength(26);
+    });
+
+    it('user edits the source while a summary is being generated and never commits a stale checkpoint', async () => {
+        const first = projector();
+        await first.recordTurnStart(checkpoint());
+        const input = {
+            ...(await request()),
+            messages: [
+                system,
+                ...(await loadSessionTransportMessages({
+                    sessionId: 1,
+                    readModel: createSessionReadModel(),
+                })),
+            ],
+        };
+        await expect(
+            new ContextWindow().prepare({
+                ...prepare(first, input),
+                requireDurableBoundary: true,
+                summarize: async () => {
+                    await syncOutputParts(2, [
+                        {
+                            message_id: 2,
+                            type: 'text',
+                            content: 'Corrected while summarizing',
+                            sort_order: 0,
+                        },
+                    ]);
+                    return { text: summaryText, finishReason: 'stop' };
+                },
+            })
+        ).rejects.toMatchObject({ code: 'CONTEXT_COMPACTION_FAILED' });
+        expect(await projector().loadContextSummary()).toBeUndefined();
+    });
+
+    it.each(['unchanged', 'input', 'result', 'text', 'missing', 'attachment'] as const)(
+        'user checkpoints a tool round with %s history and accepts only the matching stored exchange',
+        async (change) => {
+            const first = projector();
+            await first.recordTurnStart(checkpoint());
+            const messageId = await first.persistToolCallMessage([
+                { type: 'text', content: 'Checking' },
+            ]);
+            await createToolPart('builtin', {
+                message_id: messageId,
+                session_id: 1,
+                tool_call_id: 'call-1',
+                tool_id: 'read_file',
+                input: change === 'input' ? '{"changed":true}' : '{}',
+                output: change === 'result' ? 'Edited output' : 'Original output',
+                status: 'success',
+            });
+            if (change === 'text')
+                await syncOutputParts(messageId, [
+                    { message_id: messageId, type: 'text', content: 'Edited text', sort_order: 0 },
+                ]);
+            if (change === 'missing')
+                database
+                    .prepare("DELETE FROM message_parts WHERE message_id=? AND type='tool_call'")
+                    .run(messageId);
+            const source = await first.getContextMessageSource(messageId, {
+                outputParts: [{ type: 'text', content: 'Checking' }],
+                results: [
+                    {
+                        toolCall: { id: 'call-1', name: 'builtin__read_file', arguments: '{}' },
+                        input: '{}',
+                        result: 'Original output',
+                        isError: false,
+                        attachments:
+                            change === 'attachment'
+                                ? [
+                                      {
+                                          id: 'file',
+                                          attachmentId: 999,
+                                          type: 'file',
+                                          path: '/test',
+                                          originPath: '/test',
+                                          name: 'test',
+                                      },
+                                  ]
+                                : [],
+                    },
+                ],
+            });
+            if (change === 'unchanged') expect(source).toMatchObject({ id: messageId });
+            else expect(source).toBeUndefined();
+        }
+    );
+
+    it('user edits covered history during a running request and cannot continue with its invalidated summary', async () => {
+        const first = projector();
+        await first.recordTurnStart(checkpoint());
+        const prepared = await new ContextWindow().prepare(prepare(first, await request(true)));
+        const summary = prepared.messages.find((message) => message.contextSummary)!;
+        await first.validateContextSummary(summary);
+        await syncOutputParts(2, [
+            { message_id: 2, type: 'text', content: 'Correction', sort_order: 0 },
+        ]);
+        await expect(first.validateContextSummary(summary)).rejects.toMatchObject({
+            code: 'CONTEXT_COMPACTION_FAILED',
+        });
+    });
+
+    it('user continues a long tool conversation and updates the previous summary while keeping complete exchanges', async () => {
+        const first = projector();
+        await first.recordTurnStart(checkpoint());
+        await new ContextWindow().prepare(prepare(first, await request(true)));
+        for (let i = 0; i < 14; i++) {
+            const row = database
+                .prepare(
+                    "INSERT INTO messages(session_id, role) VALUES (1, 'tool_call') RETURNING id"
+                )
+                .get()!;
+            await createToolPart('builtin', {
+                message_id: Number(row.id),
+                session_id: 1,
+                tool_call_id: `new-${i}`,
+                tool_id: 'read_file',
+                input: '{}',
+                output: 'New evidence '.repeat(350),
+                status: 'success',
+            });
+        }
+        const next = projector();
+        await next.recordTurnStart(checkpoint());
+        const observed: AiRequestOptions[] = [];
+        const result = await new ContextWindow().prepare({
+            ...prepare(next, await request(true)),
+            requireDurableBoundary: true,
+            summarize: async (input) => {
+                observed.push(input);
+                return { text: `${summaryText} New tool evidence verified.`, finishReason: 'stop' };
+            },
+        });
+        expect(JSON.stringify(observed[0]?.messages)).toContain(summaryText);
+        expect(result.messages.filter((message) => message.contextSummary)).toHaveLength(1);
+        const callIds = result.messages.flatMap(
+            (message) => message.tool_calls?.map((call) => call.id) ?? []
+        );
+        expect(
+            result.messages
+                .filter((message) => message.role === 'tool')
+                .map((message) => message.tool_call_id)
+        ).toEqual(callIds);
+        expect(await next.loadContextSummary()).toMatchObject({
+            version: 2,
+            text: `${summaryText} New tool evidence verified.`,
+        });
+    });
 
     it('user reopens after completion and keeps one divider in its original place with a reusable summary', async () => {
         const first = projector();
@@ -215,50 +415,56 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         ).toMatchObject({ input_tokens: 500, llm_call_count: 1 });
     });
 
-    it('user retains history without a completed divider when storage fails and can try again', async () => {
-        const first = projector();
-        await first.recordTurnStart(checkpoint());
-        const before = await request();
-        database.exec(`CREATE TEMP TRIGGER reject_compaction BEFORE INSERT ON message_parts
+    it.each([false, true])(
+        'user retains history without a completed divider when storage fails and can try again with durable=%s',
+        async (durable) => {
+            const first = projector();
+            await first.recordTurnStart(checkpoint());
+            const before = await request(durable);
+            database.exec(`CREATE TEMP TRIGGER reject_compaction BEFORE INSERT ON message_parts
             WHEN NEW.type = 'context_compaction' BEGIN SELECT RAISE(ABORT, 'disk full'); END`);
-        const states: string[] = [];
-        await expect(
-            new ContextWindow().prepare({
-                ...prepare(first, before),
-                onCompaction: (event) => states.push(event.state),
-            })
-        ).rejects.toThrow();
-        expect(states).toEqual(['compacting', 'failed']);
-        expect((await request()).messages).toEqual(before.messages);
-        expect(await findMessagesBySessionId(1)).toHaveLength(25);
-        expect(
-            database
-                .prepare(
-                    "SELECT count(*) AS count FROM message_parts WHERE type = 'context_compaction'"
-                )
-                .get()
-        ).toMatchObject({ count: 0 });
-        database.exec('DROP TRIGGER reject_compaction');
-        await new ContextWindow().prepare(prepare(first, before));
-        expect(await projector().loadContextSummary()).toMatchObject({ text: summaryText });
-    });
+            const states: string[] = [];
+            await expect(
+                new ContextWindow().prepare({
+                    ...prepare(first, before),
+                    onCompaction: (event) => states.push(event.state),
+                })
+            ).rejects.toThrow();
+            expect(states).toEqual(['compacting', 'failed']);
+            expect((await request(durable)).messages).toEqual(before.messages);
+            expect(await findMessagesBySessionId(1)).toHaveLength(25);
+            expect(
+                database
+                    .prepare(
+                        "SELECT count(*) AS count FROM message_parts WHERE type = 'context_compaction'"
+                    )
+                    .get()
+            ).toMatchObject({ count: 0 });
+            database.exec('DROP TRIGGER reject_compaction');
+            await new ContextWindow().prepare(prepare(first, before));
+            expect(await projector().loadContextSummary()).toMatchObject({ text: summaryText });
+        }
+    );
 
-    it('user cancels summary generation without storing a partial checkpoint', async () => {
-        const first = projector();
-        await first.recordTurnStart(checkpoint());
-        const controller = new AbortController();
-        await expect(
-            new ContextWindow().prepare({
-                ...prepare(first, { ...(await request()), signal: controller.signal }),
-                summarize: async () => {
-                    controller.abort();
-                    return { text: summaryText, finishReason: 'stop' };
-                },
-            })
-        ).rejects.toMatchObject({ code: 'REQUEST_CANCELLED' });
-        expect(await projector().loadContextSummary()).toBeUndefined();
-        expect(await findMessagesBySessionId(1)).toHaveLength(25);
-    });
+    it.each([false, true])(
+        'user cancels summary generation without storing a partial checkpoint with durable=%s',
+        async (durable) => {
+            const first = projector();
+            await first.recordTurnStart(checkpoint());
+            const controller = new AbortController();
+            await expect(
+                new ContextWindow().prepare({
+                    ...prepare(first, { ...(await request(durable)), signal: controller.signal }),
+                    summarize: async () => {
+                        controller.abort();
+                        return { text: summaryText, finishReason: 'stop' };
+                    },
+                })
+            ).rejects.toMatchObject({ code: 'REQUEST_CANCELLED' });
+            expect(await projector().loadContextSummary()).toBeUndefined();
+            expect(await findMessagesBySessionId(1)).toHaveLength(25);
+        }
+    );
 
     it('user retries a failed checkpoint read in the same session and recovers the saved summary', async () => {
         const first = projector();
@@ -362,6 +568,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
                 '{\n "lines": 10, "path": "src/index.ts"\n}';
             const initial = await new ContextWindow().prepare(prepare(first, live));
             const saved = await first.loadContextSummary();
+            if (saved?.version !== 1) throw new Error('Expected a legacy checkpoint');
             expect(saved!.covered).toBeGreaterThan(live.messages.indexOf(toolResult));
             const restored = await new ContextWindow().prepare({
                 ...prepare(projector(), await request()),
@@ -375,9 +582,14 @@ describe('given a long conversation in the shipped SQLite schema', () => {
         }
     );
 
-    it.each([false, true])(
-        'user reopens after a process exits with commit=%s and sees only fully committed checkpoints',
-        async (commit) => {
+    it.each([
+        { commit: false, durable: false },
+        { commit: true, durable: false },
+        { commit: false, durable: true },
+        { commit: true, durable: true },
+    ])(
+        'user reopens after a process exits with commit=$commit and durable=$durable and sees only fully committed checkpoints',
+        async ({ commit, durable }) => {
             const first = projector();
             await first.recordTurnStart(checkpoint());
             const directory = mkdtempSync(join(tmpdir(), 'touchai-context-crash-'));
@@ -386,7 +598,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
             try {
                 database.prepare('VACUUM INTO ?').run(path);
                 const callStart = getTauriInvokeCalls().length;
-                await new ContextWindow().prepare(prepare(first, await request()));
+                await new ContextWindow().prepare(prepare(first, await request(durable)));
                 const statements = getTauriInvokeCalls()
                     .slice(callStart)
                     .filter((item) => item.cmd === 'database_tx_query')
@@ -435,7 +647,7 @@ describe('given a long conversation in the shipped SQLite schema', () => {
                 if (commit) {
                     expect(saved?.text).toBe(summaryText);
                     const result = await new ContextWindow().prepare({
-                        ...prepare(projector(), await request()),
+                        ...prepare(projector(), await request(durable)),
                         summarize: async () => {
                             throw new Error('Committed checkpoint must survive process exit');
                         },
