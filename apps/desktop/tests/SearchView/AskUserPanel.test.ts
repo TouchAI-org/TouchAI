@@ -357,3 +357,28 @@ describe('when the user is asked several questions in a row', () => {
         wrapper.unmount();
     });
 });
+
+describe('when a question request arrives without any question', () => {
+    beforeEach(() => {
+        setActivePinia(createPinia());
+        setLocale('en-US');
+        stubLayoutObservers();
+    });
+
+    afterEach(() => {
+        document.body.innerHTML = '';
+    });
+
+    it('user does not see an empty bordered panel above the input', async () => {
+        const store = useAskUserStore();
+        store.enqueueQuestion([], vi.fn());
+
+        const wrapper = mount(AskUserPanel);
+        await settle();
+
+        expect(wrapper.find('.ask-user-questions-root').exists()).toBe(false);
+        expect(wrapper.text()).toBe('');
+
+        wrapper.unmount();
+    });
+});

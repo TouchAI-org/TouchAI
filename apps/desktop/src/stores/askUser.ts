@@ -134,6 +134,13 @@ export const useAskUserStore = defineStore('askUser', () => {
         resolve: QuestionResolver,
         opts: { sourceCallId?: string } = {}
     ): string {
+        // 没有任何问题就没有可展示的内容。入队会得到一个带边框的空白面板
+        // 挡在输入框上方，且会一直挂在那里；直接当成取消，让调用方继续跑。
+        if (questions.length === 0) {
+            resolve(null);
+            return '';
+        }
+
         const id = crypto.randomUUID();
         queue.value.push({
             id,

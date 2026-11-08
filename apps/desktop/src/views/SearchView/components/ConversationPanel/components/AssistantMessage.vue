@@ -102,9 +102,10 @@
     import ActionButton from '@components/ActionButton.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
     import StatusDivider from '@components/ui/status-divider/StatusDivider.vue';
+    import { useMotion } from '@composables/useMotion';
     import { notify } from '@services/NotificationService';
     import { log } from '@services/ObservabilityService';
-    import { computed, onUnmounted, provide, ref, watch } from 'vue';
+    import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 
     import { type MessageKey, t, tt } from '@/i18n';
     import { runResultAction } from '@/services/AnalyticsService/productInteractions';
@@ -199,13 +200,21 @@
             (part) => part.type === 'context_compaction' && part.state === 'compacting'
         )
     );
+    const { windowVisible } = useMotion();
 
     let tipTimer: ReturnType<typeof setInterval> | null = null;
     let tipDelayTimer: ReturnType<typeof setTimeout> | null = null;
 
+    function isDocumentHidden(): boolean {
+        return !windowVisible.value || document.visibilityState === 'hidden';
+    }
+
     function startTipRotation() {
+        stopTipRotation();
         const len = TIPS.length;
         if (len <= 1) return;
+        // 窗口隐藏时不轮播：用户看不到 tip，定时器只会白占主线程。
+        if (isDocumentHidden()) return;
         // 20 秒延迟后才显示 tip
         tipDelayTimer = setTimeout(() => {
             tipVisible.value = true;
@@ -229,6 +238,21 @@
         lastTipIndex.value = currentTipIndex.value;
     }
 
+    function handleVisibilityChange() {
+        if (!props.message.isStreaming || isCompacting.value) {
+            return;
+        }
+
+        if (isDocumentHidden()) {
+            stopTipRotation();
+            return;
+        }
+
+        startTipRotation();
+    }
+
+    watch(windowVisible, handleVisibilityChange);
+
     // 跟随 streaming 状态启停轮播（组件生命周期可能跨多次请求）
     watch(
         () => props.message.isStreaming && !isCompacting.value,
@@ -242,7 +266,12 @@
         { immediate: true }
     );
 
+    onMounted(() => {
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+    });
+
     onUnmounted(() => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
         stopTipRotation();
     });
 

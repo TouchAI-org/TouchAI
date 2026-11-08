@@ -7,7 +7,11 @@ vi.mock('markstream-vue', async (importOriginal) => {
     return {
         ...original,
         parseMarkdownToStructure: vi.fn(original.parseMarkdownToStructure),
-        default: { name: 'MarkdownRender', props: ['nodes'], template: '<div />' },
+        default: {
+            name: 'MarkdownRender',
+            props: ['nodes', 'final', 'renderCodeBlocksAsPre'],
+            template: '<div />',
+        },
     };
 });
 vi.mock('@services/NotificationService', () => ({ notify: vi.fn() }));
@@ -16,8 +20,8 @@ vi.mock('@/services/ClipboardService', () => ({ clipboardService: { writeText: v
 import MarkdownContent from '@components/MarkdownContent.vue';
 
 const mathSource =
-    '用两个 `$$` 包裹：\n\n' +
-    String.raw`**示例1：高斯积分**
+    '用两�?`$$` 包裹：\n\n' +
+    String.raw`**示例1：高斯积�?*
 
 $$
 \int_{-\infty}^{+\infty} e^{-x^2}\,dx=\sqrt{\pi}
@@ -35,7 +39,7 @@ $$
 f(x)=\sum_{n=0}^{\infty} x^n
 $$
 
-**示例4：矩阵**
+**示例4：矩�?*
 
 $$
 \begin{pmatrix}a&b\\c&d\end{pmatrix}
@@ -48,7 +52,7 @@ function mathBlocks(nodes: ParsedNode[]) {
     );
 }
 
-describe('user reads an answer while it streams', () => {
+describe('MarkdownContent with the real streaming parser', () => {
     it.each([
         ['ordinary prose', 'auto'],
         ['Inline math $x^2$', 'auto'],
@@ -56,13 +60,17 @@ describe('user reads an answer while it streams', () => {
         ['```sh\necho $$ and \\[\n```', 'auto'],
         ['Inline code `$$ \\[`', 'auto'],
         [String.raw`\` literal $$ \``, false],
-        ['```sh\necho $$\n```\n\n$$\nx^2\n$$', false],
-        ['Inline code `$$`, then \\[\nx^2\n\\]', false],
-        ['$$\nx^2\n$$', false],
-        ['\\[\nx^2\n\\]', false],
-    ] as const)('user selects the parser strategy for %s', (content, streamParse) => {
+        ['```sh\necho $$\n```\n\n$$\nx^2\n$$', 'auto'],
+        ['Inline code `$$`, then \\[\nx^2\n\\]', 'auto'],
+        ['$$\nx^2\n$$', 'auto'],
+        ['\\[\nx^2\n\\]', 'auto'],
+        // 未闭合公式必须回退全量解析，否则增量 parser 会吞掉后续标题。
+        ['$$\nx^2', false],
+    ] as const)('selects the parser strategy for %s', (content, streamParse) => {
         vi.mocked(parseMarkdownToStructure).mockClear();
-        const wrapper = mount(MarkdownContent, { props: { content, final: false } });
+        const wrapper = mount(MarkdownContent, {
+            props: { content, final: false, parseCoalesceMs: 0 },
+        });
         try {
             expect(parseMarkdownToStructure).toHaveBeenLastCalledWith(content, expect.anything(), {
                 final: false,
@@ -73,8 +81,10 @@ describe('user reads an answer while it streams', () => {
         }
     });
 
-    it('user keeps headings out of math blocks across split closing delimiters', async () => {
-        const wrapper = mount(MarkdownContent, { props: { content: '', final: false } });
+    it('keeps headings out of math blocks across split closing delimiters', async () => {
+        const wrapper = mount(MarkdownContent, {
+            props: { content: '', final: false, parseCoalesceMs: 0 },
+        });
         const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
         try {
             for (const end of [1, 5, 16, 46, 73, 115, 180, mathSource.length]) {
@@ -94,8 +104,10 @@ describe('user reads an answer while it streams', () => {
         }
     });
 
-    it('user keeps math boundaries stable for character-sized and varied chunks', async () => {
-        const wrapper = mount(MarkdownContent, { props: { content: '', final: false } });
+    it('keeps math boundaries stable for character-sized and varied chunks', async () => {
+        const wrapper = mount(MarkdownContent, {
+            props: { content: '', final: false, parseCoalesceMs: 0 },
+        });
         const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
         try {
             for (let seed = 0; seed < 20; seed += 1) {
@@ -117,11 +129,13 @@ describe('user reads an answer while it streams', () => {
         }
     });
 
-    it('user preserves bracket math, inline math, shell variables, and fenced code', async () => {
+    it('preserves bracket math, inline math, shell variables, and fenced code', async () => {
         const content =
             'Inline math $x^2$, path $HOME/project.\n\n\\[\n\\frac{1}{2}\n\\]\n\n## After math\n\n' +
             '```sh\necho $HOME\n```';
-        const wrapper = mount(MarkdownContent, { props: { content, final: false } });
+        const wrapper = mount(MarkdownContent, {
+            props: { content, final: false, parseCoalesceMs: 0 },
+        });
         const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
         try {
             const nodes: ParsedNode[] = renderer.props('nodes');
@@ -138,7 +152,7 @@ describe('user reads an answer while it streams', () => {
         }
     });
 
-    it('user keeps code delimiters while detecting formulas later in the same message', () => {
+    it('keeps code delimiters while detecting formulas later in the same message', () => {
         const content =
             '```sh\necho $$\necho \\[\n```\n\n' +
             'Inline markers `$$ \\[` are code.\n\n' +
@@ -146,12 +160,14 @@ describe('user reads an answer while it streams', () => {
             '\\[\n\\frac{1}{2}\n\\]\n\n' +
             '## After formulas\n\n' +
             '```sh\necho $$\n```';
-        const wrapper = mount(MarkdownContent, { props: { content, final: false } });
+        const wrapper = mount(MarkdownContent, {
+            props: { content, final: false, parseCoalesceMs: 0 },
+        });
         const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
         try {
             expect(parseMarkdownToStructure).toHaveBeenLastCalledWith(content, expect.anything(), {
                 final: false,
-                streamParse: false,
+                streamParse: 'auto',
             });
             const nodes = renderer.props('nodes') as ParsedNode[];
             expect(mathBlocks(nodes)).toHaveLength(2);
@@ -169,9 +185,9 @@ describe('user reads an answer while it streams', () => {
         }
     });
 
-    it('user keeps incomplete formulas loading and completes them without waiting for final', async () => {
+    it('keeps incomplete formulas loading and completes them without waiting for final', async () => {
         const wrapper = mount(MarkdownContent, {
-            props: { content: '$$\n\\frac{1}', final: false },
+            props: { content: '$$\n\\frac{1}', final: false, parseCoalesceMs: 0 },
         });
         const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
         try {
@@ -190,11 +206,11 @@ describe('user reads an answer while it streams', () => {
         }
     });
 
-    it('user preserves streaming code and source newlines after a math block', async () => {
+    it('preserves streaming code and source newlines after a math block', async () => {
         const prefix = '$$\nx^2\n$$\n\n';
         const code = 'const value = "' + 'x'.repeat(300) + '";\n\nconsole.log(value);';
         const wrapper = mount(MarkdownContent, {
-            props: { content: prefix + '```js\n' + code, final: false },
+            props: { content: prefix + '```js\n' + code, final: false, parseCoalesceMs: 0 },
         });
         const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
         try {
@@ -208,6 +224,51 @@ describe('user reads an answer while it streams', () => {
             expect(
                 renderer.props('nodes').find((node: ParsedNode) => node.type === 'code_block')
             ).toMatchObject({ code: code + '\n', loading: false });
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it('coalesces non-final content updates into one parse per window', async () => {
+        vi.useFakeTimers();
+        vi.mocked(parseMarkdownToStructure).mockClear();
+        try {
+            const wrapper = mount(MarkdownContent, {
+                props: { content: 'first', final: false },
+            });
+            // 首次渲染立即解析，用户不必等合并窗口。
+            expect(parseMarkdownToStructure).toHaveBeenCalledTimes(1);
+
+            for (let index = 0; index < 5; index += 1) {
+                await wrapper.setProps({ content: `first ${'x'.repeat(index + 1)}` });
+            }
+            expect(parseMarkdownToStructure).toHaveBeenCalledTimes(1);
+
+            await vi.advanceTimersByTimeAsync(80);
+            expect(parseMarkdownToStructure).toHaveBeenCalledTimes(2);
+
+            await wrapper.setProps({ content: 'first final', final: true });
+            // 终态必须立即解析，不能被合并窗口延后。
+            expect(parseMarkdownToStructure).toHaveBeenCalledTimes(3);
+
+            wrapper.unmount();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('renders long streaming code blocks as plain pre until the message is final', async () => {
+        const longCode = 'const value = 1;'.repeat(500);
+        const wrapper = mount(MarkdownContent, {
+            props: { content: '```ts\n' + longCode, final: false, parseCoalesceMs: 0 },
+        });
+        const renderer = wrapper.findComponent({ name: 'MarkdownRender' });
+
+        try {
+            expect(renderer.props('renderCodeBlocksAsPre')).toBe(true);
+
+            await wrapper.setProps({ content: '```ts\n' + longCode + '\n```', final: true });
+            expect(renderer.props('renderCodeBlocksAsPre')).toBe(false);
         } finally {
             wrapper.unmount();
         }

@@ -5,6 +5,10 @@
 <template>
     <div
         class="conversation-surface relative h-full min-h-0 w-full bg-background-primary font-serif text-foreground"
+        @wheel.capture.passive="cancelNavigation"
+        @touchstart.capture.passive="cancelNavigation"
+        @pointerdown.capture="cancelNavigation"
+        @keydown.capture="handleNavigationKeydown"
     >
         <ConversationToolbar
             ref="conversationToolbar"
@@ -38,11 +42,15 @@
             class="h-full"
             viewport-class="bg-background-primary px-10 pt-22 pb-5"
             content-class="flow-root min-h-0"
+            :item-scroll-target="scrollToMessageById"
+            :item-ranges="railItemRange"
+            :rail-inset-top="80"
+            @follow-change="handleFollowChange"
             @state-change="handleScrollerStateChange"
             @content-resize="emit('contentResize', $event)"
         >
             <div
-                v-for="message in messages"
+                v-for="message in messagesWithoutVirtualization"
                 :key="message.id"
                 :data-message-id="message.id"
                 :data-message-role="message.role"
@@ -50,6 +58,27 @@
             >
                 <MessageItem :message="message" @regenerate="handleRegenerateMessage" />
             </div>
+            <!-- virtua binds scrollRef on mount; wait for the actual scrolling viewport. -->
+            <Virtualizer
+                v-if="virtualizeMessages && scrollViewport"
+                :key="messages[0]?.id"
+                ref="messageVirtualizer"
+                :data="messages"
+                :scroll-ref="scrollViewport"
+                :buffer-size="Math.max(200, viewportHeight)"
+                :keep-mounted="navigationMountedIndexes"
+                @resize="scheduleNavigationMeasure"
+            >
+                <template #default="{ item }">
+                    <div
+                        :data-message-id="item.id"
+                        :data-message-role="item.role"
+                        :data-message-scroller-item="item.id"
+                    >
+                        <MessageItem :message="item" @regenerate="handleRegenerateMessage" />
+                    </div>
+                </template>
+            </Virtualizer>
         </MessageScroller>
 
         <Transition name="t-fade">
@@ -72,13 +101,16 @@
 
 <script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
+    import { MARKDOWN_SCROLL_ROOT_KEY } from '@components/markdownScrollRoot';
     import { storeToRefs } from 'pinia';
-    import { computed, nextTick, onMounted, ref, watch } from 'vue';
+    import { Virtualizer, type VirtualizerHandle } from 'virtua/vue';
+    import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue';
 
     import {
         MessageScroller,
         type MessageScrollerHandle,
         type MessageScrollerItem,
+        type MessageScrollerScrollOptions,
         type MessageScrollerState,
     } from '@/components/ui/message-scroller';
     import { t } from '@/i18n';
@@ -87,6 +119,11 @@
 
     import ConversationToolbar from './components/ConversationToolbar.vue';
     import MessageItem from './components/MessageItem.vue';
+    import {
+        type NavigationTarget,
+        resolveDesiredOffset,
+        resolveNavigationCorrection,
+    } from './navigationAnchor';
 
     defineOptions({
         name: 'SearchConversationPanel',
@@ -122,6 +159,22 @@
     }>();
 
     const conversationScroller = ref<MessageScrollerHandle | null>(null);
+    const messageVirtualizer = ref<VirtualizerHandle | null>(null);
+    const scrollViewport = ref<HTMLElement | null>(null);
+    const viewportHeight = ref(0);
+    provide(MARKDOWN_SCROLL_ROOT_KEY, () => scrollViewport.value);
+    const virtualizeMessages = computed(() => props.messages.length >= 12);
+    const messagesWithoutVirtualization = computed(() =>
+        virtualizeMessages.value ? [] : props.messages
+    );
+    const navigationTarget = ref<NavigationTarget | null>(null);
+    const navigationMountedIndexes = computed(() => {
+        const index = props.messages.findIndex(
+            (message) => message.id === navigationTarget.value?.id
+        );
+        return index < 0 ? [] : [index];
+    });
+    let navigationMeasurePending = false;
     const conversationToolbar = ref<{
         getHistoryAnchor: () => HTMLElement | null;
     } | null>(null);
@@ -175,16 +228,45 @@
         }));
     });
 
+    const turnIndexes = computed(() => {
+        const turns = new Map<string, { first: number; last: number }>();
+        let turn: { first: number; last: number } | undefined;
+        props.messages.forEach((message, index) => {
+            if (message.role === 'user') {
+                turn = { first: index, last: index };
+                turns.set(message.id, turn);
+            } else if (turn) {
+                turn.last = index;
+            }
+        });
+        return turns;
+    });
+
+    function railItemRange(itemId: string): { top: number; bottom: number } | null {
+        const turn = turnIndexes.value.get(itemId);
+        const virtualizer = messageVirtualizer.value;
+        if (!turn || !virtualizer) return null;
+        // Convert virtual list coordinates to the scrolling viewport's coordinates.
+        const base = (scrollViewport.value?.scrollTop ?? 0) - virtualizer.scrollOffset;
+        return {
+            top: base + virtualizer.getItemOffset(turn.first),
+            bottom:
+                base + virtualizer.getItemOffset(turn.last) + virtualizer.getItemSize(turn.last),
+        };
+    }
+
     function focus() {
         conversationScroller.value?.focus();
     }
 
     function revealLatestContent() {
+        cancelNavigation();
         conversationScroller.value?.scrollToEnd('auto');
         showScrollToBottom.value = false;
     }
 
     function scrollByDelta(deltaY: number) {
+        cancelNavigation();
         conversationScroller.value?.scrollBy(deltaY);
     }
 
@@ -214,8 +296,76 @@
     }
 
     function handleScrollerStateChange(state: MessageScrollerState) {
+        viewportHeight.value = state.clientHeight;
         showScrollToBottom.value = state.overflowing && !state.atEnd;
         emit('latestContentVisibilityChange', state.atEnd);
+    }
+
+    function handleFollowChange(following: boolean) {
+        if (following) cancelNavigation();
+    }
+
+    function scrollToMessageById(
+        messageId: string,
+        options: MessageScrollerScrollOptions = {}
+    ): boolean {
+        if (!messageVirtualizer.value || !props.messages.some(({ id }) => id === messageId)) {
+            return false;
+        }
+        conversationScroller.value?.setFollowing(false);
+        // Mount the target first. scrollToIndex's own resize correction would race
+        // the virtualizer's relative compensation when neighbouring rows are measured.
+        navigationTarget.value = {
+            id: messageId,
+            align: options.align ?? 'center',
+            gap: options.offset ?? 0,
+        };
+        scheduleNavigationMeasure();
+        return true;
+    }
+
+    function scheduleNavigationMeasure(): void {
+        if (!navigationTarget.value || navigationMeasurePending) return;
+        navigationMeasurePending = true;
+        // Align after virtua commits measured offsets and scroll compensation.
+        void nextTick(() => {
+            navigationMeasurePending = false;
+            const target = navigationTarget.value;
+            const viewport = scrollViewport.value;
+            if (!target || !viewport) return;
+            const element = viewport.querySelector<HTMLElement>(
+                `[data-message-id="${CSS.escape(target.id)}"]`
+            );
+            if (!element) return;
+            const rect = element.getBoundingClientRect();
+            const desiredOffset = resolveDesiredOffset(
+                target.align,
+                target.gap,
+                rect.height,
+                viewport.clientHeight
+            );
+            const correction = resolveNavigationCorrection(
+                rect.top - viewport.getBoundingClientRect().top,
+                desiredOffset
+            );
+            const top = Math.min(
+                Math.max(0, viewport.scrollHeight - viewport.clientHeight),
+                Math.max(0, viewport.scrollTop + correction)
+            );
+            if (Math.abs(top - viewport.scrollTop) > 1) viewport.scrollTop = top;
+        });
+    }
+
+    function cancelNavigation(): void {
+        navigationTarget.value = null;
+    }
+
+    function handleNavigationKeydown(event: KeyboardEvent): void {
+        if (
+            ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)
+        ) {
+            cancelNavigation();
+        }
     }
 
     function refreshScrollToBottomVisibility() {
@@ -234,9 +384,12 @@
     }
 
     function scrollToBottom() {
+        cancelNavigation();
         conversationScroller.value?.scrollToEnd('smooth');
         showScrollToBottom.value = false;
     }
+
+    watch(() => props.messages[0]?.id, cancelNavigation);
 
     watch(
         () => props.messages.length,
@@ -259,8 +412,7 @@
 
             if (outputScrollBehavior.value === 'follow_output') {
                 if (latestAppendedUserMessage) {
-                    conversationScroller.value?.scrollToEnd('auto');
-                    showScrollToBottom.value = false;
+                    revealLatestContent();
                 }
                 return;
             }
@@ -278,7 +430,7 @@
         async (mode) => {
             await nextTick();
             if (mode === 'follow_output') {
-                conversationScroller.value?.scrollToEnd('auto');
+                revealLatestContent();
                 return;
             }
             refreshScrollToBottomVisibility();
@@ -287,6 +439,7 @@
     );
 
     onMounted(async () => {
+        scrollViewport.value = conversationScroller.value?.getViewportElement() ?? null;
         await settingsStore.initialize();
         await nextTick();
         if (outputScrollBehavior.value === 'follow_output') {
@@ -295,6 +448,8 @@
         }
         refreshScrollToBottomVisibility();
     });
+
+    onBeforeUnmount(cancelNavigation);
 </script>
 
 <style scoped>

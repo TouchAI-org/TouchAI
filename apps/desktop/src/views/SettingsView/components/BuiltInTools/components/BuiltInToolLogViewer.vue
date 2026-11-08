@@ -16,6 +16,7 @@
     import {
         type BuiltInToolEntity,
         type BuiltInToolLogEntity,
+        type BuiltInToolLogSummary,
         loadBuiltInToolQueries,
     } from '../types';
 
@@ -25,7 +26,9 @@
 
     const props = defineProps<Props>();
 
-    const logs = ref<BuiltInToolLogEntity[]>([]);
+    // 列表只拿摘要；完整 input/output 在展开时按 id 拉取。
+    const logs = ref<BuiltInToolLogSummary[]>([]);
+    const details = ref<Record<number, BuiltInToolLogEntity>>({});
     const loading = ref(true);
     const loadingMore = ref(false);
     const hasMore = ref(false);
@@ -41,14 +44,14 @@
     } = useListFilter({
         items: logs,
         getStatus: (log) => log.status,
-        getSearchableText: (log) => [log.tool_id, log.input, log.output, log.error_message],
+        getSearchableText: (log) => [log.tool_name, log.input_preview],
     });
 
     async function loadLogs() {
         loading.value = true;
         try {
             const queries = await loadBuiltInToolQueries();
-            logs.value = await queries.findBuiltInToolLogsByToolId(props.tool.tool_id, {
+            logs.value = await queries.findBuiltInToolLogSummariesByToolId(props.tool.tool_id, {
                 limit: PAGE_SIZE,
             });
             hasMore.value = logs.value.length === PAGE_SIZE;
@@ -65,7 +68,7 @@
         loadingMore.value = true;
         try {
             const queries = await loadBuiltInToolQueries();
-            const moreLogs = await queries.findBuiltInToolLogsByToolId(props.tool.tool_id, {
+            const moreLogs = await queries.findBuiltInToolLogSummariesByToolId(props.tool.tool_id, {
                 limit: PAGE_SIZE,
                 offset: logs.value.length,
             });
@@ -78,6 +81,22 @@
         }
     }
 
+    async function ensureDetail(logId: number) {
+        if (details.value[logId]) {
+            return;
+        }
+
+        try {
+            const queries = await loadBuiltInToolQueries();
+            const detail = await queries.findBuiltInToolLogById(logId);
+            if (detail) {
+                details.value = { ...details.value, [logId]: detail };
+            }
+        } catch (error) {
+            appLog.error('[BuiltInToolLogViewer] Failed to load log detail:', error);
+        }
+    }
+
     function toggleExpand(logId: number) {
         if (expandedLogs.value.has(logId)) {
             expandedLogs.value.delete(logId);
@@ -85,6 +104,7 @@
         }
 
         expandedLogs.value.add(logId);
+        void ensureDetail(logId);
     }
 
     onMounted(() => {
@@ -178,9 +198,9 @@
                     :status="log.status"
                     :created-at="log.created_at"
                     :duration-ms="log.duration_ms"
-                    :input="log.input"
-                    :output="log.output"
-                    :error="log.error_message"
+                    :input="details[log.id]?.input ?? log.input_preview ?? ''"
+                    :output="details[log.id]?.output ?? null"
+                    :error="details[log.id]?.error_message ?? null"
                     :is-bash="props.tool.tool_id === 'bash'"
                     :expanded="expandedLogs.has(log.id)"
                     @toggle="toggleExpand(log.id)"

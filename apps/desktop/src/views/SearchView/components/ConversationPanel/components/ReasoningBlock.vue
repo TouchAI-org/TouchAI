@@ -2,9 +2,12 @@
 
 <script setup lang="ts">
     import MarkdownContent from '@components/MarkdownContent.vue';
+    import { useMotion } from '@composables/useMotion';
     import { computed, nextTick, onMounted, onUnmounted, ref, useId, watch } from 'vue';
 
     import { t } from '@/i18n';
+
+    import { buildReasoningPreview } from './reasoningPreview';
 
     const props = defineProps<{
         content: string;
@@ -14,7 +17,8 @@
     }>();
 
     const contentId = useId();
-    const preview = computed(() => props.content.replace(/\s+/g, ' ').trim());
+    const { windowVisible } = useMotion();
+    const preview = computed(() => buildReasoningPreview(props.content));
     const reasoningContentRef = ref<HTMLElement | null>(null);
     const isExpanded = ref(props.isStreaming);
     const now = ref(Date.now());
@@ -48,6 +52,11 @@
         }
     }
 
+    /** 窗口隐藏时不需要逐秒刷新展示文本；恢复可见时按时间戳重算即可。 */
+    function isDocumentHidden(): boolean {
+        return !windowVisible.value || document.visibilityState === 'hidden';
+    }
+
     function updateElapsed() {
         now.value = Date.now();
     }
@@ -55,10 +64,25 @@
     function startElapsedTimer() {
         stopElapsedTimer();
         updateElapsed();
-        if (props.isStreaming) {
+        if (props.isStreaming && !isDocumentHidden()) {
             elapsedTimer = setInterval(updateElapsed, 1000);
         }
     }
+
+    function handleVisibilityChange() {
+        if (!props.isStreaming) {
+            return;
+        }
+
+        if (isDocumentHidden()) {
+            stopElapsedTimer();
+            return;
+        }
+
+        startElapsedTimer();
+    }
+
+    watch(windowVisible, handleVisibilityChange);
 
     function isScrolledToBottom(element: HTMLElement): boolean {
         return element.scrollHeight - element.scrollTop - element.clientHeight <= 8;
@@ -141,10 +165,12 @@
     );
 
     onMounted(() => {
+        document.addEventListener('visibilitychange', handleVisibilityChange);
         void syncExpandedContent();
     });
 
     onUnmounted(() => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
         stopElapsedTimer();
     });
 </script>
@@ -198,6 +224,7 @@
                         @scroll="handleContentScroll"
                     >
                         <MarkdownContent
+                            v-if="isExpanded"
                             :content="content"
                             :final="!isStreaming"
                             variant="reasoning"

@@ -268,13 +268,9 @@ describe('when the app upgrades an existing database', () => {
         }
     });
 
-    /**
-     * The usage ledger landed while 0004 was still unreleased, so it lives in
-     * that migration rather than in a separate one. A released migration must
-     * never be edited, so this guards the journal against a released step moving.
-     */
+    // Keep the released prefix stable while allowing subsequent upgrades.
     it('user gets the released migrations applied in order', () => {
-        expect(journal.entries.map((entry) => entry.tag)).toEqual([
+        expect(journal.entries.slice(0, 5).map((entry) => entry.tag)).toEqual([
             '0000_lyrical_toad',
             '0001_silent_reasoning',
             '0002_quick_search_click_stats_unique',

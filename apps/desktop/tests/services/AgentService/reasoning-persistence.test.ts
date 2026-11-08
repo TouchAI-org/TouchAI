@@ -148,6 +148,25 @@ describe('reasoning and the answer are saved as they stream', () => {
         }
     );
 
+    it('skips redundant boundary writes when ordered parts are unchanged', async () => {
+        const projector = createProjector();
+        await projector.recordTurnStart(createCheckpoint());
+        const parts = [{ type: 'text' as const, content: 'Partial answer' }];
+        await projector.persistOutputProgress(parts);
+
+        queries.syncOutputParts.mockClear();
+        queries.refreshSessionMetadata.mockClear();
+
+        // 相同内容重复触发边界：不应再查询/写入 parts，也不应重算会话摘要。
+        await projector.persistOutputProgress([{ type: 'text', content: 'Partial answer' }]);
+        expect(queries.syncOutputParts).not.toHaveBeenCalled();
+        expect(queries.refreshSessionMetadata).not.toHaveBeenCalled();
+
+        await projector.persistOutputProgress([{ type: 'text', content: 'Partial answer v2' }]);
+        expect(queries.syncOutputParts).toHaveBeenCalledTimes(1);
+        expect(queries.refreshSessionMetadata).toHaveBeenCalledTimes(1);
+    });
+
     it('user sees ordered tool-call parts saved without a temporary snapshot', async () => {
         const projector = createProjector();
         await projector.recordTurnStart(createCheckpoint());

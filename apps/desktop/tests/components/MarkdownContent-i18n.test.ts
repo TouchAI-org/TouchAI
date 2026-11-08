@@ -126,6 +126,46 @@ describe('user reads a markdown answer', () => {
         await wrapper.setProps({ variant: 'reasoning' });
         expect(wrapper.findComponent(MarkdownRender).props('maxLiveNodes')).toBe(320);
     });
+    it('user keeps markdown bound to the conversation viewport when streaming finishes', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+        const { MARKDOWN_SCROLL_ROOT_KEY } = await import('@components/markdownScrollRoot');
+        const scrollRoot = document.createElement('div');
+
+        const wrapper = mount(MarkdownContent, {
+            props: { content: 'streaming body', final: false },
+            global: {
+                provide: {
+                    [MARKDOWN_SCROLL_ROOT_KEY as symbol]: () => scrollRoot,
+                },
+            },
+        });
+        const renderer = wrapper.findComponent(MarkdownRender);
+        const options = renderer.props('virtualScroll') as {
+            enabled: boolean;
+            scrollRoot: () => HTMLElement | null;
+        };
+
+        expect(options.enabled).toBe(true);
+        expect(options.scrollRoot()).toBe(scrollRoot);
+
+        await wrapper.setProps({ final: true });
+        expect(
+            (
+                wrapper.findComponent(MarkdownRender).props('virtualScroll') as typeof options
+            ).scrollRoot()
+        ).toBe(scrollRoot);
+    });
+
+    it('user sees standalone markdown without waiting for an outer scroll owner', async () => {
+        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
+        const wrapper = mount(MarkdownContent, {
+            props: { content: 'standalone body', final: false },
+        });
+        const renderer = wrapper.findComponent(MarkdownRender);
+
+        expect(renderer.props('virtualScroll')).toBeUndefined();
+        expect(renderer.props('viewportPriority')).toBe(false);
+    });
 
     it('user sees code copy controls in English after selecting the English locale', async () => {
         setLocale('en-US');

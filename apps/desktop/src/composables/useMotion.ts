@@ -17,6 +17,7 @@ import { useMotionPressure } from './useMotionPressure';
 
 interface MotionPolicy {
     reducedMotion: Readonly<Ref<boolean>>;
+    windowVisible: Readonly<Ref<boolean>>;
     duration: (milliseconds: number) => number;
     setWindowVisible: (visible: boolean) => void;
 }
@@ -60,6 +61,7 @@ export function provideMotionPreferences(
     const reducedMotion = computed(() => systemReduced.value || pressure.value);
     const policy: MotionPolicy = {
         reducedMotion,
+        windowVisible,
         duration: (milliseconds) =>
             resolveMotionDuration(milliseconds, speed.value, reducedMotion.value),
         setWindowVisible: (visible) => {
@@ -123,6 +125,7 @@ export function useMotion() {
     });
     return {
         reducedMotion,
+        windowVisible: policy?.windowVisible ?? ref(true),
         duration,
         transitions,
         setWindowVisible: (visible: boolean) => policy?.setWindowVisible(visible),

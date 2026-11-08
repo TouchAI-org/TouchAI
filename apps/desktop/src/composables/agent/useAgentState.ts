@@ -2,7 +2,7 @@
 
 import { computed, onUnmounted, ref } from 'vue';
 
-import { sessionTaskCenter, type SessionTaskSnapshot } from '@/services/AgentService';
+import { sessionTaskCenter, type SessionTaskViewSnapshot } from '@/services/AgentService';
 import type { SessionMessage } from '@/types/session';
 
 export interface UseAgentStateOptions {
@@ -58,16 +58,17 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
     const currentSessionId = ref<number | null>(null);
     const sessionHistory = ref<SessionMessage[]>([]);
     const attachedTaskId = ref<string | null>(null);
-    const taskStatus = ref<SessionTaskSnapshot['status'] | null>(null);
-    const currentModel = ref<SessionTaskSnapshot['currentModel']>(null);
-    const pendingToolApproval = ref<SessionTaskSnapshot['pendingToolApproval']>(null);
-    const pendingApprovalQueue = ref<SessionTaskSnapshot['pendingApprovals']>([]);
-    const pendingUserQuestion = ref<SessionTaskSnapshot['pendingUserQuestion']>(null);
+    const taskStatus = ref<SessionTaskViewSnapshot['status'] | null>(null);
+    const currentModel = ref<SessionTaskViewSnapshot['currentModel']>(null);
+    const pendingToolApproval = ref<SessionTaskViewSnapshot['pendingToolApproval']>(null);
+    const pendingApprovalQueue = ref<SessionTaskViewSnapshot['pendingApprovals']>([]);
+    const pendingUserQuestion = ref<SessionTaskViewSnapshot['pendingUserQuestion']>(null);
     const hasError = computed(() => error.value !== null);
     const hasResponse = computed(() => response.value.length > 0);
 
     let unsubscribeTask: (() => void) | null = null;
     let lastObservedModelSwitchCount = 0;
+
     let lastObservedTurnId: number | null = null;
     let lastDeliveredResponse = '';
 
@@ -93,7 +94,7 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
     /**
      * 将任务快照同步到页面状态。
      */
-    function applyTaskSnapshot(snapshot: SessionTaskSnapshot) {
+    function applyTaskSnapshot(snapshot: SessionTaskViewSnapshot) {
         attachedTaskId.value = snapshot.taskId;
         currentSessionId.value = snapshot.sessionId;
         sessionHistory.value = snapshot.sessionHistory;
@@ -167,7 +168,7 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
     /**
      * 挂接到指定任务并开始接收快照。
      */
-    function attachTaskView(taskId: string, initialSnapshot?: SessionTaskSnapshot) {
+    function attachTaskView(taskId: string, initialSnapshot?: SessionTaskViewSnapshot) {
         // 页面一次只观察一个任务；切换会话或重新挂载时，先断开旧订阅再挂到新任务。
         detachTaskView();
 

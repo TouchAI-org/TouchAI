@@ -26,7 +26,6 @@ async function prepareAttachmentPayload(
     inspection: AttachmentInspection
 ): Promise<AttachmentPreparedPayload> {
     const { attachment, kind, mimeType } = inspection;
-
     if (kind === 'image' || kind === 'pdf') {
         const { data } = await readAttachmentAsBase64(attachment);
         return {
@@ -60,6 +59,55 @@ async function prepareAttachmentPayload(
     };
 }
 
+function pushMaterializedPart(
+    parts: AiContentPart[],
+    inspection: AttachmentInspection,
+    payload: AttachmentPreparedPayload,
+    options: { includeAnchorText?: boolean }
+): void {
+    const includeAnchorText = options.includeAnchorText ?? true;
+
+    if (payload.kind === 'image') {
+        if (includeAnchorText) {
+            parts.push({
+                type: 'text',
+                text: formatAttachmentAnchorText(inspection.meta),
+            });
+        }
+        parts.push({
+            type: 'image',
+            name: inspection.attachment.name,
+            sourcePath: inspection.attachment.path,
+            size: inspection.size,
+            mimeType: payload.mimeType,
+            data: payload.base64Data ?? '',
+            kind: 'image',
+            semanticIntent: inspection.semanticIntent,
+            meta: inspection.meta,
+        });
+        return;
+    }
+
+    if (includeAnchorText) {
+        parts.push({
+            type: 'text',
+            text: formatAttachmentAnchorText(inspection.meta),
+        });
+    }
+    parts.push({
+        type: 'file',
+        name: inspection.attachment.name,
+        sourcePath: inspection.attachment.path,
+        size: inspection.size,
+        mimeType: payload.mimeType,
+        kind: payload.kind,
+        semanticIntent: inspection.semanticIntent,
+        textContent: payload.textContent,
+        base64Data: payload.base64Data,
+        meta: inspection.meta,
+    });
+}
+
 export async function materializeAttachmentParts(
     inspections: AttachmentInspection[],
     options: {
@@ -67,54 +115,24 @@ export async function materializeAttachmentParts(
     } = {}
 ): Promise<AiContentPart[]> {
     const parts: AiContentPart[] = [];
-    const includeAnchorText = options.includeAnchorText ?? true;
+    const payloadBySource = new Map<string, AttachmentPreparedPayload | null>();
 
     for (const inspection of inspections) {
-        try {
-            const payload = await prepareAttachmentPayload(inspection);
-
-            if (payload.kind === 'image') {
-                if (includeAnchorText) {
-                    parts.push({
-                        type: 'text',
-                        text: formatAttachmentAnchorText(inspection.meta),
-                    });
-                }
-                parts.push({
-                    type: 'image',
-                    name: inspection.attachment.name,
-                    sourcePath: inspection.attachment.path,
-                    size: inspection.size,
-                    mimeType: payload.mimeType,
-                    data: payload.base64Data ?? '',
-                    kind: 'image',
-                    semanticIntent: inspection.semanticIntent,
-                    meta: inspection.meta,
-                });
-                continue;
+        const sourceKey = JSON.stringify([
+            inspection.attachment.path,
+            inspection.kind,
+            inspection.mimeType,
+        ]);
+        if (!payloadBySource.has(sourceKey)) {
+            try {
+                payloadBySource.set(sourceKey, await prepareAttachmentPayload(inspection));
+            } catch (error) {
+                log.error('[AttachmentMaterialize] Failed to read attachment:', error);
+                payloadBySource.set(sourceKey, null);
             }
-
-            if (includeAnchorText) {
-                parts.push({
-                    type: 'text',
-                    text: formatAttachmentAnchorText(inspection.meta),
-                });
-            }
-            parts.push({
-                type: 'file',
-                name: inspection.attachment.name,
-                sourcePath: inspection.attachment.path,
-                size: inspection.size,
-                mimeType: payload.mimeType,
-                kind: payload.kind,
-                semanticIntent: inspection.semanticIntent,
-                textContent: payload.textContent,
-                base64Data: payload.base64Data,
-                meta: inspection.meta,
-            });
-        } catch (error) {
-            log.error('[AttachmentMaterialize] Failed to read attachment:', error);
         }
+        const payload = payloadBySource.get(sourceKey);
+        if (payload) pushMaterializedPart(parts, inspection, payload, options);
     }
 
     return parts;
@@ -128,5 +146,6 @@ export async function buildAttachmentParts(
 ): Promise<AiContentPart[]> {
     const usableAttachments = attachments.filter((attachment) => isAttachmentSupported(attachment));
     const inspections = await inspectAttachments(usableAttachments);
+
     return materializeAttachmentParts(inspections, options);
 }

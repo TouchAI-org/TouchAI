@@ -214,6 +214,7 @@ describe('user saves provider configuration', () => {
         const wrapper = await mount(AiServicesSection, { attachTo: document.body });
         await flushPromises();
         await wrapper.get('[data-testid="settings-add-custom-provider-button"]').trigger('click');
+        await vi.dynamicImportSettled();
         await flushPromises();
         expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
             'Add custom provider'

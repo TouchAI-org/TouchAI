@@ -636,6 +636,27 @@ describe('user follows streamed output', () => {
         expect(viewport.scrollTop).toBe(800);
     });
 
+    it('user keeps following when layout delivers a scroll event alongside growth', async () => {
+        const wrapper = mountScroller({ followOutput: true });
+        const viewport = viewportOf(wrapper);
+        setScrollMetrics(viewport, { scrollTop: 600 });
+        stubScrollTo(viewport);
+        await settleLayout();
+        const previousEvents = wrapper.emitted('stateChange')?.length ?? 0;
+
+        setScrollHeight(viewport, 1_400);
+        viewport.dispatchEvent(new Event('scroll'));
+        triggerResize();
+        await settleLayout();
+
+        expect(viewport.scrollTop).toBe(1_000);
+        const states = (wrapper.emitted('stateChange') ?? [])
+            .slice(previousEvents)
+            .map(([state]) => state as MessageScrollerState);
+        expect(states.length).toBeGreaterThan(0);
+        expect(states.every((state) => state.atEnd && state.following)).toBe(true);
+    });
+
     it('user keeps their reading position after scrolling away', async () => {
         const wrapper = mountScroller({ followOutput: true });
         const viewport = viewportOf(wrapper);

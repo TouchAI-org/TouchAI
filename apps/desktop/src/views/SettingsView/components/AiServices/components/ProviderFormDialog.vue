@@ -19,7 +19,7 @@
     import {
         getProviderDriverDefinition,
         providerDriverDefinitions,
-    } from '@/services/AgentService/infrastructure/providers';
+    } from '@/services/AgentService/infrastructure/providers/driverCatalog';
 
     /*
      * 新增与编辑服务商的表单原本是两个文件，名称 / 类型 / 基址预览三段

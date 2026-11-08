@@ -1,5 +1,6 @@
 import type { QuickSearchResult, QuickShortcutItem } from '@services/NativeService';
 import { mountComposable } from '@tests/utils/composables';
+import { flushPromises } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
@@ -116,8 +117,7 @@ function deferred<T>() {
 }
 
 async function flushAsyncWork() {
-    await Promise.resolve();
-    await Promise.resolve();
+    await flushPromises();
 }
 
 describe('useQuickSearchLogic', () => {
@@ -135,7 +135,7 @@ describe('useQuickSearchLogic', () => {
         document.body.innerHTML = '';
     });
 
-    it('opens quick search only after query results arrive', async () => {
+    it('user sees quick search results and their assets after the pending query completes', async () => {
         const pendingResults = deferred<QuickSearchResult>();
         const open = ref(false);
         const searchQuery = ref('');
