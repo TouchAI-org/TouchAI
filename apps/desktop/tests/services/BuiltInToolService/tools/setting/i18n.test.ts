@@ -40,6 +40,9 @@ const nativeMock = vi.hoisted(() => ({
 
 vi.mock('@database/queries', () => ({
     getSettingValue: vi.fn(async ({ key }: { key: string }) => dbMock.values.get(key) ?? null),
+    getSettingValues: vi.fn(async ({ keys }: { keys: string[] }) =>
+        Object.fromEntries(keys.map((key) => [key, dbMock.values.get(key) ?? null]))
+    ),
     setSetting: vi.fn(async ({ key, value }: { key: string; value: string }) => {
         dbMock.values.set(key, value);
         return { id: 1, key, value, created_at: '', updated_at: '' };
