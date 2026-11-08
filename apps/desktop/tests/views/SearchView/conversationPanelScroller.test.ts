@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { nextTick } from 'vue';
+import { nextTick, toRaw } from 'vue';
 
 import { setLocale } from '@/i18n';
 import type { SessionMessage } from '@/types/session';
@@ -119,6 +119,154 @@ beforeEach(() => {
 });
 
 describe('user opens a conversation with the new message scroller', () => {
+    it('user receives loading and completion announcements in the same region when compaction runs', async () => {
+        const answer = message('a2', 'assistant', 'Working');
+        const wrapper = mountPanel([...conversation, answer]);
+        await flushPromises();
+        const status = wrapper.get('[role="status"]');
+        const region = status.element;
+        expect(status.text()).toBe('');
+        expect(status.attributes()).toMatchObject({
+            'aria-live': 'polite',
+            'aria-atomic': 'true',
+        });
+        expect(wrapper.get('[data-testid="message-scroller"]').element.contains(region)).toBe(
+            false
+        );
+
+        await wrapper.setProps({
+            isLoading: true,
+            messages: [
+                ...conversation,
+                {
+                    ...answer,
+                    isStreaming: true,
+                    parts: [{ id: 'c1', type: 'context_compaction', state: 'compacting' }],
+                },
+            ],
+        });
+        expect(wrapper.get('[role="status"]').element).toBe(region);
+        expect(status.text()).toBe('Compacting context');
+        expect(region.closest('[aria-busy="true"]')).toBeNull();
+
+        const changes: MutationRecord[] = [];
+        const observer = new MutationObserver((records) => changes.push(...records));
+        observer.observe(region, { childList: true, characterData: true, subtree: true });
+        await wrapper.setProps({ messages: structuredClone(toRaw(wrapper.props('messages'))) });
+        await flushPromises();
+        expect(changes).toHaveLength(0);
+        observer.disconnect();
+
+        await wrapper.setProps({
+            isLoading: false,
+            messages: [
+                ...conversation,
+                {
+                    ...answer,
+                    isStreaming: false,
+                    parts: [{ id: 'c1', type: 'context_compaction', state: 'compacted' }],
+                },
+            ],
+        });
+        expect(wrapper.get('[role="status"]').element).toBe(region);
+        expect(status.text()).toBe('Context compacted');
+        setLocale('zh-CN');
+        await nextTick();
+        expect(status.text()).toBe('上下文已压缩');
+        await wrapper.setProps({
+            messages: [
+                ...conversation,
+                {
+                    ...answer,
+                    isStreaming: true,
+                    parts: [
+                        { id: 'c1', type: 'context_compaction', state: 'compacted' },
+                        { id: 'c2', type: 'context_compaction', state: 'compacting' },
+                    ],
+                },
+            ],
+        });
+        expect(status.text()).toBe('正在压缩上下文');
+        wrapper.unmount();
+    });
+
+    it('user opens saved or replayed compaction markers without announcing historical completion', async () => {
+        const saved: SessionMessage = {
+            ...message('saved', 'assistant', 'Previous answer'),
+            parts: [{ id: 'c1', type: 'context_compaction', state: 'compacted' }],
+        };
+        const wrapper = mountPanel([saved]);
+        await flushPromises();
+        expect(wrapper.get('[role="status"]').text()).toBe('');
+
+        await wrapper.setProps({ messages: [{ ...saved, id: 'another-session' }] });
+        expect(wrapper.get('[role="status"]').text()).toBe('');
+        await wrapper.setProps({
+            messages: [{ ...saved, id: 'resumed', isStreaming: true }],
+            isLoading: true,
+        });
+        expect(wrapper.get('[role="status"]').text()).toBe('');
+        wrapper.unmount();
+    });
+
+    it.each(['cancelled', 'failed'] as const)(
+        'user does not receive a completion announcement when compaction is %s',
+        async (outcome) => {
+            const saved: SessionMessage = {
+                ...message('a1', 'assistant', 'Earlier work'),
+                parts: [{ id: 'old', type: 'context_compaction', state: 'compacted' }],
+            };
+            const wrapper = mountPanel([saved]);
+            await flushPromises();
+            const status = wrapper.get('[role="status"]');
+            await wrapper.setProps({
+                messages: [
+                    {
+                        ...saved,
+                        isStreaming: true,
+                        parts: [
+                            ...saved.parts,
+                            { id: 'pending', type: 'context_compaction', state: 'compacting' },
+                        ],
+                    },
+                ],
+            });
+            expect(status.text()).toBe('Compacting context');
+            await wrapper.setProps({
+                messages: [{ ...saved, isStreaming: false, statusText: outcome }],
+            });
+            expect(status.text()).toBe('');
+            wrapper.unmount();
+        }
+    );
+
+    it('user opens an ongoing compaction after the empty announcement region has mounted', async () => {
+        const wrapper = mountPanel([
+            ...Array.from({ length: 12 }, (_, index) =>
+                message(`history-${index}`, 'user', 'Earlier question')
+            ),
+            {
+                ...message('running', 'assistant', ''),
+                isStreaming: true,
+                parts: [{ id: 'c1', type: 'context_compaction', state: 'compacting' }],
+            },
+        ]);
+        const status = wrapper.get('[role="status"]');
+        expect(status.text()).toBe('');
+        await nextTick();
+        expect(status.text()).toBe('Compacting context');
+        await wrapper.setProps({
+            messages: [
+                {
+                    ...message('another-session', 'assistant', ''),
+                    parts: [{ id: 'c1', type: 'context_compaction', state: 'compacted' }],
+                },
+            ],
+        });
+        expect(status.text()).toBe('');
+        wrapper.unmount();
+    });
+
     it('user can preview each question and its reply from the navigation rail', async () => {
         const wrapper = mountPanel();
         await flushPromises();

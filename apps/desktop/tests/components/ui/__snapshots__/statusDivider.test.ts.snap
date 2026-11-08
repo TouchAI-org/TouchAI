@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`given a conversation status divider > user sees progress become completed with the same spacing and a polite announcement > completed icon 1`] = `
+exports[`given a conversation status divider > user sees progress become completed with the same spacing without replaying live announcements > completed icon 1`] = `
 [
   "app-icon",
   "shrink-0",
@@ -8,7 +8,7 @@ exports[`given a conversation status divider > user sees progress become complet
 ]
 `;
 
-exports[`given a conversation status divider > user sees progress become completed with the same spacing and a polite announcement > divider 1`] = `
+exports[`given a conversation status divider > user sees progress become completed with the same spacing without replaying live announcements > divider 1`] = `
 [
   "contrast-more:text-muted-foreground",
   "flex",
@@ -23,7 +23,7 @@ exports[`given a conversation status divider > user sees progress become complet
 ]
 `;
 
-exports[`given a conversation status divider > user sees progress become completed with the same spacing and a polite announcement > loading icon 1`] = `
+exports[`given a conversation status divider > user sees progress become completed with the same spacing without replaying live announcements > loading icon 1`] = `
 [
   "app-icon",
   "shrink-0",
@@ -31,7 +31,7 @@ exports[`given a conversation status divider > user sees progress become complet
 ]
 `;
 
-exports[`given a conversation status divider > user sees progress become completed with the same spacing and a polite announcement > rules 1`] = `
+exports[`given a conversation status divider > user sees progress become completed with the same spacing without replaying live announcements > rules 1`] = `
 [
   [
     "bg-border",

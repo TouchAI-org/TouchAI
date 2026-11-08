@@ -1,3 +1,4 @@
+import StatusDivider from '@components/ui/status-divider/StatusDivider.vue';
 import { mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
@@ -67,9 +68,10 @@ describe('user reads the reasoning behind an answer', () => {
                 { id: 'c1', type: 'context_compaction', state: 'compacting' },
             ],
         });
-        const divider = wrapper.find('[role="status"]');
+        const divider = wrapper.getComponent(StatusDivider);
         expect(divider.text()).toBe('正在压缩上下文');
-        expect(divider.attributes('aria-busy')).toBe('true');
+        expect(wrapper.find('[role="status"], [aria-live="polite"]').exists()).toBe(false);
+        expect(divider.attributes('aria-live')).toBe('off');
         expect(wrapper.find('[data-request-status]').attributes('aria-hidden')).toBe('true');
         setLocale('en-US');
         await nextTick();
@@ -98,8 +100,7 @@ describe('user reads the reasoning behind an answer', () => {
                 ],
             },
         });
-        expect(wrapper.find('[role="status"]').text()).toBe('上下文已压缩');
-        expect(wrapper.find('[role="status"]').attributes('aria-busy')).toBe('false');
+        expect(divider.text()).toBe('上下文已压缩');
         expect(wrapper.find('[data-request-status]').exists()).toBe(false);
         expect(wrapper.findAll('.assistant-message-part').map((part) => part.text())).toEqual([
             'Earlier work',
@@ -108,7 +109,7 @@ describe('user reads the reasoning behind an answer', () => {
         ]);
         setLocale('en-US');
         await nextTick();
-        expect(wrapper.find('[role="status"]').text()).toBe('Context compacted');
+        expect(divider.text()).toBe('Context compacted');
     });
 
     it('user sees reasoning in timeline order without duplicating the aggregate field', async () => {

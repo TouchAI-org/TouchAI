@@ -9,10 +9,7 @@
 
 <template>
     <div
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        :aria-busy="!!loading"
+        aria-live="off"
         class="flex w-full items-center gap-3 py-3 font-serif text-sm font-medium text-muted-foreground/60 contrast-more:text-muted-foreground"
     >
         <span
