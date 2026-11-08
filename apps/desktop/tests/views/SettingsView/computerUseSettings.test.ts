@@ -33,7 +33,7 @@ const state = vi.hoisted(() => {
         selectDriver: vi.fn<(driver: string) => Promise<void>>().mockResolvedValue(undefined),
         isEnabled: vi.fn(async () => true),
         loadGroups: vi.fn(async () => ({ clipboard: false })),
-        driverDirectory: 'C:/data/assets/bin',
+        driverDirectory: '',
         loadDriverDirectory: vi.fn(async (): Promise<string> => state.driverDirectory),
         saveDriverDirectory: vi.fn(async (directory: string): Promise<string> => {
             state.driverDirectory = directory;
@@ -150,7 +150,7 @@ async function flush() {
 
 beforeEach(() => {
     setLocale('zh-CN');
-    state.driverDirectory = 'C:/data/assets/bin';
+    state.driverDirectory = '';
     state.loadDriverDirectory.mockClear();
     state.saveDriverDirectory.mockClear();
     state.isEnabled.mockResolvedValue(true);
@@ -196,6 +196,63 @@ beforeEach(() => {
 });
 
 describe('computer use settings section', () => {
+    it.each([
+        ['zh-CN', '自定义位置'],
+        ['en-US', 'Custom location'],
+    ] as const)(
+        'user given no custom location when opening settings in %s then sees an empty field without an internal path',
+        async (locale, label) => {
+            setLocale(locale);
+            const wrapper = await mountPage();
+            const input = wrapper.get<HTMLInputElement>(
+                '[data-testid="computer-use-driver-directory"]'
+            );
+            expect(wrapper.get('label[for="computer-use-driver-directory"]').text()).toBe(label);
+            expect(input.element.value).toBe('');
+            expect(input.attributes('title')).toBe('');
+            expect(state.saveDriverDirectory).not.toHaveBeenCalled();
+            expect(
+                wrapper.find('[data-testid="computer-use-driver-directory-reset"]').exists()
+            ).toBe(false);
+        }
+    );
+
+    it('user given a custom location when restoring default then sees an empty field after reopening', async () => {
+        state.driverDirectory = 'D:/drivers';
+        const wrapper = await mountPage();
+        await wrapper.get('[data-testid="computer-use-driver-directory-reset"]').trigger('click');
+        await flush();
+        expect(state.saveDriverDirectory).toHaveBeenCalledWith('');
+        expect(
+            wrapper.get<HTMLInputElement>('[data-testid="computer-use-driver-directory"]').element
+                .value
+        ).toBe('');
+        wrapper.unmount();
+        const reopened = await mountPage();
+        expect(
+            reopened.get<HTMLInputElement>('[data-testid="computer-use-driver-directory"]').element
+                .value
+        ).toBe('');
+    });
+
+    it('user given a failed location reset when restoring default then retains the custom path and can retry', async () => {
+        state.driverDirectory = 'D:/drivers';
+        state.saveDriverDirectory.mockRejectedValueOnce(new Error('Reset failed'));
+        const wrapper = await mountPage();
+        await wrapper.get('[data-testid="computer-use-driver-directory-reset"]').trigger('click');
+        await flush();
+        expect(state.alert.error).toHaveBeenCalledWith('Reset failed');
+        expect(
+            wrapper.get<HTMLInputElement>('[data-testid="computer-use-driver-directory"]').element
+                .value
+        ).toBe('D:/drivers');
+        expect(
+            wrapper
+                .get('[data-testid="computer-use-driver-directory-reset"]')
+                .element.matches(':disabled')
+        ).toBe(false);
+    });
+
     it.each([
         ['zh-CN', '32.8 MB'],
         ['en-US', '32.8 MB'],
@@ -318,6 +375,7 @@ describe('computer use settings section', () => {
     });
 
     it('user given a storage move in progress when it fails then keeps the old folder and unlocks settings', async () => {
+        state.driverDirectory = 'D:/drivers';
         let rejectMove!: (error: Error) => void;
         state.saveDriverDirectory.mockReturnValueOnce(
             new Promise((_resolve, reject) => {
@@ -340,7 +398,7 @@ describe('computer use settings section', () => {
         expect(
             wrapper.get<HTMLInputElement>('[data-testid="computer-use-driver-directory"]').element
                 .value
-        ).toBe('C:/data/assets/bin');
+        ).toBe('D:/drivers');
         expect(
             wrapper
                 .get('[data-testid="computer-use-driver-directory-pick"]')
@@ -357,7 +415,7 @@ describe('computer use settings section', () => {
         expect(
             wrapper.get<HTMLInputElement>('[data-testid="computer-use-driver-directory"]').element
                 .value
-        ).toBe('C:/data/assets/bin');
+        ).toBe('');
     });
     it('user given an uninstalled driver when viewing its option then cannot select it but can download it', async () => {
         status.mockImplementation(async (driver) => ({

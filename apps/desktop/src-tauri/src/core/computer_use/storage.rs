@@ -43,11 +43,15 @@ impl DriverStorage {
         let mut directory = self.directory.write().await;
         if directory.is_none() {
             let stored = self.setting(DIRECTORY_KEY).await?;
-            let migrate = stored.as_ref().is_none_or(|value| value.is_empty());
+            let default = self.default_base.join(DIRECTORY_NAME);
+            let migrate = stored
+                .as_ref()
+                .is_none_or(|value| value.is_empty() || Path::new(value) == default);
+            let clear_default = migrate && stored.is_some();
             let root = stored
-                .filter(|value| !value.is_empty())
+                .filter(|_| !migrate)
                 .map(PathBuf::from)
-                .unwrap_or_else(|| self.default_base.join(DIRECTORY_NAME));
+                .unwrap_or(default);
             let legacy = self.legacy.clone();
             let previous = legacy.with_file_name(DIRECTORY_NAME);
             let target = root.clone();
@@ -73,6 +77,15 @@ impl DriverStorage {
             })
             .await
             .map_err(|error| error.to_string())??;
+            if clear_default {
+                self.database
+                    .query(DatabaseQueryRequest {
+                        sql: "DELETE FROM settings WHERE key = ?".into(),
+                        params: vec![json!(DIRECTORY_KEY)],
+                        method: DatabaseQueryMethod::Run,
+                    })
+                    .await?;
+            }
             *directory = Some(root);
         }
         drop(directory);
@@ -82,13 +95,20 @@ impl DriverStorage {
     }
 
     pub async fn location(&self) -> Result<PathBuf, String> {
-        Ok(parent_directory(&self.read().await?))
+        let directory = self.read().await?;
+        Ok(self.custom_location(&directory))
     }
 
     pub async fn relocate(&self, destination: PathBuf) -> Result<PathBuf, String> {
+        let destination = if destination.as_os_str().is_empty() {
+            self.default_base.clone()
+        } else {
+            destination
+        };
         validate_path(&destination)?;
         let base = parent_directory(&destination);
         let destination = base.join(DIRECTORY_NAME);
+        let location = self.custom_location(&destination);
         drop(self.read().await?);
         let mut directory = self.directory.write().await;
         let source = directory
@@ -102,7 +122,9 @@ impl DriverStorage {
                 .await
                 .map_err(|error| error.to_string())??;
         if same {
-            return Ok(base);
+            self.persist(&destination, &self.cleanup_roots().await?)
+                .await?;
+            return Ok(location);
         }
         driver::cancel_all();
         agent_desktop::cancel_all();
@@ -134,7 +156,15 @@ impl DriverStorage {
                 );
             }
         }
-        Ok(base)
+        Ok(location)
+    }
+
+    fn custom_location(&self, directory: &Path) -> PathBuf {
+        if directory == self.default_base.join(DIRECTORY_NAME) {
+            PathBuf::new()
+        } else {
+            parent_directory(directory)
+        }
     }
 
     pub async fn exclusive(&self) -> Result<RwLockMappedWriteGuard<'_, PathBuf>, String> {
@@ -179,6 +209,14 @@ impl DriverStorage {
             .await?;
         let result = async {
             for (key, value) in [(DIRECTORY_KEY, destination.to_string_lossy().into_owned()), (CLEANUP_KEY, serde_json::to_string(cleanup).map_err(|error| error.to_string())?)] {
+                if key == DIRECTORY_KEY && destination == self.default_base.join(DIRECTORY_NAME) {
+                    self.database.tx_query(&transaction, DatabaseQueryRequest {
+                        sql: "DELETE FROM settings WHERE key = ?".into(),
+                        params: vec![json!(key)],
+                        method: DatabaseQueryMethod::Run,
+                    }).await?;
+                    continue;
+                }
                 self.database.tx_query(&transaction, DatabaseQueryRequest {
                     sql: "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP".into(),
                     params: vec![json!(key), json!(value)],

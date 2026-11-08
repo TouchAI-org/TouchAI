@@ -29,8 +29,118 @@ async fn user_given_no_custom_location_when_opening_then_keeps_drivers_beside_bu
     );
     assert_eq!(
         storage.location().await.expect("displayed location"),
-        temporary.path().join("assets/bin")
+        PathBuf::new()
     );
+    assert_eq!(
+        storage.setting(DIRECTORY_KEY).await.expect("preference"),
+        None
+    );
+}
+
+#[tokio::test]
+async fn user_given_a_saved_default_location_when_opening_then_removes_it_and_resolves_the_current_app_directory(
+) {
+    let (temporary, database, storage) = fixture().await;
+    let default = temporary.path().join("assets/bin/computer-use-drivers");
+    database
+        .query(DatabaseQueryRequest {
+            sql: "INSERT INTO settings (key, value) VALUES (?, ?)".into(),
+            params: vec![json!(DIRECTORY_KEY), json!(default.to_string_lossy())],
+            method: DatabaseQueryMethod::Run,
+        })
+        .await
+        .expect("old default");
+    assert!(storage
+        .location()
+        .await
+        .expect("display")
+        .as_os_str()
+        .is_empty());
+    assert_eq!(
+        storage.setting(DIRECTORY_KEY).await.expect("preference"),
+        None
+    );
+    let next_base = temporary.path().join("relocated-app/assets/bin");
+    let reopened = DriverStorage::new(
+        database,
+        temporary.path().join("computer-use"),
+        next_base.clone(),
+    );
+    assert_eq!(
+        *reopened.read().await.expect("new default"),
+        next_base.join(DIRECTORY_NAME)
+    );
+}
+
+#[tokio::test]
+async fn user_given_custom_drivers_when_clearing_the_location_then_preserves_files_and_removes_the_preference(
+) {
+    let (temporary, database, storage) = fixture().await;
+    let original = storage.read().await.expect("default").clone();
+    seed(&original, "cua-driver");
+    seed(&original, "agent-desktop");
+    let custom = temporary.path().join("custom");
+    storage
+        .relocate(custom.clone())
+        .await
+        .expect("custom location");
+    assert!(storage
+        .relocate(PathBuf::new())
+        .await
+        .expect("reset")
+        .as_os_str()
+        .is_empty());
+    assert_eq!(
+        storage.setting(DIRECTORY_KEY).await.expect("preference"),
+        None
+    );
+    for driver in DRIVERS {
+        assert_eq!(
+            std::fs::read(original.join(driver).join("1.2.0/driver.bin")).expect("driver"),
+            b"verified driver bytes"
+        );
+        assert!(!custom.join(DIRECTORY_NAME).join(driver).exists());
+    }
+    let reopened = DriverStorage::new(
+        database,
+        temporary.path().join("computer-use"),
+        temporary.path().join("assets/bin"),
+    );
+    assert!(reopened
+        .location()
+        .await
+        .expect("display")
+        .as_os_str()
+        .is_empty());
+    assert_eq!(
+        *reopened.read().await.expect("default after restart"),
+        original
+    );
+}
+
+#[tokio::test]
+async fn user_given_a_failed_preference_delete_when_restoring_default_then_keeps_custom_drivers_and_location(
+) {
+    let (temporary, database, storage) = fixture().await;
+    let original = storage.read().await.expect("default").clone();
+    seed(&original, "cua-driver");
+    let custom = temporary.path().join("custom");
+    storage
+        .relocate(custom.clone())
+        .await
+        .expect("custom location");
+    database.query(DatabaseQueryRequest {
+        sql: "CREATE TRIGGER reject_driver_reset BEFORE DELETE ON settings WHEN OLD.key = 'computer_use.driver_directory' BEGIN SELECT RAISE(FAIL, 'test reset failure'); END".into(),
+        params: vec![],
+        method: DatabaseQueryMethod::Run,
+    }).await.expect("reject reset");
+    assert!(storage.relocate(PathBuf::new()).await.is_err());
+    assert_eq!(storage.location().await.expect("location"), custom);
+    assert!(custom
+        .join(DIRECTORY_NAME)
+        .join("cua-driver/1.2.0/driver.bin")
+        .exists());
+    assert!(!original.join("cua-driver").exists());
 }
 
 #[tokio::test]
@@ -240,14 +350,14 @@ async fn user_given_the_managed_subdirectory_when_selecting_it_again_then_keeps_
     let parent = root.parent().expect("parent");
     assert_eq!(
         storage.relocate(root.clone()).await.expect("same root"),
-        parent
+        PathBuf::new()
     );
     assert_eq!(
         storage
             .relocate(parent.to_path_buf())
             .await
             .expect("same parent"),
-        parent
+        PathBuf::new()
     );
     assert_eq!(*storage.read().await.expect("root"), root);
     assert!(binary.exists());

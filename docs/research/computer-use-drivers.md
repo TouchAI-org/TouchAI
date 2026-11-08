@@ -255,9 +255,12 @@ Maintainers update the relevant version, per-platform archive entries, sizes and
 then verify startup and the tool contract on supported platforms. Update checks report
 upstream versions; they do not install an unreviewed upstream release.
 
-The default layout is `<app data>/computer-use-drivers/<driver>/<version>`.
-The driver section exposes one folder picker for the common root. Its preference uses
-`computer_use.driver_directory` in the existing settings table. Moving storage takes
+The default layout is `<app data>/assets/bin/computer-use-drivers/<driver>/<version>`.
+The driver section exposes a Custom location picker, empty by default. The runtime
+resolves its default from the current app directory without saving that path. A custom
+parent nests installations beneath `computer-use-drivers`; only that custom installation
+root uses `computer_use.driver_directory` in the existing settings table. Clearing the
+selection migrates drivers back and deletes the preference. Moving storage takes
 an exclusive native lease, stops the runtimes, copies and hashes files into temporary
 staging, commits the directory preference transaction, and retires the source driver
 directories. Cancellation, path conflicts and persistence failures preserve the source.

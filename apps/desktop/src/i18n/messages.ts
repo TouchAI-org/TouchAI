@@ -257,8 +257,9 @@ const zhCNMessages = {
     'settings.computerUse.group.privacy': '隐私',
     'settings.computerUse.field.status': '状态',
     'settings.computerUse.field.driver': '桌面驱动',
-    'settings.computerUse.field.driverDirectory': '驱动位置',
-    'settings.computerUse.action.pickDriverDirectory': '选择驱动位置',
+    'settings.computerUse.field.driverDirectory': '自定义位置',
+    'settings.computerUse.action.pickDriverDirectory': '选择自定义位置',
+    'settings.computerUse.action.resetDriverDirectory': '恢复默认位置',
     'settings.computerUse.storage.failed': '无法更改驱动位置，请检查目录权限和剩余空间。',
     'settings.computerUse.storage.conflict': '此位置已有驱动文件，请选择其他目录。',
     'settings.computerUse.storage.invalid': '请选择独立的本地目录。',
@@ -1481,8 +1482,9 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.computerUse.group.privacy': 'Privacy',
     'settings.computerUse.field.status': 'Status',
     'settings.computerUse.field.driver': 'Desktop driver',
-    'settings.computerUse.field.driverDirectory': 'Driver location',
-    'settings.computerUse.action.pickDriverDirectory': 'Choose driver location',
+    'settings.computerUse.field.driverDirectory': 'Custom location',
+    'settings.computerUse.action.pickDriverDirectory': 'Choose custom location',
+    'settings.computerUse.action.resetDriverDirectory': 'Restore default location',
     'settings.computerUse.storage.failed':
         'Could not change the driver location. Check folder permissions and free space.',
     'settings.computerUse.storage.conflict':

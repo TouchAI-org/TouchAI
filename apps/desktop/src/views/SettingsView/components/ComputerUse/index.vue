@@ -370,6 +370,19 @@
         }
     }
 
+    async function resetDriverDirectory(): Promise<void> {
+        if (driverDisabled.value || !driverDirectory.value) return;
+        busy.value = true;
+        try {
+            driverDirectory.value = await computerUseService.saveDriverDirectory('');
+            await refresh();
+        } catch (error) {
+            alert.error(errorMessage(error));
+        } finally {
+            busy.value = false;
+        }
+    }
+
     async function checkUpdate(driver: ComputerUseDriverId): Promise<void> {
         if (driverDisabled.value) return;
         busy.value = true;
@@ -565,16 +578,32 @@
                             label-class="text-text-primary"
                             :label="t('settings.computerUse.field.driverDirectory')"
                         >
-                            <Input
-                                id="computer-use-driver-directory"
-                                data-testid="computer-use-driver-directory"
-                                variant="filled"
-                                class="min-w-0 flex-1"
-                                :model-value="driverDirectory"
-                                :title="driverDirectory"
-                                :disabled="driverDisabled"
-                                readonly
-                            />
+                            <div class="relative min-w-0 flex-1">
+                                <Input
+                                    id="computer-use-driver-directory"
+                                    data-testid="computer-use-driver-directory"
+                                    variant="filled"
+                                    :class="{ 'pr-9': driverDirectory }"
+                                    :model-value="driverDirectory"
+                                    :title="driverDirectory"
+                                    :disabled="driverDisabled"
+                                    readonly
+                                />
+                                <Button
+                                    v-if="driverDirectory"
+                                    data-testid="computer-use-driver-directory-reset"
+                                    variant="ghost-neutral"
+                                    class="absolute top-1/2 right-1 -translate-y-1/2"
+                                    :aria-label="
+                                        t('settings.computerUse.action.resetDriverDirectory')
+                                    "
+                                    :title="t('settings.computerUse.action.resetDriverDirectory')"
+                                    :disabled="driverDisabled"
+                                    @click="resetDriverDirectory"
+                                >
+                                    <AppIcon name="x" class="h-4 w-4" />
+                                </Button>
+                            </div>
                             <Button
                                 data-testid="computer-use-driver-directory-pick"
                                 variant="ghost-neutral"
