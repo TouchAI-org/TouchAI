@@ -38,9 +38,6 @@ function isAssistantMessageSettled(message: SessionMessage): boolean {
     return (
         message.role === 'assistant' &&
         message.isStreaming !== true &&
-        !message.parts.some(
-            (part) => part.type === 'context_compaction' && part.state === 'compacting'
-        ) &&
         !hasPendingToolCalls(message) &&
         !hasPendingApprovals(message)
     );

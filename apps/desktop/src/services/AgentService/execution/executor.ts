@@ -19,6 +19,7 @@ import { parseRequestedTimeoutMs } from '@/utils/timeouts';
 import { z } from '@/utils/zod';
 
 import { createProviderForModel, getModel, resolveToolDefinitions } from '../catalog';
+import { MAX_SUMMARY_CHARS } from '../contracts/context';
 import { AiError, AiErrorCode } from '../contracts/errors';
 import {
     addAiUsage,
@@ -56,7 +57,7 @@ import {
 } from '../infrastructure/providers';
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
-import { ContextWindow, MAX_SUMMARY_CHARS, type SummaryResult } from './context';
+import { ContextWindow, type SummaryResult } from './context';
 import type { TurnEvent } from './runtime';
 
 const BUILT_IN_UPGRADE_TOOL_NAME = 'builtin__upgrade_model';
@@ -115,8 +116,6 @@ export interface RequestExecutionCallbacks {
 }
 
 export interface AttemptCheckpoint {
-    /** In-memory routing identity; the persisted checkpoint schema is unchanged. */
-    promptCacheKey?: string;
     activeModel: ModelWithProvider;
     messages: AiMessage[];
     response: string;
@@ -564,16 +563,6 @@ export class AiRequestExecutor {
         return createProviderForModel(model);
     }
 
-    /**
-     * 流式 AI 响应（纯粹的流式生成器）
-     */
-    private async *stream(
-        provider: AiProvider,
-        request: AiRequestOptions
-    ): AsyncGenerator<AiStreamChunk> {
-        for await (const chunk of provider.stream(request)) yield chunk;
-    }
-
     private async summarizeContext(
         runtime: AttemptRuntime,
         request: AiRequestOptions
@@ -809,12 +798,13 @@ export class AiRequestExecutor {
     }
 
     private async createAttemptRuntime(
-        startCheckpoint: AttemptCheckpoint
+        startCheckpoint: AttemptCheckpoint,
+        sessionId: number | null
     ): Promise<AttemptRuntime> {
         const { activeModel, modelLanguageContext, modelSwitchCount } = startCheckpoint;
 
         return {
-            promptCacheKey: startCheckpoint.promptCacheKey ?? crypto.randomUUID(),
+            promptCacheKey: `${this.cacheNamespace}:${sessionId ?? crypto.randomUUID()}`,
             nextAttachmentRequestIndex: startCheckpoint.iteration,
             activeModel,
             provider: this.createProviderForModel(activeModel),
@@ -848,7 +838,6 @@ export class AiRequestExecutor {
 
     private createCheckpoint(runtime: AttemptRuntime): AttemptCheckpoint {
         return {
-            promptCacheKey: runtime.promptCacheKey,
             activeModel: runtime.activeModel,
             messages: cloneAiMessages(runtime.messages),
             response: runtime.response,
@@ -892,7 +881,7 @@ export class AiRequestExecutor {
             supportsReasoning: runtime.activeModel.reasoning === 1,
             reasoningLevel: DEFAULT_REASONING_LEVEL,
             reasoningOptions: parseReasoningOptions(runtime.activeModel.reasoning_options),
-            promptCacheKey: `${this.cacheNamespace}:${runtime.promptCacheKey}`,
+            promptCacheKey: runtime.promptCacheKey,
         };
         // Anthropic renders tool choice and thinking budgets into the cache prefix.
         // The summary stream never executes tools, even with automatic tool choice.
@@ -921,7 +910,6 @@ export class AiRequestExecutor {
             maxOutputTokens: prepared.maxOutputTokens,
             attachmentRequestIndex: runtime.nextAttachmentRequestIndex++,
         };
-        const stream = this.stream(runtime.provider, modelRequest);
         let finishReason: string | undefined;
         let toolCalls: AiToolCall[] | undefined;
         let finalUsage: AiUsage | undefined;
@@ -1022,7 +1010,7 @@ export class AiRequestExecutor {
         let streamError: unknown;
         let streamFailed = false;
         try {
-            for await (const chunk of stream) {
+            for await (const chunk of runtime.provider.stream(modelRequest)) {
                 throwIfAborted(options.signal);
                 if (chunk.textState === 'start') {
                     finishReasoningSegment();
@@ -1385,10 +1373,10 @@ export class AiRequestExecutor {
      * - turn 的最终落库状态
      */
     async runAttempt(options: RunAttemptOptions): Promise<AttemptExecutionResult> {
-        options.startCheckpoint.promptCacheKey ??= String(
-            options.persister.getSessionId?.() ?? crypto.randomUUID()
+        const runtime = await this.createAttemptRuntime(
+            options.startCheckpoint,
+            options.persister.getSessionId()
         );
-        const runtime = await this.createAttemptRuntime(options.startCheckpoint);
         let resumeCheckpoint = options.startCheckpoint;
         try {
             while (true) {

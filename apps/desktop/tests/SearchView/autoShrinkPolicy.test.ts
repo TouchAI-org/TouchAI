@@ -25,15 +25,6 @@ function createAssistantMessage(overrides: Partial<SessionMessage> = {}): Sessio
 }
 
 describe('when the search window considers shrinking itself', () => {
-    it('user keeps the conversation open until context compaction has finished', () => {
-        const message = createAssistantMessage({
-            parts: [{ id: 'summary-1', type: 'context_compaction', state: 'compacting' }],
-        });
-        expect(buildLatestCompletedMessageMarker(7, [message])).toBeNull();
-        message.parts = [{ id: 'summary-1', type: 'context_compaction', state: 'compacted' }];
-        expect(buildLatestCompletedMessageMarker(7, [message])).not.toBeNull();
-    });
-
     it('user gets no shrink while there is nothing settled to measure', () => {
         expect(buildLatestCompletedMessageMarker(null, [])).toBeNull();
         expect(

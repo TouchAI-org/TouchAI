@@ -46,10 +46,13 @@ describe('given a conversation that compacts older context', () => {
             type: 'context_compaction',
             state: 'compacting',
         });
+        expect(snapshot.sessionHistory[1]!.isStreaming).toBe(true);
         status('compacted');
         status('compacted');
+        expect(snapshot.sessionHistory[1]!.isStreaming).toBe(true);
         projection.handleChunk({ content: 'Checks passed.', done: true });
         projection.markCompleted();
+        expect(snapshot.sessionHistory[1]!.isStreaming).toBe(false);
         expect(snapshot.sessionHistory[1]!.parts).toMatchObject([
             { type: 'text', content: 'Inspecting files.' },
             { type: 'context_compaction', id: 'summary-1', state: 'compacted' },

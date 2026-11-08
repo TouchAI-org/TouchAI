@@ -104,7 +104,7 @@ async function failWith(error: unknown, signal?: AbortSignal) {
     providerMock.classifyError.mockReturnValue(new AiError(AiErrorCode.NETWORK_ERROR));
     return new AiRequestExecutor().runAttempt({
         startCheckpoint: createCheckpoint(),
-        persister: {} as never,
+        persister: { getSessionId: () => 42 } as never,
         signal,
     });
 }
@@ -296,7 +296,7 @@ describe('user cancels an attempt before the model answers', () => {
 
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: {} as never,
+            persister: { getSessionId: () => 42 } as never,
             signal: controller.signal,
         });
 
@@ -314,7 +314,7 @@ describe('user gets an answer the model never produced', () => {
 
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: {} as never,
+            persister: { getSessionId: () => 42 } as never,
         });
 
         expect(result).toMatchObject({ type: 'failed' });
@@ -332,7 +332,7 @@ describe('user gets an answer the model never produced', () => {
 
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: {} as never,
+            persister: { getSessionId: () => 42 } as never,
         });
 
         expect(result).toMatchObject({ type: 'completed', reasoning: 'Thought about it' });

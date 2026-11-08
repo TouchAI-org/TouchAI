@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
-import type { AiRequestOptions } from '@/services/AgentService/contracts/protocol';
+import type {
+    AiRequestOptions,
+    PersistedOutputPart,
+} from '@/services/AgentService/contracts/protocol';
 import type { AiToolCall } from '@/services/AgentService/contracts/tooling';
 import { AiRequestExecutor } from '@/services/AgentService/execution';
 import type { AttemptCheckpoint } from '@/services/AgentService/execution/executor';
@@ -171,6 +174,47 @@ describe('user sends a prompt and receives a streamed answer', () => {
         vi.useRealTimers();
     });
 
+    it('user keeps the same cache route across retries and later turns while other sessions stay separate', async () => {
+        const sent: AiRequestOptions[] = [];
+        providerMock.stream.mockImplementation(async function* (request: AiRequestOptions) {
+            sent.push(request);
+            if (sent.length === 1) throw new AiError(AiErrorCode.NETWORK_ERROR);
+            yield { content: 'Done', done: true };
+        });
+        const executor = new AiRequestExecutor();
+        const persister = {
+            getSessionId: () => 42,
+            persistOutputProgress: async () => undefined,
+        };
+        const failed = await executor.runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persister as never,
+        });
+        expect(failed.type).toBe('failed');
+        if (failed.type !== 'failed') throw new Error('Expected the first request to fail');
+        const retry = await executor.runAttempt({
+            startCheckpoint: failed.resumeCheckpoint,
+            persister: persister as never,
+        });
+        const nextTurn = await executor.runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persister as never,
+        });
+        const otherSession = await executor.runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: { ...persister, getSessionId: () => 43 } as never,
+        });
+        expect([retry.type, nextTurn.type, otherSession.type]).toEqual([
+            'completed',
+            'completed',
+            'completed',
+        ]);
+        const routes = sent.map((request) => request.promptCacheKey);
+        expect(routes[0]).toEqual(expect.any(String));
+        expect(routes.slice(0, 3)).toEqual([routes[0], routes[0], routes[0]]);
+        expect(routes[3]).not.toBe(routes[0]);
+    });
+
     it('user receives the answer with summary costs included when history exceeds the model budget', async () => {
         const checkpoint = createLongCheckpoint();
         const compactionStates: string[] = [];
@@ -329,7 +373,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
 
         const outcome = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: {} as never,
+            persister: { getSessionId: () => 42 } as never,
         });
 
         expect(outcome.type).toBe('completed');
@@ -352,6 +396,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
             persister: {
+                getSessionId: () => 42,
                 persistCheckpoint,
                 persistOutputProgress: vi.fn().mockResolvedValue(undefined),
             } as never,
@@ -371,10 +416,12 @@ describe('user sends a prompt and receives a streamed answer', () => {
         vi.useFakeTimers();
         vi.setSystemTime(1000);
         const persistOutputProgress = vi.fn().mockResolvedValue(undefined);
+        const firstSaved = new Promise<void>((resolve) => {
+            persistOutputProgress.mockImplementationOnce(async () => resolve());
+        });
         providerMock.stream.mockImplementation(async function* () {
             yield { content: '', reasoningState: 'start', done: false };
-            await Promise.resolve();
-            await Promise.resolve();
+            await firstSaved;
             expect(persistOutputProgress).toHaveBeenCalledWith([
                 { type: 'reasoning', content: '', startedAt: 1000 },
             ]);
@@ -384,7 +431,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         });
         const outcome = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: { persistOutputProgress } as never,
+            persister: { getSessionId: () => 42, persistOutputProgress } as never,
         });
         expect(outcome.type).toBe('completed');
         expect(persistOutputProgress).toHaveBeenLastCalledWith([
@@ -398,12 +445,18 @@ describe('user sends a prompt and receives a streamed answer', () => {
         vi.useFakeTimers();
         vi.setSystemTime(1000);
         const persistOutputProgress = vi.fn().mockResolvedValue(undefined);
+        const reasoningSaved = new Promise<void>((resolve) => {
+            persistOutputProgress.mockImplementation(async (parts: PersistedOutputPart[]) => {
+                if (parts.some((part) => part.type === 'reasoning' && part.endedAt !== undefined))
+                    resolve();
+            });
+        });
         providerMock.stream.mockImplementation(async function* () {
             yield { content: '', reasoning: 'Plan', done: false };
             vi.setSystemTime(6000);
             yield { content: 'Answer', done: false };
             // The completed reasoning fragment must survive before the reply finishes.
-            await Promise.resolve();
+            await reasoningSaved;
             expect(persistOutputProgress).toHaveBeenCalledWith([
                 { type: 'reasoning', content: 'Plan', startedAt: 1000, endedAt: 6000 },
             ]);
@@ -412,7 +465,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         });
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: { persistOutputProgress } as never,
+            persister: { getSessionId: () => 42, persistOutputProgress } as never,
         });
         expect(result.type).toBe('completed');
         expect(persistOutputProgress).toHaveBeenLastCalledWith([
@@ -474,6 +527,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         const outcome = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
             persister: {
+                getSessionId: () => 42,
                 persistOutputProgress: vi.fn().mockResolvedValue(undefined),
                 persistToolCallMessage: vi.fn().mockResolvedValue(1),
                 persistToolResult: vi.fn().mockResolvedValue(undefined),
@@ -507,7 +561,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         const executor = new AiRequestExecutor();
         const result = await executor.runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: {} as never,
+            persister: { getSessionId: () => 42 } as never,
         });
 
         expect(result.type).toBe('failed');

@@ -13,7 +13,6 @@ import type {
 import { canonicalJson } from '../infrastructure/providers/ai-sdk/cache';
 
 const MAX_SUMMARIES = 16;
-export { MAX_SUMMARY_CHARS } from '../contracts/context';
 const SUMMARY_TTL_MS = 30 * 60_000;
 
 // Adapted from pi's initial/update checkpoints; keep the typed request prefix for caching.
