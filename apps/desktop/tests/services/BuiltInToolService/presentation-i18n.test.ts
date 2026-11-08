@@ -5,22 +5,31 @@ import { setLocale } from '@/i18n';
 vi.mock('@/services/BuiltInToolService/registry', () => ({
     builtInToolRegistry: {
         get: (toolId: string) =>
-            toolId === 'bash'
+            toolId === 'computer_use'
                 ? {
-                      id: 'bash',
-                      displayName: 'Bash',
+                      id: 'computer_use',
+                      displayName: 'Computer use',
                       buildConversationSemantic: () => ({
                           action: 'process',
-                          target: 'Bash',
+                          target: 'Computer use',
                       }),
                   }
-                : toolId === 'empty'
+                : toolId === 'bash'
                   ? {
-                        id: 'empty',
-                        displayName: 'Empty',
-                        buildConversationSemantic: () => null,
+                        id: 'bash',
+                        displayName: 'Bash',
+                        buildConversationSemantic: () => ({
+                            action: 'process',
+                            target: 'Bash',
+                        }),
                     }
-                  : null,
+                  : toolId === 'empty'
+                    ? {
+                          id: 'empty',
+                          displayName: 'Empty',
+                          buildConversationSemantic: () => null,
+                      }
+                    : null,
         list: () => [
             {
                 id: 'bash',
@@ -39,6 +48,23 @@ vi.mock('@/services/BuiltInToolService/registry', () => ({
 }));
 
 describe('user reads tool activity in their own language', () => {
+    it('user given a native desktop action when its status changes then receives operation specific activity text', async () => {
+        setLocale('en-US');
+        const { buildBuiltInToolConversationPresentation } =
+            await import('@/services/BuiltInToolService/presentation');
+        expect(
+            buildBuiltInToolConversationPresentation(
+                'builtin__computer_use',
+                {
+                    action: 'call',
+                    tool: 'set_window_frame',
+                    arguments: { app: 'Notepad' },
+                },
+                'error'
+            )
+        ).toEqual({ verb: 'Failed: Adjust window', content: 'Notepad' });
+    });
+
     it('user reads built-in tool verbs in the active runtime language', async () => {
         const { buildBuiltInToolConversationPresentation } =
             await import('@/services/BuiltInToolService/presentation');

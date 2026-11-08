@@ -63,6 +63,7 @@ function createRegistryTool(overrides: Record<string, unknown> = {}) {
             target: 'Write-Output "alpha"',
         })),
         buildApprovalRequest: vi.fn(async () => null),
+        recordApprovalRejected: vi.fn(),
         execute: vi.fn(async () => ({
             result: 'alpha',
             isError: false,
@@ -386,6 +387,28 @@ describe('user still runs a built-in tool when bookkeeping fails', () => {
         });
 
         expect(result?.isError).toBe(true);
+    });
+
+    it('user rejection reaches the tool-specific accounting hook', async () => {
+        const recordApprovalRejected = vi.fn();
+        registryGetMock.mockReturnValue(
+            createRegistryTool({
+                buildApprovalRequest: vi.fn(async () => ({ reason: 'needs approval' })),
+                recordApprovalRejected,
+            })
+        );
+        const builtInToolService = await loadBuiltInToolService();
+
+        const result = await executeBuiltInTool(builtInToolService, {
+            requestToolApproval: vi.fn(async () => false),
+        });
+
+        expect(result?.isError).toBe(true);
+        expect(recordApprovalRejected).toHaveBeenCalledWith(
+            { command: 'Write-Output "alpha"' },
+            {},
+            expect.objectContaining({ callId: 'call-builtin-1' })
+        );
     });
 
     it('user gets the approved run even when the approved state cannot be saved', async () => {

@@ -1,7 +1,9 @@
+import { installTauriMocks, mockTauriCommand, resetTauriMocks } from '@tests/utils/tauri';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type { ExecuteRequestResult } from '@/services/AgentService/execution/runtime';
+import { computerUseService } from '@/services/ComputerUseService';
 import { log } from '@/services/ObservabilityService';
 import {
     registerStartupCapability,
@@ -239,6 +241,41 @@ describe('user watches a task reach its end', () => {
 
         expect(center.getTaskSnapshot(started.taskId)?.status).toBe('completed');
     });
+
+    it.each(['completed', 'failed'] as const)(
+        'user given active computer control when the task is %s then no longer sees activity feedback',
+        async (outcome) => {
+            installTauriMocks();
+            const activeTasks = new Set<string>();
+            mockTauriCommand('computer_use_glow_set_active', (payload: unknown) => {
+                const { activityId, active } = payload as { activityId: string; active: boolean };
+                if (active) activeTasks.add(activityId);
+                else activeTasks.delete(activityId);
+            });
+            runtimeState.run.mockImplementation(async () => {
+                const options = latestOptions();
+                if (!options.signal) throw new Error('Missing task cancellation signal');
+                await computerUseService.startActivity(options.signal);
+                expect(activeTasks.size).toBe(1);
+                if (outcome === 'failed') throw new AiError(AiErrorCode.STREAM_ERROR, {});
+                options.onTurnEvent?.({ type: 'task_completed' });
+                return completedTurn('All done');
+            });
+            try {
+                const center = createCenter();
+                const started = await center.startTask({ prompt: 'Use the computer' });
+                if (outcome === 'failed') {
+                    await expect(started.completion).rejects.toBeInstanceOf(AiError);
+                } else {
+                    await started.completion;
+                }
+                expect(center.getTaskSnapshot(started.taskId)?.status).toBe(outcome);
+                expect(activeTasks.size).toBe(0);
+            } finally {
+                resetTauriMocks();
+            }
+        }
+    );
 
     it('user sees the task failed with the message when the provider errors', async () => {
         runtimeState.run.mockRejectedValue(new AiError(AiErrorCode.STREAM_ERROR, {}));

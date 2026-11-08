@@ -39,6 +39,7 @@
     --color-canvas: var(--color-ui-100);
     --color-canvas-sunken: var(--color-ui-200);
     --color-surface-raised: var(--color-ui-50);
+    --color-surface-floating: var(--color-white);
     --color-surface-sunken: var(--color-ui-400);
     --color-surface-hover: var(--color-ui-300);
     --color-surface-hover-soft: var(--color-ui-500);
@@ -64,6 +65,7 @@
     /* ── Text ────────────────────────────────────────────────────────────── */
 
     --color-text-primary: #4a4039;
+    --color-text-neutral: var(--color-neutral-800);
     --color-text-secondary: #6b5f54;
     --color-text-tertiary: #968b7d;
     --color-settings-text: var(--color-neutral-950);

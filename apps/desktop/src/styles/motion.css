@@ -160,6 +160,9 @@
 .t-progress {
     transition: width var(--duration-fast) var(--ease-smooth-out);
 }
+[role='status'].animate-spin {
+    animation-duration: var(--motion-spinner-cycle);
+}
 .t-rotate-indicator {
     transition: transform var(--duration-quick) var(--ease-smooth-out);
 }
@@ -378,6 +381,10 @@
         transition-duration: 0ms !important;
         transition-delay: 0ms !important;
         scroll-behavior: auto !important;
+    }
+    [role='status'].animate-spin {
+        animation-duration: var(--motion-spinner-cycle) !important;
+        animation-iteration-count: infinite !important;
     }
     .t-press:active {
         scale: 1;

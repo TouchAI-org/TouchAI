@@ -22,10 +22,18 @@
     <div v-else :class="rootClass" @mousedown="handleMouseDown">
         <template v-if="isBuiltinTool">
             <div class="tool-call-log-line">
-                <span v-if="isBrowserBuiltinTool" class="tool-call-log-icon">
-                    <AppIcon name="globe" class="h-3.5 w-3.5" />
+                <span
+                    v-if="isBrowserBuiltinTool || isComputerUseBuiltinTool"
+                    class="tool-call-log-icon"
+                >
+                    <AppIcon
+                        :name="isComputerUseBuiltinTool ? 'cursor' : 'globe'"
+                        class="h-3.5 w-3.5"
+                    />
                 </span>
-                <span v-else class="tool-call-log-verb">{{ builtinVerbText }}</span>
+                <span v-if="!isBrowserBuiltinTool" class="tool-call-log-verb">
+                    {{ isComputerUseBuiltinTool ? ` ${builtinVerbText}` : builtinVerbText }}
+                </span>
                 <span
                     v-if="activatedSkillName"
                     data-slot="tool-call-activated-skill"
@@ -149,6 +157,7 @@
     import { computed, ref } from 'vue';
 
     import { t } from '@/i18n';
+    import { buildComputerUsePresentation } from '@/services/BuiltInToolService/tools/computerUse/presentation';
     import {
         SEARCH_PROVIDER_METADATA,
         type SearchProviderId,
@@ -156,14 +165,12 @@
     import type { ToolCallInfo } from '@/types/session';
 
     import BuiltInBashToolCallItem from './BuiltInBashToolCallItem.vue';
-    import ComputerUseToolCallItem from './ComputerUseToolCallItem.vue';
     import WebSearchSourcesCard from './WebSearchSourcesCard.vue';
 
     const BUILTIN_ROOT_CLASS =
         'tool-call-log-wrapper paragraph-node touchai-markdown touchai-markdown--default';
     const BUILTIN_CARD_COMPONENTS: Record<string, Component> = {
         bash: BuiltInBashToolCallItem,
-        computer_use: ComputerUseToolCallItem,
     };
     const WEB_SEARCH_TOOL_TOKEN = 'websearch';
 
@@ -242,6 +249,12 @@
         return SEARCH_PROVIDER_METADATA[provider as SearchProviderId]?.sourceName ?? provider;
     });
     const isBrowserBuiltinTool = computed(() => builtinToolToken.value.startsWith('browser'));
+    const isComputerUseBuiltinTool = computed(() => builtinToolToken.value === 'computeruse');
+    const computerUsePresentation = computed(() =>
+        isComputerUseBuiltinTool.value
+            ? buildComputerUsePresentation(props.toolCall.arguments ?? {}, props.toolCall.status)
+            : null
+    );
     const rootClass = computed(() => {
         if (isBuiltinTool.value) {
             return BUILTIN_ROOT_CLASS;
@@ -348,10 +361,16 @@
         return t('conversation.toolCall.processed');
     });
     const builtinVerbText = computed(() => {
-        return props.toolCall.builtinPresentation?.verb || fallbackBuiltinVerbText.value;
+        return (
+            computerUsePresentation.value?.verb ||
+            props.toolCall.builtinPresentation?.verb ||
+            fallbackBuiltinVerbText.value
+        );
     });
-    const builtinSummaryText = computed(
-        () => props.toolCall.builtinPresentation?.content?.trim() || toolDisplayName.value
+    const builtinSummaryText = computed(() =>
+        computerUsePresentation.value
+            ? (computerUsePresentation.value.content ?? '')
+            : props.toolCall.builtinPresentation?.content?.trim() || toolDisplayName.value
     );
     const isBuiltinSummaryPayload = computed(() => {
         return Boolean(

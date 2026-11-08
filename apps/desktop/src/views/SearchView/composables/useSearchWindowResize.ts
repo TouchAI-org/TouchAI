@@ -36,6 +36,7 @@ import {
 } from '@/views/SearchView/windowSizing';
 
 interface UseSearchWindowResizeOptions {
+    askUserOpen?: Ref<boolean>;
     target: Ref<HTMLElement | null>;
     inputArea?: Ref<HTMLElement | null>;
     picker?: Ref<HTMLElement | null>;
@@ -249,6 +250,7 @@ export function useSearchWindowResize(options: UseSearchWindowResizeOptions) {
 
     const searchWindowHeightPolicy = computed(() =>
         resolveSearchWindowHeightPolicy({
+            askUserOpen: options.askUserOpen?.value ?? false,
             sessionCount: options.sessionCount.value,
             quickSearchOpen: options.quickSearchOpen.value,
             skillAutocompleteOpen: options.skillAutocompleteOpen?.value ?? false,

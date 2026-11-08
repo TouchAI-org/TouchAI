@@ -37,8 +37,7 @@ impl HttpWheelFetcher {
     /// serves it, while the JSON API path differs between mirrors.
     pub async fn latest_version(&self, mirrors: &[&str]) -> Result<String, String> {
         let mut last_error = String::from("no mirror answered");
-        for mirror in mirrors {
-            let url = format!("{}/simple/cua-driver/", mirror.trim_end_matches('/'));
+        for url in self.sources(mirrors, "/simple/cua-driver/").await {
             let response = self
                 .client
                 .get(&url)
@@ -51,11 +50,11 @@ impl HttpWheelFetcher {
                     let body = response.text().await.map_err(|error| error.to_string())?;
                     match highest_version(&body) {
                         Some(version) => return Ok(version),
-                        None => last_error = format!("{mirror} listed no versions"),
+                        None => last_error = format!("{url} listed no versions"),
                     }
                 }
-                Ok(response) => last_error = format!("{mirror} answered {}", response.status()),
-                Err(error) => last_error = format!("{mirror}: {error}"),
+                Ok(response) => last_error = format!("{url} answered {}", response.status()),
+                Err(error) => last_error = format!("{url}: {error}"),
             }
         }
         Err(last_error)
@@ -63,6 +62,44 @@ impl HttpWheelFetcher {
 }
 
 impl WheelFetcher for HttpWheelFetcher {
+    async fn sources(&self, mirrors: &[&str], package_path: &str) -> Vec<String> {
+        let mut urls: Vec<String> = mirrors
+            .iter()
+            .map(|mirror| format!("{}{}", mirror.trim_end_matches('/'), package_path))
+            .collect();
+        let mut probes = futures::stream::FuturesUnordered::new();
+        for (index, url) in urls.iter().enumerate() {
+            let request = self
+                .client
+                .head(url)
+                .header(reqwest::header::USER_AGENT, &self.user_agent)
+                .timeout(Duration::from_secs(3));
+            probes.push(async move {
+                (
+                    index,
+                    request
+                        .send()
+                        .await
+                        .is_ok_and(|response| response.status().is_success()),
+                )
+            });
+        }
+        let preferred = loop {
+            match probes.next().await {
+                Some((index, true)) => break Some(index),
+                Some((_, false)) => continue,
+                None => break None,
+            }
+        };
+        drop(probes);
+        if let Some(index) = preferred {
+            let chosen = urls.remove(index);
+            log::info!("Computer-use download source selected by network availability: {chosen}");
+            urls.insert(0, chosen);
+        }
+        urls
+    }
+
     async fn fetch(&self, url: &str, offset: u64) -> Result<Fetched, String> {
         let mut request = self
             .client

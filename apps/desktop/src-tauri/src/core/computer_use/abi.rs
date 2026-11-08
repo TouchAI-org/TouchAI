@@ -9,7 +9,7 @@
 use std::ffi::{c_void, CString};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::Value;
 
@@ -54,6 +54,8 @@ type InvokeFn = unsafe extern "C" fn(
 ) -> Status;
 type CancelFn = unsafe extern "C" fn(*mut c_void);
 type ReleaseFn = unsafe extern "C" fn(*mut *mut c_void);
+type SessionCreateFn =
+    unsafe extern "C" fn(*mut c_void, *const u8, usize, *mut *mut c_void, *mut AbiBuffer) -> Status;
 
 #[derive(Debug)]
 pub enum AbiError {
@@ -112,9 +114,13 @@ pub struct AbiLibrary {
     destroy: DestroyFn,
     is_available: IsAvailableFn,
     metadata: MetadataFn,
+    list_tools: MetadataFn,
     invoke: InvokeFn,
     cancel: CancelFn,
     release: ReleaseFn,
+    session_create: SessionCreateFn,
+    session_destroy: DestroyFn,
+    session_invoke: InvokeFn,
 }
 
 impl AbiLibrary {
@@ -135,17 +141,26 @@ impl AbiLibrary {
                     .map(|symbol| *symbol)
                     .map_err(|error| AbiError::Symbol(error.to_string()))
             };
-            Ok(Self {
+            let loaded = Self {
                 buffer_free: std::mem::transmute(symbol(b"cua_driver_buffer_free_v1")?),
                 create: std::mem::transmute(symbol(b"cua_driver_create_v1")?),
                 destroy: std::mem::transmute(symbol(b"cua_driver_destroy_v1")?),
                 is_available: std::mem::transmute(symbol(b"cua_driver_is_available_v1")?),
                 metadata: std::mem::transmute(symbol(b"cua_driver_metadata_json_v1")?),
+                list_tools: std::mem::transmute(symbol(b"cua_driver_list_tools_json_v1")?),
                 invoke: std::mem::transmute(symbol(b"cua_driver_invoke_v1")?),
                 cancel: std::mem::transmute(symbol(b"cua_driver_operation_cancel_v1")?),
                 release: std::mem::transmute(symbol(b"cua_driver_operation_release_v1")?),
+                session_create: std::mem::transmute(symbol(b"cua_driver_session_create_v1")?),
+                session_destroy: std::mem::transmute(symbol(b"cua_driver_session_destroy_v1")?),
+                session_invoke: std::mem::transmute(symbol(b"cua_driver_session_invoke_v1")?),
                 _library: library,
-            })
+            };
+            #[cfg(windows)]
+            libloading::os::windows::Library::open_already_loaded(path)
+                .and_then(|library| library.pin())
+                .map_err(|error| AbiError::Library(error.to_string()))?;
+            Ok(loaded)
         }
     }
 
@@ -212,6 +227,8 @@ impl AbiLibrary {
                 library: std::sync::Arc::new(self),
                 pending: Mutex::new(std::collections::HashMap::new()),
                 next_id: AtomicU64::new(1),
+                tools: OnceLock::new(),
+                sessions: Mutex::new(std::collections::HashMap::new()),
             })
         }
     }
@@ -228,6 +245,8 @@ pub struct Driver {
     library: std::sync::Arc<AbiLibrary>,
     pending: Mutex<std::collections::HashMap<u64, usize>>,
     next_id: AtomicU64,
+    tools: OnceLock<Vec<Value>>,
+    sessions: Mutex<std::collections::HashMap<String, Arc<TrustedSession>>>,
 }
 
 unsafe impl Send for Driver {}
@@ -235,8 +254,25 @@ unsafe impl Sync for Driver {}
 
 struct CallContext {
     id: u64,
-    driver: *const Driver,
+    driver: Arc<Driver>,
     sender: tokio::sync::oneshot::Sender<Result<Value, AbiError>>,
+    _session: Option<Arc<TrustedSession>>,
+}
+
+struct TrustedSession {
+    handle: *mut c_void,
+    library: Arc<AbiLibrary>,
+    last_used: Mutex<std::time::Instant>,
+    created: std::time::Instant,
+}
+
+unsafe impl Send for TrustedSession {}
+unsafe impl Sync for TrustedSession {}
+
+impl Drop for TrustedSession {
+    fn drop(&mut self) {
+        unsafe { (self.library.session_destroy)(&mut self.handle) };
+    }
 }
 
 impl Driver {
@@ -255,10 +291,29 @@ impl Driver {
     }
 
     pub fn metadata(&self) -> Result<Value, AbiError> {
+        self.read_json(self.library.metadata)
+    }
+
+    pub fn list_tools(&self) -> Result<&Vec<Value>, AbiError> {
+        if let Some(tools) = self.tools.get() {
+            return Ok(tools);
+        }
+        let catalog = self.read_json(self.library.list_tools)?;
+        let tools = catalog
+            .get("tools")
+            .and_then(Value::as_array)
+            .ok_or_else(|| AbiError::Json("tool catalog must contain a tools array".to_string()))?;
+        let _ = self.tools.set(tools.clone());
+        self.tools
+            .get()
+            .ok_or_else(|| AbiError::Json("tool catalog unavailable".to_string()))
+    }
+
+    fn read_json(&self, function: MetadataFn) -> Result<Value, AbiError> {
         unsafe {
             let mut json = empty_buffer();
             let mut error = empty_buffer();
-            let status = (self.library.metadata)(self.handle, &mut json, &mut error);
+            let status = function(self.handle, &mut json, &mut error);
             let payload = take_bytes(&json);
             let message = take_bytes(&error);
             (self.library.buffer_free)(&mut json);
@@ -274,7 +329,34 @@ impl Driver {
     }
 
     /// 发起一次调用并立即返回可取消句柄。
-    pub fn invoke(&self, tool: &str, arguments: &Value) -> Result<PendingCall, AbiError> {
+    pub fn invoke(
+        self: &Arc<Self>,
+        tool: &str,
+        arguments: &Value,
+        full_access: bool,
+    ) -> Result<PendingCall, AbiError> {
+        let session = if full_access {
+            Some(self.trusted_session(arguments)?)
+        } else {
+            None
+        };
+        self.invoke_bound(tool, arguments, session)
+    }
+
+    fn invoke_bound(
+        self: &Arc<Self>,
+        tool: &str,
+        arguments: &Value,
+        session: Option<Arc<TrustedSession>>,
+    ) -> Result<PendingCall, AbiError> {
+        let handle = session
+            .as_ref()
+            .map_or(self.handle, |session| session.handle);
+        let invoke = if session.is_some() {
+            self.library.session_invoke
+        } else {
+            self.library.invoke
+        };
         let name = CString::new(tool).map_err(|error| AbiError::Json(error.to_string()))?;
         let arguments =
             serde_json::to_string(arguments).map_err(|error| AbiError::Json(error.to_string()))?;
@@ -283,21 +365,24 @@ impl Driver {
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let context = Box::new(CallContext {
             id,
-            driver: self as *const Driver,
+            driver: Arc::clone(self),
             sender,
+            _session: session,
         });
+        let context = Box::into_raw(context);
+        self.pending.lock().expect("pending calls").insert(id, 0);
 
         let mut operation: *mut c_void = std::ptr::null_mut();
         let mut error = empty_buffer();
         let status = unsafe {
-            (self.library.invoke)(
-                self.handle,
+            invoke(
+                handle,
                 name.as_bytes().as_ptr(),
                 name.as_bytes().len(),
                 arguments.as_ptr(),
                 arguments.len(),
                 completed,
-                Box::into_raw(context) as *mut c_void,
+                context as *mut c_void,
                 &mut operation,
                 &mut error,
             )
@@ -306,28 +391,136 @@ impl Driver {
         unsafe { (self.library.buffer_free)(&mut error) };
 
         if status != STATUS_OK {
+            self.pending.lock().expect("pending calls").remove(&id);
+            unsafe {
+                drop(Box::from_raw(context));
+            }
             return Err(AbiError::Status {
                 code: status,
                 message: String::from_utf8_lossy(&message).to_string(),
             });
         }
 
-        self.pending
-            .lock()
-            .expect("pending calls")
-            .insert(id, operation as usize);
+        let mut pending = self.pending.lock().expect("pending calls");
+        if let Some(slot) = pending.get_mut(&id) {
+            *slot = operation as usize;
+        } else {
+            unsafe { (self.library.release)(&mut operation) };
+        }
 
         Ok(PendingCall { id, receiver })
     }
 
+    fn trusted_session(
+        self: &Arc<Self>,
+        arguments: &Value,
+    ) -> Result<Arc<TrustedSession>, AbiError> {
+        let label = arguments["session"]
+            .as_str()
+            .unwrap_or("touchai-full-access");
+        let mut sessions = self.sessions.lock().expect("trusted sessions");
+        sessions.retain(|_, session| {
+            session.created.elapsed().as_secs() < 86000
+                && session
+                    .last_used
+                    .lock()
+                    .expect("session clock")
+                    .elapsed()
+                    .as_secs()
+                    < 3500
+        });
+        if let Some(session) = sessions.get(label) {
+            *session.last_used.lock().expect("session clock") = std::time::Instant::now();
+            return Ok(Arc::clone(session));
+        }
+        if sessions.len() >= 32 {
+            return Err(AbiError::Json(
+                "too many active computer use sessions; end an unused session".to_string(),
+            ));
+        }
+        let options = serde_json::json!({"public_session": label, "transport_session": format!("touchai:{label}"), "mode": "unrestricted", "ttl_seconds": 86400, "idle_ttl_seconds": 3600}).to_string();
+        let mut handle = std::ptr::null_mut();
+        let mut error = empty_buffer();
+        let status = unsafe {
+            (self.library.session_create)(
+                self.handle,
+                options.as_ptr(),
+                options.len(),
+                &mut handle,
+                &mut error,
+            )
+        };
+        let message = unsafe { take_bytes(&error) };
+        unsafe { (self.library.buffer_free)(&mut error) };
+        if status != STATUS_OK {
+            return Err(AbiError::Status {
+                code: status,
+                message: String::from_utf8_lossy(&message).to_string(),
+            });
+        }
+        let session = Arc::new(TrustedSession {
+            handle,
+            library: Arc::clone(&self.library),
+            created: std::time::Instant::now(),
+            last_used: Mutex::new(std::time::Instant::now()),
+        });
+        let mut started = self.invoke_bound(
+            "start_session",
+            &serde_json::json!({}),
+            Some(Arc::clone(&session)),
+        )?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            match started.receiver.try_recv() {
+                Ok(result) => {
+                    let result = result?;
+                    if result["isError"].as_bool() == Some(true) {
+                        return Err(AbiError::Status {
+                            code: -1,
+                            message: result.to_string(),
+                        });
+                    }
+                    break;
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+                    if std::time::Instant::now() < deadline =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                _ => {
+                    self.cancel(started.id);
+                    return Err(AbiError::Status {
+                        code: -1,
+                        message: "computer use session did not start".to_string(),
+                    });
+                }
+            }
+        }
+        sessions.insert(label.to_string(), Arc::clone(&session));
+        Ok(session)
+    }
+
+    pub fn end_session(&self, arguments: &Value) {
+        let label = arguments["session"]
+            .as_str()
+            .unwrap_or("touchai-full-access");
+        self.sessions
+            .lock()
+            .expect("trusted sessions")
+            .remove(label);
+    }
+
+    pub fn end_activity(&self, activity_id: &str) {
+        let prefix = format!("{activity_id}-");
+        if let Ok(mut sessions) = self.sessions.lock() {
+            sessions.retain(|label, _| !label.starts_with(&prefix));
+        }
+    }
+
     /// 请求取消一次在途调用；令牌在完成后由回调清理。
     pub fn cancel(&self, id: u64) -> bool {
-        let operation = self
-            .pending
-            .lock()
-            .expect("pending calls")
-            .get(&id)
-            .copied();
+        let pending = self.pending.lock().expect("pending calls");
+        let operation = pending.get(&id).copied();
         match operation {
             Some(operation) if operation != 0 => {
                 unsafe { (self.library.cancel)(operation as *mut c_void) };
@@ -343,7 +536,7 @@ extern "C" fn completed(context: *mut c_void, status: Status, result: AbiBuffer,
         return;
     }
     let context = unsafe { Box::from_raw(context as *mut CallContext) };
-    let driver = unsafe { &*context.driver };
+    let driver = &context.driver;
     let payload = unsafe { take_bytes(&result) };
     let message = unsafe { take_bytes(&error) };
     unsafe {
@@ -374,6 +567,70 @@ extern "C" fn completed(context: *mut c_void, status: Status, result: AbiBuffer,
 
 impl Drop for Driver {
     fn drop(&mut self) {
+        if let Ok(sessions) = self.sessions.get_mut() {
+            sessions.clear();
+        }
         unsafe { (self.library.destroy)(&mut self.handle) };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "requires TOUCHAI_TEST_CUA_DLL"]
+    fn user_given_a_retired_runtime_when_native_callbacks_finish_then_their_library_remains_mapped()
+    {
+        let path = std::env::var("TOUCHAI_TEST_CUA_DLL").expect("native fixture library");
+        let library = AbiLibrary::open(&path).expect("load library");
+        drop(library);
+        assert!(libloading::os::windows::Library::open_already_loaded(&path).is_ok());
+    }
+
+    fn complete(mut pending: PendingCall) -> Value {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            match pending.receiver.try_recv() {
+                Ok(result) => return result.expect("native result"),
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+                    if std::time::Instant::now() < deadline =>
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                result => panic!("native call did not complete: {result:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn user_given_a_retired_trusted_session_when_reading_again_then_receives_a_live_session() {
+        let Ok(path) = std::env::var("TOUCHAI_TEST_CUA_DLL") else {
+            return;
+        };
+        let driver = Arc::new(AbiLibrary::open(path).expect("installed driver").create(
+            &serde_json::json!({"authorization":{"allowed_modes":["standard","unrestricted"],"compatibility_mode":"standard","unrestricted_acknowledged":true,"max_session_ttl_seconds":86400,"max_idle_ttl_seconds":3600}}).to_string()
+        ).expect("driver runtime"));
+        let args = serde_json::json!({"session":"touchai-native-session-regression"});
+        let first = complete(
+            driver
+                .invoke("get_config", &args, true)
+                .expect("first read"),
+        );
+        assert_ne!(first["isError"], true, "{first}");
+        let ended = complete(
+            driver
+                .invoke("end_session", &args, true)
+                .expect("end session"),
+        );
+        assert_ne!(ended["isError"], true, "{ended}");
+        driver.end_session(&args);
+        let second = complete(
+            driver
+                .invoke("get_config", &args, true)
+                .expect("read after retirement"),
+        );
+        assert_ne!(second["isError"], true, "{second}");
     }
 }

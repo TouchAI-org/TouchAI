@@ -83,6 +83,13 @@ pub trait WheelFetcher {
         url: &str,
         offset: u64,
     ) -> impl std::future::Future<Output = Result<Fetched, String>>;
+
+    async fn sources(&self, mirrors: &[&str], package_path: &str) -> Vec<String> {
+        mirrors
+            .iter()
+            .map(|mirror| format!("{}{}", mirror.trim_end_matches('/'), package_path))
+            .collect()
+    }
 }
 
 /// Directories owned by provisioning under the app data root.
@@ -129,10 +136,10 @@ pub async fn ensure_installed<F: WheelFetcher>(
     fetcher: &F,
     layout: &InstallLayout,
     version: &str,
-    artifact: &Artifact,
+    artifact: &Artifact<'_>,
     mirrors: &[&str],
 ) -> Result<Installed, ProvisionError> {
-    let binary_name = entry_file_name(artifact.entry)?;
+    let binary_name = binary_name(artifact)?;
     let binary = layout.binary_path(version, binary_name);
 
     if is_installed(layout, version, artifact, &binary) {
@@ -141,9 +148,19 @@ pub async fn ensure_installed<F: WheelFetcher>(
 
     let wheel = download(fetcher, layout, version, artifact, mirrors).await?;
     verify_wheel(&wheel, artifact)?;
-    extract_entry(&wheel, artifact.entry, &binary)?;
+    if artifact.package_path.ends_with(".tar.gz") || artifact.package_path.ends_with(".tgz") {
+        extract_tar_entry(&wheel, artifact.entry, &binary)?;
+        for helper in &artifact.helpers {
+            let destination = layout.binary_path(version, checked_filename(helper.filename)?);
+            extract_tar_entry(&wheel, helper.entry, &destination)?;
+            verify_binary(&destination, helper.sha256)?;
+        }
+    } else {
+        extract_entry(&wheel, artifact.entry, &binary)?;
+    }
 
     let binary_sha256 = sha256_file(&binary)?;
+    verify_binary(&binary, artifact.binary_sha256)?;
     std::fs::create_dir_all(layout.version_dir(version))?;
     write_json(
         &layout.record_path(version),
@@ -153,17 +170,45 @@ pub async fn ensure_installed<F: WheelFetcher>(
             binary_sha256: binary_sha256.clone(),
         },
     )?;
-    write_json(
-        &layout.current_pointer(),
-        &CurrentPointer {
-            version: version.to_string(),
-        },
-    )?;
-
     Ok(Installed::Installed {
         binary,
         binary_sha256,
     })
+}
+
+fn checked_filename(filename: &str) -> Result<&str, ProvisionError> {
+    if filename.is_empty()
+        || filename == "."
+        || filename == ".."
+        || filename.contains(['/', '\\', ':'])
+    {
+        return Err(ProvisionError::Io("invalid driver file name".into()));
+    }
+    Ok(filename)
+}
+
+fn binary_name<'artifact>(
+    artifact: &'artifact Artifact<'_>,
+) -> Result<&'artifact str, ProvisionError> {
+    checked_filename(if artifact.filename.is_empty() {
+        entry_file_name(artifact.entry)?
+    } else {
+        artifact.filename
+    })
+}
+
+fn verify_binary(path: &Path, expected: &str) -> Result<(), ProvisionError> {
+    if expected.is_empty() {
+        return Ok(());
+    }
+    let actual = sha256_file(path)?;
+    if actual != expected {
+        return Err(ProvisionError::DigestMismatch {
+            expected: expected.into(),
+            actual,
+        });
+    }
+    Ok(())
 }
 
 fn entry_file_name(entry: &str) -> Result<&str, ProvisionError> {
@@ -176,7 +221,21 @@ fn entry_file_name(entry: &str) -> Result<&str, ProvisionError> {
         })
 }
 
-fn is_installed(layout: &InstallLayout, version: &str, artifact: &Artifact, binary: &Path) -> bool {
+pub fn installed_binary(
+    layout: &InstallLayout,
+    version: &str,
+    artifact: &Artifact<'_>,
+) -> Result<Option<PathBuf>, ProvisionError> {
+    let binary = layout.binary_path(version, binary_name(artifact)?);
+    Ok(is_installed(layout, version, artifact, &binary).then_some(binary))
+}
+
+fn is_installed(
+    layout: &InstallLayout,
+    version: &str,
+    artifact: &Artifact<'_>,
+    binary: &Path,
+) -> bool {
     if !binary.is_file() {
         return false;
     }
@@ -186,27 +245,134 @@ fn is_installed(layout: &InstallLayout, version: &str, artifact: &Artifact, bina
     let Ok(record) = serde_json::from_str::<InstallRecord>(&raw) else {
         return false;
     };
-    if record.version != version || record.wheel_sha256 != artifact.sha256 {
+    if record.version != version
+        || (record.wheel_sha256 != artifact.sha256 && artifact.binary_sha256.is_empty())
+    {
         return false;
     }
-    artifact.binary_sha256.is_empty() || record.binary_sha256 == artifact.binary_sha256
+    (artifact.binary_sha256.is_empty() || record.binary_sha256 == artifact.binary_sha256)
+        && sha256_file(binary).is_ok_and(|actual| actual == record.binary_sha256)
+        && artifact.helpers.iter().all(|helper| {
+            checked_filename(helper.filename).is_ok()
+                && verify_binary(&layout.binary_path(version, helper.filename), helper.sha256)
+                    .is_ok()
+        })
+}
+
+pub fn confirm_install(
+    layout: &InstallLayout,
+    version: &str,
+    artifact: &Artifact<'_>,
+) -> Result<(), ProvisionError> {
+    if installed_binary(layout, version, artifact)?.is_none() {
+        return Err(ProvisionError::Io(
+            "driver changed before activation".into(),
+        ));
+    }
+    write_json(
+        &layout.current_pointer(),
+        &CurrentPointer {
+            version: version.into(),
+        },
+    )?;
+    if let Err(error) = prune_versions(layout, version) {
+        log::warn!("Driver {version} is active; obsolete files will be retried on the next activation: {error}");
+    }
+    Ok(())
+}
+
+pub fn prune_versions(layout: &InstallLayout, version: &str) -> Result<(), ProvisionError> {
+    let current =
+        semver::Version::parse(version).map_err(|error| ProvisionError::Io(error.to_string()))?;
+    let retired = layout.root.join(".retired");
+    if retired.exists() {
+        if std::fs::symlink_metadata(&retired)?
+            .file_type()
+            .is_symlink()
+        {
+            return Err(ProvisionError::Io(
+                "retired directory is a symbolic link".into(),
+            ));
+        }
+        for entry in std::fs::read_dir(&retired)? {
+            let entry = entry?;
+            if entry.file_type()?.is_dir()
+                && uuid::Uuid::parse_str(&entry.file_name().to_string_lossy()).is_ok()
+            {
+                std::fs::remove_dir_all(entry.path())?;
+            }
+        }
+    }
+    for entry in std::fs::read_dir(&layout.root)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Ok(candidate) = semver::Version::parse(&name) else {
+            continue;
+        };
+        if candidate >= current {
+            continue;
+        }
+        let record = std::fs::read(layout.record_path(&name))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<InstallRecord>(&bytes).ok());
+        if record.as_ref().is_none_or(|record| record.version != name) {
+            continue;
+        }
+        std::fs::create_dir_all(&retired)?;
+        let target = retired.join(uuid::Uuid::new_v4().to_string());
+        std::fs::rename(entry.path(), &target)?;
+        if let Err(error) = std::fs::remove_dir_all(&target) {
+            log::warn!(
+                "Old driver files retained for cleanup at {}: {error}",
+                target.display()
+            );
+        }
+    }
+    let partial = layout.root.join(".partial");
+    if partial.is_dir()
+        && !std::fs::symlink_metadata(&partial)?
+            .file_type()
+            .is_symlink()
+    {
+        for entry in std::fs::read_dir(partial)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let obsolete = name
+                .strip_suffix(".whl.part")
+                .and_then(|value| semver::Version::parse(value).ok())
+                .is_some_and(|candidate| candidate < current);
+            if obsolete && entry.file_type()?.is_file() {
+                std::fs::remove_file(entry.path())?;
+            }
+        }
+    }
+    Ok(())
 }
 
 async fn download<F: WheelFetcher>(
     fetcher: &F,
     layout: &InstallLayout,
     version: &str,
-    artifact: &Artifact,
+    artifact: &Artifact<'_>,
     mirrors: &[&str],
 ) -> Result<PathBuf, ProvisionError> {
     let partial = layout.partial_path(version);
+    if std::fs::metadata(&partial).is_ok_and(|metadata| metadata.len() == artifact.size)
+        && verify_wheel(&partial, artifact).is_ok()
+    {
+        return Ok(partial);
+    }
     if let Some(parent) = partial.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
     let mut attempts = 0;
     let mut last_error = String::new();
-    for url in candidate_urls(mirrors, artifact) {
+    let mut integrity_error = None;
+    for url in fetcher.sources(mirrors, artifact.package_path).await {
         attempts += 1;
         let offset = std::fs::metadata(&partial)
             .map(|meta| meta.len())
@@ -231,26 +397,29 @@ async fn download<F: WheelFetcher>(
                 }
                 file.write_all(&fetched.bytes)?;
                 file.sync_all()?;
-                return Ok(partial);
+                drop(file);
+                match verify_wheel(&partial, artifact) {
+                    Ok(()) => return Ok(partial),
+                    Err(error) => {
+                        log::warn!("Rejected driver archive from {url}: {error}");
+                        integrity_error = Some(error);
+                    }
+                }
             }
             Err(error) => last_error = error,
         }
     }
 
+    if let Some(error) = integrity_error {
+        return Err(error);
+    }
     Err(ProvisionError::Download {
         attempts,
         last: last_error,
     })
 }
 
-fn candidate_urls(mirrors: &[&str], artifact: &Artifact) -> Vec<String> {
-    mirrors
-        .iter()
-        .map(|mirror| format!("{}{}", mirror.trim_end_matches('/'), artifact.package_path))
-        .collect()
-}
-
-fn verify_wheel(path: &Path, artifact: &Artifact) -> Result<(), ProvisionError> {
+fn verify_wheel(path: &Path, artifact: &Artifact<'_>) -> Result<(), ProvisionError> {
     let actual_size = std::fs::metadata(path)?.len();
     if actual_size != artifact.size {
         let _ = std::fs::remove_file(path);
@@ -289,6 +458,36 @@ fn extract_entry(wheel: &Path, entry: &str, destination: &Path) -> Result<(), Pr
     std::fs::write(&staging, &buffer)?;
     std::fs::rename(&staging, destination)?;
     Ok(())
+}
+
+fn extract_tar_entry(
+    archive: &Path,
+    entry: &str,
+    destination: &Path,
+) -> Result<(), ProvisionError> {
+    let decoder = flate2::read::GzDecoder::new(std::fs::File::open(archive)?);
+    let mut archive = tar::Archive::new(decoder);
+    for member in archive.entries()? {
+        let mut member = member?;
+        if member.path()?.as_ref() != Path::new(entry) || !member.header().entry_type().is_file() {
+            continue;
+        }
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let staging = destination.with_extension("downloading");
+        member.unpack(&staging)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o755))?;
+        }
+        std::fs::rename(staging, destination)?;
+        return Ok(());
+    }
+    Err(ProvisionError::MissingEntry {
+        entry: entry.to_string(),
+    })
 }
 
 fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), ProvisionError> {

@@ -112,6 +112,26 @@ const settingDefinitions: Partial<Record<NavigationSection, SearchItemDefinition
         },
         { labelKey: 'settings.browser.windowSize', targetId: 'browser-window-size' },
     ],
+    'computer-use': [
+        { labelKey: 'settings.computerUse.capabilities', targetId: 'computer-use-capabilities' },
+        { labelKey: 'settings.computerUse.field.driver', targetId: 'computer-use-driver' },
+        {
+            labelKey: 'settings.computerUse.field.driverDirectory',
+            targetId: 'computer-use-driver-directory',
+        },
+        { labelKey: 'settings.computerUse.field.cursor', targetId: 'computer-use-cursor' },
+        { labelKey: 'settings.computerUse.field.maxImage', targetId: 'computer-use-max-image' },
+        { labelKey: 'settings.computerUse.field.approval', targetId: 'computer-use-approval-mode' },
+        {
+            labelKey: 'settings.computerUse.field.foreground',
+            descriptionKey: 'settings.computerUse.hint.foreground',
+            targetId: 'computer-use-foreground',
+        },
+        {
+            labelKey: 'settings.computerUse.field.recording',
+            targetId: 'computer-use-recording',
+        },
+    ],
     'data-management': [
         { labelKey: 'settings.dataManagement.stats', targetId: 'data-stats' },
         { labelKey: 'settings.dataManagement.clearAllSessions', targetId: 'data-clear-sessions' },

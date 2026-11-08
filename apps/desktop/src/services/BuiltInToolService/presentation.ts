@@ -3,6 +3,7 @@
 import { type MessageKey, t } from '@/i18n';
 
 import { builtInToolRegistry } from './registry';
+import { buildComputerUsePresentation } from './tools/computerUse/presentation';
 import type {
     BuiltInToolConversationPresentation,
     BuiltInToolConversationSemantic,
@@ -177,6 +178,10 @@ export function buildBuiltInToolConversationPresentation(
     const tool = builtInToolRegistry.get(toolId);
     if (!tool) {
         return null;
+    }
+
+    if (toolId === 'computer_use') {
+        return buildComputerUsePresentation(args, status);
     }
 
     const semantic = resolveBuiltInToolConversationSemantic(toolName, args, options);

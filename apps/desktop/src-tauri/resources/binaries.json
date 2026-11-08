@@ -1,0 +1,192 @@
+{
+    "rtk": {
+        "name": "rtk",
+        "version": "0.40.0",
+        "targets": {
+            "x86_64-pc-windows-msvc": {
+                "size": 3884282,
+                "digest": "7fc90190f76f55dc170898d0ac755e89f405fc2d1d89f717ad8600640ab0f1ed",
+                "binary_digest": "3f8786f4bc120a10dd83728d4e481e74460fede13e811c9d8849098a48d0b33e",
+                "format": "zip",
+                "archivePath": "rtk.exe",
+                "url": "https://github.com/rtk-ai/rtk/releases/download/v0.40.0/rtk-x86_64-pc-windows-msvc.zip"
+            },
+            "x86_64-apple-darwin": {
+                "size": 4100840,
+                "digest": "8eac502fb812056973da2a8c2f0c00e1427ba5f71bd14c01520bc540630cb98a",
+                "binary_digest": "3032a506bd446cdc5afd4c2e944c5d259faf2935d1685964c96398c0b2c0fca0",
+                "format": "tar.gz",
+                "archivePath": "rtk",
+                "url": "https://github.com/rtk-ai/rtk/releases/download/v0.40.0/rtk-x86_64-apple-darwin.tar.gz"
+            },
+            "aarch64-apple-darwin": {
+                "size": 3726714,
+                "digest": "60c2c325b4edf0367cfa9716ac2e2c888abcd065eff45d01510da6561ab82e3c",
+                "binary_digest": "aa84021875b75e72ccf73adea524e3cba0b10e9e5097359b6dadf74e6500f3eb",
+                "format": "tar.gz",
+                "archivePath": "rtk",
+                "url": "https://github.com/rtk-ai/rtk/releases/download/v0.40.0/rtk-aarch64-apple-darwin.tar.gz"
+            },
+            "x86_64-unknown-linux-gnu": {
+                "size": 4413667,
+                "digest": "a75d210a445874106bc16da2b4efba01d36d297afa33ec134728f2d5f42ef5af",
+                "binary_digest": "b04ea330c46265634f214f14934acb89e7cabb2b1562c74d9a68f497aa41ad23",
+                "format": "tar.gz",
+                "archivePath": "rtk",
+                "url": "https://github.com/rtk-ai/rtk/releases/download/v0.40.0/rtk-x86_64-unknown-linux-musl.tar.gz"
+            },
+            "aarch64-unknown-linux-gnu": {
+                "size": 4052353,
+                "digest": "1d0087ad62a182c0833c2251ac678b5e05356418d91aa57305ac51a126c9b102",
+                "binary_digest": "43b0d54259fb2ba2537bd6ad9bf5ed3c01db497674ac19b5b865a05b34b7b861",
+                "format": "tar.gz",
+                "archivePath": "rtk",
+                "url": "https://github.com/rtk-ai/rtk/releases/download/v0.40.0/rtk-aarch64-unknown-linux-gnu.tar.gz"
+            }
+        }
+    },
+    "cua-driver": {
+        "version": "0.38.0",
+        "mirrors": [
+            "https://pypi.org",
+            "https://pypi.tuna.tsinghua.edu.cn",
+            "https://mirrors.aliyun.com/pypi"
+        ],
+        "artifacts": [
+            {
+                "target": "x86_64-pc-windows-msvc",
+                "package_path": "/packages/8c/1c/82b8cf495926bb49e298d3a77b03ab8948792eb7c6867af17e08078a7e32/cua_driver-0.38.0-py3-none-win_amd64.whl",
+                "sha256": "30e6fe57c70bbf5ed910268affce7e72c82a7d2469201c27432ad33d5487f258",
+                "size": 32842600,
+                "entry": "cua_driver/cua_driver_sdk.dll",
+                "transport": "in-process"
+            },
+            {
+                "target": "x86_64-unknown-linux-gnu",
+                "package_path": "/packages/db/82/7594803d8794fd3d5a6d8d459174885b844276a525832e0532af14eaaebb/cua_driver-0.38.0-py3-none-manylinux_2_31_x86_64.whl",
+                "sha256": "9b8ef76b1cab76de2ea0804f77b5ccd6fe7403a2a26d0249fd3a7aa8acb0250a",
+                "size": 35149443,
+                "entry": "cua_driver/libcua_driver_sdk.so",
+                "transport": "in-process"
+            },
+            {
+                "target": "aarch64-unknown-linux-gnu",
+                "package_path": "/packages/01/27/b06921ff828c41c9be25de3509f200033b3ba2fd558447d3e262b5329b25/cua_driver-0.38.0-py3-none-manylinux_2_31_aarch64.whl",
+                "sha256": "7f4162bdc4f62fe6482a7f5158892b2f0fc2f071f1d80f6fbc4989a351cb19fa",
+                "size": 35219850,
+                "entry": "cua_driver/libcua_driver_sdk.so",
+                "transport": "in-process"
+            },
+            {
+                "target": "aarch64-apple-darwin",
+                "package_path": "/packages/e8/c4/fb3eec3668d32f80b079675fef95f14a6c681a318068a495fcf039d5e961/cua_driver-0.38.0-py3-none-macosx_13_0_universal2.whl",
+                "sha256": "ede29acd4bd168806257cebf30f047e87f99659a895567b9f2a651ddd0cabe10",
+                "size": 50534861,
+                "entry": "cua_driver/libcua_driver_sdk.dylib",
+                "transport": "in-process"
+            },
+            {
+                "target": "x86_64-apple-darwin",
+                "package_path": "/packages/e8/c4/fb3eec3668d32f80b079675fef95f14a6c681a318068a495fcf039d5e961/cua_driver-0.38.0-py3-none-macosx_13_0_universal2.whl",
+                "sha256": "ede29acd4bd168806257cebf30f047e87f99659a895567b9f2a651ddd0cabe10",
+                "size": 50534861,
+                "entry": "cua_driver/libcua_driver_sdk.dylib",
+                "transport": "in-process"
+            }
+        ]
+    },
+    "agent-desktop": {
+        "version": "1.2.0",
+        "mirrors": ["https://registry.npmjs.org", "https://registry.npmmirror.com"],
+        "artifacts": [
+            {
+                "target": "x86_64-pc-windows-msvc",
+                "package_path": "/agent-desktop/-/agent-desktop-1.2.0.tgz",
+                "sha256": "9e4b1a69d9d6be487873a1df8db61234a8b7a9c79aeced4e403a8126c0e0bcc0",
+                "size": 15285285,
+                "entry": "package/bin/agent-desktop-win32-x64.exe",
+                "filename": "agent-desktop.exe",
+                "binary_sha256": "d274667031322e50b9c2b1ab81c2ca46835d52cc932769a5c34bd4d481fd94c3",
+                "transport": "stdio"
+            },
+            {
+                "target": "aarch64-pc-windows-msvc",
+                "package_path": "/agent-desktop/-/agent-desktop-1.2.0.tgz",
+                "sha256": "9e4b1a69d9d6be487873a1df8db61234a8b7a9c79aeced4e403a8126c0e0bcc0",
+                "size": 15285285,
+                "entry": "package/bin/agent-desktop-win32-arm64.exe",
+                "filename": "agent-desktop.exe",
+                "binary_sha256": "f1577d9f8cb6c9b1e767584fed96c72fbe1591fefbd67100965607d1a337a2fb",
+                "transport": "stdio"
+            },
+            {
+                "target": "x86_64-unknown-linux-gnu",
+                "package_path": "/agent-desktop/-/agent-desktop-1.2.0.tgz",
+                "sha256": "9e4b1a69d9d6be487873a1df8db61234a8b7a9c79aeced4e403a8126c0e0bcc0",
+                "size": 15285285,
+                "entry": "package/bin/agent-desktop-linux-x64",
+                "filename": "agent-desktop",
+                "binary_sha256": "da52a1eb2152cdc21b756ab20e6208d242da8062c73cd20bc8a8ae2a0384392c",
+                "transport": "stdio",
+                "helpers": [
+                    {
+                        "entry": "package/bin/agent-desktop-linux-clipboard-owner-linux-x64",
+                        "filename": "agent-desktop-linux-clipboard-owner",
+                        "sha256": "3e96f92b805c0d1f9de309935d62f4189b8e11e1385ad022bb878487bb3942ec"
+                    }
+                ]
+            },
+            {
+                "target": "aarch64-unknown-linux-gnu",
+                "package_path": "/agent-desktop/-/agent-desktop-1.2.0.tgz",
+                "sha256": "9e4b1a69d9d6be487873a1df8db61234a8b7a9c79aeced4e403a8126c0e0bcc0",
+                "size": 15285285,
+                "entry": "package/bin/agent-desktop-linux-arm64",
+                "filename": "agent-desktop",
+                "binary_sha256": "915de59a8b3d22c9ad33023740bbcc5fe0b4fa830de9587bbf761237eafeb76f",
+                "transport": "stdio",
+                "helpers": [
+                    {
+                        "entry": "package/bin/agent-desktop-linux-clipboard-owner-linux-arm64",
+                        "filename": "agent-desktop-linux-clipboard-owner",
+                        "sha256": "a6bfde6778dadcf9fd04ba94de17cdf205eb0b23b643c3f34073d264d2117cc3"
+                    }
+                ]
+            },
+            {
+                "target": "aarch64-apple-darwin",
+                "package_path": "/agent-desktop/-/agent-desktop-1.2.0.tgz",
+                "sha256": "9e4b1a69d9d6be487873a1df8db61234a8b7a9c79aeced4e403a8126c0e0bcc0",
+                "size": 15285285,
+                "entry": "package/bin/agent-desktop-darwin-arm64",
+                "filename": "agent-desktop",
+                "binary_sha256": "dec75e0bba0d1f9b589bdb88188770ad1a199cde9e02cf0a5b94175491f738e9",
+                "transport": "stdio",
+                "helpers": [
+                    {
+                        "entry": "package/bin/agent-desktop-macos-helper-darwin-arm64",
+                        "filename": "agent-desktop-macos-helper",
+                        "sha256": "4a795a40ba7fc93b726b0834342f0225779c30d83e28f1f219db479860c38a78"
+                    }
+                ]
+            },
+            {
+                "target": "x86_64-apple-darwin",
+                "package_path": "/agent-desktop/-/agent-desktop-1.2.0.tgz",
+                "sha256": "9e4b1a69d9d6be487873a1df8db61234a8b7a9c79aeced4e403a8126c0e0bcc0",
+                "size": 15285285,
+                "entry": "package/bin/agent-desktop-darwin-x64",
+                "filename": "agent-desktop",
+                "binary_sha256": "5dae755fee4af37d1a245f058139b262d358352cce15aeb49d0100ff46b12156",
+                "transport": "stdio",
+                "helpers": [
+                    {
+                        "entry": "package/bin/agent-desktop-macos-helper-darwin-x64",
+                        "filename": "agent-desktop-macos-helper",
+                        "sha256": "bdf060658b93f326efa06ac24d521e88025bf88109cecc257fa7fa40e65801cd"
+                    }
+                ]
+            }
+        ]
+    }
+}

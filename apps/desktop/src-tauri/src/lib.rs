@@ -131,6 +131,7 @@ pub fn run() {
         .manage(core::window::search_host::SearchHostRefreshRuntime::new())
         .manage(core::window::search_region::SearchRegionRuntime::new())
         .manage(core::window::webview_recovery::WebviewRecoveryRuntime::new())
+        .manage(core::window::computer_use_glow::ComputerUseGlowRuntime::new())
         .manage(core::window::status_reminder::SessionStatusReminderNotificationRuntime::new())
         .manage(core::window::tray::TrayStatusRuntime::new())
         .manage(BuiltInProcessExecutionRegistry::new())
@@ -148,6 +149,9 @@ pub fn run() {
                     )
                 {
                     warn!("Failed to reset search renderer session on page load: {error}");
+                }
+                if let Err(error) = core::window::computer_use_glow::clear(webview.app_handle()) {
+                    warn!("Failed to clear computer-use feedback on page load: {error}");
                 }
             }
         });
@@ -250,6 +254,11 @@ pub fn run() {
             if matches!(event, WindowEvent::Destroyed) {
                 let window_label = window.label().to_string();
                 core::window::webview_recovery::forget_window(window.app_handle(), &window_label);
+                if window_label == "main" {
+                    if let Err(error) = core::window::computer_use_glow::clear(window.app_handle()) {
+                        warn!("Failed to clear computer-use feedback on window close: {error}");
+                    }
+                }
                 if let Some(runtime) = window.app_handle().try_state::<DatabaseRuntime>() {
                     let runtime = runtime.inner().clone();
                     tauri::async_runtime::spawn(async move {
@@ -261,6 +270,12 @@ pub fn run() {
         .invoke_handler(commands::invoke_handler::<tauri::Wry>());
 
     let mut context = tauri::generate_context!();
+    if core::system::runtime::is_e2e_test_mode() {
+        if let Some(app_root) = core::system::runtime::resolve_app_root_override() {
+            context.config_mut().app.app_directories_override =
+                Some(tauri::utils::config::AppDirectoriesOverride::Root(app_root));
+        }
+    }
     if let Some(browser_args) = core::system::runtime::e2e_webview_additional_browser_args() {
         for window in &mut context.config_mut().app.windows {
             window.additional_browser_args = Some(browser_args.clone());
@@ -289,6 +304,20 @@ pub fn run() {
     };
 
     app.run(|app_handle, event| {
+        if matches!(event, tauri::RunEvent::Exit) {
+            core::computer_use::driver::cancel_all();
+            core::computer_use::agent_desktop::cancel_all();
+            let result = tauri::async_runtime::block_on(async {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(4),
+                    core::computer_use::agent_desktop::shutdown(),
+                )
+                .await
+            });
+            if !matches!(result, Ok(Ok(()))) {
+                warn!("Computer control did not confirm shutdown before exit");
+            }
+        }
         // 托盘退出和更新重启不经过窗口的关闭回调，在这里补一次刷盘。
         if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
             // 重启依赖这个退出码，拦下来会把重启变成退出。

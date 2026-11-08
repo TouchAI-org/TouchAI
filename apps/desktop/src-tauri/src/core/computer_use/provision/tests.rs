@@ -84,7 +84,7 @@ fn wheel_bytes(entry: &str, payload: &[u8]) -> Vec<u8> {
     buffer.into_inner()
 }
 
-fn artifact_for(wheel: &[u8], entry: &str) -> Artifact {
+fn artifact_for(wheel: &[u8], entry: &str) -> Artifact<'static> {
     Artifact {
         target: leak("test-target"),
         package_path: leak("/packages/aa/bb/cua_driver-test.whl"),
@@ -93,15 +93,231 @@ fn artifact_for(wheel: &[u8], entry: &str) -> Artifact {
         entry: leak(entry),
         transport: super::super::manifest::Transport::InProcess,
         binary_sha256: "",
+        filename: "",
+        helpers: Vec::new(),
     }
 }
 
 const MIRRORS: &[&str] = &["https://mirror.one", "https://mirror.two"];
 
+#[tokio::test]
+async fn user_given_a_working_release_when_a_candidate_is_only_downloaded_then_keeps_the_active_version(
+) {
+    let (_directory, layout) = layout();
+    write_json(
+        &layout.current_pointer(),
+        &serde_json::json!({"version": "0.37.0"}),
+    )
+    .expect("previous version");
+    let wheel = wheel_bytes(ENTRY, b"candidate");
+    let artifact = artifact_for(&wheel, ENTRY);
+    ensure_installed(
+        &FakeFetcher::new(wheel, vec![]),
+        &layout,
+        "0.38.0",
+        &artifact,
+        MIRRORS,
+    )
+    .await
+    .expect("download candidate");
+    let current: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(layout.current_pointer()).expect("active record"))
+            .expect("record");
+    assert_eq!(current["version"], "0.37.0");
+}
+
+#[tokio::test]
+async fn user_given_a_changed_installed_binary_when_restoring_then_it_is_not_reported_as_verified()
+{
+    let (_directory, layout) = layout();
+    let wheel = wheel_bytes(ENTRY, b"verified-driver");
+    let artifact = artifact_for(&wheel, ENTRY);
+    let installed = ensure_installed(
+        &FakeFetcher::new(wheel, vec![]),
+        &layout,
+        "0.38.0",
+        &artifact,
+        MIRRORS,
+    )
+    .await
+    .expect("install");
+    std::fs::write(installed.binary(), b"modified-driver").expect("simulate corruption");
+    assert!(installed_binary(&layout, "0.38.0", &artifact)
+        .expect("lookup")
+        .is_none());
+}
+
+#[tokio::test]
+async fn user_given_a_pinned_tar_release_when_installing_then_extracts_only_the_driver() {
+    let (_directory, layout) = layout();
+    let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+        Vec::new(),
+        flate2::Compression::default(),
+    ));
+    let payload = b"driver executable";
+    let mut header = tar::Header::new_gnu();
+    header.set_size(payload.len() as u64);
+    header.set_mode(0o755);
+    header.set_cksum();
+    builder
+        .append_data(&mut header, "agent-desktop.exe", &payload[..])
+        .expect("archive");
+    let bytes = builder.into_inner().expect("tar").finish().expect("gzip");
+    let mut artifact = artifact_for(&bytes, "agent-desktop.exe");
+    artifact.package_path = "/release/agent-desktop.tar.gz";
+    let installed = ensure_installed(
+        &FakeFetcher::new(bytes, vec![]),
+        &layout,
+        "1.2.0",
+        &artifact,
+        MIRRORS,
+    )
+    .await
+    .expect("install");
+    assert_eq!(std::fs::read(installed.binary()).expect("binary"), payload);
+}
+
 fn layout() -> (tempfile::TempDir, InstallLayout) {
     let dir = tempfile::tempdir().expect("temp dir");
     let layout = InstallLayout::new(dir.path().join("computer-use"));
     (dir, layout)
+}
+
+#[tokio::test]
+async fn user_given_an_old_release_when_a_verified_runtime_is_activated_then_removes_only_obsolete_driver_files(
+) {
+    let (_temporary, layout) = layout();
+    let wheel = wheel_bytes(ENTRY, b"working binary");
+    let artifact = artifact_for(&wheel, ENTRY);
+    let fetcher = FakeFetcher::new(wheel, vec![]);
+    ensure_installed(&fetcher, &layout, "0.37.0", &artifact, MIRRORS)
+        .await
+        .expect("old install");
+    confirm_install(&layout, "0.37.0", &artifact).expect("old active");
+    ensure_installed(&fetcher, &layout, "0.38.0", &artifact, MIRRORS)
+        .await
+        .expect("new download");
+    let unrelated = layout.version_dir("notes");
+    std::fs::create_dir_all(&unrelated).expect("notes");
+    std::fs::write(unrelated.join("keep.txt"), "keep").expect("note");
+    assert!(layout.version_dir("0.37.0").exists());
+    confirm_install(&layout, "0.38.0", &artifact).expect("new runtime verified");
+    assert!(!layout.version_dir("0.37.0").exists());
+    assert!(!layout.partial_path("0.37.0").exists());
+    assert!(installed_binary(&layout, "0.38.0", &artifact)
+        .expect("new binary")
+        .is_some());
+    assert_eq!(
+        std::fs::read_to_string(unrelated.join("keep.txt")).expect("note"),
+        "keep"
+    );
+}
+
+#[tokio::test]
+async fn user_given_a_corrupted_candidate_when_activation_fails_then_keeps_the_previous_release() {
+    let (_temporary, layout) = layout();
+    let wheel = wheel_bytes(ENTRY, b"working binary");
+    let artifact = artifact_for(&wheel, ENTRY);
+    let fetcher = FakeFetcher::new(wheel, vec![]);
+    ensure_installed(&fetcher, &layout, "0.37.0", &artifact, MIRRORS)
+        .await
+        .expect("old install");
+    confirm_install(&layout, "0.37.0", &artifact).expect("old active");
+    let candidate = ensure_installed(&fetcher, &layout, "0.38.0", &artifact, MIRRORS)
+        .await
+        .expect("new download");
+    std::fs::write(candidate.binary(), b"corrupt").expect("corrupt candidate");
+    assert!(confirm_install(&layout, "0.38.0", &artifact).is_err());
+    assert!(installed_binary(&layout, "0.37.0", &artifact)
+        .expect("old binary")
+        .is_some());
+    let current: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(layout.current_pointer()).expect("pointer"))
+            .expect("json");
+    assert_eq!(current["version"], "0.37.0");
+}
+
+#[tokio::test]
+async fn user_given_a_corrupt_mirror_when_downloading_then_uses_a_verified_fallback() {
+    struct CorruptMirror(Vec<u8>);
+    impl WheelFetcher for CorruptMirror {
+        async fn fetch(&self, url: &str, _offset: u64) -> Result<Fetched, String> {
+            Ok(Fetched {
+                bytes: if url.contains("mirror.one") {
+                    vec![0; self.0.len()]
+                } else {
+                    self.0.clone()
+                },
+                restart: true,
+            })
+        }
+    }
+    let (_temporary, layout) = layout();
+    let wheel = wheel_bytes(ENTRY, b"verified fallback");
+    let artifact = artifact_for(&wheel, ENTRY);
+    let installed = ensure_installed(&CorruptMirror(wheel), &layout, "0.38.0", &artifact, MIRRORS)
+        .await
+        .expect("fallback");
+    assert_eq!(
+        std::fs::read(installed.binary()).expect("binary"),
+        b"verified fallback"
+    );
+}
+
+#[tokio::test]
+async fn user_given_a_multi_platform_npm_archive_when_installing_then_receives_only_the_selected_binary_and_helper(
+) {
+    let (_temporary, layout) = layout();
+    let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+        Vec::new(),
+        flate2::Compression::default(),
+    ));
+    for (name, payload) in [
+        ("package/bin/native-linux", b"binary".as_slice()),
+        ("package/bin/helper", b"helper".as_slice()),
+        ("package/scripts/postinstall.js", b"unwanted".as_slice()),
+    ] {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(payload.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, name, payload)
+            .expect("member");
+    }
+    let bytes = builder.into_inner().expect("tar").finish().expect("gzip");
+    let mut artifact = artifact_for(&bytes, "package/bin/native-linux");
+    artifact.package_path = "/agent-desktop/-/agent-desktop-1.2.0.tgz";
+    artifact.filename = "agent-desktop";
+    artifact.binary_sha256 = leak(hex(b"binary"));
+    artifact.helpers = vec![super::super::manifest::Helper {
+        entry: "package/bin/helper",
+        filename: "helper",
+        sha256: leak(hex(b"helper")),
+    }];
+    let installed = ensure_installed(
+        &FakeFetcher::new(bytes, vec![]),
+        &layout,
+        "1.2.0",
+        &artifact,
+        MIRRORS,
+    )
+    .await
+    .expect("install");
+    assert_eq!(
+        installed.binary().file_name().expect("name"),
+        "agent-desktop"
+    );
+    assert_eq!(
+        std::fs::read_dir(layout.version_dir("1.2.0"))
+            .expect("files")
+            .count(),
+        3
+    );
+    std::fs::write(layout.binary_path("1.2.0", "helper"), "corrupt").expect("helper");
+    assert!(installed_binary(&layout, "1.2.0", &artifact)
+        .expect("verify helper")
+        .is_none());
 }
 
 #[tokio::test]
@@ -126,6 +342,8 @@ async fn installs_the_driver_from_the_first_mirror() {
         }
         other => panic!("expected a fresh install, got {other:?}"),
     }
+    assert!(!layout.current_pointer().exists());
+    confirm_install(&layout, "0.38.0", &artifact).expect("activate verified runtime");
     assert!(layout.current_pointer().is_file());
     assert_eq!(fetcher.requests().len(), 1);
     assert!(fetcher.requests()[0].0.starts_with("https://mirror.one/"));

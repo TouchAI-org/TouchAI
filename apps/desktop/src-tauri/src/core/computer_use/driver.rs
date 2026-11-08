@@ -15,9 +15,12 @@ use serde_json::Value;
 
 use super::abi::{AbiError, AbiLibrary, Driver, PendingCall};
 use super::manifest::{artifact, is_publishable, MANIFEST};
-use super::provision::{ensure_installed, InstallLayout, ProvisionError, WheelFetcher};
+use super::provision::{
+    confirm_install, ensure_installed, installed_binary, InstallLayout, ProvisionError,
+    WheelFetcher,
+};
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct DriverStatus {
     pub installed: bool,
     pub binary: Option<String>,
@@ -41,9 +44,25 @@ impl DriverStatus {
 }
 
 static RUNTIME: OnceLock<Mutex<Option<Arc<Driver>>>> = OnceLock::new();
+static RUNTIME_STATUS: OnceLock<Mutex<Option<DriverStatus>>> = OnceLock::new();
+static LOADING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn runtime() -> &'static Mutex<Option<Arc<Driver>>> {
     RUNTIME.get_or_init(|| Mutex::new(None))
+}
+
+fn runtime_status() -> &'static Mutex<Option<DriverStatus>> {
+    RUNTIME_STATUS.get_or_init(|| Mutex::new(None))
+}
+
+fn cached_status() -> Option<DriverStatus> {
+    runtime_status().lock().ok().and_then(|guard| guard.clone())
+}
+
+fn cache_status(status: &DriverStatus) {
+    if let Ok(mut guard) = runtime_status().lock() {
+        *guard = Some(status.clone());
+    }
 }
 
 pub fn current() -> Option<Arc<Driver>> {
@@ -56,8 +75,9 @@ pub async fn ensure_ready<F: WheelFetcher>(
     fetcher: &F,
     target: &str,
 ) -> Result<DriverStatus, String> {
+    let _loading = LOADING.lock().await;
     if let Some(driver) = current() {
-        return Ok(status_of(&driver));
+        return Ok(cached_status().unwrap_or_else(|| status_of(&driver)));
     }
 
     let artifact = artifact(&MANIFEST).ok_or_else(|| format!("no driver artifact for {target}"))?;
@@ -75,7 +95,7 @@ pub async fn ensure_ready<F: WheelFetcher>(
         &layout,
         MANIFEST.version,
         artifact,
-        MANIFEST.mirrors,
+        &MANIFEST.mirrors,
     )
     .await
     .map_err(|error: ProvisionError| error.to_string())?;
@@ -83,6 +103,79 @@ pub async fn ensure_ready<F: WheelFetcher>(
     // 内置形态只需要同目录下的 dll，wheel 里就是它。
     let library_path = installed.binary().to_path_buf();
 
+    load_runtime(library_path).await
+}
+
+pub async fn restore_installed(root: PathBuf) -> Result<DriverStatus, String> {
+    let _loading = LOADING.lock().await;
+    if let Some(driver) = current() {
+        return Ok(cached_status().unwrap_or_else(|| status_of(&driver)));
+    }
+    let Some(artifact) = artifact(&MANIFEST) else {
+        return Ok(DriverStatus::missing(None));
+    };
+    let layout = InstallLayout::new(root);
+    let Some(binary) =
+        installed_binary(&layout, MANIFEST.version, artifact).map_err(|error| error.to_string())?
+    else {
+        return Ok(DriverStatus::missing(None));
+    };
+    load_runtime(binary).await
+}
+
+pub async fn installed_status(root: PathBuf) -> Result<DriverStatus, String> {
+    if current().is_some() {
+        return Ok(status());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(artifact) = artifact(&MANIFEST) else {
+            return Ok(DriverStatus::missing(None));
+        };
+        let Some(binary) = installed_binary(&InstallLayout::new(root), MANIFEST.version, artifact)
+            .map_err(|error| error.to_string())?
+        else {
+            return Ok(DriverStatus::missing(None));
+        };
+        Ok(DriverStatus {
+            installed: true,
+            binary: Some(binary.display().to_string()),
+            driver_version: Some(MANIFEST.version.to_string()),
+            abi_version: None,
+            metadata: None,
+            error: None,
+        })
+    })
+    .await
+    .map_err(|error| format!("computer use installation check failed: {error}"))?
+}
+
+async fn load_runtime(library_path: PathBuf) -> Result<DriverStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = library_path
+            .parent()
+            .and_then(|directory| directory.parent())
+            .ok_or("invalid driver installation path")?
+            .to_path_buf();
+        let status = load_library(library_path)?;
+        let activated = (|| {
+            if list_tools()?.is_empty() {
+                return Err("the driver returned no tools".to_string());
+            }
+            let artifact = artifact(&MANIFEST).ok_or("unsupported driver platform")?;
+            confirm_install(&InstallLayout::new(root), MANIFEST.version, artifact)
+                .map_err(|error| error.to_string())
+        })();
+        if let Err(error) = activated {
+            shutdown();
+            return Err(error);
+        }
+        Ok(status)
+    })
+    .await
+    .map_err(|error| format!("computer use loading failed: {error}"))?
+}
+
+fn load_library(library_path: PathBuf) -> Result<DriverStatus, String> {
     let library = AbiLibrary::open(&library_path).map_err(|error: AbiError| error.to_string())?;
     let abi = AbiLibrary::version(&library_path)
         .map_err(|error: AbiError| error.to_string())?
@@ -96,7 +189,18 @@ pub async fn ensure_ready<F: WheelFetcher>(
         ));
     }
     let driver = library
-        .create("{}")
+        .create(
+            &serde_json::json!({
+                "authorization": {
+                    "allowed_modes": ["standard", "unrestricted"],
+                    "compatibility_mode": "standard",
+                    "unrestricted_acknowledged": true,
+                    "max_session_ttl_seconds": 86400,
+                    "max_idle_ttl_seconds": 3600
+                }
+            })
+            .to_string(),
+        )
         .map_err(|error: AbiError| error.to_string())?;
     if !driver.sync_state() {
         return Err("the driver runtime refused to start".to_string());
@@ -107,6 +211,7 @@ pub async fn ensure_ready<F: WheelFetcher>(
     status.installed = true;
     status.binary = Some(library_path.display().to_string());
 
+    cache_status(&status);
     *runtime().lock().map_err(|_| "runtime lock poisoned")? = Some(Arc::new(driver));
     Ok(status)
 }
@@ -127,24 +232,92 @@ fn status_of(driver: &Driver) -> DriverStatus {
 }
 
 pub fn invoke(tool: &str, arguments: &Value) -> Result<PendingCall, String> {
+    invoke_with_access(tool, arguments, false)
+}
+
+pub fn invoke_with_access(
+    tool: &str,
+    arguments: &Value,
+    full_access: bool,
+) -> Result<PendingCall, String> {
     let driver = current().ok_or_else(|| "the computer use driver is not loaded".to_string())?;
+    let tools = driver.list_tools().map_err(|error| error.to_string())?;
+    if !is_tool_registered(tool, tools) {
+        return Err(format!("computer use tool is not allowed: {tool}"));
+    }
     driver
-        .invoke(tool, arguments)
+        .invoke(tool, arguments, full_access)
         .map_err(|error| error.to_string())
 }
 
-static INFLIGHT: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+pub fn end_trusted_session(arguments: &Value) {
+    if let Some(driver) = current() {
+        driver.end_session(arguments);
+    }
+}
 
-fn inflight() -> &'static Mutex<HashMap<String, u64>> {
+pub fn end_activity(activity_id: &str) {
+    if let Some(driver) = current() {
+        driver.end_activity(activity_id);
+    }
+}
+
+pub fn list_tools() -> Result<Vec<Value>, String> {
+    let Some(driver) = current() else {
+        return Ok(Vec::new());
+    };
+    driver
+        .list_tools()
+        .cloned()
+        .map_err(|error| error.to_string())
+}
+
+fn is_tool_registered(tool: &str, tools: &[Value]) -> bool {
+    !tool.is_empty()
+        && tools
+            .iter()
+            .any(|entry| entry["name"].as_str() == Some(tool))
+}
+
+#[derive(Default)]
+struct Execution {
+    call_id: Option<u64>,
+    cancelled: bool,
+}
+
+static INFLIGHT: OnceLock<Mutex<HashMap<String, Execution>>> = OnceLock::new();
+
+fn inflight() -> &'static Mutex<HashMap<String, Execution>> {
     INFLIGHT.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn begin_execution(execution_id: &str) -> Result<(), String> {
+    let mut guard = inflight()
+        .lock()
+        .map_err(|_| "computer use execution registry poisoned".to_string())?;
+    if guard.contains_key(execution_id) {
+        return Err("duplicate computer use execution id".to_string());
+    }
+    guard.insert(execution_id.to_string(), Execution::default());
+    Ok(())
 }
 
 /// Bind an ABI call id to the execution id the frontend can cancel.
 pub fn bind_execution(execution_id: &str, call_id: u64) -> Result<(), String> {
-    inflight()
-        .lock()
-        .map_err(|_| "computer use execution registry poisoned".to_string())?
-        .insert(execution_id.to_string(), call_id);
+    let cancelled = {
+        let mut guard = inflight()
+            .lock()
+            .map_err(|_| "computer use execution registry poisoned".to_string())?;
+        let entry = guard
+            .get_mut(execution_id)
+            .ok_or_else(|| "computer use execution no longer registered".to_string())?;
+        entry.call_id = Some(call_id);
+        entry.cancelled
+    };
+    if cancelled {
+        cancel(call_id);
+        return Err("computer use call was cancelled before it started".to_string());
+    }
     Ok(())
 }
 
@@ -155,16 +328,250 @@ pub fn release_execution(execution_id: &str) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::is_tool_registered;
+    use super::{begin_execution, bind_execution, cancel_execution, release_execution};
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn user_given_a_loaded_only_driver_when_removing_then_it_becomes_unavailable_without_unloading_code(
+    ) {
+        let Ok(source) = std::env::var("TOUCHAI_TEST_CUA_ROOT") else {
+            return;
+        };
+        let fixture = tempfile::tempdir().expect("isolated install");
+        let root = fixture.path().join("computer-use");
+        let version = root.join(super::MANIFEST.version);
+        std::fs::create_dir_all(&version).expect("version directory");
+        let source = std::path::Path::new(&source).join(super::MANIFEST.version);
+        for filename in ["cua_driver_sdk.dll", "install.json"] {
+            std::fs::copy(source.join(filename), version.join(filename)).expect("copy fixture");
+        }
+        let binary = version.join("cua_driver_sdk.dll");
+        let library = unsafe { libloading::Library::new(&binary) }.expect("load real DLL");
+        assert!(
+            super::installed_status(root.clone())
+                .await
+                .expect("installed")
+                .installed
+        );
+
+        super::remove_installed(&root)
+            .await
+            .expect("remove loaded driver");
+
+        assert!(
+            !super::installed_status(root.clone())
+                .await
+                .expect("removed")
+                .installed
+        );
+        assert!(
+            !super::restore_installed(root.clone())
+                .await
+                .expect("no restoration")
+                .installed
+        );
+        assert!(super::list_tools().expect("no tools").is_empty());
+        assert!(
+            unsafe { library.get::<unsafe extern "C" fn()>(b"cua_driver_create_v1\0") }.is_ok()
+        );
+        assert!(super::cleanup_removed_installations(&root).is_err());
+
+        std::fs::create_dir_all(&version).expect("reinstall directory");
+        for filename in ["cua_driver_sdk.dll", "install.json"] {
+            std::fs::copy(source.join(filename), version.join(filename))
+                .expect("reinstall fixture");
+        }
+        assert!(
+            super::installed_status(root.clone())
+                .await
+                .expect("reinstalled")
+                .installed
+        );
+        drop(library);
+        super::cleanup_removed_installations(&root).expect("cleanup after library release");
+        assert_eq!(
+            std::fs::read_dir(root.with_extension("removed"))
+                .expect("retired directory")
+                .count(),
+            0
+        );
+        assert!(
+            super::installed_status(root)
+                .await
+                .expect("new install preserved")
+                .installed
+        );
+    }
+
+    #[tokio::test]
+    async fn user_given_an_installed_driver_when_removing_then_preserves_other_drivers_and_recordings(
+    ) {
+        let fixture = tempfile::tempdir().expect("isolated profile");
+        let root = fixture.path().join("computer-use");
+        std::fs::create_dir_all(&root).expect("install directory");
+        std::fs::write(root.join("driver"), "driver").expect("driver");
+        let other = fixture.path().join("agent-desktop");
+        let recording = fixture.path().join("recording.json");
+        std::fs::write(&other, "other driver").expect("other install");
+        std::fs::write(&recording, "recording").expect("recording");
+        super::remove_installed(&root)
+            .await
+            .expect("remove install");
+        super::remove_installed(&root)
+            .await
+            .expect("already removed");
+        super::cleanup_removed_installations(&root).expect("cleanup");
+        assert!(!root.exists());
+        assert_eq!(
+            std::fs::read_to_string(other).expect("preserved other"),
+            "other driver"
+        );
+        assert_eq!(
+            std::fs::read_to_string(recording).expect("preserved recording"),
+            "recording"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_given_a_blocked_removal_location_when_removing_then_keeps_the_installation_and_can_retry(
+    ) {
+        let fixture = tempfile::tempdir().expect("isolated profile");
+        let root = fixture.path().join("computer-use");
+        std::fs::create_dir_all(&root).expect("install directory");
+        std::fs::write(root.join("driver"), "driver").expect("driver");
+        let blocked = root.with_extension("removed");
+        std::fs::write(&blocked, "blocked").expect("blocked location");
+        assert!(super::remove_installed(&root)
+            .await
+            .expect_err("remove failure")
+            .contains("retirement"));
+        assert_eq!(
+            std::fs::read_to_string(root.join("driver")).expect("preserved install"),
+            "driver"
+        );
+        std::fs::remove_file(blocked).expect("unblock");
+        super::remove_installed(&root).await.expect("retry removal");
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn user_given_previous_recordings_when_starting_again_then_keeps_each_run_separate() {
+        let root = tempfile::tempdir().expect("recording root");
+        let first = super::create_recording_directory(root.path()).expect("first recording");
+        std::fs::write(first.join("action.json"), "previous action").expect("previous action");
+        let second = super::create_recording_directory(root.path()).expect("second recording");
+        assert_ne!(first, second);
+        assert_eq!(second.parent(), Some(root.path()));
+        assert_eq!(
+            std::fs::read_to_string(first.join("action.json")).expect("preserved action"),
+            "previous action"
+        );
+        assert_eq!(std::fs::read_dir(second).expect("new recording").count(), 0);
+    }
+
+    #[test]
+    fn user_given_a_file_as_recording_location_when_starting_then_gets_an_error_without_changing_it(
+    ) {
+        let root = tempfile::tempdir().expect("recording root");
+        let file = root.path().join("existing.txt");
+        std::fs::write(&file, "keep").expect("existing file");
+        assert!(super::create_recording_directory(&file).is_err());
+        assert_eq!(
+            std::fs::read_to_string(file).expect("preserved file"),
+            "keep"
+        );
+    }
+
+    #[tokio::test]
+    async fn user_given_an_installed_driver_when_restarting_then_restores_tools_without_installing_again(
+    ) {
+        let Ok(root) = std::env::var("TOUCHAI_TEST_CUA_ROOT") else {
+            return;
+        };
+        let missing = tempfile::tempdir().expect("missing install fixture");
+        let status = super::restore_installed(missing.path().join("absent"))
+            .await
+            .expect("missing state");
+        assert!(!status.installed);
+        assert!(!missing.path().join("absent").exists());
+        let status = super::installed_status(root.clone().into())
+            .await
+            .expect("installed status");
+        assert!(status.installed);
+        assert!(super::current().is_none());
+        let status = super::restore_installed(root.into())
+            .await
+            .expect("restore installed runtime");
+        assert!(status.installed);
+        assert!(super::list_tools()
+            .expect("catalog")
+            .iter()
+            .any(|tool| tool["name"] == "move_cursor"));
+        super::shutdown();
+    }
+
+    #[test]
+    fn user_given_starting_call_when_cancelling_then_cancellation_is_remembered_until_binding() {
+        let execution_id = "test-cancel-before-binding";
+        begin_execution(execution_id).expect("start");
+        assert!(cancel_execution(execution_id));
+        assert!(bind_execution(execution_id, 99)
+            .expect_err("cancelled call")
+            .contains("cancelled"));
+        release_execution(execution_id);
+        assert!(!cancel_execution(execution_id));
+    }
+
+    #[test]
+    fn user_given_registered_tools_when_invoking_then_can_use_every_driver_tool() {
+        for tool in [
+            "run_steps",
+            "run_script",
+            "kill_app",
+            "browser_download",
+            "future_tool",
+        ] {
+            assert!(is_tool_registered(
+                tool,
+                &[serde_json::json!({ "name": tool })]
+            ));
+        }
+    }
+
+    #[test]
+    fn user_given_unknown_tools_when_invoking_then_gets_refused() {
+        assert!(!is_tool_registered(
+            "missing",
+            &[serde_json::json!({ "name": "click" })]
+        ));
+        assert!(!is_tool_registered("", &[]));
+    }
+}
+
 /// Cancel one in-flight call by execution id.
 pub fn cancel_execution(execution_id: &str) -> bool {
-    let call_id = inflight()
-        .lock()
-        .ok()
-        .and_then(|guard| guard.get(execution_id).copied());
-    match call_id {
-        Some(call_id) => cancel(call_id),
-        None => false,
+    let Ok(mut guard) = inflight().lock() else {
+        return false;
+    };
+    let Some(entry) = guard.get_mut(execution_id) else {
+        return false;
+    };
+    entry.cancelled = true;
+    if let Some(call_id) = entry.call_id {
+        cancel(call_id);
     }
+    true
+}
+
+pub fn cancel_all() -> usize {
+    let keys = inflight()
+        .lock()
+        .map(|guard| guard.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    keys.iter().filter(|key| cancel_execution(key)).count()
 }
 
 pub fn cancel(id: u64) -> bool {
@@ -176,11 +583,14 @@ pub fn shutdown() {
     if let Ok(mut guard) = runtime().lock() {
         guard.take();
     }
+    if let Ok(mut guard) = runtime_status().lock() {
+        *guard = None;
+    }
 }
 
 pub fn status() -> DriverStatus {
     match current() {
-        Some(driver) => status_of(&driver),
+        Some(driver) => cached_status().unwrap_or_else(|| status_of(&driver)),
         None => DriverStatus::missing(None),
     }
 }
@@ -196,7 +606,7 @@ pub struct UpdateInfo {
 /// Ask the mirrors for the newest published driver version.
 pub async fn check_update(fetcher: &super::http::HttpWheelFetcher) -> UpdateInfo {
     let current = MANIFEST.version.to_string();
-    match fetcher.latest_version(MANIFEST.mirrors).await {
+    match fetcher.latest_version(&MANIFEST.mirrors).await {
         Ok(latest) => UpdateInfo {
             update_available: super::http::compare(&latest, MANIFEST.version)
                 == std::cmp::Ordering::Greater,
@@ -213,23 +623,67 @@ pub async fn check_update(fetcher: &super::http::HttpWheelFetcher) -> UpdateInfo
     }
 }
 
-/// Release the runtime and delete every installed driver version.
-///
-/// A still-mapped library cannot be deleted on Windows, so the caller is told
-/// to restart instead of silently leaving files behind.
-pub fn remove_installed(root: &std::path::Path) -> Result<(), String> {
-    shutdown();
+/// Retire the installation without unloading code still used by native callbacks.
+pub async fn remove_installed(root: &std::path::Path) -> Result<(), String> {
+    let _loading = LOADING.lock().await;
+    let root = root.to_path_buf();
+    tauri::async_runtime::spawn_blocking(move || {
+        cancel_all();
+        shutdown();
+        if !root.exists() {
+            return Ok(());
+        }
+        let removed = root.with_extension("removed");
+        std::fs::create_dir_all(&removed)
+            .map_err(|error| format!("failed to create driver retirement directory: {error}"))?;
+        if std::fs::symlink_metadata(&removed)
+            .map_err(|error| error.to_string())?
+            .file_type()
+            .is_symlink()
+        {
+            return Err("driver retirement directory must not be a symbolic link".into());
+        }
+        let retired = removed.join(uuid::Uuid::new_v4().to_string());
+        std::fs::rename(&root, &retired)
+            .map_err(|error| format!("failed to retire {}: {error}", root.display()))?;
+        if let Err(error) = std::fs::remove_dir_all(&retired) {
+            log::info!(
+                "Driver files retired at {}; cleanup deferred until next launch: {error}",
+                retired.display()
+            );
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|error| format!("driver removal task failed: {error}"))?
+}
 
-    if !root.exists() {
+pub fn cleanup_removed_installations(root: &std::path::Path) -> Result<(), String> {
+    let removed = root.with_extension("removed");
+    if !removed.exists() {
         return Ok(());
     }
-
-    std::fs::remove_dir_all(root).map_err(|error| {
-        format!(
-            "failed to remove {}: {error}. Restart TouchAI and try again.",
-            root.display()
-        )
-    })
+    if std::fs::symlink_metadata(&removed)
+        .map_err(|error| error.to_string())?
+        .file_type()
+        .is_symlink()
+    {
+        return Err("driver retirement directory must not be a symbolic link".into());
+    }
+    for entry in std::fs::read_dir(&removed).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        if entry
+            .file_type()
+            .map_err(|error| error.to_string())?
+            .is_dir()
+            && uuid::Uuid::parse_str(&entry.file_name().to_string_lossy()).is_ok()
+        {
+            std::fs::remove_dir_all(entry.path()).map_err(|error| {
+                format!("failed to clean up {}: {error}", entry.path().display())
+            })?;
+        }
+    }
+    Ok(())
 }
 
 async fn call_tool(tool: &str, arguments: Value) -> Result<Value, String> {
@@ -294,26 +748,56 @@ pub async fn apply_settings(
 
 /// Turn trajectory recording on or off for this runtime.
 pub async fn set_recording(enabled: bool, output_dir: &std::path::Path) -> Result<(), String> {
-    if current().is_none() {
+    static RECORDING: tokio::sync::Mutex<Option<(std::sync::Weak<Driver>, PathBuf)>> =
+        tokio::sync::Mutex::const_new(None);
+    let Some(active) = current() else {
+        return Ok(());
+    };
+    let mut recording = RECORDING.lock().await;
+    if enabled
+        && recording.as_ref().is_some_and(|(owner, directory)| {
+            directory == output_dir
+                && owner
+                    .upgrade()
+                    .is_some_and(|owner| Arc::ptr_eq(&owner, &active))
+        })
+    {
         return Ok(());
     }
 
     if !enabled {
-        return match call_tool("stop_recording", serde_json::json!({})).await {
+        let result = match call_tool("stop_recording", serde_json::json!({})).await {
             Ok(_) => Ok(()),
             // Nothing was recording; treat as already off.
             Err(error) if error.contains("not recording") => Ok(()),
             Err(error) => Err(error),
         };
+        if result.is_ok() {
+            *recording = None;
+        }
+        return result;
     }
 
-    std::fs::create_dir_all(output_dir)
-        .map_err(|error| format!("failed to create {}: {error}", output_dir.display()))?;
+    let root = output_dir.to_path_buf();
+    let directory = tauri::async_runtime::spawn_blocking(move || create_recording_directory(&root))
+        .await
+        .map_err(|error| format!("recording directory preparation failed: {error}"))??;
 
     call_tool(
         "start_recording",
-        serde_json::json!({ "output_dir": output_dir.display().to_string() }),
+        serde_json::json!({ "output_dir": directory.display().to_string() }),
     )
     .await
-    .map(|_| ())
+    .map(|_| ())?;
+    *recording = Some((Arc::downgrade(&active), output_dir.to_path_buf()));
+    Ok(())
+}
+
+pub(super) fn create_recording_directory(root: &std::path::Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(root)
+        .map_err(|error| format!("failed to create {}: {error}", root.display()))?;
+    let directory = root.join(format!("recording-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&directory)
+        .map_err(|error| format!("failed to create {}: {error}", directory.display()))?;
+    Ok(directory)
 }

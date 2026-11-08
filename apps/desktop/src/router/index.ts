@@ -18,6 +18,11 @@ const routes = [
         name: 'TrayMenu',
         component: () => import('@/views/TrayView/index.vue'),
     },
+    {
+        path: '/computer-use-glow',
+        name: 'ComputerUseGlow',
+        component: () => import('@/views/ComputerUseGlowView/index.vue'),
+    },
 ];
 
 const router = createRouter({

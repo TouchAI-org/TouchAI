@@ -1,8 +1,56 @@
 # 用 cua-driver 承接 computer use：接入方案（RFC #111 修订）
 
-> 调研日期：2026-11-01
-> 关联 issue：#111（RFC）、#101
-> 结论：**不再自研原生截图与输入注入层，改为引入 cua-driver 作为执行后端**；二进制不走构建期内嵌，改为运行时从 PyPI 国内镜像异步下载单文件 `cua-driver.exe`，以 MCP stdio 方式挂到现有的 `core/mcp` 客户端上。
+> 当前状态更新：2026-11-07，PR #730 / RFC #111。
+> 下方“历史调研与早期方案”保留 2026-11-01 的探索记录；其中 MCP 主路径、8 工具白名单、禁止批处理、统计与专用卡片等提案已经被本节取代。
+
+## 当前接入与能力边界
+
+当前路径是 `computer_use` 内置工具 → `ComputerUseService` → `NativeService` → Tauri commands → Rust C ABI → 进程内 `cua_driver_sdk.dll`。运行时下载、校验和安装固定版本的共享库，不通过 MCP 子进程执行桌面动作。Windows 实测版本为 cua-driver 0.38.0 / ABI 1.1.0 / contract 0.8.0。
+
+### 模型工具与权限
+
+- 模型保留常用 action 别名；`list_tools` 返回已启用的原生目录，`describe_tool` 返回驱动提供的完整 schema，`call` 可以调用目录中的任意工具。
+- 当前 DLL 注册 61 个工具，包含窗口管理、剪贴板、浏览器与文件传输、批处理、脚本、录制回放、光标配置和会话管理。注册可调用不代表所有平台或应用上的功能均已通过实测。
+- 电脑操作总开关复用 `built_in_tools.enabled`。八组权限为观察、应用与窗口、鼠标与键盘、剪贴板、网页与文件传输、批量与脚本、录制与回放、驱动与会话管理；分组使用已有 key/value 设置中的标量值，不改变数据库结构或持久化 JSON shape。
+- 完全访问通过宿主创建 trusted/unrestricted 授权句柄；它仍遵守总开关、分组、前台控制和操作系统权限。授权句柄与驱动生命周期会话是两个对象，新句柄必须先完成 `start_session`，才能使用或复用已经结束的会话标签。
+- 结束会话成功后才清理宿主句柄。生命周期恢复与健康检查不依赖可选的光标/截图配置初始化，避免恢复操作被已结束会话阻断。
+- 分组在发现和执行时均检查。脚本与回放要求完全访问和依赖能力组；关闭相关组不能通过复合工具绕过。脚本运行在驱动沙箱中，没有 shell、文件系统或通用网络 API。
+
+### 减少轮次与输入正确性
+
+`run_steps` 在单一目标窗口上顺序执行输入，失败时返回已执行进度，不能自动重放整个批次。其 step 工具限于 `click`、`double_click`、`right_click`、`set_value`、`type_text`、`press_key`、`hotkey`、`scroll`、`drag`、`move_cursor`。`bring_to_front`、启动和调整窗口应在批次之前单独调用；`observe` 是批次选项。分支和循环使用 `run_script`，执行前查询其 schema。
+
+窗口发现应包含最小化窗口，避免先查可见窗口再补查一轮。使用完整文本单次输入、批次末尾观察以及动作自带的新快照，减少无效模型往返。新页面与不确定状态仍需要观察，不能假设一次计划适用于整个桌面任务。
+
+无坐标快捷键映射到可靠的 `press_key` 路径；含非 BMP 字符的文本以及带 modifiers 的按键，在已经获得前台权限后使用 foreground。该规范化同时覆盖别名、原生调用和两种批处理 step 格式。文本模型的观察使用 accessibility，不反复请求模型无法消费的截图。
+
+`effect=unverifiable` 与真正执行失败分开处理：输入送达但效果未知时返回现态供模型核对，不盲目重做可能已经产生副作用的输入。
+
+### 设置与反馈
+
+设置页复用 `SettingsRow`、`CustomSelect`、`Switch`、`Button` 和共享下拉菜单，四个小标题为驱动、权限、工具权限、行为。驱动显示为选择器加状态点，维护动作放在菜单内；没有高级折叠，没有 computer-use 统计。聚合统计的采集和查询也已移除，已有数据未迁移或删除。
+
+对话直接复用原有 `ToolCallItem` 日志行，在前面加 pointer 图标并显示操作与状态对应的中英文文案；不再使用 `ComputerUseToolCallItem` 专用卡片，不在摘要显示输入或剪贴板正文。
+
+Windows embedded 宿主中的上游 native cursor overlay 尚不能仅靠 `set_agent_cursor_enabled` 启用。TouchAI 的透明覆盖窗口提供屏幕辉光及动作完成后的位置标记；当前不是连续运动光标。单屏 150% DPI 已验证不抢焦点、不拦截点击，混合 DPI 多屏仍待验证。
+
+屏幕辉光从首次实际获准执行的电脑操作开始，跟随整轮任务持续显示，包括工具返回后的模型思考间隙；完成、失败、取消、关闭电脑操作、驱动退出或主页面重新加载时清理。并发任务分别持有活动标记，结束其中一个不会隐藏另一个；已经结束的任务不能被迟到回调重新点亮。动作位置标记仍在 1.5 秒后独立消失，减少动态效果模式下也会清理。持续辉光复用原有颜色与覆盖窗口，不需要定时续亮。
+
+Windows 首次显示的验收还发现 `.focusable(false)` 不能阻止当前 tao 的 `show()` 路径激活窗口。覆盖窗口使用现有 `windows` crate 的 `SetWindowPos` 与 `SWP_NOACTIVATE` 显隐，避免抢走被操作应用的键盘焦点；这条真实窗口回归加入桌面 E2E。
+
+生命周期参考 [Claude 官方 computer use 文档](https://code.claude.com/docs/en/computer-use)的首次操作、停止和整轮完成边界，以及 [cua-driver 的光标反馈说明](https://cua.ai/docs/cua-driver/guides/operate)。这些来源不构成官方辉光动画时长或配色规范；本实现的持续显示规则来自用户要求。
+
+### 本轮验证与未完成项
+
+真实 DLL 回归覆盖结束 trusted session 后复用相同标签；产品集成覆盖三轮结束/重建、总开关、分组拒绝及脚本取消。真实 TouchAI + Magpie `auto/deepseek-v4.1-flash` 的最小化记事本复测完成中文、`😀 𠮷 𝄞` 输入和保存：3 次工具调用、0 次工具错误、4 轮模型、34.819 秒；磁盘文件内容匹配。它是单个本地场景，不是完整 benchmark 分数或普遍成功率。
+
+OSWorld、WindowsAgentArena、ScreenSpot-Pro、CuaBench、WebArena 只完成环境与阻断调研，未运行官方 evaluator。全量 PR 门禁、release P50/P95/内存预算、跨平台及全部 61 个工具的真实功能覆盖仍需补齐。UIA 控件能力差异、Windows 完整性级别、模型视觉能力和供应商 EOF/520 必须分别归因。
+
+agent-desktop v1.2.0 的只读研究与 ABI 握手表明它可作为后续候选，但 FFI 取消、按窗口快照和 Windows overlay 等缺口尚不足以替换当前路径；本次未加入第二个运行时驱动。
+
+## 历史调研与早期方案（2026-11-01，不代表当前实现）
+
+以下保留原始测量、设计演变与当时未完成项，便于追溯。
 
 ---
 

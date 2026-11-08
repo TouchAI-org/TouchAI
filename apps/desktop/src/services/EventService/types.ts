@@ -48,6 +48,7 @@ export enum AppEvent {
     SEARCH_SURFACE_PREPARE = 'search-surface-prepare',
     SEARCH_SURFACE_COMMAND = 'search-surface-command',
     SESSION_TASK_STATUS_CHANGED = 'session:task:status-changed',
+    COMPUTER_USE_STOPPED = 'computer-use-stopped',
     /** 流式响应过程中的用量进度（节流发送，仅供实时面板使用） */
     SESSION_TASK_USAGE_PROGRESS = 'session:task:usage-progress',
     SESSION_STATUS_REMINDER_ACTION = 'session-status-reminder:action',
@@ -240,6 +241,7 @@ export interface AppEventMap {
     [AppEvent.SEARCH_SURFACE_PREPARE]: import('@services/NativeService/types').SearchSurfacePreparation;
     [AppEvent.SEARCH_SURFACE_COMMAND]: SearchSurfaceCommandEvent;
     [AppEvent.SESSION_TASK_STATUS_CHANGED]: SessionTaskStatusChangedEvent;
+    [AppEvent.COMPUTER_USE_STOPPED]: string[];
     [AppEvent.SESSION_TASK_USAGE_PROGRESS]: SessionTaskUsageProgressEvent;
     [AppEvent.SESSION_STATUS_REMINDER_ACTION]: SessionStatusReminderActionEvent;
 

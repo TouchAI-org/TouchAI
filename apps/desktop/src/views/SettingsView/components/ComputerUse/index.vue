@@ -1,329 +1,722 @@
 <!-- Copyright (c) 2026. 千诚. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import agentDesktopLogo from '@assets/logos/drivers/agent-desktop.svg';
+    import cuaDriverLogo from '@assets/logos/drivers/cua-driver.svg';
+    import AppIcon from '@components/AppIcon.vue';
+    import CustomSelect from '@components/CustomSelect.vue';
     import SettingsRow from '@components/SettingsRow.vue';
     import { Button } from '@components/ui/button';
     import { Input } from '@components/ui/input';
     import { Switch } from '@components/ui/switch';
+    import { useAlert } from '@composables/useAlert';
     import { useConfirm } from '@composables/useConfirm';
     import {
+        type ComputerUseApproval,
         computerUseService,
         type ComputerUseSettings,
-        type ComputerUseStats,
         type ComputerUseStatus,
-        type ComputerUseUpdate,
         DEFAULT_SETTINGS,
     } from '@services/ComputerUseService';
-    import { computed, onMounted, ref } from 'vue';
+    import {
+        COMPUTER_USE_GROUPS,
+        type ComputerUseGroup,
+        type ComputerUseGroups,
+    } from '@services/ComputerUseService/capabilities';
+    import type { ComputerUseDriverId } from '@services/NativeService/computerUse';
+    import { open } from '@tauri-apps/plugin-dialog';
+    import { computed, nextTick, onMounted, ref } from 'vue';
 
     import { t } from '@/i18n';
 
     defineOptions({ name: 'ComputerUseSettings' });
 
     const settings = ref<ComputerUseSettings>({ ...DEFAULT_SETTINGS });
-    const stats = ref<ComputerUseStats | null>(null);
-    const status = ref<ComputerUseStatus | null>(null);
+    const selectedDriver = ref<ComputerUseDriverId>('cua-driver');
+    const statuses = ref<Partial<Record<ComputerUseDriverId, ComputerUseStatus>>>({});
+    const status = computed(() => statuses.value[selectedDriver.value] ?? null);
     const busy = ref(false);
-    const feedback = ref<string | null>(null);
-    const updateInfo = ref<ComputerUseUpdate | null>(null);
+    const busyDriver = ref<ComputerUseDriverId | null>(null);
+    const driverOpen = ref(false);
+    const enabled = ref(false);
+    const saving = ref(false);
+    const recordingDirectory = ref('');
+    const driverDirectory = ref('');
+    const groups = ref<ComputerUseGroups>({});
+    const alert = useAlert();
     const { confirm } = useConfirm();
 
-    const installed = computed(() => status.value?.installed === true);
+    const installed = computed(() => isDriverAvailable(selectedDriver.value));
+    const driverDisabled = computed(() => !enabled.value || busy.value || saving.value);
+    const preferencesDisabled = computed(() => driverDisabled.value || !installed.value);
+    const drivers: ComputerUseDriverId[] = ['cua-driver', 'agent-desktop'];
+    const driverLogos: Record<ComputerUseDriverId, string> = {
+        'cua-driver': cuaDriverLogo,
+        'agent-desktop': agentDesktopLogo,
+    };
 
-    const successRate = computed(() => {
-        const value = stats.value;
-        if (!value || value.actions === 0) return '—';
-        return `${Math.round((value.successes / value.actions) * 100)}%`;
-    });
+    function isDriverAvailable(driver: ComputerUseDriverId): boolean {
+        return statuses.value[driver]?.installed === true && !statuses.value[driver]?.error;
+    }
 
-    const statusLabel = computed(() => {
-        if (!status.value) return t('settings.computerUse.status.loading');
-        return installed.value
-            ? t('settings.computerUse.status.installed')
-            : t('settings.computerUse.status.missing');
+    const visibleGroups = computed(() =>
+        COMPUTER_USE_GROUPS.filter(
+            (group) => selectedDriver.value !== 'agent-desktop' || group !== 'browser'
+        )
+    );
+    const driverOptions = computed(() =>
+        drivers.map((driver) => ({
+            value: driver,
+            label: driver,
+            iconSrc: driverLogos[driver],
+            disabled: !isDriverAvailable(driver),
+            description: statuses.value[driver]?.driverVersion
+                ? `v${statuses.value[driver]?.driverVersion}`
+                : undefined,
+        }))
+    );
+
+    const approvalOptions = computed(() =>
+        [
+            {
+                value: 'each' as const,
+                label: t('settings.computerUse.approval.each'),
+            },
+            {
+                value: 'session-window' as const,
+                label: t('settings.computerUse.approval.session'),
+            },
+            {
+                value: 'full-access' as const,
+                label: t('settings.computerUse.approval.fullAccess'),
+            },
+        ].filter(
+            (option) =>
+                selectedDriver.value !== 'agent-desktop' || option.value !== 'session-window'
+        )
+    );
+
+    const approvalValue = computed(() =>
+        selectedDriver.value === 'agent-desktop' && settings.value.approval === 'session-window'
+            ? 'each'
+            : settings.value.approval
+    );
+
+    function capabilityLabel(group: ComputerUseGroup): string {
+        if (
+            selectedDriver.value === 'agent-desktop' &&
+            (group === 'automation' || group === 'recording')
+        ) {
+            return t(`settings.computerUse.agentDesktop.capability.${group}`);
+        }
+        return t(`settings.computerUse.capability.${group}`);
+    }
+
+    function capabilityDescription(group: ComputerUseGroup): string {
+        if (
+            selectedDriver.value === 'agent-desktop' &&
+            (group === 'automation' || group === 'recording')
+        ) {
+            return t(`settings.computerUse.agentDesktop.capability.${group}.description`);
+        }
+        return t(`settings.computerUse.capability.${group}.description`);
+    }
+
+    const screenshotOptions = computed<
+        Array<{ description?: string; label: string; value: number }>
+    >(() => {
+        const options: Array<{ description?: string; label: string; value: number }> = [
+            {
+                value: 1024,
+                label: t('settings.computerUse.screenshot.fast'),
+                description: '1024 px',
+            },
+            {
+                value: 1568,
+                label: t('settings.computerUse.screenshot.balanced'),
+                description: '1568 px',
+            },
+            {
+                value: 2048,
+                label: t('settings.computerUse.screenshot.sharp'),
+                description: '2048 px',
+            },
+        ];
+        if (!options.some((option) => option.value === settings.value.maxImageDimension)) {
+            options.push({
+                value: settings.value.maxImageDimension,
+                label: `${settings.value.maxImageDimension} px`,
+            });
+        }
+        return options;
     });
 
     async function refresh(): Promise<void> {
-        status.value = await computerUseService.status();
-        stats.value = await computerUseService.loadStats();
+        await Promise.all(
+            drivers.map(async (driver) => {
+                try {
+                    statuses.value[driver] = await computerUseService.status(driver);
+                } catch (error) {
+                    statuses.value[driver] = {
+                        installed: false,
+                        abiVersion: null,
+                        binary: null,
+                        driverVersion: null,
+                        error: errorMessage(error),
+                    };
+                }
+            })
+        );
+        selectedDriver.value = await computerUseService.loadDriver();
+        if (settings.value.recordingEnabled) {
+            recordingDirectory.value = await computerUseService.loadRecordingDirectory();
+        }
+    }
+
+    async function selectDriver(driver: ComputerUseDriverId | ''): Promise<void> {
+        if (!driver || driverDisabled.value || !isDriverAvailable(driver)) return;
+        saving.value = true;
+        try {
+            await computerUseService.selectDriver(driver);
+            selectedDriver.value = driver;
+            recordingDirectory.value = await computerUseService.loadRecordingDirectory();
+            await refresh();
+        } catch (error) {
+            alert.error(errorMessage(error));
+        } finally {
+            saving.value = false;
+        }
     }
 
     onMounted(async () => {
-        settings.value = await computerUseService.loadSettings();
-        await refresh();
+        try {
+            settings.value = await computerUseService.loadSettings();
+            selectedDriver.value = await computerUseService.loadDriver();
+            enabled.value = await computerUseService.isEnabled();
+            groups.value = await computerUseService.loadGroups();
+            driverDirectory.value = await computerUseService.loadDriverDirectory();
+            await refresh();
+        } catch (error) {
+            alert.error(errorMessage(error));
+        }
     });
 
-    async function prepare(): Promise<void> {
-        busy.value = true;
-        feedback.value = null;
+    async function setEnabled(value: boolean): Promise<void> {
+        if (busy.value || saving.value) return;
+        saving.value = true;
         try {
-            const next = await computerUseService.prepare();
-            status.value = next;
-            if (next.installed) {
-                await computerUseService.applySettings(settings.value);
-                if (settings.value.recordingEnabled) {
+            await computerUseService.setEnabled(value);
+            enabled.value = value;
+        } catch (error) {
+            alert.error(errorMessage(error));
+        } finally {
+            saving.value = false;
+        }
+    }
+
+    async function setGroup(group: ComputerUseGroup, value: boolean): Promise<void> {
+        if (preferencesDisabled.value) return;
+        saving.value = true;
+        try {
+            await computerUseService.setGroupEnabled(group, value);
+            groups.value = { ...groups.value, [group]: value };
+        } catch (error) {
+            alert.error(errorMessage(error));
+        } finally {
+            saving.value = false;
+        }
+    }
+
+    async function prepare(driver: ComputerUseDriverId): Promise<void> {
+        if (driverDisabled.value) return;
+        busy.value = true;
+        busyDriver.value = driver;
+        try {
+            const next = await computerUseService.prepare(driver);
+            statuses.value[driver] = next;
+            if (next.installed && !next.error) {
+                if (!installed.value) {
+                    await computerUseService.selectDriver(driver);
+                    selectedDriver.value = driver;
+                    recordingDirectory.value = await computerUseService.loadRecordingDirectory();
+                }
+                if (driver === selectedDriver.value)
+                    await computerUseService.applySettings(settings.value);
+                if (driver === selectedDriver.value && settings.value.recordingEnabled) {
                     await computerUseService.setRecording(true);
                 }
+                alert.success(t('settings.computerUse.status.installed'));
+            } else {
+                alert.error(next.error ?? t('settings.computerUse.status.missing'));
             }
-            feedback.value = next.installed
-                ? t('settings.computerUse.status.installed')
-                : (next.error ?? t('settings.computerUse.status.missing'));
         } catch (error) {
-            feedback.value = error instanceof Error ? error.message : String(error);
+            alert.error(errorMessage(error));
         } finally {
             busy.value = false;
+            busyDriver.value = null;
         }
     }
 
     async function update(patch: Partial<ComputerUseSettings>): Promise<void> {
-        settings.value = await computerUseService.saveSettings(patch);
-        if (patch.approval === 'each') {
-            computerUseService.clearSessionApprovals();
-        }
-        if ('maxImageDimension' in patch || 'cursorVisible' in patch) {
-            const failures = await computerUseService.applySettings(settings.value);
-            if (failures.length > 0) {
-                feedback.value = failures[0] ?? null;
+        if (preferencesDisabled.value) return;
+        saving.value = true;
+        try {
+            settings.value = await computerUseService.saveSettings(patch);
+            if (patch.approval !== undefined) {
+                computerUseService.clearSessionApprovals();
             }
-        }
-        if ('recordingEnabled' in patch) {
-            await computerUseService.setRecording(settings.value.recordingEnabled);
-        }
-    }
-
-    const updateLabel = computed(() => {
-        const info = updateInfo.value;
-        if (!info) return '—';
-        if (info.error) return t('settings.computerUse.update.failed');
-        if (info.updateAvailable && info.latest) {
-            return t('settings.computerUse.update.available', { version: info.latest });
-        }
-        return t('settings.computerUse.update.current');
-    });
-
-    async function checkUpdate(): Promise<void> {
-        busy.value = true;
-        try {
-            updateInfo.value = await computerUseService.checkUpdate();
-        } finally {
-            busy.value = false;
-        }
-    }
-
-    async function removeDriver(): Promise<void> {
-        const agreed = await confirm({
-            message: t('settings.computerUse.confirm.remove'),
-            title: t('settings.computerUse.action.remove'),
-            type: 'danger',
-        });
-        if (!agreed) return;
-
-        busy.value = true;
-        try {
-            await computerUseService.remove();
-            await refresh();
-            feedback.value = t('settings.computerUse.removed');
+            if ('maxImageDimension' in patch || 'cursorVisible' in patch) {
+                const failures = await computerUseService.applySettings(settings.value);
+                if (failures.length > 0) {
+                    alert.warning(failures[0]!);
+                }
+            }
         } catch (error) {
-            feedback.value = error instanceof Error ? error.message : String(error);
+            alert.error(errorMessage(error));
+        } finally {
+            saving.value = false;
+        }
+    }
+
+    async function setRecordingEnabled(value: boolean): Promise<void> {
+        if (preferencesDisabled.value) return;
+        saving.value = true;
+        const previous = settings.value.recordingEnabled;
+        try {
+            if (value) recordingDirectory.value = await computerUseService.loadRecordingDirectory();
+            await computerUseService.setRecording(value);
+            try {
+                settings.value = await computerUseService.saveSettings({ recordingEnabled: value });
+            } catch (error) {
+                await computerUseService.setRecording(previous);
+                throw error;
+            }
+        } catch (error) {
+            alert.error(errorMessage(error));
+        } finally {
+            saving.value = false;
+        }
+    }
+
+    async function pickDriverDirectory(): Promise<void> {
+        if (driverDisabled.value) return;
+        saving.value = true;
+        try {
+            const picked = await open({
+                directory: true,
+                multiple: false,
+                defaultPath: driverDirectory.value || undefined,
+                title: t('settings.computerUse.action.pickDriverDirectory'),
+            });
+            if (typeof picked === 'string' && picked !== driverDirectory.value) {
+                driverDirectory.value = await computerUseService.saveDriverDirectory(picked);
+                await refresh();
+            }
+        } catch (error) {
+            alert.error(errorMessage(error));
+        } finally {
+            saving.value = false;
+        }
+    }
+
+    async function pickRecordingDirectory(): Promise<void> {
+        if (preferencesDisabled.value || !settings.value.recordingEnabled) return;
+        saving.value = true;
+        try {
+            const picked = await open({
+                directory: true,
+                multiple: false,
+                defaultPath: recordingDirectory.value || undefined,
+                title: t('settings.computerUse.action.pickRecordingDirectory'),
+            });
+            if (typeof picked === 'string' && picked !== recordingDirectory.value) {
+                recordingDirectory.value = await computerUseService.saveRecordingDirectory(picked);
+            }
+        } catch (error) {
+            alert.error(errorMessage(error));
+        } finally {
+            saving.value = false;
+        }
+    }
+
+    async function checkUpdate(driver: ComputerUseDriverId): Promise<void> {
+        if (driverDisabled.value) return;
+        busy.value = true;
+        try {
+            const info = await computerUseService.checkUpdate(driver);
+            if (info.error) {
+                alert.error(info.error);
+            } else {
+                alert.success(
+                    info.updateAvailable && info.latest
+                        ? t('settings.computerUse.update.available', { version: info.latest })
+                        : t('settings.computerUse.update.current')
+                );
+            }
+        } catch (error) {
+            alert.error(errorMessage(error));
         } finally {
             busy.value = false;
         }
     }
 
-    function setApproval(approval: ComputerUseSettings['approval']): void {
+    async function removeDriver(driver: ComputerUseDriverId): Promise<void> {
+        if (driverDisabled.value) return;
+        busy.value = true;
+        driverOpen.value = false;
+        try {
+            await nextTick();
+            const agreed = await confirm({
+                message: t('settings.computerUse.confirm.remove', { driver }),
+                title: `${t('settings.computerUse.action.remove')} · ${driver}`,
+                type: 'danger',
+            });
+            if (!agreed) return;
+            try {
+                await computerUseService.remove(driver);
+                alert.success(t('settings.computerUse.removed'));
+            } catch (error) {
+                alert.error(errorMessage(error));
+            }
+            await refresh();
+        } catch (error) {
+            alert.error(errorMessage(error));
+        } finally {
+            busy.value = false;
+        }
+    }
+
+    function setApproval(approval: ComputerUseApproval): void {
         void update({ approval });
     }
 
-    function setMaxImageDimension(event: Event): void {
-        const value = Number((event.target as HTMLInputElement).value);
-        if (!Number.isFinite(value) || value <= 0) return;
-        void update({ maxImageDimension: value });
+    function setMaxImageDimension(value: number | string): void {
+        const dimension = Number(value);
+        if (!Number.isFinite(dimension) || dimension <= 0) return;
+        void update({ maxImageDimension: dimension });
+    }
+
+    function errorMessage(error: unknown): string {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message === 'computer_use_storage_invalid')
+            return t('settings.computerUse.storage.invalid');
+        if (message === 'computer_use_storage_failed')
+            return t('settings.computerUse.storage.failed');
+        if (message === 'computer_use_storage_conflict')
+            return t('settings.computerUse.storage.conflict');
+        return message === 'computer_use_driver_unavailable'
+            ? t('settings.computerUse.status.unavailable')
+            : message;
     }
 </script>
 
 <template>
-    <div class="space-y-6 px-6 py-6" data-testid="settings-computer-use">
-        <section class="space-y-4">
-            <h2 class="settings-section-title">{{ t('settings.computerUse.group.driver') }}</h2>
+    <div class="settings-page" data-testid="settings-computer-use">
+        <div class="settings-section-stack">
+            <header class="settings-page-header flex items-start gap-4">
+                <div class="max-w-2xl min-w-0">
+                    <h1 class="settings-page-title">
+                        {{ t('settings.nav.computerUse.label') }}
+                    </h1>
+                    <p class="settings-section-description">
+                        {{ t('settings.nav.computerUse.description') }}
+                    </p>
+                </div>
+                <Switch
+                    data-testid="computer-use-enabled-toggle"
+                    size="lg"
+                    class="ml-auto shrink-0"
+                    :aria-label="t('settings.nav.computerUse.label')"
+                    :model-value="enabled"
+                    :disabled="busy || saving"
+                    @update:model-value="setEnabled"
+                />
+            </header>
 
-            <div class="settings-row-group divide-y divide-border-subtle">
-                <SettingsRow
-                    control-width="auto"
-                    :label="t('settings.computerUse.field.status')"
-                    :description="feedback ?? status?.error ?? undefined"
-                >
-                    <div class="ml-auto flex items-center gap-3">
-                        <span class="text-xs text-text-tertiary">{{ statusLabel }}</span>
-                        <Button size="sm" variant="outline" :disabled="busy" @click="refresh">
-                            {{ t('settings.computerUse.action.refresh') }}
-                        </Button>
-                        <Button size="sm" :disabled="busy" @click="prepare">
-                            {{ t('settings.computerUse.action.prepare') }}
-                        </Button>
-                    </div>
-                </SettingsRow>
-
-                <SettingsRow control-width="360" :label="t('settings.computerUse.field.version')">
-                    <span class="text-xs text-text-tertiary">
-                        {{ status?.driverVersion ?? '—' }}
-                    </span>
-                </SettingsRow>
-
-                <SettingsRow control-width="360" :label="t('settings.computerUse.field.abi')">
-                    <span class="text-xs text-text-tertiary">
-                        {{ status?.abiVersion ?? '—' }}
-                    </span>
-                </SettingsRow>
-
-                <SettingsRow control-width="360" :label="t('settings.computerUse.field.path')">
-                    <span class="truncate text-xs text-text-tertiary">
-                        {{ status?.binary ?? '—' }}
-                    </span>
-                </SettingsRow>
-
-                <SettingsRow control-width="auto" :label="t('settings.computerUse.field.update')">
-                    <div class="ml-auto flex items-center gap-3">
-                        <span class="text-xs text-text-tertiary">{{ updateLabel }}</span>
-                        <Button size="sm" variant="outline" :disabled="busy" @click="checkUpdate">
-                            {{ t('settings.computerUse.action.checkUpdate') }}
-                        </Button>
-                        <Button size="sm" variant="outline" :disabled="busy" @click="removeDriver">
-                            {{ t('settings.computerUse.action.remove') }}
-                        </Button>
-                    </div>
-                </SettingsRow>
-            </div>
-        </section>
-
-        <section class="space-y-4">
-            <h2 class="settings-section-title">{{ t('settings.computerUse.group.behavior') }}</h2>
-
-            <div class="settings-row-group divide-y divide-border-subtle">
-                <SettingsRow control-width="auto" :label="t('settings.computerUse.field.cursor')">
-                    <div class="ml-auto">
-                        <Switch
-                            :model-value="settings.cursorVisible"
-                            @update:model-value="
-                                (value: boolean) => update({ cursorVisible: value })
-                            "
-                        />
-                    </div>
-                </SettingsRow>
-
-                <SettingsRow
-                    control-width="180"
-                    :label="t('settings.computerUse.field.maxImage')"
-                    :description="t('settings.computerUse.hint.maxImage')"
-                >
-                    <Input
-                        type="number"
-                        min="320"
-                        max="4096"
-                        :model-value="settings.maxImageDimension"
-                        @change="setMaxImageDimension"
-                    />
-                </SettingsRow>
-            </div>
-        </section>
-
-        <section class="space-y-4">
-            <h2 class="settings-section-title">{{ t('settings.computerUse.group.permission') }}</h2>
-
-            <div class="settings-row-group divide-y divide-border-subtle">
-                <SettingsRow control-width="auto" :label="t('settings.computerUse.field.approval')">
-                    <div class="ml-auto flex items-center gap-2">
-                        <Button
-                            size="sm"
-                            :variant="settings.approval === 'each' ? 'default' : 'outline'"
-                            @click="setApproval('each')"
+            <fieldset :disabled="driverDisabled" class="settings-section-stack">
+                <section class="space-y-4" aria-labelledby="computer-use-driver-heading">
+                    <h2 id="computer-use-driver-heading" class="settings-section-title">
+                        {{ t('settings.computerUse.group.driver') }}
+                    </h2>
+                    <div class="settings-row-group divide-y divide-border-subtle">
+                        <SettingsRow
+                            data-settings-search-target="computer-use-driver"
+                            control-width="220"
+                            label-class="text-text-primary"
+                            description-class="text-text-tertiary"
+                            :label="t('settings.computerUse.field.driver')"
+                            :description="status?.error || undefined"
                         >
-                            {{ t('settings.computerUse.approval.each') }}
-                        </Button>
-                        <Button
-                            size="sm"
-                            :variant="
-                                settings.approval === 'session-window' ? 'default' : 'outline'
-                            "
-                            @click="setApproval('session-window')"
+                            <CustomSelect
+                                v-model:open="driverOpen"
+                                trigger-test-id="computer-use-driver-select"
+                                content-test-id="computer-use-driver-options"
+                                :aria-label="t('settings.computerUse.field.driver')"
+                                :model-value="installed ? selectedDriver : ''"
+                                :options="driverOptions"
+                                :disabled="driverDisabled"
+                                protect-option-text
+                                @update:model-value="selectDriver"
+                            >
+                                <template #trigger="{ option }">
+                                    <span class="flex min-w-0 flex-1 items-center gap-2">
+                                        <img
+                                            v-if="option?.iconSrc"
+                                            :src="option.iconSrc"
+                                            alt=""
+                                            aria-hidden="true"
+                                            class="h-4 w-4 shrink-0 rounded-sm object-contain"
+                                        />
+                                        <span class="min-w-0 flex-1 truncate" translate="no">
+                                            {{
+                                                installed
+                                                    ? selectedDriver
+                                                    : t('settings.computerUse.selectDriver')
+                                            }}
+                                        </span>
+                                    </span>
+                                </template>
+                                <template #option-actions="{ option }">
+                                    <Button
+                                        v-if="
+                                            statuses[option.value] &&
+                                            !statuses[option.value]?.installed
+                                        "
+                                        data-testid="computer-use-install"
+                                        variant="ghost-neutral"
+                                        :aria-label="`${t(busy ? 'common.loading' : 'settings.computerUse.action.prepare')} · ${option.label}`"
+                                        :title="`${t(busy ? 'common.loading' : 'settings.computerUse.action.prepare')} · ${option.label}`"
+                                        :aria-busy="busyDriver === option.value"
+                                        :disabled="driverDisabled"
+                                        @click="prepare(option.value)"
+                                    >
+                                        <AppIcon
+                                            v-if="busyDriver === option.value"
+                                            name="loading"
+                                            role="status"
+                                            :aria-label="t('common.loading')"
+                                            class="h-4 w-4 animate-spin"
+                                        />
+                                        <AppIcon v-else name="download" class="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                        v-if="statuses[option.value]?.installed"
+                                        data-testid="computer-use-check-update"
+                                        variant="ghost-neutral"
+                                        :aria-label="`${t('settings.computerUse.action.checkUpdate')} · ${option.label}`"
+                                        :title="`${t('settings.computerUse.action.checkUpdate')} · ${option.label}`"
+                                        :disabled="driverDisabled"
+                                        @click="checkUpdate(option.value)"
+                                    >
+                                        <AppIcon name="refresh" class="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                        v-if="statuses[option.value]?.installed"
+                                        data-testid="computer-use-remove"
+                                        variant="ghost-neutral"
+                                        :aria-label="`${t('settings.computerUse.action.remove')} · ${option.label}`"
+                                        :title="`${t('settings.computerUse.action.remove')} · ${option.label}`"
+                                        :disabled="driverDisabled"
+                                        @click="removeDriver(option.value)"
+                                    >
+                                        <AppIcon name="trash" class="h-4 w-4" />
+                                    </Button>
+                                </template>
+                            </CustomSelect>
+                        </SettingsRow>
+                        <SettingsRow
+                            data-settings-search-target="computer-use-driver-directory"
+                            control-width="320"
+                            control-class="flex items-center gap-2"
+                            label-as="label"
+                            label-for="computer-use-driver-directory"
+                            label-class="text-text-primary"
+                            :label="t('settings.computerUse.field.driverDirectory')"
                         >
-                            {{ t('settings.computerUse.approval.session') }}
-                        </Button>
+                            <Input
+                                id="computer-use-driver-directory"
+                                data-testid="computer-use-driver-directory"
+                                variant="filled"
+                                class="min-w-0 flex-1"
+                                :model-value="driverDirectory"
+                                :title="driverDirectory"
+                                :disabled="driverDisabled"
+                                readonly
+                            />
+                            <Button
+                                data-testid="computer-use-driver-directory-pick"
+                                variant="ghost-neutral"
+                                class="shrink-0"
+                                :aria-label="t('settings.computerUse.action.pickDriverDirectory')"
+                                :title="t('settings.computerUse.action.pickDriverDirectory')"
+                                :disabled="driverDisabled"
+                                @click="pickDriverDirectory"
+                            >
+                                <AppIcon name="folder-open" class="h-4 w-4" />
+                            </Button>
+                        </SettingsRow>
                     </div>
-                </SettingsRow>
+                </section>
 
-                <SettingsRow
-                    control-width="auto"
-                    :label="t('settings.computerUse.field.foreground')"
-                    :description="t('settings.computerUse.hint.foreground')"
-                >
-                    <div class="ml-auto">
-                        <Switch
-                            :model-value="settings.allowForeground"
-                            @update:model-value="
-                                (value: boolean) => update({ allowForeground: value })
-                            "
-                        />
+                <section class="space-y-4" aria-labelledby="computer-use-permission-heading">
+                    <h2 id="computer-use-permission-heading" class="settings-section-title">
+                        {{ t('settings.computerUse.group.permission') }}
+                    </h2>
+                    <div class="settings-row-group divide-y divide-border-subtle">
+                        <SettingsRow
+                            data-settings-search-target="computer-use-approval-mode"
+                            control-width="220"
+                            label-class="text-text-primary"
+                            :label="t('settings.computerUse.field.approval')"
+                        >
+                            <CustomSelect
+                                trigger-test-id="computer-use-approval-mode"
+                                :aria-label="t('settings.computerUse.field.approval')"
+                                :model-value="approvalValue"
+                                :options="approvalOptions"
+                                :disabled="preferencesDisabled"
+                                @update:model-value="setApproval"
+                            />
+                        </SettingsRow>
+
+                        <div
+                            data-settings-search-target="computer-use-capabilities"
+                            class="divide-y divide-border-subtle"
+                        >
+                            <SettingsRow
+                                v-for="group in visibleGroups"
+                                :key="group"
+                                control-width="auto"
+                                label-class="text-text-primary"
+                                :label="capabilityLabel(group)"
+                                :description="capabilityDescription(group)"
+                                description-class="text-text-tertiary"
+                            >
+                                <Switch
+                                    :data-testid="`computer-use-group-${group}`"
+                                    size="lg"
+                                    :aria-label="capabilityLabel(group)"
+                                    :model-value="groups[group] !== false"
+                                    :disabled="preferencesDisabled"
+                                    @update:model-value="(value: boolean) => setGroup(group, value)"
+                                />
+                            </SettingsRow>
+                        </div>
                     </div>
-                </SettingsRow>
-            </div>
-        </section>
+                </section>
 
-        <section class="space-y-4">
-            <h2 class="settings-section-title">{{ t('settings.computerUse.group.privacy') }}</h2>
+                <section class="space-y-4" aria-labelledby="computer-use-behavior-heading">
+                    <h2 id="computer-use-behavior-heading" class="settings-section-title">
+                        {{ t('settings.computerUse.group.behavior') }}
+                    </h2>
+                    <div class="settings-row-group divide-y divide-border-subtle">
+                        <SettingsRow
+                            data-settings-search-target="computer-use-foreground"
+                            control-width="auto"
+                            label-class="text-text-primary"
+                            description-class="text-text-tertiary"
+                            :label="t('settings.computerUse.field.foreground')"
+                            :description="t('settings.computerUse.hint.foreground')"
+                        >
+                            <Switch
+                                data-testid="computer-use-foreground-toggle"
+                                size="lg"
+                                :aria-label="t('settings.computerUse.field.foreground')"
+                                :model-value="settings.allowForeground"
+                                :disabled="preferencesDisabled"
+                                @update:model-value="
+                                    (value: boolean) => update({ allowForeground: value })
+                                "
+                            />
+                        </SettingsRow>
+                        <SettingsRow
+                            data-settings-search-target="computer-use-cursor"
+                            control-width="auto"
+                            label-class="text-text-primary"
+                            :label="t('settings.computerUse.field.cursor')"
+                        >
+                            <Switch
+                                data-testid="computer-use-cursor-toggle"
+                                size="lg"
+                                :aria-label="t('settings.computerUse.field.cursor')"
+                                :model-value="settings.cursorVisible"
+                                :disabled="preferencesDisabled"
+                                @update:model-value="
+                                    (value: boolean) => update({ cursorVisible: value })
+                                "
+                            />
+                        </SettingsRow>
+                        <SettingsRow
+                            v-if="selectedDriver === 'cua-driver'"
+                            data-settings-search-target="computer-use-max-image"
+                            control-width="220"
+                            label-class="text-text-primary"
+                            description-class="text-text-tertiary"
+                            :label="t('settings.computerUse.field.maxImage')"
+                        >
+                            <CustomSelect
+                                trigger-test-id="computer-use-max-image"
+                                :aria-label="t('settings.computerUse.field.maxImage')"
+                                :model-value="settings.maxImageDimension"
+                                :options="screenshotOptions"
+                                :disabled="preferencesDisabled"
+                                @update:model-value="setMaxImageDimension"
+                            />
+                        </SettingsRow>
 
-            <div class="settings-row-group divide-y divide-border-subtle">
-                <SettingsRow
-                    control-width="auto"
-                    :label="t('settings.computerUse.field.telemetry')"
-                    :description="t('settings.computerUse.hint.telemetry')"
-                >
-                    <span class="ml-auto text-xs text-text-tertiary">
-                        {{ t('settings.computerUse.telemetry.driver') }}
-                    </span>
-                </SettingsRow>
-
-                <SettingsRow
-                    control-width="auto"
-                    :label="t('settings.computerUse.field.recording')"
-                    :description="t('settings.computerUse.hint.recording')"
-                >
-                    <div class="ml-auto">
-                        <Switch
-                            :model-value="settings.recordingEnabled"
-                            @update:model-value="
-                                (value: boolean) => update({ recordingEnabled: value })
-                            "
-                        />
+                        <SettingsRow
+                            data-settings-search-target="computer-use-recording"
+                            control-width="auto"
+                            label-class="text-text-primary"
+                            description-class="text-text-tertiary"
+                            :label="t('settings.computerUse.field.recording')"
+                            :description="t('settings.computerUse.hint.recording')"
+                        >
+                            <Switch
+                                data-testid="computer-use-recording-toggle"
+                                size="lg"
+                                :aria-label="t('settings.computerUse.field.recording')"
+                                :model-value="settings.recordingEnabled"
+                                :disabled="preferencesDisabled"
+                                @update:model-value="setRecordingEnabled"
+                            />
+                        </SettingsRow>
+                        <SettingsRow
+                            v-if="settings.recordingEnabled"
+                            control-width="320"
+                            control-class="flex items-center gap-2"
+                            label-as="label"
+                            label-for="computer-use-recording-directory"
+                            label-class="text-text-primary"
+                            :label="t('settings.computerUse.field.recordingDirectory')"
+                        >
+                            <Input
+                                id="computer-use-recording-directory"
+                                data-testid="computer-use-recording-directory"
+                                variant="filled"
+                                class="min-w-0 flex-1"
+                                :model-value="recordingDirectory"
+                                :title="recordingDirectory"
+                                :disabled="preferencesDisabled"
+                                readonly
+                            />
+                            <Button
+                                data-testid="computer-use-recording-directory-pick"
+                                variant="ghost-neutral"
+                                class="shrink-0"
+                                :aria-label="
+                                    t('settings.computerUse.action.pickRecordingDirectory')
+                                "
+                                :title="t('settings.computerUse.action.pickRecordingDirectory')"
+                                :disabled="preferencesDisabled"
+                                @click="pickRecordingDirectory"
+                            >
+                                <AppIcon name="folder-open" class="h-4 w-4" />
+                            </Button>
+                        </SettingsRow>
                     </div>
-                </SettingsRow>
-            </div>
-        </section>
-
-        <section class="space-y-4">
-            <h2 class="settings-section-title">{{ t('settings.computerUse.group.stats') }}</h2>
-
-            <div class="settings-row-group divide-y divide-border-subtle">
-                <SettingsRow control-width="320" :label="t('settings.computerUse.stats.actions')">
-                    <span class="text-xs text-text-tertiary">{{ stats?.actions ?? 0 }}</span>
-                </SettingsRow>
-
-                <SettingsRow control-width="320" :label="t('settings.computerUse.stats.success')">
-                    <span class="text-xs text-text-tertiary">{{ successRate }}</span>
-                </SettingsRow>
-
-                <SettingsRow control-width="320" :label="t('settings.computerUse.stats.denied')">
-                    <span class="text-xs text-text-tertiary">{{ stats?.denied ?? 0 }}</span>
-                </SettingsRow>
-
-                <SettingsRow
-                    control-width="320"
-                    :label="t('settings.computerUse.stats.avgDuration')"
-                >
-                    <span class="text-xs text-text-tertiary">
-                        {{ stats?.avgDurationMs ? `${stats.avgDurationMs} ms` : '—' }}
-                    </span>
-                </SettingsRow>
-            </div>
-        </section>
+                </section>
+            </fieldset>
+        </div>
     </div>
 </template>
