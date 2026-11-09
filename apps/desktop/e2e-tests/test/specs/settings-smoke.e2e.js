@@ -93,7 +93,7 @@ describe('user works in the settings window', () => {
                 !styles.shadow.includes('inset') &&
                     styles.stroke.includes('inset') &&
                     styles.stroke.includes('0px 0px 0px 1px') &&
-                    styles.stroke.includes('0.4'),
+                    styles.stroke.includes('rgb(169, 169, 169)'),
                 `The settings window lost its visible surface stroke: ${styles.stroke}.`
             );
             assertVisible(
@@ -106,7 +106,7 @@ describe('user works in the settings window', () => {
             );
         });
 
-        it('user sees the content border when the title bar paints an opaque background', async () => {
+        it('user sees the native gray content border when the title bar paints an opaque background', async () => {
             const screenshot = await browser.takeScreenshot();
             const [stroke, content] = await browser.execute(async (imageData) => {
                 const shell = document.querySelector('[data-testid="settings-window-shell"]');
@@ -127,10 +127,10 @@ describe('user works in the settings window', () => {
             }, screenshot);
 
             for (const channel of [0, 1, 2]) {
-                const expected = Math.round(content[channel] * 0.6 + 117 * 0.4);
+                const expected = 169;
                 assertVisible(
                     Math.abs(stroke[channel] - expected) <= 2,
-                    `The content background hid the surface border: ${stroke} vs ${content}.`
+                    `The content background changed or hid the neutral gray border: ${stroke} vs ${content}.`
                 );
             }
         });

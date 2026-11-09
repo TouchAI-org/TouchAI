@@ -61,61 +61,82 @@ async function pixels(page, points) {
 }
 
 try {
-    for (const [size, width, height] of [
-        ['default', 1168, 748],
-        ['minimum', 968, 608],
+    for (const [surface, background] of [
+        ['light', 'var(--color-canvas-sunken)'],
+        ['dark', 'rgb(21 21 21)'],
     ]) {
-        await test(`user sees one content border when Settings opens at ${size} size`, async () => {
-            const page = await browser.newPage({ viewport: { width, height } });
+        for (const [size, width, height] of [
+            ['default', 1168, 748],
+            ['minimum', 968, 608],
+        ]) {
+            await test(`user sees one native gray border when Settings opens at ${size} size with ${surface} content`, async () => {
+                const page = await browser.newPage({ viewport: { width, height } });
+                try {
+                    await page.setContent(`<style>${css}</style>
+                    <div class="${frameClass}"><div class="${shellClass}" data-shell style="background:${background}">
+                        <button aria-label="Content" style="display:block;width:100%;height:100%;border:0;background:${background};outline:none"></button>
+                    </div></div>`);
+                    const [gutter, edge, content] = await pixels(page, [
+                        [0, Math.floor(height / 2)],
+                        [Math.floor(width / 2), 24],
+                        [Math.floor(width / 2), 26],
+                    ]);
+                    assert.equal(gutter[3], 0, 'The shadow gutter must have no surface border');
+                    for (const channel of [0, 1, 2]) {
+                        const expected = 169;
+                        assert.ok(
+                            Math.abs(edge[channel] - expected) <= 1,
+                            `Opaque content must not change or hide the native neutral gray border: ${edge} vs ${content}`
+                        );
+                    }
+                    if (process.env.TOUCHAI_LAYOUT_OUTPUT) {
+                        await page.screenshot({
+                            path: `${process.env.TOUCHAI_LAYOUT_OUTPUT}/settings-stroke-${size}-${surface}.png`,
+                            omitBackground: true,
+                        });
+                    }
+                    await page.evaluate(() => {
+                        window.contentClicks = 0;
+                        document.querySelector('button').onclick = () => window.contentClicks++;
+                    });
+                    await page.mouse.click(Math.floor(width / 2), 24);
+                    assert.equal(await page.evaluate(() => window.contentClicks), 1);
+                    await page.evaluate(() => {
+                        document.querySelector('button').style.background = 'transparent';
+                    });
+                    const [uncoveredEdge] = await pixels(page, [[Math.floor(width / 2), 24]]);
+                    assert.deepEqual(uncoveredEdge, edge, 'The border must not be painted twice');
+                    await page.evaluate(() => {
+                        document.documentElement.dataset.windowMaximized = 'true';
+                    });
+                    const [maximizedEdge, maximizedContent] = await pixels(page, [
+                        [Math.floor(width / 2), 0],
+                        [Math.floor(width / 2), 2],
+                    ]);
+                    assert.deepEqual(maximizedEdge, maximizedContent);
+                    const chrome = await page.locator('[data-shell]').evaluate((shell) => ({
+                        radius: getComputedStyle(shell).borderRadius,
+                        shadow: getComputedStyle(shell).boxShadow,
+                        stroke: getComputedStyle(shell, '::after').boxShadow,
+                    }));
+                    assert.deepEqual(chrome, { radius: '0px', shadow: 'none', stroke: 'none' });
+                } finally {
+                    await page.close();
+                }
+            });
+        }
+        await test(`user sees the same native gray border when search paints ${surface} content`, async () => {
+            const page = await browser.newPage({ viewport: { width: 1168, height: 748 } });
             try {
                 await page.setContent(`<style>${css}</style>
-                    <div class="${frameClass}"><div class="${shellClass}" data-shell>
-                        <button aria-label="Content" style="display:block;width:100%;height:100%;border:0;background:var(--color-canvas-sunken);outline:none"></button>
-                    </div></div>`);
-                const [gutter, edge, content] = await pixels(page, [
-                    [0, Math.floor(height / 2)],
-                    [Math.floor(width / 2), 24],
-                    [Math.floor(width / 2), 26],
-                ]);
-                assert.equal(gutter[3], 0, 'The shadow gutter must have no surface border');
+                <div class="${frameClass}"><div class="search-surface-elevated" style="width:100%;height:100%;background:${background}"></div></div>`);
+                const [edge] = await pixels(page, [[584, 24]]);
                 for (const channel of [0, 1, 2]) {
-                    const expected = Math.round(content[channel] * 0.6 + 117 * 0.4);
                     assert.ok(
-                        Math.abs(edge[channel] - expected) <= 1,
-                        `Opaque content must not hide the single 40% gray border: ${edge} vs ${content}`
+                        Math.abs(edge[channel] - 169) <= 1,
+                        `The search border must match the native neutral gray: ${edge}`
                     );
                 }
-                if (process.env.TOUCHAI_LAYOUT_OUTPUT) {
-                    await page.screenshot({
-                        path: `${process.env.TOUCHAI_LAYOUT_OUTPUT}/settings-stroke-${size}.png`,
-                        omitBackground: true,
-                    });
-                }
-                await page.evaluate(() => {
-                    window.contentClicks = 0;
-                    document.querySelector('button').onclick = () => window.contentClicks++;
-                });
-                await page.mouse.click(Math.floor(width / 2), 24);
-                assert.equal(await page.evaluate(() => window.contentClicks), 1);
-                await page.evaluate(() => {
-                    document.querySelector('button').style.background = 'transparent';
-                });
-                const [uncoveredEdge] = await pixels(page, [[Math.floor(width / 2), 24]]);
-                assert.deepEqual(uncoveredEdge, edge, 'The border must not be painted twice');
-                await page.evaluate(() => {
-                    document.documentElement.dataset.windowMaximized = 'true';
-                });
-                const [maximizedEdge, maximizedContent] = await pixels(page, [
-                    [Math.floor(width / 2), 0],
-                    [Math.floor(width / 2), 2],
-                ]);
-                assert.deepEqual(maximizedEdge, maximizedContent);
-                const chrome = await page.locator('[data-shell]').evaluate((shell) => ({
-                    radius: getComputedStyle(shell).borderRadius,
-                    shadow: getComputedStyle(shell).boxShadow,
-                    stroke: getComputedStyle(shell, '::after').boxShadow,
-                }));
-                assert.deepEqual(chrome, { radius: '0px', shadow: 'none', stroke: 'none' });
             } finally {
                 await page.close();
             }
