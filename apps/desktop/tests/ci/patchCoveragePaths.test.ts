@@ -88,7 +88,9 @@ describe('user measures covered changes with absolute report paths', () => {
                 ? checkout.replace(temporaryRoot, shortRoot)
                 : checkout;
 
-            expect(reportRoot).not.toBe(checkout);
+            if (process.platform === 'win32') {
+                expect(reportRoot).not.toBe(checkout);
+            }
             expect(existsSync(reportRoot)).toBe(true);
 
             const result = measurePatchCoverage(
