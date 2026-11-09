@@ -3,21 +3,29 @@
 <template>
     <iframe
         ref="frameRef"
-        class="visual-reply-frame"
+        class="visual-reply-frame mx-auto block w-full max-w-2xl min-w-0 border-0 bg-transparent"
         :srcdoc="srcdoc"
         sandbox="allow-scripts"
         referrerpolicy="no-referrer"
-        :title="title || 'Interactive visual reply'"
+        :title="title || t('visualReply.frame.title')"
         :style="{ height: `${height}px` }"
         :data-ready="ready"
         data-testid="visual-reply-frame"
     />
-    <p v-if="error" role="alert" class="visual-reply-frame-error">{{ error }}</p>
+    <p
+        v-if="error"
+        role="alert"
+        class="mx-auto mt-1 max-w-2xl text-dense text-text-danger"
+        style="overflow-wrap: anywhere"
+    >
+        {{ t('visualReply.frame.error', { message: error }) }}
+    </p>
 </template>
 
 <script setup lang="ts">
-    import { onMounted, onUnmounted, ref, watch } from 'vue';
+    import { onBeforeMount, onMounted, onUnmounted, ref, watch } from 'vue';
 
+    import { t } from '@/i18n';
     import {
         isVisualReplyBridgeMessage,
         type VisualReplyBridgeMessage,
@@ -65,7 +73,7 @@
     }
 
     function reportError(message: string): void {
-        error.value = `Visual reply error: ${message.slice(0, 300)}`;
+        error.value = message.slice(0, 300);
         emit('error', message.slice(0, 300));
     }
 
@@ -106,10 +114,15 @@
         () => loadDocument(props.createSrcdoc)
     );
 
+    // Build before insertion so the iframe already owns its document when the
+    // WebView adopts it; mounting is too late on some embedded WebViews.
+    onBeforeMount(() => {
+        loadDocument(props.createSrcdoc);
+    });
+
     onMounted(() => {
         window.addEventListener('message', handleMessage);
         window.addEventListener(VISUAL_REPLY_THEME_CHANGE_EVENT, handleThemeChange);
-        loadDocument(props.createSrcdoc);
     });
 
     onUnmounted(() => {
@@ -121,21 +134,6 @@
 
 <style scoped>
     .visual-reply-frame {
-        display: block;
-        width: 100%;
-        min-width: 0;
-        max-width: 680px;
-        margin-inline: auto;
-        border: 0;
-        background: transparent;
         transition: height var(--duration-fast) var(--ease-smooth-out);
-    }
-
-    .visual-reply-frame-error {
-        max-width: 680px;
-        margin: 0.35rem auto 0;
-        color: var(--color-error-800);
-        font-size: 0.75rem;
-        overflow-wrap: anywhere;
     }
 </style>
