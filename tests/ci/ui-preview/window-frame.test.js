@@ -265,6 +265,7 @@ describe('user submits a prompt in the preview search window', () => {
             conversationCheck({
                 conversationPresent: true,
                 conversationVisible: true,
+                userMessageVisible: true,
                 messageCount: 2,
                 userMessageCount: 1,
                 requestStatusVisible: true,
@@ -273,6 +274,25 @@ describe('user submits a prompt in the preview search window', () => {
         ).toEqual({
             status: 'pass',
             detail: '1 user message(s), request status visible',
+        });
+    });
+
+    it('user gets no passing check when only an assistant message is visible', () => {
+        expect(
+            conversationCheck({
+                conversationPresent: true,
+                conversationVisible: true,
+                userMessageVisible: false,
+                messageCount: 1,
+                userMessageCount: 0,
+                requestStatusVisible: false,
+                contentHeight: 420,
+            })
+        ).toMatchObject({
+            status: 'fail',
+            message:
+                'the submitted prompt conversation is clipped inside the compact preview frame',
+            detail: '1 message(s), content height 420px',
         });
     });
 

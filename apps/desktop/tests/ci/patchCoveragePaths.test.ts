@@ -21,6 +21,17 @@ function coverageFor(hits = 1) {
     };
 }
 
+function shortWindowsPath(path: string) {
+    if (process.platform !== 'win32') {
+        return path;
+    }
+
+    return execFileSync('cmd.exe', ['/d', '/c', `for %I in (${path}) do @echo %~sI`], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+}
+
 describe('user measures covered changes with absolute report paths', () => {
     it.each([
         ['/checkout/repo', '/checkout/repo/apps/desktop/src/feature.ts'],
@@ -60,33 +71,19 @@ describe('user measures covered changes with absolute report paths', () => {
 
     it('user gets full coverage when a report path is another name for the checkout', () => {
         // tmpdir() already returns the 8.3 form on some Windows runners, so
-        // start from the long spelling and shorten it for the report.
+        // start from the long spelling and shorten the checkout for the report.
         const longRoot =
             process.platform === 'win32'
                 ? join(process.env.USERPROFILE ?? tmpdir(), 'AppData', 'Local', 'Temp')
                 : tmpdir();
-        const temporaryRoot = existsSync(longRoot) ? longRoot : tmpdir();
+        const temporaryRoot = existsSync(longRoot) ? realpathSync.native(longRoot) : tmpdir();
         const checkout = mkdtempSync(join(temporaryRoot, 'patch-coverage-alias-'));
 
         try {
             const file = join(checkout, sourcePath);
             mkdirSync(join(checkout, 'apps/desktop/src'), { recursive: true });
             writeFileSync(file, 'export const added = 2;\n');
-            const shortRoot =
-                process.platform === 'win32'
-                    ? execFileSync(
-                          'powershell.exe',
-                          [
-                              '-NoProfile',
-                              '-Command',
-                              `(New-Object -ComObject Scripting.FileSystemObject).GetFolder('${temporaryRoot}').ShortPath`,
-                          ],
-                          { encoding: 'utf8' }
-                      ).trim()
-                    : temporaryRoot;
-            const reportRoot = existsSync(shortRoot)
-                ? checkout.replace(temporaryRoot, shortRoot)
-                : checkout;
+            const reportRoot = shortWindowsPath(checkout);
 
             if (process.platform === 'win32') {
                 expect(reportRoot).not.toBe(checkout);
@@ -96,14 +93,14 @@ describe('user measures covered changes with absolute report paths', () => {
             const result = measurePatchCoverage(
                 new Map([[sourcePath, new Set([2])]]),
                 { [join(reportRoot, sourcePath)]: coverageFor() },
-                { repoRoot: realpathSync.native(checkout) }
+                { repoRoot: checkout }
             );
 
             expect(result).toMatchObject({ total: 1, covered: 1, percent: 100 });
         } finally {
             rmSync(checkout, { recursive: true, force: true });
         }
-    });
+    }, 15000);
 });
 
 describe('user runs the patch coverage command in a checkout', () => {

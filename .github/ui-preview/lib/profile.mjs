@@ -212,7 +212,7 @@ export const SEARCH_CONTENT_SCRIPT = searchContentScript();
  * The fixed conversation frame must already be applied when this runs.
  */
 export function conversationCheck(content) {
-    if (content?.conversationVisible) {
+    if (content?.conversationVisible && content?.userMessageVisible) {
         return {
             status: 'pass',
             detail: `${content.userMessageCount ?? 0} user message(s), request status ${
