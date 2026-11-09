@@ -67,11 +67,15 @@ const Text = defineNode(
 
 const Heading = defineNode(
     'Heading',
-    'A compact section heading.',
+    'A section heading. Level 2 is the reply title; level 3 starts a new section.',
     z.object({ text: z.string(), level: z.number().optional() }),
     (props) => {
         const level = Math.min(4, Math.max(2, Number(props.level ?? 2)));
-        return h(`h${level}`, { class: 'visual-reply-heading' }, textValue(props.text));
+        return h(
+            `h${level}`,
+            { class: 'visual-reply-heading', 'data-level': String(level) },
+            textValue(props.text)
+        );
     }
 );
 
@@ -139,7 +143,7 @@ const Alert = defineNode(
 
 const Metric = defineNode(
     'Metric',
-    'A label, prominent value, and optional supporting detail.',
+    'A key figure: large value first, then a muted label and optional detail.',
     z.object({
         label: z.string(),
         value: z.string(),
@@ -148,24 +152,29 @@ const Metric = defineNode(
     }),
     (props) =>
         h('div', { class: 'visual-reply-metric' }, [
-            h('span', { class: 'visual-reply-muted' }, textValue(props.label)),
             h(
                 'strong',
-                { class: `visual-reply-metric-value visual-reply-tone-${tone(props.tone)}` },
+                {
+                    class:
+                        props.tone && tone(props.tone) !== 'neutral'
+                            ? `visual-reply-metric-value visual-reply-tone-${tone(props.tone)}`
+                            : 'visual-reply-metric-value',
+                },
                 textValue(props.value)
             ),
+            h('span', { class: 'visual-reply-metric-label' }, textValue(props.label)),
             props.detail
-                ? h('span', { class: 'visual-reply-muted' }, textValue(props.detail))
+                ? h('span', { class: 'visual-reply-metric-detail' }, textValue(props.detail))
                 : null,
         ])
 );
 
 const Grid = defineNode(
     'Grid',
-    'A responsive two or three column strip of Metric components. Use it for grouped key figures.',
+    'A rule-separated strip of Metric components. Use it for grouped key figures.',
     z.object({
         items: z.array(Metric.ref),
-        columns: z.enum(['2', '3']).optional(),
+        columns: z.enum(['2', '3', '4']).optional(),
     }),
     (props, renderNode) =>
         h(
@@ -232,20 +241,30 @@ const BarChart = defineNode(
         const label = textValue(props.label);
         const values = (props.values as number[]).slice(0, 24).map((value) => Math.max(0, value));
         const labels = (props.labels as string[]).slice(0, values.length);
-        return h(BarChartPrimitive, {
-            class: 'visual-reply-chart',
-            label,
-            data: values.map((value, index) => ({
-                key: String(index),
-                label: labels[index] ?? String(index + 1),
-                values: { value },
-            })),
-            series: [{ key: 'value', label: label || 'Values' }],
-            height: 210,
-            showAverage: false,
-            formatValue: (value: number) =>
-                Number.isInteger(value) ? String(value) : value.toFixed(1),
-        });
+        return h('section', { class: 'visual-reply-chart-block' }, [
+            label ? h('p', { class: 'visual-reply-chart-title' }, label) : null,
+            h(BarChartPrimitive, {
+                class: 'visual-reply-chart',
+                label,
+                data: values.map((value, index) => ({
+                    key: String(index),
+                    label: labels[index] ?? String(index + 1),
+                    values: { value },
+                })),
+                series: [
+                    {
+                        key: 'value',
+                        label: label || 'Values',
+                        color: 'var(--color-primary-500)',
+                    },
+                ],
+                height: 208,
+                legend: false,
+                showAverage: false,
+                formatValue: (value: number) =>
+                    Number.isInteger(value) ? String(value) : value.toFixed(1),
+            }),
+        ]);
     }
 );
 

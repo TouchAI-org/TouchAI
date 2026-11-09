@@ -8,41 +8,50 @@ import { registerVisualReplyHost } from '@/services/VisualReplyService/bridge';
 import OpenUIReply from './OpenUIReply.vue';
 import VisualArtifactFrame from './VisualArtifactFrame.vue';
 
-const openUIResponse = `root = Root([
-  Heading("Q3 model spend"),
-  Text("Cost is concentrated in long-context requests; the premium tier accounts for 54% of spend.", "muted"),
+/*
+ * The data and composition mirror the official OpenUI Sales pipeline example:
+ * heading, muted summary, four rule-separated KPIs, bookings bars, and a rep
+ * leaderboard. Keeping the official numbers makes visual comparison meaningful.
+ */
+const salesDashboardResponse = `root = Root([
+  Heading("Sales pipeline", 2),
+  Text("Pipeline stands at $7.0M this quarter, up 12% across 219 open deals", "muted"),
   Grid([
-    Metric("Total", "$1,284", "+9% QoQ"),
-    Metric("Premium", "$693", "54% of total"),
-    Metric("Requests", "18,730", "+613 this week"),
-  ], "3"),
-  BarChart("Weekly spend", [240, 275, 312, 288, 335, 302, 132], ["W1", "W2", "W3", "W4", "W5", "W6", "W7"]),
-  DataTable(["Model", "Requests", "Cost"], [
-    ["Long context", "7,412", "$642"],
-    ["Vision", "4,105", "$361"],
-    ["Short context", "7,213", "$281"],
+    Metric("Pipeline", "$7.0M", "+12%"),
+    Metric("Open deals", "219", "+6.1%"),
+    Metric("Win rate", "28%", "+2.4%"),
+    Metric("Average deal", "$32.1K", "-1.2%"),
+  ], "4"),
+  BarChart("Bookings · Forecast", [96, 104, 99, 112, 118, 109, 121, 127, 124, 131, 141, 153], ["D", "J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N"]),
+  Heading("Top reps this quarter", 3),
+  DataTable(["Rep", "Open deals", "Pipeline", "Share"], [
+    ["Maya Chen", "52", "$1.68M", "24%"],
+    ["Leo Park", "47", "$1.47M", "21%"],
+    ["Ana Ruiz", "34", "$1.05M", "15%"],
+    ["Sam Patel", "26", "$0.77M", "11%"],
   ]),
-  Actions([ActionButton("Analyze premium requests", "Analyze premium requests in Q3"), LinkButton("Open billing report", "https://example.com/report")]),
+  Actions([ActionButton("Break down pipeline by region", "Break down this quarter's sales pipeline by region"), LinkButton("Open forecast", "https://example.com/forecast")]),
 ])`;
 
 const artifactHtml = `
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 14px; color: #4a4039; font: 13px/1.45 system-ui, sans-serif; }
-  h2 { margin: 0 0 4px; font-size: 16px; }
-  p { margin: 0; color: #968b7d; font-size: 12px; }
-  .bars { display: flex; height: 130px; align-items: end; gap: 10px; margin: 14px 0; }
-  .bar { display: flex; flex: 1; min-width: 0; align-items: start; justify-content: center; border-radius: 5px 5px 0 0; padding-top: 6px; color: white; background: #6b5f54; font-weight: 650; font-size: 11px; transition: height 180ms ease, background 180ms ease; }
-  .bar.compare { background: #4a4039; }
-  .bar.sorted { background: #b8afa5; }
-  .controls { display: flex; align-items: center; gap: 10px; }
-  button { border: 1px solid #4a4039; border-radius: 10px; padding: 5px 10px; color: white; background: #4a4039; font: inherit; font-size: 12px; cursor: pointer; }
-  button:focus-visible { outline: 2px solid #6b97ff; outline-offset: 2px; }
-  #state { min-width: 0; overflow-wrap: anywhere; color: #6b5f54; font-size: 12px; }
+  body { margin: 0; padding: 14px; color: #18181b; font: 13px/1.5 ui-sans-serif, system-ui, sans-serif; }
+  h2 { margin: 0 0 2px; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+  p { margin: 0; color: #71717a; font-size: 12px; }
+  .bars { display: flex; height: 132px; align-items: end; gap: 8px; margin: 18px 0 14px; border-bottom: 1px solid #e4e4e7; }
+  .bar { display: flex; flex: 1; min-width: 0; align-items: start; justify-content: center; border-radius: 3px 3px 0 0; padding-top: 5px; color: white; background: #52525b; font-weight: 600; font-size: 11px; transition: height 180ms ease, background 180ms ease; }
+  .bar.compare { background: #18181b; }
+  .bar.sorted { background: #d4d4d8; color: #52525b; }
+  .controls { display: flex; align-items: center; gap: 12px; }
+  button { height: 32px; border: 1px solid #e4e4e7; border-radius: 6px; padding: 0 12px; color: #18181b; background: white; font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+  button:hover { background: #f4f4f5; }
+  button:focus-visible { outline: 2px solid #a1a1aa; outline-offset: 2px; }
+  #state { min-width: 0; overflow-wrap: anywhere; color: #71717a; font-size: 12px; }
 </style>
 <section aria-label="Interactive bubble sort">
   <h2>Bubble sort</h2>
-  <p>Free-form state, animation, and controls.</p>
+  <p>Free-form state and local JavaScript.</p>
   <div class="bars" data-sort-bars role="img" aria-label="Bubble sort values"></div>
   <div class="controls"><button type="button" data-sort-step>Next comparison</button><span id="state" aria-live="polite"></span></div>
 </section>
@@ -83,13 +92,32 @@ const artifactHtml = `
 const meta = {
     title: 'Search/Visual Replies',
     component: OpenUIReply,
-    args: { response: openUIResponse, isStreaming: false },
+    args: { response: salesDashboardResponse, isStreaming: false },
     parameters: { layout: 'fullscreen' },
 } satisfies Meta<typeof OpenUIReply>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+/** Full-width official Sales dashboard, inside the real message column. */
+export const OfficialDashboard: Story = {
+    render: () => ({
+        components: { OpenUIReply },
+        setup() {
+            return { salesDashboardResponse };
+        },
+        template: `
+            <main class="min-h-screen bg-background-primary px-10 py-8 text-text-primary">
+                <article class="mx-auto w-full max-w-2xl">
+                    <p class="mb-3 text-dense font-medium text-text-secondary">TouchAI</p>
+                    <OpenUIReply :response="salesDashboardResponse" :is-streaming="false" />
+                </article>
+            </main>
+        `,
+    }),
+};
+
+/** Side-by-side capability comparison: fixed components vs. free-form HTML. */
 export const OpenUIAndArtifact: Story = {
     render: () => ({
         components: { OpenUIReply, VisualArtifactFrame },
@@ -105,42 +133,26 @@ export const OpenUIAndArtifact: Story = {
             });
             onUnmounted(dispose);
 
-            return { artifactHtml, hostAction, openUIResponse };
+            return { artifactHtml, hostAction, salesDashboardResponse };
         },
         template: `
-            <main class="min-h-screen bg-background-primary px-5 py-6 text-text-primary">
-                <div class="mx-auto flex max-w-6xl min-w-0 gap-7">
-                    <section class="min-w-0 flex-1">
+            <main class="min-h-screen bg-background-primary px-8 py-7 text-text-primary">
+                <div class="mx-auto grid max-w-6xl min-w-0 gap-10 lg:grid-cols-2">
+                    <section class="min-w-0">
                         <header class="mb-4 flex items-baseline justify-between gap-3">
                             <h1 class="text-base font-semibold">OpenUI</h1>
                             <span class="text-caption text-text-tertiary">Fixed components · host actions</span>
                         </header>
-                        <OpenUIReply :response="openUIResponse" :is-streaming="false" />
-                        <p class="mt-4 min-h-10 border-t border-border-subtle pt-3 text-dense text-text-secondary" aria-live="polite">{{ hostAction }}</p>
+                        <OpenUIReply :response="salesDashboardResponse" :is-streaming="false" />
+                        <p class="mt-4 min-h-8 border-t border-border-subtle pt-3 text-dense text-text-secondary" aria-live="polite">{{ hostAction }}</p>
                     </section>
-                    <section class="min-w-0 flex-1">
-                        <header class="mb-3 flex items-baseline justify-between gap-3">
+                    <section class="min-w-0">
+                        <header class="mb-4 flex items-baseline justify-between gap-3">
                             <h1 class="text-base font-semibold">Artifact</h1>
                             <span class="text-caption text-text-tertiary">Sandboxed HTML + JavaScript</span>
                         </header>
                         <VisualArtifactFrame :html="artifactHtml" title="Interactive bubble sort artifact" />
                     </section>
-                </div>
-            </main>
-        `,
-    }),
-};
-
-export const OpenUIDashboard: Story = {
-    render: () => ({
-        components: { OpenUIReply },
-        setup() {
-            return { openUIResponse };
-        },
-        template: `
-            <main class="min-h-screen bg-background-primary px-6 py-8 text-text-primary">
-                <div class="mx-auto max-w-6xl">
-                    <OpenUIReply :response="openUIResponse" :is-streaming="false" />
                 </div>
             </main>
         `,
