@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { selectHistorySurface } from '../../scripts/perf/710/history-surface.mjs';
+
 const flow = process.env.TOUCHAI_PERF_FLOW ?? '';
 const arm = process.env.TOUCHAI_PERF_ARM ?? '';
 const runId = process.env.TOUCHAI_PERF_RUN_ID ?? '';
@@ -892,27 +894,40 @@ async function mainWindowHandle() {
     return await browser.getWindowHandle();
 }
 
-async function switchToPopup(originalHandle, timeoutMs = 30000) {
+async function switchToHistorySurface(originalHandle, timeoutMs = 30000) {
+    let selectedHandle = null;
     await browser.waitUntil(
         async () => {
             const handles = await browser.getWindowHandles();
+            const rowHandles = [];
             for (const handle of handles) {
-                if (handle === originalHandle) continue;
                 await browser.switchToWindow(handle);
                 const found = await browser.execute(() =>
                     Boolean(document.querySelector('.history-session-row'))
                 );
-                if (found) return true;
+                if (found) rowHandles.push(handle);
             }
-            await browser.switchToWindow(originalHandle);
-            return false;
+            selectedHandle = selectHistorySurface({
+                originalHandle,
+                handles,
+                rowHandles,
+            });
+            if (!selectedHandle) {
+                if (handles.includes(originalHandle)) {
+                    await browser.switchToWindow(originalHandle);
+                }
+                return false;
+            }
+            await browser.switchToWindow(selectedHandle);
+            return true;
         },
         {
             timeout: timeoutMs,
             interval: 250,
-            timeoutMsg: 'The session history popup did not become available.',
+            timeoutMsg: 'The session history surface did not become available.',
         }
     );
+    return selectedHandle;
 }
 
 async function captureHistoryOpenFailure(error, originalHandle) {
@@ -1003,7 +1018,11 @@ async function openSeededSession() {
             await focusEditorDom();
             await browser.keys(['Control', 'h']);
         }
-        await switchToPopup(originalHandle);
+        const historyHandle = await switchToHistorySurface(originalHandle);
+        appendEvent({
+            type: 'history-surface',
+            surface: historyHandle === originalHandle ? 'main-overlay' : 'popup-window',
+        });
     } catch (error) {
         const evidence = await captureHistoryOpenFailure(error, originalHandle);
         throw new Error(
