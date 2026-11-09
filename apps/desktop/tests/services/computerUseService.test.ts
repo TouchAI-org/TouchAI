@@ -146,6 +146,20 @@ describe('computer control driver selection', () => {
         ).toEqual(['set_config', 'set_agent_cursor_enabled', 'get_config']);
     });
 
+    it('user given recording enabled when moving the driver folder then keeps recording after the runtime restarts', async () => {
+        await saveSettings({ recordingEnabled: true, maxImageDimension: 1024 });
+        nativeRecording.mockClear();
+        nativeCall.mockClear();
+        await saveDriverDirectory('D:/drivers');
+        expect(
+            nativeCall.mock.calls.map(([request]) => (request as { tool: string }).tool)
+        ).toEqual(['set_config', 'set_agent_cursor_enabled']);
+        expect(nativeRecording).toHaveBeenCalledWith(
+            true,
+            'C:/cache/computer-use-trajectories/cua-driver'
+        );
+    });
+
     it('user given another window relocated drivers when continuing then reapplies the saved behavior', async () => {
         await saveSettings({ cursorVisible: false });
         await execute('get_config').result;

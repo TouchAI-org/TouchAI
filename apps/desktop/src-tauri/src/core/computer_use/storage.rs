@@ -124,6 +124,7 @@ impl DriverStorage {
         if same {
             self.persist(&destination, &self.cleanup_roots().await?)
                 .await?;
+            *directory = Some(destination.clone());
             return Ok(location);
         }
         driver::cancel_all();
@@ -267,7 +268,32 @@ fn validate_path(path: &Path) -> Result<(), String> {
 fn validate_destination(source: &Path, target: &Path) -> Result<bool, String> {
     validate_path(source)?;
     validate_path(target)?;
-    std::fs::create_dir_all(target).map_err(|error| error.to_string())?;
+    let mut created = Vec::new();
+    let mut ancestor = Some(target);
+    while let Some(path) = ancestor {
+        if path.exists() {
+            break;
+        }
+        created.push(path.to_path_buf());
+        ancestor = path.parent();
+    }
+    let outcome = std::fs::create_dir_all(target)
+        .map_err(|error| error.to_string())
+        .and_then(|()| inspect_destination(source, target));
+    if outcome.is_err() {
+        for path in created {
+            if let Err(error) = std::fs::remove_dir(&path) {
+                log::warn!(
+                    "Failed to remove unused driver location {}: {error}",
+                    path.display()
+                );
+            }
+        }
+    }
+    outcome
+}
+
+fn inspect_destination(source: &Path, target: &Path) -> Result<bool, String> {
     let source = canonical_location(source)?;
     let destination = target.canonicalize().map_err(|error| error.to_string())?;
     if source == destination {
@@ -381,7 +407,21 @@ fn migrate_installation(legacy: &Path, destination: &Path) -> Result<(), String>
     validate_path(legacy)?;
     validate_path(destination)?;
     if destination.exists() {
-        return Ok(());
+        let metadata = std::fs::symlink_metadata(destination).map_err(|error| error.to_string())?;
+        let empty = metadata.is_dir()
+            && std::fs::read_dir(destination)
+                .map_err(|error| error.to_string())?
+                .next()
+                .is_none();
+        if !empty {
+            log::info!(
+                "Legacy driver at {} left in place: {} already has an installation",
+                legacy.display(),
+                destination.display()
+            );
+            return Ok(());
+        }
+        std::fs::remove_dir(destination).map_err(|error| error.to_string())?;
     }
     let staging = tempfile::Builder::new()
         .prefix(".touchai-legacy-")

@@ -141,12 +141,35 @@ export async function loadDriverDirectory(): Promise<string> {
 export async function saveDriverDirectory(directory: string): Promise<string> {
     await computerUse.cancelAll();
     try {
-        return await computerUse.setDriverDirectory(directory);
+        const saved = await computerUse.setDriverDirectory(directory);
+        try {
+            await restoreRuntimeSettings();
+        } catch (error) {
+            log.warn(
+                '[ComputerUse] Driver storage moved; runtime settings were not reapplied',
+                error
+            );
+        }
+        return saved;
     } finally {
         catalog = undefined;
         configuredSessions.clear();
         clearSessionApprovals();
     }
+}
+
+/**
+ * Relocation stops both runtimes, so the driver comes back with defaults.
+ * Re-apply what the user configured before the move, otherwise recording and
+ * screenshot limits silently revert until the next manual change.
+ */
+async function restoreRuntimeSettings(): Promise<void> {
+    const settings = await loadSettings();
+    const driver = await loadDriver();
+    const availability = await status(driver);
+    if (!availability.installed || availability.error) return;
+    if (driver === 'cua-driver') await applySettings(settings);
+    if (settings.recordingEnabled) await setRecording(true);
 }
 
 export const DEFAULT_SETTINGS: ComputerUseSettings = {

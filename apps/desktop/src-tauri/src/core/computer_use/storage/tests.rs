@@ -251,6 +251,30 @@ async fn user_given_an_occupied_or_nested_destination_when_relocating_then_prese
 }
 
 #[tokio::test]
+async fn user_given_a_nested_destination_when_relocating_then_leaves_the_current_root_untouched() {
+    let (_temporary, _, storage) = fixture().await;
+    let original = storage.read().await.expect("root").clone();
+    seed(&original, "cua-driver");
+    let nested = original.join("nested");
+    assert!(storage.relocate(nested.clone()).await.is_err());
+    assert!(!nested.exists());
+    assert_eq!(*storage.read().await.expect("root"), original);
+}
+
+#[tokio::test]
+async fn user_given_a_legacy_install_and_an_empty_target_folder_when_opening_then_moves_the_driver_instead_of_leaving_it_behind(
+) {
+    let (temporary, _, storage) = fixture().await;
+    seed(temporary.path(), "computer-use");
+    let default = temporary.path().join("assets/bin/computer-use-drivers");
+    std::fs::create_dir_all(default.join("cua-driver")).expect("empty target");
+    let root = storage.read().await.expect("migrate");
+    assert_eq!(*root, default);
+    assert!(root.join("cua-driver/1.2.0/driver.bin").is_file());
+    assert!(!temporary.path().join("computer-use/1.2.0").exists());
+}
+
+#[tokio::test]
 async fn user_given_a_legacy_cua_install_when_opening_then_migrates_without_redownloading_or_changing_agent_desktop(
 ) {
     let (temporary, _, storage) = fixture().await;
