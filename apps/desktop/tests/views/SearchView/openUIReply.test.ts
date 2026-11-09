@@ -35,7 +35,7 @@ describe('when a model returns a visual reply', () => {
         expect(wrapper.text()).toContain('$58k');
         expect(wrapper.text()).toContain('+12%');
         expect(wrapper.get('svg[role="img"]').attributes('aria-label')).toBe('Revenue');
-        expect(wrapper.findAll('rect.visual-reply-bar')).toHaveLength(2);
+        expect(wrapper.findAll('.visual-reply-chart path')).toHaveLength(2);
     });
 
     it('user can continue the conversation from an OpenUI action', async () => {

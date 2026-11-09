@@ -10,6 +10,7 @@ import {
 import { h, type Ref } from 'vue';
 import { z } from 'zod';
 
+import BarChartPrimitive from '@/components/ui/bar-chart/BarChart.vue';
 import DonutChart from '@/components/ui/donut-chart/DonutChart.vue';
 
 import { dispatchVisualReplyLink, dispatchVisualReplyPrompt } from './bridge';
@@ -86,29 +87,9 @@ const Stack = defineNode(
         )
 );
 
-const Grid = defineNode(
-    'Grid',
-    'A responsive two or three column layout of label and value pairs.',
-    z.object({
-        items: z.array(z.object({ label: z.string(), value: z.string() })),
-        columns: z.enum(['2', '3']).optional(),
-    }),
-    (props) =>
-        h(
-            'div',
-            { class: `visual-reply-grid visual-reply-grid-${props.columns ?? '2'}` },
-            (props.items as Array<{ label: string; value: string }>).map((item) =>
-                h('div', { class: 'visual-reply-metric' }, [
-                    h('span', { class: 'visual-reply-muted' }, item.label),
-                    h('strong', { class: 'visual-reply-metric-value' }, item.value),
-                ])
-            )
-        )
-);
-
 const Card = defineNode(
     'Card',
-    'A compact bordered surface for related information. Keep cards individual, not nested.',
+    'A section for related information. Keep cards individual, not nested.',
     z.object({
         title: z.string().optional(),
         description: z.string().optional(),
@@ -179,31 +160,68 @@ const Metric = defineNode(
         ])
 );
 
+const Grid = defineNode(
+    'Grid',
+    'A responsive two or three column strip of Metric components. Use it for grouped key figures.',
+    z.object({
+        items: z.array(Metric.ref),
+        columns: z.enum(['2', '3']).optional(),
+    }),
+    (props, renderNode) =>
+        h(
+            'div',
+            { class: `visual-reply-grid visual-reply-grid-${props.columns ?? '2'}` },
+            (props.items as NodeValue[]).map(renderNode) as never
+        )
+);
+
 const DataTable = defineNode(
     'DataTable',
     'A compact semantic table. Provide column names and rows of text values.',
     z.object({ columns: z.array(z.string()), rows: z.array(z.array(z.string())) }),
-    (props) =>
-        h('div', { class: 'visual-reply-table-wrap' }, [
+    (props) => {
+        const rows = (props.rows as string[][]).map((row) => row.map(textValue));
+        const numericColumns = (props.columns as string[]).map((_, index) => {
+            const cells = rows.map((row) => row[index] ?? '');
+            return (
+                cells.length > 0 &&
+                cells.every((cell) => /^[+-]?[$€¥]?[\d,.]+%?$/.test(cell.trim()))
+            );
+        });
+
+        return h('div', { class: 'visual-reply-table-wrap' }, [
             h('table', { class: 'visual-reply-table' }, [
                 h(
                     'thead',
                     h(
                         'tr',
-                        (props.columns as string[]).map((column) => h('th', column))
+                        (props.columns as string[]).map((column, index) =>
+                            h(
+                                'th',
+                                { class: numericColumns[index] ? 'visual-reply-num' : '' },
+                                column
+                            )
+                        )
                     )
                 ),
                 h(
                     'tbody',
-                    (props.rows as string[][]).map((row) =>
+                    rows.map((row) =>
                         h(
                             'tr',
-                            row.map((cell: string) => h('td', textValue(cell)))
+                            row.map((cell, index) =>
+                                h(
+                                    'td',
+                                    { class: numericColumns[index] ? 'visual-reply-num' : '' },
+                                    cell
+                                )
+                            )
                         )
                     )
                 ),
             ]),
-        ])
+        ]);
+    }
 );
 
 const BarChart = defineNode(
@@ -211,46 +229,23 @@ const BarChart = defineNode(
     'A responsive interactive bar chart. Values and labels must have matching lengths.',
     z.object({ label: z.string(), values: z.array(z.number()), labels: z.array(z.string()) }),
     (props) => {
+        const label = textValue(props.label);
         const values = (props.values as number[]).slice(0, 24).map((value) => Math.max(0, value));
         const labels = (props.labels as string[]).slice(0, values.length);
-        const maximum = Math.max(1, ...values);
-        const barWidth = 100 / Math.max(1, values.length);
-        return h('figure', { class: 'visual-reply-chart' }, [
-            h('figcaption', { class: 'visual-reply-muted' }, textValue(props.label)),
-            h(
-                'svg',
-                { viewBox: `0 0 600 190`, role: 'img', 'aria-label': textValue(props.label) },
-                [
-                    h('line', { x1: 0, y1: 160, x2: 600, y2: 160, class: 'visual-reply-axis' }),
-                    ...values.map((value, index) => {
-                        const height = (value / maximum) * 126;
-                        const x = index * barWidth * 6 + 8;
-                        const width = Math.max(5, barWidth * 6 - 12);
-                        return h('g', { key: `${index}-${value}` }, [
-                            h('rect', {
-                                x,
-                                y: 158 - height,
-                                width,
-                                height,
-                                rx: 3,
-                                class: 'visual-reply-bar',
-                            }),
-                            h(
-                                'text',
-                                {
-                                    x: x + width / 2,
-                                    y: 178,
-                                    'text-anchor': 'middle',
-                                    class: 'visual-reply-chart-label',
-                                },
-                                labels[index] ?? String(index + 1)
-                            ),
-                            h('title', `${labels[index] ?? index + 1}: ${value}`),
-                        ]);
-                    }),
-                ]
-            ),
-        ]);
+        return h(BarChartPrimitive, {
+            class: 'visual-reply-chart',
+            label,
+            data: values.map((value, index) => ({
+                key: String(index),
+                label: labels[index] ?? String(index + 1),
+                values: { value },
+            })),
+            series: [{ key: 'value', label: label || 'Values' }],
+            height: 210,
+            showAverage: false,
+            formatValue: (value: number) =>
+                Number.isInteger(value) ? String(value) : value.toFixed(1),
+        });
     }
 );
 
@@ -318,6 +313,18 @@ const LinkButton = defineNode(
         )
 );
 
+const Actions = defineNode(
+    'Actions',
+    'An optional row that groups ActionButton and LinkButton controls.',
+    z.object({ content: z.array(z.union([ActionButton.ref, LinkButton.ref])) }),
+    (props, renderNode) =>
+        h(
+            'div',
+            { class: 'visual-reply-actions' },
+            (props.content as NodeValue[]).map(renderNode) as never
+        )
+);
+
 const NodeValueSchema = z.union([
     Text.ref,
     Heading.ref,
@@ -330,6 +337,7 @@ const NodeValueSchema = z.union([
     DataTable.ref,
     BarChart.ref,
     Donut.ref,
+    Actions.ref,
     ActionButton.ref,
     LinkButton.ref,
 ]);
@@ -354,26 +362,27 @@ export const visualReplyLibrary = createLibrary({
         Root,
         Stack,
         Grid,
+        Metric,
         Text,
         Heading,
         Card,
         Badge,
         Alert,
-        Metric,
         DataTable,
         BarChart,
         Donut,
+        Actions,
         ActionButton,
         LinkButton,
     ],
     componentGroups: [
-        { name: 'Layout', components: ['Root', 'Stack', 'Grid'] },
+        { name: 'Layout', components: ['Root', 'Stack', 'Grid', 'Metric'] },
         {
             name: 'Content',
-            components: ['Text', 'Heading', 'Card', 'Badge', 'Alert', 'Metric', 'DataTable'],
+            components: ['Text', 'Heading', 'Card', 'Badge', 'Alert', 'DataTable'],
         },
         { name: 'Visualization', components: ['BarChart', 'DonutChart'] },
-        { name: 'Actions', components: ['ActionButton', 'LinkButton'] },
+        { name: 'Actions', components: ['Actions', 'ActionButton', 'LinkButton'] },
     ],
 });
 

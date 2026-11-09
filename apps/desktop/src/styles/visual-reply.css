@@ -1,10 +1,12 @@
+/*
+ * Visual replies share the assistant content's quiet surface language.
+ * Complex replies read as one data sheet rather than a collection of boxes.
+ */
 .visual-reply-root {
-    display: flex;
+    display: grid;
     width: 100%;
-    max-width: 680px;
     min-width: 0;
-    flex-direction: column;
-    gap: 0.8rem;
+    gap: 0.7rem;
     color: var(--color-text-primary);
     font-family: var(--font-sans);
     font-size: 0.875rem;
@@ -15,26 +17,61 @@
     box-sizing: border-box;
 }
 
+.visual-reply-heading {
+    margin: 0;
+    color: var(--color-text-primary);
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.visual-reply-text,
+.visual-reply-muted {
+    margin: 0;
+    overflow-wrap: anywhere;
+}
+
+.visual-reply-text-muted,
+.visual-reply-muted {
+    color: var(--color-text-tertiary);
+    font-size: 0.8rem;
+    line-height: 1.45;
+}
+
+.visual-reply-text-lead {
+    color: var(--color-text-secondary);
+    font-size: 0.9rem;
+}
+
+.visual-reply-text-code {
+    padding: 0.45rem 0.55rem;
+    border: 1px solid var(--color-markdown-surface-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-markdown-surface-soft);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+}
+
 .visual-reply-stack {
-    display: flex;
+    display: grid;
     min-width: 0;
-    flex-direction: column;
+    gap: 0.5rem;
 }
 
 .visual-reply-gap-sm {
-    gap: 0.4rem;
+    gap: 0.3rem;
 }
 .visual-reply-gap-md {
-    gap: 0.7rem;
+    gap: 0.55rem;
 }
 .visual-reply-gap-lg {
-    gap: 1rem;
+    gap: 0.8rem;
 }
 
 .visual-reply-grid {
     display: grid;
     min-width: 0;
-    gap: 0.7rem;
+    gap: 0.6rem;
 }
 
 .visual-reply-grid-2 {
@@ -44,42 +81,18 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.visual-reply-heading,
-.visual-reply-card-title {
-    margin: 0;
-    color: var(--color-text-primary);
-    font-size: 0.95rem;
-    font-weight: 650;
-}
-
-.visual-reply-text,
-.visual-reply-muted {
-    margin: 0;
-}
-.visual-reply-text-muted,
-.visual-reply-muted {
-    color: var(--color-text-tertiary);
-    font-size: 0.8rem;
-}
-.visual-reply-text-lead {
-    font-size: 1rem;
-    font-weight: 550;
-}
-.visual-reply-text-code {
-    font-family: var(--font-mono);
-    font-size: 0.82rem;
-}
-
 .visual-reply-card {
     min-width: 0;
-    padding: 0.8rem 0.9rem;
-    border: 1px solid var(--color-border-subtle);
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--color-markdown-surface-border);
     border-radius: var(--radius-card);
-    background: var(--color-surface-raised);
+    background: var(--color-markdown-surface-soft);
 }
 
 .visual-reply-card-title {
-    margin-bottom: 0.35rem;
+    margin: 0 0 0.25rem;
+    font-size: 0.9rem;
+    font-weight: 600;
 }
 
 .visual-reply-badge {
@@ -89,10 +102,10 @@
     align-items: center;
     border: 1px solid currentColor;
     border-radius: var(--radius-xs);
-    padding: 0.12rem 0.4rem;
-    font-size: 0.72rem;
-    font-weight: 600;
-    line-height: 1.35;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.7rem;
+    font-weight: 550;
+    line-height: 1.4;
     overflow-wrap: anywhere;
 }
 
@@ -100,86 +113,105 @@
     color: var(--color-text-secondary);
 }
 .visual-reply-tone-info {
-    color: var(--color-info-800);
+    color: var(--color-info-700);
 }
 .visual-reply-tone-success {
-    color: var(--color-success-800);
+    color: var(--color-success-700);
 }
 .visual-reply-tone-warning {
-    color: var(--color-warning-800);
+    color: var(--color-warning-700);
 }
 .visual-reply-tone-danger {
-    color: var(--color-error-800);
+    color: var(--color-error-700);
 }
 
 .visual-reply-alert {
     display: grid;
-    gap: 0.2rem;
-    border-inline-start: 3px solid currentColor;
-    border-radius: var(--radius-xs);
-    padding: 0.55rem 0.7rem;
-    background: var(--color-surface-raised);
+    gap: 0.15rem;
+    border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+    border-radius: var(--radius-sm);
+    padding: 0.55rem 0.65rem;
+    background: var(--color-markdown-surface-soft);
     overflow-wrap: anywhere;
 }
 
+.visual-reply-alert strong {
+    font-size: 0.85rem;
+}
 .visual-reply-alert span {
     color: var(--color-text-secondary);
+    font-size: 0.8rem;
 }
 
 .visual-reply-metric {
-    display: flex;
+    display: grid;
     min-width: 0;
-    flex-direction: column;
-    gap: 0.14rem;
+    gap: 0.1rem;
 }
 
 .visual-reply-metric-value {
-    font-size: 1.45rem;
-    line-height: 1.2;
+    font-size: 1.05rem;
+    font-weight: 650;
+    line-height: 1.25;
+    font-variant-numeric: tabular-nums;
 }
 
 .visual-reply-table-wrap {
-    width: 100%;
+    overflow: hidden;
     overflow-x: auto;
+    border: 1px solid var(--color-markdown-surface-border);
+    border-radius: var(--radius-card);
+    background: var(--color-markdown-surface-soft);
 }
+
 .visual-reply-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.82rem;
+    font-size: 0.8rem;
 }
+
 .visual-reply-table th,
 .visual-reply-table td {
-    border-bottom: 1px solid var(--color-border-subtle);
-    padding: 0.45rem 0.55rem;
+    padding: 0.5rem 0.65rem;
     text-align: start;
     overflow-wrap: anywhere;
 }
+
 .visual-reply-table th {
+    border-bottom: 1px solid var(--color-border-subtle);
     color: var(--color-text-secondary);
+    background: var(--color-surface-raised);
     font-weight: 600;
 }
 
+.visual-reply-table tr + tr td {
+    border-top: 1px solid var(--color-border-subtle);
+}
+
+.visual-reply-table tr:last-child td {
+    border-bottom: 0;
+}
+
+.visual-reply-table tbody tr:hover {
+    background: var(--color-hover);
+}
+
+.visual-reply-num {
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+}
+
 .visual-reply-chart {
-    display: grid;
-    gap: 0.45rem;
+    min-width: 0;
     margin: 0;
 }
-.visual-reply-chart svg {
-    display: block;
+
+.visual-reply-actions {
+    display: flex;
     width: 100%;
-    height: auto;
-    overflow: visible;
-}
-.visual-reply-axis {
-    stroke: var(--color-border);
-    stroke-width: 1;
-}
-.visual-reply-bar {
-    fill: var(--color-primary-500);
-}
-.visual-reply-chart-label {
-    fill: var(--color-text-tertiary);
-    font-size: 11px;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 0.45rem;
 }
 
 .visual-reply-button,
@@ -191,13 +223,18 @@
     align-items: center;
     justify-content: center;
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-action);
-    padding: 0.35rem 0.7rem;
-    color: var(--color-text-primary);
-    background: var(--color-surface-raised);
+    border-radius: var(--radius-control);
+    padding: 0.3rem 0.65rem;
+    color: var(--color-text-secondary);
+    background: var(--color-markdown-surface-soft);
     font: inherit;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
+    font-weight: 500;
     cursor: pointer;
+    transition:
+        background-color 0.15s ease,
+        border-color 0.15s ease,
+        color 0.15s ease;
     overflow-wrap: anywhere;
 }
 
@@ -207,13 +244,24 @@
     background: var(--color-primary-700);
 }
 
-.visual-reply-button:hover,
-.visual-reply-link:hover {
+.visual-reply-button:hover:not(:disabled),
+.visual-reply-link:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--color-text-primary) 20%, transparent);
+    color: var(--color-text-primary);
     background-color: var(--color-surface-hover);
 }
-.visual-reply-button-primary:hover {
+.visual-reply-button-primary:hover:not(:disabled) {
+    border-color: var(--color-primary-600);
+    color: white;
     background-color: var(--color-primary-600);
 }
+
+.visual-reply-button:disabled,
+.visual-reply-link:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
 .visual-reply-button:focus-visible,
 .visual-reply-link:focus-visible {
     outline: 2px solid var(--color-focus);
