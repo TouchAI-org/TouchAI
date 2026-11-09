@@ -158,7 +158,7 @@ describe('given a model requests a tool that cannot be executed', () => {
                 expect(calls).toContainEqual(
                     expect.objectContaining({ namespacedName: name, status: 'error' })
                 );
-            expect(history.flatMap((message) => message.widgets ?? [])).toEqual([]);
+            expect(history.flatMap((message) => message.legacyArtifacts ?? [])).toEqual([]);
         }
     );
 
