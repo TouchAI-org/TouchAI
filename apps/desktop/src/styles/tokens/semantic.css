@@ -103,6 +103,10 @@
 
     --radius-window: var(--radius-sm);
 
+    --shadow-window-stroke: var(--shadow-window-ring);
+    --shadow-window-ambient:
+        var(--shadow-window-halo), var(--shadow-window-mid), var(--shadow-window-far);
+
     --shadow-window:
         var(--shadow-window-ring), var(--shadow-window-halo), var(--shadow-window-mid),
         var(--shadow-window-far);

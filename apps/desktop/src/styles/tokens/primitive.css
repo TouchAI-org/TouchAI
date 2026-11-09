@@ -99,10 +99,10 @@
     --color-ui-800: #e2e2df;
 
     /*
-     * WinUI's `SurfaceStrokeColorDefault` is ARGB #66757575: a 40% #757575
-     * stroke. CSS hex is RRGGBBAA, so the equivalent CSS value is #75757566.
+     * Opaque neutral gray matches the native frame reference. A translucent
+     * surface stroke changes its visible color with the content underneath.
      */
-    --color-window-stroke: rgb(117 117 117 / 0.4);
+    --color-window-stroke: rgb(169 169 169);
 
     /*
      * The transparent room around a floating window. Keep this in sync with

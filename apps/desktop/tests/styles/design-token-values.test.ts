@@ -341,17 +341,17 @@ describe('desktop window shell', () => {
             /\.window-frame\s*\{\s*padding:\s*var\(--spacing-window-gutter\);/s
         );
         expect(tailwindCss).toMatch(
-            /\.window-shell-floating\s*\{\s*box-shadow:\s*var\(--shadow-window\);/s
+            /\.window-shell-floating\s*\{[^}]*box-shadow:\s*var\(--shadow-window-ambient\);/s
         );
         expect(tailwindCss).toMatch(
             /:root\[data-window-maximized='true'\]\s+\.window-frame\s*\{\s*@apply p-0;/s
         );
         expect(tailwindCss).toMatch(
-            /:root\[data-window-maximized='true'\]\s+\.window-shell-floating\s*\{\s*@apply shadow-none;/s
+            /:root\[data-window-maximized='true'\]\s+\.window-shell-floating,\s*:root\[data-window-maximized='true'\]\s+\.window-shell-floating::after\s*\{\s*box-shadow:\s*none;/s
         );
     });
 
-    it('user gets a WinUI gray ring plus the ambient window shadow', () => {
+    it('user sees a neutral native gray ring when a floating window paints', () => {
         const resolve = resolveToken(primitiveCss, semanticCss);
         const shadow = [
             '--shadow-window-ring',
@@ -362,12 +362,16 @@ describe('desktop window shell', () => {
             .map((token) => resolve(token))
             .join(', ');
 
-        // Fluent 2 shadow16: a 1px WinUI surface stroke, a 2px contact, and an
+        // One neutral native gray stroke, a 2px contact, and an
         // 8px/16px ambient layer.
         expect(shadow).toContain('inset 0 0 0 1px');
-        expect(resolve('--color-window-border')).toBe('rgb(117 117 117 / 0.4)');
+        expect(resolve('--color-window-border')).toBe('rgb(169 169 169)');
         expect(tokenValue(primitiveCss, '--shadow-window-ring')).toBe(
             'inset 0 0 0 1px var(--color-window-stroke)'
+        );
+        expect(tokenValue(semanticCss, '--shadow-window-stroke')).toBe('var(--shadow-window-ring)');
+        expect(tokenValue(semanticCss, '--shadow-window-ambient')).toBe(
+            'var(--shadow-window-halo), var(--shadow-window-mid), var(--shadow-window-far)'
         );
         expect(shadow).toContain('0 1px 2px');
         expect(shadow).toContain('0 4px 8px -1px');
@@ -378,6 +382,9 @@ describe('desktop window shell', () => {
     it('user gets the native ring on the search card without doubling popover borders', () => {
         const searchShadow = tailwindCss.match(/--search-surface-shadow:\s*([^;]+);/s)?.[1] ?? '';
         const searchView = readAppFile('src/views/SearchView/index.vue');
+        expect(
+            resolveToken(tailwindCss, semanticCss, primitiveCss)('--search-surface-border')
+        ).toBe('rgb(169 169 169)');
 
         expect(searchShadow).toContain('var(--shadow-window-halo)');
         expect(searchShadow).toContain('var(--shadow-window-mid)');
