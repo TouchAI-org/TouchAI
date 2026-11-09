@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { shouldRetryDisplayStartupFailure } from './display-retry.mjs';
+import { canonicalizeSettingsRows, FIXTURE_SETTING_TIMESTAMP } from './fixture-settings.mjs';
 import { startPerfModelServer } from './local-model-server.mjs';
 
 const MANIFEST_VERSION = 1;
@@ -659,7 +660,43 @@ function runSqlite(database, sql, log) {
     });
 }
 
-function configureBaseFixture(database) {
+function readSettingsRows(database, log) {
+    const output = runSync(
+        'sqlite3',
+        ['-json', database, 'SELECT key, value FROM settings ORDER BY key;'],
+        { log }
+    ).stdout.trim();
+    if (!output) return [];
+    const rows = JSON.parse(output);
+    if (!Array.isArray(rows)) {
+        throw new Error(`Settings query for ${database} did not return an array`);
+    }
+    return rows;
+}
+
+function quoteSqlLiteral(value) {
+    if (value === null || value === undefined) return 'NULL';
+    return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function writeCanonicalSettings(database, rows, log) {
+    const timestamp = FIXTURE_SETTING_TIMESTAMP;
+    const statements = [
+        'BEGIN IMMEDIATE;',
+        'DELETE FROM settings;',
+        "DELETE FROM sqlite_sequence WHERE name = 'settings';",
+        ...rows.map(
+            (row) =>
+                `INSERT INTO settings (id, key, value, created_at, updated_at) VALUES (${row.id}, ${quoteSqlLiteral(row.key)}, ${quoteSqlLiteral(row.value)}, ${quoteSqlLiteral(timestamp)}, ${quoteSqlLiteral(timestamp)});`
+        ),
+        'COMMIT;',
+        'PRAGMA wal_checkpoint(TRUNCATE);',
+        'VACUUM;',
+    ];
+    runSqlite(database, statements.join('\n'), log);
+}
+
+function configureBaseFixture(database, arm) {
     const sql = `
 BEGIN IMMEDIATE;
 DELETE FROM models;
@@ -688,7 +725,7 @@ COMMIT;
 PRAGMA wal_checkpoint(TRUNCATE);
 VACUUM;
 `;
-    runSqlite(database, sql, path.join(logsRoot, 'fixture-configure.log'));
+    runSqlite(database, sql, path.join(logsRoot, `fixture-configure-${arm}.log`));
 }
 
 function createLongFixture(baseDatabase, level, destination) {
@@ -817,6 +854,7 @@ function businessOracleSha256(database, projection, log) {
 async function prepareFixtures() {
     ensureDirectory(fixturesRoot);
     const arms = ['baseline', 'current'];
+    const baseContexts = {};
     const armManifests = {};
     for (const arm of arms) {
         removeManagedDirectory(path.join(fixturesRoot, arm), fixturesRoot);
@@ -824,7 +862,30 @@ async function prepareFixtures() {
         const { initialized, initRoot, migrationTags } = await initializeDatabaseFromArm(arm);
         const base = fixturePathByArm[arm].base;
         fs.copyFileSync(initialized, base);
-        configureBaseFixture(base);
+        configureBaseFixture(base, arm);
+        baseContexts[arm] = {
+            base,
+            initRoot,
+            migrationTags,
+            settings: readSettingsRows(base, path.join(logsRoot, `fixture-settings-${arm}.log`)),
+        };
+    }
+    const canonicalSettings = canonicalizeSettingsRows(
+        baseContexts.baseline.settings,
+        baseContexts.current.settings
+    );
+    writeCanonicalSettings(
+        baseContexts.baseline.base,
+        canonicalSettings,
+        path.join(logsRoot, 'fixture-settings-canonical-baseline.log')
+    );
+    writeCanonicalSettings(
+        baseContexts.current.base,
+        canonicalSettings,
+        path.join(logsRoot, 'fixture-settings-canonical-current.log')
+    );
+    for (const arm of arms) {
+        const { base, initRoot, migrationTags } = baseContexts[arm];
         const integrity = runSync('sqlite3', [base, 'PRAGMA integrity_check;'], {
             log: path.join(logsRoot, `fixture-integrity-${arm}.log`),
         }).stdout.trim();
