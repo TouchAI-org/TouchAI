@@ -1,14 +1,17 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { shouldRetryDisplayStartupFailure } from './display-retry.mjs';
+import { canonicalizeStartupCaches, deleteStartupBookkeeping } from './fixture-database.mjs';
 import { canonicalizeSettingsRows, FIXTURE_SETTING_TIMESTAMP } from './fixture-settings.mjs';
 import { startPerfModelServer } from './local-model-server.mjs';
 
+const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
 const MANIFEST_VERSION = 1;
 const MAX_DISPLAY_STARTUP_ATTEMPTS = 2;
 const BASELINE_COMMIT = '21e261a1343087d7dc75414dbb46a12a98630da6';
@@ -609,10 +612,14 @@ async function initializeDatabaseFromArm(arm) {
     ensureDirectory(initRoot);
     const log = path.join(logsRoot, `fixture-init-${arm}.log`);
     const displayLogDir = path.join(logsRoot, `fixture-init-display-${arm}`);
+    const readyQuery =
+        arm === 'baseline'
+            ? 'SELECT (SELECT COUNT(*) > 0 FROM llm_metadata) AND (SELECT COUNT(*) > 0 FROM llm_metadata_aliases);'
+            : '';
     const result = await runInCgroup({
         label: `fixture-init-${arm}`,
         command: xvfbRunWithWm,
-        args: ['bash', initAppRoot, binary, initRoot, '120'],
+        args: ['bash', initAppRoot, binary, initRoot, '120', readyQuery],
         cwd: repoRoot,
         env: {
             ...process.env,
@@ -726,6 +733,33 @@ PRAGMA wal_checkpoint(TRUNCATE);
 VACUUM;
 `;
     runSqlite(database, sql, path.join(logsRoot, `fixture-configure-${arm}.log`));
+}
+
+function canonicalizeStartupFixtureState(baselineDatabase, currentDatabase) {
+    const baseline = new DatabaseSync(baselineDatabase);
+    const current = new DatabaseSync(currentDatabase);
+    try {
+        const copied = canonicalizeStartupCaches(baseline, current);
+        deleteStartupBookkeeping(baseline);
+        appendLog(
+            path.join(logsRoot, 'fixture-startup-cache.log'),
+            `\nbaseline=${baselineDatabase}\ncurrent=${currentDatabase}\n` +
+                `llm_metadata=${copied.llm_metadata}\n` +
+                `llm_metadata_aliases=${copied.llm_metadata_aliases}\n`
+        );
+    } finally {
+        baseline.close();
+        current.close();
+    }
+
+    for (const arm of ['baseline', 'current']) {
+        const database = arm === 'baseline' ? baselineDatabase : currentDatabase;
+        runSqlite(
+            database,
+            'PRAGMA wal_checkpoint(TRUNCATE);\nVACUUM;',
+            path.join(logsRoot, `fixture-startup-cache-${arm}.log`)
+        );
+    }
 }
 
 function createLongFixture(baseDatabase, level, destination) {
@@ -870,6 +904,7 @@ async function prepareFixtures() {
             settings: readSettingsRows(base, path.join(logsRoot, `fixture-settings-${arm}.log`)),
         };
     }
+    canonicalizeStartupFixtureState(baseContexts.baseline.base, baseContexts.current.base);
     const canonicalSettings = canonicalizeSettingsRows(
         baseContexts.baseline.settings,
         baseContexts.current.settings
