@@ -59,20 +59,38 @@ describe('user measures covered changes with absolute report paths', () => {
     });
 
     it('user gets full coverage when a report path is another name for the checkout', () => {
-        const temporaryRoot = tmpdir();
+        // tmpdir() already returns the 8.3 form on some Windows runners, so
+        // start from the long spelling and shorten it for the report.
+        const longRoot =
+            process.platform === 'win32'
+                ? join(process.env.USERPROFILE ?? tmpdir(), 'AppData', 'Local', 'Temp')
+                : tmpdir();
+        const temporaryRoot = existsSync(longRoot) ? longRoot : tmpdir();
         const checkout = mkdtempSync(join(temporaryRoot, 'patch-coverage-alias-'));
 
         try {
             const file = join(checkout, sourcePath);
             mkdirSync(join(checkout, 'apps/desktop/src'), { recursive: true });
             writeFileSync(file, 'export const added = 2;\n');
-            const shortRoot = temporaryRoot.replace(
-                /^(.*[\\/])([^\\/]+)$/,
-                (_, prefix, name) => `${prefix}${name.slice(0, 6).toUpperCase()}~1`
-            );
+            const shortRoot =
+                process.platform === 'win32'
+                    ? execFileSync(
+                          'powershell.exe',
+                          [
+                              '-NoProfile',
+                              '-Command',
+                              `(New-Object -ComObject Scripting.FileSystemObject).GetFolder('${temporaryRoot}').ShortPath`,
+                          ],
+                          { encoding: 'utf8' }
+                      ).trim()
+                    : temporaryRoot;
             const reportRoot = existsSync(shortRoot)
                 ? checkout.replace(temporaryRoot, shortRoot)
                 : checkout;
+
+            expect(reportRoot).not.toBe(checkout);
+            expect(existsSync(reportRoot)).toBe(true);
+
             const result = measurePatchCoverage(
                 new Map([[sourcePath, new Set([2])]]),
                 { [join(reportRoot, sourcePath)]: coverageFor() },
