@@ -82,7 +82,7 @@ describe('TouchAI search smoke', () => {
         }
     });
 
-    it('user sees the native gray ring on the search card', async () => {
+    it('user sees the native gray ring when opening the search card', async () => {
         const styles = await browser.execute(() => {
             const card = document.querySelector('[data-testid="search-view-card"]');
             if (!(card instanceof HTMLElement)) {
@@ -101,7 +101,7 @@ describe('TouchAI search smoke', () => {
         if (
             !styles.shadow.includes('inset') ||
             !styles.shadow.includes('0px 0px 0px 1px') ||
-            !styles.shadow.includes('0.4')
+            !styles.shadow.includes('rgb(169, 169, 169)')
         ) {
             throw new Error(`The search card lost its native gray ring: ${styles.shadow}.`);
         }
