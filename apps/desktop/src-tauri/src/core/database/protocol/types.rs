@@ -19,6 +19,15 @@ pub enum DatabaseImportMode {
     Full,
 }
 
+impl DatabaseImportMode {
+    pub(crate) const fn as_str(&self) -> &'static str {
+        match self {
+            Self::ChatOnly => "chat_only",
+            Self::Full => "full",
+        }
+    }
+}
+
 /// 备份导入请求。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

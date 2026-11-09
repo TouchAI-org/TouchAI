@@ -8,7 +8,7 @@
         type ImportMode,
         isDatabaseBackupCancelledError,
     } from '@database/backup';
-    import { MetaKey, StatisticKey } from '@database/keys';
+    import { StatisticKey } from '@database/keys';
     import {
         countMessages,
         countSessions,
@@ -18,7 +18,6 @@
         deleteAllSessionTurns,
         getStatistic,
     } from '@database/queries';
-    import { setMeta } from '@database/queries/touchaiMeta';
     import { log } from '@services/ObservabilityService';
     import { relaunch } from '@tauri-apps/plugin-process';
     import { useStateMachine } from 'reka-ui';
@@ -27,7 +26,6 @@
     import { t, tt } from '@/i18n';
     import { formatDateTime } from '@/i18n/format';
     import { updateModelMetadata } from '@/services/AgentService/infrastructure/modelMetadata';
-    import { serializeImportSuccessStartupPayload } from '@/services/StartupService';
     import { useSettingsStore } from '@/stores/settings';
 
     defineOptions({
@@ -331,12 +329,6 @@
                 showProgressDialog.value = false;
                 return;
             }
-
-            // 保存源数据而不是当前语言文案；重启后按导入后的语言显示通知。
-            await setMeta({
-                key: MetaKey.IMPORT_SUCCESS,
-                value: serializeImportSuccessStartupPayload(mode),
-            });
 
             // 开始重启倒计时
             await startRestartCountdown();

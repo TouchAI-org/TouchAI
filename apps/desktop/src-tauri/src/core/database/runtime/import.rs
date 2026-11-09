@@ -94,6 +94,23 @@ pub(crate) async fn run_import_backup(
                     adopt_restored_consent(&mut *connection, consent).await?;
                 }
             }
+            // The startup notification belongs to the import transaction, not
+            // to the settings window that initiated it. Persisting it here
+            // keeps settings writes owned by the main runtime while preserving
+            // the post-restart notification after the import commits.
+            let payload = serde_json::json!({
+                "type": "import-success",
+                "version": 1,
+                "importMode": request.mode.as_str(),
+            });
+            sqlx::query(
+                "INSERT INTO touchai_meta (key, value) VALUES ('import_success', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            )
+            .bind(payload.to_string())
+            .execute(&mut *connection)
+            .await
+            .map_err(|error| format!("Failed to persist import completion: {error}"))?;
             sqlx::query("COMMIT")
                 .execute(&mut *connection)
                 .await
@@ -899,6 +916,15 @@ mod tests {
             .unwrap(),
             1
         );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT value FROM touchai_meta WHERE key = 'import_success'"
+            )
+            .fetch_one(&target)
+            .await
+            .unwrap(),
+            "{\"type\":\"import-success\",\"version\":1,\"importMode\":\"full\"}"
+        );
         source.close().await;
         target.close().await;
     }
@@ -1097,6 +1123,15 @@ mod tests {
                 .await
                 .unwrap(),
                 1
+            );
+            assert_eq!(
+                sqlx::query_scalar::<_, String>(
+                    "SELECT value FROM touchai_meta WHERE key = 'import_success'"
+                )
+                .fetch_one(&target)
+                .await
+                .unwrap(),
+                "{\"type\":\"import-success\",\"version\":1,\"importMode\":\"chat_only\"}"
             );
             source.close().await;
             target.close().await;

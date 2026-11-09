@@ -122,7 +122,7 @@ mod tests {
 
     use sqlx::{
         sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
-        Row,
+        Connection, Row, SqliteConnection,
     };
     use tempfile::TempDir;
 
@@ -186,5 +186,45 @@ mod tests {
             .expect("final count")
             .get("count");
         assert_eq!(count, 2);
+    }
+
+    #[tokio::test]
+    async fn user_gets_a_stable_busy_error_when_another_connection_holds_the_write_lock() {
+        let root = TempDir::new().expect("temp database directory");
+        let path = root.path().join("busy-lock.db");
+        let options = SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .busy_timeout(Duration::from_millis(50));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(2)
+            .connect_with(options.clone())
+            .await
+            .expect("sqlite pool");
+        sqlx::query("CREATE TABLE writes (id INTEGER PRIMARY KEY, value TEXT NOT NULL)")
+            .execute(&pool)
+            .await
+            .expect("create table");
+
+        let mut blocker = SqliteConnection::connect_with(&options)
+            .await
+            .expect("blocking connection");
+        sqlx::query("BEGIN EXCLUSIVE")
+            .execute(&mut blocker)
+            .await
+            .expect("hold write lock");
+
+        let error = begin_immediate(&pool)
+            .await
+            .expect_err("the lock must reject the writer");
+        assert_eq!(error.code, "database-busy");
+
+        sqlx::query("ROLLBACK")
+            .execute(&mut blocker)
+            .await
+            .expect("release write lock");
+        blocker.close().await.expect("close blocking connection");
+        pool.close().await;
     }
 }

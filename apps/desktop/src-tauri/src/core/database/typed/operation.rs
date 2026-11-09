@@ -639,12 +639,12 @@ impl DatabaseOperation {
             Self::SettingFind { .. }
             | Self::SettingGet { .. }
             | Self::SettingGetMany { .. }
-            | Self::SettingSet { .. }
             | Self::StatisticGet { .. }
+            | Self::MetaGet { .. } => OperationSurface::new(OperationGroup::Settings),
+            Self::SettingSet { .. }
             | Self::StatisticSet { .. }
-            | Self::MetaGet { .. }
             | Self::MetaSet { .. }
-            | Self::MetaDelete { .. } => OperationSurface::new(OperationGroup::Settings),
+            | Self::MetaDelete { .. } => OperationSurface::new(OperationGroup::SettingsWrite),
             Self::QuickSearchFind { .. }
             | Self::QuickSearchFindRecent { .. }
             | Self::QuickSearchUpsert { .. } => OperationSurface::new(OperationGroup::Search),
@@ -812,12 +812,27 @@ impl From<sqlx::Error> for DatabaseOperationError {
                 code: "database-conflict",
                 message: error.message().to_string(),
             },
-            sqlx::Error::Database(error) => Self {
-                code: "database-query",
-                message: error.message().to_string(),
-            },
+            sqlx::Error::Database(error) => {
+                let code = error.code().and_then(|code| code.parse::<i32>().ok());
+                match code {
+                    Some(code) => {
+                        Self::with_code(sqlite_error_code(code), error.message().to_string())
+                    }
+                    None => Self::with_code("database-query", error.message().to_string()),
+                }
+            }
             other => Self::unavailable(other.to_string()),
         }
+    }
+}
+
+fn sqlite_error_code(code: i32) -> &'static str {
+    // SQLite exposes extended result codes here. The primary code is the low
+    // byte (for example BUSY_SNAPSHOT -> BUSY).
+    match code & 0xff {
+        5 => "database-busy",
+        6 => "database-locked",
+        _ => "database-query",
     }
 }
 
@@ -835,5 +850,19 @@ pub(crate) struct OperationSurface {
 impl OperationSurface {
     pub(crate) const fn new(group: OperationGroup) -> Self {
         Self { group }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sqlite_error_code;
+
+    #[test]
+    fn user_sees_busy_and_locked_as_distinct_database_error_codes() {
+        assert_eq!(sqlite_error_code(5), "database-busy");
+        assert_eq!(sqlite_error_code(261), "database-busy");
+        assert_eq!(sqlite_error_code(6), "database-locked");
+        assert_eq!(sqlite_error_code(262), "database-locked");
+        assert_eq!(sqlite_error_code(1), "database-query");
     }
 }

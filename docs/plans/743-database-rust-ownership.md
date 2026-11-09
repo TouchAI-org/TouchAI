@@ -35,7 +35,9 @@ The only production Tauri database commands are:
 
 - `database_operation` with a named, typed operation; no SQL text crosses IPC.
 - `database_export_backup` and `database_import_backup`, restricted to the main
-  and settings windows.
+  and settings windows. A successful import records the post-restart
+  `import_success` metadata inside the Rust import transaction; the settings
+  window only owns the restart countdown and dialog.
 
 The committed migration chain and runtime artifacts remain the database
 contract:
@@ -62,7 +64,7 @@ operations. The TypeScript query modules are typed callers only.
 
 | Area | Production entry point |
 | --- | --- |
-| Settings, statistics, app metadata | `setting_*`, `statistic_*`, `meta_*` |
+| Settings, statistics, app metadata | `setting_*`, `statistic_*`, `meta_*`; reads are allowed from main and settings, writes are main-only |
 | Quick-search clicks | `quick_search_upsert` |
 | Providers and models | `provider_*`, `model_*` |
 | LLM catalog metadata | `llm_metadata_*` including `llm_metadata_replace` |
@@ -117,7 +119,7 @@ final database state where applicable.
 | Same call ID across messages | Rust test verifies a tool result update is scoped by `(tool_call_id, message_id)` and is idempotent |
 | Two attempts with reasoning/cost | Rust test verifies per-attempt values, turn sums, pricing data, and LLM-call part ordering |
 | Import versus Agent write | Rust test runs a full import concurrently with `task_record_start`; both operations complete with no partial rows |
-| Multi-window permissions | Real-window Rust tests cover main/settings allowed operations plus settings Agent/usage-write denials, popup Agent/settings/tool-history/usage/backup denials, and preview settings/backup denials |
+| Multi-window permissions | Real-window Rust tests cover main/settings reads, main-only settings writes, settings Agent/usage-write denials, all-group popup denials, and preview settings/backup denials |
 | Default model uniqueness | Rust typed-operation test verifies one default after a switch |
 
 Schema comparison must still compare order-independent rows from
@@ -137,7 +139,8 @@ message/tool/attachment content.
   and are never rewritten or rebuilt.
 - Rollback before release is a revert of this PR. After release, a rollback must
   keep the same SQLite file readable by the previous version.
-- Errors map to stable categories: validation, not found, conflict, busy/locked,
+- Errors map to stable categories: validation, not found, conflict,
+  `database-busy`/`database-locked` from SQLite primary result codes,
   unavailable, and unknown. User-facing text remains in the existing
   localization layer.
 
@@ -149,5 +152,10 @@ These are release gates, not claims:
   E2E, and required GitHub Actions checks.
 - Run the performance acceptance workflow on GitHub Actions. Daytona is not a
   dependency and must not be left running.
+- The performance harness initializes one fixture per binary arm, records each
+  arm's binary hash and migration ledger, and rejects a run whose fixture hash
+  does not belong to that arm. Baseline and current fixtures must have the same
+  business-data oracle; the SQLite files themselves need not be byte-identical
+  because their migration ledgers differ.
 - Confirm P50/P95 latency and memory are within the 5% budget; an unexplained
   regression stops the rollout.
