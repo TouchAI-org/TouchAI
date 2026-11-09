@@ -39,6 +39,7 @@ pub(crate) async fn execute(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OperationGroup {
     Settings,
+    SettingsWrite,
     Config,
     Agent,
     Search,
@@ -55,9 +56,12 @@ impl OperationSurface {
             Surface::Main => true,
             Surface::Settings => !matches!(
                 self.group,
-                OperationGroup::Agent | OperationGroup::UsageWrite
+                OperationGroup::Agent | OperationGroup::UsageWrite | OperationGroup::SettingsWrite
             ),
-            Surface::Popup => matches!(self.group, OperationGroup::Search | OperationGroup::Config),
+            // There is no standalone popup WebView in the product. Keep the
+            // surface fail-closed so a future popup cannot reach search,
+            // credentials, configuration writes, or any other database group.
+            Surface::Popup => false,
             Surface::Preview | Surface::Unknown => false,
         }
     }
@@ -111,13 +115,42 @@ mod tests {
     }
 
     #[test]
-    fn user_can_read_search_data_from_a_popup_surface() {
+    fn user_cannot_read_search_data_from_a_popup_surface() {
         let operation = DatabaseOperation::QuickSearchFind {
             query_norm: "file".to_string(),
             limit: 10,
         };
 
-        assert!(operation.surface().allows("popup-model-dropdown-popup"));
+        assert!(!operation.surface().allows("popup-model-dropdown-popup"));
+    }
+
+    #[test]
+    fn user_cannot_write_settings_from_the_settings_surface() {
+        let operation = DatabaseOperation::SettingSet {
+            key: "language".to_string(),
+            value: "en-US".to_string(),
+        };
+
+        assert!(!operation.surface().allows("settings"));
+    }
+
+    #[test]
+    fn user_cannot_write_statistics_or_app_metadata_from_the_settings_surface() {
+        for operation in [
+            DatabaseOperation::StatisticSet {
+                key: "maintenance".to_string(),
+                value: "settings".to_string(),
+            },
+            DatabaseOperation::MetaSet {
+                key: "import_success".to_string(),
+                value: "settings".to_string(),
+            },
+            DatabaseOperation::MetaDelete {
+                key: "import_success".to_string(),
+            },
+        ] {
+            assert!(!operation.surface().allows("settings"));
+        }
     }
 
     #[test]

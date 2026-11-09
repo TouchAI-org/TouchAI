@@ -2,7 +2,6 @@ import { mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { MetaKey } from '@/database/keys';
 import { setLocale } from '@/i18n';
 import BadgedLogo from '@/views/SettingsView/components/AiServices/components/BadgedLogo.vue';
 import ImportModeDialog from '@/views/SettingsView/components/DataManagement/components/ImportModeDialog.vue';
@@ -16,7 +15,6 @@ const {
     getStatisticMock,
     importDatabaseMock,
     relaunchMock,
-    setMetaMock,
 } = vi.hoisted(() => ({
     countMessagesMock: vi.fn(),
     countSessionsMock: vi.fn(),
@@ -24,7 +22,6 @@ const {
     getStatisticMock: vi.fn(),
     importDatabaseMock: vi.fn(),
     relaunchMock: vi.fn(),
-    setMetaMock: vi.fn(),
 }));
 
 vi.mock('@database/queries', () => ({
@@ -35,10 +32,6 @@ vi.mock('@database/queries', () => ({
     deleteAllSessions: vi.fn(),
     deleteAllSessionTurns: vi.fn(),
     getStatistic: getStatisticMock,
-}));
-
-vi.mock('@database/queries/touchaiMeta', () => ({
-    setMeta: setMetaMock,
 }));
 
 vi.mock('@database/backup', () => ({
@@ -129,8 +122,6 @@ describe('user manages the app data', () => {
         countSessionTurnsMock.mockResolvedValue(3);
         getStatisticMock.mockResolvedValue('2026-05-20T12:34:00Z');
         importDatabaseMock.mockResolvedValue(true);
-
-        setMetaMock.mockResolvedValue(undefined);
     });
 
     it('user sees model metadata last-updated text in English with localized date formatting', async () => {
@@ -231,7 +222,7 @@ describe('user manages the app data', () => {
         expect(wrapper.text()).toContain('42%');
     });
 
-    it('user persists import-success startup notification as a source payload instead of translated text', async () => {
+    it('user starts the restart countdown after the import completes', async () => {
         setLocale('en-US');
         vi.useFakeTimers();
 
@@ -250,17 +241,10 @@ describe('user manages the app data', () => {
             await wrapper.getComponent(ImportModeDialog).vm.$emit('select', 'full');
             await flushMountedPromises();
 
-            expect(setMetaMock).toHaveBeenCalledWith({
-                key: MetaKey.IMPORT_SUCCESS,
-                value: JSON.stringify({
-                    type: 'import-success',
-                    version: 1,
-                    importMode: 'full',
-                }),
-            });
-            expect(JSON.stringify(setMetaMock.mock.calls)).not.toContain(
-                'Data imported successfully'
-            );
+            expect(importDatabaseMock).toHaveBeenCalledWith('full', expect.any(Function));
+            expect(relaunchMock).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(4000);
+            expect(relaunchMock).toHaveBeenCalledTimes(1);
 
             vi.clearAllTimers();
             wrapper.unmount();

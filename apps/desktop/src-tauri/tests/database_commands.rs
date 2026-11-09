@@ -734,7 +734,7 @@ fn user_cannot_read_agent_sessions_from_settings_or_popup_windows() {
 }
 
 #[test]
-fn user_cannot_use_a_popup_window_for_database_groups_outside_search_and_config() {
+fn user_cannot_use_a_popup_window_for_any_database_group() {
     let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
     let popup = WebviewWindowBuilder::new(
         &test_app.app,
@@ -745,6 +745,27 @@ fn user_cannot_use_a_popup_window_for_database_groups_outside_search_and_config(
     .expect("popup window");
 
     for request in [
+        json!({
+            "kind": "quick_search_find",
+            "queryNorm": "file",
+            "limit": 10
+        }),
+        json!({
+            "kind": "quick_search_upsert",
+            "queryNorm": "file",
+            "pathNorm": "C:\\file.txt",
+            "maxClickCount": 10
+        }),
+        json!({
+            "kind": "provider_list"
+        }),
+        json!({
+            "kind": "model_list_with_provider"
+        }),
+        json!({
+            "kind": "provider_delete",
+            "id": 1
+        }),
         json!({
             "kind": "setting_get",
             "key": "language"
@@ -761,10 +782,89 @@ fn user_cannot_use_a_popup_window_for_database_groups_outside_search_and_config(
                 "to": "2026-12-31 23:59:59"
             }
         }),
+        json!({
+            "kind": "session_list",
+            "limit": 40
+        }),
+        json!({
+            "kind": "setting_set",
+            "key": "language",
+            "value": "en-US"
+        }),
     ] {
         let error = invoke_command_err(&popup, "database_operation", json!({ "request": request }));
         assert_eq!(error["code"], "database-forbidden");
     }
+}
+
+#[test]
+fn user_cannot_write_settings_from_the_settings_window() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let settings = WebviewWindowBuilder::new(&test_app.app, "settings", WebviewUrl::default())
+        .build()
+        .expect("settings window");
+
+    database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "setting_set", "key": "language", "value": "zh-CN" }),
+    );
+    database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "statistic_set", "key": "maintenance", "value": "local" }),
+    );
+    database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "meta_set", "key": "import_success", "value": "local" }),
+    );
+    for request in [
+        json!({
+            "kind": "setting_set",
+            "key": "language",
+            "value": "en-US"
+        }),
+        json!({
+            "kind": "statistic_set",
+            "key": "maintenance",
+            "value": "settings"
+        }),
+        json!({
+            "kind": "meta_set",
+            "key": "import_success",
+            "value": "settings"
+        }),
+        json!({
+            "kind": "meta_delete",
+            "key": "import_success"
+        }),
+    ] {
+        let error = invoke_command_err(
+            &settings,
+            "database_operation",
+            json!({ "request": request }),
+        );
+        assert_eq!(error["code"], "database-forbidden");
+    }
+    assert_eq!(
+        database_operation(
+            &test_app.main_webview,
+            json!({ "kind": "setting_get", "key": "language" })
+        ),
+        "zh-CN"
+    );
+    assert_eq!(
+        database_operation(
+            &test_app.main_webview,
+            json!({ "kind": "statistic_get", "key": "maintenance" })
+        ),
+        "local"
+    );
+    assert_eq!(
+        database_operation(
+            &test_app.main_webview,
+            json!({ "kind": "meta_get", "key": "import_success" })
+        ),
+        "local"
+    );
 }
 
 #[test]
