@@ -126,7 +126,7 @@ describe('user reads a markdown answer', () => {
         await wrapper.setProps({ variant: 'reasoning' });
         expect(wrapper.findComponent(MarkdownRender).props('maxLiveNodes')).toBe(320);
     });
-    it('user keeps markdown bound to the conversation viewport when streaming finishes', async () => {
+    it('user sees streamed markdown before the conversation viewport starts virtualizing', async () => {
         const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const { MARKDOWN_SCROLL_ROOT_KEY } = await import('@components/markdownScrollRoot');
         const scrollRoot = document.createElement('div');
@@ -140,20 +140,20 @@ describe('user reads a markdown answer', () => {
             },
         });
         const renderer = wrapper.findComponent(MarkdownRender);
-        const options = renderer.props('virtualScroll') as {
+
+        expect(renderer.props('virtualScroll')).toBeUndefined();
+        expect(wrapper.find('.height-estimation-probes').exists()).toBe(false);
+
+        await wrapper.setProps({ final: true });
+        await nextTick();
+        const options = wrapper.findComponent(MarkdownRender).props('virtualScroll') as {
             enabled: boolean;
             scrollRoot: () => HTMLElement | null;
         };
 
         expect(options.enabled).toBe(true);
         expect(options.scrollRoot()).toBe(scrollRoot);
-
-        await wrapper.setProps({ final: true });
-        expect(
-            (
-                wrapper.findComponent(MarkdownRender).props('virtualScroll') as typeof options
-            ).scrollRoot()
-        ).toBe(scrollRoot);
+        expect(wrapper.find('.height-estimation-probes').exists()).toBe(true);
     });
 
     it('user sees standalone markdown without waiting for an outer scroll owner', async () => {
