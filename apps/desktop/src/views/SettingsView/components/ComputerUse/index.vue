@@ -94,7 +94,7 @@
             }).format(bytes / 1_000_000);
             details.push(size);
         }
-        return details.join(' · ') || undefined;
+        return details.join(' ') || undefined;
     }
 
     const approvalOptions = computed(() =>
@@ -486,7 +486,6 @@
                         <SettingsRow
                             data-settings-search-target="computer-use-driver"
                             control-width="320"
-                            control-class="pr-10"
                             :label="t('settings.computerUse.field.driver')"
                             :description="status?.error || undefined"
                         >
@@ -570,27 +569,29 @@
                         <SettingsRow
                             data-settings-search-target="computer-use-driver-directory"
                             control-width="320"
-                            control-class="flex items-center gap-2"
+                            control-class="relative"
                             label-as="label"
                             label-for="computer-use-driver-directory"
                             :label="t('settings.computerUse.field.driverDirectory')"
                         >
-                            <div class="relative min-w-0 flex-1">
-                                <Input
-                                    id="computer-use-driver-directory"
-                                    data-testid="computer-use-driver-directory"
-                                    variant="filled"
-                                    :class="{ 'pr-9': driverDirectory }"
-                                    :model-value="driverDirectory"
-                                    :title="driverDirectory"
-                                    :disabled="driverDisabled"
-                                    readonly
-                                />
+                            <Input
+                                id="computer-use-driver-directory"
+                                data-testid="computer-use-driver-directory"
+                                variant="filled"
+                                :class="driverDirectory ? 'pr-18' : 'pr-10'"
+                                :model-value="driverDirectory"
+                                :placeholder="t('settings.computerUse.driverDirectory.default')"
+                                :title="driverDirectory"
+                                :disabled="driverDisabled"
+                                readonly
+                            />
+                            <div
+                                class="absolute top-1/2 right-1 flex -translate-y-1/2 items-center gap-1"
+                            >
                                 <Button
                                     v-if="driverDirectory"
                                     data-testid="computer-use-driver-directory-reset"
                                     variant="ghost-neutral"
-                                    class="absolute top-1/2 right-1 -translate-y-1/2"
                                     :aria-label="
                                         t('settings.computerUse.action.resetDriverDirectory')
                                     "
@@ -600,18 +601,19 @@
                                 >
                                     <AppIcon name="x" class="h-4 w-4" />
                                 </Button>
+                                <Button
+                                    data-testid="computer-use-driver-directory-pick"
+                                    variant="ghost-neutral"
+                                    :aria-label="
+                                        t('settings.computerUse.action.pickDriverDirectory')
+                                    "
+                                    :title="t('settings.computerUse.action.pickDriverDirectory')"
+                                    :disabled="driverDisabled"
+                                    @click="pickDriverDirectory"
+                                >
+                                    <AppIcon name="folder-open" class="h-4 w-4" />
+                                </Button>
                             </div>
-                            <Button
-                                data-testid="computer-use-driver-directory-pick"
-                                variant="ghost-neutral"
-                                class="shrink-0"
-                                :aria-label="t('settings.computerUse.action.pickDriverDirectory')"
-                                :title="t('settings.computerUse.action.pickDriverDirectory')"
-                                :disabled="driverDisabled"
-                                @click="pickDriverDirectory"
-                            >
-                                <AppIcon name="folder-open" class="h-4 w-4" />
-                            </Button>
                         </SettingsRow>
                     </div>
                 </section>
@@ -624,7 +626,6 @@
                         <SettingsRow
                             data-settings-search-target="computer-use-approval-mode"
                             control-width="320"
-                            control-class="pr-10"
                             :label="t('settings.computerUse.field.approval')"
                         >
                             <CustomSelect
@@ -703,7 +704,6 @@
                             v-if="selectedDriver === 'cua-driver'"
                             data-settings-search-target="computer-use-max-image"
                             control-width="320"
-                            control-class="pr-10"
                             :label="t('settings.computerUse.field.maxImage')"
                         >
                             <CustomSelect
@@ -734,7 +734,7 @@
                         <SettingsRow
                             v-if="settings.recordingEnabled"
                             control-width="320"
-                            control-class="flex items-center gap-2"
+                            control-class="relative"
                             label-as="label"
                             label-for="computer-use-recording-directory"
                             :label="t('settings.computerUse.field.recordingDirectory')"
@@ -743,7 +743,7 @@
                                 id="computer-use-recording-directory"
                                 data-testid="computer-use-recording-directory"
                                 variant="filled"
-                                class="min-w-0 flex-1"
+                                class="pr-10"
                                 :model-value="recordingDirectory"
                                 :title="recordingDirectory"
                                 :disabled="preferencesDisabled || pickingRecordingDirectory"
@@ -752,7 +752,7 @@
                             <Button
                                 data-testid="computer-use-recording-directory-pick"
                                 variant="ghost-neutral"
-                                class="shrink-0"
+                                class="absolute top-1/2 right-1 -translate-y-1/2"
                                 :aria-label="
                                     t('settings.computerUse.action.pickRecordingDirectory')
                                 "

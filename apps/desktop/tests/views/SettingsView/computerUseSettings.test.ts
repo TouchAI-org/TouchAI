@@ -197,11 +197,11 @@ beforeEach(() => {
 
 describe('computer use settings section', () => {
     it.each([
-        ['zh-CN', '自定义位置'],
-        ['en-US', 'Custom location'],
+        ['zh-CN', '自定义位置', '使用默认位置'],
+        ['en-US', 'Custom location', 'Use default location'],
     ] as const)(
         'user given no custom location when opening settings in %s then sees an empty field without an internal path',
-        async (locale, label) => {
+        async (locale, label, placeholder) => {
             setLocale(locale);
             const wrapper = await mountPage();
             const input = wrapper.get<HTMLInputElement>(
@@ -209,6 +209,7 @@ describe('computer use settings section', () => {
             );
             expect(wrapper.get('label[for="computer-use-driver-directory"]').text()).toBe(label);
             expect(input.element.value).toBe('');
+            expect(input.attributes('placeholder')).toBe(placeholder);
             expect(input.attributes('title')).toBe('');
             expect(state.saveDriverDirectory).not.toHaveBeenCalled();
             expect(
@@ -271,7 +272,7 @@ describe('computer use settings section', () => {
             await mountDriverMenu();
             const cua = document.querySelector('[role="group"][aria-label="cua-driver"]');
             const agent = document.querySelector('[role="group"][aria-label="agent-desktop"]');
-            expect(cua?.textContent).toContain(`v0.38.0 · ${cuaSize}`);
+            expect(cua?.textContent).toContain(`v0.38.0 ${cuaSize}`);
             expect(agent?.textContent).not.toContain('MB');
         }
     );

@@ -258,6 +258,7 @@ const zhCNMessages = {
     'settings.computerUse.field.status': '状态',
     'settings.computerUse.field.driver': '桌面驱动',
     'settings.computerUse.field.driverDirectory': '自定义位置',
+    'settings.computerUse.driverDirectory.default': '使用默认位置',
     'settings.computerUse.action.pickDriverDirectory': '选择自定义位置',
     'settings.computerUse.action.resetDriverDirectory': '恢复默认位置',
     'settings.computerUse.storage.failed': '无法更改驱动位置，请检查目录权限和剩余空间。',
@@ -1483,6 +1484,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.computerUse.field.status': 'Status',
     'settings.computerUse.field.driver': 'Desktop driver',
     'settings.computerUse.field.driverDirectory': 'Custom location',
+    'settings.computerUse.driverDirectory.default': 'Use default location',
     'settings.computerUse.action.pickDriverDirectory': 'Choose custom location',
     'settings.computerUse.action.resetDriverDirectory': 'Restore default location',
     'settings.computerUse.storage.failed':
