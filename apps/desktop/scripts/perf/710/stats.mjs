@@ -11,6 +11,7 @@ const minimumRunsPerArm = 3;
 const minimumBlocksPerArm = 3;
 const regressionUpperBound = 1.05;
 const arms = ['baseline', 'current'];
+const fixtureManifestVersion = 1;
 
 function readJsonLines(file) {
     if (!fs.existsSync(file)) return [];
@@ -27,6 +28,11 @@ function readJsonLines(file) {
         });
 }
 
+function readJsonFile(file) {
+    if (!fs.existsSync(file)) return null;
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
 function isValidRun(record) {
     return (
         record.valid !== false &&
@@ -34,6 +40,59 @@ function isValidRun(record) {
         (record.signal === null || record.signal === undefined) &&
         (record.notificationFailures ?? 0) === 0
     );
+}
+
+function fixtureValidationError(run, fixtureManifest) {
+    if (!fixtureManifest) return 'fixture manifest is missing';
+    if (fixtureManifest.version !== fixtureManifestVersion) {
+        return `fixture manifest version mismatch: expected ${fixtureManifestVersion}, got ${fixtureManifest.version ?? 'missing'}`;
+    }
+    const arm = fixtureManifest.arms?.[run.arm];
+    if (!arm) return `fixture manifest is missing arm ${run.arm ?? 'unknown'}`;
+    if (!arm.sourceBinarySha256) {
+        return `fixture manifest is missing source binary hash for ${run.arm}`;
+    }
+    if (!run.binarySha256) {
+        return `run is missing binary hash for ${run.arm}`;
+    }
+    if (run.binarySha256 !== arm.sourceBinarySha256) {
+        return `fixture manifest binary mismatch for ${run.arm}`;
+    }
+    const fixture = arm.fixtures?.[run.fixture];
+    if (!fixture) {
+        return `fixture manifest is missing ${run.arm}/${run.fixture ?? 'unknown'}`;
+    }
+    if (run.fixtureSha256 !== fixture.sha256) {
+        return `fixture hash mismatch for ${run.arm}/${run.fixture}`;
+    }
+    if (!fixture.businessOracleSha256) {
+        return `fixture manifest is missing business oracle for ${run.arm}/${run.fixture}`;
+    }
+    const oraclePair = fixtureManifest.businessOracles?.[run.fixture];
+    if (
+        !oraclePair ||
+        !oraclePair.baseline ||
+        !oraclePair.current ||
+        oraclePair.baseline !== oraclePair.current
+    ) {
+        return `fixture business oracle mismatch for ${run.fixture}`;
+    }
+    if (fixture.businessOracleSha256 !== oraclePair[run.arm]) {
+        return `fixture business oracle does not match ${run.arm}/${run.fixture}`;
+    }
+    return null;
+}
+
+function applyFixtureValidation(runs, fixtureManifest) {
+    return runs.map((run) => {
+        const reason = fixtureValidationError(run, fixtureManifest);
+        if (!reason) return run;
+        return {
+            ...run,
+            valid: false,
+            invalidReasons: [...(run.invalidReasons ?? []), reason],
+        };
+    });
 }
 
 function quantile(values, probability) {
@@ -787,9 +846,11 @@ export async function generateStats() {
         : [];
     const events = readJsonLines(path.join(rawRoot, 'events.jsonl'));
     const memory = readJsonLines(path.join(rawRoot, 'pss.jsonl'));
-    const runs = readJsonLines(path.join(rawRoot, 'runs.jsonl')).filter(
+    const fixtureManifest = readJsonFile(path.join(evidenceRoot, 'fixture-manifest.json'));
+    const recordedRuns = readJsonLines(path.join(rawRoot, 'runs.jsonl')).filter(
         (record) => record.type === 'run'
     );
+    const runs = applyFixtureValidation(recordedRuns, fixtureManifest);
     const validRuns = runs.filter(isValidRun);
     const invalidRuns = runs.filter((run) => !isValidRun(run));
     const latency = buildLatencyStats(events, validRuns, latencyModes);
@@ -840,6 +901,21 @@ export async function generateStats() {
             invalidRuns: invalidRuns.length,
             successfulRuns: validRuns.length,
             failedRuns: invalidRuns.length,
+        },
+        fixtureManifest: {
+            present: fixtureManifest !== null,
+            version: fixtureManifest?.version ?? null,
+            arms: fixtureManifest
+                ? Object.fromEntries(
+                      Object.entries(fixtureManifest.arms ?? {}).map(([arm, value]) => [
+                          arm,
+                          {
+                              sourceBinarySha256: value.sourceBinarySha256 ?? null,
+                              migrationTags: value.migrationTags ?? [],
+                          },
+                      ])
+                  )
+                : null,
         },
         invalidRuns: invalidRuns.map((run) => ({
             runId: run.runId,
