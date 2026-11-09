@@ -194,7 +194,15 @@
     }
 
     .window-shell-floating {
-        box-shadow: var(--shadow-window);
+        @apply relative;
+        box-shadow: var(--shadow-window-ambient);
+    }
+
+    .window-shell-floating::after {
+        @apply pointer-events-none absolute inset-0 z-50;
+        content: '';
+        border-radius: inherit;
+        box-shadow: var(--shadow-window-stroke);
     }
 
     :root[data-window-maximized='true'] .window-shell {
@@ -205,8 +213,9 @@
         @apply p-0;
     }
 
-    :root[data-window-maximized='true'] .window-shell-floating {
-        @apply shadow-none;
+    :root[data-window-maximized='true'] .window-shell-floating,
+    :root[data-window-maximized='true'] .window-shell-floating::after {
+        box-shadow: none;
     }
 
     .settings-page {

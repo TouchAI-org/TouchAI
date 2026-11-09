@@ -341,13 +341,13 @@ describe('desktop window shell', () => {
             /\.window-frame\s*\{\s*padding:\s*var\(--spacing-window-gutter\);/s
         );
         expect(tailwindCss).toMatch(
-            /\.window-shell-floating\s*\{\s*box-shadow:\s*var\(--shadow-window\);/s
+            /\.window-shell-floating\s*\{[^}]*box-shadow:\s*var\(--shadow-window-ambient\);/s
         );
         expect(tailwindCss).toMatch(
             /:root\[data-window-maximized='true'\]\s+\.window-frame\s*\{\s*@apply p-0;/s
         );
         expect(tailwindCss).toMatch(
-            /:root\[data-window-maximized='true'\]\s+\.window-shell-floating\s*\{\s*@apply shadow-none;/s
+            /:root\[data-window-maximized='true'\]\s+\.window-shell-floating,\s*:root\[data-window-maximized='true'\]\s+\.window-shell-floating::after\s*\{\s*box-shadow:\s*none;/s
         );
     });
 
@@ -368,6 +368,10 @@ describe('desktop window shell', () => {
         expect(resolve('--color-window-border')).toBe('rgb(117 117 117 / 0.4)');
         expect(tokenValue(primitiveCss, '--shadow-window-ring')).toBe(
             'inset 0 0 0 1px var(--color-window-stroke)'
+        );
+        expect(tokenValue(semanticCss, '--shadow-window-stroke')).toBe('var(--shadow-window-ring)');
+        expect(tokenValue(semanticCss, '--shadow-window-ambient')).toBe(
+            'var(--shadow-window-halo), var(--shadow-window-mid), var(--shadow-window-far)'
         );
         expect(shadow).toContain('0 1px 2px');
         expect(shadow).toContain('0 4px 8px -1px');

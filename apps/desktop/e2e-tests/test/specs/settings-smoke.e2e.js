@@ -71,9 +71,12 @@ describe('user works in the settings window', () => {
                 const shell = document.querySelector('[data-testid="settings-window-shell"]');
                 const frame = document.querySelector('[data-testid="settings-view"]');
                 const shellStyle = getComputedStyle(shell);
+                const strokeStyle = getComputedStyle(shell, '::after');
                 return {
                     radius: shellStyle.borderRadius,
                     shadow: shellStyle.boxShadow,
+                    stroke: strokeStyle.boxShadow,
+                    strokePointerEvents: strokeStyle.pointerEvents,
                     padding: getComputedStyle(frame).paddingTop,
                 };
             });
@@ -87,15 +90,49 @@ describe('user works in the settings window', () => {
                 `The settings window lost its drop shadow: ${styles.shadow}.`
             );
             assertVisible(
-                styles.shadow.includes('inset') &&
-                    styles.shadow.includes('0px 0px 0px 1px') &&
-                    styles.shadow.includes('0.4'),
-                `The settings window lost its native gray ring: ${styles.shadow}.`
+                !styles.shadow.includes('inset') &&
+                    styles.stroke.includes('inset') &&
+                    styles.stroke.includes('0px 0px 0px 1px') &&
+                    styles.stroke.includes('0.4'),
+                `The settings window lost its visible surface stroke: ${styles.stroke}.`
+            );
+            assertVisible(
+                styles.strokePointerEvents === 'none',
+                'The surface stroke must not intercept settings window controls.'
             );
             assertVisible(
                 styles.padding === '24px',
                 `The settings window has no room for its shadow: ${styles.padding}.`
             );
+        });
+
+        it('user sees the content border when the title bar paints an opaque background', async () => {
+            const screenshot = await browser.takeScreenshot();
+            const [stroke, content] = await browser.execute(async (imageData) => {
+                const shell = document.querySelector('[data-testid="settings-window-shell"]');
+                const bounds = shell.getBoundingClientRect();
+                const image = new Image();
+                image.src = `data:image/png;base64,${imageData}`;
+                await image.decode();
+                const canvas = document.createElement('canvas');
+                canvas.width = image.width;
+                canvas.height = image.height;
+                const context = canvas.getContext('2d');
+                context.drawImage(image, 0, 0);
+                const scale = image.width / window.innerWidth;
+                const left = Math.floor((bounds.left + bounds.width / 2) * scale);
+                return [bounds.top, bounds.top + 2].map((top) =>
+                    Array.from(context.getImageData(left, Math.floor(top * scale), 1, 1).data)
+                );
+            }, screenshot);
+
+            for (const channel of [0, 1, 2]) {
+                const expected = Math.round(content[channel] * 0.6 + 117 * 0.4);
+                assertVisible(
+                    Math.abs(stroke[channel] - expected) <= 2,
+                    `The content background hid the surface border: ${stroke} vs ${content}.`
+                );
+            }
         });
     });
 

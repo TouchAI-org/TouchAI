@@ -21,14 +21,14 @@ mod win {
     use windows::Win32::{
         Foundation::{HWND, RECT},
         Graphics::Dwm::{
-            DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE,
+            DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
         },
         Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn, HGDIOBJ, HRGN},
         UI::WindowsAndMessaging::GetClientRect,
     };
 
     const DWMWCP_ROUND: u32 = 2;
-    const DWM_BORDER_COLOR_GRAY_300: u32 = 0x00DBD5D1;
     const FALLBACK_CORNER_RADIUS_PX: i32 = 12;
 
     fn should_manage_window(window: &WebviewWindow<impl Runtime>) -> bool {
@@ -72,7 +72,7 @@ mod win {
             DwmSetWindowAttribute(
                 hwnd,
                 DWMWA_BORDER_COLOR,
-                &DWM_BORDER_COLOR_GRAY_300 as *const _ as *const _,
+                &DWMWA_COLOR_NONE as *const _ as *const _,
                 std::mem::size_of::<u32>() as u32,
             )
             .map_err(|error| format!("Failed to set DWM border color: {}", error))?;
