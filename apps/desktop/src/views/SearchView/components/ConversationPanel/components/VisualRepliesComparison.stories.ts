@@ -8,11 +8,7 @@ import { registerVisualReplyHost } from '@/services/VisualReplyService/bridge';
 import OpenUIReply from './OpenUIReply.vue';
 import VisualArtifactFrame from './VisualArtifactFrame.vue';
 
-/*
- * The data and composition mirror the official OpenUI Sales pipeline example:
- * heading, muted summary, four rule-separated KPIs, bookings bars, and a rep
- * leaderboard. Keeping the official numbers makes visual comparison meaningful.
- */
+/** Official OpenUI Sales pipeline data, kept identical across all variants. */
 const salesDashboardResponse = `root = Root([
   Heading("Sales pipeline", 2),
   Text("Pipeline stands at $7.0M this quarter, up 12% across 219 open deals", "muted"),
@@ -32,6 +28,20 @@ const salesDashboardResponse = `root = Root([
   ]),
   Actions([ActionButton("Break down pipeline by region", "Break down this quarter's sales pipeline by region"), LinkButton("Open forecast", "https://example.com/forecast")]),
 ])`;
+
+const headingOnly = `root = Root([Heading("Sales pipeline", 2)])`;
+const textOnly = `root = Root([Text("Pipeline stands at $7.0M this quarter, up 12% across 219 open deals", "muted")])`;
+const metricsOnly = `root = Root([
+  Grid([
+    Metric("Pipeline", "$7.0M", "+12%"),
+    Metric("Open deals", "219", "+6.1%"),
+    Metric("Win rate", "28%", "+2.4%"),
+    Metric("Average deal", "$32.1K", "-1.2%"),
+  ], "4")
+])`;
+const chartOnly = `root = Root([BarChart("Bookings · Forecast", [96, 104, 99, 112, 118, 109, 121, 127, 124, 131, 141, 153], ["D", "J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N"])])`;
+const tableOnly = `root = Root([Heading("Top reps this quarter", 3), DataTable(["Rep", "Open deals", "Pipeline", "Share"], [["Maya Chen", "52", "$1.68M", "24%"], ["Leo Park", "47", "$1.47M", "21%"], ["Ana Ruiz", "34", "$1.05M", "15%"], ["Sam Patel", "26", "$0.77M", "11%"]])])`;
+const actionsOnly = `root = Root([Actions([ActionButton("Break down pipeline by region", "Break down pipeline by region"), LinkButton("Open forecast", "https://example.com/forecast")])])`;
 
 const artifactHtml = `
 <style>
@@ -99,7 +109,102 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Full-width official Sales dashboard, inside the real message column. */
+/**
+ * T3-style variant board: each component gets its own card with a label,
+ * heading, and muted caption. This mirrors the attached T3 Code comparison
+ * layout — dark surface, rounded cards, and a quiet preview area.
+ */
+export const T3VariantBoard: Story = {
+    render: () => ({
+        components: { OpenUIReply },
+        setup() {
+            return {
+                headingOnly,
+                textOnly,
+                metricsOnly,
+                chartOnly,
+                tableOnly,
+                actionsOnly,
+            };
+        },
+        template: `
+            <main class="min-h-screen px-10 py-10" style="--vrb-bg: #09090b; --vrb-card: #18181b; --vrb-border: #27272a; --vrb-muted: #a1a1aa; --vrb-fg: #fafafa; --vrb-preview: #fafafa; background-color: var(--vrb-bg); color: var(--vrb-fg);">
+                <div class="mx-auto max-w-3xl">
+                    <p class="mb-8 text-sm" style="color: var(--vrb-muted);">OpenUI visual reply components · official Sales pipeline data</p>
+                    <div class="grid gap-7 md:grid-cols-2">
+                        <section class="rounded-xl p-6" style="border: 1px solid var(--vrb-border); background-color: var(--vrb-card);">
+                            <header class="mb-5 flex items-baseline justify-between gap-3">
+                                <div class="flex items-baseline gap-3"><span class="text-sm font-medium" style="color: var(--vrb-muted);">A</span><h2 class="text-base font-semibold">Heading</h2></div>
+                                <span class="text-dense" style="color: var(--vrb-muted);">20px · 600</span>
+                            </header>
+                            <div class="rounded-lg px-5 py-6" style="background-color: var(--vrb-preview);">
+                                <OpenUIReply :response="headingOnly" :is-streaming="false" />
+                            </div>
+                            <p class="mt-5 text-sm" style="color: var(--vrb-muted);">The reply title, level 2. Larger than surrounding prose.</p>
+                        </section>
+
+                        <section class="rounded-xl p-6" style="border: 1px solid var(--vrb-border); background-color: var(--vrb-card);">
+                            <header class="mb-5 flex items-baseline justify-between gap-3">
+                                <div class="flex items-baseline gap-3"><span class="text-sm font-medium" style="color: var(--vrb-muted);">B</span><h2 class="text-base font-semibold">Summary</h2></div>
+                                <span class="text-dense" style="color: var(--vrb-muted);">13px · muted</span>
+                            </header>
+                            <div class="rounded-lg px-5 py-6" style="background-color: var(--vrb-preview);">
+                                <OpenUIReply :response="textOnly" :is-streaming="false" />
+                            </div>
+                            <p class="mt-5 text-sm" style="color: var(--vrb-muted);">A single muted paragraph that carries the key takeaway.</p>
+                        </section>
+
+                        <section class="rounded-xl p-6 md:col-span-2" style="border: 1px solid var(--vrb-border); background-color: var(--vrb-card);">
+                            <header class="mb-5 flex items-baseline justify-between gap-3">
+                                <div class="flex items-baseline gap-3"><span class="text-sm font-medium" style="color: var(--vrb-muted);">C</span><h2 class="text-base font-semibold">Metrics</h2></div>
+                                <span class="text-dense" style="color: var(--vrb-muted);">24px · rules</span>
+                            </header>
+                            <div class="rounded-lg px-5 py-6" style="background-color: var(--vrb-preview);">
+                                <OpenUIReply :response="metricsOnly" :is-streaming="false" />
+                            </div>
+                            <p class="mt-5 text-sm" style="color: var(--vrb-muted);">Rule-separated key figures. No cards, no boxes, no background.</p>
+                        </section>
+
+                        <section class="rounded-xl p-6 md:col-span-2" style="border: 1px solid var(--vrb-border); background-color: var(--vrb-card);">
+                            <header class="mb-5 flex items-baseline justify-between gap-3">
+                                <div class="flex items-baseline gap-3"><span class="text-sm font-medium" style="color: var(--vrb-muted);">D</span><h2 class="text-base font-semibold">Bar chart</h2></div>
+                                <span class="text-dense" style="color: var(--vrb-muted);">208px · interactive</span>
+                            </header>
+                            <div class="rounded-lg px-5 py-6" style="background-color: var(--vrb-preview);">
+                                <OpenUIReply :response="chartOnly" :is-streaming="false" />
+                            </div>
+                            <p class="mt-5 text-sm" style="color: var(--vrb-muted);">Brand-coloured bars with hover readout. No legend duplication.</p>
+                        </section>
+
+                        <section class="rounded-xl p-6 md:col-span-2" style="border: 1px solid var(--vrb-border); background-color: var(--vrb-card);">
+                            <header class="mb-5 flex items-baseline justify-between gap-3">
+                                <div class="flex items-baseline gap-3"><span class="text-sm font-medium" style="color: var(--vrb-muted);">E</span><h2 class="text-base font-semibold">Data table</h2></div>
+                                <span class="text-dense" style="color: var(--vrb-muted);">13px · single border</span>
+                            </header>
+                            <div class="rounded-lg px-5 py-6" style="background-color: var(--vrb-preview);">
+                                <OpenUIReply :response="tableOnly" :is-streaming="false" />
+                            </div>
+                            <p class="mt-5 text-sm" style="color: var(--vrb-muted);">One rounded container. Hairline row dividers, numeric right-aligned.</p>
+                        </section>
+
+                        <section class="rounded-xl p-6 md:col-span-2" style="border: 1px solid var(--vrb-border); background-color: var(--vrb-card);">
+                            <header class="mb-5 flex items-baseline justify-between gap-3">
+                                <div class="flex items-baseline gap-3"><span class="text-sm font-medium" style="color: var(--vrb-muted);">F</span><h2 class="text-base font-semibold">Actions</h2></div>
+                                <span class="text-dense" style="color: var(--vrb-muted);">32px · outline</span>
+                            </header>
+                            <div class="rounded-lg px-5 py-6" style="background-color: var(--vrb-preview);">
+                                <OpenUIReply :response="actionsOnly" :is-streaming="false" />
+                            </div>
+                            <p class="mt-5 text-sm" style="color: var(--vrb-muted);">Compact outline chips in one row. Grouped, not scattered.</p>
+                        </section>
+                    </div>
+                </div>
+            </main>
+        `,
+    }),
+};
+
+/** Full-width official dashboard, as the model would output it in the chat row. */
 export const OfficialDashboard: Story = {
     render: () => ({
         components: { OpenUIReply },
@@ -117,7 +222,7 @@ export const OfficialDashboard: Story = {
     }),
 };
 
-/** Side-by-side capability comparison: fixed components vs. free-form HTML. */
+/** Capability comparison: fixed components vs. free-form HTML. */
 export const OpenUIAndArtifact: Story = {
     render: () => ({
         components: { OpenUIReply, VisualArtifactFrame },
