@@ -22,19 +22,28 @@ const stage = { width: 1920, height: 1080 };
 function parseDocument(html) {
     const testIds = new Map();
 
-    for (const match of html.matchAll(/data-testid="([^"]+)"(?:\s+style="([^"]*)")?/g)) {
-        testIds.set(match[1], { display: match[2] ?? '' });
+    for (const match of html.matchAll(/data-testid="([^"]+)"([^>]*)>/g)) {
+        const attributes = match[2];
+        const style = /style="([^"]*)"/.exec(attributes)?.[1] ?? '';
+        const height = Number(/\bdata-height="(\d+)"/.exec(attributes)?.[1] ?? 420);
+
+        testIds.set(match[1], { style, height });
     }
 
     const viewport = { width: 1280, height: 900 };
-    const rect = { left: 0, top: 0, right: 750, bottom: 420, width: 750, height: 420 };
     const style = (element) => {
         const match = testIds.get(element.testId);
+        const declarations = new Map(
+            (match?.style ?? '')
+                .split(';')
+                .map((declaration) => declaration.split(':').map((part) => part.trim()))
+                .filter(([property, value]) => property && value)
+        );
 
         return {
-            display: match?.display === 'none' ? 'none' : '',
-            visibility: '',
-            opacity: '1',
+            display: declarations.get('display') ?? '',
+            visibility: declarations.get('visibility') ?? '',
+            opacity: declarations.get('opacity') ?? '1',
         };
     };
     const element = (testId) => {
@@ -44,11 +53,20 @@ function parseDocument(html) {
             return null;
         }
 
+        const rect = {
+            left: 0,
+            top: 0,
+            right: 750,
+            bottom: match.height,
+            width: 750,
+            height: match.height,
+        };
+
         return {
             testId,
             getBoundingClientRect: () => rect,
             getClientRects: () => [{}],
-            scrollHeight: 120,
+            scrollHeight: match.height,
             closest: () => null,
             style: { display: match.display === 'none' ? 'none' : '' },
             querySelectorAll: (selector) => {
@@ -156,10 +174,33 @@ describe('user submits a prompt in the preview search window', () => {
         });
     });
 
-    it('user gets a compact reading when only the quick search panel is visible', () => {
+    it('user gets a compact reading when the retained quick search panel is hidden', () => {
+        const document = parseDocument(`
+            <div data-testid="search-view" data-height="60">
+                <div data-testid="quick-search-panel" style="display: none"></div>
+            </div>
+        `);
+        const state = searchContentState(document);
+
+        expect(state).toMatchObject({
+            expanded: false,
+            conversationPresent: false,
+            conversationVisible: false,
+            userMessageVisible: false,
+            messageCount: 0,
+        });
+        expect(
+            searchWindowFrame(stage, {
+                expanded: state.expanded,
+                contentHeight: state.contentHeight,
+            }).height
+        ).toBe(SEARCH_WINDOW_IDLE_HEIGHT);
+    });
+
+    it('user gets an expanded reading when the quick search panel is visible', () => {
         const document = parseDocument(`
             <div data-testid="search-view">
-                <div data-testid="quick-search-panel" style="display: none"></div>
+                <div data-testid="quick-search-panel"></div>
             </div>
         `);
         const state = searchContentState(document);
@@ -168,9 +209,13 @@ describe('user submits a prompt in the preview search window', () => {
             expanded: true,
             conversationPresent: false,
             conversationVisible: false,
-            userMessageVisible: false,
-            messageCount: 0,
         });
+        expect(
+            searchWindowFrame(stage, {
+                expanded: state.expanded,
+                contentHeight: state.contentHeight,
+            }).height
+        ).toBe(SEARCH_WINDOW_RESULTS_HEIGHT);
     });
 
     it('user gets the conversation state reported separately from its messages', () => {

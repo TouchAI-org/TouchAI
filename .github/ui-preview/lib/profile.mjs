@@ -181,7 +181,7 @@ export function searchContentState(document) {
     const conversationVisible = conversationPresent && messageNodes.some(isVisible);
     const userMessageVisible = userMessages.some(isVisible);
     const requestStatusVisible = requestStatus.some(isVisible);
-    const expanded = conversationPresent || Boolean(panel) || contentHeight > 120;
+    const expanded = conversationPresent || isVisible(panel) || contentHeight > 120;
 
     return {
         expanded,
