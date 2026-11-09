@@ -145,11 +145,6 @@ evidence.
   follows the radius without consuming layout. Maximized and fullscreen windows reset
   ring, radius, gutter and shadow together. Keep `--spacing-window-gutter` in sync with
   Rust's `WINDOW_SHADOW_GUTTER`.
-  Settings paints its stroke on a pointer-transparent pseudo-element above the shell's
-  children. Its native Windows border is disabled so the transparent gutter has no outline.
-  The window rim is opaque neutral RGB 169, matching the supplied native Windows frame
-  reference instead of blending with light or dark content. Search surfaces and the tray
-  consume the same `--color-window-border` role.
 
 ## Not covered
 
