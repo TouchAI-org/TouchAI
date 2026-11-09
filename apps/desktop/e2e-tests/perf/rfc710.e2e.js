@@ -622,6 +622,123 @@ async function waitForNoMessages(timeoutMs = 30000) {
     );
 }
 
+async function sessionMessageCount() {
+    return await browser.execute(() => document.querySelectorAll('[data-message-role]').length);
+}
+
+async function waitForStableSessionLayout(timeoutMs = 5000, stableMs = 750) {
+    const deadline = Date.now() + timeoutMs;
+    let previous = null;
+    let stableSince = null;
+
+    while (Date.now() < deadline) {
+        const signature = await browser.execute(() => {
+            const rect = (element) => {
+                if (!(element instanceof HTMLElement)) return null;
+                const value = element.getBoundingClientRect();
+                return [value.x, value.y, value.width, value.height].map(
+                    (part) => Math.round(part * 100) / 100
+                );
+            };
+            return JSON.stringify({
+                host: rect(document.querySelector("[data-testid='conversation-panel-host']")),
+                view: rect(document.querySelector("[data-testid='search-view']")),
+                documentHeight: document.documentElement.scrollHeight,
+            });
+        });
+        const now = Date.now();
+
+        if (signature === previous) {
+            if (stableSince !== null && now - stableSince >= stableMs) return true;
+        } else {
+            previous = signature;
+            stableSince = now;
+        }
+        await sleep(100);
+    }
+
+    return false;
+}
+
+async function waitForNoMessagesIfPossible(timeoutMs) {
+    try {
+        await waitForNoMessages(timeoutMs);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function captureSessionResetFailure(attempts) {
+    let diagnostic;
+    try {
+        diagnostic = await browser.execute(() => {
+            const button = document.querySelector(
+                ".toolbar-fade-overlay button[data-drag-exclude='true']"
+            );
+            const rect = (element) => {
+                if (!(element instanceof HTMLElement)) return null;
+                const value = element.getBoundingClientRect();
+                return {
+                    x: value.x,
+                    y: value.y,
+                    width: value.width,
+                    height: value.height,
+                };
+            };
+            const animations =
+                typeof document.getAnimations === 'function'
+                    ? document
+                          .getAnimations()
+                          .slice(0, 20)
+                          .map((animation) => ({
+                              playState: animation.playState,
+                              currentTime: animation.currentTime,
+                              duration: animation.effect?.getTiming().duration ?? null,
+                          }))
+                    : [];
+            const editor = document.querySelector(
+                "[data-testid='search-editor-host'] .ProseMirror"
+            );
+
+            return {
+                messageCount: document.querySelectorAll('[data-message-role]').length,
+                toolbarButtonCount: document.querySelectorAll(
+                    ".toolbar-fade-overlay button[data-drag-exclude='true']"
+                ).length,
+                button: button
+                    ? {
+                          ariaLabel: button.getAttribute('aria-label'),
+                          className: button.className,
+                          disabled: button instanceof HTMLButtonElement && button.disabled,
+                      }
+                    : null,
+                editorText: editor?.textContent ?? null,
+                activeElement: document.activeElement?.tagName ?? null,
+                view: rect(document.querySelector("[data-testid='search-view']")),
+                conversationHost: rect(
+                    document.querySelector("[data-testid='conversation-panel-host']")
+                ),
+                animations,
+                bodyTextTail: document.body.textContent?.slice(-512) ?? '',
+            };
+        });
+    } catch (error) {
+        diagnostic = { diagnosticError: String(error) };
+    }
+
+    const evidenceDirectory =
+        process.env.TOUCHAI_PERF_RUN_LOG_DIR ||
+        (eventsFile ? path.dirname(eventsFile) : process.cwd());
+    fs.mkdirSync(evidenceDirectory, { recursive: true });
+    const diagnosticPath = path.join(
+        evidenceDirectory,
+        `${runId || 'perf'}-session-reset-failure.json`
+    );
+    fs.writeFileSync(diagnosticPath, `${JSON.stringify({ attempts, diagnostic }, null, 2)}\n`);
+    return { diagnostic, diagnosticPath };
+}
+
 async function clickSelector(selector, timeoutMsg, timeoutMs = 30000) {
     await browser.waitUntil(
         async () =>
@@ -646,17 +763,58 @@ async function clickSelector(selector, timeoutMsg, timeoutMs = 30000) {
 }
 
 async function startNewSession() {
-    const messageCount = await browser.execute(
-        () => document.querySelectorAll('[data-message-role]').length
-    );
-    if (messageCount > 0) {
-        await clickSelector(
-            ".toolbar-fade-overlay button[data-drag-exclude='true']",
-            'The conversation toolbar has no clickable new-session button.'
-        );
-        await waitForNoMessages();
+    let remaining = await sessionMessageCount();
+    if (remaining === 0) {
+        await clearEditor();
+        return;
     }
-    await clearEditor();
+
+    await waitForStableSessionLayout();
+    const attempts = [];
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const startedAt = Date.now();
+        let clickError = null;
+        try {
+            await clickSelector(
+                ".toolbar-fade-overlay button[data-drag-exclude='true']",
+                'The conversation toolbar has no clickable new-session button.',
+                10000
+            );
+        } catch (error) {
+            clickError = String(error);
+        }
+
+        if (!clickError) await sleep(250);
+        const cleared =
+            !clickError && (await waitForNoMessagesIfPossible(attempt === 3 ? 15000 : 8000));
+        remaining = await sessionMessageCount();
+        attempts.push({
+            attempt,
+            startedAt,
+            elapsedMs: Date.now() - startedAt,
+            clickError,
+            cleared,
+            remaining,
+        });
+
+        if (remaining === 0) {
+            appendEvent({ type: 'session-reset', attempts });
+            await clearEditor();
+            return;
+        }
+        if (attempt < 3) await sleep(1500);
+    }
+
+    const evidence = await captureSessionResetFailure(attempts);
+    appendEvent({
+        type: 'session-reset-failure',
+        attempts,
+        diagnosticPath: evidence.diagnosticPath,
+    });
+    throw new Error(
+        `The conversation did not return to an empty session after ${attempts.length} click attempts. ` +
+            `Diagnostics: ${evidence.diagnosticPath}`
+    );
 }
 
 async function domMetrics() {
