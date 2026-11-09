@@ -4,6 +4,7 @@ set -euo pipefail
 binary="$1"
 app_root="$2"
 timeout_seconds="${3:-120}"
+ready_query="${4:-}"
 database="$app_root/data/touchai.db"
 
 mkdir -p "$app_root"
@@ -31,11 +32,18 @@ trap cleanup EXIT INT TERM
 
 for _ in $(seq 1 $((timeout_seconds * 5))); do
     if [[ -s "$database" ]]; then
-        sleep 1
-        exit 0
+        if [[ -z "$ready_query" ]]; then
+            sleep 1
+            exit 0
+        fi
+        if [[ "$(sqlite3 "$database" "$ready_query" 2>/dev/null || true)" == "1" ]]; then
+            # Let the writing transaction finish before the app is terminated.
+            sleep 0.2
+            exit 0
+        fi
     fi
     sleep 0.2
 done
 
-echo "Timed out waiting for the initialized database at $database" >&2
+echo "Timed out waiting for the initialized database at $database (ready query: $ready_query)" >&2
 exit 1
