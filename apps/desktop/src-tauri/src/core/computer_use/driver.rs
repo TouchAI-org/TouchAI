@@ -596,6 +596,66 @@ mod tests {
         super::shutdown();
     }
 
+    /// Live upgrade from an empty install to the newest published release.
+    ///
+    /// Ignored by default: it needs the network and downloads a release wheel.
+    #[cfg(windows)]
+    #[tokio::test]
+    #[ignore = "downloads a release from the package indexes"]
+    async fn user_given_a_newer_release_when_upgrading_then_loads_it_and_records_the_version() {
+        let fixture = tempfile::tempdir().expect("isolated install");
+        let root = fixture.path().join("cua-driver");
+        let fetcher = super::super::http::HttpWheelFetcher::new("TouchAI/test").expect("client");
+        let manifest = &super::super::manifest::MANIFEST;
+        let artifact = super::super::manifest::artifact(manifest).expect("artifact");
+        let filename = super::super::manifest::release_filename(artifact, "0.44.0").expect("name");
+        let release = fetcher
+            .release(&manifest.mirrors, "0.44.0", &filename)
+            .await
+            .expect("release");
+
+        let status = super::upgrade(root.clone(), &fetcher, "0.44.0", release)
+            .await
+            .expect("upgrade");
+
+        assert_eq!(status.driver_version.as_deref(), Some("0.44.0"));
+        assert!(status.installed);
+        assert!(super::list_tools()
+            .expect("catalog")
+            .iter()
+            .any(|tool| tool["name"] == "move_cursor"));
+        let pointer = std::fs::read_to_string(root.join("current.json")).expect("pointer");
+        assert!(pointer.contains("0.44.0"));
+        super::shutdown();
+    }
+
+    #[tokio::test]
+    async fn user_given_an_upgraded_install_when_reading_status_then_reports_its_own_version() {
+        let fixture = tempfile::tempdir().expect("isolated install");
+        let root = fixture.path().join("cua-driver");
+        let version = root.join("0.44.0");
+        std::fs::create_dir_all(&version).expect("version directory");
+        let binary = version.join("cua_driver_sdk.dll");
+        std::fs::write(&binary, b"upgraded driver").expect("binary");
+        let digest = super::super::provision::sha256_file(&binary).expect("digest");
+        std::fs::write(
+            version.join("install.json"),
+            serde_json::json!({
+                "version": "0.44.0",
+                "wheel_sha256": "1fba13e3a3f513117ce36e11949150708e25af5b035058cf870d9148f102db0f",
+                "binary_sha256": digest,
+            })
+            .to_string(),
+        )
+        .expect("record");
+        std::fs::write(root.join("current.json"), r#"{"version":"0.44.0"}"#).expect("pointer");
+
+        let status = super::installed_status(root).await.expect("status");
+
+        assert!(status.installed);
+        assert_eq!(status.driver_version.as_deref(), Some("0.44.0"));
+    }
+
     #[test]
     fn user_given_starting_call_when_cancelling_then_cancellation_is_remembered_until_binding() {
         let execution_id = "test-cancel-before-binding";
