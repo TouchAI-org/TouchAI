@@ -42,13 +42,51 @@ const binaryPathByArm = {
     baseline: path.join(binariesRoot, 'baseline', 'TouchAI'),
     current: path.join(binariesRoot, 'current', 'TouchAI'),
 };
-const fixturePathByName = {
-    base: path.join(fixturesRoot, 'fixture-base.db'),
-    'long-100': path.join(fixturesRoot, 'fixture-long-100.db'),
-    'long-500': path.join(fixturesRoot, 'fixture-long-500.db'),
-    'long-1000': path.join(fixturesRoot, 'fixture-long-1000.db'),
-    'long-1500': path.join(fixturesRoot, 'fixture-long-1500.db'),
-};
+const fixtureNames = ['base', 'long-100', 'long-500', 'long-1000', 'long-1500'];
+const volatileBusinessColumns = new Set([
+    'created_at',
+    'updated_at',
+    'last_message_at',
+    'last_used_at',
+    'pinned_at',
+    'archived_at',
+]);
+const businessTableNames = [
+    'attachments',
+    'attachment_remote_refs',
+    'built_in_tools',
+    'llm_metadata',
+    'llm_metadata_aliases',
+    'mcp_servers',
+    'mcp_tools',
+    'message_parts',
+    'messages',
+    'models',
+    'providers',
+    'quick_search_click_stats',
+    'session_turn_attempts',
+    'session_turns',
+    'sessions',
+    'settings',
+    'statistics',
+    'touchai_meta',
+    'usage_daily_rollups',
+];
+const fixturePathByArm = Object.fromEntries(
+    ['baseline', 'current'].map((arm) => [
+        arm,
+        Object.fromEntries(
+            fixtureNames.map((name) => [
+                name,
+                path.join(
+                    fixturesRoot,
+                    arm,
+                    name === 'base' ? 'fixture-base.db' : `fixture-${name}.db`
+                ),
+            ])
+        ),
+    ])
+);
 
 function parseArgs(argv) {
     const values = {};
@@ -560,18 +598,18 @@ async function buildBoth() {
     return results;
 }
 
-async function initializeDatabaseFromRelease() {
-    const binary = binaryPathByArm.current;
+async function initializeDatabaseFromArm(arm) {
+    const binary = binaryPathByArm[arm];
     if (!fs.existsSync(binary)) {
-        throw new Error(`Current release binary is missing: ${binary}`);
+        throw new Error(`The ${arm} release binary is missing: ${binary}`);
     }
-    const initRoot = path.join(artifactsRoot, 'fixture-init-root');
+    const initRoot = path.join(artifactsRoot, 'fixture-init-root', arm);
     removeManagedDirectory(initRoot, artifactsRoot);
     ensureDirectory(initRoot);
-    const log = path.join(logsRoot, 'fixture-init.log');
-    const displayLogDir = path.join(logsRoot, 'fixture-init-display');
+    const log = path.join(logsRoot, `fixture-init-${arm}.log`);
+    const displayLogDir = path.join(logsRoot, `fixture-init-display-${arm}`);
     const result = await runInCgroup({
-        label: 'fixture-init',
+        label: `fixture-init-${arm}`,
         command: xvfbRunWithWm,
         args: ['bash', initAppRoot, binary, initRoot, '120'],
         cwd: repoRoot,
@@ -579,7 +617,7 @@ async function initializeDatabaseFromRelease() {
             ...process.env,
             TOUCHAI_APP_ROOT: initRoot,
             TOUCHAI_E2E: '1',
-            TOUCHAI_PERF_RUN_TOKEN: 'fixture-init',
+            TOUCHAI_PERF_RUN_TOKEN: `fixture-init-${arm}`,
             TOUCHAI_PERF_RUN_LOG_DIR: displayLogDir,
             GDK_BACKEND: 'x11',
             NO_AT_BRIDGE: '1',
@@ -588,19 +626,29 @@ async function initializeDatabaseFromRelease() {
     });
     const initialized = path.join(initRoot, 'data/touchai.db');
     if (result.exitCode !== 0 || !fs.existsSync(initialized)) {
-        throw new Error(`Database initialization failed. See ${log}.`);
+        throw new Error(`Database initialization failed for ${arm}. See ${log}.`);
     }
     const checkpoint = runSync('sqlite3', [initialized, 'PRAGMA wal_checkpoint(TRUNCATE);'], {
-        log: path.join(logsRoot, 'fixture-checkpoint.log'),
+        log: path.join(logsRoot, `fixture-checkpoint-${arm}.log`),
     }).stdout.trim();
     if (!/^0(?:\||$)/.test(checkpoint)) {
-        throw new Error(`Database WAL checkpoint was busy: ${checkpoint}`);
+        throw new Error(`${arm} database WAL checkpoint was busy: ${checkpoint}`);
     }
     const wal = `${initialized}-wal`;
     if (fs.existsSync(wal) && fs.statSync(wal).size > 0) {
-        throw new Error(`Database WAL was not checkpointed: ${wal}`);
+        throw new Error(`${arm} database WAL was not checkpointed: ${wal}`);
     }
-    return { initialized, initRoot, result };
+    const migrationTags = runSync(
+        'sqlite3',
+        [initialized, 'SELECT hash FROM migrations ORDER BY id;'],
+        {
+            log: path.join(logsRoot, `fixture-migrations-${arm}.log`),
+        }
+    )
+        .stdout.trim()
+        .split('\n')
+        .filter(Boolean);
+    return { initialized, initRoot, result, migrationTags };
 }
 
 function runSqlite(database, sql, log) {
@@ -708,45 +756,152 @@ VACUUM;
     runSqlite(destination, sql, path.join(logsRoot, `fixture-long-${level}.log`));
 }
 
+function readTableInfo(database, table, log) {
+    const escaped = table.replaceAll('"', '""');
+    const output = runSync('sqlite3', ['-json', database, `PRAGMA table_info("${escaped}");`], {
+        log,
+    }).stdout.trim();
+    const rows = output ? JSON.parse(output) : [];
+    if (!Array.isArray(rows) || rows.length === 0) {
+        throw new Error(`Business table '${table}' is missing from ${database}`);
+    }
+    return rows;
+}
+
+function buildBusinessProjection(baselineDatabase, currentDatabase, log) {
+    const projection = [];
+    for (const table of businessTableNames) {
+        const baselineInfo = readTableInfo(baselineDatabase, table, log);
+        const currentInfo = readTableInfo(currentDatabase, table, log);
+        const currentColumns = new Set(currentInfo.map((column) => column.name));
+        const columns = baselineInfo
+            .map((column) => column.name)
+            .filter((column) => currentColumns.has(column) && !volatileBusinessColumns.has(column));
+        const baselinePrimaryKey = baselineInfo
+            .filter((column) => Number(column.pk) > 0)
+            .sort((left, right) => Number(left.pk) - Number(right.pk))
+            .map((column) => column.name);
+        const currentPrimaryKey = currentInfo
+            .filter((column) => Number(column.pk) > 0)
+            .sort((left, right) => Number(left.pk) - Number(right.pk))
+            .map((column) => column.name);
+        if (baselinePrimaryKey.length === 0) {
+            throw new Error(`Business table '${table}' has no primary key`);
+        }
+        if (baselinePrimaryKey.join('\0') !== currentPrimaryKey.join('\0')) {
+            throw new Error(`Business table '${table}' has a different primary key by arm`);
+        }
+        if (columns.length === 0) {
+            throw new Error(`Business table '${table}' has no comparable columns`);
+        }
+        projection.push({ table, columns, primaryKey: baselinePrimaryKey });
+    }
+    return projection;
+}
+
+function businessOracleSha256(database, projection, log) {
+    const dumps = [];
+    for (const { table, columns, primaryKey } of projection) {
+        const escaped = table.replaceAll('"', '""');
+        const selected = columns
+            .map((column) => `quote("${column.replaceAll('"', '""')}")`)
+            .join(', ');
+        const orderBy = primaryKey.map((column) => `"${column.replaceAll('"', '""')}"`).join(', ');
+        const query = `SELECT ${selected} FROM "${escaped}" ORDER BY ${orderBy};`;
+        const dump = runSync('sqlite3', [database, query], { log }).stdout;
+        dumps.push(`${table}\t${columns.join(',')}\n${dump}`);
+    }
+    return sha256Text(dumps.join('\n'));
+}
+
 async function prepareFixtures() {
     ensureDirectory(fixturesRoot);
-    for (const fixture of Object.values(fixturePathByName)) {
-        fs.rmSync(fixture, { force: true });
+    const arms = ['baseline', 'current'];
+    const armManifests = {};
+    for (const arm of arms) {
+        removeManagedDirectory(path.join(fixturesRoot, arm), fixturesRoot);
+        ensureDirectory(path.join(fixturesRoot, arm));
+        const { initialized, initRoot, migrationTags } = await initializeDatabaseFromArm(arm);
+        const base = fixturePathByArm[arm].base;
+        fs.copyFileSync(initialized, base);
+        configureBaseFixture(base);
+        const integrity = runSync('sqlite3', [base, 'PRAGMA integrity_check;'], {
+            log: path.join(logsRoot, `fixture-integrity-${arm}.log`),
+        }).stdout.trim();
+        if (integrity !== 'ok') {
+            throw new Error(`${arm} base fixture integrity check failed: ${integrity}`);
+        }
+        for (const level of [100, 500, 1000, 1500]) {
+            const destination = fixturePathByArm[arm][`long-${level}`];
+            createLongFixture(base, level, destination);
+            const counts = runSync(
+                'sqlite3',
+                [
+                    destination,
+                    `SELECT
+                        (SELECT COUNT(*) FROM messages m JOIN sessions s ON s.id = m.session_id WHERE s.session_id = 'perf-long-${level}'),
+                        (SELECT MIN(length(content)) FROM message_parts p JOIN messages m ON m.id = p.message_id JOIN sessions s ON s.id = m.session_id WHERE s.session_id = 'perf-long-${level}'),
+                        (SELECT MAX(length(content)) FROM message_parts p JOIN messages m ON m.id = p.message_id JOIN sessions s ON s.id = m.session_id WHERE s.session_id = 'perf-long-${level}');`,
+                ],
+                { log: path.join(logsRoot, `fixture-check-long-${level}-${arm}.log`) }
+            ).stdout.trim();
+            const [messageCount, minBytes, maxBytes] = counts.split('|').map(Number);
+            if (messageCount !== level || minBytes < 10240 || maxBytes < 10240) {
+                throw new Error(
+                    `${arm} long fixture ${level} is malformed: messages=${messageCount}, content=${minBytes}..${maxBytes}`
+                );
+            }
+        }
+        armManifests[arm] = {
+            sourceBinary: binaryPathByArm[arm],
+            sourceBinarySha256: sha256File(binaryPathByArm[arm]),
+            migrationTags,
+            fixtures: Object.fromEntries(
+                Object.entries(fixturePathByArm[arm]).map(([name, file]) => [
+                    name,
+                    {
+                        path: file,
+                        sha256: sha256File(file),
+                        size: fs.statSync(file).size,
+                    },
+                ])
+            ),
+        };
+        removeManagedDirectory(initRoot, artifactsRoot);
     }
-    const { initialized, initRoot } = await initializeDatabaseFromRelease();
-    const base = fixturePathByName.base;
-    fs.copyFileSync(initialized, base);
-    configureBaseFixture(base);
-    const integrity = runSync('sqlite3', [base, 'PRAGMA integrity_check;'], {
-        log: path.join(logsRoot, 'fixture-integrity.log'),
-    }).stdout.trim();
-    if (integrity !== 'ok') {
-        throw new Error(`Base fixture integrity check failed: ${integrity}`);
+    const businessProjection = buildBusinessProjection(
+        armManifests.baseline.fixtures.base.path,
+        armManifests.current.fixtures.base.path,
+        path.join(logsRoot, 'fixture-business-projection.log')
+    );
+    for (const arm of arms) {
+        for (const [name, fixture] of Object.entries(armManifests[arm].fixtures)) {
+            fixture.businessOracleSha256 = businessOracleSha256(
+                fixture.path,
+                businessProjection,
+                path.join(logsRoot, `fixture-oracle-${name}-${arm}.log`)
+            );
+        }
     }
-    for (const level of [100, 500, 1000, 1500]) {
-        createLongFixture(base, level, fixturePathByName[`long-${level}`]);
-        const counts = runSync(
-            'sqlite3',
-            [
-                fixturePathByName[`long-${level}`],
-                `SELECT
-                    (SELECT COUNT(*) FROM messages m JOIN sessions s ON s.id = m.session_id WHERE s.session_id = 'perf-long-${level}'),
-                    (SELECT MIN(length(content)) FROM message_parts p JOIN messages m ON m.id = p.message_id JOIN sessions s ON s.id = m.session_id WHERE s.session_id = 'perf-long-${level}'),
-                    (SELECT MAX(length(content)) FROM message_parts p JOIN messages m ON m.id = p.message_id JOIN sessions s ON s.id = m.session_id WHERE s.session_id = 'perf-long-${level}');`,
-            ],
-            { log: path.join(logsRoot, `fixture-check-long-${level}.log`) }
-        ).stdout.trim();
-        const [messageCount, minBytes, maxBytes] = counts.split('|').map(Number);
-        if (messageCount !== level || minBytes < 10240 || maxBytes < 10240) {
+    const businessOracles = Object.fromEntries(
+        fixtureNames.map((name) => [
+            name,
+            {
+                baseline: armManifests.baseline.fixtures[name].businessOracleSha256,
+                current: armManifests.current.fixtures[name].businessOracleSha256,
+            },
+        ])
+    );
+    for (const [name, oracle] of Object.entries(businessOracles)) {
+        if (oracle.baseline !== oracle.current) {
             throw new Error(
-                `Long fixture ${level} is malformed: messages=${messageCount}, content=${minBytes}..${maxBytes}`
+                `Fixture ${name} business data differs between arms: baseline=${oracle.baseline}, current=${oracle.current}`
             );
         }
     }
     const manifest = {
+        version: MANIFEST_VERSION,
         generatedAt: nowIso(),
-        sourceBinary: binaryPathByArm.current,
-        sourceBinarySha256: sha256File(binaryPathByArm.current),
         provider: {
             name: 'Magpie',
             driver: 'openai-compatible',
@@ -761,19 +916,11 @@ async function prepareFixtures() {
         },
         historyBytesPerMessage: 10240,
         historyContentBytes: { minimum: 10240, includesMessagePrefix: true },
-        fixtures: Object.fromEntries(
-            Object.entries(fixturePathByName).map(([name, file]) => [
-                name,
-                {
-                    path: file,
-                    sha256: sha256File(file),
-                    size: fs.statSync(file).size,
-                },
-            ])
-        ),
+        arms: armManifests,
+        businessOracleColumns: businessProjection,
+        businessOracles,
     };
     writeJson(path.join(evidenceRoot, 'fixture-manifest.json'), manifest);
-    removeManagedDirectory(initRoot, artifactsRoot);
     return manifest;
 }
 
@@ -872,7 +1019,8 @@ async function runOneMeasurement({
 }) {
     const binary = binaryPathByArm[arm];
     if (!fs.existsSync(binary)) throw new Error(`Missing ${arm} release binary.`);
-    const fixtureFile = fixturePathByName[fixture];
+    const fixtureFile = fixturePathByArm[arm]?.[fixture];
+    if (!fixtureFile) throw new Error(`Unknown ${arm} fixture: ${fixture}`);
     if (!fs.existsSync(fixtureFile)) throw new Error(`Missing fixture: ${fixtureFile}`);
 
     const runId = [
@@ -1220,7 +1368,7 @@ async function main() {
     }
     if (command === 'fixture') {
         const manifest = await prepareFixtures();
-        console.log(JSON.stringify(manifest.fixtures, null, 2));
+        console.log(JSON.stringify(manifest.arms, null, 2));
         return;
     }
     if (command === 'run') {
