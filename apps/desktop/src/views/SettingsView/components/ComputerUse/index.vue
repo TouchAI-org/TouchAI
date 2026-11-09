@@ -37,6 +37,7 @@
     const status = computed(() => statuses.value[selectedDriver.value] ?? null);
     const busy = ref(false);
     const busyDriver = ref<ComputerUseDriverId | null>(null);
+    const updatingDriver = ref<ComputerUseDriverId | null>(null);
     const driverOpen = ref(false);
     const enabled = ref(false);
     const saving = ref(new Set<keyof ComputerUseSettings>());
@@ -195,7 +196,8 @@
     }
 
     async function selectDriver(driver: ComputerUseDriverId | ''): Promise<void> {
-        if (!driver || driverDisabled.value || !isDriverAvailable(driver)) return;
+        if (!driver || driverDisabled.value || updatingDriver.value || !isDriverAvailable(driver))
+            return;
         busy.value = true;
         try {
             await computerUseService.selectDriver(driver);
@@ -384,35 +386,72 @@
     }
 
     async function checkUpdate(driver: ComputerUseDriverId): Promise<void> {
-        if (driverDisabled.value) return;
-        busy.value = true;
+        if (driverDisabled.value || updatingDriver.value) return;
+        updatingDriver.value = driver;
         try {
             const info = await computerUseService.checkUpdate(driver);
             if (info.error) {
                 alert.error(info.error);
-            } else {
-                alert.success(
-                    info.updateAvailable && info.latest
-                        ? t('settings.computerUse.update.available', { version: info.latest })
-                        : t('settings.computerUse.update.current')
-                );
+                return;
             }
+            if (!info.updateAvailable || !info.latest) {
+                alert.success(t('settings.computerUse.update.current'));
+                return;
+            }
+            if (driver === 'agent-desktop') {
+                alert.success(t('settings.computerUse.update.available', { version: info.latest }));
+                return;
+            }
+            const agreed = await confirm({
+                message: t('settings.computerUse.update.confirm', {
+                    driver,
+                    version: info.latest,
+                }),
+                title: `${t('settings.computerUse.field.update')} ${driver}`,
+                confirmText: t('settings.computerUse.update.confirmAction'),
+            });
+            if (!agreed) return;
+            const next = await computerUseService.installUpdate(driver, info.latest);
+            statuses.value[driver] = next;
+            if (!next.installed || next.error) {
+                alert.error(next.error ?? t('settings.computerUse.status.missing'));
+                return;
+            }
+            if (next.driverVersion !== info.latest) {
+                alert.warning(
+                    t('settings.computerUse.update.restored', {
+                        version: next.driverVersion ?? info.current,
+                    })
+                );
+                return;
+            }
+            if (driver === selectedDriver.value) {
+                try {
+                    await computerUseService.applySettings(settings.value);
+                    if (settings.value.recordingEnabled) {
+                        await computerUseService.setRecording(true);
+                    }
+                } catch (error) {
+                    alert.warning(errorMessage(error));
+                }
+            }
+            alert.success(t('settings.computerUse.update.installed', { version: info.latest }));
         } catch (error) {
             alert.error(errorMessage(error));
         } finally {
-            busy.value = false;
+            updatingDriver.value = null;
         }
     }
 
     async function removeDriver(driver: ComputerUseDriverId): Promise<void> {
-        if (driverDisabled.value) return;
+        if (driverDisabled.value || updatingDriver.value) return;
         busy.value = true;
         driverOpen.value = false;
         try {
             await nextTick();
             const agreed = await confirm({
                 message: t('settings.computerUse.confirm.remove', { driver }),
-                title: `${t('settings.computerUse.action.remove')} · ${driver}`,
+                title: `${t('settings.computerUse.action.remove')} ${driver}`,
                 type: 'danger',
             });
             if (!agreed) return;
@@ -529,7 +568,9 @@
                                         :aria-label="`${t(busy ? 'common.loading' : 'settings.computerUse.action.prepare')} · ${option.label}`"
                                         :title="`${t(busy ? 'common.loading' : 'settings.computerUse.action.prepare')} · ${option.label}`"
                                         :aria-busy="busyDriver === option.value"
-                                        :disabled="driverDisabled"
+                                        :disabled="
+                                            driverDisabled || updatingDriver === option.value
+                                        "
                                         @click="prepare(option.value)"
                                     >
                                         <AppIcon
@@ -547,10 +588,20 @@
                                         variant="ghost-neutral"
                                         :aria-label="`${t('settings.computerUse.action.checkUpdate')} · ${option.label}`"
                                         :title="`${t('settings.computerUse.action.checkUpdate')} · ${option.label}`"
-                                        :disabled="driverDisabled"
+                                        :aria-busy="updatingDriver === option.value"
+                                        :disabled="
+                                            driverDisabled || updatingDriver === option.value
+                                        "
                                         @click="checkUpdate(option.value)"
                                     >
-                                        <AppIcon name="refresh" class="h-4 w-4" />
+                                        <AppIcon
+                                            v-if="updatingDriver === option.value"
+                                            name="loading"
+                                            role="status"
+                                            :aria-label="t('common.loading')"
+                                            class="h-4 w-4 animate-spin"
+                                        />
+                                        <AppIcon v-else name="refresh" class="h-4 w-4" />
                                     </Button>
                                     <Button
                                         v-if="statuses[option.value]?.installed"
@@ -558,7 +609,9 @@
                                         variant="ghost-neutral"
                                         :aria-label="`${t('settings.computerUse.action.remove')} · ${option.label}`"
                                         :title="`${t('settings.computerUse.action.remove')} · ${option.label}`"
-                                        :disabled="driverDisabled"
+                                        :disabled="
+                                            driverDisabled || updatingDriver === option.value
+                                        "
                                         @click="removeDriver(option.value)"
                                     >
                                         <AppIcon name="trash" class="h-4 w-4" />
@@ -569,29 +622,28 @@
                         <SettingsRow
                             data-settings-search-target="computer-use-driver-directory"
                             control-width="320"
-                            control-class="relative"
+                            control-class="flex items-center gap-2"
                             label-as="label"
                             label-for="computer-use-driver-directory"
                             :label="t('settings.computerUse.field.driverDirectory')"
                         >
-                            <Input
-                                id="computer-use-driver-directory"
-                                data-testid="computer-use-driver-directory"
-                                variant="filled"
-                                :class="driverDirectory ? 'pr-18' : 'pr-10'"
-                                :model-value="driverDirectory"
-                                :placeholder="t('settings.computerUse.driverDirectory.default')"
-                                :title="driverDirectory"
-                                :disabled="driverDisabled"
-                                readonly
-                            />
-                            <div
-                                class="absolute top-1/2 right-1 flex -translate-y-1/2 items-center gap-1"
-                            >
+                            <div class="relative min-w-0 flex-1">
+                                <Input
+                                    id="computer-use-driver-directory"
+                                    data-testid="computer-use-driver-directory"
+                                    variant="filled"
+                                    :class="driverDirectory ? 'pr-10' : undefined"
+                                    :model-value="driverDirectory"
+                                    :placeholder="t('settings.computerUse.driverDirectory.default')"
+                                    :title="driverDirectory"
+                                    :disabled="driverDisabled"
+                                    readonly
+                                />
                                 <Button
                                     v-if="driverDirectory"
                                     data-testid="computer-use-driver-directory-reset"
                                     variant="ghost-neutral"
+                                    class="absolute top-1/2 right-1 -translate-y-1/2"
                                     :aria-label="
                                         t('settings.computerUse.action.resetDriverDirectory')
                                     "
@@ -601,19 +653,18 @@
                                 >
                                     <AppIcon name="x" class="h-4 w-4" />
                                 </Button>
-                                <Button
-                                    data-testid="computer-use-driver-directory-pick"
-                                    variant="ghost-neutral"
-                                    :aria-label="
-                                        t('settings.computerUse.action.pickDriverDirectory')
-                                    "
-                                    :title="t('settings.computerUse.action.pickDriverDirectory')"
-                                    :disabled="driverDisabled"
-                                    @click="pickDriverDirectory"
-                                >
-                                    <AppIcon name="folder-open" class="h-4 w-4" />
-                                </Button>
                             </div>
+                            <Button
+                                data-testid="computer-use-driver-directory-pick"
+                                variant="ghost-neutral"
+                                class="shrink-0"
+                                :aria-label="t('settings.computerUse.action.pickDriverDirectory')"
+                                :title="t('settings.computerUse.action.pickDriverDirectory')"
+                                :disabled="driverDisabled"
+                                @click="pickDriverDirectory"
+                            >
+                                <AppIcon name="folder-open" class="h-4 w-4" />
+                            </Button>
                         </SettingsRow>
                     </div>
                 </section>
@@ -734,7 +785,7 @@
                         <SettingsRow
                             v-if="settings.recordingEnabled"
                             control-width="320"
-                            control-class="relative"
+                            control-class="flex items-center gap-2"
                             label-as="label"
                             label-for="computer-use-recording-directory"
                             :label="t('settings.computerUse.field.recordingDirectory')"
@@ -743,7 +794,7 @@
                                 id="computer-use-recording-directory"
                                 data-testid="computer-use-recording-directory"
                                 variant="filled"
-                                class="pr-10"
+                                class="min-w-0 flex-1"
                                 :model-value="recordingDirectory"
                                 :title="recordingDirectory"
                                 :disabled="preferencesDisabled || pickingRecordingDirectory"
@@ -752,7 +803,7 @@
                             <Button
                                 data-testid="computer-use-recording-directory-pick"
                                 variant="ghost-neutral"
-                                class="absolute top-1/2 right-1 -translate-y-1/2"
+                                class="shrink-0"
                                 :aria-label="
                                     t('settings.computerUse.action.pickRecordingDirectory')
                                 "

@@ -238,6 +238,50 @@ async fn user_given_a_corrupted_candidate_when_activation_fails_then_keeps_the_p
 }
 
 #[tokio::test]
+async fn user_given_an_upgraded_release_when_its_own_install_is_verified_then_activates_it() {
+    let (_temporary, layout) = layout();
+    let wheel = wheel_bytes(ENTRY, b"upgraded binary");
+    let artifact = artifact_for(&wheel, ENTRY);
+    let installed = ensure_installed(
+        &FakeFetcher::new(wheel, vec![]),
+        &layout,
+        "0.44.0",
+        &artifact,
+        MIRRORS,
+    )
+    .await
+    .expect("upgraded install");
+
+    confirm_version(&layout, "0.44.0").expect("activate");
+
+    assert_eq!(active_version(&layout).as_deref(), Some("0.44.0"));
+    assert_eq!(
+        active_install(&layout).expect("active install"),
+        Some(("0.44.0".to_string(), installed.binary().to_path_buf()))
+    );
+}
+
+#[tokio::test]
+async fn user_given_a_replaced_upgraded_binary_when_activating_it_then_refuses_to_switch() {
+    let (_temporary, layout) = layout();
+    let wheel = wheel_bytes(ENTRY, b"upgraded binary");
+    let artifact = artifact_for(&wheel, ENTRY);
+    let installed = ensure_installed(
+        &FakeFetcher::new(wheel, vec![]),
+        &layout,
+        "0.44.0",
+        &artifact,
+        MIRRORS,
+    )
+    .await
+    .expect("upgraded install");
+    std::fs::write(installed.binary(), b"replaced").expect("simulate replacement");
+
+    assert!(confirm_version(&layout, "0.44.0").is_err());
+    assert!(active_version(&layout).is_none());
+}
+
+#[tokio::test]
 async fn user_given_a_corrupt_mirror_when_downloading_then_uses_a_verified_fallback() {
     struct CorruptMirror(Vec<u8>);
     impl WheelFetcher for CorruptMirror {

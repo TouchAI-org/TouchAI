@@ -140,6 +140,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         computer_use::computer_use_cancel,
         computer_use::computer_use_cancel_all,
         computer_use::computer_use_check_update,
+        computer_use::computer_use_install_update,
         computer_use::computer_use_remove,
         computer_use::computer_use_apply_settings,
         computer_use::computer_use_set_recording,

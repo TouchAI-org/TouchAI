@@ -70,6 +70,9 @@ export const computerUse = {
     checkUpdate(driver?: ComputerUseDriverId): Promise<ComputerUseUpdateInfo> {
         return invoke('computer_use_check_update', { driver });
     },
+    installUpdate(driver: ComputerUseDriverId, version: string): Promise<ComputerUseDriverStatus> {
+        return invoke('computer_use_install_update', { driver, version });
+    },
     remove(driver?: ComputerUseDriverId): Promise<boolean> {
         return invoke('computer_use_remove', { driver });
     },

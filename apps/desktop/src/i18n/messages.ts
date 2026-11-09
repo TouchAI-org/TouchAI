@@ -305,6 +305,12 @@ const zhCNMessages = {
     'settings.computerUse.action.remove': '移除驱动',
     'settings.computerUse.field.update': '驱动更新',
     'settings.computerUse.update.available': '有新版本 {version}',
+    'settings.computerUse.update.confirm':
+        '将下载并切换到 {driver} {version}，完成后旧版本会删除。',
+    'settings.computerUse.update.confirmAction': '下载并更新',
+    'settings.computerUse.update.installing': '正在更新到 {version}',
+    'settings.computerUse.update.installed': '已更新到 {version}',
+    'settings.computerUse.update.restored': '更新未完成，已恢复 {version}',
     'settings.computerUse.update.current': '已是最新',
     'settings.computerUse.update.failed': '检查失败',
     'settings.computerUse.confirm.remove': '将删除已下载的 {driver}，重新使用需要再次下载。',
@@ -1540,6 +1546,12 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.computerUse.action.remove': 'Remove driver',
     'settings.computerUse.field.update': 'Driver updates',
     'settings.computerUse.update.available': 'Version {version} is available',
+    'settings.computerUse.update.confirm':
+        'Download and switch {driver} to {version}. The previous version is removed afterwards.',
+    'settings.computerUse.update.confirmAction': 'Download and update',
+    'settings.computerUse.update.installing': 'Updating to {version}',
+    'settings.computerUse.update.installed': 'Updated to {version}',
+    'settings.computerUse.update.restored': 'Update did not finish; restored {version}',
     'settings.computerUse.update.current': 'Up to date',
     'settings.computerUse.update.failed': 'Check failed',
     'settings.computerUse.confirm.remove':

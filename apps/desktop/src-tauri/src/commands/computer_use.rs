@@ -13,7 +13,7 @@ use tauri::{AppHandle, Runtime, State};
 
 use crate::core::computer_use::{
     agent_desktop, backend::DriverId, driver, foreground, http::HttpWheelFetcher, manifest,
-    storage::DriverStorage,
+    provision, storage::DriverStorage,
 };
 use crate::core::system::paths::{app_directory_path, AppDirectory};
 
@@ -584,19 +584,51 @@ fn recording_directory(
 
 /// 检查镜像上是否有更新的驱动版本。
 #[tauri::command]
-pub async fn computer_use_check_update(driver: Option<DriverId>) -> driver::UpdateInfo {
+pub async fn computer_use_check_update(
+    driver: Option<DriverId>,
+    storage: State<'_, DriverStorage>,
+) -> Result<driver::UpdateInfo, String> {
     if driver == Some(DriverId::AgentDesktop) {
-        return agent_desktop::check_update().await;
+        return Ok(agent_desktop::check_update().await);
     }
+    let current = {
+        let root = storage.read().await?;
+        provision::active_version(&provision::InstallLayout::new(DriverId::Cua.root(&root)))
+            .unwrap_or_else(|| manifest::MANIFEST.version.to_string())
+    };
     match HttpWheelFetcher::new(USER_AGENT) {
-        Ok(fetcher) => driver::check_update(&fetcher).await,
-        Err(error) => driver::UpdateInfo {
-            current: manifest::MANIFEST.version.to_string(),
+        Ok(fetcher) => Ok(driver::check_update(&fetcher, current).await),
+        Err(error) => Ok(driver::UpdateInfo {
+            current,
             latest: None,
             update_available: false,
             error: Some(error),
-        },
+        }),
     }
+}
+
+/// 下载并切换到镜像上发布的更新版本；失败时保留当前版本。
+#[tauri::command]
+pub async fn computer_use_install_update(
+    driver: Option<DriverId>,
+    version: String,
+    storage: State<'_, DriverStorage>,
+) -> Result<driver::DriverStatus, String> {
+    if driver == Some(DriverId::AgentDesktop) {
+        return Err("agent-desktop updates are delivered through its package manifest".into());
+    }
+    if semver::Version::parse(&version).is_err() {
+        return Err("invalid driver version".into());
+    }
+    let root = storage.read().await?;
+    let fetcher = HttpWheelFetcher::new(USER_AGENT)?;
+    let artifact = manifest::artifact(&manifest::MANIFEST)
+        .ok_or("computer use is not available for this platform")?;
+    let filename = manifest::release_filename(artifact, &version)?;
+    let release = fetcher
+        .release(&manifest::MANIFEST.mirrors, &version, &filename)
+        .await?;
+    driver::upgrade(DriverId::Cua.root(&root), &fetcher, &version, release).await
 }
 
 /// 卸载驱动：释放运行时并删除已安装的全部版本。

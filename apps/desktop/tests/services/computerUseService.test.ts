@@ -29,6 +29,7 @@ const nativeStatus = vi.fn();
 const nativeDirectory = vi.fn(async () => 'C:/drivers');
 const nativeMoveDirectory = vi.fn(async (directory: string) => directory);
 const nativeUpdate = vi.fn();
+const nativeInstallUpdate = vi.fn();
 const nativeRemove = vi.fn();
 const nativeApply = vi.fn();
 const nativeRecording = vi.fn();
@@ -53,6 +54,7 @@ vi.mock('@services/NativeService', () => ({
         pulseGlow: (...args: unknown[]) => nativePulseGlow(...args),
         setActivity: vi.fn(async () => undefined),
         checkUpdate: () => nativeUpdate(),
+        installUpdate: (driver: string, version: string) => nativeInstallUpdate(driver, version),
         remove: (driver: string) => nativeRemove(driver),
         applySettings: (request: unknown) => nativeApply(request),
         setRecording: (...args: unknown[]) => nativeRecording(...args),
@@ -69,6 +71,7 @@ const {
     allowForSession,
     applySettings,
     checkUpdate,
+    installUpdate,
     clearSessionApprovals,
     isAllowedForSession,
     loadSettings,
@@ -103,6 +106,7 @@ beforeEach(async () => {
     nativeMoveDirectory.mockReset().mockImplementation(async (directory) => directory);
     nativeStatus.mockResolvedValue({ installed: true, error: null });
     nativeUpdate.mockReset();
+    nativeInstallUpdate.mockReset();
     nativeRemove.mockReset();
     nativeApply.mockReset();
     nativeRecording.mockReset();
@@ -530,6 +534,28 @@ describe('computer use driver lifecycle', () => {
         const result = await checkUpdate();
         expect(result.updateAvailable).toBe(false);
         expect(result.error).toBe('mirror answered 503');
+    });
+
+    it('user given a newer driver when installing then stops running work and reports the new version', async () => {
+        nativeInstallUpdate.mockResolvedValue({
+            abi_version: '1.1.0',
+            binary: 'C:/data/computer-use/0.39.0/cua_driver_sdk.dll',
+            driver_version: '0.39.0',
+            installed_size_bytes: 33000000,
+            error: null,
+            installed: true,
+        });
+
+        await expect(installUpdate('cua-driver', '0.39.0')).resolves.toEqual({
+            abiVersion: '1.1.0',
+            binary: 'C:/data/computer-use/0.39.0/cua_driver_sdk.dll',
+            driverVersion: '0.39.0',
+            installedSizeBytes: 33000000,
+            error: null,
+            installed: true,
+        });
+        expect(nativeCancelAll).toHaveBeenCalledTimes(1);
+        expect(nativeInstallUpdate).toHaveBeenCalledWith('cua-driver', '0.39.0');
     });
 
     it('user removes the driver through the native command', async () => {

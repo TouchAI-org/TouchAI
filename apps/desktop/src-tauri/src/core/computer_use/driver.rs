@@ -16,8 +16,8 @@ use serde_json::Value;
 use super::abi::{AbiError, AbiLibrary, Driver, PendingCall};
 use super::manifest::{artifact, is_publishable, MANIFEST};
 use super::provision::{
-    confirm_install, ensure_installed, installed_binary, installed_size, InstallLayout,
-    ProvisionError, WheelFetcher,
+    active_install, confirm_version, ensure_installed, installed_binary, installed_size,
+    InstallLayout, ProvisionError, WheelFetcher,
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -105,7 +105,66 @@ pub async fn ensure_ready<F: WheelFetcher>(
     // 内置形态只需要同目录下的 dll，wheel 里就是它。
     let library_path = installed.binary().to_path_buf();
 
-    load_runtime(library_path).await
+    load_runtime(library_path, MANIFEST.version).await
+}
+
+/// Install a newer published release and switch to it only after it loads.
+///
+/// The running release stays untouched until the candidate has downloaded,
+/// matched the digest from the package indexes, and answered the tool catalog.
+/// Any failure leaves the previous installation and `current.json` unchanged.
+pub async fn upgrade<F: WheelFetcher>(
+    root: PathBuf,
+    fetcher: &F,
+    version: &str,
+    release: super::http::WheelRelease,
+) -> Result<DriverStatus, String> {
+    let _loading = LOADING.lock().await;
+    let artifact = artifact(&MANIFEST).ok_or("unsupported driver platform")?;
+    if !is_publishable(artifact) {
+        return Err("computer use is not available for this platform".into());
+    }
+    let filename = super::manifest::release_filename(artifact, version)?;
+    let package_path = release.package_path;
+    if !package_path.contains(version) || !package_path.contains(&filename) {
+        return Err("the package index returned an unrelated release".into());
+    }
+    let candidate = super::manifest::Artifact {
+        target: artifact.target,
+        package_path: &package_path,
+        sha256: &release.sha256,
+        size: 0,
+        entry: artifact.entry,
+        transport: artifact.transport,
+        binary_sha256: "",
+        filename: artifact.filename,
+        helpers: artifact.helpers.clone(),
+    };
+    let layout = InstallLayout::new(&root);
+    let installed = ensure_installed(fetcher, &layout, version, &candidate, &MANIFEST.mirrors)
+        .await
+        .map_err(|error: ProvisionError| error.to_string())?;
+    shutdown();
+    let binary = installed.binary().to_path_buf();
+    match load_runtime(binary, version).await {
+        Ok(status) => Ok(status),
+        Err(error) => {
+            shutdown();
+            if let Some((previous, binary)) =
+                active_install(&layout).map_err(|error| error.to_string())?
+            {
+                if previous != version {
+                    if let Ok(restored) = load_runtime(binary, &previous).await {
+                        log::warn!(
+                            "Driver {version} failed to start; restored {previous}: {error}"
+                        );
+                        return Ok(restored);
+                    }
+                }
+            }
+            Err(error)
+        }
+    }
 }
 
 pub async fn restore_installed(root: PathBuf) -> Result<DriverStatus, String> {
@@ -113,16 +172,21 @@ pub async fn restore_installed(root: PathBuf) -> Result<DriverStatus, String> {
     if let Some(driver) = current() {
         return Ok(cached_status().unwrap_or_else(|| status_of(&driver)));
     }
+    let layout = InstallLayout::new(root);
+    if let Some((version, binary)) = active_install(&layout).map_err(|error| error.to_string())? {
+        return load_runtime(binary, &version).await;
+    }
+    // Installs made before activation was recorded still live under the pinned
+    // manifest version, so fall back to it instead of reporting "missing".
     let Some(artifact) = artifact(&MANIFEST) else {
         return Ok(DriverStatus::missing(None));
     };
-    let layout = InstallLayout::new(root);
     let Some(binary) =
         installed_binary(&layout, MANIFEST.version, artifact).map_err(|error| error.to_string())?
     else {
         return Ok(DriverStatus::missing(None));
     };
-    load_runtime(binary).await
+    load_runtime(binary, MANIFEST.version).await
 }
 
 pub async fn installed_status(root: PathBuf) -> Result<DriverStatus, String> {
@@ -130,10 +194,24 @@ pub async fn installed_status(root: PathBuf) -> Result<DriverStatus, String> {
         return Ok(status());
     }
     tauri::async_runtime::spawn_blocking(move || {
+        let layout = InstallLayout::new(root);
+        if let Some((version, binary)) =
+            active_install(&layout).map_err(|error| error.to_string())?
+        {
+            return Ok(DriverStatus {
+                installed: true,
+                binary: Some(binary.display().to_string()),
+                driver_version: Some(version),
+                installed_size_bytes: installed_size(&binary),
+                abi_version: None,
+                metadata: None,
+                error: None,
+            });
+        }
         let Some(artifact) = artifact(&MANIFEST) else {
             return Ok(DriverStatus::missing(None));
         };
-        let Some(binary) = installed_binary(&InstallLayout::new(root), MANIFEST.version, artifact)
+        let Some(binary) = installed_binary(&layout, MANIFEST.version, artifact)
             .map_err(|error| error.to_string())?
         else {
             return Ok(DriverStatus::missing(None));
@@ -152,21 +230,20 @@ pub async fn installed_status(root: PathBuf) -> Result<DriverStatus, String> {
     .map_err(|error| format!("computer use installation check failed: {error}"))?
 }
 
-async fn load_runtime(library_path: PathBuf) -> Result<DriverStatus, String> {
+async fn load_runtime(library_path: PathBuf, version: &str) -> Result<DriverStatus, String> {
+    let version = version.to_string();
     tauri::async_runtime::spawn_blocking(move || {
         let root = library_path
             .parent()
             .and_then(|directory| directory.parent())
             .ok_or("invalid driver installation path")?
             .to_path_buf();
-        let status = load_library(library_path)?;
+        let status = load_library(library_path, &version)?;
         let activated = (|| {
             if list_tools()?.is_empty() {
                 return Err("the driver returned no tools".to_string());
             }
-            let artifact = artifact(&MANIFEST).ok_or("unsupported driver platform")?;
-            confirm_install(&InstallLayout::new(root), MANIFEST.version, artifact)
-                .map_err(|error| error.to_string())
+            confirm_version(&InstallLayout::new(root), &version).map_err(|error| error.to_string())
         })();
         if let Err(error) = activated {
             shutdown();
@@ -178,7 +255,7 @@ async fn load_runtime(library_path: PathBuf) -> Result<DriverStatus, String> {
     .map_err(|error| format!("computer use loading failed: {error}"))?
 }
 
-fn load_library(library_path: PathBuf) -> Result<DriverStatus, String> {
+fn load_library(library_path: PathBuf, version: &str) -> Result<DriverStatus, String> {
     let library = AbiLibrary::open(&library_path).map_err(|error: AbiError| error.to_string())?;
     let abi = AbiLibrary::version(&library_path)
         .map_err(|error: AbiError| error.to_string())?
@@ -210,6 +287,7 @@ fn load_library(library_path: PathBuf) -> Result<DriverStatus, String> {
     }
 
     let mut status = status_of(&driver);
+    status.driver_version = Some(version.to_string());
     status.abi_version = Some(abi);
     status.installed = true;
     status.installed_size_bytes = installed_size(&library_path);
@@ -609,11 +687,13 @@ pub struct UpdateInfo {
 }
 
 /// Ask the mirrors for the newest published driver version.
-pub async fn check_update(fetcher: &super::http::HttpWheelFetcher) -> UpdateInfo {
-    let current = MANIFEST.version.to_string();
+///
+/// `current` is the installed version, not the pinned manifest one, otherwise an
+/// upgraded installation would keep being offered the same release.
+pub async fn check_update(fetcher: &super::http::HttpWheelFetcher, current: String) -> UpdateInfo {
     match fetcher.latest_version(&MANIFEST.mirrors).await {
         Ok(latest) => UpdateInfo {
-            update_available: super::http::compare(&latest, MANIFEST.version)
+            update_available: super::http::compare(&latest, &current)
                 == std::cmp::Ordering::Greater,
             latest: Some(latest),
             current,

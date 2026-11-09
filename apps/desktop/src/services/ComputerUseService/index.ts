@@ -332,6 +332,25 @@ export async function checkUpdate(driver?: ComputerUseDriverId): Promise<Compute
     };
 }
 
+export async function installUpdate(
+    driver: ComputerUseDriverId,
+    version: string
+): Promise<ComputerUseStatus> {
+    await computerUse.cancelAll();
+    configuredSessions.clear();
+    clearSessionApprovals();
+    catalog = undefined;
+    const raw = await computerUse.installUpdate(driver, version);
+    return {
+        abiVersion: raw.abi_version ?? null,
+        binary: raw.binary ?? null,
+        driverVersion: raw.driver_version ?? null,
+        installedSizeBytes: raw.installed_size_bytes ?? null,
+        error: raw.error ?? null,
+        installed: Boolean(raw.installed),
+    };
+}
+
 /** Release the runtime and delete every installed driver version. */
 export async function remove(driver?: ComputerUseDriverId): Promise<void> {
     const selected = await loadDriver();
@@ -550,6 +569,7 @@ export const computerUseService = {
     allowForSession,
     applySettings,
     checkUpdate,
+    installUpdate,
     clearSessionApprovals,
     execute,
     startActivity,

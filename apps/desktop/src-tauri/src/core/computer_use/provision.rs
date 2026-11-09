@@ -230,6 +230,57 @@ pub fn installed_binary(
     Ok(is_installed(layout, version, artifact, &binary).then_some(binary))
 }
 
+/// Locate a verified driver binary for a version that is not in the manifest.
+///
+/// An upgraded release is verified against the digest published by its mirror at
+/// install time, so the install record, not the pinned manifest, is the source of
+/// truth here.
+pub fn installed_binary_in(
+    layout: &InstallLayout,
+    version: &str,
+) -> Result<Option<PathBuf>, ProvisionError> {
+    let directory = layout.version_dir(version);
+    let Ok(raw) = std::fs::read_to_string(layout.record_path(version)) else {
+        return Ok(None);
+    };
+    let Ok(record) = serde_json::from_str::<InstallRecord>(&raw) else {
+        return Ok(None);
+    };
+    if record.version != version || record.binary_sha256.len() != 64 {
+        return Ok(None);
+    }
+    let Ok(entries) = std::fs::read_dir(&directory) else {
+        return Ok(None);
+    };
+    for entry in entries {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() || entry.file_name() == "install.json" {
+            continue;
+        }
+        let path = entry.path();
+        if sha256_file(&path).is_ok_and(|actual| actual == record.binary_sha256) {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
+}
+
+/// The version recorded as active, when an activation has happened.
+pub fn active_version(layout: &InstallLayout) -> Option<String> {
+    let raw = std::fs::read_to_string(layout.current_pointer()).ok()?;
+    serde_json::from_str::<CurrentPointer>(&raw)
+        .ok()
+        .map(|pointer| pointer.version)
+}
+
+/// The active install, whichever version it is.
+pub fn active_install(layout: &InstallLayout) -> Result<Option<(String, PathBuf)>, ProvisionError> {
+    let Some(version) = active_version(layout) else {
+        return Ok(None);
+    };
+    Ok(installed_binary_in(layout, &version)?.map(|binary| (version, binary)))
+}
+
 pub fn installed_size(binary: &Path) -> Option<u64> {
     let directory = binary.parent()?;
     let measured = (|| -> Result<u64, std::io::Error> {
@@ -286,6 +337,16 @@ pub fn confirm_install(
     artifact: &Artifact<'_>,
 ) -> Result<(), ProvisionError> {
     if installed_binary(layout, version, artifact)?.is_none() {
+        return Err(ProvisionError::Io(
+            "driver changed before activation".into(),
+        ));
+    }
+    confirm_version(layout, version)
+}
+
+/// Record a version as active after its own verified install.
+pub fn confirm_version(layout: &InstallLayout, version: &str) -> Result<(), ProvisionError> {
+    if installed_binary_in(layout, version)?.is_none() {
         return Err(ProvisionError::Io(
             "driver changed before activation".into(),
         ));
@@ -381,7 +442,8 @@ async fn download<F: WheelFetcher>(
     mirrors: &[&str],
 ) -> Result<PathBuf, ProvisionError> {
     let partial = layout.partial_path(version);
-    if std::fs::metadata(&partial).is_ok_and(|metadata| metadata.len() == artifact.size)
+    if std::fs::metadata(&partial)
+        .is_ok_and(|metadata| artifact.size == 0 || metadata.len() == artifact.size)
         && verify_wheel(&partial, artifact).is_ok()
     {
         return Ok(partial);
@@ -442,7 +504,7 @@ async fn download<F: WheelFetcher>(
 
 fn verify_wheel(path: &Path, artifact: &Artifact<'_>) -> Result<(), ProvisionError> {
     let actual_size = std::fs::metadata(path)?.len();
-    if actual_size != artifact.size {
+    if artifact.size > 0 && actual_size != artifact.size {
         let _ = std::fs::remove_file(path);
         return Err(ProvisionError::SizeMismatch {
             expected: artifact.size,

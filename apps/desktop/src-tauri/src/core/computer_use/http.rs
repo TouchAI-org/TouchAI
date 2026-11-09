@@ -13,6 +13,12 @@ use futures::StreamExt;
 
 use super::provision::{Fetched, WheelFetcher};
 
+/// One published release, resolved from the package indexes.
+pub struct WheelRelease {
+    pub package_path: String,
+    pub sha256: String,
+}
+
 pub struct HttpWheelFetcher {
     client: reqwest::Client,
     user_agent: String,
@@ -59,6 +65,121 @@ impl HttpWheelFetcher {
         }
         Err(last_error)
     }
+
+    /// Resolve the wheel for `version` and the digest every reachable index agrees on.
+    ///
+    /// The pinned manifest cannot describe a version that did not exist when this
+    /// build shipped, so an upgrade takes its digest from the indexes instead. The
+    /// official index must answer and no two indexes may disagree, otherwise the
+    /// caller has no reviewed bytes to verify against and the upgrade is refused.
+    pub async fn release(
+        &self,
+        mirrors: &[&str],
+        version: &str,
+        filename: &str,
+    ) -> Result<WheelRelease, String> {
+        let mut agreed: Option<(String, String)> = None;
+        let mut official: Option<(String, String)> = None;
+        let mut last_error = String::from("no mirror answered");
+        for (index, mirror) in mirrors.iter().enumerate() {
+            let url = format!("{}/simple/cua-driver/", mirror.trim_end_matches('/'));
+            let response = self
+                .client
+                .get(&url)
+                .header(reqwest::header::USER_AGENT, &self.user_agent)
+                .send()
+                .await;
+            let body = match response {
+                Ok(response) if response.status().is_success() => match response.text().await {
+                    Ok(body) => body,
+                    Err(error) => {
+                        last_error = format!("{url}: {error}");
+                        continue;
+                    }
+                },
+                Ok(response) => {
+                    last_error = format!("{url} answered {}", response.status());
+                    continue;
+                }
+                Err(error) => {
+                    last_error = format!("{url}: {error}");
+                    continue;
+                }
+            };
+            let Some((path, digest)) = wheel_entry(&body, filename) else {
+                last_error = format!("{url} does not publish {filename}");
+                continue;
+            };
+            if index == 0 {
+                official = Some((path.clone(), digest.clone()));
+            }
+            match &agreed {
+                Some((_, known)) if *known != digest => {
+                    return Err(format!(
+                        "package indexes disagree on {filename}: {known} and {digest}"
+                    ));
+                }
+                Some(_) => {}
+                None => agreed = Some((path, digest)),
+            }
+        }
+        let Some((_, digest)) = agreed else {
+            return Err(last_error);
+        };
+        let Some((path, official_digest)) = official else {
+            return Err(format!(
+                "the official package index did not answer; refusing to install {version} without a reviewed digest"
+            ));
+        };
+        if official_digest != digest {
+            return Err(format!(
+                "the official package index reports a different digest for {filename}"
+            ));
+        }
+        Ok(WheelRelease {
+            package_path: path,
+            sha256: digest,
+        })
+    }
+}
+
+/// The href and `sha256` digest of one wheel in a PEP 503 index page.
+///
+/// Indexes disagree on how they link a file: PyPI publishes an absolute
+/// `https://files.pythonhosted.org/...` URL, while the mirrors use a relative
+/// `../../packages/...`. Both are reduced to the archive path so every mirror
+/// can serve it with its own host.
+pub fn wheel_entry(index: &str, filename: &str) -> Option<(String, String)> {
+    let mut cursor = 0usize;
+    while let Some(found) = index[cursor..].find("href=\"") {
+        let start = cursor + found + "href=\"".len();
+        let end = start + index[start..].find('"')?;
+        let href = &index[start..end];
+        cursor = end;
+        if !href.contains(filename) {
+            continue;
+        }
+        let Some((path, fragment)) = href.split_once('#') else {
+            continue;
+        };
+        let Some(digest) = fragment.strip_prefix("sha256=") else {
+            continue;
+        };
+        if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            continue;
+        }
+        let path = absolute_path(path)?;
+        return Some((format!("/{path}"), digest.to_ascii_lowercase()));
+    }
+    None
+}
+
+fn absolute_path(href: &str) -> Option<&str> {
+    let path = match href.split_once("://") {
+        Some((_, rest)) => rest.split_once('/').map(|(_, path)| path)?,
+        None => href.trim_start_matches("./").trim_start_matches("../"),
+    };
+    (!path.is_empty() && !path.starts_with('/')).then_some(path)
 }
 
 impl WheelFetcher for HttpWheelFetcher {
@@ -205,6 +326,50 @@ mod tests {
     #[test]
     fn user_gets_the_highest_published_version() {
         assert_eq!(highest_version(INDEX).as_deref(), Some("0.38.0"));
+    }
+
+    #[test]
+    fn user_given_a_published_wheel_when_resolving_it_then_gets_its_absolute_path_and_digest() {
+        const PAGE: &str = r#"
+            <a href="../../packages/6f/81/6192287039cc/cua_driver-0.44.0-py3-none-win_amd64.whl#sha256=1fba13e3a3f513117ce36e11949150708e25af5b035058cf870d9148f102db0f" data-requires-python="&gt;=3.10">cua_driver-0.44.0-py3-none-win_amd64.whl</a>
+            <a href="../../packages/6f/81/6192287039cc/cua_driver-0.44.0-py3-none-win_arm64.whl#sha256=bf1561ba87ce40505edbc21c18cc64de649976efe0153389f711a6ddb9e2df38">cua_driver-0.44.0-py3-none-win_arm64.whl</a>
+        "#;
+
+        assert_eq!(
+            wheel_entry(PAGE, "cua_driver-0.44.0-py3-none-win_amd64.whl"),
+            Some((
+                "/packages/6f/81/6192287039cc/cua_driver-0.44.0-py3-none-win_amd64.whl".to_string(),
+                "1fba13e3a3f513117ce36e11949150708e25af5b035058cf870d9148f102db0f".to_string(),
+            ))
+        );
+    }
+
+    #[test]
+    fn user_given_a_wheel_without_a_digest_when_resolving_it_then_gets_no_release() {
+        const PAGE: &str = r#"
+            <a href="../../packages/6f/81/cua_driver-0.44.0-py3-none-win_amd64.whl">x</a>
+            <a href="../../packages/6f/81/cua_driver-0.44.0-py3-none-win_amd64.whl#md5=abc">x</a>
+        "#;
+
+        assert_eq!(
+            wheel_entry(PAGE, "cua_driver-0.44.0-py3-none-win_amd64.whl"),
+            None
+        );
+    }
+
+    #[test]
+    fn user_given_an_absolute_file_url_when_resolving_it_then_gets_the_same_archive_path() {
+        const PAGE: &str = r#"
+            <a href="https://files.pythonhosted.org/packages/d8/ca/cua_driver-0.44.0-py3-none-win_amd64.whl#sha256=1fba13e3a3f513117ce36e11949150708e25af5b035058cf870d9148f102db0f">x</a>
+        "#;
+
+        assert_eq!(
+            wheel_entry(PAGE, "cua_driver-0.44.0-py3-none-win_amd64.whl"),
+            Some((
+                "/packages/d8/ca/cua_driver-0.44.0-py3-none-win_amd64.whl".to_string(),
+                "1fba13e3a3f513117ce36e11949150708e25af5b035058cf870d9148f102db0f".to_string(),
+            ))
+        );
     }
 
     #[test]

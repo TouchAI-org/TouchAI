@@ -26,6 +26,7 @@ const state = vi.hoisted(() => {
         },
         applySettings: vi.fn(async () => [] as string[]),
         checkUpdate: vi.fn(),
+        installUpdate: vi.fn(),
         clearSessionApprovals: vi.fn(),
         confirm: vi.fn(async () => true),
         loadSettings: vi.fn(async () => settings),
@@ -74,12 +75,22 @@ const state = vi.hoisted(() => {
 });
 
 const settings = state.settings;
-const { applySettings, checkUpdate, confirm, prepare, remove, saveSettings, status } = state;
+const {
+    applySettings,
+    checkUpdate,
+    confirm,
+    installUpdate,
+    prepare,
+    remove,
+    saveSettings,
+    status,
+} = state;
 
 vi.mock('@services/ComputerUseService', () => ({
     computerUseService: {
         applySettings: () => state.applySettings(),
         checkUpdate: (driver: string) => state.checkUpdate(driver),
+        installUpdate: (driver: string, version: string) => state.installUpdate(driver, version),
         clearSessionApprovals: () => state.clearSessionApprovals(),
         loadSettings: () => state.loadSettings(),
         loadDriver: () => state.loadDriver(),
@@ -183,6 +194,7 @@ beforeEach(() => {
     prepare.mockReset();
     remove.mockReset();
     checkUpdate.mockReset();
+    installUpdate.mockReset();
     applySettings.mockClear();
     status.mockReset();
     status.mockResolvedValue({
@@ -951,42 +963,126 @@ describe('computer use settings section', () => {
         expect(applySettings).toHaveBeenCalled();
     });
 
-    it('user checking for updates sees the newer version', async () => {
+    it('user given a newer driver when confirming the update then installs it and shows the new version', async () => {
         checkUpdate.mockResolvedValue({
             current: '0.38.0',
             error: null,
             latest: '0.39.0',
             updateAvailable: true,
         });
+        installUpdate.mockResolvedValue({
+            abiVersion: '1.1.0',
+            binary: 'C:/data/computer-use/0.39.0/cua_driver_sdk.dll',
+            driverVersion: '0.39.0',
+            error: null,
+            installed: true,
+            installedSizeBytes: 33_000_000,
+        });
         const wrapper = await mountPage();
 
         await wrapper.get('[data-testid="computer-use-check-update"]').trigger('click');
         await flush();
 
+        expect(confirm).toHaveBeenCalledWith(
+            expect.objectContaining({
+                message: expect.stringContaining('0.39.0'),
+                title: expect.stringContaining('cua-driver'),
+            })
+        );
+        expect(installUpdate).toHaveBeenCalledWith('cua-driver', '0.39.0');
         expect(state.alert.success).toHaveBeenCalledWith(
-            t('settings.computerUse.update.available', { version: '0.39.0' })
+            t('settings.computerUse.update.installed', { version: '0.39.0' })
+        );
+        expect(wrapper.get('[data-testid="computer-use-driver-select"]').text()).toContain(
+            'cua-driver'
         );
     });
 
-    it('user given an update in progress when it fails then sees the error and can retry the driver actions', async () => {
-        let rejectUpdate!: (reason: Error) => void;
+    it('user given an update prompt when declining then keeps the installed version', async () => {
+        checkUpdate.mockResolvedValue({
+            current: '0.38.0',
+            error: null,
+            latest: '0.39.0',
+            updateAvailable: true,
+        });
+        confirm.mockResolvedValueOnce(false);
+        const wrapper = await mountPage();
+
+        await wrapper.get('[data-testid="computer-use-check-update"]').trigger('click');
+        await flush();
+
+        expect(installUpdate).not.toHaveBeenCalled();
+        expect(state.alert.success).not.toHaveBeenCalled();
+    });
+
+    it('user given an update in progress when checking then only that driver is busy', async () => {
+        let resolveUpdate!: (value: unknown) => void;
         checkUpdate.mockReturnValueOnce(
-            new Promise((_resolve, reject) => {
-                rejectUpdate = reject;
+            new Promise((resolve) => {
+                resolveUpdate = resolve;
             })
         );
         const wrapper = await mountPage();
         const updateAction = wrapper.get('[data-testid="computer-use-check-update"]');
-        const removeAction = wrapper.get('[data-testid="computer-use-remove"]');
-        await updateAction.trigger('click');
-        expect(updateAction.attributes()).toHaveProperty('disabled');
-        expect(removeAction.attributes()).toHaveProperty('disabled');
+        const otherDriver = wrapper.get('[role="group"][aria-label="agent-desktop"]');
+        const otherAction = otherDriver.get('[data-testid="computer-use-check-update"]');
 
-        rejectUpdate(new Error('Update unavailable'));
-        await flushPromises();
+        await updateAction.trigger('click');
+
+        expect(updateAction.attributes()).toHaveProperty('disabled');
+        expect(updateAction.attributes('aria-busy')).toBe('true');
+        expect(otherAction.attributes()).not.toHaveProperty('disabled');
+
+        resolveUpdate({ current: '0.38.0', error: null, latest: '0.38.0', updateAvailable: false });
+        await flush();
+        expect(state.alert.success).toHaveBeenCalledWith(t('settings.computerUse.update.current'));
+        expect(updateAction.attributes()).not.toHaveProperty('disabled');
+        expect(updateAction.attributes('aria-busy')).toBe('false');
+    });
+
+    it('user given a failed update when installing then sees the error and can retry', async () => {
+        checkUpdate.mockResolvedValue({
+            current: '0.38.0',
+            error: null,
+            latest: '0.39.0',
+            updateAvailable: true,
+        });
+        installUpdate.mockRejectedValueOnce(new Error('Update unavailable'));
+        const wrapper = await mountPage();
+        const updateAction = wrapper.get('[data-testid="computer-use-check-update"]');
+
+        await updateAction.trigger('click');
+        await flush();
+
         expect(state.alert.error).toHaveBeenCalledWith('Update unavailable');
         expect(updateAction.attributes()).not.toHaveProperty('disabled');
-        expect(removeAction.attributes()).not.toHaveProperty('disabled');
+        expect(updateAction.attributes('aria-busy')).toBe('false');
+    });
+
+    it('user given a restored driver after a failed update then sees the previous version', async () => {
+        checkUpdate.mockResolvedValue({
+            current: '0.38.0',
+            error: null,
+            latest: '0.39.0',
+            updateAvailable: true,
+        });
+        installUpdate.mockResolvedValue({
+            abiVersion: '1.1.0',
+            binary: 'C:/data/computer-use/0.38.0/cua_driver_sdk.dll',
+            driverVersion: '0.38.0',
+            error: null,
+            installed: true,
+            installedSizeBytes: 32_842_600,
+        });
+        const wrapper = await mountPage();
+
+        await wrapper.get('[data-testid="computer-use-check-update"]').trigger('click');
+        await flush();
+
+        expect(state.alert.warning).toHaveBeenCalledWith(
+            t('settings.computerUse.update.restored', { version: '0.38.0' })
+        );
+        expect(state.alert.success).not.toHaveBeenCalled();
     });
 
     it('user given computer control is off when viewing the driver then cannot update or remove it', async () => {

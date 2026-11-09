@@ -146,6 +146,17 @@ describe('computer use native bridge', () => {
         });
     });
 
+    it('user given a newer driver when installing it then sends the driver and version', async () => {
+        const received: unknown[] = [];
+        mockTauriCommand('computer_use_install_update', (payload: unknown) => {
+            received.push(payload);
+            return STATUS;
+        });
+
+        await expect(computerUse.installUpdate('cua-driver', '0.39.0')).resolves.toEqual(STATUS);
+        expect(received).toEqual([{ driver: 'cua-driver', version: '0.39.0' }]);
+    });
+
     it('user removes the downloaded driver', async () => {
         mockTauriCommand('computer_use_remove', true);
 
