@@ -21,6 +21,10 @@ export function isSearchUrl(url) {
         return false;
     }
 
+    if (value.endsWith('/index.html')) {
+        return false;
+    }
+
     return (
         value.endsWith('#/') ||
         value.endsWith('/') ||

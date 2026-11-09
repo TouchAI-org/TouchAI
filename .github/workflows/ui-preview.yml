@@ -38,11 +38,12 @@ env:
     UI_PREVIEW_DESKTOP_COLOUR: '#d9d4c8'
 
 concurrency:
-    # The App adds the approval label during the /ui-preview run. That label
-    # event must not cancel the run that just started, so bot-authored
-    # approval labels get their own group. Every other event still cancels an
-    # older preview for the same pull request.
-    group: ui-preview-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}-${{ github.event_name == 'pull_request_target' && github.event.action == 'labeled' && github.event.label.name == 'status:ui-preview-approved' && endsWith(github.actor, '[bot]') && 'approval' || 'run' }}
+    # Only a preview request may replace an active preview. The App's approval
+    # label gets its own group because the /ui-preview path adds it; ordinary
+    # comments and unrelated labels get event-specific groups that cannot
+    # collide with `run`. The job filter still performs the authoritative
+    # decision, but workflow concurrency acts before any job runs.
+    group: ui-preview-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}-${{ github.event_name == 'pull_request_target' && github.event.action == 'labeled' && github.event.label.name == 'status:ui-preview-approved' && endsWith(github.actor, '[bot]') && 'approval' || github.event_name == 'issue_comment' && !startsWith(github.event.comment.body, '/ui-preview') && 'comment' || github.event_name == 'pull_request_target' && contains(fromJSON('["labeled","unlabeled"]'), github.event.action) && !contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name) && 'label' || 'run' }}
     cancel-in-progress: true
 
 jobs:

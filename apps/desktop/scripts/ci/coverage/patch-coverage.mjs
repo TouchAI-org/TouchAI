@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { existsSync, realpathSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
 
 /**
@@ -111,25 +112,57 @@ function hasStatementOn(fileCoverage, line) {
 export function measurePatchCoverage(changedLines, coverageReport, options = {}) {
     const { repoRoot = '', ignore = () => false } = options;
     const normalise = (path) => path.replace(/\\/g, '/');
+    const canonicalise = (path) => {
+        const value = String(path ?? '');
+        const normalised = normalise(value);
+
+        if (!value || !existsSync(value)) {
+            return normalised;
+        }
+
+        try {
+            return normalise(realpathSync.native(value));
+        } catch {
+            return normalised;
+        }
+    };
+    const pathFor = (value) => {
+        const text = String(value ?? '');
+        return win32.isAbsolute(text) ? win32 : posix;
+    };
 
     // The report keys are absolute paths; the diff keys are repo-relative. Index the report by
     // its repo-relative suffix so the two can be matched regardless of where the checkout lives.
     const configuredRoot = normalise(repoRoot).replace(/^\.\//, '');
-    const root = !configuredRoot || configuredRoot === '.' ? normalise(process.cwd()) : configuredRoot;
+    const root =
+        !configuredRoot || configuredRoot === '.'
+            ? canonicalise(process.cwd())
+            : canonicalise(configuredRoot);
     const absoluteRoot = posix.isAbsolute(root) || win32.isAbsolute(root);
     const explicitAbsoluteRoot = posix.isAbsolute(configuredRoot) || win32.isAbsolute(configuredRoot);
-    const prefix = `${absoluteRoot ? '' : '/'}${root.replace(/\/+$/, '')}/`;
+    const pathApi = pathFor(root);
+    const rootWithoutTrailingSlash = root.replace(/\/+$/, '');
+    const relativePrefix = `${absoluteRoot ? '' : '/'}${rootWithoutTrailingSlash}/`;
     const byRelativePath = new Map();
     const normalisedEntries = [];
     for (const [absolute, fileCoverage] of Object.entries(coverageReport)) {
-        const normalisedAbsolute = normalise(absolute);
-        const index = absoluteRoot
-            ? normalisedAbsolute.startsWith(prefix)
-                ? 0
-                : -1
-            : normalisedAbsolute.lastIndexOf(prefix);
-        const relative =
-            index >= 0 ? normalisedAbsolute.slice(index + prefix.length) : normalisedAbsolute;
+        const normalisedAbsolute = canonicalise(absolute);
+        let relative = normalise(normalisedAbsolute);
+
+        if (absoluteRoot) {
+            const candidate = pathApi.relative(rootWithoutTrailingSlash, normalisedAbsolute);
+
+            if (!candidate.startsWith('..') && !pathApi.isAbsolute(candidate)) {
+                relative = normalise(candidate);
+            }
+        } else {
+            const index = normalisedAbsolute.lastIndexOf(relativePrefix);
+
+            if (index >= 0) {
+                relative = normalisedAbsolute.slice(index + relativePrefix.length);
+            }
+        }
+
         byRelativePath.set(relative, fileCoverage);
         normalisedEntries.push([normalisedAbsolute, fileCoverage]);
     }

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { data, Evaluator, Lexer, Parser } from '@actions/expressions';
 import { describe, expect, it } from 'vitest';
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -46,6 +47,33 @@ function stepBlock(job, name) {
     return next === -1 ? job.slice(start) : job.slice(start, start + 1 + next);
 }
 
+function concurrencyGroup() {
+    const match = /concurrency:\n(?: {4}.*\n)*? {4}group: (.+)\n/.exec(workflow);
+
+    return match?.[1] ?? '';
+}
+
+function concurrencyKey(eventName, event, actor = 'maintainer') {
+    const group = concurrencyGroup();
+    const values = {
+        github: {
+            actor,
+            event_name: eventName,
+            event,
+        },
+        inputs: {},
+    };
+    const expression = group.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, source) => {
+        const tokens = new Lexer(source.trim()).lex().tokens;
+        const ast = new Parser(tokens, Object.keys(values), []).parse();
+        const context = JSON.parse(JSON.stringify(values), data.reviver);
+
+        return new Evaluator(ast, context).evaluate().coerceString();
+    });
+
+    return expression;
+}
+
 describe('user opens a pull request that runs the preview', () => {
     it('user gets a preview trigger that never uses the default write token', () => {
         expect(workflow).toContain('pull_request_target');
@@ -58,8 +86,89 @@ describe('user opens a pull request that runs the preview', () => {
     });
 
     it('user gets the preview run preserved when the App adds its approval label', () => {
-        expect(workflow).toContain("endsWith(github.actor, '[bot]')");
-        expect(workflow).toContain("'approval' || 'run'");
+        const key = concurrencyKey(
+            'pull_request_target',
+            {
+                action: 'labeled',
+                label: { name: 'status:ui-preview-approved' },
+                pull_request: { number: 42 },
+            },
+            'touchai-preview[bot]'
+        );
+
+        expect(key).toBe('ui-preview-42-approval');
+    });
+
+    it.each([
+        ['human', 'maintainer', 'issue_comment'],
+        ['bot', 'coderabbitai[bot]', 'issue_comment'],
+    ])(
+        'user gets an ordinary %s comment kept outside the active preview group',
+        (_kind, actor, eventName) => {
+            const active = concurrencyKey('pull_request_target', {
+                action: 'synchronize',
+                pull_request: { number: 42 },
+            });
+            const comment = concurrencyKey(
+                eventName,
+                {
+                    comment: { body: '@coderabbitai review' },
+                    issue: { number: 42, pull_request: {} },
+                },
+                actor
+            );
+
+            expect(comment).toBe('ui-preview-42-comment');
+            expect(comment).not.toBe(active);
+        }
+    );
+
+    it('user gets an irrelevant label kept outside the active preview group', () => {
+        const active = concurrencyKey('pull_request_target', {
+            action: 'synchronize',
+            pull_request: { number: 42 },
+        });
+        const label = concurrencyKey('pull_request_target', {
+            action: 'labeled',
+            label: { name: 'documentation' },
+            pull_request: { number: 42 },
+        });
+
+        expect(label).toBe('ui-preview-42-label');
+        expect(label).not.toBe(active);
+    });
+
+    it('user gets a real preview request superseding the previous run', () => {
+        const active = concurrencyKey('pull_request_target', {
+            action: 'synchronize',
+            pull_request: { number: 42 },
+        });
+        const comment = concurrencyKey(
+            'issue_comment',
+            {
+                comment: { body: '/ui-preview' },
+                issue: { number: 42, pull_request: {} },
+            },
+            'maintainer'
+        );
+
+        expect(comment).toBe('ui-preview-42-run');
+        expect(comment).toBe(active);
+    });
+
+    it('user gets a preview from another pull request kept apart', () => {
+        const first = concurrencyKey('pull_request_target', {
+            action: 'synchronize',
+            pull_request: { number: 42 },
+        });
+        const second = concurrencyKey('pull_request_target', {
+            action: 'synchronize',
+            pull_request: { number: 43 },
+        });
+
+        expect(first).toBe('ui-preview-42-run');
+        expect(second).toBe('ui-preview-43-run');
+        expect(first).not.toBe(second);
     });
 
     it('user gets no separate credential check that can be run and forgotten', () => {
