@@ -85,8 +85,10 @@
     --color-secondary: var(--color-primary-100);
     --color-accent: var(--color-primary-100);
 
-    /* ── Markdown surfaces ───────────────────────────────────────────────── */
+    /* ── Markdown ────────────────────────────────────────────────────────── */
 
+    --color-markdown-body: var(--color-gray-600);
+    --color-markdown-heading: var(--color-gray-900);
     --color-markdown-surface: rgba(253, 251, 253, 0.98);
     --color-markdown-surface-soft: rgba(251, 249, 245, 0.98);
     --color-markdown-surface-border: rgba(230, 224, 214, 0.9);

@@ -1,5 +1,5 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
-import { and, asc, desc, eq, type SQL, sql } from 'drizzle-orm';
+import { and, desc, eq, type SQL, sql } from 'drizzle-orm';
 
 import { db } from '../index';
 import { messageParts, messages, type ToolLogKind } from '../schema';
@@ -13,7 +13,11 @@ import type {
 
 type ToolPartIdentity = 'id' | 'tool_call_id' | 'session_id' | 'message_id' | 'created_at';
 /** The JSON payload stored by tool_call parts, not a flattened message or log reference. */
-export type ToolCallPartData = { toolCallId: string } & (
+export type ToolCallPartData = {
+    toolCallId: string;
+    /** Rejected names with no canonical tool identity must survive replay unchanged. */
+    requestedName?: string;
+} & (
     | (Omit<McpToolLogEntity, ToolPartIdentity> & { toolKind: 'mcp' })
     | (Omit<BuiltInToolLogEntity, ToolPartIdentity> & { toolKind: 'builtin' })
 );
@@ -23,6 +27,7 @@ export function readToolCallData(part: MessagePartEntity): ToolCallPartData {
 }
 
 export function getToolCallName(data: ToolCallPartData): string {
+    if (typeof data.requestedName === 'string') return data.requestedName;
     return data.toolKind === 'builtin'
         ? `builtin__${data.tool_id}`
         : `mcp__${data.server_id}__${data.tool_name}`;
@@ -271,47 +276,42 @@ async function createToolPartInner(
 }
 export async function updateToolPart(
     kind: ToolLogKind,
-    condition: SQL,
+    id: number,
     patch: McpToolLogUpdateData | BuiltInToolLogUpdateData
 ): Promise<ToolPartEntity | undefined> {
     return db.transaction(async (tx) => {
-        const existing = await tx
+        const part = await tx
             .select()
             .from(messageParts)
             .where(
-                and(eq(messageParts.type, 'tool_call'), eq(messageParts.tool_kind, kind), condition)
+                and(
+                    eq(messageParts.id, id),
+                    eq(messageParts.type, 'tool_call'),
+                    eq(messageParts.tool_kind, kind)
+                )
             )
-            .orderBy(asc(messageParts.id))
-            .all();
-        let result: ToolPartEntity | undefined;
-        for (const part of existing) {
-            const payload = toolPayload({ ...patch });
-            const updated = await tx
-                .update(messageParts)
-                .set({
-                    data: JSON.stringify({ ...JSON.parse(part.data), ...payload, toolKind: kind }),
-                    updated_at: sql`datetime('now')`,
-                })
-                .where(eq(messageParts.id, part.id))
-                .returning()
-                .get();
-            if (updated && !result) {
-                const parent = await tx
-                    .select()
-                    .from(messages)
-                    .where(eq(messages.id, updated.message_id))
-                    .get();
-                result = {
-                    ...JSON.parse(updated.data),
-                    id: updated.id,
-                    message_id: updated.message_id,
-                    session_id: parent!.session_id,
-                    tool_call_id: updated.tool_call_id!,
-                    created_at: updated.created_at,
-                } as ToolPartEntity;
-            }
-        }
-        return result;
+            .get();
+        if (!part) return undefined;
+        const updated = await tx
+            .update(messageParts)
+            .set({
+                data: JSON.stringify({
+                    ...JSON.parse(part.data),
+                    ...toolPayload({ ...patch }),
+                    toolKind: kind,
+                }),
+                updated_at: sql`datetime('now')`,
+            })
+            .where(eq(messageParts.id, id))
+            .returning()
+            .get();
+        if (!updated) return undefined;
+        const parent = await tx
+            .select()
+            .from(messages)
+            .where(eq(messages.id, updated.message_id))
+            .get();
+        return toToolPartEntity(updated, parent!.session_id);
     });
 }
 export const toolData = (field: string) =>

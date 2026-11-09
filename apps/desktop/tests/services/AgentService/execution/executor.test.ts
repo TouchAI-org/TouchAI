@@ -1,6 +1,15 @@
-﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+﻿import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
+import type {
+    AiRequestOptions,
+    PersistedOutputPart,
+} from '@/services/AgentService/contracts/protocol';
 import type { AiToolCall } from '@/services/AgentService/contracts/tooling';
 import { AiRequestExecutor } from '@/services/AgentService/execution';
 import type { AttemptCheckpoint } from '@/services/AgentService/execution/executor';
@@ -10,10 +19,10 @@ const providerMock = vi.hoisted(() => ({
     classifyError: vi.fn(),
 }));
 
-const { createMcpToolLogMock, updateMcpToolLogByCallIdMock, resolveToolCallMock, executeToolMock } =
+const { createMcpToolLogMock, updateMcpToolLogByIdMock, resolveToolCallMock, executeToolMock } =
     vi.hoisted(() => ({
         createMcpToolLogMock: vi.fn(),
-        updateMcpToolLogByCallIdMock: vi.fn(),
+        updateMcpToolLogByIdMock: vi.fn(),
         resolveToolCallMock: vi.fn(),
         executeToolMock: vi.fn(),
     }));
@@ -38,7 +47,7 @@ const {
 
 vi.mock('@database/queries', () => ({
     createMcpToolLog: createMcpToolLogMock,
-    updateMcpToolLogByCallId: updateMcpToolLogByCallIdMock,
+    updateMcpToolLogById: updateMcpToolLogByIdMock,
 }));
 
 vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
@@ -147,6 +156,38 @@ function createCheckpoint(): AttemptCheckpoint {
     };
 }
 
+function createLongCheckpoint(): AttemptCheckpoint {
+    const checkpoint = createCheckpoint();
+    checkpoint.activeModel.context_limit = 8000;
+    checkpoint.activeModel.output_limit = 1000;
+    checkpoint.messages = [
+        ...Array.from({ length: 12 }, (_, i) => [
+            { role: 'user' as const, content: `Request ${i}: ${'context '.repeat(150)}` },
+            { role: 'assistant' as const, content: 'evidence '.repeat(200) },
+        ]).flat(),
+        { role: 'user' as const, content: 'Finish the task.' },
+    ].map((message, index) => ({
+        ...message,
+        contextSource: { id: index + 1, fingerprint: 'a'.repeat(64) },
+    }));
+    return checkpoint;
+}
+
+function prepareToolMessage(sessionId: number) {
+    const database = openMigratedDatabase();
+    routeQueriesTo(database);
+    database
+        .prepare(
+            "INSERT INTO sessions (id, session_id, title, model) VALUES (?, 'test', 'Test', 'test')"
+        )
+        .run(sessionId);
+    database
+        .prepare("INSERT INTO messages (id, session_id, role) VALUES (1, ?, 'tool_call')")
+        .run(sessionId);
+}
+
+afterEach(closeTestDatabases);
+
 describe('user sends a prompt and receives a streamed answer', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -158,6 +199,296 @@ describe('user sends a prompt and receives a streamed answer', () => {
         vi.useRealTimers();
     });
 
+    it('user sees no duplicated prior output when next-step preparation fails after a complete tool round', async () => {
+        const checkpoint = createCheckpoint();
+        checkpoint.activeModel.context_limit = 8000;
+        checkpoint.activeModel.output_limit = 1000;
+        const call = { id: 'read-1', name: 'builtin__read', arguments: '{}' };
+        providerMock.stream.mockImplementation(async function* () {
+            yield {
+                content: 'I will inspect the file.',
+                toolCalls: [call],
+                done: true,
+                finishReason: 'tool_calls',
+            };
+        });
+        builtInExecuteToolMock.mockResolvedValue({
+            toolCall: call,
+            result: 'large result '.repeat(30000),
+            isError: false,
+            toolLogId: 7,
+            builtInToolId: 'read_file',
+        });
+        const storedToolParts: PersistedOutputPart[][] = [];
+        const result = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: checkpoint,
+            persister: {
+                getSessionId: () => 42,
+
+                persistContextSummary: async () => 1,
+                persistOutputProgress: async () => undefined,
+                persistToolCallMessage: async (parts: PersistedOutputPart[]) => {
+                    storedToolParts.push(parts);
+                    return 5;
+                },
+                persistToolResult: async () => undefined,
+                getContextMessageSource: async () => undefined,
+                persistCheckpoint: async () => undefined,
+            } as never,
+        });
+        expect(result.type).toBe('failed');
+        if (result.type !== 'failed') throw new Error('Expected a preparation failure');
+        expect(result.error.code).toBe(AiErrorCode.CONTEXT_TOO_LARGE);
+        expect(storedToolParts).toEqual([[{ type: 'text', content: 'I will inspect the file.' }]]);
+        expect(result.partialOutputParts).toEqual([]);
+    });
+
+    it('user keeps the same cache route across retries and later turns while other sessions stay separate', async () => {
+        const sent: AiRequestOptions[] = [];
+        providerMock.stream.mockImplementation(async function* (request: AiRequestOptions) {
+            sent.push(request);
+            if (sent.length === 1) throw new AiError(AiErrorCode.NETWORK_ERROR);
+            yield { content: 'Done', done: true };
+        });
+        const executor = new AiRequestExecutor();
+        const persister = {
+            getSessionId: () => 42,
+            persistOutputProgress: async () => undefined,
+        };
+        const failed = await executor.runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persister as never,
+        });
+        expect(failed.type).toBe('failed');
+        if (failed.type !== 'failed') throw new Error('Expected the first request to fail');
+        const retry = await executor.runAttempt({
+            startCheckpoint: failed.resumeCheckpoint,
+            persister: persister as never,
+        });
+        const nextTurn = await executor.runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persister as never,
+        });
+        const otherSession = await executor.runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: { ...persister, getSessionId: () => 43 } as never,
+        });
+        expect([retry.type, nextTurn.type, otherSession.type]).toEqual([
+            'completed',
+            'completed',
+            'completed',
+        ]);
+        const routes = sent.map((request) => request.promptCacheKey);
+        expect(routes[0]).toEqual(expect.any(String));
+        expect(routes.slice(0, 3)).toEqual([routes[0], routes[0], routes[0]]);
+        expect(routes[3]).not.toBe(routes[0]);
+    });
+
+    it('user receives the answer with summary costs included when history exceeds the model budget', async () => {
+        const checkpoint = createLongCheckpoint();
+        const originalMessageCount = checkpoint.messages.length;
+        const compactionStates: string[] = [];
+        const sent: AiRequestOptions[] = [];
+        providerMock.stream.mockImplementation(async function* (request: AiRequestOptions) {
+            sent.push(request);
+            yield {
+                content:
+                    request.toolChoice === 'none'
+                        ? 'Goal: finish. Next: validate.'
+                        : 'Final answer',
+                done: true,
+                finishReason: 'stop',
+                usageReported: true,
+                usage: {
+                    inputTokens: 10,
+                    cacheReadTokens: 20,
+                    cacheWriteTokens: 0,
+                    outputTokens: 5,
+                    reasoningTokens: 0,
+                },
+            };
+        });
+        const result = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: checkpoint,
+            onChunk: (chunk) => {
+                if (chunk.contextCompaction) compactionStates.push(chunk.contextCompaction.state);
+            },
+            persister: {
+                getSessionId: () => 42,
+
+                persistContextSummary: async () => 1,
+                persistOutputProgress: async () => undefined,
+            } as never,
+        });
+        expect(result.type).toBe('completed');
+        expect(result.response).toBe('Final answer');
+        expect(compactionStates).toEqual(['compacting', 'compacted']);
+        expect(sent.some((request) => request.toolChoice === 'none')).toBe(true);
+        expect(result.totalUsage.inputTokens).toBe(sent.length * 10);
+        expect(result.totalUsage.cacheReadTokens).toBe(sent.length * 20);
+        expect(result.calls).toHaveLength(sent.length);
+        expect(sent.map((request) => request.attachmentRequestIndex)).toEqual(
+            sent.map((_, index) => index)
+        );
+        expect(sent[sent.length - 1]!.messages.length).toBeLessThan(originalMessageCount);
+    });
+
+    it('user keeps Anthropic cache settings consistent when summarizing long history', async () => {
+        const checkpoint = createLongCheckpoint();
+        checkpoint.activeModel.provider_driver = 'anthropic';
+        checkpoint.activeModel.context_limit = 40_000;
+        checkpoint.activeModel.output_limit = 16_384;
+        checkpoint.messages = [
+            ...checkpoint.messages,
+            ...checkpoint.messages,
+            ...checkpoint.messages,
+        ].map((message, index) => ({
+            ...message,
+            contextSource: { id: index + 1, fingerprint: 'a'.repeat(64) },
+        }));
+        const sent: AiRequestOptions[] = [];
+        providerMock.stream.mockImplementation(async function* (request: AiRequestOptions) {
+            sent.push(request);
+            yield {
+                content: 'Goal: finish the task. Preserve the requirements.',
+                done: true,
+                finishReason: 'stop',
+            };
+        });
+        const result = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: checkpoint,
+            persister: {
+                getSessionId: () => 42,
+
+                persistContextSummary: async () => 1,
+                persistOutputProgress: async () => undefined,
+            } as never,
+        });
+        expect(result.type).toBe('completed');
+        expect(sent.length).toBeGreaterThan(1);
+        expect(sent.every((request) => request.toolChoice !== 'none')).toBe(true);
+        expect(new Set(sent.map((request) => request.maxOutputTokens)).size).toBe(1);
+        expect(sent[0]!.maxOutputTokens).toBeGreaterThan(8192);
+    });
+
+    it('user retains reported summary costs when cancellation arrives with the final provider usage', async () => {
+        const controller = new AbortController();
+        providerMock.stream.mockImplementation(async function* () {
+            controller.abort();
+            yield {
+                content: 'Summary must not be installed.',
+                done: true,
+                finishReason: 'stop',
+                usageReported: true,
+                usage: {
+                    inputTokens: 10,
+                    cacheReadTokens: 20,
+                    cacheWriteTokens: 0,
+                    outputTokens: 5,
+                    reasoningTokens: 0,
+                },
+            };
+        });
+        const result = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createLongCheckpoint(),
+            signal: controller.signal,
+            persister: {
+                getSessionId: () => 42,
+            } as never,
+        });
+        expect(result.type).toBe('failed');
+        if (result.type !== 'failed') throw new Error('Expected cancellation');
+        expect(result.error.code).toBe(AiErrorCode.REQUEST_CANCELLED);
+        expect(result.response).toBe('');
+        expect(result.totalUsage.cacheReadTokens).toBe(20);
+        expect(result.usageReportedCalls).toBe(1);
+        expect(result.calls[0]?.finishReason).toBe('aborted');
+    });
+
+    it.each([false, true])(
+        'user on WebKit without AbortSignal.any can compact with cancellation=%s',
+        async (cancel) => {
+            const descriptor = Object.getOwnPropertyDescriptor(AbortSignal, 'any');
+            Object.defineProperty(AbortSignal, 'any', { configurable: true, value: undefined });
+            const controller = new AbortController();
+            const summarySignals: AbortSignal[] = [];
+            try {
+                providerMock.stream.mockImplementation(async function* (request: AiRequestOptions) {
+                    if (request.toolChoice === 'none') {
+                        summarySignals.push(request.signal!);
+                        expect(request.signal?.aborted).toBe(false);
+                        if (cancel) {
+                            controller.abort();
+                            expect(request.signal?.aborted).toBe(true);
+                        }
+                    }
+                    yield {
+                        content: request.toolChoice === 'none' ? 'Goal: finish.' : 'Final answer',
+                        done: true,
+                        finishReason: 'stop',
+                    };
+                });
+                const result = await new AiRequestExecutor().runAttempt({
+                    startCheckpoint: createLongCheckpoint(),
+                    signal: controller.signal,
+                    persister: {
+                        getSessionId: () => 42,
+
+                        persistContextSummary: async () => 1,
+                        persistOutputProgress: async () => undefined,
+                    } as never,
+                });
+                if (cancel) {
+                    expect(result).toMatchObject({
+                        type: 'failed',
+                        error: { code: AiErrorCode.REQUEST_CANCELLED },
+                        response: '',
+                    });
+                } else {
+                    expect(result).toMatchObject({ type: 'completed', response: 'Final answer' });
+                    expect(controller.signal.aborted).toBe(false);
+                }
+                expect(summarySignals.length).toBeGreaterThan(0);
+                expect(summarySignals.every((signal) => signal.aborted)).toBe(true);
+            } finally {
+                if (descriptor) Object.defineProperty(AbortSignal, 'any', descriptor);
+                else Reflect.deleteProperty(AbortSignal, 'any');
+            }
+        }
+    );
+
+    it('user rejects tool-calling summaries without executing them and retains their reported costs', async () => {
+        providerMock.stream.mockImplementation(async function* () {
+            yield {
+                content: '',
+                done: true,
+                finishReason: 'tool_calls',
+                toolCalls: [{ id: 'unexpected', name: 'delete_file', arguments: '{}' }],
+                usageReported: true,
+                usage: {
+                    inputTokens: 10,
+                    cacheReadTokens: 20,
+                    cacheWriteTokens: 0,
+                    outputTokens: 5,
+                    reasoningTokens: 0,
+                },
+            };
+        });
+        const result = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createLongCheckpoint(),
+            persister: {
+                getSessionId: () => 42,
+            } as never,
+        });
+        expect(result.type).toBe('failed');
+        if (result.type !== 'failed') throw new Error('Expected summary rejection');
+        expect(result.error.code).toBe(AiErrorCode.CONTEXT_COMPACTION_FAILED);
+        expect(result.response).toBe('');
+        expect(result.hasToolActivitySinceCheckpoint).toBe(false);
+        expect(result.totalUsage.outputTokens).toBe(5);
+        expect(executeToolMock).not.toHaveBeenCalled();
+    });
+
     it('user sees the requested reasoning level honored even when metadata says it is unsupported', async () => {
         providerMock.stream.mockImplementation(async function* () {
             yield { content: 'Done', done: true };
@@ -165,7 +496,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
 
         const outcome = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: {} as never,
+            persister: { getSessionId: () => 42 } as never,
         });
 
         expect(outcome.type).toBe('completed');
@@ -188,6 +519,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
             persister: {
+                getSessionId: () => 42,
                 persistCheckpoint,
                 persistOutputProgress: vi.fn().mockResolvedValue(undefined),
             } as never,
@@ -207,10 +539,12 @@ describe('user sends a prompt and receives a streamed answer', () => {
         vi.useFakeTimers();
         vi.setSystemTime(1000);
         const persistOutputProgress = vi.fn().mockResolvedValue(undefined);
+        const firstSaved = new Promise<void>((resolve) => {
+            persistOutputProgress.mockImplementationOnce(async () => resolve());
+        });
         providerMock.stream.mockImplementation(async function* () {
             yield { content: '', reasoningState: 'start', done: false };
-            await Promise.resolve();
-            await Promise.resolve();
+            await firstSaved;
             expect(persistOutputProgress).toHaveBeenCalledWith([
                 { type: 'reasoning', content: '', startedAt: 1000 },
             ]);
@@ -220,7 +554,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         });
         const outcome = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: { persistOutputProgress } as never,
+            persister: { getSessionId: () => 42, persistOutputProgress } as never,
         });
         expect(outcome.type).toBe('completed');
         expect(persistOutputProgress).toHaveBeenLastCalledWith([
@@ -234,12 +568,18 @@ describe('user sends a prompt and receives a streamed answer', () => {
         vi.useFakeTimers();
         vi.setSystemTime(1000);
         const persistOutputProgress = vi.fn().mockResolvedValue(undefined);
+        const reasoningSaved = new Promise<void>((resolve) => {
+            persistOutputProgress.mockImplementation(async (parts: PersistedOutputPart[]) => {
+                if (parts.some((part) => part.type === 'reasoning' && part.endedAt !== undefined))
+                    resolve();
+            });
+        });
         providerMock.stream.mockImplementation(async function* () {
             yield { content: '', reasoning: 'Plan', done: false };
             vi.setSystemTime(6000);
             yield { content: 'Answer', done: false };
             // The completed reasoning fragment must survive before the reply finishes.
-            await Promise.resolve();
+            await reasoningSaved;
             expect(persistOutputProgress).toHaveBeenCalledWith([
                 { type: 'reasoning', content: 'Plan', startedAt: 1000, endedAt: 6000 },
             ]);
@@ -248,7 +588,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         });
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: { persistOutputProgress } as never,
+            persister: { getSessionId: () => 42, persistOutputProgress } as never,
         });
         expect(result.type).toBe('completed');
         expect(persistOutputProgress).toHaveBeenLastCalledWith([
@@ -259,6 +599,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
     });
 
     it('user sees interleaved output kept in order on the next tool-loop request', async () => {
+        prepareToolMessage(42);
         providerMock.stream
             .mockImplementationOnce(async function* () {
                 yield {
@@ -310,9 +651,11 @@ describe('user sends a prompt and receives a streamed answer', () => {
         const outcome = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
             persister: {
+                getSessionId: () => 42,
                 persistOutputProgress: vi.fn().mockResolvedValue(undefined),
                 persistToolCallMessage: vi.fn().mockResolvedValue(1),
                 persistToolResult: vi.fn().mockResolvedValue(undefined),
+                getContextMessageSource: async () => undefined,
                 persistCheckpoint: vi.fn().mockResolvedValue(undefined),
             } as never,
         });
@@ -343,7 +686,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         const executor = new AiRequestExecutor();
         const result = await executor.runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: {} as never,
+            persister: { getSessionId: () => 42 } as never,
         });
 
         expect(result.type).toBe('failed');
@@ -384,7 +727,7 @@ function createToolCall(): AiToolCall {
 describe('user runs a tool call and watches it start', () => {
     it('user sees a tool call start reported before the tool runs', async () => {
         createMcpToolLogMock.mockResolvedValue({ id: 23 });
-        updateMcpToolLogByCallIdMock.mockResolvedValue(undefined);
+        updateMcpToolLogByIdMock.mockResolvedValue(undefined);
         resolveToolCallMock.mockResolvedValue({
             serverId: 1,
             originalName: 'search',
@@ -440,7 +783,7 @@ describe('user runs a tool call and watches it start', () => {
     it('user does not get mcp tool secrets stored in the audit log', async () => {
         vi.clearAllMocks();
         createMcpToolLogMock.mockResolvedValue({ id: 23 });
-        updateMcpToolLogByCallIdMock.mockResolvedValue(undefined);
+        updateMcpToolLogByIdMock.mockResolvedValue(undefined);
         resolveToolCallMock.mockResolvedValue({
             serverId: 1,
             originalName: 'search',
@@ -461,7 +804,7 @@ describe('user runs a tool call and watches it start', () => {
         });
 
         const storedInput = createMcpToolLogMock.mock.calls[0]?.[0] as { input: string };
-        const storedOutput = updateMcpToolLogByCallIdMock.mock.calls[0]?.[1] as {
+        const storedOutput = updateMcpToolLogByIdMock.mock.calls[0]?.[1] as {
             output: string;
         };
 
@@ -477,6 +820,7 @@ describe('user runs a tool call and watches it start', () => {
 
 describe('user calls a tool the agent does not have', () => {
     beforeEach(() => {
+        prepareToolMessage(1);
         vi.clearAllMocks();
         // The once-queue survives clearAllMocks, so reset it to keep rounds per-test.
         providerMock.stream.mockReset();
@@ -498,6 +842,7 @@ describe('user calls a tool the agent does not have', () => {
             getSessionId: vi.fn(() => 1),
             persistToolCallMessage: vi.fn().mockResolvedValue(1),
             persistToolResult: vi.fn().mockResolvedValue(undefined),
+            getContextMessageSource: async () => undefined,
             persistCheckpoint: vi.fn().mockResolvedValue(undefined),
         };
     }
@@ -544,7 +889,7 @@ describe('user calls a tool the agent does not have', () => {
             toolTimeout: 30000,
         });
         createMcpToolLogMock.mockResolvedValue({ id: 23 });
-        updateMcpToolLogByCallIdMock.mockResolvedValue(undefined);
+        updateMcpToolLogByIdMock.mockResolvedValue(undefined);
         // A non-Error rejection must still surface a readable failure, not crash the turn.
         executeToolMock.mockRejectedValue('server went away');
         providerMock.stream
@@ -681,6 +1026,7 @@ describe('user asks the agent to switch to a stronger model', () => {
             getSessionId: vi.fn(() => 1),
             persistToolCallMessage: vi.fn().mockResolvedValue(1),
             persistToolResult: vi.fn().mockResolvedValue(undefined),
+            getContextMessageSource: async () => undefined,
             persistCheckpoint: vi.fn().mockResolvedValue(undefined),
         };
     }
@@ -723,6 +1069,54 @@ describe('user asks the agent to switch to a stronger model', () => {
                 }),
             })
         );
+    });
+
+    it('user switches to a text model with a retained image and receives an input error before the next request', async () => {
+        builtInExecuteToolMock.mockImplementation(upgradeStub());
+        resolveToolDefinitionsMock.mockResolvedValue([]);
+        toolRoundThenAnswer(1);
+        const checkpoint = createCheckpoint();
+        checkpoint.activeModel.attachment = 1;
+        checkpoint.activeModel.modalities = JSON.stringify({
+            input: ['text', 'image'],
+            output: ['text'],
+        });
+        checkpoint.messages = [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'image',
+                        data: 'cGl4ZWw=',
+                        mimeType: 'image/png',
+                        name: 'pixel.png',
+                        sourcePath: '/pixel.png',
+                        size: 5,
+                        kind: 'image',
+                        semanticIntent: 'visual-reference',
+                        meta: {
+                            alias: 'image-1',
+                            order: 0,
+                            type: 'image',
+                            name: 'pixel.png',
+                            mimeType: 'image/png',
+                            originPath: '/pixel.png',
+                            attachmentId: 1,
+                            hash: 'pixel',
+                        },
+                    },
+                ],
+            },
+        ];
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: checkpoint,
+            persister: persisterStub() as never,
+        });
+        expect(outcome.type).toBe('failed');
+        if (outcome.type !== 'failed') throw new Error('Expected unsupported retained input');
+        expect(outcome.error.code).toBe(AiErrorCode.UNSUPPORTED_INPUT);
+        expect(outcome.modelSwitchCount).toBe(1);
+        expect(outcome.partialOutputParts).toEqual([]);
     });
 
     it('user is stopped from switching models once the ceiling is reached', async () => {

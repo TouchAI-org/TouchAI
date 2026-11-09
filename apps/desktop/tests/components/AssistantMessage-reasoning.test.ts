@@ -1,3 +1,4 @@
+import StatusDivider from '@components/ui/status-divider/StatusDivider.vue';
 import { mount, type VueWrapper } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
@@ -59,6 +60,58 @@ afterEach(() => {
 });
 
 describe('user reads the reasoning behind an answer', () => {
+    it('user sees one loading divider during compaction and a completed divider in the same place afterwards', async () => {
+        const wrapper = render({
+            isStreaming: true,
+            parts: [
+                { id: 't1', type: 'text', content: 'Earlier work' },
+                { id: 'c1', type: 'context_compaction', state: 'compacting' },
+            ],
+        });
+        const divider = wrapper.getComponent(StatusDivider);
+        expect(divider.text()).toBe('正在压缩上下文');
+        expect(wrapper.find('[role="status"], [aria-live="polite"]').exists()).toBe(false);
+        expect(divider.attributes('aria-live')).toBe('off');
+        expect(wrapper.find('[data-request-status]').attributes('aria-hidden')).toBe('true');
+        setLocale('en-US');
+        await nextTick();
+        expect(divider.text()).toBe('Compacting context');
+        setLocale('zh-CN');
+        await nextTick();
+        expect(divider.text()).toBe('正在压缩上下文');
+        await wrapper.setProps({
+            message: {
+                ...wrapper.props('message'),
+                parts: [
+                    { id: 't1', type: 'text', content: 'Earlier work' },
+                    { id: 'c1', type: 'context_compaction', state: 'compacted' },
+                ],
+            },
+        });
+        expect(wrapper.find('[data-request-status]').attributes('aria-hidden')).toBeUndefined();
+        await wrapper.setProps({
+            message: {
+                ...wrapper.props('message'),
+                isStreaming: false,
+                parts: [
+                    { id: 't1', type: 'text', content: 'Earlier work' },
+                    { id: 'c1', type: 'context_compaction', state: 'compacted' },
+                    { id: 't2', type: 'text', content: 'Continuing' },
+                ],
+            },
+        });
+        expect(divider.text()).toBe('上下文已压缩');
+        expect(wrapper.find('[data-request-status]').exists()).toBe(false);
+        expect(wrapper.findAll('.assistant-message-part').map((part) => part.text())).toEqual([
+            'Earlier work',
+            '上下文已压缩',
+            'Continuing',
+        ]);
+        setLocale('en-US');
+        await nextTick();
+        expect(divider.text()).toBe('Context compacted');
+    });
+
     it('user sees reasoning in timeline order without duplicating the aggregate field', async () => {
         const wrapper = render({
             content: 'First answer',

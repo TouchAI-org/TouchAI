@@ -65,11 +65,11 @@ describe('user watches a task being retried', () => {
             attempt: 1,
             maxRetries: 3,
             reason: 'offline',
-            checkpoint: { attempt: 1 },
+            checkpoint: { attempt: 1, messages: [] },
         } as never);
 
         expect(snapshot.status).toBe('running');
-        expect(snapshot.lastCheckpoint).toEqual({ attempt: 1 });
+        expect(snapshot.lastCheckpoint).toEqual({ attempt: 1, messages: [] });
     });
 
     it('user sees the task marked completed when the retry finally succeeds', () => {

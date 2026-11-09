@@ -478,6 +478,12 @@ export const zhToEnTextMap = {
     '模型返回了空回复，请尝试重新提问或更换模型':
         'The model returned an empty response. Try asking again or switch models.',
     流式响应处理失败: 'Streaming response processing failed.',
+    正在压缩上下文: 'Compacting context',
+    上下文已压缩: 'Context compacted',
+    '当前输入或工具结果超过模型上下文容量，请缩小输入或选择更大上下文的模型。':
+        'The input or tool result exceeds the model context window. Reduce the input or choose a model with a larger context window.',
+    '上下文压缩未完成，原始对话已保留。请重试或选择更大上下文的模型。':
+        'Context compaction did not complete. Your original conversation is preserved. Retry or choose a model with a larger context window.',
     '当前会话已有正在运行的任务，请等待完成或先取消':
         'This session already has a running task. Wait for it to finish or cancel it first.',
     任务不存在或已结束: 'The task does not exist or has ended.',

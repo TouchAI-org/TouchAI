@@ -60,6 +60,7 @@ const {
         persistOutputProgress: vi.fn(async () => undefined),
         persistToolCallMessage: vi.fn(async () => 1),
         persistToolResult: vi.fn(async () => undefined),
+        getContextMessageSource: async () => undefined,
         persistCheckpoint: vi.fn(async () => undefined),
         syncDeliveryManifestRequest: vi.fn(async () => undefined),
     },
@@ -77,7 +78,7 @@ vi.mock('@database/queries', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@database/queries')>()),
     updateModelLastUsed: updateModelLastUsedMock,
     createMcpToolLog: vi.fn(async () => ({ id: 23 })),
-    updateMcpToolLogByCallId: vi.fn(async () => undefined),
+    updateMcpToolLogById: vi.fn(async () => undefined),
 }));
 
 vi.mock('@database/queries/llmMetadata', () => ({

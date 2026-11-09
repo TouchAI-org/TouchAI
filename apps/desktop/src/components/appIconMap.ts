@@ -29,10 +29,12 @@ import IconInbox from '~icons/lucide/inbox';
 import IconInfoCircle from '~icons/lucide/info';
 import IconKeyboard from '~icons/lucide/keyboard';
 import IconLeaf from '~icons/lucide/leaf';
+import IconLoader from '~icons/lucide/loader-circle';
 import IconMaximize from '~icons/lucide/maximize';
 import IconMenu from '~icons/lucide/menu';
 import IconChatHistory from '~icons/lucide/message-circle-more';
 import IconWindowRestore from '~icons/lucide/minimize';
+import IconCompress from '~icons/lucide/minimize-2';
 import IconMinus from '~icons/lucide/minus';
 import IconEdit from '~icons/lucide/pencil';
 import IconPin from '~icons/lucide/pin';
@@ -59,6 +61,7 @@ export const appIconMap = {
     'chevron-right': IconChevronRight,
     'chevron-up': IconChevronUp,
     close: IconX,
+    compress: IconCompress,
     copy: IconCopy,
     database: IconData,
     delete: IconTrash,
@@ -84,6 +87,7 @@ export const appIconMap = {
     keyboard: IconKeyboard,
     llm: IconBoxes,
     leaf: IconLeaf,
+    loader: IconLoader,
     'external-link': IconLinkExternal,
     mcp: IconBlocks,
     minimize: IconMinus,

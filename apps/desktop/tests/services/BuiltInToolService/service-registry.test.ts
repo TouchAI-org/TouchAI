@@ -28,7 +28,7 @@ vi.mock('@database/queries', () => ({
     findEnabledBuiltInTools: findEnabledBuiltInToolsMock,
     findAllBuiltInTools: findAllBuiltInToolsMock,
     touchBuiltInToolLastUsed: vi.fn(),
-    updateBuiltInToolLogByCallId: vi.fn(),
+    updateBuiltInToolLogById: vi.fn(),
 }));
 
 vi.mock('@/services/BuiltInToolService/registry', () => ({

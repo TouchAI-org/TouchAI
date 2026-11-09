@@ -16,9 +16,9 @@ const providerMock = vi.hoisted(() => ({
     classifyError: vi.fn(),
 }));
 
-const { createMcpToolLogMock, updateMcpToolLogByCallIdMock } = vi.hoisted(() => ({
+const { createMcpToolLogMock, updateMcpToolLogByIdMock } = vi.hoisted(() => ({
     createMcpToolLogMock: vi.fn(),
-    updateMcpToolLogByCallIdMock: vi.fn(),
+    updateMcpToolLogByIdMock: vi.fn(),
 }));
 
 const { builtInExecuteToolMock, resolveToolDefinitionsMock, createProviderForModelMock } =
@@ -31,7 +31,7 @@ const { builtInExecuteToolMock, resolveToolDefinitionsMock, createProviderForMod
 vi.mock('@database/queries', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@database/queries')>()),
     createMcpToolLog: createMcpToolLogMock,
-    updateMcpToolLogByCallId: updateMcpToolLogByCallIdMock,
+    updateMcpToolLogById: updateMcpToolLogByIdMock,
     findMcpServerById: async () => ({
         id: 1,
         name: 'controlled-server',
@@ -108,6 +108,7 @@ function persisterStub() {
         getSessionId: vi.fn(() => 1),
         persistToolCallMessage: vi.fn().mockResolvedValue(1),
         persistToolResult: vi.fn().mockResolvedValue(undefined),
+        getContextMessageSource: async () => undefined,
         persistCheckpoint: vi.fn().mockResolvedValue(undefined),
     };
 }
@@ -146,7 +147,7 @@ describe('user runs a tool call', () => {
         createProviderForModelMock.mockReturnValue(providerMock);
         resolveToolDefinitionsMock.mockResolvedValue([]);
         createMcpToolLogMock.mockResolvedValue({ id: 23 });
-        updateMcpToolLogByCallIdMock.mockResolvedValue(undefined);
+        updateMcpToolLogByIdMock.mockResolvedValue(undefined);
         vi.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000);
     });
 

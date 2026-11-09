@@ -47,7 +47,7 @@ vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
 
 vi.mock('@database/queries', () => ({
     createMcpToolLog: createMcpToolLogMock,
-    updateMcpToolLogByCallId: vi.fn(async () => undefined),
+    updateMcpToolLogById: vi.fn(async () => undefined),
 }));
 
 const MCP_TOOL_NAME = 'mcp__1__search';
@@ -100,6 +100,7 @@ function persister() {
         persistOutputProgress: vi.fn().mockResolvedValue(undefined),
         persistToolCallMessage: vi.fn().mockResolvedValue(1),
         persistToolResult: vi.fn().mockResolvedValue(undefined),
+        getContextMessageSource: async () => undefined,
         persistCheckpoint: vi.fn().mockResolvedValue(undefined),
         getSessionId: vi.fn(() => 1),
     } as never;

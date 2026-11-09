@@ -1,6 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
-import { asc, count, eq, sql } from 'drizzle-orm';
+import { and, asc, count, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 
 import { type DatabaseExecutor, db } from '../index';
 import { messages } from '../schema';
@@ -15,11 +15,14 @@ export interface MessageRow extends MessageEntity {
 }
 
 /** 为一批消息补全 parts 与附件，避免逐条查询。 */
-async function hydrateMessageRows(rows: MessageEntity[]): Promise<MessageRow[]> {
+async function hydrateMessageRows(
+    rows: MessageEntity[],
+    database: DatabaseExecutor = db
+): Promise<MessageRow[]> {
     const ids = rows.map((row) => row.id);
     const [parts, attachments] = await Promise.all([
-        findMessagePartsByMessageIds(ids),
-        findAttachmentsByMessageIds(ids),
+        findMessagePartsByMessageIds(ids, database),
+        findAttachmentsByMessageIds(ids, database),
     ]);
     const partsByMessage = new Map<number, MessagePartEntity[]>();
     for (const part of parts) {
@@ -40,15 +43,41 @@ async function hydrateMessageRows(rows: MessageEntity[]): Promise<MessageRow[]> 
     }));
 }
 
-export async function findMessagesBySessionId(sessionId: number): Promise<MessageRow[]> {
-    const rows = await db
+export async function findMessagesBySessionId(
+    sessionId: number,
+    database: DatabaseExecutor = db
+): Promise<MessageRow[]> {
+    const rows = await database
         .select()
         .from(messages)
         .where(eq(messages.session_id, sessionId))
         .orderBy(asc(messages.id))
         .all();
 
-    return hydrateMessageRows(rows);
+    return hydrateMessageRows(rows, database);
+}
+
+/** Separate range and point reads keep the session/id index usable for long archives. */
+export async function findContextMessageRows(
+    sessionId: number,
+    options: { firstId?: number; beforeId?: number; ids?: number[] },
+    database: DatabaseExecutor = db
+): Promise<MessageRow[]> {
+    if (options.ids?.length === 0) return [];
+    const rows = await database
+        .select()
+        .from(messages)
+        .where(
+            and(
+                eq(messages.session_id, sessionId),
+                options.firstId === undefined ? undefined : gte(messages.id, options.firstId),
+                options.beforeId === undefined ? undefined : lt(messages.id, options.beforeId),
+                options.ids === undefined ? undefined : inArray(messages.id, options.ids)
+            )
+        )
+        .orderBy(asc(messages.id))
+        .all();
+    return hydrateMessageRows(rows, database);
 }
 
 /**

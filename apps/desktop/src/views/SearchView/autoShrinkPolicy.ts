@@ -93,6 +93,8 @@ function buildLatestCompletedMessageMarkerParts(
                     return `${part.type}:${part.id}:${part.callId}`;
                 case 'widget':
                     return `${part.type}:${part.id}:${part.widgetId}`;
+                case 'context_compaction':
+                    return `${part.type}:${part.id}:${part.state}`;
                 default:
                     return `${part.type}:${part.id}:${part.content}`;
             }

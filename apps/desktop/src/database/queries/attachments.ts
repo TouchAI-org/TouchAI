@@ -3,7 +3,7 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 
 import { type DatabaseExecutor, db } from '../index';
-import { attachments, messageParts } from '../schema';
+import { attachments, messageParts, messages } from '../schema';
 import type { AttachmentCreateData, AttachmentEntity, MessageAttachmentCreateData } from '../types';
 
 export interface MessageAttachmentRow extends AttachmentEntity {
@@ -58,6 +58,7 @@ export async function createMessageAttachment(
     data: MessageAttachmentCreateData,
     database: DatabaseExecutor = db
 ): Promise<void> {
+    if (database === db) return db.transaction((tx) => createMessageAttachment(data, tx));
     const maximum = await database
         .select({ value: sql<number>`coalesce(max(${messageParts.sort_order}), -1)`.as('value') })
         .from(messageParts)
@@ -88,13 +89,15 @@ export async function createMessageAttachment(
  * @returns 附件关联行，已按消息与顺序排序。
  */
 export async function findAttachmentsByMessageIds(
-    messageIds: number[]
+    messageIds: number[],
+    database: DatabaseExecutor = db
 ): Promise<MessageAttachmentRow[]> {
     if (messageIds.length === 0) {
         return [];
     }
 
-    return db
+    // A larger IN list otherwise makes SQLite scan every session's attachment parts by type.
+    return database
         .select({
             message_id: messageParts.message_id,
             sort_order: messageParts.sort_order,
@@ -115,10 +118,15 @@ export async function findAttachmentsByMessageIds(
             size: attachments.size,
             created_at: attachments.created_at,
         })
-        .from(messageParts)
+        .from(messages)
+        .crossJoin(messageParts)
         .innerJoin(attachments, eq(attachments.id, messageParts.attachment_id))
         .where(
-            and(inArray(messageParts.message_id, messageIds), eq(messageParts.type, 'attachment'))
+            and(
+                inArray(messages.id, messageIds),
+                eq(messageParts.message_id, messages.id),
+                eq(messageParts.type, 'attachment')
+            )
         )
         .orderBy(asc(messageParts.message_id), asc(messageParts.sort_order), asc(messageParts.id))
         .all();

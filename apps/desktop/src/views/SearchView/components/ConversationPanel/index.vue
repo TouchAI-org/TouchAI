@@ -4,7 +4,7 @@
 
 <template>
     <div
-        class="relative h-full min-h-0 w-full"
+        class="conversation-surface relative h-full min-h-0 w-full bg-background-primary font-serif text-foreground"
         @wheel.capture.passive="cancelNavigation"
         @touchstart.capture.passive="cancelNavigation"
         @pointerdown.capture="cancelNavigation"
@@ -27,6 +27,16 @@
             @drag-start="emit('dragStart')"
             @drag-end="emit('dragEnd')"
         />
+
+        <span class="sr-only" role="status" aria-live="polite" aria-atomic="true">
+            {{
+                compactionAnnouncement === 'compacting'
+                    ? tt('正在压缩上下文')
+                    : compactionAnnouncement === 'compacted'
+                      ? tt('上下文已压缩')
+                      : ''
+            }}
+        </span>
 
         <MessageScroller
             ref="conversationScroller"
@@ -113,9 +123,9 @@
         type MessageScrollerScrollOptions,
         type MessageScrollerState,
     } from '@/components/ui/message-scroller';
-    import { t } from '@/i18n';
+    import { t, tt } from '@/i18n';
     import { useSettingsStore } from '@/stores/settings';
-    import type { SessionMessage } from '@/types/session';
+    import type { ContextCompactionMessagePart, SessionMessage } from '@/types/session';
 
     import ConversationToolbar from './components/ConversationToolbar.vue';
     import MessageItem from './components/MessageItem.vue';
@@ -183,6 +193,49 @@
     const showScrollToBottom = ref(false);
     const USER_MESSAGE_SCROLL_GAP = 12;
     const RAIL_PREVIEW_SOURCE_LENGTH = 320;
+    const compactionAnnouncement = ref<ContextCompactionMessagePart['state']>();
+
+    // Keep announcements outside the busy virtual list and ignore restored checkpoints.
+    onMounted(() => {
+        let announcedCompaction: { messageId: string; id: string } | undefined;
+        watch(
+            () => {
+                const message = props.messages[props.messages.length - 1];
+                let compaction: ContextCompactionMessagePart | undefined;
+                if (message) {
+                    for (let index = message.parts.length - 1; index >= 0; index--) {
+                        const part = message.parts[index];
+                        if (part?.type === 'context_compaction') {
+                            compaction = part;
+                            break;
+                        }
+                    }
+                }
+                return [
+                    message?.id,
+                    message?.isStreaming,
+                    compaction?.id,
+                    compaction?.state,
+                ] as const;
+            },
+            ([messageId, streaming, id, state]) => {
+                if (messageId && streaming && id && state === 'compacting') {
+                    announcedCompaction = { messageId, id };
+                    compactionAnnouncement.value = state;
+                } else if (
+                    state === 'compacted' &&
+                    id === announcedCompaction?.id &&
+                    messageId === announcedCompaction?.messageId
+                ) {
+                    compactionAnnouncement.value = state;
+                } else {
+                    announcedCompaction = undefined;
+                    compactionAnnouncement.value = undefined;
+                }
+            },
+            { immediate: true }
+        );
+    });
 
     function normaliseMessageText(content: string): string {
         return content.slice(0, RAIL_PREVIEW_SOURCE_LENGTH).replace(/\s+/g, ' ').trim();

@@ -19,6 +19,8 @@ export enum AiErrorCode {
     SESSION_ACTIVE_TASK_EXISTS = 'SESSION_ACTIVE_TASK_EXISTS',
     TASK_NOT_FOUND = 'TASK_NOT_FOUND',
     UNSUPPORTED_INPUT = 'UNSUPPORTED_INPUT',
+    CONTEXT_TOO_LARGE = 'CONTEXT_TOO_LARGE',
+    CONTEXT_COMPACTION_FAILED = 'CONTEXT_COMPACTION_FAILED',
 
     // 网络相关错误 (3xxx) - 可重试
     NETWORK_ERROR = 'NETWORK_ERROR',
@@ -62,6 +64,10 @@ const ERROR_MESSAGES: Record<AiErrorCode, SourceText> = {
     [AiErrorCode.SESSION_ACTIVE_TASK_EXISTS]: '当前会话已有正在运行的任务，请等待完成或先取消',
     [AiErrorCode.TASK_NOT_FOUND]: '任务不存在或已结束',
     [AiErrorCode.UNSUPPORTED_INPUT]: '当前模型不支持图片/文件输入，请选择合适模型继续。',
+    [AiErrorCode.CONTEXT_TOO_LARGE]:
+        '当前输入或工具结果超过模型上下文容量，请缩小输入或选择更大上下文的模型。',
+    [AiErrorCode.CONTEXT_COMPACTION_FAILED]:
+        '上下文压缩未完成，原始对话已保留。请重试或选择更大上下文的模型。',
 
     // 网络相关
     [AiErrorCode.NETWORK_ERROR]: '网络连接失败，请检查网络设置',

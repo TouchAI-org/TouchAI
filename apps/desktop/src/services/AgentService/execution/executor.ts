@@ -1,7 +1,9 @@
 ﻿// Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { createMcpToolLog, updateMcpToolLogByCallId } from '@database/queries';
+import { createMcpToolLog, updateMcpToolLogById } from '@database/queries';
+import { findMcpServerById } from '@database/queries/mcpServers';
 import type { ModelWithProvider } from '@database/queries/models';
+import { createToolPart } from '@database/queries/toolParts';
 import type { ProviderDriver } from '@database/schema';
 import type { Span } from '@opentelemetry/api';
 import { error as obsError, event, log } from '@services/ObservabilityService';
@@ -19,11 +21,13 @@ import { parseRequestedTimeoutMs } from '@/utils/timeouts';
 import { z } from '@/utils/zod';
 
 import { createProviderForModel, getModel, resolveToolDefinitions } from '../catalog';
+import { MAX_SUMMARY_CHARS } from '../contracts/context';
 import { AiError, AiErrorCode } from '../contracts/errors';
 import {
     addAiUsage,
     type AiCallRecord,
     type AiMessage,
+    type AiRequestOptions,
     type AiStreamChunk,
     type AiUsage,
     emptyAiUsage,
@@ -31,12 +35,7 @@ import {
     normalizeOutputParts,
     type PersistedOutputPart,
 } from '../contracts/protocol';
-import {
-    DEFAULT_REASONING_LEVEL,
-    parseReasoningOptions,
-    type ReasoningOption,
-    type SelectableReasoningLevel,
-} from '../contracts/reasoning';
+import { DEFAULT_REASONING_LEVEL, parseReasoningOptions } from '../contracts/reasoning';
 import type {
     AiToolCall,
     AiToolDefinition,
@@ -57,6 +56,8 @@ import { type AiProvider, parseProviderConfigJson } from '../infrastructure/prov
 import { createProviderFromRegistry } from '../infrastructure/providers/drivers';
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
+import { ContextWindow, type SummaryResult } from './context';
+import { snapshotAiMessages } from './messages';
 import type { TurnEvent } from './runtime';
 
 const BUILT_IN_UPGRADE_TOOL_NAME = 'builtin__upgrade_model';
@@ -128,6 +129,8 @@ export interface AttemptCheckpoint {
 }
 
 interface AttemptRuntime {
+    promptCacheKey: string;
+    nextAttachmentRequestIndex: number;
     activeModel: ModelWithProvider;
     provider: AiProvider;
     tools?: AiToolDefinition[];
@@ -161,6 +164,7 @@ interface AttemptRuntime {
 
 interface ToolExecutionResult {
     toolCall: AiToolCall;
+    input?: string;
     result: string;
     isError: boolean;
     toolLogId: number | null;
@@ -396,10 +400,6 @@ function redactLogText(text: string): string {
     return text.replace(/\bhttps?:\/\/[^\s"'<>]+/gi, (match) => redactLogUrl(match));
 }
 
-function cloneAiMessages(messages: AiMessage[]): AiMessage[] {
-    return JSON.parse(JSON.stringify(messages)) as AiMessage[];
-}
-
 function buildAssistantToolCallHistoryMessage(
     parts: PersistedOutputPart[],
     toolCalls: AiToolCall[]
@@ -526,6 +526,8 @@ function parseToolCallArguments(toolCall: AiToolCall):
  * - 设置快照
  */
 export class AiRequestExecutor {
+    private readonly contextWindow = new ContextWindow();
+    private readonly cacheNamespace = crypto.randomUUID();
     /**
      * 获取模型（统一入口）
      * - 不传参数：返回默认模型
@@ -558,40 +560,62 @@ export class AiRequestExecutor {
         return createProviderForModel(model);
     }
 
-    /**
-     * 流式 AI 响应（纯粹的流式生成器）
-     */
-    private async *stream(
-        provider: AiProvider,
-        providerId: number,
-        modelId: string,
-        messages: AiMessage[],
-        tools?: AiToolDefinition[],
-        modelLanguageContext?: ModelLanguageContext,
-        signal?: AbortSignal,
-        attachmentRequestIndex?: number,
-        onAttachmentManifestResolved?: RequestExecutionCallbacks['onAttachmentManifestResolved'],
-        supportsReasoning = true,
-        reasoningLevel?: SelectableReasoningLevel,
-        reasoningOptions?: ReasoningOption[]
-    ): AsyncGenerator<AiStreamChunk, void, unknown> {
-        log.debug(
-            `[AiRequestExecutor] Start stream request, model=${modelId}, messages=${messages.length}, tools=${tools?.length ?? 0}`
-        );
-        for await (const chunk of provider.stream({
-            model: modelId,
-            providerId,
-            messages,
-            supportsReasoning,
-            reasoningLevel,
-            reasoningOptions,
-            tools,
-            modelLanguageContext,
-            signal,
-            attachmentRequestIndex,
-            onAttachmentManifestResolved,
-        })) {
-            yield chunk;
+    private async summarizeContext(
+        runtime: AttemptRuntime,
+        request: AiRequestOptions
+    ): Promise<SummaryResult> {
+        const startedAt = Date.now();
+        const controller = new AbortController();
+        const signal = controller.signal;
+        const forwardAbort = () => controller.abort(request.signal?.reason);
+        if (request.signal?.aborted) forwardAbort();
+        else request.signal?.addEventListener('abort', forwardAbort, { once: true });
+        let text = '';
+        let usage = emptyAiUsage();
+        let usageReported = false;
+        let finishReason: string | undefined;
+        let hasToolCalls = false;
+        try {
+            throwIfAborted(signal);
+            for await (const chunk of runtime.provider.stream({
+                ...request,
+                signal,
+                attachmentRequestIndex: runtime.nextAttachmentRequestIndex++,
+            })) {
+                if (chunk.done) {
+                    usage = chunk.usage ?? emptyAiUsage();
+                    usageReported = chunk.usageReported === true;
+                    finishReason = chunk.finishReason;
+                }
+                throwIfAborted(signal);
+                text += chunk.content;
+                hasToolCalls ||= Boolean(chunk.toolCalls?.length || chunk.toolCallDeltas?.length);
+                if (text.length > MAX_SUMMARY_CHARS)
+                    throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
+                if (chunk.done) break;
+            }
+            return { text, finishReason, hasToolCalls };
+        } catch (error) {
+            finishReason = request.signal?.aborted ? 'aborted' : 'error';
+            throw error;
+        } finally {
+            request.signal?.removeEventListener('abort', forwardAbort);
+            controller.abort();
+            runtime.calls.push({
+                iteration: runtime.iteration,
+                modelId: runtime.activeModel.id,
+                modelName: runtime.activeModel.model_id,
+                providerId: runtime.activeModel.provider_id,
+                providerName: runtime.activeModel.provider_name,
+                usage,
+                usageReported,
+                timing: { durationMs: Date.now() - startedAt },
+                finishReason,
+                toolCallsInStep: 0,
+                toolArgumentErrors: 0,
+            });
+            runtime.totalUsage = addAiUsage(runtime.totalUsage, usage);
+            if (usageReported) runtime.usageReportedCalls++;
         }
     }
 
@@ -615,6 +639,62 @@ export class AiRequestExecutor {
         };
     }
 
+    /** A rejected call is still conversation history; commit its error before continuing. */
+    private async rejectToolCall(options: {
+        toolCall: AiToolCall;
+        input: string;
+        result: string;
+        iteration: number;
+        toolCallMessageId: number | null;
+        sessionId: number | null;
+        durationMs: number;
+        signal?: AbortSignal;
+        onChunk?: RequestExecutionCallbacks['onChunk'];
+    }): Promise<ToolExecutionResult> {
+        throwIfAborted(options.signal);
+        const { toolCall } = options;
+        const builtinId = toolCall.name.startsWith('builtin__')
+            ? toolCall.name.slice('builtin__'.length)
+            : undefined;
+        const mcp = toolCall.name.match(/^mcp__(\d+)__(.+)$/);
+        const serverId = mcp ? Number(mcp[1]) : NaN;
+        // Only real, exactly represented server identities can be remapped on import.
+        const server =
+            mcp && Number.isSafeInteger(serverId) && String(serverId) === mcp[1]
+                ? await findMcpServerById(serverId)
+                : undefined;
+        const identity =
+            builtinId !== undefined
+                ? { tool_id: builtinId }
+                : server
+                  ? { server_id: server.id, tool_name: mcp![2]! }
+                  : { server_id: null, tool_name: toolCall.name, requestedName: toolCall.name };
+        const result = serializeAuditPayload(options.result);
+        throwIfAborted(options.signal);
+        const saved = await createToolPart(builtinId !== undefined ? 'builtin' : 'mcp', {
+            ...identity,
+            tool_call_id: toolCall.id,
+            session_id: options.sessionId,
+            message_id: options.toolCallMessageId,
+            iteration: options.iteration,
+            input: options.input,
+            output: result,
+            status: 'error',
+            duration_ms: options.durationMs,
+            error_message: result,
+        });
+        throwIfAborted(options.signal);
+        this.emitToolEvent(options.onChunk, {
+            type: 'call_end',
+            callId: toolCall.id,
+            result,
+            isError: true,
+            durationMs: options.durationMs,
+            finalStatus: 'error',
+        });
+        return { toolCall, input: options.input, result, isError: true, toolLogId: saved.id };
+    }
+
     private async executeMcpToolCall(options: {
         toolCall: AiToolCall;
         toolArgs: Record<string, unknown>;
@@ -624,37 +704,17 @@ export class AiRequestExecutor {
         sessionId: number | null;
         onChunk?: RequestExecutionCallbacks['onChunk'];
         requestedTimeoutMs?: number;
-    }): Promise<{
-        toolCall: AiToolCall;
-        result: string;
-        isError: boolean;
-        toolLogId: number | null;
-        attachments?: AttachmentIndex[];
-        builtInToolId?: undefined;
-        controlSignal?: undefined;
-    }> {
+    }): Promise<ToolExecutionResult> {
         const callStartTime = Date.now();
         const mapping = await mcpManager.resolveToolCall(options.toolCall.name);
 
         if (!mapping) {
-            const errorResult = formatToolNotFoundError(options.toolCall.name);
-            const durationMs = Date.now() - callStartTime;
-            this.emitToolEvent(options.onChunk, {
-                type: 'call_end',
-                callId: options.toolCall.id,
-                result: errorResult,
-                isError: true,
-                durationMs,
-                finalStatus: 'error',
+            return this.rejectToolCall({
+                ...options,
+                input: serializeAuditPayload(options.toolArgs),
+                result: formatToolNotFoundError(options.toolCall.name),
+                durationMs: Date.now() - callStartTime,
             });
-
-            return {
-                toolCall: options.toolCall,
-                result: errorResult,
-                isError: true,
-                toolLogId: null,
-                controlSignal: undefined,
-            };
         }
 
         this.emitToolEvent(options.onChunk, {
@@ -734,14 +794,15 @@ export class AiRequestExecutor {
             finalStatus: toolResult.isError ? 'error' : 'completed',
         });
 
-        await updateMcpToolLogByCallId(options.toolCall.id, {
-            output: serializeAuditPayload(toolResult.result),
-            status: toolResult.isError ? 'error' : 'success',
-            duration_ms: durationMs,
-            error_message: toolResult.isError ? serializeAuditPayload(toolResult.result) : null,
-        }).catch((error) => {
-            log.error('[AiRequestExecutor] Failed to update MCP tool log:', error);
-        });
+        if (toolLogId !== null)
+            await updateMcpToolLogById(toolLogId, {
+                output: serializeAuditPayload(toolResult.result),
+                status: toolResult.isError ? 'error' : 'success',
+                duration_ms: durationMs,
+                error_message: toolResult.isError ? serializeAuditPayload(toolResult.result) : null,
+            }).catch((error) => {
+                log.error('[AiRequestExecutor] Failed to update MCP tool log:', error);
+            });
 
         if (cancellation) throw cancellation;
 
@@ -762,7 +823,7 @@ export class AiRequestExecutor {
     }): AttemptCheckpoint {
         return {
             activeModel: options.initialModel,
-            messages: cloneAiMessages(options.baseMessages),
+            messages: snapshotAiMessages(options.baseMessages),
             response: '',
             reasoning: '',
             iteration: 0,
@@ -774,11 +835,14 @@ export class AiRequestExecutor {
     }
 
     private async createAttemptRuntime(
-        startCheckpoint: AttemptCheckpoint
+        startCheckpoint: AttemptCheckpoint,
+        sessionId: number | null
     ): Promise<AttemptRuntime> {
         const { activeModel, modelLanguageContext, modelSwitchCount } = startCheckpoint;
 
         return {
+            promptCacheKey: `${this.cacheNamespace}:${sessionId ?? crypto.randomUUID()}`,
+            nextAttachmentRequestIndex: startCheckpoint.iteration,
             activeModel,
             provider: this.createProviderForModel(activeModel),
             tools: await resolveToolDefinitions(activeModel, {
@@ -787,7 +851,7 @@ export class AiRequestExecutor {
                         ? MODEL_SWITCH_EXCLUDED_TOOL_NAMES
                         : undefined,
             }),
-            messages: cloneAiMessages(startCheckpoint.messages),
+            messages: snapshotAiMessages(startCheckpoint.messages),
             response: startCheckpoint.response,
             reasoning: startCheckpoint.reasoning,
             iteration: startCheckpoint.iteration,
@@ -812,7 +876,7 @@ export class AiRequestExecutor {
     private createCheckpoint(runtime: AttemptRuntime): AttemptCheckpoint {
         return {
             activeModel: runtime.activeModel,
-            messages: cloneAiMessages(runtime.messages),
+            messages: snapshotAiMessages(runtime.messages),
             response: runtime.response,
             reasoning: runtime.reasoning,
             iteration: runtime.iteration,
@@ -837,26 +901,77 @@ export class AiRequestExecutor {
             'signal' | 'onChunk' | 'onAttachmentManifestResolved'
         > & {
             persister: PersistenceProjector;
+            onContextPrepared: () => void;
         }
     ): Promise<AttemptStepResult> {
+        runtime.currentStepOutputParts = [];
+        runtime.currentStepReasoningStartedAt = null;
         // Relay metadata is not authoritative: some models report reasoning=0
         // while still requiring an explicit reasoning option to expose reasoning.
         // The executor always passes TouchAI's canonical level; each provider
         // driver translates it into the vendor-specific request parameter.
-        const stream = this.stream(
-            runtime.provider,
-            runtime.activeModel.provider_id,
-            runtime.activeModel.model_id,
-            runtime.messages,
-            runtime.tools,
-            runtime.modelLanguageContext,
-            options.signal,
-            runtime.iteration,
-            options.onAttachmentManifestResolved,
-            runtime.activeModel.reasoning === 1,
-            DEFAULT_REASONING_LEVEL,
-            parseReasoningOptions(runtime.activeModel.reasoning_options)
+        runtime.messages = snapshotAiMessages(runtime.messages);
+        for (const message of runtime.messages) {
+            if (message.contextSummary) await options.persister.validateContextSummary(message);
+        }
+        const activeAttachments = runtime.messages.flatMap((message) =>
+            Array.isArray(message.content)
+                ? message.content.filter((part) => part.type === 'image' || part.type === 'file')
+                : []
         );
+        const unsupported = getUnsupportedAttachmentTypes(
+            activeAttachments,
+            getModelAttachmentCapabilities(runtime.activeModel)
+        );
+        if (unsupported.length)
+            throw new AiError(AiErrorCode.UNSUPPORTED_INPUT, {
+                unsupportedAttachmentTypes: unsupported,
+                modelId: runtime.activeModel.model_id,
+                providerId: runtime.activeModel.provider_id,
+            });
+        const request: AiRequestOptions = {
+            model: runtime.activeModel.model_id,
+            providerId: runtime.activeModel.provider_id,
+            messages: runtime.messages,
+            tools: runtime.tools,
+            modelLanguageContext: runtime.modelLanguageContext,
+            signal: options.signal,
+            onAttachmentManifestResolved: options.onAttachmentManifestResolved,
+            supportsReasoning: runtime.activeModel.reasoning === 1,
+            reasoningLevel: DEFAULT_REASONING_LEVEL,
+            reasoningOptions: parseReasoningOptions(runtime.activeModel.reasoning_options),
+            promptCacheKey: runtime.promptCacheKey,
+        };
+        // Anthropic renders tool choice and thinking budgets into the cache prefix.
+        // The summary stream never executes tools, even with automatic tool choice.
+        const preserveReasoningCache =
+            runtime.activeModel.provider_driver === 'anthropic' ||
+            runtime.activeModel.provider_driver === 'anthropic-compatible';
+        const prepared = await this.contextWindow.prepare({
+            request,
+            contextLimit: runtime.activeModel.context_limit,
+            outputLimit: runtime.activeModel.output_limit,
+            preserveSummaryOutputBudget: preserveReasoningCache,
+            saveSummary: (summary, source) =>
+                options.persister.persistContextSummary(summary, runtime.calls, source),
+            onCompaction: (contextCompaction) =>
+                options.onChunk?.({ content: '', done: false, contextCompaction }),
+            summarize: (summaryRequest) =>
+                this.summarizeContext(runtime, {
+                    ...summaryRequest,
+                    toolChoice: preserveReasoningCache ? 'auto' : summaryRequest.toolChoice,
+                }),
+        });
+        if (prepared.messages.some((message) => message.contextSummary)) {
+            runtime.messages = snapshotAiMessages(prepared.messages);
+            options.onContextPrepared();
+        }
+        const modelRequest = {
+            ...request,
+            messages: prepared.messages,
+            maxOutputTokens: prepared.maxOutputTokens,
+            attachmentRequestIndex: runtime.nextAttachmentRequestIndex++,
+        };
         let finishReason: string | undefined;
         let toolCalls: AiToolCall[] | undefined;
         let finalUsage: AiUsage | undefined;
@@ -864,8 +979,6 @@ export class AiRequestExecutor {
         // Each model/tool-loop round is an independent persisted message part.
         // Keep the aggregate on `runtime.outputParts`, but never leak the
         // previous round into this round's final-step result.
-        runtime.currentStepOutputParts = [];
-        runtime.currentStepReasoningStartedAt = null;
 
         // ===== 首字计时与用量采集 =====
         const callStartedAt = Date.now();
@@ -967,7 +1080,7 @@ export class AiRequestExecutor {
         let streamError: unknown;
         let streamFailed = false;
         try {
-            for await (const chunk of stream) {
+            for await (const chunk of runtime.provider.stream(modelRequest)) {
                 throwIfAborted(options.signal);
                 if (chunk.textState === 'start') {
                     finishReasoningSegment();
@@ -1067,6 +1180,7 @@ export class AiRequestExecutor {
         // token sums must never be used to infer it.
         if (usageReported) {
             runtime.usageReportedCalls += 1;
+            this.contextWindow.observe(modelRequest, usage);
         }
         runtime.toolArgumentErrors += stepToolArgumentErrors;
         if (runtime.firstTtftMs === null && call.timing.ttftMs !== undefined) {
@@ -1120,21 +1234,14 @@ export class AiRequestExecutor {
         if (!parsedToolArguments.ok) {
             // 参数解析失败是「结构化输出能力」的直接信号，计入 attempt 级计数。
             runtime.toolArgumentErrors += 1;
-            this.emitToolEvent(options.onChunk, {
-                type: 'call_end',
-                callId: options.toolCall.id,
+            return this.rejectToolCall({
+                ...options,
+                iteration: runtime.iteration,
+                sessionId: options.persister.getSessionId(),
+                input: serializeAuditPayload(options.toolCall.arguments),
                 result: parsedToolArguments.errorResult,
-                isError: true,
                 durationMs: 0,
-                finalStatus: 'error',
             });
-
-            return {
-                toolCall: options.toolCall,
-                result: parsedToolArguments.errorResult,
-                isError: true,
-                toolLogId: null,
-            };
         }
 
         // 只有声明了自适应超时的工具才会把 `_meta` 当作超时信封剥离；
@@ -1148,6 +1255,7 @@ export class AiRequestExecutor {
         const { requestedTimeoutMs, sanitizedToolArgs } = supportsAdaptiveTimeout
             ? parseRequestedTimeoutMs(parsedToolArguments.toolArgs)
             : { requestedTimeoutMs: undefined, sanitizedToolArgs: parsedToolArguments.toolArgs };
+        const input = serializeAuditPayload(sanitizedToolArgs);
 
         const builtInResult = await builtInToolService.executeTool({
             toolCall: options.toolCall,
@@ -1165,10 +1273,10 @@ export class AiRequestExecutor {
         });
 
         if (builtInResult) {
-            return builtInResult;
+            return { ...builtInResult, input };
         }
 
-        return this.executeMcpToolCall({
+        const result = await this.executeMcpToolCall({
             toolCall: options.toolCall,
             toolArgs: sanitizedToolArgs,
             iteration: runtime.iteration,
@@ -1178,6 +1286,7 @@ export class AiRequestExecutor {
             onChunk: options.onChunk,
             requestedTimeoutMs,
         });
+        return { ...result, input };
     }
 
     private async runToolRound(
@@ -1200,6 +1309,8 @@ export class AiRequestExecutor {
         const toolCallMessageId = await options.persister.persistToolCallMessage(
             options.step.outputParts
         );
+        runtime.currentStepOutputParts = [];
+        runtime.currentStepReasoningStartedAt = null;
 
         const toolResults = await Promise.all(
             options.step.toolCalls.map((toolCall) =>
@@ -1288,6 +1399,20 @@ export class AiRequestExecutor {
             });
         }
 
+        const source = await options.persister.getContextMessageSource(toolCallMessageId, {
+            outputParts: options.step.outputParts,
+            results: toolResults,
+        });
+        if (source) {
+            const start = runtime.messages.length - options.step.toolCalls.length - 1;
+            for (let index = start; index < runtime.messages.length; index++) {
+                runtime.messages[index] = {
+                    ...runtime.messages[index]!,
+                    contextSource: source,
+                };
+            }
+        }
+
         this.emitToolEvent(options.onChunk, {
             type: 'iteration_end',
             iteration: runtime.iteration,
@@ -1330,8 +1455,12 @@ export class AiRequestExecutor {
      * - turn 的最终落库状态
      */
     async runAttempt(options: RunAttemptOptions): Promise<AttemptExecutionResult> {
-        const runtime = await this.createAttemptRuntime(options.startCheckpoint);
-        let resumeCheckpoint = options.startCheckpoint;
+        const runtime = await this.createAttemptRuntime(
+            options.startCheckpoint,
+            options.persister.getSessionId()
+        );
+        // One mutable cursor releases archived payloads for all owners at each safe boundary.
+        const resumeCheckpoint = options.startCheckpoint;
         try {
             while (true) {
                 throwIfAborted(options.signal);
@@ -1350,6 +1479,17 @@ export class AiRequestExecutor {
                                 signal: options.signal,
                                 onChunk: options.onChunk,
                                 persister: options.persister,
+                                onContextPrepared: () => {
+                                    resumeCheckpoint.messages = snapshotAiMessages(
+                                        runtime.messages
+                                    );
+                                    if (options.taskId)
+                                        options.onTurnEvent?.({
+                                            type: 'checkpoint_committed',
+                                            taskId: options.taskId,
+                                            checkpoint: resumeCheckpoint,
+                                        });
+                                },
                                 onAttachmentManifestResolved: async (request) => {
                                     try {
                                         await options.persister.syncDeliveryManifestRequest(
@@ -1392,7 +1532,7 @@ export class AiRequestExecutor {
                 }
 
                 runtime.iteration += 1;
-                resumeCheckpoint = this.commitCheckpoint(runtime);
+                Object.assign(resumeCheckpoint, this.commitCheckpoint(runtime));
                 await options.persister.persistCheckpoint(resumeCheckpoint).catch((error) => {
                     log.error('[AiRequestExecutor] Failed to persist checkpoint:', error);
                 });

@@ -2,6 +2,7 @@
 
 import { type DatabaseExecutor, db } from '@database';
 import {
+    appendMessagePart,
     createMessage,
     createMessageAttachment,
     createMessageParts,
@@ -10,6 +11,7 @@ import {
     createSessionTurnAttempt,
     findAllBuiltInTools,
     findAllMcpTools,
+    findLatestContextCompaction,
     findToolCallPartByCallId,
     mergeMessagePartData,
     refreshSessionMetadata,
@@ -21,6 +23,9 @@ import {
     updateSessionTurnAttemptUsage,
     updateSessionTurnUsage,
 } from '@database/queries';
+import { findMessagePartById } from '@database/queries/messageParts';
+import { findContextMessageRows } from '@database/queries/messages';
+import { getToolCallName, readToolCallData } from '@database/queries/toolParts';
 import type { MessageRole, TurnStatus } from '@database/schema';
 import { sessionTurnAttempts } from '@database/schema';
 import type { AttachmentEntity, MessagePartCreateData } from '@database/types';
@@ -56,13 +61,25 @@ import {
 import { toDbTimestamp } from '@/utils/date';
 
 import {
+    type ContextMessageSource,
+    contextMessageSource,
+    type ContextSummary,
+    type ContextSummaryRecord,
+    type ContextSummarySource,
+    readContextSummary,
+} from '../contracts/context';
+import { AiError, AiErrorCode } from '../contracts/errors';
+import {
     type AiCallRecord,
+    type AiMessage,
     type AttachmentDeliveryManifest,
     type AttachmentDeliveryManifestRequest,
     normalizeOutputParts,
     type PersistedOutputPart,
 } from '../contracts/protocol';
+import type { AiToolCall } from '../contracts/tooling';
 import type { AttemptCheckpoint } from '../execution/executor';
+import { canonicalJson } from '../infrastructure/providers/ai-sdk/cache';
 import type { PromptSnapshot } from '../prompt/types';
 import type { TaskExecutionMode } from '../task/types';
 
@@ -196,6 +213,7 @@ export class PersistenceProjector {
     private userMessageId: number | null;
     private assistantMessageId: number | null;
     private pendingOutputMessageId: number | null = null;
+    private pendingOutputOffset = 0;
     private turn: SessionTurnEntity | null;
     private turnStartedAtMs: number | null;
     private attemptState: AttemptState | null;
@@ -269,13 +287,24 @@ export class PersistenceProjector {
                 });
             }
 
-            return { sessionId, userMessageId, turn, attemptState };
+            const source = await contextMessageSource(
+                (await findContextMessageRows(sessionId, { ids: [userMessageId] }, tx))[0]!
+            );
+            return { sessionId, userMessageId, turn, attemptState, source };
         });
 
         this.sessionId = result.sessionId;
         this.userMessageId = result.userMessageId;
         this.turn = result.turn;
         this.attemptState = result.attemptState;
+        const lastIndex = initialCheckpoint.messages.length - 1;
+        const current = initialCheckpoint.messages[lastIndex];
+        if (current?.role === 'user') {
+            initialCheckpoint.messages[lastIndex] = {
+                ...current,
+                contextSource: result.source,
+            };
+        }
     }
 
     /**
@@ -743,7 +772,205 @@ export class PersistenceProjector {
             this.persistMessage({ role: 'tool_call', outputParts, database: tx, pendingPartDrafts })
         );
         this.pendingOutputMessageId = null;
+        this.pendingOutputOffset = 0;
         return messageId;
+    }
+
+    async getContextMessageSource(
+        messageId: number,
+        expected: {
+            outputParts: PersistedOutputPart[];
+            results: {
+                toolCall: AiToolCall;
+                input?: string;
+                result: string;
+                isError: boolean;
+                attachments?: AttachmentIndex[];
+            }[];
+        }
+    ): Promise<ContextMessageSource | undefined> {
+        if (this.sessionId === null) return undefined;
+        const row = (await findContextMessageRows(this.sessionId, { ids: [messageId] }))[0];
+        if (!row || row.role !== 'tool_call') return undefined;
+        const output = row.parts.filter(
+            (part) => part.type === 'text' || part.type === 'reasoning'
+        );
+        const drafts = normalizeOutputParts(expected.outputParts);
+        if (
+            output.length !== drafts.length ||
+            output.some((part, index) => {
+                const draft = drafts[index]!;
+                return (
+                    part.type !== draft.type ||
+                    part.content !== draft.content ||
+                    canonicalJson(JSON.parse(part.data)) !==
+                        canonicalJson(
+                            draft.type === 'reasoning' ? (draft.providerOptions ?? {}) : {}
+                        )
+                );
+            })
+        )
+            return undefined;
+        const calls = row.parts.filter((part) => part.type === 'tool_call').map(readToolCallData);
+        if (
+            calls.length !== expected.results.length ||
+            expected.results.some((result) => {
+                const saved = calls.find((call) => call.toolCallId === result.toolCall.id);
+                return (
+                    !saved ||
+                    getToolCallName(saved) !== result.toolCall.name ||
+                    saved.input !== result.input ||
+                    saved.output !== result.result ||
+                    ['error', 'timeout', 'rejected', 'cancelled'].includes(saved.status ?? '') !==
+                        result.isError
+                );
+            })
+        )
+            return undefined;
+        const attachments = expected.results.flatMap((result) =>
+            (result.attachments ?? []).map((attachment) => ({
+                id: attachment.attachmentId,
+                callId: result.toolCall.id,
+            }))
+        );
+        if (
+            row.attachments.length !== attachments.length ||
+            attachments.some(
+                (attachment) =>
+                    !row.attachments.some(
+                        (saved) =>
+                            saved.id === attachment.id && saved.tool_call_id === attachment.callId
+                    )
+            )
+        )
+            return undefined;
+        return contextMessageSource(row);
+    }
+
+    /** A concurrent import must stop the next model step from using an invalidated summary. */
+    async validateContextSummary(message: AiMessage): Promise<void> {
+        if (!message.contextSummary) return;
+        const part =
+            message.contextSummaryPartId === undefined
+                ? undefined
+                : await findMessagePartById(message.contextSummaryPartId);
+        const saved = part ? readContextSummary(part) : undefined;
+        if (
+            !saved ||
+            saved.invalidatedAt !== undefined ||
+            canonicalJson(saved) !== canonicalJson(message.contextSummary)
+        ) {
+            throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
+        }
+    }
+
+    private async validateSummarySource(
+        summary: ContextSummary,
+        source: ContextSummarySource,
+        database: DatabaseExecutor
+    ): Promise<void> {
+        const fail = () => {
+            throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
+        };
+        if (this.sessionId === null) return fail();
+        if (source.previous) {
+            const previous = await findLatestContextCompaction(this.sessionId, database);
+            const saved = previous ? readContextSummary(previous) : undefined;
+            if (
+                !saved ||
+                saved.invalidatedAt !== undefined ||
+                canonicalJson(saved) !== canonicalJson(source.previous)
+            )
+                return fail();
+        }
+        const boundary = await findContextMessageRows(
+            this.sessionId,
+            { ids: [summary.firstKeptMessageId] },
+            database
+        );
+        if (boundary.length !== 1) return fail();
+        const sources = new Map(
+            source.messages.map((message) => [message.id, message.fingerprint])
+        );
+        if (source.messages.some((message) => sources.get(message.id) !== message.fingerprint))
+            return fail();
+        const range = await findContextMessageRows(
+            this.sessionId,
+            { firstId: source.previous?.firstKeptMessageId, beforeId: summary.firstKeptMessageId },
+            database
+        );
+        const retained = source.previous
+            ? await findContextMessageRows(
+                  this.sessionId,
+                  {
+                      ids: [...sources.keys()].filter(
+                          (id) => id < source.previous!.firstKeptMessageId
+                      ),
+                  },
+                  database
+              )
+            : [];
+        const rows = [...retained, ...range];
+        const byId = new Map(rows.map((row) => [row.id, row]));
+        if (summary.systemMessageIds.some((id) => byId.get(id)?.role !== 'system')) return fail();
+        for (const row of rows) {
+            const expected = sources.get(row.id);
+            // A summary-only assistant row emits no transport; a concurrent addition of text does.
+            if (
+                !expected &&
+                row.role === 'assistant' &&
+                !row.parts.some(
+                    (part) => ['text', 'reasoning'].includes(part.type) && part.content.trim()
+                )
+            )
+                continue;
+            if (expected !== (await contextMessageSource(row)).fingerprint) return fail();
+            sources.delete(row.id);
+        }
+        if (sources.size) return fail();
+    }
+
+    /** Commit summary, timeline position and already-reported usage as one checkpoint. */
+    async persistContextSummary(
+        summary: ContextSummaryRecord,
+        calls: AiCallRecord[],
+        source: ContextSummarySource
+    ): Promise<number> {
+        if (!this.turn || !this.attemptState) throw new Error('Compaction requires an active turn');
+        const turnId = this.turn.id;
+        const { text, ...metadata } = summary;
+        const result = await db.transaction(async (tx) => {
+            await this.validateSummarySource(summary, source, tx);
+            const messageId =
+                this.pendingOutputMessageId ??
+                (await this.persistMessage({
+                    role: 'assistant',
+                    database: tx,
+                }));
+            const part = await appendMessagePart(
+                messageId,
+                {
+                    type: 'context_compaction',
+                    content: text,
+                    data: JSON.stringify(metadata),
+                    started_at: summary.createdAt,
+                    ended_at: summary.createdAt,
+                },
+                tx
+            );
+            await updateSessionTurn({
+                id: turnId,
+                turnPatch: { response_message_id: messageId },
+                database: tx,
+            });
+            const usagePatch = await this.persistUsage({ messageId: null, calls, database: tx });
+            await updateSessionTurnUsage({ id: turnId, usagePatch, database: tx });
+            return { messageId, partId: part.id, offset: part.sort_order + 1 };
+        });
+        this.pendingOutputMessageId = result.messageId;
+        this.pendingOutputOffset = result.offset;
+        this.turn = { ...this.turn, response_message_id: result.messageId };
+        return result.partId;
     }
 
     /**
@@ -981,7 +1208,7 @@ export class PersistenceProjector {
                           : {}),
                       started_at: part.type === 'reasoning' ? (part.startedAt ?? null) : null,
                       ended_at: part.type === 'reasoning' ? (part.endedAt ?? null) : null,
-                      sort_order: sortOrder,
+                      sort_order: sortOrder + this.pendingOutputOffset,
                   }))
                 : null;
         const previousDrafts = draftParts ? this.lastPartDrafts.get(messageId) : undefined;

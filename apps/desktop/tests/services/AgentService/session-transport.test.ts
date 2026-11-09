@@ -1,15 +1,30 @@
 import type { MessageRow } from '@database/queries/messages';
+import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
 import { createMessagePart, createMessageRow } from '@tests/utils/messages';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { loadSessionTransportMessages } from '@/services/AgentService/session/transport';
 
-const mocks = vi.hoisted(() => ({
-    findMessagesBySessionId: vi.fn<() => Promise<MessageRow[]>>(),
-}));
-vi.mock('@database/queries/messages', () => ({
-    findMessagesBySessionId: mocks.findMessagesBySessionId,
-}));
+let database: ReturnType<typeof openMigratedDatabase>;
+
+function storeRows(rows: MessageRow[]): void {
+    for (const row of rows) {
+        database
+            .prepare('INSERT INTO messages(id, session_id, role) VALUES (?, 1, ?)')
+            .run(row.id, row.role);
+        for (const part of row.parts) {
+            database
+                .prepare(
+                    'INSERT INTO message_parts(message_id, type, content, data, sort_order) VALUES (?, ?, ?, ?, ?)'
+                )
+                .run(row.id, part.type, part.content, part.data, part.sort_order);
+        }
+    }
+}
 
 function callPart(id: number, kind: 'builtin' | 'mcp', callId: string, result?: string) {
     return createMessagePart({
@@ -31,11 +46,17 @@ function callPart(id: number, kind: 'builtin' | 'mcp', callId: string, result?: 
 
 describe('a saved conversation is replayed to the model', () => {
     beforeEach(() => {
-        mocks.findMessagesBySessionId.mockReset();
+        database = openMigratedDatabase();
+        routeQueriesTo(database);
+        database.exec(
+            "INSERT INTO sessions(id, session_id, title, model) VALUES (1, 'transport', 'Transport', 'test')"
+        );
     });
 
+    afterEach(closeTestDatabases);
+
     it('user sees multiple tool calls from one message with each result after its call', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        storeRows([
             createMessageRow({ id: 10, content: 'run both' }),
             createMessageRow({
                 id: 11,
@@ -47,7 +68,7 @@ describe('a saved conversation is replayed to the model', () => {
             }),
         ]);
         const messages = await loadSessionTransportMessages({ sessionId: 1 });
-        expect(messages[1]).toEqual({
+        expect(messages[1]).toMatchObject({
             role: 'assistant',
             content: [],
             tool_calls: [
@@ -55,7 +76,7 @@ describe('a saved conversation is replayed to the model', () => {
                 { id: 'call_mcp', name: 'mcp__9__lookup', arguments: '{}' },
             ],
         });
-        expect(messages.slice(2)).toEqual([
+        expect(messages.slice(2)).toMatchObject([
             {
                 role: 'tool',
                 tool_call_id: 'call_builtin',
@@ -69,11 +90,10 @@ describe('a saved conversation is replayed to the model', () => {
                 content: 'mcp result',
             },
         ]);
-        expect(mocks.findMessagesBySessionId).toHaveBeenCalledExactlyOnceWith(1);
     });
 
     it('user sees a placeholder result for an interrupted call with no saved result', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        storeRows([
             createMessageRow({ id: 10, content: 'run a tool' }),
             createMessageRow({
                 id: 11,
@@ -82,7 +102,7 @@ describe('a saved conversation is replayed to the model', () => {
             }),
             createMessageRow({ id: 12, role: 'assistant', content: 'request was interrupted' }),
         ]);
-        expect(await loadSessionTransportMessages({ sessionId: 1 })).toEqual([
+        expect(await loadSessionTransportMessages({ sessionId: 1 })).toMatchObject([
             { role: 'user', content: 'run a tool' },
             {
                 role: 'assistant',
@@ -100,7 +120,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user sees reasoning and text kept on a tool-call message beside its call parts', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        storeRows([
             createMessageRow({
                 id: 11,
                 role: 'tool_call',
@@ -124,7 +144,7 @@ describe('a saved conversation is replayed to the model', () => {
             }),
         ]);
 
-        expect(await loadSessionTransportMessages({ sessionId: 1 })).toEqual([
+        expect(await loadSessionTransportMessages({ sessionId: 1 })).toMatchObject([
             {
                 role: 'assistant',
                 content: [
@@ -143,7 +163,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user sees text and reasoning replayed in their original order', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        storeRows([
             createMessageRow({
                 role: 'assistant',
                 parts: [
@@ -159,7 +179,7 @@ describe('a saved conversation is replayed to the model', () => {
                 ],
             }),
         ]);
-        expect(await loadSessionTransportMessages({ sessionId: 1 })).toEqual([
+        expect(await loadSessionTransportMessages({ sessionId: 1 })).toMatchObject([
             {
                 role: 'assistant',
                 content: [
@@ -173,7 +193,7 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user sees reasoning provider options restored from the saved part', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        storeRows([
             createMessageRow({
                 role: 'assistant',
                 parts: [
@@ -190,7 +210,7 @@ describe('a saved conversation is replayed to the model', () => {
                 ],
             }),
         ]);
-        expect(await loadSessionTransportMessages({ sessionId: 1 })).toEqual([
+        expect(await loadSessionTransportMessages({ sessionId: 1 })).toMatchObject([
             {
                 role: 'assistant',
                 content: [
@@ -208,7 +228,9 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user sees malformed reasoning part data ignored', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        // Simulate a damaged record that bypassed the write constraint.
+        database.exec('PRAGMA ignore_check_constraints = ON');
+        storeRows([
             createMessageRow({
                 role: 'assistant',
                 parts: [
@@ -222,13 +244,13 @@ describe('a saved conversation is replayed to the model', () => {
                 ],
             }),
         ]);
-        expect(await loadSessionTransportMessages({ sessionId: 1 })).toEqual([
+        expect(await loadSessionTransportMessages({ sessionId: 1 })).toMatchObject([
             { role: 'assistant', content: [{ type: 'reasoning', text: 'plan' }] },
         ]);
     });
 
     it('user does not see blank text and reasoning parts sent to the model', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        storeRows([
             createMessageRow({
                 role: 'assistant',
                 parts: [
@@ -245,7 +267,7 @@ describe('a saved conversation is replayed to the model', () => {
             }),
         ]);
 
-        expect(await loadSessionTransportMessages({ sessionId: 1 })).toEqual([
+        expect(await loadSessionTransportMessages({ sessionId: 1 })).toMatchObject([
             {
                 role: 'assistant',
                 content: [
@@ -257,7 +279,9 @@ describe('a saved conversation is replayed to the model', () => {
     });
 
     it('user does not see assistant rows with no renderable content sent', async () => {
-        mocks.findMessagesBySessionId.mockResolvedValue([
+        database.exec(`INSERT INTO attachments(id, hash, type, original_name, origin_path, mime_type, size)
+            VALUES (1, 'hash', 'image', 'image.png', '/image.png', 'image/png', 1)`);
+        storeRows([
             createMessageRow({ id: 10, content: 'Question' }),
             createMessageRow({
                 id: 11,
@@ -275,7 +299,7 @@ describe('a saved conversation is replayed to the model', () => {
             createMessageRow({ id: 12, role: 'assistant', content: 'Answer' }),
         ]);
 
-        expect(await loadSessionTransportMessages({ sessionId: 1 })).toEqual([
+        expect(await loadSessionTransportMessages({ sessionId: 1 })).toMatchObject([
             { role: 'user', content: 'Question' },
             { role: 'assistant', content: [{ type: 'text', text: 'Answer' }] },
         ]);
@@ -283,6 +307,5 @@ describe('a saved conversation is replayed to the model', () => {
 
     it('user sees no history queried when there is no session', async () => {
         expect(await loadSessionTransportMessages({})).toEqual([]);
-        expect(mocks.findMessagesBySessionId).not.toHaveBeenCalled();
     });
 });

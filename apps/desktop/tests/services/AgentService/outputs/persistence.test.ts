@@ -2,6 +2,7 @@
  * Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
  */
 
+import { createMessageRow } from '@tests/utils/messages';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AiCallRecord } from '@/services/AgentService/contracts/protocol';
@@ -46,6 +47,12 @@ vi.mock('@database', async (importOriginal) => ({
 vi.mock('@database/queries', async (importOriginal) => ({
     ...(await importOriginal<typeof import('@database/queries')>()),
     ...queries,
+}));
+
+vi.mock('@database/queries/messages', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('@database/queries/messages')>()),
+    findContextMessageRows: async (sessionId: number, options: { ids: number[] }) =>
+        options.ids.map((id) => createMessageRow({ id, session_id: sessionId, content: 'hello' })),
 }));
 
 vi.mock('@/services/UsageService', async (importOriginal) => ({

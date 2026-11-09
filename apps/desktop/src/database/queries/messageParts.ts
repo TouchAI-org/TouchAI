@@ -1,10 +1,10 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { and, asc, eq, inArray, notInArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, notInArray, sql } from 'drizzle-orm';
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 
 import { type DatabaseExecutor, db } from '../index';
-import { messageParts } from '../schema';
+import { messageParts, messages } from '../schema';
 import type { MessagePartCreateData, MessagePartEntity } from '../types';
 
 /** Derive plain text only at consumers that need it; parts remain the source of truth. */
@@ -19,13 +19,14 @@ export function getMessageText(parts: readonly MessagePartEntity[]): string {
  * 按消息批量读取片段，避免历史恢复时按消息逐条查询。
  */
 export const findMessagePartsByMessageIds = async (
-    messageIds: number[]
+    messageIds: number[],
+    database: DatabaseExecutor = db
 ): Promise<MessagePartEntity[]> => {
     if (messageIds.length === 0) {
         return [];
     }
 
-    return db
+    return database
         .select()
         .from(messageParts)
         .where(inArray(messageParts.message_id, messageIds))
@@ -41,6 +42,28 @@ export const findMessagePartById = async (
     const part = await database.select().from(messageParts).where(eq(messageParts.id, id)).get();
     return part;
 };
+
+/** CROSS JOIN pins the session index first; never scan checkpoints in unrelated sessions. */
+export async function findLatestContextCompaction(
+    sessionId: number,
+    database: DatabaseExecutor = db
+): Promise<MessagePartEntity | undefined> {
+    const row = await database
+        .select({ part: messageParts })
+        .from(messages)
+        .crossJoin(messageParts)
+        .where(
+            and(
+                eq(messages.session_id, sessionId),
+                eq(messageParts.message_id, messages.id),
+                eq(messageParts.type, 'context_compaction')
+            )
+        )
+        .orderBy(desc(messageParts.id))
+        .limit(1)
+        .get();
+    return row?.part;
+}
 
 /**
  * 按工具调用 id 反查 tool_call 片段。
@@ -81,7 +104,6 @@ export const createMessageParts = async (
     if (parts.length === 0) {
         return;
     }
-
     await database.insert(messageParts).values(parts).run();
 };
 
@@ -95,6 +117,7 @@ export const appendMessagePart = async (
     part: Omit<MessagePartCreateData, 'message_id' | 'sort_order'>,
     database: DatabaseExecutor = db
 ): Promise<MessagePartEntity> => {
+    if (database === db) return db.transaction((tx) => appendMessagePart(messageId, part, tx));
     const maximum = await database
         .select({
             value: sql<number>`coalesce(max(${messageParts.sort_order}), -1)`.as('value'),
@@ -127,6 +150,7 @@ export const mergeMessagePartData = async (
     patch: Record<string, unknown>,
     database: DatabaseExecutor = db
 ): Promise<MessagePartEntity | undefined> => {
+    if (database === db) return db.transaction((tx) => mergeMessagePartData(partId, patch, tx));
     const part = await database
         .select()
         .from(messageParts)
@@ -175,6 +199,7 @@ export async function syncOutputParts(
     drafts: MessagePartCreateData[],
     database: DatabaseExecutor = db
 ): Promise<void> {
+    if (database === db) return db.transaction((tx) => syncOutputParts(messageId, drafts, tx));
     const existing = await database
         .select()
         .from(messageParts)

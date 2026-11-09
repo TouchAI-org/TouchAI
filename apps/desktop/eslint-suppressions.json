@@ -1,9 +1,4 @@
 {
-    "src/components/ActionButton.vue": {
-        "vue/no-restricted-class": {
-            "count": 3
-        }
-    },
     "src/components/AppIcon.vue": {
         "tailwindcss/no-custom-classname": {
             "count": 1
@@ -180,9 +175,6 @@
         },
         "tailwindcss/no-custom-classname": {
             "count": 3
-        },
-        "vue/no-restricted-class": {
-            "count": 1
         }
     },
     "src/views/SearchView/components/ConversationPanel/components/BuiltInBashToolCallItem.vue": {
@@ -221,9 +213,6 @@
         },
         "tailwindcss/no-custom-classname": {
             "count": 2
-        },
-        "vue/no-restricted-class": {
-            "count": 6
         }
     },
     "src/views/SearchView/components/ConversationPanel/components/WebSearchSourcesCard.vue": {

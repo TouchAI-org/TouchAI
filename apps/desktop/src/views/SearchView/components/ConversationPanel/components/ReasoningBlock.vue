@@ -189,7 +189,7 @@
                 <span class="reasoning-label">
                     <span
                         class="reasoning-label-content"
-                        :class="{ 'reasoning-shimmer': isStreaming }"
+                        :class="{ 'reasoning-shimmer t-text-shimmer': isStreaming }"
                     >
                         {{ label }}
                     </span>
@@ -291,17 +291,9 @@
     }
 
     .reasoning-shimmer {
-        color: transparent;
-        background-image: linear-gradient(
-            90deg,
-            var(--color-gray-500) 35%,
-            var(--color-gray-900) 50%,
-            var(--color-gray-500) 65%
-        );
-        background-size: 220% 100%;
-        background-clip: text;
-        -webkit-background-clip: text;
-        animation: reasoning-shimmer 1.4s linear infinite;
+        --text-shimmer-base: var(--color-gray-500);
+        --text-shimmer-highlight: var(--color-gray-900);
+        color: var(--text-shimmer-base);
     }
 
     .reasoning-preview {
@@ -400,22 +392,7 @@
         font-weight: 600;
     }
 
-    @keyframes reasoning-shimmer {
-        from {
-            background-position: 100% 0;
-        }
-        to {
-            background-position: -100% 0;
-        }
-    }
-
     @media (prefers-reduced-motion: reduce) {
-        .reasoning-shimmer {
-            color: var(--color-gray-500);
-            background-image: none;
-            animation: none;
-        }
-
         .reasoning-trace {
             transition: none;
         }

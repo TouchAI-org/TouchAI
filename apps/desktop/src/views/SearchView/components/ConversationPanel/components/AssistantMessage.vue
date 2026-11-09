@@ -36,12 +36,24 @@
                                 v-else-if="part.type === 'approval'"
                                 :approval="part.approval"
                             />
+                            <StatusDivider
+                                v-else-if="part.type === 'context_compaction'"
+                                icon="compress"
+                                :loading="part.state === 'compacting'"
+                                :label="
+                                    tt(
+                                        part.state === 'compacting'
+                                            ? '正在压缩上下文'
+                                            : '上下文已压缩'
+                                    )
+                                "
+                            />
                         </div>
                     </div>
 
                     <div
                         v-if="message.statusText"
-                        class="mt-3 font-serif text-sm leading-[1.6] text-gray-500"
+                        class="mt-3 font-serif text-sm leading-[1.6] text-muted-foreground"
                     >
                         {{ message.statusText }}
                     </div>
@@ -50,6 +62,8 @@
                 <div
                     v-if="isRequestStateMessage || (message.isStreaming && !askUserStore.current)"
                     class="mt-5 mb-2 flex min-h-6 items-center gap-2 font-serif text-compact leading-6 text-text-tertiary"
+                    :class="{ invisible: isCompacting && !isRequestStateMessage }"
+                    :aria-hidden="(isCompacting && !isRequestStateMessage) || undefined"
                     data-request-status
                 >
                     <span v-if="isRequestStateMessage">{{ message.content }}</span>
@@ -87,18 +101,20 @@
 <script setup lang="ts">
     import ActionButton from '@components/ActionButton.vue';
     import MarkdownContent from '@components/MarkdownContent.vue';
+    import StatusDivider from '@components/ui/status-divider/StatusDivider.vue';
     import { useMotion } from '@composables/useMotion';
     import { notify } from '@services/NotificationService';
     import { log } from '@services/ObservabilityService';
     import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue';
 
-    import { type MessageKey, t } from '@/i18n';
+    import { type MessageKey, t, tt } from '@/i18n';
     import { runResultAction } from '@/services/AnalyticsService/productInteractions';
     import type { WebSearchSource } from '@/services/BuiltInToolService/tools/webSearch/sources';
     import { SHOW_WIDGET_TOOL_NAME } from '@/services/BuiltInToolService/tools/widgetTool';
     import { clipboardService } from '@/services/ClipboardService';
     import { useAskUserStore } from '@/stores/askUser';
     import type {
+        ContextCompactionMessagePart,
         SessionMessage,
         ToolApprovalInfo,
         ToolCallInfo,
@@ -127,6 +143,7 @@
     }>();
 
     type RenderedPart =
+        | ContextCompactionMessagePart
         | {
               id: string;
               type: 'reasoning';
@@ -178,6 +195,11 @@
     const currentTip = computed(() => t(TIPS[currentTipIndex.value] ?? DEFAULT_LOADING_TIP_KEY));
 
     const askUserStore = useAskUserStore();
+    const isCompacting = computed(() =>
+        props.message.parts.some(
+            (part) => part.type === 'context_compaction' && part.state === 'compacting'
+        )
+    );
     const { windowVisible } = useMotion();
 
     let tipTimer: ReturnType<typeof setInterval> | null = null;
@@ -217,7 +239,7 @@
     }
 
     function handleVisibilityChange() {
-        if (!props.message.isStreaming) {
+        if (!props.message.isStreaming || isCompacting.value) {
             return;
         }
 
@@ -233,7 +255,7 @@
 
     // 跟随 streaming 状态启停轮播（组件生命周期可能跨多次请求）
     watch(
-        () => props.message.isStreaming,
+        () => props.message.isStreaming && !isCompacting.value,
         (streaming) => {
             if (streaming) {
                 startTipRotation();
@@ -309,6 +331,10 @@
         );
 
         for (const part of props.message.parts) {
+            if (part.type === 'context_compaction') {
+                parts.push(part);
+                continue;
+            }
             if (part.type === 'reasoning') {
                 parts.push({
                     ...part,
@@ -401,7 +427,7 @@
         width: 3px;
         height: 3px;
         border-radius: 50%;
-        background-color: var(--color-gray-500);
+        background-color: var(--color-muted-foreground);
         animation: pulse var(--motion-status-cycle) infinite var(--ease-in-out);
     }
 
@@ -430,7 +456,7 @@
         font-size: 12px;
         font-weight: 600;
         font-family: var(--font-serif);
-        color: var(--color-gray-500);
+        color: var(--color-muted-foreground);
         min-width: 0;
         max-width: 100%;
         white-space: normal;

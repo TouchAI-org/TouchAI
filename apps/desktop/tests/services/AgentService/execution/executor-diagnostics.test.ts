@@ -2,6 +2,11 @@
  * Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
  */
 
+import {
+    closeTestDatabases,
+    openMigratedDatabase,
+    routeQueriesTo,
+} from '@tests/database/sqliteHarness';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
@@ -104,7 +109,7 @@ async function failWith(error: unknown, signal?: AbortSignal) {
     providerMock.classifyError.mockReturnValue(new AiError(AiErrorCode.NETWORK_ERROR));
     return new AiRequestExecutor().runAttempt({
         startCheckpoint: createCheckpoint(),
-        persister: {} as never,
+        persister: { getSessionId: () => 42 } as never,
         signal,
     });
 }
@@ -296,7 +301,7 @@ describe('user cancels an attempt before the model answers', () => {
 
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: {} as never,
+            persister: { getSessionId: () => 42 } as never,
             signal: controller.signal,
         });
 
@@ -314,7 +319,7 @@ describe('user gets an answer the model never produced', () => {
 
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: {} as never,
+            persister: { getSessionId: () => 42 } as never,
         });
 
         expect(result).toMatchObject({ type: 'failed' });
@@ -332,7 +337,7 @@ describe('user gets an answer the model never produced', () => {
 
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: {} as never,
+            persister: { getSessionId: () => 42 } as never,
         });
 
         expect(result).toMatchObject({ type: 'completed', reasoning: 'Thought about it' });
@@ -341,18 +346,26 @@ describe('user gets an answer the model never produced', () => {
 
 describe('user watches a tool loop commit its progress', () => {
     beforeEach(() => {
+        const database = openMigratedDatabase();
+        routeQueriesTo(database);
+        database.exec(`
+            INSERT INTO sessions (id, session_id, title, model) VALUES (1, 'diagnostics', 'Test', 'test');
+            INSERT INTO messages (id, session_id, role) VALUES (1, 1, 'tool_call');
+        `);
         vi.clearAllMocks();
         // clearAllMocks keeps the mockImplementationOnce queue; drain it so rounds stay per-test.
         providerMock.stream.mockReset();
         createProviderForModelMock.mockReturnValue(providerMock);
         resolveToolDefinitionsMock.mockResolvedValue([]);
     });
+    afterEach(closeTestDatabases);
 
     function persisterStub() {
         return {
             persistOutputProgress: vi.fn().mockResolvedValue(undefined),
             persistToolCallMessage: vi.fn().mockResolvedValue(1),
             persistToolResult: vi.fn().mockResolvedValue(undefined),
+            getContextMessageSource: async () => undefined,
             persistCheckpoint: vi.fn().mockResolvedValue(undefined),
             getSessionId: vi.fn(() => 1),
         };

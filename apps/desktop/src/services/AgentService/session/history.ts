@@ -37,6 +37,7 @@ import {
 } from '@/utils/session';
 import { normalizeString } from '@/utils/text';
 
+import { readContextSummary } from '../contracts/context';
 import { AiError } from '../contracts/errors';
 import { getRetryStatusMessage } from '../execution/retry';
 import type { PromptSnapshot } from '../prompt/types';
@@ -85,7 +86,10 @@ function parseToolArguments(raw: string | null): Record<string, unknown> {
     }
 
     try {
-        return JSON.parse(raw) as Record<string, unknown>;
+        const parsed: unknown = JSON.parse(raw);
+        return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : {};
     } catch {
         return {};
     }
@@ -341,6 +345,14 @@ function appendAssistantOutput(message: SessionMessage, parts: MessagePartEntity
         } else if (part.type === 'reasoning') {
             appendReasoningPart(message, part);
             message.reasoning = `${message.reasoning ?? ''}${part.content}`;
+        } else if (part.type === 'context_compaction') {
+            const summary = readContextSummary(part);
+            if (summary)
+                message.parts.push({
+                    id: summary.id,
+                    type: 'context_compaction',
+                    state: 'compacted',
+                });
         }
     }
 }
