@@ -40,6 +40,10 @@ const browser = await chromium.launch({
     headless: true,
 });
 
+/**
+ * Computed shadow styles cannot prove that opaque children leave the stroke visible;
+ * sample the rendered screenshot instead.
+ */
 async function pixels(page, points) {
     const screenshot = await page.screenshot({ omitBackground: true });
     return page.evaluate(

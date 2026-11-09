@@ -120,12 +120,22 @@ describe('user works in the settings window', () => {
                 const context = canvas.getContext('2d');
                 context.drawImage(image, 0, 0);
                 const scale = image.width / window.innerWidth;
+                if (Math.abs(image.height - Math.round(window.innerHeight * scale)) > 1) {
+                    throw new Error(
+                        'The screenshot dimensions do not match the settings viewport.'
+                    );
+                }
                 const left = Math.floor((bounds.left + bounds.width / 2) * scale);
                 return [bounds.top, bounds.top + 2].map((top) =>
                     Array.from(context.getImageData(left, Math.floor(top * scale), 1, 1).data)
                 );
             }, screenshot);
 
+            assertVisible(
+                content[3] === 255 &&
+                    content.slice(0, 3).some((value) => Math.abs(value - 169) > 2),
+                `The screenshot must sample opaque content distinct from the border: ${content}.`
+            );
             for (const channel of [0, 1, 2]) {
                 const expected = 169;
                 assertVisible(
