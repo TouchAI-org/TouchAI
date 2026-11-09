@@ -197,10 +197,6 @@ const DataTable = defineNode(
             );
         });
 
-        const percentColumns = (props.columns as string[]).map((_, index) =>
-            rows.every((row) => /%$/.test((row[index] ?? '').trim()))
-        );
-
         return h('div', { class: 'visual-reply-table-wrap' }, [
             h('table', { class: 'visual-reply-table' }, [
                 h(
@@ -226,14 +222,8 @@ const DataTable = defineNode(
                                 return h(
                                     'td',
                                     { class: className },
-                                    percentColumns[index]
-                                        ? h(
-                                              'span',
-                                              {
-                                                  class: `visual-reply-percent visual-reply-percent-${percentTone(cell)}`,
-                                              },
-                                              cell
-                                          )
+                                    /%$/.test(cell.trim())
+                                        ? h('span', { class: 'visual-reply-percent' }, cell)
                                         : cell
                                 );
                             })
@@ -315,14 +305,6 @@ function formatChartValue(value: number): string {
     return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
-function percentTone(value: string): 'success' | 'info' | 'warning' {
-    const percent = Number.parseFloat(value);
-    if (!Number.isFinite(percent)) return 'warning';
-    if (percent >= 20) return 'success';
-    if (percent >= 15) return 'info';
-    return 'warning';
-}
-
 const Funnel = defineNode(
     'Funnel',
     'A compact conversion funnel. Labels, values, and display values must have matching lengths.',
@@ -351,29 +333,32 @@ const Funnel = defineNode(
                     const continuation = previous > 0 ? Math.round((value / previous) * 100) : 0;
                     const row = h('div', { class: 'visual-reply-funnel-row' }, [
                         h('span', { class: 'visual-reply-funnel-label' }, step),
-                        h('span', { class: 'visual-reply-funnel-track', 'aria-hidden': 'true' }, [
-                            h('span', {
-                                class: `visual-reply-funnel-bar visual-reply-funnel-bar-${Math.min(index, 3)}`,
-                                style: {
-                                    width: `${Math.max(8, Math.pow(value / first, 0.25) * 100)}%`,
-                                },
-                            }),
-                        ]),
+                        h(
+                            'span',
+                            {
+                                class: 'visual-reply-funnel-track',
+                                title:
+                                    index === 0
+                                        ? `${step}: ${displays[index] ?? formatChartValue(value)}`
+                                        : `${step}: ${displays[index] ?? formatChartValue(value)}, ${continuation}% of ${labels[index - 1]}`,
+                                'aria-hidden': 'true',
+                            },
+                            [
+                                h('span', {
+                                    class: `visual-reply-funnel-bar visual-reply-funnel-bar-${Math.min(index, 3)}`,
+                                    style: {
+                                        width: `${Math.max(8, Math.pow(value / first, 0.25) * 100)}%`,
+                                    },
+                                }),
+                            ]
+                        ),
                         h(
                             'span',
                             { class: 'visual-reply-funnel-value' },
                             displays[index] ?? formatChartValue(value)
                         ),
                     ]);
-                    if (index === 0) return [row];
-                    return [
-                        h(
-                            'span',
-                            { class: 'visual-reply-funnel-drop', 'aria-hidden': 'true' },
-                            `\u2193 ${continuation}%`
-                        ),
-                        row,
-                    ];
+                    return [row];
                 })
             ),
         ]);
