@@ -1,0 +1,92 @@
+/*
+ * Story-only shell that mirrors T3 Code's zinc canvas, 46rem chat column and
+ * quiet user-message surface. Product styling lives in visual-reply.css.
+ */
+.visual-reply-story {
+    min-height: 100vh;
+    padding: 3rem 1.5rem;
+    background: #fafafa;
+    color: #18181b;
+    font-family: var(--font-sans);
+}
+
+.visual-reply-story__thread {
+    width: 100%;
+    max-width: 46rem;
+    margin-inline: auto;
+}
+
+.visual-reply-story__prompt-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 1.5rem;
+}
+
+.visual-reply-story__prompt {
+    max-width: 32rem;
+    border-radius: 1rem;
+    padding: 0.625rem 0.875rem;
+    background: #f4f4f5;
+    color: #27272a;
+    font-size: 0.875rem;
+    line-height: 1.55;
+}
+
+.visual-reply-story__comparison {
+    display: grid;
+    width: 100%;
+    max-width: 82rem;
+    margin-inline: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2.5rem;
+}
+
+.visual-reply-story__column {
+    min-width: 0;
+}
+
+.visual-reply-story__reply {
+    min-width: 0;
+    margin-top: 1.25rem;
+}
+
+.visual-reply-story__column-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #e4e4e7;
+    padding-bottom: 0.625rem;
+}
+
+.visual-reply-story__column-title {
+    margin: 0;
+    color: #18181b;
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+.visual-reply-story__column-meta {
+    color: #a1a1aa;
+    font-size: 0.6875rem;
+}
+
+.visual-reply-story__host-action {
+    margin-top: 1rem;
+    border-top: 1px solid #e4e4e7;
+    padding-top: 0.75rem;
+    color: #71717a;
+    font-size: 0.75rem;
+}
+
+@media (max-width: 860px) {
+    .visual-reply-story {
+        padding: 2rem 1rem;
+    }
+
+    .visual-reply-story__comparison {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 2.5rem;
+    }
+}

@@ -227,7 +227,13 @@ const DataTable = defineNode(
                                     'td',
                                     { class: className },
                                     percentColumns[index]
-                                        ? h('span', { class: 'visual-reply-percent' }, cell)
+                                        ? h(
+                                              'span',
+                                              {
+                                                  class: `visual-reply-percent visual-reply-percent-${percentTone(cell)}`,
+                                              },
+                                              cell
+                                          )
                                         : cell
                                 );
                             })
@@ -307,6 +313,14 @@ const BarChart = defineNode(
 
 function formatChartValue(value: number): string {
     return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function percentTone(value: string): 'success' | 'info' | 'warning' {
+    const percent = Number.parseFloat(value);
+    if (!Number.isFinite(percent)) return 'warning';
+    if (percent >= 20) return 'success';
+    if (percent >= 15) return 'info';
+    return 'warning';
 }
 
 const Funnel = defineNode(

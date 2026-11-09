@@ -1,4 +1,5 @@
 import '@styles/visual-reply.css';
+import './VisualRepliesComparison.stories.css';
 
 import type { Meta, StoryObj } from '@storybook/vue3-vite';
 import { onUnmounted, ref } from 'vue';
@@ -9,9 +10,9 @@ import OpenUIReply from './OpenUIReply.vue';
 import VisualArtifactFrame from './VisualArtifactFrame.vue';
 
 /*
- * Mirrors the official OpenUI Sales pipeline example: title and summary, a
- * rule-separated KPI strip, a 1.7:1 bookings/funnel split, and a compact rep
- * leaderboard. The numbers and composition match the published sample.
+ * Mirrors the official OpenUI Sales pipeline data, rendered through T3-style
+ * zinc surfaces: compact KPI cards, a 1.7:1 bookings/funnel split, and a single
+ * bordered leaderboard.
  */
 const salesDashboardResponse = `root = Root([
   Heading("Sales pipeline", 2),
@@ -34,25 +35,25 @@ const salesDashboardResponse = `root = Root([
     ["Ana Ruiz", "34", "$1.05M", "15%"],
     ["Sam Patel", "26", "$0.77M", "11%"],
   ]),
-  Actions([ActionButton("Break down pipeline by region", "Break down this quarter's sales pipeline by region"), LinkButton("Open forecast", "https://example.com/forecast")]),
+  Actions([ActionButton("Break down pipeline by region", "Break down this quarter's sales pipeline by region", "primary"), LinkButton("Open forecast", "https://example.com/forecast")]),
 ])`;
 
 const artifactHtml = `
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 2px; color: var(--touchai-color-text-primary); font: 13px/1.5 var(--touchai-font-sans); }
-  .panel { border: 1px solid var(--touchai-color-border-subtle); border-radius: var(--touchai-radius-card); padding: 16px; background: var(--touchai-color-surface-raised); }
+  body { margin: 0; padding: 2px; color: #18181b; font: 13px/1.5 var(--touchai-font-sans); }
+  .panel { border: 1px solid #e4e4e7; border-radius: 12px; padding: 18px; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 4%); }
   .header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
-  h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
-  .bars { display: flex; height: 132px; align-items: end; gap: 8px; margin: 18px 0 14px; border-bottom: 1px solid var(--touchai-color-border-subtle); }
-  .bar { display: flex; flex: 1; min-width: 0; align-items: start; justify-content: center; border-radius: 4px 4px 0 0; padding-top: 5px; color: var(--touchai-color-surface-raised); background: var(--touchai-color-primary); font-weight: 600; font-size: 11px; transition: height 180ms ease, background 180ms ease; }
-  .bar.compare { background: var(--touchai-color-text-primary); }
-  .bar.sorted { background: color-mix(in srgb, var(--touchai-color-primary) 18%, transparent); color: var(--touchai-color-text-secondary); }
+  h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
+  .bars { display: flex; height: 132px; align-items: end; gap: 8px; margin: 18px 0 14px; border-bottom: 1px solid #e4e4e7; }
+  .bar { display: flex; flex: 1; min-width: 0; align-items: start; justify-content: center; border-radius: 4px 4px 2px 2px; padding-top: 5px; color: #fff; background: #4f46e5; font-weight: 600; font-size: 10px; transition: height 180ms ease, background 180ms ease; }
+  .bar.compare { background: #18181b; }
+  .bar.sorted { background: #eef2ff; color: #71717a; }
   .controls { display: flex; align-items: center; gap: 12px; }
-  button { height: 30px; border: 1px solid var(--touchai-color-border-subtle); border-radius: var(--touchai-radius-control); padding: 0 12px; color: var(--touchai-color-text-primary); background: transparent; font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
-  button:hover { background: color-mix(in srgb, var(--touchai-color-text-primary) 6%, transparent); }
-  button:focus-visible { outline: 2px solid var(--touchai-color-focus); outline-offset: 2px; }
-  #state { min-width: 0; overflow-wrap: anywhere; color: var(--touchai-color-text-secondary); font-size: 12px; }
+  button { height: 32px; border: 1px solid #d4d4d8; border-radius: 8px; padding: 0 12px; color: #18181b; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 4%); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; }
+  button:hover { background: #f4f4f5; }
+  button:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
+  #state { min-width: 0; overflow-wrap: anywhere; color: #71717a; font-size: 12px; }
 </style>
 <section class="panel" aria-label="Interactive bubble sort">
   <div class="header"><h2>Bubble sort</h2></div>
@@ -111,10 +112,10 @@ export const OfficialDashboard: Story = {
             return { salesDashboardResponse };
         },
         template: `
-            <main class="min-h-screen bg-background-primary px-6 py-10 text-text-primary sm:px-10">
-                <article class="mx-auto flex w-full max-w-2xl flex-col gap-7">
-                    <div class="flex justify-end">
-                        <p class="max-w-md rounded-lg bg-secondary px-4 py-2 font-serif text-reading leading-relaxed">
+            <main class="visual-reply-story">
+                <article class="visual-reply-story__thread">
+                    <div class="visual-reply-story__prompt-row">
+                        <p class="visual-reply-story__prompt">
                             Make a sales pipeline dashboard for this quarter
                         </p>
                     </div>
@@ -147,35 +148,35 @@ export const OpenUIAndArtifact: Story = {
             return { artifactHtml, hostAction, salesDashboardResponse };
         },
         template: `
-            <main class="min-h-screen bg-background-primary px-6 py-10 text-text-primary sm:px-10">
-                <div class="mx-auto grid w-full max-w-6xl gap-12 lg:grid-cols-2">
-                    <section class="min-w-0">
-                        <header class="mb-5 flex items-baseline justify-between gap-4 border-b border-border-subtle pb-3">
-                            <h1 class="text-sm font-semibold">OpenUI</h1>
-                            <span class="text-caption text-text-tertiary">Registered components</span>
+            <main class="visual-reply-story">
+                <div class="visual-reply-story__comparison">
+                    <section class="visual-reply-story__column">
+                        <header class="visual-reply-story__column-head">
+                            <h1 class="visual-reply-story__column-title">OpenUI</h1>
+                            <span class="visual-reply-story__column-meta">Registered components</span>
                         </header>
-                        <div class="flex justify-end">
-                            <p class="max-w-md rounded-lg bg-secondary px-4 py-2 font-serif text-reading leading-relaxed">
+                        <div class="visual-reply-story__prompt-row">
+                            <p class="visual-reply-story__prompt">
                                 Make a sales pipeline dashboard for this quarter
                             </p>
                         </div>
-                        <div class="mt-6 min-w-0">
+                        <div class="visual-reply-story__reply">
                             <OpenUIReply :response="salesDashboardResponse" :is-streaming="false" />
-                            <p class="mt-4 border-t border-border-subtle pt-3 text-dense text-text-secondary" aria-live="polite">{{ hostAction }}</p>
+                            <p class="visual-reply-story__host-action" aria-live="polite">{{ hostAction }}</p>
                         </div>
                     </section>
 
-                    <section class="min-w-0">
-                        <header class="mb-5 flex items-baseline justify-between gap-4 border-b border-border-subtle pb-3">
-                            <h1 class="text-sm font-semibold">Artifact</h1>
-                            <span class="text-caption text-text-tertiary">Sandboxed HTML + JavaScript</span>
+                    <section class="visual-reply-story__column">
+                        <header class="visual-reply-story__column-head">
+                            <h1 class="visual-reply-story__column-title">Artifact</h1>
+                            <span class="visual-reply-story__column-meta">Sandboxed HTML + JavaScript</span>
                         </header>
-                        <div class="flex justify-end">
-                            <p class="max-w-md rounded-lg bg-secondary px-4 py-2 font-serif text-reading leading-relaxed">
+                        <div class="visual-reply-story__prompt-row">
+                            <p class="visual-reply-story__prompt">
                                 Show me how bubble sort works, and let me step through it
                             </p>
                         </div>
-                        <div class="mt-6 min-w-0">
+                        <div class="visual-reply-story__reply">
                             <VisualArtifactFrame :html="artifactHtml" title="Interactive bubble sort artifact" />
                         </div>
                     </section>
