@@ -34,8 +34,25 @@ describe('when a model returns a visual reply', () => {
         expect(wrapper.text()).toContain('Quarterly revenue');
         expect(wrapper.text()).toContain('$58k');
         expect(wrapper.text()).toContain('+12%');
-        expect(wrapper.get('svg[role="img"]').attributes('aria-label')).toBe('Revenue');
-        expect(wrapper.findAll('.visual-reply-chart path')).toHaveLength(2);
+        expect(wrapper.get('[role="img"]').attributes('aria-label')).toBe('Revenue, Q1 42, Q2 58');
+        expect(wrapper.findAll('.visual-reply-bar')).toHaveLength(2);
+    });
+
+    it('user sees the official split dashboard pattern with a funnel and percentage badges', async () => {
+        const wrapper = render(
+            'root = Root([Columns([BarChart("Bookings", [96, 104], ["D", "J"], "K")], [Funnel("Pipeline by stage", ["Prospecting", "Qualified"], [3000000, 2000000], ["$3.0M", "$2.0M"])]), DataTable(["Rep", "Share"], [["Maya Chen", "24%"], ["Leo Park", "21%"]])])'
+        );
+        await flushPromises();
+
+        expect(wrapper.get('.visual-reply-columns')).toBeTruthy();
+        expect(wrapper.findAll('.visual-reply-funnel-value').map((node) => node.text())).toEqual([
+            '$3.0M',
+            '$2.0M',
+        ]);
+        expect(wrapper.findAll('.visual-reply-percent').map((node) => node.text())).toEqual([
+            '24%',
+            '21%',
+        ]);
     });
 
     it('user can continue the conversation from an OpenUI action', async () => {
