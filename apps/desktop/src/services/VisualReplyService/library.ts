@@ -5,8 +5,9 @@ import {
     createLibrary,
     createParser,
     defineComponent,
+    useIsStreaming,
 } from '@openuidev/vue-lang';
-import { h } from 'vue';
+import { h, type Ref } from 'vue';
 import { z } from 'zod';
 
 import DonutChart from '@/components/ui/donut-chart/DonutChart.vue';
@@ -15,6 +16,7 @@ import { dispatchVisualReplyLink, dispatchVisualReplyPrompt } from './bridge';
 
 type AnyProps = Record<string, unknown>;
 type RenderProps = ComponentRenderProps<AnyProps>;
+type StreamingState = Ref<boolean>;
 
 function textValue(value: unknown): string {
     return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
@@ -30,7 +32,11 @@ function defineNode(
     name: string,
     description: string,
     props: z.ZodObject,
-    render: (props: AnyProps, renderNode: RenderProps['renderNode']) => unknown
+    render: (
+        props: AnyProps,
+        renderNode: RenderProps['renderNode'],
+        isStreaming: StreamingState
+    ) => unknown
 ) {
     return defineComponent({
         name,
@@ -39,7 +45,8 @@ function defineNode(
         component: {
             props: ['props', 'renderNode'],
             setup({ props: values, renderNode }: RenderProps) {
-                return () => render(values, renderNode);
+                const isStreaming = useIsStreaming();
+                return () => render(values, renderNode, isStreaming);
             },
         },
     });
@@ -275,13 +282,18 @@ const ActionButton = defineNode(
         prompt: z.string().optional(),
         variant: z.enum(['primary', 'secondary']).optional(),
     }),
-    (props) =>
+    (props, _renderNode, isStreaming) =>
         h(
             'button',
             {
                 type: 'button',
+                disabled: isStreaming.value,
                 class: `visual-reply-button visual-reply-button-${props.variant ?? 'secondary'}`,
-                onClick: () => dispatchVisualReplyPrompt(props.prompt ?? props.label),
+                onClick: () => {
+                    if (!isStreaming.value) {
+                        dispatchVisualReplyPrompt(props.prompt ?? props.label);
+                    }
+                },
             },
             textValue(props.label)
         )
@@ -291,13 +303,16 @@ const LinkButton = defineNode(
     'LinkButton',
     'A button that opens an HTTP or HTTPS URL in the host.',
     z.object({ label: z.string(), url: z.string() }),
-    (props) =>
+    (props, _renderNode, isStreaming) =>
         h(
             'button',
             {
                 type: 'button',
+                disabled: isStreaming.value,
                 class: 'visual-reply-link',
-                onClick: () => dispatchVisualReplyLink(props.url),
+                onClick: () => {
+                    if (!isStreaming.value) dispatchVisualReplyLink(props.url);
+                },
             },
             textValue(props.label)
         )

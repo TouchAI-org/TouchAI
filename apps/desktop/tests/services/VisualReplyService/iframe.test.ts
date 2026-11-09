@@ -20,6 +20,18 @@ describe('when a generated visual artifact is rendered', () => {
         expect(srcdoc).not.toContain('allow-same-origin');
     });
 
+    it('user sees safe inline Artifact styles applied in the sandbox', () => {
+        const html = sanitizeArtifactHtml(
+            '<style>.algorithm { display: grid; gap: 8px; }</style><style>@import "https://example.com/theme.css"; .remote { color: red; }</style><div class="algorithm">Step</div>'
+        );
+
+        expect(html).toContain('<style>');
+        expect(html).toContain('.algorithm { display: grid; gap: 8px; }');
+        expect(html).not.toContain('@import');
+        expect(html).not.toContain('https://example.com/theme.css');
+        expect(html).toContain('<div class="algorithm">Step</div>');
+    });
+
     it('user cannot load a remote script or keep active event and resource URLs', () => {
         const html = sanitizeArtifactHtml(
             '<script src="https://example.com/app.js"></script><button onclick="alert(1)">Run</button><img src="javascript:alert(2)"><a href="https://example.com">Outside</a>'

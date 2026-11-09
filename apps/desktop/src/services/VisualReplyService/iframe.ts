@@ -66,7 +66,6 @@ const ALLOWED_TAGS = new Set([
     'SPAN',
     'STOP',
     'STRONG',
-    'STYLE',
     'SUB',
     'SUMMARY',
     'SUP',
@@ -103,21 +102,29 @@ export function sanitizeArtifactHtml(source: string): string {
         }
     }
 
-    for (const style of [...document.querySelectorAll('style')]) {
-        if (/@import|url\s*\(|expression\s*\(/i.test(style.textContent ?? '')) style.remove();
-        else if (style.parentElement !== document.body) document.body.prepend(style);
-    }
+    const styles = [...document.querySelectorAll('style')]
+        .map((style) => style.textContent ?? '')
+        .filter((style) => !/@import|url\s*\(|expression\s*\(/i.test(style));
+    document.querySelectorAll('style').forEach((style) => style.remove());
 
     const sanitized = DOMPurify.sanitize(document.body.innerHTML, {
         ALLOWED_TAGS: [...ALLOWED_TAGS],
         FORBID_TAGS: ['iframe', 'object', 'embed', 'form', 'base', 'meta', 'link'],
         FORBID_ATTR: ['srcdoc', 'formaction'],
     });
+    // DOMPurify drops style content by default, so reinsert only the CSS filtered above.
+    const inlineStyles = styles
+        .filter(Boolean)
+        .map(
+            (style) =>
+                `<style>${style.replace(/<\/style(?=[\t\n\f\r />])/gi, '\\3c /style')}</style>`
+        )
+        .join('');
     const inlineScripts = scripts
         .filter(Boolean)
         .map((script) => `<script>${script.replace(/<\/script/gi, '<\\/script')}</script>`)
         .join('');
-    return `${sanitized}${inlineScripts}`;
+    return `${inlineStyles}${sanitized}${inlineScripts}`;
 }
 
 export function createArtifactSrcdoc(
