@@ -3,24 +3,62 @@ $appPath = [IO.Path]::GetFullPath($env:TOUCHAI_PERF_APP)
 $processes = @(Get-CimInstance Win32_Process)
 $roots = @($processes | Where-Object { $_.ExecutablePath -eq $appPath })
 if ($roots.Count -ne 1) { throw "Expected one benchmark app at $appPath; found $($roots.Count)." }
-$owned = [Collections.Generic.HashSet[int]]::new()
-$owned.Add([int]$roots[0].ProcessId) | Out-Null
+function Get-ProcessCreationTime {
+    param($Process)
+    if ($null -eq $Process.CreationDate) { throw "The benchmark did not include a creation time for process $($Process.ProcessId)." }
+    ([DateTimeOffset]$Process.CreationDate).ToUniversalTime()
+}
+
+$owned = [Collections.Generic.Dictionary[int,DateTimeOffset]]::new()
+$owned.Add([int]$roots[0].ProcessId, (Get-ProcessCreationTime $roots[0]))
+$rejected = [Collections.Generic.Dictionary[int,object]]::new()
 do {
     $previousCount = $owned.Count
     foreach ($process in $processes) {
-        if ($owned.Contains([int]$process.ParentProcessId)) {
-            $owned.Add([int]$process.ProcessId) | Out-Null
+        $processId = [int]$process.ProcessId
+        $parentId = [int]$process.ParentProcessId
+        if ($owned.ContainsKey($processId) -or $rejected.ContainsKey($processId)) { continue }
+        if ($owned.ContainsKey($parentId)) {
+            $createdAt = Get-ProcessCreationTime $process
+            if ($createdAt -lt $owned[$parentId]) {
+                $rejected.Add($processId, @{
+                    id = $processId
+                    parentId = $parentId
+                    name = $process.Name
+                    createdAt = $createdAt.UtcDateTime.ToString('o')
+                    parentCreatedAt = $owned[$parentId].UtcDateTime.ToString('o')
+                })
+            } else {
+                $owned.Add($processId, $createdAt)
+            }
         }
     }
 } while ($owned.Count -ne $previousCount)
-$tree = @($processes | Where-Object { $owned.Contains([int]$_.ProcessId) })
+$tree = @($processes | Where-Object { $owned.ContainsKey([int]$_.ProcessId) } | Sort-Object ProcessId)
 $renderers = @($tree | Where-Object { $_.CommandLine -match '--type=renderer' })
 if ($renderers.Count -lt 1) { throw 'The benchmark did not include a WebView2 renderer.' }
 $missingCounters = @($tree | Where-Object { $null -eq $_.PrivatePageCount -or $null -eq $_.WorkingSetSize })
 if ($missingCounters.Count -gt 0) { throw 'The benchmark did not include native memory counters for every owned process.' }
+$details = @(foreach ($process in $tree) {
+    $processId = [int]$process.ProcessId
+    $role = if ($processId -eq [int]$roots[0].ProcessId) { 'app' }
+        elseif ($process.CommandLine -match '(?:^|\s)--type=(renderer|gpu-process|utility|crashpad-handler)(?:\s|$)') { $Matches[1] }
+        else { 'other' }
+    @{
+        id = $processId
+        parentId = [int]$process.ParentProcessId
+        name = $process.Name
+        createdAt = $owned[$processId].UtcDateTime.ToString('o')
+        role = $role
+        privateBytes = [double]$process.PrivatePageCount
+        workingSetBytes = [double]$process.WorkingSetSize
+    }
+})
 @{
     privateBytes = [double](($tree | Measure-Object PrivatePageCount -Sum).Sum)
     workingSetBytes = [double](($tree | Measure-Object WorkingSetSize -Sum).Sum)
     processes = $tree.Count
     renderers = $renderers.Count
-} | ConvertTo-Json -Compress
+    processDetails = $details
+    rejectedParentReuses = @($rejected.Values | Sort-Object id)
+} | ConvertTo-Json -Depth 4 -Compress

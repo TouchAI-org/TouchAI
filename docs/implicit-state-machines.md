@@ -253,6 +253,15 @@ and security scopes remain unchanged.
 40. Given a missing or ambiguous app root, no renderer, unavailable counters or
     a failed system query, when native memory is sampled, then no valid report
     is emitted; a later valid sample succeeds without retries or zero fallback.
+41. Given a process whose recorded parent PID has been reused by the app or an
+    owned child, when its creation predates that parent, then the unrelated
+    process and its descendants are not attributed to the benchmark app.
+42. Given a genuinely newer descendant, when its executable or process role
+    differs from the app, then its memory and process count are still included;
+    missing creation times reject the sample rather than guessing ownership.
+43. Given a native memory sample, when a process-count budget changes, then its
+    report identifies the owned processes and rejected parent-PID reuses using
+    the same enumeration, without recording executable paths or command lines.
 
 ## Verification evidence
 
@@ -470,3 +479,34 @@ still rejects the sample. The environment report identifies the collection metho
 System-boundary regression tests reproduce process exit, PID reuse and missing
 counters before the fix; the actual release job must still complete all sessions
 and budgets before this work is accepted.
+
+At `abf529ec`, all 12 native release sessions completed and 23 of 24 budgets
+passed. Process-count P95 failed: 10 at baseline versus 11 at head, above the
+unchanged 5% limit. Two head samples (blocks 6 and 9) contain 11 processes; the
+other 58 samples contain 10. All samples contain three renderers. Private-bytes
+P95 changes by +0.31% and working-set P95 by +0.33%; latency and retained-DOM
+budgets pass. Both the native job and aggregate E2E gate failed. These reports
+contain totals but no process identities, so the additional process cannot be
+attributed to PID reuse, a particular helper or a product leak from this evidence.
+
+The ancestry audit found a separate, reproducible collector gap: a process's
+recorded parent PID can refer to a newer, unrelated process after PID reuse.
+[Windows documents creation-time comparison for this case](https://learn.microsoft.com/en-us/windows/win32/cimwin32prov/win32-process#properties).
+Ownership now also requires that each descendant was created no earlier than
+its recorded parent, using creation times from the same enumeration. Missing
+creation times reject the sample; genuinely newer descendants are counted
+regardless of executable or role. There is no helper allow-list or counter filter.
+
+Each sample now includes owned process IDs, parent IDs, executable names, UTC
+creation times, allow-listed roles and both memory counters, plus rejected
+parent-PID reuse edges. Paths and command-line contents are not emitted. This is
+CI artifact metadata only, not a user-data or native IPC format change.
+
+Scenarios 41–43 were written before the additional OS-boundary regressions.
+The old collector produces 6 failures and 12 passes across 18 cases, retaining
+all nine preceding passing regressions. The corrected collector passes all 18;
+the combined memory, native-motion and report-comparison suites pass 3 files /
+34 tests. Replaying the original 60-sample corpus still fails its process-count
+budget. No samples, percentiles, session counts, pressure guards or budgets were
+changed. A new native run must use the identity evidence to evaluate the anomaly;
+a later passing run alone does not establish the cause of the earlier failure.

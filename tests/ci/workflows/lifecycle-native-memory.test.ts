@@ -16,7 +16,12 @@ function Get-CimInstance {
     param([string]$ClassName)
     if ($ClassName -ne 'Win32_Process') { throw 'Unexpected system query.' }
     if ($fixture.queryError) { throw $fixture.queryError }
-    $fixture.processes
+    foreach ($nativeProcess in $fixture.processes) {
+        if ($null -ne $nativeProcess.CreationDate) {
+            $nativeProcess.CreationDate = ([DateTimeOffset]$nativeProcess.CreationDate).LocalDateTime
+        }
+        $nativeProcess
+    }
 }
 function Get-Process {
     param([int[]]$Id)
@@ -41,6 +46,8 @@ ConvertTo-Json -InputObject @($reports) -Depth 3 -Compress
 interface NativeProcess {
     ProcessId: number;
     ParentProcessId: number;
+    Name: string;
+    CreationDate: string | null;
     ExecutablePath: string | null;
     CommandLine: string;
     PrivatePageCount: number | null;
@@ -52,6 +59,8 @@ function fixture() {
         {
             ProcessId: 30,
             ParentProcessId: 20,
+            Name: 'msedgewebview2.exe',
+            CreationDate: '2026-11-10T00:00:02Z',
             ExecutablePath: null,
             CommandLine: 'msedgewebview2.exe --type=renderer',
             PrivatePageCount: 3000,
@@ -60,6 +69,8 @@ function fixture() {
         {
             ProcessId: 40,
             ParentProcessId: 1,
+            Name: 'unrelated.exe',
+            CreationDate: '2026-11-09T23:59:59Z',
             ExecutablePath: `${appPath}.other`,
             CommandLine: 'unrelated.exe --type=renderer',
             PrivatePageCount: 900000,
@@ -68,6 +79,8 @@ function fixture() {
         {
             ProcessId: 10,
             ParentProcessId: 1,
+            Name: 'TouchAI.exe',
+            CreationDate: '2026-11-10T00:00:00Z',
             ExecutablePath: appPath,
             CommandLine: 'TouchAI.exe',
             PrivatePageCount: 5000000000,
@@ -76,6 +89,8 @@ function fixture() {
         {
             ProcessId: 20,
             ParentProcessId: 10,
+            Name: 'msedgewebview2.exe',
+            CreationDate: '2026-11-10T00:00:01Z',
             ExecutablePath: join(dirname(appPath), 'msedgewebview2.exe'),
             CommandLine: 'msedgewebview2.exe',
             PrivatePageCount: 2000,
@@ -130,6 +145,25 @@ interface Scenario {
     name: string;
     change?: (input: ReturnType<typeof fixture>) => void;
     error?: string;
+    expected?: typeof expectedMemory;
+    verify?: (report: unknown) => void;
+}
+
+function attachUnrelatedBranch(
+    input: ReturnType<typeof fixture>,
+    parentId: number,
+    creationDate: string
+) {
+    const unrelated = input.processes.find((nativeProcess) => nativeProcess.ProcessId === 40);
+    assert(unrelated);
+    unrelated.ParentProcessId = parentId;
+    unrelated.CreationDate = creationDate;
+    input.processes.push({
+        ...unrelated,
+        ProcessId: 50,
+        ParentProcessId: 40,
+        CreationDate: '2026-11-10T00:00:03Z',
+    });
 }
 
 const scenarios: Scenario[] = [
@@ -150,6 +184,152 @@ const scenarios: Scenario[] = [
             assert(input.liveProcesses[0]);
             input.liveProcesses[0].PrivateMemorySize64 = 9000000000;
             input.liveProcesses[0].WorkingSet64 = 9000000000;
+        },
+    },
+    {
+        name: 'user samples a reused app identifier and excludes older unrelated processes and their descendants',
+        change(input) {
+            attachUnrelatedBranch(input, 10, '2026-11-09T23:59:59Z');
+        },
+        verify(report) {
+            expect(report).toHaveProperty('rejectedParentReuses', [
+                {
+                    id: 40,
+                    parentId: 10,
+                    name: 'unrelated.exe',
+                    createdAt: '2026-11-09T23:59:59.0000000Z',
+                    parentCreatedAt: '2026-11-10T00:00:00.0000000Z',
+                },
+            ]);
+        },
+    },
+    {
+        name: 'user samples a reused child identifier and excludes older unrelated processes and their descendants',
+        change(input) {
+            attachUnrelatedBranch(input, 20, '2026-11-10T00:00:00Z');
+        },
+        verify(report) {
+            expect(report).toHaveProperty('rejectedParentReuses', [
+                {
+                    id: 40,
+                    parentId: 20,
+                    name: 'unrelated.exe',
+                    createdAt: '2026-11-10T00:00:00.0000000Z',
+                    parentCreatedAt: '2026-11-10T00:00:01.0000000Z',
+                },
+            ]);
+        },
+    },
+    {
+        name: 'user samples a genuinely newer descendant and includes its memory regardless of executable or role',
+        change(input) {
+            assert(input.processes[1]);
+            input.processes[1].ParentProcessId = 30;
+            input.processes[1].CreationDate = '2026-11-10T00:00:03Z';
+            input.processes[1].CommandLine = 'unrelated.exe --private-argument=not-a-renderer';
+        },
+        expected: {
+            privateBytes: 5000905000,
+            workingSetBytes: 6000909000,
+            processes: 4,
+            renderers: 1,
+        },
+    },
+    {
+        name: 'user samples a child created at the same recorded instant as its parent and retains its memory',
+        change(input) {
+            assert(input.processes[0]);
+            input.processes[0].CreationDate = '2026-11-10T00:00:01Z';
+        },
+    },
+    {
+        name: 'user samples without the app creation time and receives an error instead of guessed ownership',
+        change(input) {
+            assert(input.processes[2]);
+            input.processes[2].CreationDate = null;
+        },
+        error: 'did not include a creation time',
+    },
+    {
+        name: 'user samples without a potential descendant creation time and receives an error instead of guessed ownership',
+        change(input) {
+            assert(input.processes[0]);
+            input.processes[0].CreationDate = null;
+        },
+        error: 'did not include a creation time',
+    },
+    {
+        name: 'user samples an unrelated process without a creation time and still receives the complete app memory',
+        change(input) {
+            assert(input.processes[1]);
+            input.processes[1].CreationDate = null;
+        },
+    },
+    {
+        name: 'user inspects native memory evidence and sees process identities and counters without paths or command lines',
+        change(input) {
+            for (const nativeProcess of input.processes) {
+                nativeProcess.CommandLine += ' --token=never-log-this';
+            }
+        },
+        verify(report) {
+            expect(report).toEqual({
+                ...expectedMemory,
+                processDetails: [
+                    {
+                        id: 10,
+                        parentId: 1,
+                        name: 'TouchAI.exe',
+                        createdAt: '2026-11-10T00:00:00.0000000Z',
+                        role: 'app',
+                        privateBytes: 5000000000,
+                        workingSetBytes: 6000000000,
+                    },
+                    {
+                        id: 20,
+                        parentId: 10,
+                        name: 'msedgewebview2.exe',
+                        createdAt: '2026-11-10T00:00:01.0000000Z',
+                        role: 'other',
+                        privateBytes: 2000,
+                        workingSetBytes: 4000,
+                    },
+                    {
+                        id: 30,
+                        parentId: 20,
+                        name: 'msedgewebview2.exe',
+                        createdAt: '2026-11-10T00:00:02.0000000Z',
+                        role: 'renderer',
+                        privateBytes: 3000,
+                        workingSetBytes: 5000,
+                    },
+                ],
+                rejectedParentReuses: [],
+            });
+        },
+    },
+    {
+        name: 'user samples local creation times with different offsets and receives comparable UTC process identities',
+        change(input) {
+            assert(input.processes[2]);
+            assert(input.processes[3]);
+            input.processes[2].CreationDate = '2026-11-10T08:00:00+08:00';
+            input.processes[3].CreationDate = '2026-11-09T16:00:01-08:00';
+        },
+        verify(report) {
+            expect(report).toHaveProperty(
+                'processDetails',
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: 10,
+                        createdAt: '2026-11-10T00:00:00.0000000Z',
+                    }),
+                    expect.objectContaining({
+                        id: 20,
+                        createdAt: '2026-11-10T00:00:01.0000000Z',
+                    }),
+                ])
+            );
         },
     },
     {
@@ -225,12 +405,14 @@ describe('user measures an isolated native application and its descendants', () 
                 expect(observation.output).toBe('');
             } else {
                 expect(observation.error).toBeNull();
-                expect(JSON.parse(observation.output)).toEqual(expectedMemory);
+                const report: unknown = JSON.parse(observation.output);
+                expect(report).toMatchObject(scenario.expected ?? expectedMemory);
+                scenario.verify?.(report);
             }
             const recovered = observations[index * 2 + 1];
             assert(recovered);
             expect(recovered.error).toBeNull();
-            expect(JSON.parse(recovered.output)).toEqual(expectedMemory);
+            expect(JSON.parse(recovered.output)).toMatchObject(expectedMemory);
         });
     });
 });
