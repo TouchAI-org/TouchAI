@@ -9,7 +9,8 @@
         DropdownMenuItem,
         DropdownMenuTrigger,
     } from '@components/ui/dropdown-menu';
-    import { computed, ref } from 'vue';
+    import { useStateMachine } from 'reka-ui';
+    import { computed } from 'vue';
 
     export interface ContextMenuItem {
         key: string;
@@ -31,8 +32,12 @@
         (e: 'closed'): void;
     }>();
 
-    const isOpen = ref(true);
-    const closeNotified = ref(false);
+    const { state: phase, dispatch } = useStateMachine('open', {
+        open: { close: 'closing' },
+        closing: { finish: 'closed' },
+        closed: {},
+    } as const);
+    const isOpen = computed(() => phase.value === 'open');
 
     const menuStyle = computed(() => ({
         left: `${Math.max(0, props.x)}px`,
@@ -40,33 +45,37 @@
     }));
 
     const requestClose = () => {
-        isOpen.value = false;
-        if (!closeNotified.value) {
-            closeNotified.value = true;
-            emit('close');
-        }
+        if (!isOpen.value) return;
+        dispatch('close');
+        emit('close');
     };
 
     const handleOpenChange = (open: boolean) => {
-        isOpen.value = open;
         if (!open) requestClose();
     };
 
     const handleSelect = (key: string) => {
-        emit('select', key);
-        requestClose();
+        if (!isOpen.value) return;
+        dispatch('close');
+        try {
+            emit('select', key);
+        } finally {
+            emit('close');
+        }
     };
 
     const handleAnimationEnd = (event: AnimationEvent) => {
-        if (event.target === event.currentTarget && event.animationName === 't-dropdown-out') {
+        if (
+            phase.value === 'closing' &&
+            event.target === event.currentTarget &&
+            event.animationName === 't-dropdown-out'
+        ) {
+            dispatch('finish');
             emit('closed');
         }
     };
 
-    const close = () => {
-        if (!isOpen.value && closeNotified.value) return;
-        requestClose();
-    };
+    const close = requestClose;
 
     defineExpose({ close });
 </script>

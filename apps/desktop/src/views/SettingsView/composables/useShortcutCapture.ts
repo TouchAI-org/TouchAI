@@ -1,5 +1,6 @@
 import { AppEvent, eventService, type ShortcutCaptureSystemKeyEvent } from '@services/EventService';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import { useStateMachine } from 'reka-ui';
 import { onMounted, onUnmounted, type Ref, watch } from 'vue';
 
 import { isMacPlatform, normalizeLocalShortcutString } from '@/utils/shortcuts';
@@ -32,17 +33,33 @@ export function useSystemKeyCaptureSubscription(
     handler: (payload: ShortcutCaptureSystemKeyEvent) => void,
     onError?: (error: unknown) => void
 ) {
+    const { state: phase, dispatch } = useStateMachine('pending', {
+        pending: { activate: 'active', fail: 'failed', dispose: 'disposed' },
+        active: { dispose: 'disposed' },
+        failed: { dispose: 'disposed' },
+        disposed: {},
+    } as const);
     let unlisten: UnlistenFn | null = null;
 
     onMounted(async () => {
         try {
-            unlisten = await eventService.on(AppEvent.SHORTCUT_CAPTURE_SYSTEM_KEY, handler);
+            const stop = await eventService.on(AppEvent.SHORTCUT_CAPTURE_SYSTEM_KEY, (payload) => {
+                if (phase.value !== 'disposed') handler(payload);
+            });
+            if (phase.value === 'disposed') {
+                stop();
+                return;
+            }
+            unlisten = stop;
+            dispatch('activate');
         } catch (error) {
+            dispatch('fail');
             onError?.(error);
         }
     });
 
     onUnmounted(() => {
+        dispatch('dispose');
         unlisten?.();
         unlisten = null;
     });
