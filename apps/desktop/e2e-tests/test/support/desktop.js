@@ -35,7 +35,20 @@ export function assertVisible(condition, message) {
 export async function waitForE2eBridge(timeoutMs = DEFAULT_TIMEOUT_MS) {
     try {
         await browser.waitUntil(
-            async () => browser.execute(() => Boolean(window.__TOUCHAI_E2E__)),
+            async () => {
+                const handles = await browser.getWindowHandles();
+                for (const handle of handles) {
+                    await browser.switchToWindow(handle);
+                    const readiness = await browser.execute(() => ({
+                        windowLabel: window.__TAURI_INTERNALS__?.metadata?.currentWindow?.label,
+                        bridgeReady: Boolean(window.__TOUCHAI_E2E__),
+                    }));
+                    if (readiness.windowLabel === 'main') {
+                        return readiness.bridgeReady;
+                    }
+                }
+                return false;
+            },
             {
                 timeout: timeoutMs,
                 timeoutMsg: 'TouchAI E2E bridge did not become available in the renderer.',
