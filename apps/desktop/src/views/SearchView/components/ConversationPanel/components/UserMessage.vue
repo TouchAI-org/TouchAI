@@ -2,12 +2,12 @@
 
 <template>
     <div class="mb-4 flex flex-col items-end">
-        <div class="max-w-[80%] rounded-lg bg-muted px-4 py-2 break-words">
+        <div class="max-w-[80%] rounded-lg bg-secondary px-4 py-2 break-words">
             <div class="text-reading leading-[1.6]">
                 <!-- 文本内容 -->
                 <div
                     v-if="message.content"
-                    class="user-text font-serif whitespace-pre-wrap text-foreground select-text"
+                    class="user-text font-serif whitespace-pre-wrap text-message-foreground select-text"
                     data-no-i18n="true"
                     translate="no"
                 >
@@ -25,7 +25,7 @@
                             <img
                                 :src="attachment.preview"
                                 :alt="attachment.name || t('conversation.attachment.unnamedImage')"
-                                class="block max-h-[200px] max-w-xs rounded-lg border border-border object-contain"
+                                class="block max-h-[200px] max-w-xs rounded-lg border border-message-border object-contain"
                                 decoding="async"
                                 loading="lazy"
                                 data-no-i18n="true"
@@ -36,11 +36,11 @@
                         <!-- 文件附件 -->
                         <div
                             v-else
-                            class="inline-flex max-w-fit items-center gap-2 rounded border border-border bg-surface-raised p-2"
+                            class="inline-flex max-w-fit items-center gap-2 rounded border border-message-border bg-message-attachment p-2"
                         >
-                            <AppIcon name="file" class="h-4 w-4 text-muted-foreground" />
+                            <AppIcon name="file" class="h-4 w-4 text-message-muted" />
                             <span
-                                class="text-sm text-foreground"
+                                class="text-sm text-message-detail"
                                 data-no-i18n="true"
                                 translate="no"
                             >
@@ -92,7 +92,7 @@
 
 <style scoped>
     .user-text::selection {
-        background-color: var(--color-selection-bg);
+        background-color: var(--color-message-selection);
         color: inherit;
     }
 </style>

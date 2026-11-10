@@ -1,3 +1,4 @@
+import MarkdownContent from '@components/MarkdownContent.vue';
 import { deferred, installProductAnalytics } from '@tests/utils/productAnalytics';
 import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
@@ -54,7 +55,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user preserves the original code typography and the File/Diff theme order', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: { content: '```javascript\nconst value = 1;\n```', final: true },
         });
@@ -75,7 +75,6 @@ describe('user reads a markdown answer', () => {
     it.each(['default', 'reasoning'] as const)(
         'user disables soft wrapping for streaming and finalized code/diff blocks in %s messages',
         async (variant) => {
-            const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
             const content = '```text\n' + 'long code line '.repeat(100) + '\nsecond line';
             const wrapper = mount(MarkdownContent, {
                 props: { content, final: false, variant },
@@ -99,7 +98,6 @@ describe('user reads a markdown answer', () => {
     );
 
     it('user passes the TouchAI scrollbar skin into the File/Diff Shadow DOM', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: { content: '```javascript\nconst value = 1;\n```', final: true },
         });
@@ -114,7 +112,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user bypasses self-root viewport deferral without disabling batched rendering', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: { content: '```javascript\n' + 'x'.repeat(900) + '\n```', final: true },
         });
@@ -169,7 +166,6 @@ describe('user reads a markdown answer', () => {
 
     it('user sees code copy controls in English after selecting the English locale', async () => {
         setLocale('en-US');
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, { props: { content: '```text\nhello\n```' } });
         await vi.dynamicImportSettled();
         await flushPromises();
@@ -178,7 +174,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user reads shell variables literally while formulas and inline code retain their meaning', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
                 content:
@@ -196,7 +191,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user sees a hard line break between adjacent lines in an answer', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, { props: { content: 'first line\nsecond line' } });
         await flushPromises();
         // Markstream preserves the parsed newline in a pre-wrap text node.
@@ -206,7 +200,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user sees existing code copy controls change language after changing locale', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, { props: { content: '```text\nhello\n```' } });
         await vi.dynamicImportSettled();
         await flushPromises();
@@ -218,7 +211,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user keeps the rendered answer mounted when streaming content becomes final', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, { props: { content: 'done', final: false } });
         const rendered = wrapper.findComponent(MarkdownRender).element;
         await wrapper.setProps({ final: true });
@@ -232,7 +224,6 @@ describe('user reads a markdown answer', () => {
     ] as const)(
         'user sees code with matching initial scrolling when the answer is %s',
         async (_state, final) => {
-            const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
             const wrapper = mount(MarkdownContent, {
                 props: { content: '```ts\nconsole.log(1)\n```', final },
             });
@@ -244,8 +235,6 @@ describe('user reads a markdown answer', () => {
     );
 
     it('user marks rendered markdown as not eligible for global DOM localization', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
-
         const wrapper = mount(MarkdownContent, {
             props: {
                 content: '设置',
@@ -261,7 +250,6 @@ describe('user reads a markdown answer', () => {
         const telemetry = installProductAnalytics();
         const write = deferred<void>();
         mockTauriCommand('write_clipboard_text', () => write.promise);
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: { content: '`pnpm test`' },
             attachTo: document.body,
@@ -288,7 +276,6 @@ describe('user reads a markdown answer', () => {
         setLocale('en-US');
         const write = deferred<void>();
         mockTauriCommand('write_clipboard_text', () => write.promise);
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, { props: { content: '`pnpm test`' } });
         await flushPromises();
         await wrapper.get('code').trigger('click');
@@ -299,7 +286,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user copies selected tables as Word-compatible grid table clipboard HTML', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
                 content: '| Name | Value |\n| --- | --- |\n| Alpha | 1 |',
@@ -359,7 +345,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user preserves inline semantics inside copied table cell HTML', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
                 content: '| Link | Preview |\n| --- | --- |\n| Docs | code |',
@@ -416,7 +401,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user preserves surrounding selected text when cleaning copied table HTML', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
                 content: 'Before\n\n| Name | Value |\n| --- | --- |\n| Alpha | 1 |\n\nAfter',
@@ -472,7 +456,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user clips copied selections to the markdown container bounds', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
                 content: 'Inside text',
@@ -520,7 +503,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user copies mixed markdown selections as clean semantic clipboard HTML and readable plain text', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
                 content:
@@ -574,7 +556,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user flattens paragraph wrappers inside copied list items for Word-compatible list HTML', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
                 content:
@@ -628,7 +609,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user flattens nested renderer wrappers inside copied list items for Word-compatible list HTML', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
                 content:
@@ -704,7 +684,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user wraps partially selected list items in their list parent for Word-compatible clipboard HTML', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
                 content:
@@ -758,7 +737,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user preserves ordered list numbering when a copied list selection starts after the first item', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
                 content: '1. 跳过第一项\n2. 保留第二项编号\n3. 保留第三项编号',
@@ -809,7 +787,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user preserves link targets and document structure in copied plain text fallbacks', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
                 content:
@@ -860,7 +837,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user drops unsafe clipboard URL schemes while preserving safe image data URLs', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
                 content: 'Safe docs bad js image',
@@ -918,7 +894,6 @@ describe('user reads a markdown answer', () => {
     });
 
     it('user preserves inline spacing while skipping non-content clipboard artifacts', async () => {
-        const { default: MarkdownContent } = await import('@components/MarkdownContent.vue');
         const wrapper = mount(MarkdownContent, {
             props: {
                 content: 'Alpha Beta Gamma',

@@ -115,7 +115,7 @@ export class ContextWindow {
     private readonly scales = new Map<string, number>();
 
     private key(request: AiRequestOptions): string {
-        return JSON.stringify([request.promptCacheKey, request.providerId, request.model]);
+        return JSON.stringify([request.contextCalibrationKey, request.providerId, request.model]);
     }
 
     private messageTokens(message: AiMessage): number {
@@ -170,7 +170,7 @@ export class ContextWindow {
 
     observe(request: AiRequestOptions, usage: AiUsage): void {
         const actual = usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
-        if (!positive(actual) || !request.promptCacheKey) return;
+        if (!positive(actual) || !request.contextCalibrationKey) return;
         const key = this.key(request);
         const scale = this.scales.get(key) ?? 1.25;
         const estimate = this.estimate(request);

@@ -98,6 +98,12 @@
     --color-ui-700: #e9e9e7;
     --color-ui-800: #e2e2df;
 
+    /* Existing conversation toolbar shades, independent of Tailwind's OKLCH ramp. */
+    --color-chrome-gray-400: #9ca3af;
+    --color-chrome-gray-600: #52525b;
+    --shadow-control-soft: 0 6px 18px rgb(15 23 42 / 0.08);
+    --shadow-control-warm: 0 6px 18px rgb(107 95 84 / 0.12);
+
     /*
      * Opaque neutral gray matches the native frame reference. A translucent
      * surface stroke changes its visible color with the content underneath.

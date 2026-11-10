@@ -41,7 +41,6 @@ import { safeParseJsonWithSchema, z } from '@/utils/zod';
 
 import type { ProviderAttachmentRemoteRef, ProviderAttachmentRequestContext } from './attachments';
 import { resolveProviderAttachmentRemoteRef } from './attachments';
-import { canonicalSchema } from './cache';
 import { normalizeToolName, toJsonSchema7 } from './utils';
 
 const unknownJsonSchema = z.unknown();
@@ -712,24 +711,22 @@ export function buildToolSet(
     }
 
     return Object.fromEntries(
-        [...tools]
-            .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
-            .map((toolDefinition) => {
-                const inputSchema = toJsonSchema7(canonicalSchema(toolDefinition.input_schema));
-                if (!inputSchema) {
-                    throw new Error(`Invalid tool input schema: ${toolDefinition.name}`);
-                }
+        tools.map((toolDefinition) => {
+            const inputSchema = toJsonSchema7(toolDefinition.input_schema);
+            if (!inputSchema) {
+                throw new Error(`Invalid tool input schema: ${toolDefinition.name}`);
+            }
 
-                return [
-                    toolDefinition.name,
-                    tool({
-                        description: appendCurrentLanguageToolDescriptionContext(
-                            toolDefinition.description,
-                            modelLanguageContext
-                        ),
-                        inputSchema: jsonSchema(inputSchema),
-                    }),
-                ];
-            })
+            return [
+                toolDefinition.name,
+                tool({
+                    description: appendCurrentLanguageToolDescriptionContext(
+                        toolDefinition.description,
+                        modelLanguageContext
+                    ),
+                    inputSchema: jsonSchema(inputSchema),
+                }),
+            ];
+        })
     );
 }

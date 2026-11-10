@@ -53,7 +53,7 @@
 
                     <div
                         v-if="message.statusText"
-                        class="mt-3 font-serif text-sm leading-[1.6] text-muted-foreground"
+                        class="mt-3 font-serif text-sm leading-[1.6] text-message-muted"
                     >
                         {{ message.statusText }}
                     </div>
@@ -427,7 +427,7 @@
         width: 3px;
         height: 3px;
         border-radius: 50%;
-        background-color: var(--color-muted-foreground);
+        background-color: var(--color-message-muted);
         animation: pulse var(--motion-status-cycle) infinite var(--ease-in-out);
     }
 
@@ -456,7 +456,7 @@
         font-size: 12px;
         font-weight: 600;
         font-family: var(--font-serif);
-        color: var(--color-muted-foreground);
+        color: var(--color-message-muted);
         min-width: 0;
         max-width: 100%;
         white-space: normal;

@@ -192,7 +192,7 @@
         align-items: center;
         justify-content: center;
         border-radius: var(--radius-lg);
-        color: var(--color-muted-foreground);
+        color: var(--color-conversation-toolbar);
         transition:
             color var(--duration-quick) var(--ease-smooth-out),
             background-color var(--duration-quick) var(--ease-smooth-out),
@@ -201,19 +201,20 @@
 
     .toolbar-button:hover,
     .toolbar-button--active {
-        background: var(--color-muted);
-        color: var(--color-foreground);
+        background: var(--color-conversation-toolbar-hover);
+        color: var(--color-conversation-toolbar-hover-text);
+        box-shadow: var(--shadow-conversation-toolbar);
     }
 
     .toolbar-button--pinned {
-        background: var(--color-muted);
-        color: var(--color-foreground);
-        box-shadow: inset 0 0 0 1px var(--color-muted-foreground);
+        background: var(--color-conversation-toolbar-pinned);
+        color: var(--color-conversation-toolbar-pinned-text);
+        box-shadow: var(--shadow-conversation-toolbar-pinned);
     }
 
     .toolbar-button--pinned:hover {
-        background: var(--color-border);
-        color: var(--color-foreground);
+        background: var(--color-conversation-toolbar-pinned-hover);
+        color: var(--color-text-primary);
     }
 
     .toolbar-button--disabled {

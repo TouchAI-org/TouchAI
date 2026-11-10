@@ -156,22 +156,6 @@
         box-shadow: var(--search-surface-shadow);
     }
 
-    /* Scope the conversation's neutral palette to its existing semantic roles. */
-    .conversation-surface {
-        --color-background-primary: var(--color-white);
-        --color-foreground: var(--color-neutral-900);
-        --color-muted: var(--color-neutral-100);
-        --color-text-primary: var(--color-foreground);
-        --color-text-secondary: var(--color-muted-foreground);
-        --color-text-tertiary: var(--color-muted-foreground);
-        --color-surface-raised: var(--color-white);
-        --color-surface-hover: var(--color-muted);
-        --color-border-subtle: var(--color-border);
-        --color-selection-bg: var(--color-neutral-200);
-        --color-selection-outline: var(--color-neutral-400);
-        --touchai-markdown-foreground: var(--color-foreground);
-    }
-
     /*
      * Every top-level route paints its own background inside this shell. The
      * transparent native window lets the browser anti-alias the radius; a

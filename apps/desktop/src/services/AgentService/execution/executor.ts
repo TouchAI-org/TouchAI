@@ -129,7 +129,7 @@ export interface AttemptCheckpoint {
 }
 
 interface AttemptRuntime {
-    promptCacheKey: string;
+    contextCalibrationKey: string;
     nextAttachmentRequestIndex: number;
     activeModel: ModelWithProvider;
     provider: AiProvider;
@@ -527,7 +527,7 @@ function parseToolCallArguments(toolCall: AiToolCall):
  */
 export class AiRequestExecutor {
     private readonly contextWindow = new ContextWindow();
-    private readonly cacheNamespace = crypto.randomUUID();
+    private readonly contextNamespace = crypto.randomUUID();
     /**
      * 获取模型（统一入口）
      * - 不传参数：返回默认模型
@@ -841,7 +841,7 @@ export class AiRequestExecutor {
         const { activeModel, modelLanguageContext, modelSwitchCount } = startCheckpoint;
 
         return {
-            promptCacheKey: `${this.cacheNamespace}:${sessionId ?? crypto.randomUUID()}`,
+            contextCalibrationKey: `${this.contextNamespace}:${sessionId ?? crypto.randomUUID()}`,
             nextAttachmentRequestIndex: startCheckpoint.iteration,
             activeModel,
             provider: this.createProviderForModel(activeModel),
@@ -940,7 +940,7 @@ export class AiRequestExecutor {
             supportsReasoning: runtime.activeModel.reasoning === 1,
             reasoningLevel: DEFAULT_REASONING_LEVEL,
             reasoningOptions: parseReasoningOptions(runtime.activeModel.reasoning_options),
-            promptCacheKey: runtime.promptCacheKey,
+            contextCalibrationKey: runtime.contextCalibrationKey,
         };
         // Anthropic renders tool choice and thinking budgets into the cache prefix.
         // The summary stream never executes tools, even with automatic tool choice.

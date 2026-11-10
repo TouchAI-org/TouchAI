@@ -48,7 +48,7 @@
         font-size: 15px;
         line-height: 2.05;
         letter-spacing: 0.02em;
-        color: var(--touchai-markdown-foreground, var(--color-markdown-body));
+        color: var(--color-markdown-body);
     }
 
     .touchai-markdown .paragraph-node {
@@ -65,7 +65,7 @@
 
     .touchai-markdown .heading-node {
         font-family: var(--font-serif);
-        color: var(--touchai-markdown-foreground, var(--color-markdown-heading));
+        color: var(--color-markdown-heading);
         letter-spacing: 0.01em;
     }
 

@@ -93,6 +93,39 @@
     --color-markdown-surface-soft: rgba(251, 249, 245, 0.98);
     --color-markdown-surface-border: rgba(230, 224, 214, 0.9);
 
+    /* Conversation roles preserve the original message and action palette. */
+    --color-message-foreground: var(--color-gray-900);
+    --color-message-detail: var(--color-gray-700);
+    --color-message-muted: var(--color-gray-500);
+    --color-message-attachment: var(--color-white);
+    --color-message-border: var(--color-gray-200);
+    --color-message-selection: var(--color-primary-200);
+    --color-message-action: var(--color-gray-400);
+    --color-message-action-hover: var(--color-gray-600);
+    --color-message-action-surface: var(--color-gray-100);
+    --color-conversation-toolbar: var(--color-chrome-gray-400);
+    --color-conversation-toolbar-hover: color-mix(in srgb, var(--color-white) 92%, transparent);
+    --color-conversation-toolbar-hover-text: var(--color-chrome-gray-600);
+    --color-conversation-toolbar-pinned: color-mix(
+        in srgb,
+        var(--color-secondary) 90%,
+        var(--color-white)
+    );
+    --color-conversation-toolbar-pinned-hover: color-mix(
+        in srgb,
+        var(--color-secondary) 95%,
+        var(--color-white)
+    );
+    --color-conversation-toolbar-pinned-text: var(--color-primary-600);
+    --color-conversation-toolbar-pinned-border: color-mix(
+        in srgb,
+        var(--color-primary-200) 78%,
+        transparent
+    );
+    --shadow-conversation-toolbar: var(--shadow-control-soft);
+    --shadow-conversation-toolbar-pinned:
+        inset 0 0 0 1px var(--color-conversation-toolbar-pinned-border), var(--shadow-control-warm);
+
     /* ── Chrome ──────────────────────────────────────────────────────────── */
 
     --color-selection-bg: var(--color-primary-100);

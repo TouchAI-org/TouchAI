@@ -278,7 +278,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
             'completed',
             'completed',
         ]);
-        const routes = sent.map((request) => request.promptCacheKey);
+        const routes = sent.map((request) => request.contextCalibrationKey);
         expect(routes[0]).toEqual(expect.any(String));
         expect(routes.slice(0, 3)).toEqual([routes[0], routes[0], routes[0]]);
         expect(routes[3]).not.toBe(routes[0]);

@@ -12,7 +12,7 @@ vi.mock('@/services/AgentService/infrastructure/providers/ai-sdk/tauriFetch', ()
 function input(): AiRequestOptions {
     return {
         model: 'test-model',
-        promptCacheKey: 'opaque-session-key',
+        contextCalibrationKey: 'opaque-session-key',
         maxOutputTokens: 4096,
         messages: [
             { role: 'system', content: 'Stable instructions' },
@@ -36,7 +36,7 @@ function input(): AiRequestOptions {
     };
 }
 
-describe('given provider requests with reusable context', () => {
+describe('given provider requests with context compaction budgets', () => {
     beforeEach(() => {
         fetchMock.mockReset();
         fetchMock.mockResolvedValue(
@@ -50,7 +50,7 @@ describe('given provider requests with reusable context', () => {
         );
     });
 
-    it('user sends a stable cache key and deterministic tool definitions to OpenAI', async () => {
+    it('user sends OpenAI requests and keeps the original tool order without cache routing hints', async () => {
         const provider = new OpenAIProviderAdapter({
             apiEndpoint: 'https://example.test/v1',
             config: { reasoning: { format: 'openai' } },
@@ -71,22 +71,29 @@ describe('given provider requests with reusable context', () => {
         );
         await expect(provider.request(second)).rejects.toThrow('fixture rejection');
         const secondBody = JSON.parse(fetchMock.mock.calls[1]![1].body);
-        expect(firstBody.prompt_cache_key).toBe('opaque-session-key');
-        expect(JSON.stringify(firstBody.tools)).toBe(JSON.stringify(secondBody.tools));
+        expect(firstBody.prompt_cache_key).toBeUndefined();
+        expect(secondBody.prompt_cache_key).toBeUndefined();
+        expect(
+            firstBody.tools.map((tool: { function: { name: string } }) => tool.function.name)
+        ).toEqual(['z_read', 'a_search']);
+        expect(
+            secondBody.tools.map((tool: { function: { name: string } }) => tool.function.name)
+        ).toEqual(['a_search', 'z_read']);
+        expect(Object.keys(firstBody.tools[0].function.parameters.properties)).toEqual(['z', 'a']);
         expect(first.tools?.[0]?.name).toBe('z_read');
     });
 
-    it('user sends bounded Anthropic cache markers on reusable system tools and conversation', async () => {
+    it('user sends an Anthropic request and receives no added cache markers on messages or tools', async () => {
         const provider = new AnthropicProviderAdapter({
             apiEndpoint: 'https://example.test/v1',
             apiKey: 'test-key',
         });
         await expect(provider.request(input())).rejects.toThrow('fixture rejection');
         const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
-        expect(body.system.at(-1).cache_control).toEqual({ type: 'ephemeral' });
-        expect(body.tools.at(-1).cache_control).toEqual({ type: 'ephemeral' });
-        expect(body.messages.at(-1).content.at(-1).cache_control).toEqual({ type: 'ephemeral' });
-        expect(JSON.stringify(body).match(/cache_control/g)?.length).toBeLessThanOrEqual(4);
+        expect(body.system).toHaveLength(1);
+        expect(body.tools).toHaveLength(2);
+        expect(body.messages).toHaveLength(1);
+        expect(JSON.stringify(body)).not.toContain('cache_control');
     });
 
     it('user keeps tool definitions while disabling their execution for a summary', async () => {
@@ -129,7 +136,7 @@ describe('given provider requests with reusable context', () => {
         }
     );
 
-    it('user keeps OpenAI reasoning settings when a cache routing key is added', async () => {
+    it('user requests OpenAI reasoning with a compaction budget and keeps the selected reasoning level', async () => {
         const provider = new OpenAIProviderAdapter({
             apiEndpoint: 'https://example.test/v1',
             config: { reasoning: { format: 'openai', mode: 'passthrough' } },
@@ -138,7 +145,7 @@ describe('given provider requests with reusable context', () => {
             'fixture rejection'
         );
         const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
-        expect(body.prompt_cache_key).toBe('opaque-session-key');
+        expect(body.prompt_cache_key).toBeUndefined();
         expect(body.reasoning_effort).toBe('high');
     });
 });
