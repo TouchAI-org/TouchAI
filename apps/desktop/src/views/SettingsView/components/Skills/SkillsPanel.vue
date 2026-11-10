@@ -129,6 +129,12 @@
         if (contentViewport.value) contentViewport.value.scrollTop = 0;
         void loadContent();
     });
+    watch(
+        () => groups.value[0]?.skills[0]?.path,
+        (path) => {
+            if (selectedPath.value === null && path) selectedPath.value = path;
+        }
+    );
 
     async function toggle(skill: SkillMetadata, enabled: boolean) {
         if (skill.builtIn || busyPaths.value.has(skill.path)) return;
@@ -414,8 +420,12 @@
                     class="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center"
                 >
                     <SkillIcon size="lg" />
-                    <h2 class="font-serif text-lg">{{ t('skills.empty') }}</h2>
-                    <p class="max-w-sm text-sm">{{ t('skills.emptyHint') }}</p>
+                    <h2 class="font-serif text-lg">
+                        {{ t(skills.length ? 'skills.noMatches' : 'skills.empty') }}
+                    </h2>
+                    <p v-if="!skills.length" class="max-w-sm text-sm">
+                        {{ t('skills.emptyHint') }}
+                    </p>
                 </div>
             </main>
         </template>

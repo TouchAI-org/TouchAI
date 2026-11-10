@@ -420,6 +420,12 @@ describe('given local skills are installed', () => {
             } else {
                 expect(selected.exists()).toBe(false);
                 expect(wrapper.find('[data-testid="settings-skills-detail"]').exists()).toBe(false);
+                expect(wrapper.get('main h2').text()).toBe('No matching skills found');
+                expect(wrapper.get('main').text()).not.toContain('Install a skill');
+                await wrapper.get('input[aria-label="Search skills"]').setValue('');
+                await flushPromises();
+                expect(wrapper.get('main h2').text()).toBe('z-app');
+                expect(wrapper.get('pre').text()).toContain('Private z-app instructions');
             }
         }
     );
@@ -626,6 +632,12 @@ describe('given discovery takes time to finish', () => {
             'No matching skills'
         );
         expect(wrapper.find('[data-testid="settings-skills-detail"]').exists()).toBe(false);
+        expect(wrapper.get('main h2').text()).toBe('No matching skills found');
+        expect(wrapper.get('main').text()).not.toContain('Install a skill');
+        await wrapper.get('input[aria-label="Search skills"]').setValue('');
+        await flushPromises();
+        expect(wrapper.get('main h2').text()).toBe('beta');
+        expect(wrapper.get('pre').text()).toContain('Private beta instructions');
     });
 });
 
@@ -634,6 +646,7 @@ describe('given the skills folder is empty or temporarily unavailable', () => {
         installSkillCommands([]);
         await open();
         expect(wrapper.text()).toContain('No skills yet');
+        expect(wrapper.get('main').text()).toContain('Install a skill');
         expect(wrapper.find('[aria-label="Refresh skills"]').exists()).toBe(true);
     });
     it('user retries discovery after a filesystem error', async () => {
