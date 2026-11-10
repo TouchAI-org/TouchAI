@@ -10,7 +10,10 @@ import {
 import { h, type Ref } from 'vue';
 import { z } from 'zod';
 
+import UiBarChart from '@/components/ui/bar-chart/BarChart.vue';
+import { Button } from '@/components/ui/button';
 import DonutChart from '@/components/ui/donut-chart/DonutChart.vue';
+import ArrowUpRight from '~icons/lucide/arrow-up-right';
 
 import { dispatchVisualReplyLink, dispatchVisualReplyPrompt } from './bridge';
 
@@ -193,7 +196,9 @@ const DataTable = defineNode(
             const cells = rows.map((row) => row[index] ?? '');
             return (
                 cells.length > 0 &&
-                cells.every((cell) => /^[+-]?[$€¥]?[\d,.]+%?$/.test(cell.trim()))
+                cells.every((cell) =>
+                    /^[+-]?[$€¥£]?\d+(?:[.,]\d+)*(?:[kmbt]|%)?$/i.test(cell.trim())
+                )
             );
         });
 
@@ -206,7 +211,10 @@ const DataTable = defineNode(
                         (props.columns as string[]).map((column, index) =>
                             h(
                                 'th',
-                                { class: numericColumns[index] ? 'visual-reply-num' : '' },
+                                {
+                                    scope: 'col',
+                                    class: numericColumns[index] ? 'visual-reply-num' : '',
+                                },
                                 column
                             )
                         )
@@ -249,7 +257,6 @@ const BarChart = defineNode(
         const values = (props.values as number[]).slice(0, 24).map((value) => Math.max(0, value));
         const labels = (props.labels as string[]).slice(0, values.length);
         const unit = textValue(props.unit);
-        const max = Math.max(1, ...values);
         const accessibleLabel = [
             label,
             ...values.map((value, index) => {
@@ -262,41 +269,20 @@ const BarChart = defineNode(
 
         return h('figure', { class: 'visual-reply-chart-block' }, [
             label ? h('figcaption', { class: 'visual-reply-chart-title' }, label) : null,
-            h(
-                'div',
-                { class: 'visual-reply-bars', role: 'img', 'aria-label': accessibleLabel },
-                values.map((value, index) =>
-                    h(
-                        'div',
-                        {
-                            class: 'visual-reply-bar-column',
-                            style: {
-                                '--visual-reply-bar-delay': `${index * 18}ms`,
-                            },
-                        },
-                        [
-                            h(
-                                'span',
-                                { class: 'visual-reply-bar-value', 'aria-hidden': 'true' },
-                                `${formatChartValue(value)}${unit}`
-                            ),
-                            h('span', { class: 'visual-reply-bar-track', 'aria-hidden': 'true' }, [
-                                h('span', {
-                                    class: 'visual-reply-bar',
-                                    style: {
-                                        height: `${(value / max) * 100}%`,
-                                    },
-                                }),
-                            ]),
-                            h(
-                                'span',
-                                { class: 'visual-reply-bar-label', 'aria-hidden': 'true' },
-                                labels[index] ?? String(index + 1)
-                            ),
-                        ]
-                    )
-                )
-            ),
+            h(UiBarChart, {
+                appearance: 'reply',
+                label: accessibleLabel,
+                data: values.map((value, index) => ({
+                    key: String(index),
+                    label: labels[index] ?? String(index + 1),
+                    values: { value },
+                })),
+                series: [{ key: 'value', label, color: 'var(--color-visual-reply-bar)' }],
+                height: 180,
+                legend: false,
+                showAverage: false,
+                formatValue: (value: number) => `${formatChartValue(value)}${unit}`,
+            }),
         ]);
     }
 );
@@ -321,13 +307,13 @@ const Funnel = defineNode(
             .slice(0, labels.length)
             .map((value) => Math.max(0, value));
         const displays = (props.displays as string[]).slice(0, labels.length);
-        const first = Math.max(1, values[0] ?? 0);
+        const max = Math.max(1, ...values);
         return h('figure', { class: 'visual-reply-chart-block' }, [
             label ? h('figcaption', { class: 'visual-reply-chart-title' }, label) : null,
             h(
                 'div',
                 { class: 'visual-reply-funnel' },
-                labels.flatMap((step, index) => {
+                labels.map((step, index) => {
                     const value = values[index] ?? 0;
                     const previous = values[index - 1] ?? value;
                     const continuation = previous > 0 ? Math.round((value / previous) * 100) : 0;
@@ -347,7 +333,7 @@ const Funnel = defineNode(
                                 h('span', {
                                     class: `visual-reply-funnel-bar visual-reply-funnel-bar-${Math.min(index, 3)}`,
                                     style: {
-                                        width: `${Math.max(8, Math.pow(value / first, 0.25) * 100)}%`,
+                                        width: `${(value / max) * 100}%`,
                                     },
                                 }),
                             ]
@@ -358,7 +344,7 @@ const Funnel = defineNode(
                             displays[index] ?? formatChartValue(value)
                         ),
                     ]);
-                    return [row];
+                    return row;
                 })
             ),
         ]);
@@ -395,18 +381,18 @@ const ActionButton = defineNode(
     }),
     (props, _renderNode, isStreaming) =>
         h(
-            'button',
+            Button,
             {
                 type: 'button',
                 disabled: isStreaming.value,
-                class: `visual-reply-button visual-reply-button-${props.variant ?? 'secondary'}`,
+                variant: props.variant === 'primary' ? 'reply-primary' : 'reply',
                 onClick: () => {
                     if (!isStreaming.value) {
                         dispatchVisualReplyPrompt(props.prompt ?? props.label);
                     }
                 },
             },
-            textValue(props.label)
+            { default: () => textValue(props.label) }
         )
 );
 
@@ -416,16 +402,21 @@ const LinkButton = defineNode(
     z.object({ label: z.string(), url: z.string() }),
     (props, _renderNode, isStreaming) =>
         h(
-            'button',
+            Button,
             {
                 type: 'button',
                 disabled: isStreaming.value,
-                class: 'visual-reply-link',
+                variant: 'reply',
                 onClick: () => {
                     if (!isStreaming.value) dispatchVisualReplyLink(props.url);
                 },
             },
-            textValue(props.label)
+            {
+                default: () => [
+                    textValue(props.label),
+                    h(ArrowUpRight, { class: 'size-3.5 shrink-0', 'aria-hidden': 'true' }),
+                ],
+            }
         )
 );
 
@@ -559,6 +550,7 @@ export const visualReplySystemPrompt = visualReplyLibrary.prompt({
         'Use positional arguments, not named arguments: root = Root([Heading("Quarterly revenue", 2), BarChart("Revenue", [42, 58], ["Q1", "Q2"])]) is valid.',
         'Root, Stack, Grid, Columns, and Actions take arrays of registered component calls. Define root as the first statement and use only documented components.',
         'Use Columns([BarChart(...)], [Funnel(...)]) for a dashboard charts row. Use Funnel(label, stepLabels, values, displayValues) only when values share one unit.',
+        'The reply sits directly on the conversation, without an enclosing card. Use one short heading, related metrics, and focused sections. Use Card only to group distinct information; do not repeat labels in subtitles or add decorative badges. Keep actions optional and concise.',
         'Use touchai-artifact code fences only when the user explicitly needs free-form HTML, SVG, animation, or algorithm interaction that the fixed component set cannot express. Artifact scripts are inert until streaming finishes and run in a sandboxed iframe. Network requests and external anchor navigation are blocked, but child-frame self-navigation is not guaranteed to be blocked on every WebView. Artifacts have no host action bridge. Use OpenUI ActionButton or LinkButton for user-approved conversation and link actions.',
         'Do not add prose around an openui-lang block when the user asks only for a visual. Put labels, values, and actions in components.',
     ],

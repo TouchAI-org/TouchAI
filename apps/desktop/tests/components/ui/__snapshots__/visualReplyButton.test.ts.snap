@@ -1,0 +1,62 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`given a conversation follow-up action > user sees a consistent compact action with the reply treatment 1`] = `
+[
+  "border",
+  "border-transparent",
+  "disabled:cursor-not-allowed",
+  "disabled:opacity-50",
+  "focus-visible:outline-2",
+  "focus-visible:outline-focus",
+  "focus-visible:outline-offset-2",
+  "font-medium",
+  "font-sans",
+  "gap-2",
+  "hover:bg-visual-reply-control-hover",
+  "hover:text-visual-reply-text",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "leading-normal",
+  "max-w-full",
+  "min-h-8",
+  "px-3",
+  "py-1.5",
+  "rounded-sm",
+  "text-compact",
+  "text-visual-reply-muted",
+  "transition-colors",
+  "w-fit",
+]
+`;
+
+exports[`given a conversation follow-up action > user sees a consistent compact action with the reply-primary treatment 1`] = `
+[
+  "bg-visual-reply-control",
+  "border",
+  "border-visual-reply-border",
+  "disabled:cursor-not-allowed",
+  "disabled:opacity-50",
+  "focus-visible:outline-2",
+  "focus-visible:outline-focus",
+  "focus-visible:outline-offset-2",
+  "font-medium",
+  "font-sans",
+  "gap-2",
+  "hover:bg-visual-reply-control-hover",
+  "inline-flex",
+  "items-center",
+  "justify-center",
+  "leading-normal",
+  "max-w-full",
+  "min-h-8",
+  "px-3",
+  "py-1.5",
+  "rounded-sm",
+  "shadow-xs",
+  "text-compact",
+  "text-visual-reply-text",
+  "transition-colors",
+  "w-fit",
+]
+`;

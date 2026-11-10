@@ -1,52 +1,15 @@
-/*
- * T3 Code-style visual reply surface.
- *
- * Visual replies deliberately keep their own near-black palette. They are
- * generated content, not ordinary app chrome, and the contrast keeps charts,
- * tables, and host actions legible when the surrounding conversation uses a
- * different theme. The layout stays flat: one frame, hairline separators, and
- * no nested cards or drop shadows.
- */
 .visual-reply-root {
-    --visual-reply-canvas: #09090b;
-    --visual-reply-surface: #0d0d0f;
-    --visual-reply-surface-hover: rgb(255 255 255 / 3.5%);
-    --visual-reply-border: rgb(255 255 255 / 8%);
-    --visual-reply-border-strong: rgb(255 255 255 / 15%);
-    --visual-reply-text: #f4f4f5;
-    --visual-reply-text-soft: #d4d4d8;
-    --visual-reply-text-muted: #a1a1aa;
-    --visual-reply-text-faint: #71717a;
-    --visual-reply-accent: #f4f4f5;
-    --visual-reply-accent-hover: #d4d4d8;
-    --visual-reply-success: #6ee7b7;
-    --visual-reply-success-soft: rgb(16 185 129 / 12%);
-    --visual-reply-info: #93c5fd;
-    --visual-reply-info-soft: rgb(59 130 246 / 12%);
-    --visual-reply-warning: #fcd34d;
-    --visual-reply-warning-soft: rgb(245 158 11 / 12%);
-    --visual-reply-danger: #fca5a5;
-    --visual-reply-danger-soft: rgb(239 68 68 / 12%);
-    --visual-reply-neutral-soft: rgb(255 255 255 / 6%);
-    --visual-reply-radius: 0.75rem;
-    --visual-reply-radius-sm: 0.375rem;
-
     display: flex;
     width: 100%;
     min-width: 0;
     flex-direction: column;
-    gap: 0.875rem;
-    border: 1px solid var(--visual-reply-border);
-    border-radius: var(--visual-reply-radius);
-    padding: 1.125rem 1.25rem 1rem;
-    background: var(--visual-reply-canvas);
-    box-shadow: inset 0 1px rgb(255 255 255 / 3%);
-    color: var(--visual-reply-text);
-    color-scheme: dark;
+    gap: 1.5rem;
+    color: var(--color-visual-reply-text);
     font-family: var(--font-sans);
-    font-size: 0.8125rem;
+    font-size: var(--text-sm);
     line-height: 1.5;
-    container-type: inline-size;
+    user-select: text;
+    container: visual-reply / inline-size;
 }
 
 .visual-reply-root *,
@@ -57,59 +20,46 @@
 
 .visual-reply-heading {
     margin: 0;
-    color: var(--visual-reply-text);
-    font-size: 0.9375rem;
+    color: var(--color-visual-reply-text);
+    font-size: var(--text-base);
     font-weight: 600;
-    letter-spacing: -0.012em;
-    line-height: 1.35;
+    letter-spacing: -0.015em;
+    line-height: 1.5;
 }
 
 .visual-reply-heading[data-level='3'],
 .visual-reply-heading[data-level='4'] {
-    margin-top: 0.125rem;
-    border-top: 1px solid var(--visual-reply-border);
-    padding-top: 0.875rem;
-    color: var(--visual-reply-text-soft);
-    font-size: 0.75rem;
-    font-weight: 600;
+    font-size: var(--text-sm);
     letter-spacing: 0;
-    line-height: 1.35;
 }
 
 .visual-reply-heading + .visual-reply-text-muted {
-    margin-top: -0.625rem;
+    margin-top: -1.25rem;
 }
 
 .visual-reply-text,
 .visual-reply-muted {
     margin: 0;
-    max-width: 68ch;
+    max-width: 72ch;
     overflow-wrap: anywhere;
-}
-
-.visual-reply-text {
-    color: var(--visual-reply-text-soft);
 }
 
 .visual-reply-text-muted,
 .visual-reply-muted {
-    color: var(--visual-reply-text-muted);
-    font-size: 0.75rem;
-    line-height: 1.5;
+    color: var(--color-visual-reply-muted);
+    font-size: var(--text-compact);
 }
 
 .visual-reply-text-lead {
-    color: var(--visual-reply-text-muted);
-    font-size: 0.8125rem;
+    font-size: var(--text-reading);
 }
 
 .visual-reply-text-code {
-    padding: 0.5rem 0.625rem;
-    border: 1px solid var(--visual-reply-border);
-    border-radius: var(--visual-reply-radius-sm);
-    background: var(--visual-reply-surface);
+    padding: 0.75rem;
+    border-radius: var(--radius-sm);
+    background: var(--color-visual-reply-surface);
     font-family: var(--font-mono);
-    font-size: 0.75rem;
+    font-size: var(--text-compact);
 }
 
 .visual-reply-stack {
@@ -128,15 +78,14 @@
 }
 
 .visual-reply-gap-lg {
-    gap: 0.75rem;
+    gap: 1rem;
 }
 
 .visual-reply-grid {
     display: grid;
     min-width: 0;
-    gap: 1px;
-    border-block: 1px solid var(--visual-reply-border);
-    background: var(--visual-reply-border);
+    row-gap: 1.25rem;
+    padding-block: 0.25rem;
 }
 
 .visual-reply-grid-2 {
@@ -155,57 +104,75 @@
     display: flex;
     min-width: 0;
     flex-direction: column;
-    gap: 0.125rem;
-    padding: 0.5625rem 0.75rem;
-    background: var(--visual-reply-canvas);
+    align-items: flex-start;
+    gap: 0.25rem;
 }
 
-.visual-reply-metric:first-child {
+.visual-reply-grid > .visual-reply-metric {
+    padding-inline: 1.25rem;
+}
+
+.visual-reply-grid > .visual-reply-metric + .visual-reply-metric {
+    border-inline-start: 1px solid var(--color-visual-reply-border);
+}
+
+.visual-reply-grid > .visual-reply-metric:first-child {
     padding-inline-start: 0;
 }
 
-.visual-reply-metric:last-child {
+.visual-reply-grid > .visual-reply-metric:last-child {
     padding-inline-end: 0;
 }
 
 .visual-reply-metric-value {
-    color: var(--visual-reply-text);
-    font-size: 1rem;
+    font-size: var(--text-2xl);
     font-weight: 500;
-    letter-spacing: -0.025em;
+    letter-spacing: -0.03em;
     line-height: 1.2;
     font-variant-numeric: tabular-nums;
 }
 
-.visual-reply-metric-label {
-    color: var(--visual-reply-text-faint);
-    font-size: 0.5625rem;
-    font-weight: 500;
-    letter-spacing: 0.07em;
-    line-height: 1.35;
-    text-transform: uppercase;
-}
-
+.visual-reply-metric-label,
 .visual-reply-metric-detail {
-    color: var(--visual-reply-text-faint);
-    font-size: 0.625rem;
-    line-height: 1.35;
+    color: var(--color-visual-reply-muted);
+    font-size: var(--text-xs);
+    line-height: 1.5;
     font-variant-numeric: tabular-nums;
 }
 
 .visual-reply-card {
+    display: grid;
     min-width: 0;
-    border: 1px solid var(--visual-reply-border);
-    border-radius: var(--visual-reply-radius-sm);
-    padding: 0.75rem 0.875rem;
-    background: var(--visual-reply-surface);
+    gap: 0.5rem;
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    background: var(--color-visual-reply-surface);
 }
 
 .visual-reply-card-title {
-    margin: 0 0 0.375rem;
-    color: var(--visual-reply-text);
-    font-size: 0.75rem;
+    margin: 0;
+    font-size: var(--text-sm);
     font-weight: 600;
+}
+
+.visual-reply-tone-neutral {
+    --visual-reply-tone: var(--color-visual-reply-muted);
+}
+
+.visual-reply-tone-info {
+    --visual-reply-tone: var(--color-visual-reply-info);
+}
+
+.visual-reply-tone-success {
+    --visual-reply-tone: var(--color-visual-reply-success);
+}
+
+.visual-reply-tone-warning {
+    --visual-reply-tone: var(--color-visual-reply-warning);
+}
+
+.visual-reply-tone-danger {
+    --visual-reply-tone: var(--color-visual-reply-danger);
 }
 
 .visual-reply-badge {
@@ -213,126 +180,56 @@
     width: fit-content;
     max-width: 100%;
     align-items: center;
-    border: 1px solid var(--visual-reply-border);
-    border-radius: 0.25rem;
-    padding: 0.0625rem 0.375rem;
-    color: var(--visual-reply-text-muted);
-    background: var(--visual-reply-neutral-soft);
-    font-size: 0.625rem;
+    border: 1px solid color-mix(in srgb, var(--visual-reply-tone) 20%, transparent);
+    border-radius: var(--radius-xs);
+    padding: 0.125rem 0.5rem;
+    color: var(--visual-reply-tone);
+    background: color-mix(in srgb, var(--visual-reply-tone) 8%, transparent);
+    font-size: var(--text-xs);
     font-weight: 500;
-    line-height: 1.45;
+    line-height: 1.5;
     overflow-wrap: anywhere;
 }
 
-.visual-reply-badge.visual-reply-tone-neutral {
-    color: var(--visual-reply-text-muted);
-}
-
-.visual-reply-badge.visual-reply-tone-info {
-    border-color: rgb(147 197 253 / 20%);
-    color: var(--visual-reply-info);
-    background: var(--visual-reply-info-soft);
-}
-
-.visual-reply-badge.visual-reply-tone-success {
-    border-color: rgb(110 231 183 / 20%);
-    color: var(--visual-reply-success);
-    background: var(--visual-reply-success-soft);
-}
-
-.visual-reply-badge.visual-reply-tone-warning {
-    border-color: rgb(252 211 77 / 20%);
-    color: var(--visual-reply-warning);
-    background: var(--visual-reply-warning-soft);
-}
-
-.visual-reply-badge.visual-reply-tone-danger {
-    border-color: rgb(252 165 165 / 20%);
-    color: var(--visual-reply-danger);
-    background: var(--visual-reply-danger-soft);
-}
-
-.visual-reply-metric-value.visual-reply-tone-info {
-    color: var(--visual-reply-info);
-}
-
-.visual-reply-metric-value.visual-reply-tone-success {
-    color: var(--visual-reply-success);
-}
-
-.visual-reply-metric-value.visual-reply-tone-warning {
-    color: var(--visual-reply-warning);
-}
-
-.visual-reply-metric-value.visual-reply-tone-danger {
-    color: var(--visual-reply-danger);
+.visual-reply-metric-value[class*='visual-reply-tone-'] {
+    color: var(--visual-reply-tone);
 }
 
 .visual-reply-alert {
     display: flex;
     flex-direction: column;
-    gap: 0.125rem;
-    border: 1px solid var(--visual-reply-border);
-    border-radius: var(--visual-reply-radius-sm);
-    padding: 0.625rem 0.75rem;
-    background: var(--visual-reply-surface);
+    gap: 0.25rem;
+    border: 1px solid color-mix(in srgb, var(--visual-reply-tone) 20%, transparent);
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    background: color-mix(in srgb, var(--visual-reply-tone) 6%, transparent);
     overflow-wrap: anywhere;
 }
 
-.visual-reply-alert.visual-reply-tone-info {
-    border-color: rgb(147 197 253 / 20%);
-    background: var(--visual-reply-info-soft);
-}
-
-.visual-reply-alert.visual-reply-tone-success {
-    border-color: rgb(110 231 183 / 20%);
-    background: var(--visual-reply-success-soft);
-}
-
-.visual-reply-alert.visual-reply-tone-warning {
-    border-color: rgb(252 211 77 / 20%);
-    background: var(--visual-reply-warning-soft);
-}
-
-.visual-reply-alert.visual-reply-tone-danger {
-    border-color: rgb(252 165 165 / 20%);
-    background: var(--visual-reply-danger-soft);
-}
-
 .visual-reply-alert strong {
-    color: var(--visual-reply-text);
-    font-size: 0.75rem;
     font-weight: 600;
 }
 
 .visual-reply-alert span {
-    color: var(--visual-reply-text-muted);
-    font-size: 0.6875rem;
+    color: var(--color-visual-reply-muted);
+    font-size: var(--text-compact);
 }
 
 .visual-reply-columns {
     display: grid;
     min-width: 0;
-    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
-    border-block: 1px solid var(--visual-reply-border);
-    container: visual-reply-columns / inline-size;
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+    gap: 0.75rem;
 }
 
 .visual-reply-column {
     display: flex;
     min-width: 0;
     flex-direction: column;
-    gap: 0.75rem;
-    padding-block: 0.75rem;
-}
-
-.visual-reply-column-primary {
-    padding-inline-end: 1rem;
-}
-
-.visual-reply-column-secondary {
-    border-inline-start: 1px solid var(--visual-reply-border);
-    padding-inline-start: 1rem;
+    gap: 1rem;
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    background: var(--color-visual-reply-surface);
 }
 
 .visual-reply-chart-block {
@@ -340,149 +237,77 @@
     min-width: 0;
     flex: 1;
     flex-direction: column;
-    gap: 0.625rem;
+    gap: 1.25rem;
     margin: 0;
 }
 
 .visual-reply-chart-title {
     margin: 0;
-    color: var(--visual-reply-text-soft);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    line-height: 1.35;
-}
-
-.visual-reply-bars {
-    display: flex;
-    min-width: 0;
-    height: 8.5rem;
-    align-items: stretch;
-    gap: 0.25rem;
-}
-
-.visual-reply-bar-column {
-    display: flex;
-    min-width: 0;
-    flex: 1;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.25rem;
-}
-
-.visual-reply-bar-value,
-.visual-reply-bar-label {
-    max-width: 100%;
-    overflow: hidden;
-    color: var(--visual-reply-text-faint);
-    font-size: 0.5rem;
-    line-height: 1.25;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.visual-reply-bar-value {
-    min-height: 0.625rem;
-    color: var(--visual-reply-text-faint);
-    font-variant-numeric: tabular-nums;
-}
-
-.visual-reply-bar-track {
-    display: flex;
-    width: 100%;
-    min-width: 0;
-    flex: 1;
-    align-items: end;
-    border-bottom: 1px solid var(--visual-reply-border);
-}
-
-.visual-reply-bar {
-    display: block;
-    width: 52%;
-    max-width: 1.125rem;
-    min-height: 2px;
-    margin-inline: auto;
-    border-radius: 0.25rem 0.25rem 0.0625rem 0.0625rem;
-    background: #a1a1aa;
-    transform-origin: bottom;
-    transition: background-color 0.16s ease;
-}
-
-.visual-reply-bar-column:hover .visual-reply-bar {
-    background: var(--visual-reply-text);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-    .visual-reply-bar {
-        animation: visual-reply-bar-grow 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
-        animation-delay: var(--visual-reply-bar-delay, 0ms);
-    }
-}
-
-@keyframes visual-reply-bar-grow {
-    from {
-        transform: scaleY(0);
-    }
-
-    to {
-        transform: scaleY(1);
-    }
+    font-size: var(--text-compact);
+    font-weight: 500;
+    line-height: 1.5;
 }
 
 .visual-reply-funnel {
     display: flex;
     min-width: 0;
+    min-height: 180px;
     flex: 1;
     flex-direction: column;
-    gap: 0.5rem;
+    justify-content: space-between;
+    gap: 1rem;
 }
 
 .visual-reply-funnel-row {
     display: grid;
     min-width: 0;
-    grid-template-columns: 4.25rem minmax(0, 1fr) 2.5rem;
-    align-items: center;
+    grid-template-areas:
+        'label value'
+        'track track';
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
     gap: 0.5rem;
-    font-size: 0.625rem;
+    font-size: var(--text-xs);
 }
 
 .visual-reply-funnel-label {
-    overflow: hidden;
-    color: var(--visual-reply-text-muted);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    grid-area: label;
+    color: var(--color-visual-reply-muted);
+    overflow-wrap: anywhere;
 }
 
 .visual-reply-funnel-track {
     display: flex;
     min-width: 0;
-    height: 1.125rem;
-    align-items: center;
+    height: 0.375rem;
+    grid-area: track;
     overflow: hidden;
-    border-radius: 0.25rem;
-    background: var(--visual-reply-surface-hover);
+    border-radius: var(--radius-xs);
+    background: var(--color-visual-reply-rule);
 }
 
 .visual-reply-funnel-bar {
     display: block;
     height: 100%;
     border-radius: inherit;
-    background: #e4e4e7;
+    background: var(--color-visual-reply-text);
+    opacity: 0.85;
 }
 
 .visual-reply-funnel-bar-1 {
-    background: #a1a1aa;
+    opacity: 0.65;
 }
 
 .visual-reply-funnel-bar-2 {
-    background: #71717a;
+    opacity: 0.45;
 }
 
 .visual-reply-funnel-bar-3 {
-    background: #52525b;
+    opacity: 0.35;
 }
 
 .visual-reply-funnel-value {
-    color: var(--visual-reply-text-soft);
+    grid-area: value;
     font-weight: 500;
     text-align: end;
     font-variant-numeric: tabular-nums;
@@ -493,18 +318,23 @@
     overflow-x: auto;
 }
 
+.visual-reply-heading + .visual-reply-table-wrap {
+    margin-top: -0.75rem;
+}
+
 .visual-reply-table {
     width: 100%;
     min-width: 0;
     border-collapse: separate;
     border-spacing: 0;
     table-layout: auto;
-    font-size: 0.6875rem;
+    font-size: var(--text-compact);
+    font-variant-numeric: tabular-nums;
 }
 
 .visual-reply-table th,
 .visual-reply-table td {
-    padding: 0.5rem 0.625rem;
+    padding: 0.75rem 0.5rem;
     text-align: start;
     overflow-wrap: anywhere;
 }
@@ -520,23 +350,20 @@
 }
 
 .visual-reply-table th {
-    border-bottom: 1px solid var(--visual-reply-border);
-    color: var(--visual-reply-text-faint);
-    font-size: 0.5625rem;
-    font-weight: 500;
-    letter-spacing: 0.06em;
-    line-height: 1.4;
-    text-transform: uppercase;
+    border-bottom: 1px solid var(--color-visual-reply-border);
+    padding-top: 0;
+    color: var(--color-visual-reply-muted);
+    font-size: var(--text-xs);
+    font-weight: 400;
+    line-height: 1.5;
 }
 
 .visual-reply-table td {
-    border-bottom: 1px solid var(--visual-reply-border);
-    color: var(--visual-reply-text-muted);
-    line-height: 1.45;
+    border-bottom: 1px solid var(--color-visual-reply-rule);
+    line-height: 1.5;
 }
 
 .visual-reply-table tbody td:first-child {
-    color: var(--visual-reply-text-soft);
     font-weight: 500;
 }
 
@@ -545,106 +372,27 @@
 }
 
 .visual-reply-table tbody tr:hover {
-    background: var(--visual-reply-surface-hover);
+    background: var(--color-visual-reply-surface);
 }
 
-.visual-reply-num {
+.visual-reply-table .visual-reply-num {
     text-align: end;
-    font-variant-numeric: tabular-nums;
 }
 
 .visual-reply-percent {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--visual-reply-text-soft);
-    font-size: 0.6875rem;
-    font-weight: 500;
-    line-height: 1.4;
-    font-variant-numeric: tabular-nums;
+    color: var(--color-visual-reply-muted);
 }
 
 .visual-reply-actions {
     display: flex;
-    width: 100%;
     min-width: 0;
     flex-wrap: wrap;
     gap: 0.5rem;
-    border-top: 1px solid var(--visual-reply-border);
-    padding-top: 0.75rem;
 }
 
-.visual-reply-button,
-.visual-reply-link {
-    display: inline-flex;
-    height: 1.75rem;
-    width: fit-content;
-    max-width: 100%;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid var(--visual-reply-border-strong);
-    border-radius: var(--visual-reply-radius-sm);
-    padding-inline: 0.625rem;
-    color: var(--visual-reply-text-soft);
-    background: transparent;
-    font: inherit;
-    font-size: 0.6875rem;
-    font-weight: 500;
-    line-height: 1;
-    cursor: pointer;
-    transition:
-        background-color 0.16s ease,
-        border-color 0.16s ease,
-        color 0.16s ease;
-    overflow-wrap: anywhere;
-}
-
-.visual-reply-button-primary {
-    border-color: var(--visual-reply-accent);
-    color: #09090b;
-    background: var(--visual-reply-accent);
-}
-
-.visual-reply-button:hover:not(:disabled),
-.visual-reply-link:hover:not(:disabled) {
-    border-color: rgb(255 255 255 / 24%);
-    background: var(--visual-reply-surface-hover);
-    color: var(--visual-reply-text);
-}
-
-.visual-reply-button-primary:hover:not(:disabled) {
-    border-color: var(--visual-reply-accent-hover);
-    background: var(--visual-reply-accent-hover);
-    color: #09090b;
-}
-
-.visual-reply-button:disabled,
-.visual-reply-link:disabled {
-    cursor: not-allowed;
-    opacity: 0.45;
-}
-
-.visual-reply-button:focus-visible,
-.visual-reply-link:focus-visible {
-    outline: 2px solid var(--visual-reply-text);
-    outline-offset: 2px;
-}
-
-@container visual-reply-columns (max-width: 28rem) {
+@container visual-reply (max-width: 34rem) {
     .visual-reply-columns {
         grid-template-columns: minmax(0, 1fr);
-    }
-
-    .visual-reply-column-primary {
-        border-block-end: 1px solid var(--visual-reply-border);
-        padding-inline-end: 0;
-        padding-block-end: 0.75rem;
-    }
-
-    .visual-reply-column-secondary {
-        border-inline-start: 0;
-        padding-inline-start: 0;
-        padding-block-start: 0.75rem;
     }
 
     .visual-reply-grid-3,
@@ -652,90 +400,13 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .visual-reply-metric:nth-child(odd) {
-        padding-inline-start: 0;
-    }
-
-    .visual-reply-metric:nth-child(even) {
-        padding-inline-end: 0;
-    }
-}
-
-@container (max-width: 36rem) {
-    .visual-reply-bars {
-        height: 7.5rem;
-    }
-
-    .visual-reply-bar-value {
-        visibility: hidden;
-    }
-}
-
-@media (max-width: 640px) {
-    .visual-reply-root {
-        gap: 0.75rem;
-        padding: 0.875rem 1rem;
-    }
-
-    .visual-reply-heading {
-        font-size: 0.875rem;
-    }
-
-    .visual-reply-columns {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
-    .visual-reply-column-primary {
-        border-block-end: 1px solid var(--visual-reply-border);
-        padding-inline-end: 0;
-        padding-block-end: 0.75rem;
-    }
-
-    .visual-reply-column-secondary {
+    .visual-reply-grid-3 > .visual-reply-metric:nth-child(odd),
+    .visual-reply-grid-4 > .visual-reply-metric:nth-child(odd) {
         border-inline-start: 0;
         padding-inline-start: 0;
-        padding-block-start: 0.75rem;
     }
 
-    .visual-reply-grid-3,
-    .visual-reply-grid-4 {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .visual-reply-metric:nth-child(odd) {
-        padding-inline-start: 0;
-    }
-
-    .visual-reply-metric:nth-child(even) {
+    .visual-reply-grid > .visual-reply-metric:nth-child(even) {
         padding-inline-end: 0;
-    }
-
-    .visual-reply-bars {
-        height: 7.5rem;
-    }
-
-    .visual-reply-bar-value {
-        visibility: hidden;
-    }
-
-    .visual-reply-funnel-row {
-        grid-template-areas:
-            'label value'
-            'track track';
-        grid-template-columns: minmax(0, 1fr) auto;
-        row-gap: 0.25rem;
-    }
-
-    .visual-reply-funnel-label {
-        grid-area: label;
-        white-space: normal;
-    }
-
-    .visual-reply-funnel-track {
-        grid-area: track;
-    }
-
-    .visual-reply-funnel-value {
-        grid-area: value;
     }
 }

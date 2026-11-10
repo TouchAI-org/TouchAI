@@ -37,6 +37,7 @@
                 settings:
                     'rounded-action px-3.5 py-1.5 text-dense font-medium shadow-none transition-colors disabled:cursor-not-allowed disabled:opacity-50',
                 icon: 'flex h-8 w-8 items-center justify-center rounded-action transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                reply: 'inline-flex min-h-8 w-fit max-w-full items-center justify-center gap-2 rounded-sm px-3 py-1.5 font-sans text-compact leading-normal font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-50',
             },
             variant: {
                 default: 'bg-primary-500 text-white hover:bg-primary-600',
@@ -50,6 +51,9 @@
                 ghost: 'text-gray-600 hover:bg-gray-100',
                 'ghost-neutral': 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700',
                 link: 'text-primary-600 underline-offset-4 hover:underline',
+                'reply-primary':
+                    'border border-visual-reply-border bg-visual-reply-control text-visual-reply-text shadow-xs hover:bg-visual-reply-control-hover',
+                reply: 'border border-transparent text-visual-reply-muted hover:bg-visual-reply-control-hover hover:text-visual-reply-text',
             },
             size: {
                 default: 'h-9 px-4 py-2',
@@ -87,6 +91,9 @@
         }
         if (ICON_VARIANTS.has(variant)) {
             return 'icon';
+        }
+        if (variant === 'reply' || variant === 'reply-primary') {
+            return 'reply';
         }
         return 'default';
     };

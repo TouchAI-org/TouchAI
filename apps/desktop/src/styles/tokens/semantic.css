@@ -111,4 +111,24 @@
     --shadow-window:
         var(--shadow-window-ring), var(--shadow-window-halo), var(--shadow-window-mid),
         var(--shadow-window-far);
+
+    --color-visual-reply-canvas: light-dark(var(--color-white), var(--color-black));
+    --color-visual-reply-surface: light-dark(var(--color-neutral-50), var(--color-neutral-950));
+    --color-visual-reply-text: light-dark(var(--color-neutral-900), var(--color-neutral-100));
+    --color-visual-reply-muted: light-dark(var(--color-neutral-600), var(--color-neutral-400));
+    --color-visual-reply-border: light-dark(
+        color-mix(in srgb, var(--color-black) 10%, transparent),
+        color-mix(in srgb, var(--color-white) 10%, transparent)
+    );
+    --color-visual-reply-rule: color-mix(in srgb, var(--color-visual-reply-text) 6%, transparent);
+    --color-visual-reply-control: light-dark(var(--color-white), var(--color-neutral-900));
+    --color-visual-reply-control-hover: light-dark(
+        var(--color-neutral-100),
+        var(--color-neutral-800)
+    );
+    --color-visual-reply-bar: light-dark(var(--color-neutral-400), var(--color-neutral-600));
+    --color-visual-reply-success: light-dark(var(--color-emerald-700), var(--color-emerald-400));
+    --color-visual-reply-info: light-dark(var(--color-blue-700), var(--color-blue-400));
+    --color-visual-reply-warning: light-dark(var(--color-amber-800), var(--color-amber-300));
+    --color-visual-reply-danger: light-dark(var(--color-red-700), var(--color-red-400));
 }

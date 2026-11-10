@@ -46,6 +46,7 @@
         /** Dashed mean line. */
         showAverage?: boolean;
         emptyLabel?: string;
+        appearance?: 'default' | 'reply';
     }
 
     const props = withDefaults(defineProps<Props>(), {
@@ -55,9 +56,12 @@
         legend: undefined,
         showAverage: true,
         emptyLabel: undefined,
+        appearance: 'default',
     });
 
     defineOptions({ name: 'BarChart' });
+
+    const reply = computed(() => props.appearance === 'reply');
 
     const PALETTE = [
         'rgb(63 63 70)',
@@ -172,7 +176,7 @@
     let entryFrame = 0;
 
     onMounted(() => {
-        if (reducedMotion.value) return;
+        if (reply.value || reducedMotion.value) return;
         // Wait a frame before enabling the transition, so the first paint does
         // not animate from 0.
         entryFrame = requestAnimationFrame(() => {
@@ -213,6 +217,10 @@
         activeIndex.value = null;
     }
 
+    function onFocus(): void {
+        if (reply.value && props.data.length > 0) activeIndex.value = props.data.length - 1;
+    }
+
     function onKeydown(event: KeyboardEvent): void {
         if (props.data.length === 0) return;
         const current = activeIndex.value ?? props.data.length - 1;
@@ -241,7 +249,9 @@
             : { left: `${ratio * 100}%`, marginLeft: '8px' };
     });
 
-    const labelIndexes = computed(() => fittingLabels(props.data.length, VIEW_WIDTH));
+    const labelIndexes = computed(() =>
+        fittingLabels(props.data.length, reply.value ? 252 : VIEW_WIDTH)
+    );
 
     function axisLabelOf(datum: Datum): string {
         return datum.axisLabel ?? datum.label;
@@ -282,9 +292,23 @@
             <span class="text-xs text-neutral-400">{{ emptyLabel }}</span>
         </div>
 
-        <div v-else class="relative flex gap-2">
+        <div
+            v-else
+            class="relative flex gap-2"
+            :style="reply ? { height: `${height}px` } : undefined"
+        >
+            <div v-if="reply" class="visual-reply-chart-axis" aria-hidden="true">
+                <span
+                    v-for="tick in tickValues"
+                    :key="tick"
+                    :style="{ bottom: `${(tick / max) * 100}%` }"
+                >
+                    {{ formatTick(tick) }}
+                </span>
+            </div>
             <!-- 纵轴刻度放在图外，与折线图、构成环一致 -->
             <div
+                v-else
                 class="flex w-9 shrink-0 flex-col justify-between text-right text-3xs text-neutral-400 tabular-nums"
                 :style="{
                     height: `${height}px`,
@@ -301,14 +325,56 @@
             <div
                 ref="plotRef"
                 class="min-w-0 flex-1 outline-none"
+                :class="reply ? 'visual-reply-chart-plot' : undefined"
                 tabindex="0"
                 role="application"
                 :aria-label="label"
                 @pointermove="onPointerMove"
                 @pointerleave="onPointerLeave"
                 @keydown="onKeydown"
+                @focus="onFocus"
+                @blur="reply && onPointerLeave()"
             >
+                <div
+                    v-if="reply"
+                    class="visual-reply-chart-grid"
+                    :style="{ backgroundSize: `100% ${100 / (tickValues.length - 1)}%` }"
+                    aria-hidden="true"
+                />
+                <div v-if="reply" class="visual-reply-chart-columns" role="img" :aria-label="label">
+                    <div
+                        v-for="(datum, index) in data"
+                        :key="datum.key"
+                        class="visual-reply-chart-column"
+                        :data-active="activeIndex === index"
+                    >
+                        <div class="visual-reply-bar-track" aria-hidden="true">
+                            <span
+                                v-for="line in visible"
+                                :key="line.key"
+                                class="visual-reply-bar"
+                                :style="{
+                                    height: `${(Math.max(0, datum.values[line.key] ?? 0) / max) * 100}%`,
+                                    backgroundColor:
+                                        visible.length === 1 &&
+                                        (activeIndex === index ||
+                                            (activeIndex === null && index === data.length - 1))
+                                            ? 'var(--color-visual-reply-text)'
+                                            : colorOf(line, series.indexOf(line)),
+                                }"
+                            />
+                        </div>
+                        <span
+                            v-if="labelIndexes.includes(index)"
+                            class="visual-reply-bar-label"
+                            aria-hidden="true"
+                        >
+                            {{ axisLabelOf(datum) }}
+                        </span>
+                    </div>
+                </div>
                 <svg
+                    v-else
                     :viewBox="`0 0 ${VIEW_WIDTH} ${height}`"
                     :height="height"
                     class="block w-full overflow-visible"
@@ -412,11 +478,22 @@
             <!-- tooltip：悬停列的明细 -->
             <div
                 v-if="activeDatum"
-                class="pointer-events-none absolute top-0 z-10 min-w-36 rounded-control border border-neutral-200 bg-white px-3 py-2 text-xs shadow-sm"
+                class="pointer-events-none absolute top-0 z-10 min-w-36 rounded-control border px-3 py-2 text-xs shadow-sm"
+                :class="
+                    reply
+                        ? 'border-visual-reply-border bg-visual-reply-control text-visual-reply-text'
+                        : 'border-neutral-200 bg-white'
+                "
                 :style="tooltipStyle"
+                :role="reply ? 'status' : undefined"
                 data-testid="bar-chart-tooltip"
             >
-                <div class="mb-1 text-caption font-medium text-neutral-900">
+                <div
+                    class="mb-1 font-medium"
+                    :class="
+                        reply ? 'text-xs text-visual-reply-text' : 'text-caption text-neutral-900'
+                    "
+                >
                     {{ activeDatum.label }}
                 </div>
                 <div class="space-y-0.5">
@@ -426,10 +503,16 @@
                             :style="{ backgroundColor: colorOf(line, series.indexOf(line)) }"
                             aria-hidden="true"
                         />
-                        <span class="min-w-0 flex-1 truncate text-neutral-600">
+                        <span
+                            class="min-w-0 flex-1 truncate"
+                            :class="reply ? 'text-visual-reply-muted' : 'text-neutral-600'"
+                        >
                             {{ line.label }}
                         </span>
-                        <span class="shrink-0 text-neutral-900 tabular-nums">
+                        <span
+                            class="shrink-0 tabular-nums"
+                            :class="reply ? 'text-visual-reply-text' : 'text-neutral-900'"
+                        >
                             {{ formatValue(activeDatum.values[line.key] ?? 0) }}
                         </span>
                     </div>
@@ -447,3 +530,93 @@
         </div>
     </figure>
 </template>
+
+<style scoped>
+    .visual-reply-chart-axis {
+        position: relative;
+        width: 2.25rem;
+        height: calc(100% - 1.5rem);
+        flex: none;
+        color: var(--color-visual-reply-muted);
+        font-size: var(--text-caption);
+        line-height: 1;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .visual-reply-chart-axis span {
+        position: absolute;
+        right: 0;
+        transform: translateY(50%);
+    }
+
+    .visual-reply-chart-plot {
+        position: relative;
+        border-radius: var(--radius-xs);
+    }
+
+    .visual-reply-chart-plot:focus-visible {
+        outline: 2px solid var(--color-focus);
+        outline-offset: 4px;
+    }
+
+    .visual-reply-chart-grid {
+        position: absolute;
+        inset: 0 0 1.5rem;
+        border-top: 1px solid var(--color-visual-reply-rule);
+        background-image: linear-gradient(
+            to top,
+            var(--color-visual-reply-rule) 1px,
+            transparent 1px
+        );
+        pointer-events: none;
+    }
+
+    .visual-reply-chart-columns {
+        position: relative;
+        display: flex;
+        height: 100%;
+        gap: 0.25rem;
+    }
+
+    .visual-reply-chart-column {
+        display: grid;
+        min-width: 0;
+        flex: 1;
+        grid-template-rows: minmax(0, 1fr) 1.5rem;
+    }
+
+    .visual-reply-bar-track {
+        display: flex;
+        min-width: 0;
+        flex-direction: column-reverse;
+        align-items: center;
+    }
+
+    .visual-reply-bar {
+        width: 64%;
+        max-width: 1.5rem;
+        flex: none;
+    }
+
+    .visual-reply-bar:last-child {
+        border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+    }
+
+    .visual-reply-bar-label {
+        width: max-content;
+        max-width: 2.5rem;
+        align-self: end;
+        justify-self: center;
+        overflow: hidden;
+        color: var(--color-visual-reply-muted);
+        font-size: var(--text-caption);
+        line-height: 1.2;
+        text-align: center;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .visual-reply-chart-column[data-active='true'] .visual-reply-bar-label {
+        color: var(--color-visual-reply-text);
+    }
+</style>

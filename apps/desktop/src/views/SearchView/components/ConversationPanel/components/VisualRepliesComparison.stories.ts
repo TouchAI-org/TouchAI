@@ -9,11 +9,6 @@ import { registerVisualReplyHost } from '@/services/VisualReplyService/bridge';
 import OpenUIReply from './OpenUIReply.vue';
 import VisualArtifactFrame from './VisualArtifactFrame.vue';
 
-/*
- * Mirrors the official OpenUI sales pipeline data inside T3 Code's near-black
- * transcript: one flat report surface, hairline-separated metrics and a compact
- * bookings/funnel split.
- */
 const salesDashboardResponse = `root = Root([
   Heading("Sales pipeline", 2),
   Text("Pipeline stands at $7.0M this quarter, up 12% across 219 open deals", "muted"),
@@ -24,7 +19,7 @@ const salesDashboardResponse = `root = Root([
     Metric("Average deal", "$32.1K"),
   ], "4"),
   Columns([
-    BarChart("Bookings · Forecast", [96, 104, 99, 112, 118, 109, 121, 127, 124, 131, 141, 153], ["D", "J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N"], "K")
+    BarChart("Bookings · Forecast", [96, 104, 99, 112, 118, 109, 121, 127, 124, 131, 141, 153], ["Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov"], "K")
   ], [
     Funnel("Pipeline by stage", ["Prospecting", "Qualified", "Proposal", "Negotiation"], [3000000, 2000000, 1300000, 700000], ["$3.0M", "$2.0M", "$1.3M", "$0.7M"])
   ]),
@@ -41,55 +36,46 @@ const salesDashboardResponse = `root = Root([
 const artifactHtml = `
 <style>
   * { box-sizing: border-box; }
-  :root { color-scheme: dark; }
-  html, body { background: #09090b; }
-  body { margin: 0; padding: 16px; color: #f4f4f5; font: 12px/1.5 var(--touchai-font-sans, ui-sans-serif, system-ui, sans-serif); }
-  .shell { display: flex; flex-direction: column; gap: 16px; }
-  .header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-  .eyebrow { margin: 0 0 2px; color: #71717a; font-size: 9px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; }
-  h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.35; }
-  .tag { flex: none; border: 1px solid rgb(255 255 255 / 8%); border-radius: 4px; padding: 2px 6px; color: #71717a; background: rgb(255 255 255 / 4%); font: 9px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; }
-  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid rgb(255 255 255 / 8%); }
-  .stat { display: flex; min-width: 0; flex-direction: column; gap: 2px; padding: 9px 0; }
-  .stat + .stat { border-left: 1px solid rgb(255 255 255 / 8%); padding-left: 10px; }
-  .stat-label { color: #71717a; font-size: 9px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; }
-  .stat-value { color: #e4e4e7; font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
-  .visual { display: flex; flex-direction: column; gap: 10px; }
+  :root { color-scheme: dark; --ink: #f5f5f5; --muted: #a3a3a3; --surface: #0a0a0a; --line: rgb(255 255 255 / 10%); --radius: 10px; }
+  html, body { background: transparent; }
+  body { margin: 0; padding: 0; color: var(--ink); font: 14px/1.5 var(--touchai-font-sans, system-ui, sans-serif); }
+  .shell { display: flex; flex-direction: column; gap: 24px; }
+  h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.015em; }
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding-block: 4px; }
+  .stat { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+  .stat + .stat { border-left: 1px solid var(--line); padding-left: 20px; }
+  .stat-label { color: var(--muted); font-size: 12px; }
+  .stat-value { order: -1; font-size: 24px; font-weight: 500; letter-spacing: -0.03em; line-height: 1.2; font-variant-numeric: tabular-nums; }
+  .visual { display: flex; flex-direction: column; gap: 16px; border-radius: var(--radius); padding: 16px; background: var(--surface); }
   .visual-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-  .visual-title { color: #d4d4d8; font-size: 11px; font-weight: 600; }
-  #state { color: #71717a; font-size: 10px; }
-  .bars { display: flex; height: 188px; align-items: end; gap: 8px; border-bottom: 1px solid rgb(255 255 255 / 8%); padding-bottom: 8px; }
-  .column { display: flex; min-width: 0; height: 100%; flex: 1; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; }
-  .bar { display: flex; width: 100%; min-height: 30px; align-items: flex-start; justify-content: center; border: 1px solid rgb(255 255 255 / 8%); border-radius: 5px 5px 1px 1px; padding-top: 5px; color: #a1a1aa; background: #27272a; font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; transition: height 180ms cubic-bezier(0.22, 1, 0.36, 1), background-color 180ms ease, border-color 180ms ease; }
-  .column.compare .bar { border-color: #f4f4f5; color: #09090b; background: #f4f4f5; }
-  .column.sorted .bar { border-color: rgb(255 255 255 / 6%); color: #52525b; background: #18181b; }
-  .column-label { color: #52525b; font-size: 9px; font-variant-numeric: tabular-nums; }
+  .visual-title { font-size: 13px; font-weight: 500; }
+  #state { color: var(--muted); font-size: 12px; }
+  .bars { display: flex; height: 188px; align-items: end; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+  .column { display: flex; min-width: 0; height: 100%; flex: 1; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; }
+  .bar { display: flex; width: 48px; max-width: 80%; min-height: 30px; align-items: flex-start; justify-content: center; border-radius: 4px 4px 0 0; padding-top: 6px; background: #525252; font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .column.compare .bar { color: #171717; background: var(--ink); }
+  .column.sorted .bar { color: var(--muted); background: #262626; }
+  .column-label { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
   .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-  button { height: 28px; border: 1px solid rgb(255 255 255 / 15%); border-radius: 6px; padding: 0 10px; color: #d4d4d8; background: transparent; font: inherit; font-size: 10px; font-weight: 500; cursor: pointer; transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease; }
-  button.primary { border-color: #f4f4f5; color: #09090b; background: #f4f4f5; }
-  button:hover:not(:disabled) { border-color: rgb(255 255 255 / 26%); background: rgb(255 255 255 / 5%); color: #f4f4f5; }
-  button.primary:hover:not(:disabled) { border-color: #d4d4d8; background: #d4d4d8; color: #09090b; }
+  button { min-height: 32px; border: 1px solid transparent; border-radius: 8px; padding: 6px 12px; color: var(--muted); background: transparent; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+  button.primary { border-color: var(--line); color: var(--ink); background: #171717; box-shadow: 0 1px 2px rgb(0 0 0 / 5%); }
+  button:hover:not(:disabled) { color: var(--ink); background: #262626; }
   button:disabled { cursor: default; opacity: 0.45; }
-  button:focus-visible { outline: 2px solid #f4f4f5; outline-offset: 2px; }
-  #hint { margin-left: auto; color: #71717a; font-size: 9px; text-align: right; }
-  .divider { height: 1px; background: rgb(255 255 255 / 8%); }
-  .lower { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 18px; }
-  .section-title { margin: 0; color: #a1a1aa; font-size: 10px; font-weight: 500; }
-  ol { margin: 7px 0 0; padding-left: 15px; color: #71717a; font-size: 10px; line-height: 1.55; }
+  button:focus-visible { outline: 2px solid var(--touchai-color-focus, #6b97ff); outline-offset: 2px; }
+  #hint { margin-left: auto; color: var(--muted); font-size: 12px; text-align: right; }
+  .lower { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 24px; }
+  .section-title { margin: 0; font-size: 13px; font-weight: 500; }
+  ol { margin: 12px 0 0; padding-left: 16px; color: var(--muted); font-size: 13px; line-height: 1.65; }
   li + li { margin-top: 4px; }
-  .code { margin-top: 7px; overflow: hidden; border: 1px solid rgb(255 255 255 / 7%); border-radius: 7px; padding: 8px 9px; color: #a1a1aa; background: #050506; font: 9px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; }
-  .code strong { color: #e4e4e7; font-weight: 500; }
-  @media (max-width: 430px) {
-    .lower { grid-template-columns: minmax(0, 1fr); gap: 14px; }
-    .bars { height: 160px; }
+  .code { margin-top: 12px; overflow: auto; border-radius: var(--radius); padding: 12px; color: var(--muted); background: var(--surface); font: 12px/1.65 var(--touchai-font-mono, monospace); white-space: pre; }
+  .code strong { color: var(--ink); font-weight: 500; }
+  @media (max-width: 480px) {
+    .lower { grid-template-columns: minmax(0, 1fr); }
     #hint { width: 100%; margin-left: 0; text-align: left; }
   }
 </style>
 <section class="shell" aria-label="Interactive bubble sort">
-  <header class="header">
-    <div><p class="eyebrow">Algorithm explorer</p><h2>Bubble sort</h2></div>
-    <span class="tag">HTML + JS</span>
-  </header>
+  <h2>Bubble sort</h2>
   <div class="stats">
     <div class="stat"><span class="stat-label">Pass</span><strong class="stat-value" data-pass>1 / 3</strong></div>
     <div class="stat"><span class="stat-label">Comparisons</span><strong class="stat-value" data-comparisons>0</strong></div>
@@ -104,7 +90,6 @@ const artifactHtml = `
       <span id="hint">Compare adjacent values</span>
     </div>
   </section>
-  <div class="divider"></div>
   <div class="lower">
     <section>
       <p class="section-title">How it works</p>
@@ -225,18 +210,7 @@ export const OfficialDashboard: Story = {
         },
         template: `
             <main class="visual-reply-story">
-                <header class="visual-reply-story__topbar">
-                    <div class="visual-reply-story__topbar-inner">
-                        <div class="visual-reply-story__brand">
-                            <span class="visual-reply-story__brand-mark" aria-hidden="true"></span>
-                            <span>TouchAI</span>
-                            <span class="visual-reply-story__brand-separator">/</span>
-                            <span class="visual-reply-story__brand-section">Visual replies</span>
-                        </div>
-                        <span class="visual-reply-story__status">OpenUI</span>
-                    </div>
-                </header>
-                <div class="visual-reply-story__stage visual-reply-story__stage--single">
+                <div class="visual-reply-story__stage">
                     <article class="visual-reply-story__thread">
                         <div class="visual-reply-story__prompt-row">
                             <p class="visual-reply-story__prompt">
@@ -254,12 +228,17 @@ export const OfficialDashboard: Story = {
     }),
 };
 
+export const OfficialDashboardLight: Story = {
+    ...OfficialDashboard,
+    decorators: [() => ({ template: '<div class="visual-reply-story--light"><story /></div>' })],
+};
+
 /** Actual transcript comparison: registered components vs. free-form HTML. */
 export const OpenUIAndArtifact: Story = {
     render: () => ({
         components: { OpenUIReply, VisualArtifactFrame },
         setup() {
-            const hostAction = ref('Host bridge ready');
+            const hostAction = ref('');
             const dispose = registerVisualReplyHost({
                 sendPrompt: (text) => {
                     hostAction.value = `Conversation prompt: ${text}`;
@@ -274,17 +253,6 @@ export const OpenUIAndArtifact: Story = {
         },
         template: `
             <main class="visual-reply-story">
-                <header class="visual-reply-story__topbar">
-                    <div class="visual-reply-story__topbar-inner">
-                        <div class="visual-reply-story__brand">
-                            <span class="visual-reply-story__brand-mark" aria-hidden="true"></span>
-                            <span>TouchAI</span>
-                            <span class="visual-reply-story__brand-separator">/</span>
-                            <span class="visual-reply-story__brand-section">Visual replies</span>
-                        </div>
-                        <span class="visual-reply-story__status">Live components</span>
-                    </div>
-                </header>
                 <div class="visual-reply-story__board">
                     <section class="visual-reply-story__column">
                         <header class="visual-reply-story__column-head">
@@ -299,7 +267,7 @@ export const OpenUIAndArtifact: Story = {
                             </div>
                             <div class="visual-reply-story__reply">
                                 <OpenUIReply :response="salesDashboardResponse" :is-streaming="false" />
-                                <p class="visual-reply-story__host-action" aria-live="polite">{{ hostAction }}</p>
+                                <p v-if="hostAction" class="visual-reply-story__host-action" role="status">{{ hostAction }}</p>
                             </div>
                         </div>
                     </section>
@@ -317,10 +285,6 @@ export const OpenUIAndArtifact: Story = {
                             </div>
                             <div class="visual-reply-story__reply">
                                 <div class="visual-reply-story__artifact">
-                                    <div class="visual-reply-story__artifact-bar">
-                                        <span class="visual-reply-story__artifact-title">Artifact preview</span>
-                                        <span class="visual-reply-story__artifact-meta">Sandboxed</span>
-                                    </div>
                                     <VisualArtifactFrame :html="artifactHtml" title="Interactive bubble sort artifact" />
                                 </div>
                             </div>

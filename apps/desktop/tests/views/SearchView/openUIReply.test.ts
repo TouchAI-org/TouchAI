@@ -55,6 +55,38 @@ describe('when a model returns a visual reply', () => {
         ]);
     });
 
+    it('user reads exact chart values with the keyboard and dismisses the readout', async () => {
+        const wrapper = render('root = Root([BarChart("Revenue", [42, 58], ["Q1", "Q2"], "K")])');
+        await flushPromises();
+
+        const chart = wrapper.get('[role="application"]');
+        await chart.trigger('focus');
+        expect(wrapper.get('[data-testid="bar-chart-tooltip"]').text()).toContain('58K');
+
+        await chart.trigger('keydown', { key: 'ArrowLeft' });
+        const readout = wrapper.get('[data-testid="bar-chart-tooltip"]');
+        expect(readout.text()).toContain('Q1');
+        expect(readout.text()).toContain('42K');
+
+        await chart.trigger('keydown', { key: 'Escape' });
+        expect(wrapper.find('[data-testid="bar-chart-tooltip"]').exists()).toBe(false);
+    });
+
+    it('user does not retain a chart readout after moving focus to another control', async () => {
+        const wrapper = render(
+            'root = Root([BarChart("Revenue", [0, 58], ["Q1", "Q2"], "K"), ActionButton("Continue")])'
+        );
+        await flushPromises();
+
+        const chart = wrapper.get('[role="application"]');
+        await chart.trigger('focus');
+        await chart.trigger('keydown', { key: 'ArrowLeft' });
+        expect(wrapper.get('[data-testid="bar-chart-tooltip"]').text()).toContain('0K');
+
+        await chart.trigger('blur');
+        expect(wrapper.find('[data-testid="bar-chart-tooltip"]').exists()).toBe(false);
+    });
+
     it('user can continue the conversation from an OpenUI action', async () => {
         const sendPrompt = vi.fn();
         registerVisualReplyHost({ sendPrompt, openLink: vi.fn() });

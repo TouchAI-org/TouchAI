@@ -107,7 +107,7 @@
     },
     "src/components/ui/bar-chart/BarChart.vue": {
         "vue/no-restricted-class": {
-            "count": 16
+            "count": 11
         }
     },
     "src/components/ui/button/Button.vue": {
