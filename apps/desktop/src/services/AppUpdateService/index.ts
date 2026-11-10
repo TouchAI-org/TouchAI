@@ -156,9 +156,18 @@ export class AppUpdateController {
             : AUTO_CHECK_INTERVAL_MS;
     }
 
-    /** The latest time an automatic check actually started, if one has run. */
+    /**
+     * The later of the latest check attempt and the latest completed check.
+     *
+     * The automatic-check gate uses the same boundary, so scheduling from this
+     * value cannot move a check past the deadline the gate will accept.
+     */
     getLastCheckAttemptAt(): string | null {
-        return this.lastCheckAttemptAt ?? this.state.lastCheckedAt;
+        const attemptAt = parseTime(this.lastCheckAttemptAt);
+        const completedAt = parseTime(this.state.lastCheckedAt);
+        if (attemptAt === null) return this.state.lastCheckedAt;
+        if (completedAt === null) return this.lastCheckAttemptAt;
+        return attemptAt >= completedAt ? this.lastCheckAttemptAt : this.state.lastCheckedAt;
     }
 
     subscribe(listener: StateListener): () => void {
@@ -236,8 +245,13 @@ export class AppUpdateController {
         }
 
         if (
-            ['downloading', 'downloaded', 'installing'].includes(this.state.status) ||
-            getInstallableAppUpdate(this.state)
+            ['downloading', 'installing'].includes(this.state.status) ||
+            // A manual recheck may refresh release metadata while a package is
+            // downloaded; the reducer keeps the package when the target is
+            // unchanged. Background and settings checks leave it untouched.
+            (source !== 'manual' &&
+                (this.state.status === 'downloaded' ||
+                    Boolean(getInstallableAppUpdate(this.state))))
         ) {
             return false;
         }

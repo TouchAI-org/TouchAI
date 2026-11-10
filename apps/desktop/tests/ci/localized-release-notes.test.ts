@@ -160,6 +160,45 @@ describe('given reviewed bilingual release content', () => {
         );
     });
 
+    it('user keeps both published languages when a retry runs from a clean checkout', async () => {
+        const root = await fixture();
+        const publishedBody = `## English\n\n<!-- touchai-release-notes:en-US -->\n\n${notes['en-US']}\n\n<!-- /touchai-release-notes:en-US -->\n\n## 简体中文\n\n${notes['zh-CN']}`;
+        await prepareReleaseNotes(root, join(root, 'notes'), {
+            repository: 'TouchAI-org/TouchAI',
+            channel: 'beta',
+            version: '1.2.0-beta.11',
+            tag: 'v1.2.0-beta.11',
+            targetCommitish: 'main',
+            gh: () => JSON.stringify([[{ tag_name: 'v1.2.0-beta.11', body: publishedBody }]]),
+        });
+
+        expect(JSON.parse(await readFile(join(root, 'notes/release-notes.json'), 'utf8'))).toEqual(
+            notes
+        );
+        expect(await readFile(join(root, 'notes/release-body.md'), 'utf8')).toBe(
+            `${publishedBody}\n`
+        );
+    });
+
+    it('user does not get an invented translation when the published body is English only', async () => {
+        const root = await fixture();
+        const publishedBody =
+            '## English\n\n<!-- touchai-release-notes:en-US -->\n\nEnglish only\n\n<!-- /touchai-release-notes:en-US -->';
+        await prepareReleaseNotes(root, join(root, 'notes'), {
+            repository: 'TouchAI-org/TouchAI',
+            channel: 'stable',
+            version: '1.2.0',
+            tag: 'v1.2.0',
+            targetCommitish: 'main',
+            gh: () => JSON.stringify([[{ tag_name: 'v1.2.0', body: publishedBody }]]),
+        });
+
+        expect(JSON.parse(await readFile(join(root, 'notes/release-notes.json'), 'utf8'))).toEqual({
+            'en-US': 'English only',
+        });
+        expect(await readFile(join(root, 'notes/release-body.md'), 'utf8')).toBe('English only\n');
+    });
+
     it('user keeps separate languages when a release with generated English is published again', async () => {
         const root = await fixture();
         await mkdir(join(root, 'release-notes'));

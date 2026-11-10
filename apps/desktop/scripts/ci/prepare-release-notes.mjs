@@ -8,6 +8,41 @@ import { previousReleaseTag } from './resolve-release-metadata.mjs';
 
 const ENGLISH_SECTION_START = '## English\n\n<!-- touchai-release-notes:en-US -->\n\n';
 const ENGLISH_SECTION_END = '\n\n<!-- /touchai-release-notes:en-US -->';
+const CHINESE_SECTION_HEADING = '## 简体中文';
+
+/**
+ * Read back what a previous run published so a retry after a clean checkout
+ * keeps every reviewed language instead of regenerating English only.
+ */
+function parsePublishedReleaseBody(body) {
+    const text = typeof body === 'string' ? body.trim() : '';
+    if (!text) {
+        return { english: null, translations: {} };
+    }
+    if (!text.startsWith(ENGLISH_SECTION_START)) {
+        return { english: text, translations: {} };
+    }
+
+    const englishEnd = text.indexOf(ENGLISH_SECTION_END, ENGLISH_SECTION_START.length);
+    if (englishEnd < 0) {
+        throw new Error('Published release notes have an incomplete English section.');
+    }
+
+    const english = text.slice(ENGLISH_SECTION_START.length, englishEnd).trim();
+    const translations = {};
+    const chineseStart = text.indexOf(
+        CHINESE_SECTION_HEADING,
+        englishEnd + ENGLISH_SECTION_END.length
+    );
+    if (chineseStart >= 0) {
+        const chinese = text.slice(chineseStart + CHINESE_SECTION_HEADING.length).trim();
+        if (chinese) {
+            translations['zh-CN'] = chinese;
+        }
+    }
+
+    return { english: english || null, translations };
+}
 
 export async function prepareReleaseNotes(projectRoot, outputRoot, options) {
     const { channel, version, tag, repository, targetCommitish } = options;
@@ -37,13 +72,14 @@ export async function prepareReleaseNotes(projectRoot, outputRoot, options) {
         const releases = JSON.parse(
             gh(['api', `repos/${repository}/releases`, '--paginate', '--slurp'])
         ).flat();
-        english = releases.find((release) => release.tag_name === tag)?.body?.trim();
-        if (english?.startsWith(ENGLISH_SECTION_START)) {
-            const sectionEnd = english.indexOf(ENGLISH_SECTION_END, ENGLISH_SECTION_START.length);
-            if (sectionEnd < 0) {
-                throw new Error('Published release notes have an incomplete English section.');
+        const published = parsePublishedReleaseBody(
+            releases.find((release) => release.tag_name === tag)?.body
+        );
+        english = published.english;
+        for (const [locale, content] of Object.entries(published.translations)) {
+            if (!localized[locale]) {
+                localized[locale] = content;
             }
-            english = english.slice(ENGLISH_SECTION_START.length, sectionEnd).trim();
         }
         if (!english) {
             const previousTag = previousReleaseTag(releases, channel, version);
@@ -67,7 +103,7 @@ export async function prepareReleaseNotes(projectRoot, outputRoot, options) {
 
     localized = normalizeLocalizedReleaseNotes({ ...localized, 'en-US': english });
     const body = localized['zh-CN']
-        ? `${ENGLISH_SECTION_START}${english}${ENGLISH_SECTION_END}\n\n## 简体中文\n\n${localized['zh-CN']}`
+        ? `${ENGLISH_SECTION_START}${english}${ENGLISH_SECTION_END}\n\n${CHINESE_SECTION_HEADING}\n\n${localized['zh-CN']}`
         : english;
     await mkdir(outputRoot, { recursive: true });
     await Promise.all([

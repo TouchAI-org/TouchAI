@@ -626,6 +626,115 @@ describe('buildUpdateChannels', () => {
         }
     });
 
+    it('ignores files whose version only shares a prefix with the released version', async () => {
+        const buildUpdateChannels = await loadBuilder();
+        const productFixture = cloneProductConfig();
+        const root = await createFixture(productFixture);
+        const outputRoot = join(root, 'dist');
+        const releaseDir = join(root, 'release');
+        const currentInstaller = 'TouchAI-0.2.1-windows.msi';
+        const prereleaseInstaller = 'TouchAI-0.2.1-beta.1-windows.msi';
+
+        await mkdir(releaseDir, { recursive: true });
+        await writeFile(
+            join(releaseDir, 'releases.stable.json'),
+            JSON.stringify({ Assets: [] }),
+            'utf8'
+        );
+        await writeFile(join(releaseDir, currentInstaller), 'current', 'utf8');
+        await writeFile(join(releaseDir, prereleaseInstaller), 'prerelease', 'utf8');
+
+        try {
+            expect(buildUpdateChannels).toBeTypeOf('function');
+            await buildUpdateChannels?.(root, outputRoot, new Date('2026-05-24T00:00:00Z'), {
+                release: {
+                    channel: 'stable',
+                    version: '0.2.1',
+                    tag: 'v0.2.1',
+                    prerelease: false,
+                    releaseDir,
+                },
+            });
+
+            const stable = JSON.parse(
+                await readFile(channelOutputPath(productFixture, outputRoot, 'stable'), 'utf8')
+            );
+            expect(
+                stable.Latest.downloads.map((download: { name: string }) => download.name)
+            ).toEqual([currentInstaller]);
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    });
+
+    it('refuses to publish a release directory without its packaged channel feed', async () => {
+        const buildUpdateChannels = await loadBuilder();
+        const productFixture = cloneProductConfig();
+        const root = await createFixture(productFixture);
+        const outputRoot = join(root, 'dist');
+        const releaseDir = join(root, 'release');
+        const existingFeedPath = channelOutputPath(productFixture, outputRoot, 'stable');
+
+        await mkdir(releaseDir, { recursive: true });
+        await writeFile(join(releaseDir, 'TouchAI-0.2.1-windows.msi'), 'installer', 'utf8');
+        await mkdir(
+            join(outputRoot, ...updatePathSegments(productFixture.services.updates.baseUrl)),
+            {
+                recursive: true,
+            }
+        );
+        await writeFile(existingFeedPath, '{"Assets":[{"FileName":"old.nupkg"}]}', 'utf8');
+
+        try {
+            expect(buildUpdateChannels).toBeTypeOf('function');
+            await expect(
+                buildUpdateChannels?.(root, outputRoot, new Date('2026-05-24T00:00:00Z'), {
+                    release: {
+                        channel: 'stable',
+                        version: '0.2.1',
+                        tag: 'v0.2.1',
+                        prerelease: false,
+                        releaseDir,
+                    },
+                })
+            ).rejects.toThrow(/Missing releases\.stable\.json/);
+            expect(await readFile(existingFeedPath, 'utf8')).toContain('old.nupkg');
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    });
+
+    it.each([
+        ['invalid JSON', '{'],
+        ['a non-array Assets field', JSON.stringify({ Assets: {} })],
+    ])('refuses to publish a packaged feed with %s', async (_label, contents) => {
+        const buildUpdateChannels = await loadBuilder();
+        const productFixture = cloneProductConfig();
+        const root = await createFixture(productFixture);
+        const outputRoot = join(root, 'dist');
+        const releaseDir = join(root, 'release');
+
+        await mkdir(releaseDir, { recursive: true });
+        await writeFile(join(releaseDir, 'releases.stable.json'), contents, 'utf8');
+
+        try {
+            expect(buildUpdateChannels).toBeTypeOf('function');
+            await expect(
+                buildUpdateChannels?.(root, outputRoot, new Date('2026-05-24T00:00:00Z'), {
+                    release: {
+                        channel: 'stable',
+                        version: '0.2.1',
+                        tag: 'v0.2.1',
+                        prerelease: false,
+                        releaseDir,
+                    },
+                })
+            ).rejects.toThrow(/releases\.stable\.json/);
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    });
+
     it('copies only current release assets into the update output directory', async () => {
         const buildUpdateChannels = await loadBuilder();
         const productFixture = cloneProductConfig();

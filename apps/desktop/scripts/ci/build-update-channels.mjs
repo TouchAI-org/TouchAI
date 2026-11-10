@@ -324,7 +324,9 @@ async function releaseDownloadsFromDirectory(product, releaseDir, version) {
             continue;
         }
 
-        if (version && !entry.name.includes(version)) {
+        // Match the parsed version exactly: a substring test also accepts an
+        // older build such as `1.2.3-beta.1` when releasing `1.2.3`.
+        if (version && versionFromAssetName(entry.name) !== version) {
             continue;
         }
 
@@ -350,20 +352,32 @@ async function releaseAssetsFromDirectory(releaseDir, channel) {
         return [];
     }
 
+    let text;
     try {
-        const feed = JSON.parse(
-            await readFile(join(releaseDir, `releases.${channel}.json`), 'utf8')
-        );
-        if (!Array.isArray(feed.Assets)) {
-            return [];
-        }
-        return feed.Assets;
+        text = await readFile(join(releaseDir, `releases.${channel}.json`), 'utf8');
     } catch (error) {
         if (error?.code === 'ENOENT') {
-            return [];
+            // Publishing without the freshly packaged feed would make the new
+            // Latest point at package entries nobody uploaded. Refuse instead of
+            // silently keeping (or clearing) the previous channel history.
+            throw new Error(
+                `Missing releases.${channel}.json in the release directory; refusing to publish an update feed without packaged assets.`
+            );
         }
         throw error;
     }
+
+    let feed;
+    try {
+        feed = JSON.parse(text);
+    } catch {
+        throw new Error(`releases.${channel}.json is not valid JSON.`);
+    }
+    if (!Array.isArray(feed.Assets)) {
+        throw new Error(`releases.${channel}.json must contain an Assets array.`);
+    }
+
+    return feed.Assets;
 }
 
 function latestByChannelFromRelease(product, release, fallbackPublishedAt) {

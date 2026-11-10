@@ -147,8 +147,8 @@ function scheduleAppUpdateChecks(): void {
         if (!checked) {
             // A skipped check (interval not reached, offline, outside hours) or a
             // failed check must keep the existing deadline, not restart it. A
-            // deadline that already passed falls back to one full interval so a
-            // stale persisted timestamp cannot create a zero-delay retry loop.
+            // deadline that already passed falls back to the next allowed window
+            // so a stale timestamp cannot create a zero-delay retry loop.
             const interval = appUpdateService.getAutomaticCheckInterval();
             const attemptAt = Date.parse(appUpdateService.getLastCheckAttemptAt() ?? '');
             const hasLiveDeadline =
@@ -156,7 +156,13 @@ function scheduleAppUpdateChecks(): void {
                 Number.isFinite(attemptAt) &&
                 attemptAt + interval > now;
             const referenceAt = hasLiveDeadline ? attemptAt : now;
-            const retryAt = getNextAppUpdateCheckAt(referenceAt, interval);
+            let retryAt = getNextAppUpdateCheckAt(referenceAt, interval);
+            if (retryAt <= now) {
+                // Quiet hours clamp a 07:30 reference to 08:00, which can equal
+                // "now" the moment the skipped check finishes. Re-arm at the
+                // next full window instead of spinning on a zero-delay timer.
+                retryAt = getNextAppUpdateCheckAt(now, interval);
+            }
             timer = window.setTimeout(runAndScheduleNextCheck, Math.max(0, retryAt - now));
             return;
         }

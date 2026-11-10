@@ -33,6 +33,22 @@ function resolveDownloadedUpdate(
     return update ?? state.availableUpdate ?? state.downloadedUpdate;
 }
 
+/**
+ * A recheck that selects the package already on disk must keep it installable
+ * instead of discarding the completed download.
+ */
+function retainedDownloadedUpdate(
+    state: AppUpdateState,
+    update: AppUpdateInfo
+): AppUpdateInfo | null {
+    const downloaded = state.downloadedUpdate;
+    return downloaded &&
+        downloaded.version === update.version &&
+        downloaded.fileName === update.fileName
+        ? downloaded
+        : null;
+}
+
 export function reduceAppUpdateState(
     state: AppUpdateState,
     action: AppUpdateAction
@@ -79,15 +95,16 @@ export function reduceAppUpdateState(
             }
 
             if (action.result.status === 'available') {
+                const downloadedUpdate = retainedDownloadedUpdate(state, action.result.update);
                 return {
                     ...state,
-                    status: 'available',
+                    status: downloadedUpdate ? 'downloaded' : 'available',
                     currentVersion: action.result.currentVersion,
                     availableUpdate: action.result.update,
-                    downloadedUpdate: null,
+                    downloadedUpdate,
                     latestUpdate: action.result.latest,
                     updateRequirement: action.result.requirement,
-                    downloadProgress: null,
+                    downloadProgress: downloadedUpdate ? 100 : null,
                     lastCheckedAt: action.checkedAt,
                     error: null,
                     unsupportedReason: null,

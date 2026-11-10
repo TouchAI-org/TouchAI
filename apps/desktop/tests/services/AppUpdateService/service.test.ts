@@ -493,20 +493,65 @@ describe('user checks for and installs app updates', () => {
         );
     });
 
-    it('user retains the installation retry when checking after an install failure', async () => {
-        const { controller, checkForUpdates, installUpdate } = createController();
+    it('user keeps the installation retry after rechecking following an install failure', async () => {
+        const { controller, checkForUpdates, downloadUpdate, installUpdate } = createController();
         installUpdate.mockRejectedValueOnce(new Error('file in use'));
         await controller.checkNow('manual');
         await controller.download();
         await controller.install();
 
-        await expect(controller.checkNow('manual')).resolves.toBe(false);
+        await expect(controller.checkNow('manual')).resolves.toBe(true);
         await expect(controller.checkNow('settings-open')).resolves.toBe(false);
-        expect(checkForUpdates).toHaveBeenCalledTimes(1);
+        expect(checkForUpdates).toHaveBeenCalledTimes(2);
         expect(controller.getState()).toMatchObject({
-            status: 'failed',
+            status: 'downloaded',
             downloadedUpdate: availableUpdate,
-            error: 'file in use',
+            error: null,
+        });
+
+        await expect(controller.install()).resolves.toBe(true);
+        expect(downloadUpdate).toHaveBeenCalledTimes(1);
+    });
+
+    it('user keeps the downloaded package when a manual recheck selects the same release', async () => {
+        const { controller, checkForUpdates } = createController();
+        await controller.checkNow('manual');
+        await controller.download();
+
+        await expect(controller.checkNow('manual')).resolves.toBe(true);
+
+        expect(checkForUpdates).toHaveBeenCalledTimes(2);
+        expect(controller.getState()).toMatchObject({
+            status: 'downloaded',
+            downloadedUpdate: availableUpdate,
+            downloadProgress: 100,
+        });
+    });
+
+    it('user gets a newly selected release when a manual recheck finds a newer version', async () => {
+        const { controller, checkForUpdates } = createController();
+        await controller.checkNow('manual');
+        await controller.download();
+        const newerUpdate = {
+            ...availableUpdate,
+            version: '0.2.1',
+            fileName: `${APP_PRODUCT_CONFIG.identifier}-0.2.1-full.nupkg`,
+        };
+        checkForUpdates.mockResolvedValueOnce({
+            status: 'available',
+            channel: 'stable',
+            currentVersion: '0.1.0',
+            latest: { ...latestUpdate, version: '0.2.1', tag: 'v0.2.1' },
+            update: newerUpdate,
+            requirement: neutralRequirement,
+        });
+
+        await expect(controller.checkNow('manual')).resolves.toBe(true);
+
+        expect(controller.getState()).toMatchObject({
+            status: 'available',
+            availableUpdate: newerUpdate,
+            downloadedUpdate: null,
         });
     });
 
