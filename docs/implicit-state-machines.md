@@ -236,6 +236,17 @@ and security scopes remain unchanged.
 35. Given an ongoing native measurement, when system motion, application pressure
     or window visibility makes any sampled frame invalid, then acceptance fails
     with the observed conditions rather than including that sample as normal.
+36. Given a native driver whose launch flags do not affect media preferences,
+    when acceptance selects each benchmark window, then the existing driver
+    applies normal motion to that target and actual media/application readback
+    confirms it before measurement; other windows remain untouched.
+37. Given rejected native media emulation, when acceptance initializes a window,
+    then the driver error remains observable, no sample is admitted, and a later
+    successful driver request can initialize normally without a fallback.
+38. Given a successful media command, when actual media still prefers reduced
+    motion, application pressure remains active or the window is hidden, then
+    acceptance rejects the observed environment instead of trusting the command
+    response, changing application policy or waiting for pressure to clear.
 
 ## Verification evidence
 
@@ -337,6 +348,11 @@ PR's passing checks:
   public report API. The original five passed; reduced-motion and hidden-window
   rejection extend the characterization to **7/7 passed**. CI still invokes the
   real CLI/native harness; no timeout or budget changed.
+- The native-media boundary suite reproduces **7 failures / 2 passes** without
+  the driver override. With target-local media control, all **9/9 pass** alongside
+  the seven report cases (**2 files / 16 tests**). These tests run the real
+  request/readback helper against HTTP and WebView system boundaries; they do
+  not replace actual Windows native integration or performance evidence.
 - Expanded-head CI, native E2E, visual checks and release performance results
   are recorded in the PR's testing evidence and linked check reports. Old-head
   `c1367abc` checks are historical evidence only, not acceptance of later code.
@@ -393,12 +409,34 @@ runner's reduced-motion preference. Neither the incomplete cases nor those
 reduced-motion samples are valid performance evidence.
 
 Readiness and menu dispatch now share the first result's grid/list selector.
-Only the benchmark subprocess environment receives
-`--force-prefers-no-reduced-motion`, before the launch arguments are recorded.
-[Chromium's implementation](https://chromium.googlesource.com/chromium/src/+/refs/tags/140.0.7291.1/ui/gfx/animation/animation.cc)
-explicitly gives this switch precedence over the operating-system preference;
-conflicting forced reduced motion is rejected. No OS setting, product preference,
-shared smoke/visual configuration, automatic pressure detection or animation
-duration is changed. Every measured frame requires normal motion and a visible
-window; failures distinguish system preference from application pressure.
+At `4eab7b94`, all 45 smoke tests, app-window visuals and both native release
+builds passed. The benchmark still failed before recording a sample: WebView2
+reported system and application reduced motion despite the recorded
+`--force-prefers-no-reduced-motion` launch argument. A generic Chromium source
+reference was not proof of the actual WebView2 media preference. This failed run
+provides no performance comparison and does not pass the aggregate E2E gate.
+
+The ineffective argument is replaced by the existing EdgeDriver's target-local
+`Emulation.setEmulatedMedia` command for `prefers-reduced-motion: no-preference`.
+The benchmark applies it to both the selected search and settings WebViews, waits
+exactly two rendered frames for media/Vue propagation, then reads actual system
+media, application pressure and visibility. Driver rejection or invalid readback
+fails acceptance; there is no fallback, retry or wait for pressure to clear.
+Every measured frame retains the same normal-motion and visibility guards.
+
+The installed WDIO exposes its legacy Chromium command only for recognized
+Chromium sessions, while this native driver reports `webview2`. Its Puppeteer
+adapter would require an uninstalled dependency. Rather than add a dependency or
+attach a second browser controller, the benchmark sends one standard vendor
+request through the existing WDIO connection/session using Node's bounded fetch.
+[Selenium's Chromium connection](https://raw.githubusercontent.com/SeleniumHQ/selenium/trunk/py/selenium/webdriver/chromium/remote_connection.py)
+defines `/session/$sessionId/{vendor_prefix}/cdp/execute`, and its
+[Edge connection](https://raw.githubusercontent.com/SeleniumHQ/selenium/trunk/py/selenium/webdriver/edge/remote_connection.py)
+uses `ms` as that prefix. Local HTTP/WebView-boundary tests cover route handling,
+window-local effects, driver failure/recovery and ineffective/pressured/hidden
+readback. The real Windows native job remains the final integration proof.
+
+No OS setting, product preference, shared smoke/visual configuration, automatic
+pressure detection or animation duration is changed. The environment report
+identifies the media-control method; per-flow reports contain actual conditions.
 The same six-session ABBA run and unchanged budgets must pass on the new head.

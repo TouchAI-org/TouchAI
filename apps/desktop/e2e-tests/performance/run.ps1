@@ -30,10 +30,6 @@ $env:TEMP = Join-Path $scratch 'tmp'
 $env:TMP = $env:TEMP
 $env:TOUCHAI_TEST_TEMP = $env:TEMP
 $env:CARGO_TARGET_DIR = Join-Path $scratch 'cargo'
-if ($env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS -match '(^|\s)--force-prefers-reduced-motion(?:=|\s|$)') {
-    throw 'Native release acceptance cannot use a forced reduced-motion WebView.'
-}
-$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = ($env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS + ' --force-prefers-no-reduced-motion').Trim()
 New-Item -ItemType Directory -Path $reports, $env:TEMP | Out-Null
 "TOUCHAI_LIFECYCLE_REPORTS=$reports" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
 @{
@@ -43,6 +39,7 @@ New-Item -ItemType Directory -Path $reports, $env:TEMP | Out-Null
     operatingSystem = (Get-CimInstance Win32_OperatingSystem).Caption
     processor = (Get-CimInstance Win32_Processor).Name
     webviewArguments = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+    motionControl = 'EdgeDriver Emulation.setEmulatedMedia: prefers-reduced-motion=no-preference, verified per window'
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $reports 'environment.json') -Encoding utf8
 
 function Invoke-Native {

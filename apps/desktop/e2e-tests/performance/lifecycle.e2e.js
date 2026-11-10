@@ -14,6 +14,7 @@ import {
     waitForTestIdDisplayed,
 } from '../test/support/desktop.js';
 import { SEARCH_FIXTURE_QUERY, SEARCH_FIXTURE_RESULTS } from '../test/support/fixtures.js';
+import { enableNativeNormalMotion } from './native-motion.mjs';
 
 const firstSearchResultSelector =
     '[data-testid="quick-search-panel"] :is(.quick-search-grid, .quick-search-list) > button:first-child';
@@ -193,6 +194,7 @@ describe('user completes native lifecycle interactions within the release perfor
         await waitForE2eBridge();
         await useInterfaceLanguage();
         await useProductFont();
+        await enableNativeNormalMotion(browser);
     });
 
     it('user repeatedly opens and dismisses result menus without accumulating resources', async () => {
@@ -215,6 +217,7 @@ describe('user completes native lifecycle interactions within the release perfor
         await useProductFont();
         await (await waitForTestIdDisplayed('settings-nav-data-management')).click();
         await waitForTestIdDisplayed('settings-diagnostics-export');
+        await enableNativeNormalMotion(browser);
         report.cases.confirm = await measureFlow('confirm');
         report.cases.import = await measureFlow('import');
         const memoryScript = path.join(
