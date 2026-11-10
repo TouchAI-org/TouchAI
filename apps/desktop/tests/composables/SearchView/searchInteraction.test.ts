@@ -622,6 +622,25 @@ describe('createSearchKeyboardRouter', () => {
         expect(order).toEqual(['submit']);
     });
 
+    it('user gets a plain Enter submitted as a normal submission', () => {
+        const { router, callbacks } = createKeyboardRouter({ getQueryText: () => 'touch' });
+
+        expect(router.route({ key: 'Enter' })).toBe(true);
+
+        expect(callbacks.onSubmit).toHaveBeenCalledWith('enter');
+    });
+
+    it.each([
+        ['Ctrl', { ctrlKey: true }],
+        ['Cmd', { metaKey: true }],
+    ])('user gets %s+Enter marked as an inserted submission', (_label, modifiers) => {
+        const { router, callbacks } = createKeyboardRouter({ getQueryText: () => 'touch' });
+
+        expect(router.route({ key: 'Enter', ...modifiers })).toBe(true);
+
+        expect(callbacks.onSubmit).toHaveBeenCalledWith('enter-modified');
+    });
+
     it('opens quick search when ArrowDown cannot navigate newer history and query is empty with eligible trigger', () => {
         const { router, callbacks } = createKeyboardRouter({
             getQueryText: () => '',

@@ -86,7 +86,6 @@ function createOptions({
         controller: createControllerStub(),
         sessionHistory: ref<SessionMessage[]>([]),
         pendingRequest: ref<PendingRequest | null>(null),
-        isWaitingForCompletion: ref(false),
         isLoading: ref(false),
         pendingToolApproval: ref<PendingToolApproval | null>(null),
         approvePendingToolApproval: vi.fn(() => false),

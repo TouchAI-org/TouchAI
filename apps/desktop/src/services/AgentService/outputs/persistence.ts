@@ -796,6 +796,50 @@ export class PersistenceProjector {
         return messageId;
     }
 
+    /**
+     * 写入一条运行中插队的用户消息。
+     *
+     * 附件准备与写入都复用普通用户消息的路径；消息落库后关闭当前 assistant
+     * 输出边界，确保下一次模型输出会新建 assistant 消息而不是续写工具轮之前的气泡。
+     */
+    async persistInjectedUserMessage(options: {
+        prompt: string;
+        attachments?: AttachmentIndex[];
+    }): Promise<{ messageId: number; source?: ContextMessageSource }> {
+        const attachments = options.attachments ?? [];
+        if (attachments.length > 0) {
+            await Promise.all(
+                attachments.map((attachment) => prepareAttachmentForPersistence(attachment))
+            );
+        }
+
+        const result = await db.transaction(async (tx) => {
+            const sessionId = await this.ensureSessionId(tx);
+            const persistedAttachments = await Promise.all(
+                attachments.map((attachment) => persistPreparedAttachment(attachment, tx))
+            );
+            const messageId = await this.persistMessage({
+                role: 'user',
+                content: options.prompt,
+                attachments: persistedAttachments,
+                database: tx,
+                sessionId,
+            });
+            const row = (await findContextMessageRows(sessionId, { ids: [messageId] }, tx))[0];
+            return {
+                sessionId,
+                messageId,
+                source: row ? await contextMessageSource(row) : undefined,
+            };
+        });
+
+        this.sessionId = result.sessionId;
+        this.pendingOutputMessageId = null;
+        this.pendingOutputOffset = 0;
+        this.assistantMessageId = null;
+        return { messageId: result.messageId, source: result.source };
+    }
+
     async getContextMessageSource(
         messageId: number,
         expected: {

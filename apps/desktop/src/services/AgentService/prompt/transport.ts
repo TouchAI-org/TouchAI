@@ -107,7 +107,7 @@ async function buildInterleavedPromptContent(
 /**
  * 构建当前用户输入的传输消息。
  */
-async function buildUserPromptMessage(options: {
+export async function buildUserPromptMessage(options: {
     prompt: string;
     attachments?: AttachmentIndex[];
     supportsAttachments?: boolean;

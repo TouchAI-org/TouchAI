@@ -7,6 +7,7 @@
     import { storeToRefs } from 'pinia';
     import { computed, onMounted, ref, watch } from 'vue';
 
+    import type { SubmitShortcutMode } from '@/config/chatSubmission';
     import { type SearchWindowSizePreset } from '@/config/searchWindow';
     import { type AppLocale, LOCALE_LABELS, SUPPORTED_LOCALES, t } from '@/i18n';
     import { type OutputScrollBehavior, useSettingsStore } from '@/stores/settings';
@@ -58,6 +59,22 @@
             { value: 'small', label: t('settings.general.size.small') },
             { value: 'normal', label: t('settings.general.size.normal') },
             { value: 'large', label: t('settings.general.size.large') },
+        ]
+    );
+
+    const submitShortcutModeOptions = computed(
+        (): Array<{
+            value: SubmitShortcutMode;
+            label: string;
+        }> => [
+            {
+                value: 'queue_on_enter',
+                label: t('settings.general.submitShortcutMode.queueOnEnter'),
+            },
+            {
+                value: 'priority_on_enter',
+                label: t('settings.general.submitShortcutMode.priorityOnEnter'),
+            },
         ]
     );
 
@@ -121,6 +138,16 @@
             alertMessage.value?.success(t('common.saved'), 2000);
         } catch (error) {
             log.error('Failed to save output_scroll_behavior setting:', error);
+            alertMessage.value?.error(t('settings.general.saveSettingsFailed'), 3000);
+        }
+    };
+
+    const saveSubmitShortcutMode = async () => {
+        try {
+            await settingsStore.updateSubmitShortcutMode(settings.value.submitShortcutMode);
+            alertMessage.value?.success(t('common.saved'), 2000);
+        } catch (error) {
+            log.error('Failed to save submit_shortcut_mode setting:', error);
             alertMessage.value?.error(t('settings.general.saveSettingsFailed'), 3000);
         }
     };
@@ -254,6 +281,23 @@
                             v-model="settings.outputScrollBehavior"
                             :options="outputScrollBehaviorOptions"
                             @update:model-value="saveOutputScrollBehavior"
+                        />
+                    </SettingsRow>
+
+                    <SettingsRow
+                        data-settings-search-target="submit-shortcut-mode"
+                        control-width="180"
+                        label-as="label"
+                        label-class="block"
+                        :label="t('settings.general.submitShortcutMode.label')"
+                        :label-attrs="{ 'data-testid': 'settings-general-row-label' }"
+                        control-class="ml-auto w-[180px]"
+                        :control-attrs="{ 'data-testid': 'settings-general-control' }"
+                    >
+                        <CustomSelect
+                            v-model="settings.submitShortcutMode"
+                            :options="submitShortcutModeOptions"
+                            @update:model-value="saveSubmitShortcutMode"
                         />
                     </SettingsRow>
                 </div>

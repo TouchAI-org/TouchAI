@@ -32,12 +32,15 @@ import { TaskInteractions } from './interactions';
 import { NotificationCoalescer } from './notificationCoalescer';
 import { SessionTaskProjection } from './projection';
 import type {
+    PendingUserMessage,
+    PendingUserMessageInput,
     SessionTaskStatus,
     StartedSessionTask,
     StartSessionTaskOptions,
     TaskSnapshotListener,
     TaskViewSnapshot,
 } from './types';
+import { cloneTaskValue } from './types';
 import { cloneTaskViewSnapshot } from './viewSnapshot';
 
 interface MutableSessionTask {
@@ -62,6 +65,33 @@ const TERMINAL_TASK_RETENTION_MS = 5 * 60 * 1000;
 
 export { cloneTaskViewSnapshot } from './viewSnapshot';
 
+/**
+ * 合并待发消息并按 id 去重。
+ *
+ * 队列交接发生在多个异步入口之间（自动续发、用户在间隙里手动提交），
+ * 同一批消息可能被两个入口短暂持有；按 id 去重避免重复投递。
+ */
+function mergePendingUserMessages(
+    ...lists: ReadonlyArray<readonly PendingUserMessage[]>
+): PendingUserMessage[] {
+    const merged: PendingUserMessage[] = [];
+    const seen = new Set<string>();
+    for (const list of lists) {
+        for (const message of list) {
+            if (seen.has(message.id)) {
+                continue;
+            }
+            seen.add(message.id);
+            merged.push(message);
+        }
+    }
+    return merged;
+}
+
+/**
+ * 控制类状态（完成、失败、等待审批/用户输入）必须即时发布；
+ * 普通流式增量可以合并到一个微任务里发布一次。
+ */
 export function shouldPublishTaskSnapshotImmediately(snapshot: TaskViewSnapshot): boolean {
     return (
         snapshot.status !== 'running' ||
@@ -229,6 +259,13 @@ async function createConversationRuntimeEnvironment(): Promise<ConversationRunti
 export class SessionTaskCenter {
     private readonly tasks = new Map<string, MutableSessionTask>();
     private readonly sessionActiveTaskIndex = new Map<number, string>();
+    /**
+     * 回合结束到下一轮启动之间的待发队列。
+     *
+     * 队列不再只挂在上一个任务快照上：下一个任务启动（无论由队列自动启动，
+     * 还是用户在间隙里先发了一条）都会接管这里剩下的消息，避免卡在已完成任务里。
+     */
+    private readonly sessionPendingQueues = new Map<number, PendingUserMessage[]>();
     private readonly executor = new AiRequestExecutor();
     /** Coalesces high-frequency streaming snapshots; terminal/error paths flush now. */
     private readonly notificationCoalescer = new NotificationCoalescer((taskId) =>
@@ -249,6 +286,10 @@ export class SessionTaskCenter {
         const taskId = crypto.randomUUID();
         const abortController = new AbortController();
         const detachAbortRelay = relayAbortSignal(options.signal, abortController);
+        const inheritedQueuedMessages =
+            options.sessionId !== undefined && options.sessionId !== null
+                ? this.takeSessionQueuedMessages(options.sessionId)
+                : [];
         const snapshot: TaskViewSnapshot = {
             taskId,
             sessionId: options.sessionId ?? null,
@@ -256,6 +297,9 @@ export class SessionTaskCenter {
             status: 'running',
             executionMode: options.executionMode ?? 'foreground',
             sessionHistory: [],
+            pendingUserMessages: cloneTaskValue(
+                mergePendingUserMessages(inheritedQueuedMessages, options.pendingUserMessages ?? [])
+            ),
             pendingToolApproval: null,
             pendingApprovals: [],
             pendingUserQuestion: null,
@@ -321,7 +365,8 @@ export class SessionTaskCenter {
                 historyResult.value,
                 options.prompt,
                 options.attachments,
-                options.inputSnapshot
+                options.inputSnapshot,
+                options.userMessageId
             );
 
             const runtime = new AiConversationRuntime(this.executor, {
@@ -333,6 +378,7 @@ export class SessionTaskCenter {
                 attachments: options.attachments,
                 inputSnapshot: options.inputSnapshot,
                 executionMode: options.executionMode ?? 'foreground',
+                takePriorityUserMessages: () => this.getPriorityUserMessages(taskId),
                 environment: runtimeEnvironmentResult.value,
                 signal: abortController.signal,
                 onChunk: (chunk) => {
@@ -359,6 +405,11 @@ export class SessionTaskCenter {
                 completion,
             };
         } catch (error) {
+            // 队列消息在启动前已经被接管；启动失败要把它们放回去，
+            // 否则用户排队的内容会随这次失败一起消失。
+            if (inheritedQueuedMessages.length > 0 && options.sessionId !== undefined) {
+                this.sessionPendingQueues.set(options.sessionId, inheritedQueuedMessages);
+            }
             this.releaseTask(taskId);
             throw error;
         }
@@ -392,6 +443,10 @@ export class SessionTaskCenter {
         }
 
         task.abortController.abort();
+        task.snapshot.pendingUserMessages = [];
+        if (task.sessionId !== null) {
+            this.sessionPendingQueues.delete(task.sessionId);
+        }
         task.projection.clearPendingApprovals(tt('请求已取消'));
         // Cancellation is decisive: clearing pending cards must reach subscribers now,
         // not on the next coalesced tick.
@@ -407,6 +462,123 @@ export class SessionTaskCenter {
      */
     approveTaskToolCall(taskId: string, callId?: string, decisionId?: string): boolean {
         return this.resolveTaskToolApproval(taskId, callId, decisionId, true);
+    }
+
+    /** 把一条待投递消息挂到运行中的任务上。 */
+    enqueueTaskUserMessage(
+        taskId: string,
+        input: PendingUserMessageInput,
+        delivery: PendingUserMessage['delivery']
+    ): PendingUserMessage | null {
+        const task = this.tasks.get(taskId);
+        if (!task || isTerminalStatus(task.snapshot.status)) {
+            return null;
+        }
+
+        const message: PendingUserMessage = {
+            id: crypto.randomUUID(),
+            prompt: input.prompt,
+            attachments: cloneTaskValue(input.attachments ?? []),
+            inputSnapshot: input.inputSnapshot ? cloneTaskValue(input.inputSnapshot) : undefined,
+            modelId: input.modelId,
+            providerId: input.providerId,
+            delivery,
+            createdAt: Date.now(),
+        };
+        task.snapshot.pendingUserMessages = [...task.snapshot.pendingUserMessages, message];
+        this.notifySubscribers(taskId);
+        return cloneTaskValue(message);
+    }
+
+    /**
+     * 把一条待投递消息挂到会话上。
+     *
+     * 回合结束到下一条排队任务启动之间没有活跃任务，但会话已经有待发队列；
+     * 这一段提交必须落进同一条队列，否则会被当成新请求、与自动续发抢会话。
+     */
+    enqueueSessionUserMessage(
+        sessionId: number,
+        input: PendingUserMessageInput,
+        delivery: PendingUserMessage['delivery']
+    ): PendingUserMessage | null {
+        const activeTaskId = this.sessionActiveTaskIndex.get(sessionId);
+        if (activeTaskId) {
+            const message = this.enqueueTaskUserMessage(activeTaskId, input, delivery);
+            if (message) {
+                return message;
+            }
+        }
+
+        // 只有确实存在“即将接管的队列”时才写会话队列；否则没有任务会消费它。
+        if (!this.sessionPendingQueues.has(sessionId)) {
+            return null;
+        }
+
+        const message: PendingUserMessage = {
+            id: crypto.randomUUID(),
+            prompt: input.prompt,
+            attachments: cloneTaskValue(input.attachments ?? []),
+            inputSnapshot: input.inputSnapshot ? cloneTaskValue(input.inputSnapshot) : undefined,
+            modelId: input.modelId,
+            providerId: input.providerId,
+            delivery,
+            createdAt: Date.now(),
+        };
+        this.sessionPendingQueues.set(
+            sessionId,
+            mergePendingUserMessages(this.sessionPendingQueues.get(sessionId) ?? [], [message])
+        );
+        return cloneTaskValue(message);
+    }
+
+    /** 从任务中移除一条尚未投递的消息。 */
+    removeTaskUserMessage(taskId: string, messageId: string): boolean {
+        const task = this.tasks.get(taskId);
+        if (!task || isTerminalStatus(task.snapshot.status)) {
+            return false;
+        }
+
+        const next = task.snapshot.pendingUserMessages.filter(
+            (message) => message.id !== messageId
+        );
+        if (next.length === task.snapshot.pendingUserMessages.length) {
+            return false;
+        }
+        task.snapshot.pendingUserMessages = next;
+        this.notifySubscribers(taskId);
+        return true;
+    }
+
+    /** 清空任务上所有尚未投递的消息。 */
+    clearTaskUserMessages(taskId: string): boolean {
+        const task = this.tasks.get(taskId);
+        if (!task || task.snapshot.pendingUserMessages.length === 0) {
+            return false;
+        }
+
+        task.snapshot.pendingUserMessages = [];
+        this.notifySubscribers(taskId);
+        return true;
+    }
+
+    /** 模型切换后，让尚未投递的消息跟随新的选择。 */
+    updateTaskUserMessageModel(
+        taskId: string,
+        modelId: string | null,
+        providerId: number | null
+    ): boolean {
+        const task = this.tasks.get(taskId);
+        if (!task || task.snapshot.pendingUserMessages.length === 0) {
+            return false;
+        }
+
+        task.snapshot.pendingUserMessages = task.snapshot.pendingUserMessages.map((message) => ({
+            ...message,
+            modelId: modelId ?? undefined,
+            providerId: providerId ?? undefined,
+        }));
+        this.notifySubscribers(taskId);
+        return true;
     }
 
     /** 拒绝任务中指定的工具调用（按 callId 匹配，不传则拒绝第一个）。 */
@@ -624,6 +796,7 @@ export class SessionTaskCenter {
         } catch (error) {
             const task = this.tasks.get(taskId);
             if (task && !isTerminalStatus(task.snapshot.status)) {
+                task.snapshot.pendingUserMessages = [];
                 const aiError = AiError.fromError(error);
                 if (aiError.is(AiErrorCode.REQUEST_CANCELLED)) {
                     task.projection.markCancelled();
@@ -644,6 +817,89 @@ export class SessionTaskCenter {
                 this.scheduleTaskRelease(taskId);
             }
         }
+    }
+
+    /**
+     * 取出当前工具边界要投递的插队消息。
+     *
+     * 这里不能先移除：投递边界和 UI 快照发布之间若插队消息先消失，
+     * 气泡会先闪没再变实心。真正的移除由投影层在
+     * `user_messages_delivered` 事件里和实心消息一次性完成。
+     */
+    private getPriorityUserMessages(taskId: string): PendingUserMessage[] {
+        const task = this.tasks.get(taskId);
+        if (!task) {
+            return [];
+        }
+
+        return cloneTaskValue(
+            task.snapshot.pendingUserMessages.filter((message) => message.delivery === 'priority')
+        );
+    }
+
+    /**
+     * 当前回合正常完成后，把排队消息作为下一条用户轮次启动。
+     * 调度放在微任务里，先让终态投影完成发布，再切换会话索引。
+     */
+    private scheduleQueuedTaskStart(taskId: string): void {
+        queueMicrotask(() => {
+            void this.startQueuedTask(taskId);
+        });
+    }
+
+    private async startQueuedTask(taskId: string): Promise<void> {
+        const task = this.tasks.get(taskId);
+        if (!task || task.snapshot.status !== 'completed' || task.sessionId === null) {
+            return;
+        }
+
+        const queued = this.sessionPendingQueues.get(task.sessionId);
+        if (!queued || queued.length === 0) {
+            return;
+        }
+
+        const [next, ...rest] = queued;
+        if (!next) {
+            return;
+        }
+        // 交接期间保留队列本身（哪怕为空）作为“下一轮正在启动”的标记，
+        // 这样用户在启动窗口里的提交仍会落进同一条队列，而不是被当成新任务。
+        this.sessionPendingQueues.set(task.sessionId, rest);
+
+        try {
+            await this.startTask({
+                prompt: next.prompt,
+                userMessageId: next.id,
+                sessionId: task.sessionId,
+                modelId: next.modelId ?? task.snapshot.currentModel?.modelId,
+                providerId: next.providerId ?? task.snapshot.currentModel?.providerId,
+                attachments: next.attachments,
+                inputSnapshot: next.inputSnapshot,
+                executionMode: task.snapshot.executionMode,
+            });
+            // 新任务已接管队列，旧任务不必再挂着同一批待发消息。
+            task.snapshot.pendingUserMessages = [];
+            this.notifySubscribers(taskId);
+        } catch (error) {
+            this.sessionPendingQueues.set(
+                task.sessionId,
+                mergePendingUserMessages(
+                    queued,
+                    this.sessionPendingQueues.get(task.sessionId) ?? []
+                )
+            );
+            this.notifySubscribers(taskId);
+            log.error('[SessionTaskCenter] Failed to deliver queued user messages:', error);
+        }
+    }
+
+    private takeSessionQueuedMessages(sessionId: number): PendingUserMessage[] {
+        const queued = this.sessionPendingQueues.get(sessionId);
+        if (!queued) {
+            return [];
+        }
+        this.sessionPendingQueues.delete(sessionId);
+        return queued;
     }
 
     /** 确保指定会话没有正在运行的任务，否则抛出 SESSION_ACTIVE_TASK_EXISTS 错误。 */
@@ -713,7 +969,35 @@ export class SessionTaskCenter {
             event.type === 'task_cancelled'
         ) {
             task.projection.syncInteractionRelease(task.interactions.cancelAll(), tt('请求已取消'));
+            if (event.type === 'task_completed') {
+                // 运行结束前没等到工具边界的插队消息，降级为下一轮排队。
+                task.snapshot.pendingUserMessages = task.snapshot.pendingUserMessages.map(
+                    (message) => ({
+                        ...message,
+                        delivery: 'queue',
+                    })
+                );
+                if (task.sessionId !== null && task.snapshot.pendingUserMessages.length > 0) {
+                    this.sessionPendingQueues.set(
+                        task.sessionId,
+                        cloneTaskValue(
+                            mergePendingUserMessages(
+                                this.sessionPendingQueues.get(task.sessionId) ?? [],
+                                task.snapshot.pendingUserMessages
+                            )
+                        )
+                    );
+                }
+            } else {
+                task.snapshot.pendingUserMessages = [];
+                if (task.sessionId !== null) {
+                    this.sessionPendingQueues.delete(task.sessionId);
+                }
+            }
             this.finalizeTaskLifecycle(taskId);
+            if (event.type === 'task_completed' && task.snapshot.pendingUserMessages.length > 0) {
+                this.scheduleQueuedTaskStart(taskId);
+            }
         }
     }
 

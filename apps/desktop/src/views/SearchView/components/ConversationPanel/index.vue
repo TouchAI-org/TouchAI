@@ -71,9 +71,9 @@
             <!-- virtua binds scrollRef on mount; wait for the actual scrolling viewport. -->
             <Virtualizer
                 v-if="virtualizeMessages && scrollViewport"
-                :key="messages[0]?.id"
+                :key="displayMessages[0]?.id"
                 ref="messageVirtualizer"
-                :data="messages"
+                :data="displayMessages"
                 :scroll-ref="scrollViewport"
                 :buffer-size="Math.max(200, viewportHeight)"
                 :keep-mounted="navigationMountedIndexes"
@@ -124,6 +124,7 @@
         type MessageScrollerState,
     } from '@/components/ui/message-scroller';
     import { t, tt } from '@/i18n';
+    import type { PendingUserMessage } from '@/services/AgentService/task/types';
     import { useSettingsStore } from '@/stores/settings';
     import type { ContextCompactionMessagePart, SessionMessage } from '@/types/session';
 
@@ -134,6 +135,7 @@
         resolveDesiredOffset,
         resolveNavigationCorrection,
     } from './navigationAnchor';
+    import { toPendingSessionMessage } from './pendingMessages';
 
     defineOptions({
         name: 'SearchConversationPanel',
@@ -141,6 +143,7 @@
 
     interface Props {
         messages: SessionMessage[];
+        pendingMessages?: PendingUserMessage[];
         isLoading: boolean;
         error: Error | null;
         isPinned: boolean;
@@ -151,6 +154,7 @@
     }
 
     const props = withDefaults(defineProps<Props>(), {
+        pendingMessages: () => [],
         toolbarDisabled: false,
         isMaximized: false,
     });
@@ -173,13 +177,23 @@
     const scrollViewport = ref<HTMLElement | null>(null);
     const viewportHeight = ref(0);
     provide(MARKDOWN_SCROLL_ROOT_KEY, () => scrollViewport.value);
-    const virtualizeMessages = computed(() => props.messages.length >= 12);
+    const virtualizeMessages = computed(() => displayMessages.value.length >= 12);
+    const displayMessages = computed<SessionMessage[]>(() => {
+        if (!props.pendingMessages?.length) {
+            return props.messages;
+        }
+
+        return [
+            ...props.messages,
+            ...props.pendingMessages.map((message) => toPendingSessionMessage(message)),
+        ];
+    });
     const messagesWithoutVirtualization = computed(() =>
-        virtualizeMessages.value ? [] : props.messages
+        virtualizeMessages.value ? [] : displayMessages.value
     );
     const navigationTarget = ref<NavigationTarget | null>(null);
     const navigationMountedIndexes = computed(() => {
-        const index = props.messages.findIndex(
+        const index = displayMessages.value.findIndex(
             (message) => message.id === navigationTarget.value?.id
         );
         return index < 0 ? [] : [index];
@@ -200,7 +214,7 @@
         let announcedCompaction: { messageId: string; id: string } | undefined;
         watch(
             () => {
-                const message = props.messages[props.messages.length - 1];
+                const message = displayMessages.value[displayMessages.value.length - 1];
                 let compaction: ContextCompactionMessagePart | undefined;
                 if (message) {
                     for (let index = message.parts.length - 1; index >= 0; index--) {
@@ -252,7 +266,7 @@
         let currentTurn: MessageScrollerItem | undefined;
         let currentTurnHasAssistant = false;
 
-        for (const message of props.messages) {
+        for (const message of displayMessages.value) {
             if (message.role === 'user') {
                 currentTurn = {
                     id: message.id,
@@ -284,7 +298,7 @@
     const turnIndexes = computed(() => {
         const turns = new Map<string, { first: number; last: number }>();
         let turn: { first: number; last: number } | undefined;
-        props.messages.forEach((message, index) => {
+        displayMessages.value.forEach((message, index) => {
             if (message.role === 'user') {
                 turn = { first: index, last: index };
                 turns.set(message.id, turn);
@@ -362,7 +376,10 @@
         messageId: string,
         options: MessageScrollerScrollOptions = {}
     ): boolean {
-        if (!messageVirtualizer.value || !props.messages.some(({ id }) => id === messageId)) {
+        if (
+            !messageVirtualizer.value ||
+            !displayMessages.value.some(({ id }) => id === messageId)
+        ) {
             return false;
         }
         conversationScroller.value?.setFollowing(false);
@@ -442,10 +459,10 @@
         showScrollToBottom.value = false;
     }
 
-    watch(() => props.messages[0]?.id, cancelNavigation);
+    watch(() => displayMessages.value[0]?.id, cancelNavigation);
 
     watch(
-        () => props.messages.length,
+        () => displayMessages.value.length,
         async (newLength, oldLength) => {
             if (newLength === 0 && oldLength > 0) {
                 showScrollToBottom.value = false;
@@ -456,7 +473,7 @@
 
             if (newLength <= oldLength) return;
 
-            const appendedMessages = props.messages.slice(oldLength, newLength);
+            const appendedMessages = displayMessages.value.slice(oldLength, newLength);
             const latestAppendedUserMessage = [...appendedMessages]
                 .reverse()
                 .find((message) => message.role === 'user');

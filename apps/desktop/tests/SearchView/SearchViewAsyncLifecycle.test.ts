@@ -309,7 +309,6 @@ vi.mock('@/views/SearchView/composables/useSearchRequest', async () => {
         useSearchRequestFlow: () => {
             const result = {
                 pendingRequest: ref(null),
-                isWaitingForCompletion: ref(false),
                 isLoading: ref(false),
                 error: ref(null),
                 currentSessionId: ref<number | null>(null),

@@ -101,6 +101,7 @@ export function cloneTaskViewSnapshot(
             snapshot.sessionHistory,
             previous?.sessionHistory ?? []
         ),
+        pendingUserMessages: cloneTaskValue(snapshot.pendingUserMessages),
         pendingToolApproval: cloneTaskValue(snapshot.pendingToolApproval),
         pendingApprovals: cloneTaskValue(snapshot.pendingApprovals),
         pendingUserQuestion: cloneTaskValue(snapshot.pendingUserQuestion),
