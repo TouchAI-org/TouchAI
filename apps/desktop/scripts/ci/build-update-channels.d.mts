@@ -5,6 +5,7 @@ export type BuildUpdateChannelsLatest = {
     publishedAt: string | null;
     prerelease: boolean;
     releaseNotes?: string | null;
+    releaseNotesByLocale?: Record<string, string>;
     downloads?: Array<{
         kind: 'installer' | 'fullPackage' | 'deltaPackage' | 'updatePackage' | 'asset';
         name: string;
@@ -23,6 +24,8 @@ export type BuildUpdateChannelsOptions = {
         prerelease: boolean;
         releaseNotes?: string | null;
         releaseNotesFile?: string | null;
+        releaseNotesByLocale?: Record<string, string>;
+        releaseNotesByLocaleFile?: string | null;
         releaseDir?: string | null;
         downloads?: BuildUpdateChannelsLatest['downloads'];
     } | null;

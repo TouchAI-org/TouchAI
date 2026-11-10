@@ -338,6 +338,30 @@ function validateChannelVersion(channel, parsedVersion) {
     }
 }
 
+export function previousReleaseTag(releases, channel, version) {
+    const target = parseSemver(version);
+    validateChannelVersion(normalizeChannel(channel), target);
+    const candidates = releases.flatMap((release) => {
+        if (release.draft || !release.tag_name?.startsWith('v')) {
+            return [];
+        }
+        try {
+            const parsed = versionFromTag(release.tag_name);
+            return compareSemverVersions(parsed, target) < 0
+                ? [{ ...parsed, channel: channelFromTagVersion(parsed), tag: release.tag_name }]
+                : [];
+        } catch {
+            return [];
+        }
+    });
+    const previous = (selectedChannel) =>
+        candidates
+            .filter((candidate) => candidate.channel === selectedChannel)
+            .sort(compareSemverVersions)
+            .at(-1)?.tag;
+    return previous(channel) ?? (channel !== 'stable' ? previous('stable') : null) ?? null;
+}
+
 function productDisplayName(productConfig) {
     const displayName = normalizeOptionalString(productConfig?.displayName);
     if (!displayName) {

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { versionFromAssetName } from '../update-release-assets.mjs';
+import { normalizeLocalizedReleaseNotes } from './release-notes.mjs';
 
 const REQUIRED_SEVERITIES = ['critical', 'security', 'recommended'];
 const DOWNLOAD_KINDS = ['installer', 'fullPackage', 'deltaPackage', 'updatePackage', 'asset'];
@@ -156,6 +157,9 @@ function normalizeLatestRelease(value, channel) {
             value.releaseNotes ?? null,
             `${channel}.Latest.releaseNotes`
         ),
+        ...(value.releaseNotesByLocale
+            ? { releaseNotesByLocale: normalizeLocalizedReleaseNotes(value.releaseNotesByLocale) }
+            : {}),
         downloads: normalizeDownloads(value.downloads, channel),
     };
 }
@@ -387,6 +391,13 @@ function latestByChannelFromRelease(product, release, fallbackPublishedAt) {
                 release.releaseNotes ?? null,
                 `${channel}.Latest.releaseNotes`
             ),
+            ...(release.releaseNotesByLocale
+                ? {
+                      releaseNotesByLocale: normalizeLocalizedReleaseNotes(
+                          release.releaseNotesByLocale
+                      ),
+                  }
+                : {}),
             downloads: mergeDownloads(release.downloads),
         },
     };
@@ -471,6 +482,11 @@ export async function buildUpdateChannels(projectRoot, outputRoot, now = new Dat
                   options.release.releaseNotes ??
                   (options.release.releaseNotesFile
                       ? await readFile(options.release.releaseNotesFile, 'utf8')
+                      : null),
+              releaseNotesByLocale:
+                  options.release.releaseNotesByLocale ??
+                  (options.release.releaseNotesByLocaleFile
+                      ? JSON.parse(await readFile(options.release.releaseNotesByLocaleFile, 'utf8'))
                       : null),
               downloads: mergeDownloads(
                   await releaseDownloadsFromDirectory(
@@ -563,6 +579,7 @@ function parseCliOptions(argv) {
             prerelease: booleanArg(options.prerelease, '--prerelease'),
             publishedAt: options['published-at'] ?? null,
             releaseNotesFile: options['release-notes-file'] ?? null,
+            releaseNotesByLocaleFile: options['release-notes-by-locale-file'] ?? null,
             releaseDir: options['release-dir'] ?? null,
         };
     }
