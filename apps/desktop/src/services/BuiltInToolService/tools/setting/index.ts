@@ -1,11 +1,10 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { log } from '@services/ObservabilityService';
+import { describeRejection } from '@services/SettingsService/messages';
 
 import { t, tt } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
-import { unconfirmedMessage } from '@/services/SettingsService/messages';
-import { SettingsErrorCode } from '@/services/SettingsService/types';
 import { truncateText } from '@/utils/text';
 
 import {
@@ -135,35 +134,23 @@ export async function executeSettingTool(
         };
     }
 
+    let errorMessage = tt('设置修改失败。');
     let rejectionMessage: string | null = null;
     try {
         if (context.signal?.aborted) return cancelledSettingResult();
         const result = await settingsService.mutate(request.key, request.value);
         if (result.status === 'committed') {
-            const warningNote = result.warning ? `\n${tt('注意')}：${result.warning}` : '';
             return {
-                result:
-                    [tt('设置已更新'), formatSingleUpdate(request.key, request.value)].join('\n') +
-                    warningNote,
+                result: [tt('设置已更新'), formatSingleUpdate(request.key, request.value)].join(
+                    '\n'
+                ),
                 isError: false,
                 status: 'success',
             };
         }
-        if (result.status === 'unknown' || result.status === 'recovery-required') {
-            const message = unconfirmedMessage();
-            return {
-                result: [formatSingleUpdate(request.key, request.value), message].join('\n'),
-                isError: true,
-                status: 'error',
-                errorMessage: message,
-            };
-        }
-        if (
-            result.status === 'rejected' &&
-            (result.code === SettingsErrorCode.Rejected ||
-                result.code === SettingsErrorCode.NativeFailed)
-        ) {
-            rejectionMessage = result.message;
+        if (result.status === 'rejected' && result.rejection) {
+            rejectionMessage = describeRejection(result.rejection);
+            errorMessage = rejectionMessage;
         }
     } catch (error) {
         log.warn('[SettingTool] Failed to update setting:', error);
@@ -177,7 +164,7 @@ export async function executeSettingTool(
         result: resultLines.join('\n'),
         isError: true,
         status: 'error',
-        errorMessage: rejectionMessage ?? tt('设置修改失败。'),
+        errorMessage,
     };
 }
 

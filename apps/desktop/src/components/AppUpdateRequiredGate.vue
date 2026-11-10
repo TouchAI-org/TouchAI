@@ -119,8 +119,8 @@
             : t('settings.update.action.downloadPage');
     });
     const errorDetailText = computed(() => {
-        const error = updateState.value.error?.trim();
-        return error ? t('settings.update.errorDetail', { error }) : '';
+        const hasFailure = Boolean(updateState.value.error?.trim());
+        return hasFailure ? t('settings.update.failure') : '';
     });
 
     onMounted(async () => {

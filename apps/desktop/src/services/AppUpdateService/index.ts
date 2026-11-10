@@ -107,7 +107,10 @@ const defaultAppUpdateAnalytics: AppUpdateAnalytics = {
 };
 
 function toErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
+    // The controller state can be consumed by UI code. Keep native updater
+    // diagnostics in the log boundary and expose only stable copy here.
+    log.error('[AppUpdateService] Update action failed:', error);
+    return t('settings.update.failure');
 }
 
 function mapUpdateSource(source: AppUpdateCheckSource): UpdateSource {

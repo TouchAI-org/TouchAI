@@ -15,6 +15,7 @@ import type { AttachmentIndex } from '@/services/AgentService/infrastructure/att
 import { createAttachment } from '@/services/AgentService/infrastructure/attachments';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
+import { ToolUserFacingError } from '../../errors';
 import type { BaseBuiltInToolExecutionContext, BuiltInToolConversationSemantic } from '../../types';
 import { parseToolArguments, z } from '../../utils/toolSchema';
 import {
@@ -206,7 +207,7 @@ async function readTextWindow(
 
     for await (const originalLine of iterator) {
         if (signal?.aborted) {
-            throw new Error(t('common.requestCancelled'));
+            throw new ToolUserFacingError(t('common.requestCancelled'));
         }
 
         count += 1;
@@ -239,7 +240,7 @@ function formatTextReadResult(
     window: Awaited<ReturnType<typeof readTextWindow>>
 ): string {
     if (window.count < window.offset && !(window.count === 0 && window.offset === 1)) {
-        throw new Error(
+        throw new ToolUserFacingError(
             t('builtInTools.read.offsetOutOfRange', {
                 offset: window.offset,
                 total: window.count,
@@ -358,8 +359,9 @@ export async function executeReadFile(
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         if (errorMessage.toLowerCase().includes('not found')) {
-            const missingPathError = new Error(await createMissingPathMessage(path));
-            (missingPathError as Error & { cause?: unknown }).cause = error;
+            const missingPathError = new ToolUserFacingError(await createMissingPathMessage(path), {
+                cause: error,
+            });
             throw missingPathError;
         }
 
@@ -383,7 +385,7 @@ export async function executeReadFile(
 
     const isBinary = await sniffBinaryFile(path, info.size);
     if (isBinary) {
-        throw new Error(t('builtInTools.read.binaryUnsupported', { path }));
+        throw new ToolUserFacingError(t('builtInTools.read.binaryUnsupported', { path }));
     }
 
     return {

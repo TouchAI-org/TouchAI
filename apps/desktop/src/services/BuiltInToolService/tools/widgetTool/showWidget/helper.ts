@@ -7,6 +7,7 @@ import type {
 } from '@/services/AgentService/contracts/tooling';
 import { normalizeString } from '@/utils/text';
 
+import { ToolUserFacingError } from '../../../errors';
 import type { BaseBuiltInToolExecutionContext } from '../../../types';
 import { parseToolArguments } from '../../../utils/toolSchema';
 import { MAX_WIDGET_HTML_CHARS, SHOW_WIDGET_TOOL_NAME, showWidgetRawArgsSchema } from './constants';
@@ -69,20 +70,20 @@ export function parseShowWidgetArgs(
     const html = parsedArgs.widget_code || parsedArgs.html || '';
 
     if (!widgetId) {
-        throw new Error(
+        throw new ToolUserFacingError(
             'ShowWidget requires a non-empty "widgetId" when removing an existing widget.'
         );
     }
 
     if (mode === 'render') {
         if (!html.trim()) {
-            throw new Error(
+            throw new ToolUserFacingError(
                 'ShowWidget requires a non-empty "widget_code" string when mode is "render".'
             );
         }
 
         if (html.length > MAX_WIDGET_HTML_CHARS) {
-            throw new Error(
+            throw new ToolUserFacingError(
                 `ShowWidget HTML is too large (${html.length} chars). Keep it within ${MAX_WIDGET_HTML_CHARS} chars.`
             );
         }

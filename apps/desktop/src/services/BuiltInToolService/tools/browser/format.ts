@@ -1,7 +1,7 @@
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
 import { truncateText } from '@/utils/text';
 
-import { formatRedactedJson, redactBrowserValue, redactUrl } from './redaction';
+import { formatRedactedJson, redactUrl } from './redaction';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -131,9 +131,4 @@ export function formatBrowserToolResult(
     return {
         result: truncateText(result, 20000),
     };
-}
-
-export function formatBrowserToolError(error: unknown): string {
-    const message = error instanceof Error ? error.message : String(error);
-    return String(redactBrowserValue(message));
 }

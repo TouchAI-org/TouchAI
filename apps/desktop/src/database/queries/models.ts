@@ -96,14 +96,9 @@ export const setDefaultModel = async ({ modelId }: { modelId: number }): Promise
             throw Object.assign(new Error(tt('模型不存在')), { cause: error });
         }
         if (code === 'provider-disabled') {
-            throw Object.assign(
-                new Error(
-                    tt('无法设置默认模型：服务商 "{provider}" 未启用', {
-                        provider: error instanceof Error ? error.message : '',
-                    })
-                ),
-                { cause: error }
-            );
+            throw Object.assign(new Error(tt('无法设置默认模型：服务商未启用')), {
+                cause: error,
+            });
         }
         throw error;
     }

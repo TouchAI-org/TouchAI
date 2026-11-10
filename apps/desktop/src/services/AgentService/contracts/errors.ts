@@ -110,8 +110,10 @@ function isTransportNetworkErrorMessage(message: string): boolean {
     );
 }
 
-function getDisplayMessageForText(message: string): string {
-    const source = Object.values(ERROR_MESSAGES).find((candidate) => candidate === message);
+function getKnownDisplayMessageForText(message: string): string | null {
+    const source = Object.values(ERROR_MESSAGES).find(
+        (candidate) => candidate === message || tt(candidate) === message
+    );
     if (source) {
         return tt(source);
     }
@@ -120,7 +122,18 @@ function getDisplayMessageForText(message: string): string {
         return tt(ERROR_MESSAGES[AiErrorCode.UNSUPPORTED_INPUT]);
     }
 
-    return message;
+    return null;
+}
+
+function getDisplayMessageForText(message: string): string {
+    const known = getKnownDisplayMessageForText(message);
+    if (known) {
+        return known;
+    }
+
+    // Raw provider, transport, database and persistence details stay in the diagnostic
+    // message/cause. A user-facing projection never echoes an unclassified failure string.
+    return tt(ERROR_MESSAGES[AiErrorCode.UNKNOWN]);
 }
 
 /**
@@ -130,7 +143,6 @@ export class AiError extends Error {
     public readonly code: AiErrorCode;
     public readonly details?: unknown;
     public readonly cause?: unknown;
-    private readonly usesDefaultMessage: boolean;
 
     constructor(
         code: AiErrorCode,
@@ -146,7 +158,6 @@ export class AiError extends Error {
         this.code = code;
         this.details = details;
         this.cause = options.cause;
-        this.usesDefaultMessage = usesDefaultMessage;
 
         // 保持正确的原型链
         Object.setPrototypeOf(this, AiError.prototype);
@@ -160,7 +171,9 @@ export class AiError extends Error {
     }
 
     /**
-     * Localize known default AiError messages after they have crossed a string-only boundary.
+     * Normalize an error string that crossed a persistence or IPC boundary. Known
+     * app-owned texts are localized; unclassified provider/database/transport text
+     * becomes the generic unknown-error copy instead of leaking into the UI.
      */
     static getKnownDefaultDisplayMessage(message: string): string {
         return getDisplayMessageForText(message);
@@ -169,15 +182,11 @@ export class AiError extends Error {
     /**
      * 获取适合 UI 展示的本地化消息。
      *
-     * 只有应用生成的默认错误文案会被本地化；provider/API 返回的自定义消息保持原样，
-     * 避免破坏远端 payload 的诊断价值。
+     * 只有应用生成、可识别的错误文案会显示。provider/API/database 原始消息仍保留在
+     * message/cause 供日志诊断，但不会回显到用户界面。
      */
     getDisplayMessage(): string {
-        if (this.usesDefaultMessage) {
-            return tt(ERROR_MESSAGES[this.code]);
-        }
-
-        return getDisplayMessageForText(this.message);
+        return getKnownDisplayMessageForText(this.message) ?? tt(ERROR_MESSAGES[this.code]);
     }
 
     /**

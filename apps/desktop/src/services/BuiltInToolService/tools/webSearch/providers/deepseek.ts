@@ -1,5 +1,6 @@
 import { normalizeOptionalString } from '@/utils/text';
 
+import { ToolUserFacingError } from '../../../errors';
 import type { WebSearchRequest, WebSearchResult } from '../helper';
 import { recencyStartDate, resultLimit } from './common';
 import { createSearchProviderAdapter } from './define';
@@ -280,8 +281,9 @@ export function describeDeepSeekFailure(error: unknown): Error {
     if (error instanceof WebSearchHttpError) {
         const hint = DEEPSEEK_FAILURE_HINTS[error.status];
         if (hint) {
-            return new Error(`${hint} (${error.message})`);
+            return new ToolUserFacingError(`${hint} (${error.message})`, { cause: error });
         }
+        return error;
     }
     return error instanceof Error ? error : new Error(String(error));
 }
@@ -293,7 +295,9 @@ export const deepSeekSearchAdapter = createSearchProviderAdapter({
         const config = settings.providers.deepseek;
         const apiKey = config.apiKey.trim();
         if (!apiKey) {
-            throw new Error('DeepSeek search needs an API key. Enter one in Search settings.');
+            throw new ToolUserFacingError(
+                'DeepSeek search needs an API key. Enter one in Search settings.'
+            );
         }
 
         const url = new URL(buildDeepSeekToolsUrl(config.endpoint));

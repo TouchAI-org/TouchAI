@@ -3,6 +3,7 @@
 import { computed, onUnmounted, ref } from 'vue';
 
 import { sessionTaskCenter, type SessionTaskViewSnapshot } from '@/services/AgentService';
+import { AiError } from '@/services/AgentService/contracts/errors';
 import type { SessionMessage } from '@/types/session';
 
 export interface UseAgentStateOptions {
@@ -105,7 +106,9 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
         currentModel.value = snapshot.currentModel;
         isLoading.value = snapshot.status === 'running' || snapshot.status === 'waiting_approval';
         error.value =
-            snapshot.status === 'failed' && snapshot.error ? new Error(snapshot.error) : null;
+            snapshot.status === 'failed' && snapshot.error
+                ? new Error(AiError.getDisplayMessage(snapshot.error))
+                : null;
 
         const buffers = extractLatestAssistantBuffers(snapshot.sessionHistory);
         response.value = buffers.response;
@@ -182,7 +185,9 @@ export function useAgentState(options: UseAgentStateOptions = {}) {
             });
         } catch (rawError) {
             detachTaskView();
-            error.value = rawError instanceof Error ? rawError : new Error(String(rawError));
+            // A task lookup/subscription failure is diagnostic. The page-level error
+            // state is presentation and must not expose task ids or runtime details.
+            error.value = new Error(AiError.getDisplayMessage(rawError));
         }
     }
 

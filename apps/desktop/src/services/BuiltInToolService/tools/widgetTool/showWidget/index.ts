@@ -4,6 +4,7 @@ import { tt } from '@/i18n';
 import type { ShowWidgetEventPayload } from '@/services/AgentService/contracts/tooling';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
+import { ToolUserFacingError } from '../../../errors';
 import {
     type BaseBuiltInToolExecutionContext,
     BuiltInTool,
@@ -46,11 +47,13 @@ function validateShowWidgetMarkup(html: string): void {
     rootTemplate.innerHTML = html;
     const firstElement = rootTemplate.content.firstElementChild;
     if (!firstElement) {
-        throw new Error('ShowWidget widget_code must contain a visible root element.');
+        throw new ToolUserFacingError(
+            'ShowWidget widget_code must contain a visible root element.'
+        );
     }
 
     if (NON_VISIBLE_ROOT_TAG_NAMES.has(firstElement.tagName.toUpperCase())) {
-        throw new Error(
+        throw new ToolUserFacingError(
             'ShowWidget widget_code must start with a visible root element before style or script blocks.'
         );
     }
@@ -77,7 +80,7 @@ function validateShowWidgetMarkup(html: string): void {
     }
 
     if (violations.size > 0) {
-        throw new Error(
+        throw new ToolUserFacingError(
             [
                 'ShowWidget design validation failed. Review the built-in widget skill and regenerate the widget_code.',
                 ...[...violations].map((reason) => `- ${reason}`),

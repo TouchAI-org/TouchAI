@@ -1,5 +1,8 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { tt } from '@/i18n';
+
+import { resolveToolFailure } from '../../errors';
 import {
     type BaseBuiltInToolExecutionContext,
     BuiltInTool,
@@ -25,12 +28,15 @@ export async function executeReadTool(
             status: 'success',
         };
     } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const failure = resolveToolFailure(error, {
+            toolId: 'read',
+            fallbackMessage: tt('工具执行失败'),
+        });
         return {
-            result: errorMessage,
+            result: failure.message,
             isError: true,
-            status: 'error',
-            errorMessage,
+            status: failure.status,
+            errorMessage: failure.message,
         };
     }
 }

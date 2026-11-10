@@ -18,10 +18,6 @@ export function useMcpConnection(serverId: Ref<number>) {
     const status = computed(() =>
         serverId.value === -1 ? 'disconnected' : mcpStore.getServerStatus(serverId.value)
     );
-    const lastError = computed(() =>
-        serverId.value === -1 ? null : mcpStore.getServerError(serverId.value)
-    );
-
     const isConnecting = ref(false);
     const isDisconnecting = ref(false);
     const isReconnecting = ref(false);
@@ -67,9 +63,11 @@ export function useMcpConnection(serverId: Ref<number>) {
                         unwatch();
                         activeUnwatchers.delete(unwatch);
                         isConnecting.value = false;
+                        // The backend diagnosis stays in the store/log for support; the
+                        // settings surface only tells the user the attempt failed.
                         resolve({
                             success: false,
-                            error: lastError.value || t('settings.mcp.connection.connectFailed'),
+                            error: t('settings.mcp.connection.connectFailed'),
                         });
                     }
                 });
@@ -78,10 +76,7 @@ export function useMcpConnection(serverId: Ref<number>) {
         } catch (error) {
             isConnecting.value = false;
             log.error('Failed to connect:', error);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : String(error),
-            };
+            return { success: false, error: t('settings.mcp.connection.connectFailed') };
         }
     };
 
@@ -117,10 +112,7 @@ export function useMcpConnection(serverId: Ref<number>) {
         } catch (error) {
             isDisconnecting.value = false;
             log.error('Failed to disconnect:', error);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : String(error),
-            };
+            return { success: false, error: t('settings.mcp.messages.disconnectError') };
         }
     };
 
@@ -135,9 +127,7 @@ export function useMcpConnection(serverId: Ref<number>) {
             if (!disconnectResult.success) {
                 return {
                     success: false,
-                    error: t('settings.mcp.connection.disconnectFailedWithError', {
-                        error: disconnectResult.error ?? '',
-                    }),
+                    error: t('settings.mcp.messages.disconnectError'),
                 };
             }
 
@@ -149,19 +139,14 @@ export function useMcpConnection(serverId: Ref<number>) {
             if (!connectResult.success) {
                 return {
                     success: false,
-                    error: t('settings.mcp.connection.reconnectFailedWithError', {
-                        error: connectResult.error ?? '',
-                    }),
+                    error: t('settings.mcp.messages.reconnectError'),
                 };
             }
 
             return { success: true };
         } catch (error) {
             log.error('Failed to reconnect:', error);
-            return {
-                success: false,
-                error: error instanceof Error ? error.message : String(error),
-            };
+            return { success: false, error: t('settings.mcp.messages.reconnectError') };
         } finally {
             isReconnecting.value = false;
         }

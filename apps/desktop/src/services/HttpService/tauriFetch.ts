@@ -37,6 +37,10 @@ function wrapBodyStream(body: ReadableStream<Uint8Array>): ReadableStream<Uint8A
                     return;
                 }
                 settled = true;
+                // A failed read leaves the native response body open unless the reader is
+                // cancelled. The plugin also cancels in its own read failure path, but keep
+                // this wrapper independent of that implementation detail.
+                void reader.cancel().catch(() => undefined);
                 releaseReader();
                 controller.error(error);
                 return;
