@@ -149,8 +149,8 @@ export interface AiRequestOptions {
     model: string;
     providerId?: number;
     messages: AiMessage[];
-    /** Local context-budget calibration identity; never sent to a provider. */
-    contextCalibrationKey?: string;
+    /** Opaque conversation routing hint; never contains prompt content. */
+    promptCacheKey?: string;
     /** Total output budget, including reasoning. */
     maxOutputTokens?: number;
     toolChoice?: 'auto' | 'none';

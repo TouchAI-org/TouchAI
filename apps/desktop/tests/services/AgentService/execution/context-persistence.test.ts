@@ -104,7 +104,7 @@ async function request(): Promise<AiRequestOptions> {
     return {
         model: model.model_id,
         providerId: 1,
-        contextCalibrationKey: crypto.randomUUID(),
+        promptCacheKey: crypto.randomUUID(),
         messages: [
             system,
             ...(await loadSessionTransportMessages({

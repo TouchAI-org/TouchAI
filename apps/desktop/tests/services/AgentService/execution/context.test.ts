@@ -23,7 +23,7 @@ function request(messages = history()): AiRequestOptions {
     return {
         model: 'test-model',
         providerId: 1,
-        contextCalibrationKey: 'session-a',
+        promptCacheKey: 'session-a',
         messages: messages.map((message) =>
             message.contextSummary || message.contextSource
                 ? message
@@ -220,7 +220,7 @@ describe('given a conversation with a known context budget', () => {
         for (const call of sent) {
             expect(call.messages[0]).toEqual(input.messages[0]);
             expect(call.toolChoice).toBe('none');
-            expect(call.contextCalibrationKey).toBe(input.contextCalibrationKey);
+            expect(call.promptCacheKey).toBe(input.promptCacheKey);
         }
     });
 

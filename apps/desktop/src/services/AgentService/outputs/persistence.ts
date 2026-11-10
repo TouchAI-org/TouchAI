@@ -79,7 +79,7 @@ import {
 } from '../contracts/protocol';
 import type { AiToolCall } from '../contracts/tooling';
 import type { AttemptCheckpoint } from '../execution/executor';
-import { canonicalJson } from '../infrastructure/providers/ai-sdk/contextOptions';
+import { canonicalJson } from '../infrastructure/providers/ai-sdk/cache';
 import type { PromptSnapshot } from '../prompt/types';
 import type { TaskExecutionMode } from '../task/types';
 

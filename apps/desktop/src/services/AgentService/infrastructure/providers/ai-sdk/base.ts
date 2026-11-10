@@ -27,7 +27,7 @@ import type {
     ProviderConfigJson,
 } from '../types';
 import type { ProviderAttachmentRequestContext } from './attachments';
-import { prepareContextOptions } from './contextOptions';
+import { prepareCacheOptions } from './cache';
 import { buildModelMessages, buildToolSet } from './messages';
 import { normalizeResponsesReasoningStream } from './responsesStream';
 import { createAiSdkStreamProcessor } from './stream';
@@ -280,10 +280,11 @@ export abstract class AiSdkProviderBase implements AiProvider {
         await options.onAttachmentManifestResolved?.(manifestRequest);
         const result = streamText({
             model: this.createLanguageModel(options.model),
-            messages,
-            tools: buildToolSet(options.tools, options.modelLanguageContext),
-            ...prepareContextOptions({
-                maxOutputTokens: options.maxOutputTokens,
+            ...prepareCacheOptions({
+                driver: this.driver,
+                request: options,
+                messages,
+                tools: buildToolSet(options.tools, options.modelLanguageContext),
                 providerOptions: this.getStreamProviderOptions(options),
             }),
             toolChoice: options.toolChoice,
