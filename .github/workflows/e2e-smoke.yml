@@ -417,7 +417,7 @@ jobs:
 
             - name: Upload lifecycle release evidence
               if: always() && env.TOUCHAI_LIFECYCLE_REPORTS != ''
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
               with:
                   name: lifecycle-release-performance
                   path: ${{ env.TOUCHAI_LIFECYCLE_REPORTS }}

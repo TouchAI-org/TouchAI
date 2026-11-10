@@ -159,6 +159,7 @@ async function measureFlow(kind) {
 
 describe('user completes native lifecycle interactions within the release performance budget', () => {
     before(async () => {
+        await browser.setTimeout({ script: 120000 });
         await waitForE2eBridge();
         await useInterfaceLanguage();
         await useProductFont();
@@ -168,6 +169,7 @@ describe('user completes native lifecycle interactions within the release perfor
         await useSearchFixture(SEARCH_FIXTURE_QUERY, SEARCH_FIXTURE_RESULTS);
         await callE2eBridge('setSearchQuery', SEARCH_FIXTURE_QUERY);
         await waitForTestIdDisplayed('quick-search-panel');
+        await $('[data-testid="quick-search-panel"] button').waitForDisplayed();
         report.cases.menu = await measureFlow('menu');
     });
 
