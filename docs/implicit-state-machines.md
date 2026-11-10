@@ -135,9 +135,10 @@ characterization tests; defects need red-then-green regression evidence.
 
 The maintainer requested completion of every suitable candidate without opening
 issues. Every inventory row now has an implemented or code-grounded retained
-decision, not a future-task label. Full validation of the expanded patch is still
-in progress. Existing data shapes, native authority and security scopes remain
-unchanged.
+decision, not a future-task label. The current-head testing evidence and required
+checks in [PR #774](https://github.com/TouchAI-org/TouchAI/pull/774) record full
+acceptance separately from implementation. Existing data shapes, native authority
+and security scopes remain unchanged.
 
 1. Given concurrent settings initialization, when registration completes, then
    callers share one subscription and disposal releases it.
@@ -259,7 +260,7 @@ PR's passing checks:
 - Fresh production, desktop-test and CI-tooling type checks passed. The motion
   regression now initializes the real store through its database boundary rather
   than assigning a derived readiness flag.
-- Full local frontend coverage is running with canonical Windows `TEMP`/`TMP`,
+- The expanded full local frontend coverage run uses canonical Windows `TEMP`/`TMP`,
   avoiding the previously reproduced short-path mismatch without changing the
   coverage mapper. The local full CI-tooling run had **331 passed / 40 failed**;
   failures included subprocess/test timeouts and temporary-file locking while
@@ -267,8 +268,9 @@ PR's passing checks:
 - The new native-report comparison tests avoid per-case Node startup and test
   the public report API: **5/5 passed** in 1.28 seconds of test execution. CI
   still invokes the real CLI/native harness; no timeout or budget changed.
-- Expanded-head CI, native E2E, visual checks and release performance remain
-  pending. Old-head `c1367abc` checks are historical evidence only.
+- Expanded-head CI, native E2E, visual checks and release performance results
+  are recorded in the PR's testing evidence and linked check reports. Old-head
+  `c1367abc` checks are historical evidence only, not acceptance of later code.
 
 ## Performance and release gate
 
@@ -303,5 +305,5 @@ is used. These are existing flows, not new-flow cold-start claims. Each session
 uses isolated test data and releases only its benchmark process tree afterward.
 
 Neither the benchmark's comparison-unit tests nor an installed harness count as
-native performance evidence. The release gate remains pending until that job
-actually runs and its report passes.
+native performance evidence. Acceptance requires that job to actually run and
+its report to pass; the PR records the tested commit and actual measurements.
