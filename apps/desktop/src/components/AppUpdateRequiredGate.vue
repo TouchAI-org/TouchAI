@@ -12,8 +12,9 @@
     import { computed, onMounted, onUnmounted, ref } from 'vue';
 
     import { APP_PRODUCT_CONFIG } from '@/config/product';
-    import { t } from '@/i18n';
+    import { getLocale, t } from '@/i18n';
     import { preferredAppUpdateDownload } from '@/services/AppUpdateService/downloads';
+    import { appUpdateReleaseNotes } from '@/services/AppUpdateService/releaseNotes';
 
     defineOptions({
         name: 'AppUpdateRequiredGate',
@@ -38,9 +39,7 @@
             (requirement.value?.targetSatisfiesRequirement ?? false)
     );
     const canInstall = computed(() => Boolean(getInstallableAppUpdate(updateState.value)));
-    const releaseNotes = computed(
-        () => visibleUpdate.value?.notes?.trim() || latestUpdate.value?.releaseNotes?.trim() || ''
-    );
+    const releaseNotes = computed(() => appUpdateReleaseNotes(updateState.value, getLocale()));
     const directDownload = computed(() =>
         preferredAppUpdateDownload(latestUpdate.value?.downloads ?? [])
     );

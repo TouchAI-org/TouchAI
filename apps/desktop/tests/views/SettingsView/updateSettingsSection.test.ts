@@ -353,6 +353,33 @@ describe('user reads what the updater is doing', () => {
 });
 
 describe('user checks for updates', () => {
+    it('user reopens a background download without another check or transfer', async () => {
+        const wrapper = mountSection({
+            status: 'downloading',
+            availableUpdate: update(),
+            downloadProgress: 35,
+        });
+        await primaryAction(wrapper).trigger('click');
+        await flushPromises();
+        expect(dialogExists(wrapper)).toBe(true);
+        expect(dialog(wrapper).attributes('data-progress')).toBe('35');
+        expect(appUpdateServiceMock.checkNow).not.toHaveBeenCalled();
+        expect(appUpdateServiceMock.download).not.toHaveBeenCalled();
+    });
+
+    it('user opens the installed version’s notes without a network check or upgrade action', async () => {
+        const wrapper = mountSection({
+            status: 'not_available',
+            currentVersion: '0.2.0',
+            latestUpdate: channelLatest({ releaseNotesByLocale: { 'zh-CN': '本版本更新内容' } }),
+        });
+        await wrapper.get('[data-testid="settings-update-release-notes-action"]').trigger('click');
+        await flushPromises();
+        expect(dialog(wrapper).attributes('data-has-update')).toBe('false');
+        expect(dialog(wrapper).attributes('data-notes')).toBe('本版本更新内容');
+        expect(appUpdateServiceMock.checkNow).not.toHaveBeenCalled();
+    });
+
     it('user gets a check started when they press the action', async () => {
         const wrapper = mountSection({ status: 'idle' });
 
@@ -669,6 +696,22 @@ describe('user reads the details dialog content', () => {
         expect(node.attributes('data-version')).toBe('0.2.0');
         expect(node.attributes('data-notes')).toBe('Fixes and polish');
         expect(node.attributes('data-action')).toBeTruthy();
+    });
+
+    it('user reads translated notes when changing language with the details still open', async () => {
+        const wrapper = await openDialog({
+            status: 'available',
+            availableUpdate: update(),
+            latestUpdate: channelLatest({
+                releaseNotesByLocale: { 'zh-CN': '更安全的更新', 'en-US': 'Safer updates' },
+            }),
+        });
+
+        expect(dialog(wrapper).attributes('data-notes')).toBe('更安全的更新');
+        setLocale('en-US');
+        await flushPromises();
+        expect(dialog(wrapper).attributes('data-notes')).toBe('Safer updates');
+        expect(dialog(wrapper).attributes('data-version')).toBe('0.2.0');
     });
 
     it('user gets the download action label while the download runs', async () => {

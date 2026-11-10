@@ -19,6 +19,7 @@
         actionText: string;
         busy: boolean;
         downloadProgress?: number | null;
+        packageSizeBytes?: number | null;
         error?: string | null;
     }>();
 
@@ -34,8 +35,31 @@
     const versionLabel = computed(() => {
         const label = `${props.channel} V${props.version.replace(/^v/i, '')}`;
         const date = formatShortDate(props.publishedAt);
-        if (!date) return label;
-        return getLocale() === 'zh-CN' ? `${label}（${date}）` : `${label} (${date})`;
+        const datedLabel = !date
+            ? label
+            : getLocale() === 'zh-CN'
+              ? `${label}（${date}）`
+              : `${label} (${date})`;
+        if (
+            !props.packageSizeBytes ||
+            !Number.isFinite(props.packageSizeBytes) ||
+            props.packageSizeBytes < 0
+        )
+            return datedLabel;
+        const [divisor, unit] =
+            props.packageSizeBytes >= 1_000_000_000
+                ? ([1_000_000_000, 'gigabyte'] as const)
+                : props.packageSizeBytes >= 1_000_000
+                  ? ([1_000_000, 'megabyte'] as const)
+                  : props.packageSizeBytes >= 1_000
+                    ? ([1_000, 'kilobyte'] as const)
+                    : ([1, 'byte'] as const);
+        const size = new Intl.NumberFormat(getLocale(), {
+            style: 'unit',
+            unit,
+            maximumFractionDigits: 1,
+        }).format(props.packageSizeBytes / divisor);
+        return `${datedLabel} · ${t('settings.general.update.packageSize', { size })}`;
     });
 </script>
 
@@ -66,10 +90,13 @@
 
             <div class="flex min-h-0 flex-col bg-surface-raised">
                 <div
-                    v-if="hasUpdate || error"
+                    v-if="hasUpdate || releaseNotes || error"
                     class="settings-scrollbar min-h-0 overflow-y-auto px-7 py-5"
                 >
-                    <div v-if="hasUpdate" class="text-compact leading-6 text-neutral-700">
+                    <div
+                        v-if="hasUpdate || releaseNotes"
+                        class="text-compact leading-6 text-neutral-700"
+                    >
                         <h3 class="mb-2 text-[12px] font-medium text-neutral-600">
                             {{ t('settings.update.releaseNotes') }}
                         </h3>

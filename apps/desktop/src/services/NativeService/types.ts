@@ -268,6 +268,7 @@ export interface AppUpdateChannelLatest {
     publishedAt: string | null;
     prerelease: boolean;
     releaseNotes: string | null;
+    releaseNotesByLocale?: Record<string, string>;
     downloads: AppUpdateDownload[];
 }
 

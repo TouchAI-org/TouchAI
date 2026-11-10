@@ -100,3 +100,31 @@ it('user sees the background action translated when switching language during a 
 
     expect(dialog().get('footer button').text()).toBe('Continue in background');
 });
+
+it('user reads the current release notes without an installation action', async () => {
+    setLocale('en-US');
+    const wrapper = await mountDialog(null, false);
+    await wrapper.setProps({ hasUpdate: false, releaseNotes: 'Safer updates in this version' });
+    await flushPromises();
+    expect(dialog().text()).toContain('Safer updates in this version');
+    await dialog().get('[data-testid="settings-update-dialog-primary"]').trigger('click');
+    expect(wrapper.emitted('close')).toEqual([[]]);
+    expect(wrapper.emitted('action')).toBeUndefined();
+});
+
+it.each([
+    { bytes: 10, expected: '10 byte' },
+    { bytes: 12_000, expected: '12 kB' },
+    { bytes: 12_000_000, expected: '12 MB' },
+    { bytes: 1_500_000_000, expected: '1.5 GB' },
+])(
+    'user sees a nonzero declared package size for $bytes bytes without an invented transfer estimate',
+    async ({ bytes, expected }) => {
+        setLocale('en-US');
+        const wrapper = await mountDialog(null, false);
+        await wrapper.setProps({ packageSizeBytes: bytes });
+        expect(dialog().text()).toContain(expected);
+        await wrapper.setProps({ packageSizeBytes: null });
+        expect(dialog().text()).not.toContain(expected);
+    }
+);

@@ -387,7 +387,7 @@ describe('user checks for and installs app updates', () => {
         });
     });
 
-    it('user is not checked again for an hour after a failed automatic check', async () => {
+    it('user is not immediately checked again after a failed automatic check', async () => {
         const { controller, checkForUpdates } = createController({
             checkError: new Error('network unavailable'),
         });

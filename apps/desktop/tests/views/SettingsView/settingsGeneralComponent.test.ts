@@ -333,7 +333,7 @@ describe('user changes general settings', () => {
             '有新版本 V0.2.0'
         );
         expect(wrapper.get('[data-testid="settings-update-dialog-version"]').text()).toBe(
-            '稳定版 V0.2.0（2026年5月22日）'
+            '稳定版 V0.2.0（2026年5月22日） · 安装包 10 B'
         );
         expect(wrapper.text()).not.toContain('当前版本 V0.1.0，目标版本 V0.2.0');
         expect(wrapper.get('[data-testid="settings-update-dialog-primary"]').text()).toBe(

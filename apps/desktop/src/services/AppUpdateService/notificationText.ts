@@ -1,6 +1,7 @@
-import { t } from '@/i18n';
+import { getLocale, t } from '@/i18n';
 import { collapseWhitespace, truncateText } from '@/utils/text';
 
+import { appUpdateReleaseNotes } from './releaseNotes';
 import type { AppUpdateState } from './types';
 
 const MAX_NOTIFICATION_NOTES_LENGTH = 240;
@@ -30,9 +31,7 @@ export function summarizeUpdateReleaseNotes(notes: string | null | undefined): s
 }
 
 export function createUpdateNotificationBody(state: AppUpdateState): string {
-    const packageNotes =
-        state.downloadedUpdate?.notes?.trim() || state.availableUpdate?.notes?.trim();
-    const notes = summarizeUpdateReleaseNotes(packageNotes || state.latestUpdate?.releaseNotes);
+    const notes = summarizeUpdateReleaseNotes(appUpdateReleaseNotes(state, getLocale()));
 
     return notes || t('notification.update.bodyWithoutNotes');
 }

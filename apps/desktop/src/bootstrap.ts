@@ -123,22 +123,49 @@ function setupLinkInterceptor(): void {
     document.addEventListener('click', handleLinkClick, true);
 }
 
+let stopAppUpdateChecks: (() => void) | null = null;
+
 function scheduleAppUpdateChecks(): void {
+    stopAppUpdateChecks?.();
+    let stopped = false;
+    let running = false;
+    let timer: number | null = null;
     const runAndScheduleNextCheck = async () => {
+        if (stopped || running) return;
+        if (timer !== null) window.clearTimeout(timer);
+        timer = null;
+        running = true;
         const now = Date.now();
         if (isWithinAppUpdateHours(now)) {
             await appUpdateService.checkNow('automatic').catch((error) => {
                 log.warn('[AppUpdateService] Automatic update check failed:', error);
             });
         }
+        running = false;
+        if (stopped) return;
 
         // The interval gate records completion time, so schedule from completion as well.
         const completedAt = Date.now();
-        window.setTimeout(
+        timer = window.setTimeout(
             runAndScheduleNextCheck,
-            getNextAppUpdateCheckAt(completedAt) - completedAt
+            getNextAppUpdateCheckAt(completedAt, appUpdateService.getAutomaticCheckInterval()) -
+                completedAt
         );
     };
+
+    const onOnline = () => {
+        void runAndScheduleNextCheck();
+    };
+    const stop = () => {
+        stopped = true;
+        if (timer !== null) window.clearTimeout(timer);
+        window.removeEventListener('online', onOnline);
+        window.removeEventListener('pagehide', stop);
+        stopAppUpdateChecks = null;
+    };
+    stopAppUpdateChecks = stop;
+    window.addEventListener('online', onOnline);
+    window.addEventListener('pagehide', stop, { once: true });
 
     void initializeAppUpdateNotifications()
         .catch((error) => {

@@ -13,6 +13,7 @@ import { log } from '@services/ObservabilityService';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 import type { AppUpdateChannel } from '@/config/appUpdate';
+import { t } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
 
 import { getDownloadableAppUpdate, getInstallableAppUpdate } from './availability';
@@ -128,6 +129,7 @@ export class AppUpdateController {
     private downloadPromise: Promise<boolean> | null = null;
     private installPromise: Promise<boolean> | null = null;
     private lastCheckAttemptAt: string | null = null;
+    private consecutiveCheckFailures = 0;
     private reportCheckErrors = false;
     private updateOperationPromise: Promise<UpdateOperation | null> | null = null;
     private updateOperation: UpdateOperation | null = null;
@@ -146,6 +148,12 @@ export class AppUpdateController {
 
     getState(): AppUpdateState {
         return { ...this.state };
+    }
+
+    getAutomaticCheckInterval(): number {
+        return this.consecutiveCheckFailures > 0
+            ? Math.min(AUTO_CHECK_INTERVAL_MS, 60_000 * 2 ** (this.consecutiveCheckFailures - 1))
+            : AUTO_CHECK_INTERVAL_MS;
     }
 
     subscribe(listener: StateListener): () => void {
@@ -206,6 +214,7 @@ export class AppUpdateController {
         await this.settings.updateAppUpdateChannel(channel);
         await this.settings.updateAppUpdateLastCheckedAt(null);
         this.lastCheckAttemptAt = null;
+        this.consecutiveCheckFailures = 0;
         this.commit({ type: 'channel-updated', channel });
     }
 
@@ -271,6 +280,7 @@ export class AppUpdateController {
             }
 
             const checkedAt = this.now();
+            this.consecutiveCheckFailures = 0;
             this.commit({ type: 'check-completed', channel, result, checkedAt });
             await this.settings.updateAppUpdateLastCheckedAt(checkedAt);
             void this.checkEvents?.publish(result, checkedAt).catch((error) => {
@@ -293,6 +303,7 @@ export class AppUpdateController {
                 return false;
             }
 
+            this.consecutiveCheckFailures = Math.min(this.consecutiveCheckFailures + 1, 7);
             if (!this.reportCheckErrors) {
                 this.replaceState(previousState);
                 this.queueUpdateTransition('check_finished', {
@@ -304,7 +315,13 @@ export class AppUpdateController {
                 return false;
             }
 
-            this.commit({ type: 'failed', error: toErrorMessage(error) });
+            this.commit({
+                type: 'failed',
+                error:
+                    typeof navigator !== 'undefined' && navigator.onLine === false
+                        ? t('settings.general.update.error.offline')
+                        : toErrorMessage(error),
+            });
             this.queueUpdateTransition('check_finished', {
                 result: 'failure',
                 source,
@@ -499,7 +516,10 @@ export class AppUpdateController {
     }
 
     private shouldRunAutomaticCheck(): boolean {
-        if (!this.state.autoCheckEnabled) {
+        if (
+            !this.state.autoCheckEnabled ||
+            (typeof navigator !== 'undefined' && navigator.onLine === false)
+        ) {
             return false;
         }
 
@@ -520,7 +540,7 @@ export class AppUpdateController {
             return true;
         }
 
-        return now - lastCheckedAt >= AUTO_CHECK_INTERVAL_MS;
+        return now - lastCheckedAt >= this.getAutomaticCheckInterval();
     }
 
     private syncSettings(): void {
@@ -530,6 +550,7 @@ export class AppUpdateController {
 
         if (channel !== this.state.channel) {
             this.lastCheckAttemptAt = null;
+            this.consecutiveCheckFailures = 0;
             this.commit({ type: 'channel-updated', channel });
         }
 
@@ -572,6 +593,7 @@ export class AppUpdateController {
                     return;
                 }
 
+                this.consecutiveCheckFailures = 0;
                 this.commit({
                     type: 'check-completed',
                     channel: result.channel,
