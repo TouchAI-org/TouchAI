@@ -6,6 +6,7 @@ import type {
     SearchSurfacePhysicalViewport,
     SearchSurfacePreparation,
 } from '@services/NativeService/types';
+import { useStateMachine } from 'reka-ui';
 import { nextTick } from 'vue';
 
 type Unlisten = () => void;
@@ -45,6 +46,30 @@ export interface SearchSurfacePreparationController {
     dispose: () => void;
 }
 
+function createSubscriptionOwner() {
+    let resolveReady!: () => void;
+    let rejectReady!: (error: unknown) => void;
+    const ready = new Promise<void>((resolve, reject) => {
+        resolveReady = resolve;
+        rejectReady = reject;
+    });
+    const unlisteners: Unlisten[] = [];
+    return {
+        lifecycle: useStateMachine('pending', {
+            pending: { activate: 'active', fail: 'failed', dispose: 'disposed' },
+            active: { dispose: 'disposed' },
+            failed: {},
+            disposed: {},
+        }),
+        ready,
+        resolveReady,
+        rejectReady,
+        unlisteners,
+    };
+}
+
+type SubscriptionOwner = ReturnType<typeof createSubscriptionOwner>;
+
 export function createSearchSurfacePreparationController(
     options: SearchSurfacePreparationControllerOptions
 ): SearchSurfacePreparationController {
@@ -60,14 +85,35 @@ export function createSearchSurfacePreparationController(
         resolve: (committed: boolean) => void;
         settled: boolean;
     } | null = null;
-    const unlisteners: Unlisten[] = [];
+    let subscriptionOwner: SubscriptionOwner | undefined;
 
-    function registerUnlisten(unlisten: Unlisten) {
-        if (disposed) {
+    function ownsSubscriptions(owner: SubscriptionOwner) {
+        return (
+            !disposed &&
+            subscriptionOwner === owner &&
+            (owner.lifecycle.state.value === 'pending' || owner.lifecycle.state.value === 'active')
+        );
+    }
+
+    async function listenForOwner<Payload>(
+        owner: SubscriptionOwner,
+        listen: (handler: (payload: Payload) => void | Promise<void>) => Promise<Unlisten>,
+        handler: (payload: Payload) => void | Promise<void>
+    ) {
+        if (!ownsSubscriptions(owner)) return;
+        const unlisten = await listen((payload) => {
+            if (!ownsSubscriptions(owner)) return;
+            return handler(payload);
+        });
+        if (!ownsSubscriptions(owner)) {
             unlisten();
             return;
         }
-        unlisteners.push(unlisten);
+        owner.unlisteners.push(unlisten);
+    }
+
+    function releaseSubscriptions(owner: SubscriptionOwner) {
+        for (const unlisten of owner.unlisteners.splice(0)) unlisten();
     }
 
     function resolvePendingCommit(committed: boolean) {
@@ -181,36 +227,63 @@ export function createSearchSurfacePreparationController(
         return commitPromise;
     }
 
-    async function start(): Promise<boolean> {
-        const installs = [
-            options
-                .listenPrepare((payload) => {
-                    void receivePreparation(payload);
-                })
-                .then(registerUnlisten),
-            options
-                .listenShown(async (payload) => {
-                    if (disposed) return;
-                    if (
-                        pendingPreparation &&
-                        shownMatchesPreparation(payload, pendingPreparation)
-                    ) {
-                        confirmPreparationShown(payload);
+    async function installSubscriptions(owner: SubscriptionOwner) {
+        try {
+            await Promise.all([
+                listenForOwner<SearchSurfacePreparation>(
+                    owner,
+                    (handler) => options.listenPrepare(handler),
+                    (payload) => {
+                        void receivePreparation(payload);
                     }
-                    await options.onShown(payload);
-                })
-                .then(registerUnlisten),
-            options
-                .listenHidden(async (payload) => {
-                    if (disposed) return;
-                    cancellationEpoch += 1;
-                    latestShownPreparation = null;
-                    invalidatePreparation();
-                    await options.onHidden(payload);
-                })
-                .then(registerUnlisten),
-        ];
-        await Promise.all(installs);
+                ),
+                listenForOwner<SearchSurfaceShownEvent>(
+                    owner,
+                    (handler) => options.listenShown(handler),
+                    async (payload) => {
+                        if (
+                            pendingPreparation &&
+                            shownMatchesPreparation(payload, pendingPreparation)
+                        ) {
+                            confirmPreparationShown(payload);
+                        }
+                        await options.onShown(payload);
+                    }
+                ),
+                listenForOwner<SearchSurfaceHiddenEvent>(
+                    owner,
+                    (handler) => options.listenHidden(handler),
+                    async (payload) => {
+                        cancellationEpoch += 1;
+                        latestShownPreparation = null;
+                        invalidatePreparation();
+                        await options.onHidden(payload);
+                    }
+                ),
+            ]);
+            if (ownsSubscriptions(owner)) owner.lifecycle.dispatch('activate');
+        } catch (error) {
+            owner.lifecycle.dispatch('fail');
+            if (subscriptionOwner === owner) {
+                subscriptionOwner = undefined;
+                invalidatePreparation();
+            }
+            releaseSubscriptions(owner);
+            throw error;
+        }
+    }
+
+    function ensureSubscriptions() {
+        if (subscriptionOwner) return subscriptionOwner.ready;
+        const owner = createSubscriptionOwner();
+        subscriptionOwner = owner;
+        void installSubscriptions(owner).then(owner.resolveReady, owner.rejectReady);
+        return owner.ready;
+    }
+
+    async function start(): Promise<boolean> {
+        if (disposed) return false;
+        await ensureSubscriptions();
         if (disposed) return false;
 
         const rendererEpoch = await options.getRendererEpoch();
@@ -247,7 +320,12 @@ export function createSearchSurfacePreparationController(
         cancellationEpoch += 1;
         latestShownPreparation = null;
         invalidatePreparation();
-        for (const unlisten of unlisteners.splice(0)) unlisten();
+        const owner = subscriptionOwner;
+        subscriptionOwner = undefined;
+        if (owner) {
+            owner.lifecycle.dispatch('dispose');
+            releaseSubscriptions(owner);
+        }
     }
 
     return { start, notifyViewportChanged, dispose };

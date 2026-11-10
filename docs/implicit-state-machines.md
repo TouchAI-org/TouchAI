@@ -33,7 +33,7 @@ Paths are relative to `apps/desktop/src/` unless prefixed otherwise.
 | `stores/settings.ts`, `stores/mcp.ts` | Initialization, load promise, subscription and disposal | Refactored initialization owners, retry and disposal; overlapping read counts remain independent. MCP transport/cache authority is unchanged |
 | `views/SearchView/index.vue`, `views/SearchView/components/SearchBar/composables/useModelSelection.ts` | Quick-search reveal/fold/handoff; overlay intent and model-list loading | Refactored handoff phases, per-load ownership and pending model intent; retained reveal/geometry generations and the controller's writable visibility request |
 | `views/SearchView/components/SearchOverlayHost/index.vue` | Mount, position, reveal and animation cleanup | Refactored closed/entering/open/closing/disposed; placement, native acknowledgement, CSS and durations unchanged |
-| `views/SearchView/searchSurfacePreparation.ts`, `views/SearchView/searchWindowRegions.ts` | Preparation/commit, cancellation, generations and stale acknowledgements | Preserve native handshake and generation guards |
+| `views/SearchView/searchSurfacePreparation.ts`, `views/SearchView/searchWindowRegions.ts` | Preparation/commit, cancellation, generations and stale acknowledgements | Refactored the preparation controller's local listener set as pending/active/failed/disposed, including repeated startup and partial-registration failure. Retained native `rendererEpoch`/`showEpoch`/`hostEpoch`, `isCurrent` checks around each await, viewport matching and bounded flush retries; the native handshake and region authority are unchanged |
 | `views/SearchView/composables/useSearchPage.ts` | Visibility, blur reconciliation, auto-hide, pinning and listeners | Retained: one-shot admission is not readiness; every startup await checks disposal, `listenWhileMounted` guards callbacks/late handles, and blur/visibility epochs distinguish independent native observations |
 | `views/SearchView/composables/useSearchWindowResize.ts`, `views/SearchView/composables/useSearchPanelResizing.ts`, `views/SearchView/composables/useSearchPanelDragging.ts` | Measurement, desired/accepted geometry, commit/cancel and rollback | Retained: pointer position, natural size, desired bounds and accepted native bounds coexist. Commit/generation acknowledgement is already explicit; one phase would lose pending geometry |
 | `views/SearchView/components/QuickSearchPanel/composables/useQuickSearchLogic.ts`, `views/SearchView/components/QuickSearchPanel/composables/useAssetLoader.ts` | Debounced queries, pagination, in-flight generations and asset queues | Retained: query/pagination generations and separate icon/image pipelines permit concurrent work. Caches are capped at 300 entries/3 MiB and 120 entries/2 MiB, with two retries; menu ownership is refactored at its existing owner |
@@ -49,12 +49,12 @@ Paths are relative to `apps/desktop/src/` unless prefixed otherwise.
 | `services/BuiltInToolService/tools/bash/index.ts`, `services/AgentService/task/projection/widgets.ts` | Stream flush/cancel/finish; widget draft/ready/removal | Retained: cancellation and buffered stream flushing can overlap; widget draft/ready is an explicit protocol. Widget run tokens, destruction checks and resource scopes already guard script execution and dispose timers/listeners/observers without weakening the sandbox |
 | `services/SchedulerService/scheduler.ts` | Enabled schedule, timer/event binding, generation and running task | Refactored each trigger binding as pending/armed/disposed; superseded handles are released. Schedule version and running-task identity stay independent, so cancelling a trigger does not implicitly cancel an executing task |
 | `composables/useMcpConnection.ts`, `services/AgentService/infrastructure/mcp/McpManager.ts`, `apps/desktop/src-tauri/src/core/mcp/` | Connect/disconnect/reconnect and native resource ownership | Retained: frontend data is a per-server projection; native `ServerStatus`, rmcp `RunningService` and locked optional handles own the connection. A frontend transition table cannot govern that transport and would introduce competing authority |
-| `apps/desktop/src-tauri/src/core/browser/runtime.rs` | Managed/unmanaged process, connection and observation generations | Preserve native ownership and stale-observation guards |
+| `apps/desktop/src-tauri/src/core/browser/runtime.rs` | Managed/unmanaged process, connection and observation generations | Retained: `BrowserStatusKind` already names native phases; `begin_lifecycle_transition` and `begin_unmanaged_connect` increment the locked generation, `is_current_connected_generation` checks both generation and endpoint, and `stop`/`set_error` consume the owned process with `take()`. Managed ownership and observation identity remain independent of connection status |
 | `services/ObservabilityService/index.ts`, `services/ObservabilityService/queue.ts` | Initialization, batching, flush and shutdown | Refactored window close as open/flushing/closing/closed, preserving unlisten-before-close and retry after synchronous failure. Queue production and batch flushing can coexist; bootstrap deduplication remains separate |
 | `apps/desktop/src-tauri/src/core/analytics/runtime.rs` | Consent epoch, session, operation handles and delivery batch | Retained: consent and delivery epochs reject pre-revocation work. Session/operation ownership and bounded queue state coexist; replacing these privacy fences with one lifecycle would lose identity |
 | `apps/desktop/src-tauri/src/core/database/runtime/mod.rs`, `database/driver.ts` | Transaction registration, connection consumption, expiry and commit/rollback | Retained: a locked optional connection is consumed with `take()` for exactly one terminal commit/rollback. Expiry and transaction registry are resource ownership, not competing booleans; no schema/contract change |
 | `utils/markdownMathDetection.ts`, `components/MarkdownContent.vue`, `database/driver.ts` | Fence, math, quote and escape scanning | Retained grammar-specific scanning: delimiter depth, quoting and escape context compose rather than represent an asynchronous resource lifetime |
-| `composables/useMotionPressure.ts`, `components/MarkdownCodeBlock.vue` | Pressure hysteresis and copy feedback | Small, bounded independent state; retain |
+| `composables/useMotionPressure.ts`, `components/MarkdownCodeBlock.vue` | Pressure hysteresis and copy feedback | Refactored pressure monitoring as idle/sampling/disposed with restart generations: synchronous feedback cannot revive or duplicate a sampler. The one-second cadence and two-late/eight-timely hysteresis stay unchanged. Copy feedback remains independent: concurrent writes are allowed, `disposed` guards feedback/timer creation after the await, and unmount clears its one-second timer |
 | `apps/site/src/scripts/component-demo-runtime.ts`, `apps/site/src/pages/index.astro`, `apps/site/public/*/touchai-components.html` | Mount/loading/readiness, replay, scroll-driven playback and effects | Refactored demo loads with a tagged idle/loading/ready/error owner plus native AbortController. Retained playback progress, visibility and replay admission: continuous animation coordinates and independent observer inputs are not exclusive phases |
 
 ## Existing explicit models to retain
@@ -96,6 +96,11 @@ platform APIs; its nearest-rank percentile calculation needs no statistics libra
   retry, while disposal prevents publication and queued actions.
 - Session/history subscriptions: pending/active/failed/disposed; callbacks guard
   disposal as well as late handle acquisition.
+- Search-surface subscriptions: pending/active/failed/disposed; concurrent and
+  reentrant starts share their listener set, and a failed attempt releases partial
+  handles before retry. Native preparation identity remains a separate authority.
+- Motion-pressure monitoring: idle/sampling/disposed; a per-run generation guards
+  every scheduling boundary against synchronous feedback and stale callback tails.
 - Preloader: idle/scheduled/loading/disposed. A schedule can fire synchronously;
   a loader can throw synchronously; neither can strand the serialized queue.
 - Overlay: closed/entering/open/closing/disposed; data dialogs:
@@ -197,6 +202,24 @@ and security scopes remain unchanged.
 23. Given baseline and head builds in external Windows scratch directories, when
     Vite emits Monaco workers, then both revisions write assets to their intended
     scratch output instead of appending an absolute drive path to the source root.
+24. Given a motion-pressure sample publishing feedback, when its consumer
+    synchronously disposes the policy, then no background sample survives disposal.
+25. Given a pressure callback synchronously restarting monitoring, when one new
+    delayed sample arrives, then it cannot count as two samples or reduce motion.
+26. Given recovery feedback synchronously refreshing window visibility, when the
+    old restart returns, then exactly one current sampler remains scheduled.
+27. Given repeated or synchronously reentrant search startup requests, when native
+    subscriptions connect, then one listener set delivers each window fact once.
+28. Given a failed search subscription attempt, when its remaining handles or
+    queued events arrive, then they are released or ignored and a retry owns a
+    fresh listener set without changing the native preparation handshake.
+29. Given a disposed search preparation controller, when startup is requested
+    again or disposal interrupts synchronous registration, then no further native
+    listener or readiness request is created.
+30. Given release assets in an external Windows scratch directory, when Tauri
+    packages either revision, then it embeds that directory as local assets rather
+    than interpreting the drive letter as a URL; native IPC retains its normal
+    trusted origin without changing CSP or the release profile.
 
 ## Verification evidence
 
@@ -256,6 +279,27 @@ PR's passing checks:
 - The last history-subscription/source-removal cases produced 3 failures before
   their fixes, then passed with existing request and model-selection regressions:
   **6 files / 102 tests**.
+- A final retention review reproduced three pressure-monitor failures: disposal
+  inside synchronous feedback left a timer, restarting during pressure counted
+  one late sample twice, and refreshing visibility during recovery created two
+  samplers. Its lifecycle and per-run generation now own scheduling; the signal's
+  thresholds and cadence are not changed to make the tests pass.
+- The same review reproduced six search-subscription failures: repeated or
+  reentrant startup duplicated native facts, startup after disposal registered
+  new work, both synchronous and asynchronous connection failure retained partial
+  listeners, and failed attempts accepted late handles/events. Only the local
+  subscription owner is refactored; native epochs and geometry commits remain
+  the existing authority.
+- A subsequent synchronous-disposal regression caught two more native
+  registrations being requested after disposal interrupted startup. Admission is
+  now checked before each native registration, not only when its handle returns.
+- The pressure, subscription and existing readiness regressions passed together:
+  **3 files / 37 tests**. Startup race tests now wait for observable preparation
+  barriers rather than assuming a fixed number of promise microtasks, so hiding,
+  disposal and supersession still exercise the intended in-flight phase.
+- The broader SearchView and motion characterization passed **80 files / 929
+  tests** before the last synchronous-disposal case; the final 37-test suite covers
+  that added admission guard. Full new-head CI remains a separate acceptance gate.
 - Earlier completion-pass runs passed **12 files / 128 tests** (settings and
   updater), **12 / 80** (MCP/preloader/observability), **3 / 28** (dialogs/overlay),
   **2 / 15** (status), **4 / 58** (scheduler/site), and **3 / 42** (model popup,
@@ -310,3 +354,12 @@ uses isolated test data and releases only its benchmark process tree afterward.
 Neither the benchmark's comparison-unit tests nor an installed harness count as
 native performance evidence. Acceptance requires that job to actually run and
 its report to pass; the PR records the tested commit and actual measurements.
+
+The release job at `98a7acba` exposed a second Windows asset-path issue before
+sampling: Tauri's installed `FrontendDist` deserializer tries URL before directory,
+so an absolute drive-letter path selects an external URL and embeds no assets.
+The runner now resolves its temporary `frontendDist` relative to the archived
+`apps/desktop/src-tauri` directory, while keeping the actual output in external
+scratch. The existing native bridge startup assertion is the regression guard;
+the origin check, CSP, security scopes and release optimization flags are unchanged.
+Local syntax/path checks are not recorded as a successful native build or sample.
