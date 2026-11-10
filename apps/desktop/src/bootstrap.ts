@@ -136,13 +136,30 @@ function scheduleAppUpdateChecks(): void {
         timer = null;
         running = true;
         const now = Date.now();
-        if (isWithinAppUpdateHours(now)) {
-            await appUpdateService.checkNow('automatic').catch((error) => {
-                log.warn('[AppUpdateService] Automatic update check failed:', error);
-            });
-        }
+        const checked = isWithinAppUpdateHours(now)
+            ? await appUpdateService.checkNow('automatic').catch((error) => {
+                  log.warn('[AppUpdateService] Automatic update check failed:', error);
+                  return false;
+              })
+            : false;
         running = false;
         if (stopped) return;
+        if (!checked) {
+            // A skipped check (interval not reached, offline, outside hours) or a
+            // failed check must keep the existing deadline, not restart it. A
+            // deadline that already passed falls back to one full interval so a
+            // stale persisted timestamp cannot create a zero-delay retry loop.
+            const interval = appUpdateService.getAutomaticCheckInterval();
+            const attemptAt = Date.parse(appUpdateService.getLastCheckAttemptAt() ?? '');
+            const hasLiveDeadline =
+                isWithinAppUpdateHours(now) &&
+                Number.isFinite(attemptAt) &&
+                attemptAt + interval > now;
+            const referenceAt = hasLiveDeadline ? attemptAt : now;
+            const retryAt = getNextAppUpdateCheckAt(referenceAt, interval);
+            timer = window.setTimeout(runAndScheduleNextCheck, Math.max(0, retryAt - now));
+            return;
+        }
 
         // The interval gate records completion time, so schedule from completion as well.
         const completedAt = Date.now();

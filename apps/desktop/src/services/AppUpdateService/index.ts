@@ -156,6 +156,11 @@ export class AppUpdateController {
             : AUTO_CHECK_INTERVAL_MS;
     }
 
+    /** The latest time an automatic check actually started, if one has run. */
+    getLastCheckAttemptAt(): string | null {
+        return this.lastCheckAttemptAt ?? this.state.lastCheckedAt;
+    }
+
     subscribe(listener: StateListener): () => void {
         this.listeners.add(listener);
         listener(this.getState());

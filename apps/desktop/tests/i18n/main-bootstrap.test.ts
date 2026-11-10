@@ -99,7 +99,11 @@ vi.mock('@services/UsageService/maintenance', () => ({
 vi.mock('@database/queries', () => llmMetadataMock);
 
 vi.mock('@services/AppUpdateService', () => ({
-    appUpdateService: { checkNow: vi.fn(), getAutomaticCheckInterval: vi.fn(() => 60 * 60 * 1000) },
+    appUpdateService: {
+        checkNow: vi.fn(),
+        getAutomaticCheckInterval: vi.fn(() => 60 * 60 * 1000),
+        getLastCheckAttemptAt: vi.fn(() => null),
+    },
 }));
 
 vi.mock('@services/AppUpdateService/notifications', () => ({
@@ -152,6 +156,7 @@ beforeEach(() => {
     vi.mocked(initializeAppUpdateNotifications).mockResolvedValue(undefined);
     vi.mocked(appUpdateService.checkNow).mockResolvedValue(false);
     vi.mocked(appUpdateService.getAutomaticCheckInterval).mockReturnValue(60 * 60 * 1000);
+    vi.mocked(appUpdateService.getLastCheckAttemptAt).mockReturnValue(null);
     vi.mocked(toolServiceMock.syncRegisteredTools).mockResolvedValue(undefined);
     vi.mocked(prewarmBashMock).mockResolvedValue(undefined);
     vi.mocked(llmMetadataMock.isLlmMetadataEmpty).mockResolvedValue(false);
@@ -496,6 +501,62 @@ describe('user leaves the app running overnight', () => {
             expect(appUpdateService.checkNow).toHaveBeenCalledTimes(2);
         } finally {
             finishCheck(false);
+            nowSpy.mockRestore();
+            timeoutSpy.mockRestore();
+        }
+    });
+    it('user keeps the original deadline when reconnecting before the interval is due', async () => {
+        const startedAt = new Date(2026, 9, 18, 10).getTime();
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(startedAt);
+        const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(vi.fn() as never);
+        vi.mocked(appUpdateService.checkNow).mockResolvedValue(true);
+        vi.mocked(appUpdateService.getLastCheckAttemptAt).mockReturnValue(
+            new Date(startedAt).toISOString()
+        );
+
+        try {
+            mainWindowAt();
+            await startApp();
+
+            // The check ran and set the next deadline one interval later.
+            await vi.waitFor(() =>
+                expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60 * 60 * 1000)
+            );
+            timeoutSpy.mockClear();
+            vi.mocked(appUpdateService.checkNow).mockResolvedValue(false);
+            vi.mocked(appUpdateService.checkNow).mockClear();
+
+            // Reconnecting 59 minutes later must not push the deadline to 11:59.
+            nowSpy.mockReturnValue(startedAt + 59 * 60 * 1000);
+            window.dispatchEvent(new Event('online'));
+
+            await vi.waitFor(() =>
+                expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60 * 1000)
+            );
+        } finally {
+            nowSpy.mockRestore();
+            timeoutSpy.mockRestore();
+        }
+    });
+
+    it('user never gets a zero-delay retry loop from a stale check timestamp', async () => {
+        const now = new Date(2026, 9, 18, 10).getTime();
+        const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(now);
+        const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(vi.fn() as never);
+        vi.mocked(appUpdateService.checkNow).mockResolvedValue(false);
+        vi.mocked(appUpdateService.getLastCheckAttemptAt).mockReturnValue(
+            new Date(2026, 9, 17, 10).toISOString()
+        );
+
+        try {
+            mainWindowAt();
+            await startApp();
+
+            await vi.waitFor(() =>
+                expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60 * 60 * 1000)
+            );
+            expect(timeoutSpy).not.toHaveBeenCalledWith(expect.any(Function), 0);
+        } finally {
             nowSpy.mockRestore();
             timeoutSpy.mockRestore();
         }
