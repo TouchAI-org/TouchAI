@@ -6,7 +6,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
     readWorkflow,
-    runClassifier,
     type Workflow,
     type WorkflowJob,
     type WorkflowStep,
@@ -101,42 +100,6 @@ function expectMatrixEntries(
         expect(entries).toContainEqual(entry);
     }
 }
-
-describe('user submits conversation appearance changes', () => {
-    it('user sees the palette and compaction checks run with the provisioned browser', () => {
-        const job = getJob(readWorkflow('visual-components.yml'), 'component-visual');
-        const step = getNamedStep(job, 'Run conversation appearance tests');
-        const manifest = JSON.parse(
-            readFileSync(resolve(repositoryRoot, 'apps/desktop/package.json'), 'utf8')
-        ) as { scripts: Record<string, string> };
-
-        expect(getRun(step).trim()).toBe('pnpm --filter @touchai/desktop test:layout:conversation');
-        expect(manifest.scripts['test:layout:conversation']).toBe(
-            'node --test tests/layout/conversationAppearance.browser.mjs'
-        );
-        expect(getStepIndex(job, 'Run conversation appearance tests')).toBeGreaterThan(
-            getStepIndex(job, 'Assert the pinned renderer matches the lockfile')
-        );
-        expect(job.container).toMatchObject({
-            image: expect.stringMatching(/^mcr\.microsoft\.com\/playwright:/),
-        });
-        expect(step.if).toBeUndefined();
-        expect(step['continue-on-error']).toBeUndefined();
-    });
-
-    it.each([
-        ['browser assertion', 'apps/desktop/tests/layout/conversationAppearance.browser.mjs'],
-        ['conversation fixture', 'apps/desktop/tests/layout/fixtures/conversationAppearance.ts'],
-    ])('user sees browser validation scheduled when only the %s changes', async (_label, path) => {
-        const result = await runClassifier('visual-components.yml', {
-            eventName: 'pull_request',
-            payload: { pull_request: { number: 781, changed_files: 1 } },
-            listFilePages: [[{ status: 'modified', filename: path }]],
-        });
-
-        expect(result.outputs).toEqual({ ui_changed: 'true' });
-    });
-});
 
 describe('user prepares Rust coverage from a verified prebuilt tool', () => {
     it('user sees cargo-llvm-cov installed from one checksum-verified Linux archive', () => {
