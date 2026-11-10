@@ -1,5 +1,14 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    realpathSync,
+    rmdirSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -19,6 +28,27 @@ function coverageFor(hits = 1) {
         branchMap: {},
         b: {},
     };
+}
+
+function shortWindowsPath(path: string) {
+    if (process.platform !== 'win32') {
+        return path;
+    }
+
+    // Quote the path inside a batch file. Passing it as a command argument
+    // loses the quotes, while a script keeps spaces in a single item.
+    const directory = mkdtempSync(join(tmpdir(), 'short-path-'));
+    const script = join(directory, 'short-path.cmd');
+    writeFileSync(script, `@echo off\r\nfor %%I in ("${path}") do @echo %%~sI\r\n`);
+
+    try {
+        return execFileSync('cmd.exe', ['/d', '/c', script], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+        }).trim();
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
 }
 
 describe('user measures covered changes with absolute report paths', () => {
@@ -57,6 +87,57 @@ describe('user measures covered changes with absolute report paths', () => {
 
         expect(result).toMatchObject({ total: 1, covered: 0, percent: 0 });
     });
+
+    it('user gets full coverage when a report path is another name for the checkout', (ctx) => {
+        // tmpdir() already returns the 8.3 form on some Windows runners, so
+        // start from the long spelling and shorten the checkout for the report.
+        const longRoot =
+            process.platform === 'win32'
+                ? join(process.env.USERPROFILE ?? tmpdir(), 'AppData', 'Local', 'Temp')
+                : tmpdir();
+        const temporaryRoot = existsSync(longRoot) ? realpathSync.native(longRoot) : tmpdir();
+        const checkout = mkdtempSync(join(temporaryRoot, 'patch-coverage-alias-'));
+        let junction: string | null = null;
+
+        try {
+            const file = join(checkout, sourcePath);
+            mkdirSync(join(checkout, 'apps/desktop/src'), { recursive: true });
+            writeFileSync(file, 'export const added = 2;\n');
+            let reportRoot = shortWindowsPath(checkout);
+
+            // 8.3 names can be disabled per volume. Fall back to a junction,
+            // which is another spelling for the same directory without it.
+            if (process.platform === 'win32' && reportRoot === checkout) {
+                junction = `${checkout}-junction`;
+
+                try {
+                    symlinkSync(checkout, junction, 'junction');
+                } catch {
+                    ctx.skip('this Windows volume provides no 8.3 or junction alias');
+                }
+
+                reportRoot = junction;
+            }
+
+            if (process.platform === 'win32') {
+                expect(reportRoot).not.toBe(checkout);
+            }
+            expect(existsSync(reportRoot)).toBe(true);
+
+            const result = measurePatchCoverage(
+                new Map([[sourcePath, new Set([2])]]),
+                { [join(reportRoot, sourcePath)]: coverageFor() },
+                { repoRoot: checkout }
+            );
+
+            expect(result).toMatchObject({ total: 1, covered: 1, percent: 100 });
+        } finally {
+            if (junction && existsSync(junction)) {
+                rmdirSync(junction);
+            }
+            rmSync(checkout, { recursive: true, force: true });
+        }
+    }, 15000);
 });
 
 describe('user runs the patch coverage command in a checkout', () => {

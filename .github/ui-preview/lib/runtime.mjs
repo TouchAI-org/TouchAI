@@ -136,9 +136,12 @@ export async function ensureOverlay(session) {
 
 export async function waitForBridge(session, timeoutMs = 30000) {
     const startedAt = Date.now();
+    const seen = new Map();
+    let selected = null;
 
     while (Date.now() - startedAt < timeoutMs) {
         try {
+            selected = await mainWindowHandle(session, { seen });
             const ready = await session.execute('return Boolean(window.__TOUCHAI_E2E__);');
 
             if (ready) {
@@ -151,7 +154,7 @@ export async function waitForBridge(session, timeoutMs = 30000) {
         await new Promise((resolve) => setTimeout(resolve, 300));
     }
 
-    throw new Error('the app did not expose its E2E bridge');
+    throw new Error(describeBridgeFailure(selected, seen));
 }
 
 export async function bridge(session, method, args = []) {
@@ -223,24 +226,46 @@ export async function windowHandles(session) {
     return session.windowHandles();
 }
 
-export async function mainWindowHandle(session) {
+export async function mainWindowHandle(session, { seen = new Map() } = {}) {
     const handles = await session.windowHandles();
 
     if (handles.includes('main')) {
         await session.switchTo('main');
+        seen.set('main', String(await session.currentUrl()));
         return 'main';
     }
 
     for (const handle of handles) {
         await session.switchTo(handle);
         const url = String(await session.currentUrl());
+        seen.set(handle, url);
 
         if (isSearchUrl(url)) {
             return handle;
         }
     }
 
-    throw new Error('the main window was not found');
+    throw new Error(
+        `the main window was not found; handles: ${formatHandles(handles)}; routes: ${formatRoutes(seen)}`
+    );
+}
+
+function formatHandles(handles) {
+    return handles.length > 0 ? handles.join(', ') : '(none)';
+}
+
+function formatRoutes(seen) {
+    return seen.size > 0
+        ? [...seen].map(([handle, url]) => `${handle}=${url}`).join(', ')
+        : '(not read)';
+}
+
+function describeBridgeFailure(selected, seen) {
+    return (
+        `the app did not expose its E2E bridge on window ${selected ?? '(none)'}` +
+        `; handles: ${[...seen.keys()].join(', ') || '(none)'}` +
+        `; routes: ${formatRoutes(seen)}`
+    );
 }
 
 export async function openSettings(session) {

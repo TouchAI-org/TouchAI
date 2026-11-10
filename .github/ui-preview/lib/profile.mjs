@@ -67,6 +67,14 @@ export function stageLabel(profile) {
 export const SEARCH_WINDOW_WIDTH = 750;
 export const SEARCH_WINDOW_IDLE_HEIGHT = 60;
 export const SEARCH_WINDOW_RESULTS_HEIGHT = 420;
+export const SEARCH_CONVERSATION_REQUIRED_MESSAGE =
+    'the submitted prompt did not reveal a conversation';
+export const SEARCH_CONVERSATION_NOT_VISIBLE_MESSAGE =
+    'the submitted prompt conversation is clipped inside the compact preview frame';
+export const SEARCH_USER_MESSAGE_REQUIRED_MESSAGE =
+    'the submitted prompt conversation did not show the user message';
+export const SEARCH_REQUEST_STATUS_REQUIRED_MESSAGE =
+    'the submitted prompt did not show the running or error state';
 
 /**
  * Floating top-level windows reserve transparent room for their CSS shadow.
@@ -93,16 +101,18 @@ export function contentWindowFrame(frame, gutter = WINDOW_SHADOW_GUTTER) {
 
 /**
  * @param {{ width: number, height: number }} stage
- * @param {{ expanded?: boolean, contentHeight?: number }} [options]
+ * @param {{ expanded?: boolean, contentHeight?: number, conversationPresent?: boolean }} [options]
  */
 export function searchWindowFrame(stage, options = {}) {
     const width = Math.min(SEARCH_WINDOW_WIDTH, Math.max(420, stage.width - 80));
     const measured = Number(options.contentHeight);
-    const preferredHeight = options.expanded
-        ? Number.isFinite(measured) && measured > SEARCH_WINDOW_IDLE_HEIGHT
+    const measuredHeight =
+        !options.conversationPresent &&
+        Number.isFinite(measured) &&
+        measured > SEARCH_WINDOW_IDLE_HEIGHT
             ? Math.min(SEARCH_WINDOW_RESULTS_HEIGHT, Math.round(measured))
-            : SEARCH_WINDOW_RESULTS_HEIGHT
-        : SEARCH_WINDOW_IDLE_HEIGHT;
+            : SEARCH_WINDOW_RESULTS_HEIGHT;
+    const preferredHeight = options.expanded ? measuredHeight : SEARCH_WINDOW_IDLE_HEIGHT;
     const height = Math.min(
         preferredHeight,
         Math.max(SEARCH_WINDOW_IDLE_HEIGHT, stage.height - 80)
@@ -113,5 +123,135 @@ export function searchWindowFrame(stage, options = {}) {
         height,
         x: Math.max(0, Math.round((stage.width - width) / 2)),
         y: Math.max(0, Math.round((stage.height - height) / 2)),
+    };
+}
+
+/**
+ * Reads the search surface from the renderer. The conversation host is the
+ * stable contract: it exists while a conversation renders, even when preview
+ * mode has clipped it to the compact bar. The user message and request status
+ * are reported separately so a recording states what it actually saw.
+ */
+export function searchContentState(document) {
+    const root = document.querySelector("[data-testid='search-view']");
+    const panel = document.querySelector("[data-testid='quick-search-panel']");
+    const conversation = document.querySelector("[data-testid='conversation-panel-host']");
+    const messageNodes = Array.from(conversation?.querySelectorAll?.('[data-message-role]') ?? []);
+    const userMessages = Array.from(
+        conversation?.querySelectorAll?.("[data-message-role='user']") ?? []
+    );
+    const requestStatus = Array.from(
+        conversation?.querySelectorAll?.('[data-request-status]') ?? []
+    );
+    const rootRect = root?.getBoundingClientRect?.() ?? { width: 0, height: 0 };
+    const contentHeight = Math.max(root?.scrollHeight ?? 0, rootRect.height ?? 0);
+    const conversationPresent = Boolean(conversation);
+    const conversationRect = conversation?.getBoundingClientRect?.();
+    const viewportWidth =
+        document.defaultView?.innerWidth ?? document.documentElement?.clientWidth ?? 0;
+    const viewportHeight =
+        document.defaultView?.innerHeight ?? document.documentElement?.clientHeight ?? 0;
+    const isVisible = (element) => {
+        const rect = element?.getBoundingClientRect?.();
+
+        if (!rect || rect.width <= 0 || rect.height <= 0) {
+            return false;
+        }
+
+        const style = document.defaultView?.getComputedStyle?.(element) ?? {};
+
+        if (
+            style.display === 'none' ||
+            style.visibility === 'hidden' ||
+            Number(style.opacity) === 0
+        ) {
+            return false;
+        }
+
+        const insideViewport =
+            rect.right > 0 &&
+            rect.bottom > 0 &&
+            rect.left < viewportWidth &&
+            rect.top < viewportHeight;
+        const insideConversation =
+            !conversationRect ||
+            (rect.right > conversationRect.left &&
+                rect.bottom > conversationRect.top &&
+                rect.left < conversationRect.right &&
+                rect.top < conversationRect.bottom);
+
+        return insideViewport && insideConversation;
+    };
+    const conversationVisible = conversationPresent && messageNodes.some(isVisible);
+    const userMessageVisible = userMessages.some(isVisible);
+    const requestStatusVisible = requestStatus.some(isVisible);
+    const expanded = conversationPresent || isVisible(panel) || contentHeight > 120;
+
+    return {
+        expanded,
+        contentHeight,
+        conversationPresent,
+        conversationVisible,
+        userMessageVisible,
+        messageCount: messageNodes.length,
+        userMessageCount: userMessages.length,
+        requestStatusVisible,
+    };
+}
+
+/**
+ * Builds the renderer-side script from the function above so the tested helper
+ * and the WebDriver command cannot drift apart.
+ */
+export function searchContentScript() {
+    return `
+return (${searchContentState.toString()})(document);
+`;
+}
+
+export const SEARCH_CONTENT_SCRIPT = searchContentScript();
+
+/**
+ * Decides whether a submitted prompt produced evidence a reviewer can see.
+ * The fixed conversation frame must already be applied when this runs.
+ */
+export function conversationCheck(content) {
+    if (!content?.conversationPresent) {
+        return {
+            status: 'fail',
+            message: SEARCH_CONVERSATION_REQUIRED_MESSAGE,
+            detail: `0 message(s), content height ${content?.contentHeight ?? 0}px`,
+        };
+    }
+
+    if (!content?.conversationVisible) {
+        return {
+            status: 'fail',
+            message: SEARCH_CONVERSATION_NOT_VISIBLE_MESSAGE,
+            detail: `${content?.messageCount ?? 0} message(s), content height ${
+                content?.contentHeight ?? 0
+            }px`,
+        };
+    }
+
+    if (!content?.userMessageVisible) {
+        return {
+            status: 'fail',
+            message: SEARCH_USER_MESSAGE_REQUIRED_MESSAGE,
+            detail: `${content?.messageCount ?? 0} message(s), no visible user message`,
+        };
+    }
+
+    if (!content?.requestStatusVisible) {
+        return {
+            status: 'fail',
+            message: SEARCH_REQUEST_STATUS_REQUIRED_MESSAGE,
+            detail: `${content?.messageCount ?? 0} message(s), request status not visible`,
+        };
+    }
+
+    return {
+        status: 'pass',
+        detail: `${content.userMessageCount ?? 0} user message(s), request status visible`,
     };
 }
