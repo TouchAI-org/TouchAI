@@ -121,7 +121,7 @@ describe('release workflow deployment environments', () => {
 
         expect(workflow).toContain('Stage current GitHub release assets');
         expect(workflow).toContain(
-            'node scripts/ci/stage-release-upload-assets.mjs "$RUNNER_TEMP/touchai-release-assets" "$RUNNER_TEMP/touchai-github-release-assets" "${{ inputs.version }}"'
+            'node scripts/ci/stage-release-upload-assets.mjs "$RUNNER_TEMP/touchai-release-assets" "$RUNNER_TEMP/touchai-github-release-assets" "$RELEASE_VERSION"'
         );
         expect(workflow).toContain('gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber');
         expect(workflow).toContain('release_dir="$RUNNER_TEMP/touchai-github-release-assets"');

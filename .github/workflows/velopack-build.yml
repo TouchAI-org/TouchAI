@@ -504,6 +504,11 @@ jobs:
             - build-macos
             - build-linux
         runs-on: ubuntu-latest
+        env:
+            RELEASE_CHANNEL: ${{ inputs.channel }}
+            RELEASE_VERSION: ${{ inputs.version }}
+            RELEASE_TAG: ${{ inputs.tag }}
+            RELEASE_PRERELEASE: ${{ inputs.prerelease }}
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
@@ -562,10 +567,10 @@ jobs:
               run: |
                   node scripts/ci/build-update-channels.mjs "$RUNNER_TEMP/touchai-update-dist" \
                     --fetch-existing true \
-                    --channel "${{ inputs.channel }}" \
-                    --version "${{ inputs.version }}" \
-                    --tag "${{ inputs.tag }}" \
-                    --prerelease "${{ inputs.prerelease }}" \
+                    --channel "$RELEASE_CHANNEL" \
+                    --version "$RELEASE_VERSION" \
+                    --tag "$RELEASE_TAG" \
+                    --prerelease "$RELEASE_PRERELEASE" \
                     --release-notes-file "$RUNNER_TEMP/release-notes/release-notes.md" \
                     --release-notes-by-locale-file "$RUNNER_TEMP/release-notes/release-notes.json" \
                     --release-dir "$RUNNER_TEMP/touchai-release-assets"
@@ -573,12 +578,12 @@ jobs:
             - name: Stage current GitHub release assets
               working-directory: apps/desktop
               run: |
-                  node scripts/ci/stage-release-upload-assets.mjs "$RUNNER_TEMP/touchai-release-assets" "$RUNNER_TEMP/touchai-github-release-assets" "${{ inputs.version }}"
+                  node scripts/ci/stage-release-upload-assets.mjs "$RUNNER_TEMP/touchai-release-assets" "$RUNNER_TEMP/touchai-github-release-assets" "$RELEASE_VERSION"
                   cp "$RUNNER_TEMP/release-notes/release-notes.json" "$RUNNER_TEMP/touchai-github-release-assets/release-notes.json"
 
             - name: Match source inventory to the packaged version
               working-directory: apps/desktop
-              run: node scripts/ci/set-release-version.mjs "${{ inputs.version }}"
+              run: node scripts/ci/set-release-version.mjs "$RELEASE_VERSION"
 
             - name: Generate source dependency SBOM
               uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c

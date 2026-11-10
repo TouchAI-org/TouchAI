@@ -414,12 +414,12 @@ describe('user leaves the app running overnight', () => {
         try {
             mainWindowAt();
             await startApp();
-            for (let index = 0; index < 12; index += 1) await Promise.resolve();
-            expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60_000);
+            await vi.waitFor(() =>
+                expect(timeoutSpy).toHaveBeenCalledWith(expect.any(Function), 60_000)
+            );
             vi.mocked(appUpdateService.checkNow).mockClear();
             window.dispatchEvent(new Event('online'));
-            for (let index = 0; index < 12; index += 1) await Promise.resolve();
-            expect(appUpdateService.checkNow).toHaveBeenCalledOnce();
+            await vi.waitFor(() => expect(appUpdateService.checkNow).toHaveBeenCalledOnce());
             window.dispatchEvent(new Event('pagehide'));
             vi.mocked(appUpdateService.checkNow).mockClear();
             window.dispatchEvent(new Event('online'));
