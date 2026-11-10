@@ -1212,7 +1212,11 @@ mod tests {
             let outside = temp.path().join("outside");
             fs::create_dir(&outside).unwrap();
             fs::write(outside.join("keep.txt"), "keep").unwrap();
-            let link = app_root.join(component);
+            let link = if component.is_empty() {
+                app_root.clone()
+            } else {
+                app_root.join(component)
+            };
             fs::create_dir_all(link.parent().unwrap()).unwrap();
             link_directory(&outside, &link);
 
