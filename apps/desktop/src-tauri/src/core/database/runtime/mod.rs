@@ -20,6 +20,7 @@ use super::{
         resolve_database_contract, DatabaseContractSource,
     },
     protocol::types::DatabaseImportRequest,
+    typed::DatabaseOperationError,
 };
 
 const DATABASE_FILE_NAME: &str = "touchai.db";
@@ -80,27 +81,27 @@ impl DatabaseRuntime {
         &self.inner.pool
     }
 
-    pub async fn export_backup(&self, window_label: &str, target_path: &str) -> Result<(), String> {
+    pub(crate) async fn export_backup(
+        &self,
+        window_label: &str,
+        target_path: &str,
+    ) -> Result<(), DatabaseOperationError> {
         if !crate::core::database::typed::backup_allows(window_label) {
-            return Err(format!(
-                "Database operation is not allowed for window '{}'",
-                window_label
-            ));
+            return Err(DatabaseOperationError::forbidden(window_label));
         }
 
-        run_export_backup(&self.inner.pool, &self.inner.database_path, target_path).await
+        run_export_backup(&self.inner.pool, &self.inner.database_path, target_path)
+            .await
+            .map_err(DatabaseOperationError::backup_failed)
     }
 
-    pub async fn import_backup(
+    pub(crate) async fn import_backup(
         &self,
         window_label: &str,
         request: DatabaseImportRequest,
-    ) -> Result<(), String> {
+    ) -> Result<(), DatabaseOperationError> {
         if !crate::core::database::typed::backup_allows(window_label) {
-            return Err(format!(
-                "Database operation is not allowed for window '{}'",
-                window_label
-            ));
+            return Err(DatabaseOperationError::forbidden(window_label));
         }
 
         run_import_backup(
@@ -110,6 +111,7 @@ impl DatabaseRuntime {
             request,
         )
         .await
+        .map_err(DatabaseOperationError::import_failed)
     }
 
     /// Returns the database path to test-only harness code.

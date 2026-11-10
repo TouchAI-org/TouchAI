@@ -202,7 +202,7 @@ pub(super) async fn set_default(
     if integer(&target, "enabled") == 0 {
         return Err(DatabaseOperationError::with_code(
             "provider-disabled",
-            optional_text(&target, "provider_name").unwrap_or_default(),
+            "The model provider is disabled",
         ));
     }
 
@@ -233,8 +233,7 @@ async fn record_upstream_metadata_on(
     if entries.is_empty() {
         return Ok(());
     }
-    let payload = serde_json::to_string(entries)
-        .map_err(|error| DatabaseOperationError::validation(error.to_string()))?;
+    let payload = serde_json::to_string(entries).map_err(DatabaseOperationError::invalid_data)?;
     run(
         &mut **transaction,
         "WITH upstream_model_metadata AS (
@@ -634,8 +633,7 @@ pub(super) async fn sync_metadata_on(
     if updates.is_empty() {
         return Ok(());
     }
-    let payload = serde_json::to_string(&updates)
-        .map_err(|error| DatabaseOperationError::validation(error.to_string()))?;
+    let payload = serde_json::to_string(&updates).map_err(DatabaseOperationError::invalid_data)?;
     run(
         &mut **transaction,
         "WITH selected_model_metadata AS (

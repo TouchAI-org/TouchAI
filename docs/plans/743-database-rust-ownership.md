@@ -39,6 +39,49 @@ The only production Tauri database commands are:
   `import_success` metadata inside the Rust import transaction; the settings
   window only owns the restart countdown and dialog.
 
+## Surface permission matrix
+
+Rust checks the calling window label before dispatching a typed operation. The
+allow-list is explicit and defaults to denial for every unlisted surface/group
+pair:
+
+| Surface | Allowed database groups | Denied database groups |
+| --- | --- | --- |
+| `main` | Every group: settings reads/writes, config, agent, maintenance, search, tool history, usage reads/writes | None |
+| `settings` | Settings reads (`setting_*`/`statistic_*`/`meta_*` reads), Config, Maintenance, ToolHistory, Usage reads, Backup commands | SettingsWrite, Agent, Search, UsageWrite |
+| `popup-*` | None | Every group and backup commands |
+| `preview*` | None | Every group and backup commands |
+| `tray-menu` | None | Every group and backup commands |
+| Any other label | None | Every group and backup commands |
+
+`Config` is the settings-owned provider/model/MCP/built-in-tool configuration
+surface, including writes. It is never available to popup, preview, or unknown
+windows because those payloads can include provider credentials. `Maintenance`
+is limited to the three count/delete-all pairs used by Data Management;
+session CRUD remains in `Agent`. The real-window integration suite exercises
+allowed Settings capabilities and the denial of every group from popup,
+preview, unknown, and `tray-menu` labels.
+
+### Settings transport boundary
+
+`GeneralSettings` has two consumers beyond the owning main window, and neither
+gets the full snapshot:
+
+- `settings` may read the full snapshot (it renders provider, browser, and
+  search configuration) and is the only window that may request a mutation.
+- `tray-menu` may read only `language`, `animationSpeed`, and
+  `automaticallyReduceMotion`. The owner projects every other field to its
+  default before the reply leaves the window, so provider API keys, browser
+  data paths, and update state never reach the tray.
+- `popup-*`, `preview*`, and unknown labels are rejected on the wire; the owner
+  also drops a request that a compromised transport forges with an allowed
+  label check failure.
+
+Settings writes stay inside the typed `setting_set` operation, which is
+main-only. The settings window talks to the main owner through
+`settings:command` and cannot write the database directly; the native
+`database-forbidden` guard is the second line of defence.
+
 The committed migration chain and runtime artifacts remain the database
 contract:
 
@@ -141,8 +184,22 @@ message/tool/attachment content.
   keep the same SQLite file readable by the previous version.
 - Errors map to stable categories: validation, not found, conflict,
   `database-busy`/`database-locked` from SQLite primary result codes,
-  unavailable, and unknown. User-facing text remains in the existing
-  localization layer.
+  unavailable, backup/import failure, and unknown. User-facing text remains in
+  the existing localization layer.
+- Raw sqlx, serialization, and native diagnostics stay in the Rust log. The
+  stable code is the caller contract; validation, not-found, and conflict IPC
+  messages are fixed public text. Field names, row IDs, table names, SQL, and
+  driver/native diagnostics never cross the IPC boundary. `From<sqlx::Error>`
+  never copies a driver message, and there is no `From<String>` blanket
+  conversion that would let an arbitrary string become public validation text.
+- Every TypeScript boundary that renders a failure converts it through a known
+  error code or a fixed message key: agent task state, task projection, update
+  gate, MCP connection actions, data management export/import, built-in tools,
+  and settings. Raw `.message` remains only in logs, diagnostics, and provider
+  classification of upstream response bodies.
+- Built-in tools keep an explicit `ToolUserFacingError` marker for caller-safe
+  validation and policy failures; unmarked native/database/transport errors are
+  replaced with a stable generic message and logged.
 
 ## Open evidence
 
