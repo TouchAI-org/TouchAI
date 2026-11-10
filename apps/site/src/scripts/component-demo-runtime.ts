@@ -1,3 +1,7 @@
+type DemoLoadState =
+    | { phase: 'idle' | 'ready' | 'error' }
+    | { phase: 'loading'; controller: AbortController };
+
 type TouchAiHost = HTMLElement & {
     __touchaiMounted?: boolean;
     __touchaiReady?: boolean;
@@ -808,10 +812,25 @@ const mount = (id: string): TouchAiHost | null => {
 
     host.__touchaiMounted = true;
     host.dataset.touchaiMounted = 'true';
-    host.__touchaiReady = false;
+    let loadState: DemoLoadState = { phase: 'idle' };
+    const setLoadState = (next: DemoLoadState) => {
+        loadState = next;
+        host.dataset.touchaiReady = String(next.phase === 'ready');
+    };
+    Object.defineProperties(host, {
+        __touchaiReady: {
+            configurable: true,
+            enumerable: true,
+            get: () => loadState.phase === 'ready',
+        },
+        __touchaiController: {
+            configurable: true,
+            enumerable: true,
+            get: () => (loadState.phase === 'loading' ? loadState.controller : null),
+        },
+    });
     host.dataset.touchaiReady = 'false';
     host.__touchaiLoadVersion = 0;
-    host.__touchaiController = null;
     host.__touchaiMessageHandlers = new Set();
     host.__touchaiWindowHandlers = new Map();
     host.__touchaiPendingMessages = [];
@@ -824,14 +843,22 @@ const mount = (id: string): TouchAiHost | null => {
 
     const load = async () => {
         const src = host.dataset.src;
-        if (!src) return;
-
         const loadVersion = (host.__touchaiLoadVersion || 0) + 1;
         host.__touchaiLoadVersion = loadVersion;
+        const previousController = host.__touchaiController;
+        if (!src) {
+            setLoadState({ phase: 'idle' });
+            previousController?.abort();
+            host.dataset.touchaiStatus = 'idle';
+            return;
+        }
+
         const componentUrl = new URL(src, window.location.href);
         const controller = new AbortController();
-        host.__touchaiController?.abort();
-        host.__touchaiController = controller;
+        const attempt: DemoLoadState = { phase: 'loading', controller };
+        setLoadState(attempt);
+        previousController?.abort();
+        const isCurrent = () => loadState === attempt && !controller.signal.aborted;
         host.dataset.touchaiStatus = 'fetching';
         host.dataset.touchaiLoadVersion = String(loadVersion);
 
@@ -840,27 +867,34 @@ const mount = (id: string): TouchAiHost | null => {
                 cache: 'no-store',
                 signal: controller.signal,
             });
+            if (!isCurrent()) return;
             host.dataset.touchaiStatus = `fetched-${response.status}`;
             if (!response.ok) {
                 throw new Error(`Failed to fetch component: ${response.status}`);
             }
             const html = await response.text();
+            if (!isCurrent()) return;
             const doc = parseHtml(html);
             await applyDocument(host, styleNode, doc, componentUrl, loadVersion);
-            host.__touchaiReady = true;
-            host.dataset.touchaiReady = 'true';
+            if (!isCurrent()) return;
+            setLoadState({ phase: 'ready' });
             host.dataset.touchaiStatus = 'ready';
             delete host.dataset.touchaiError;
         } catch (error) {
-            if ((error as Error)?.name === 'AbortError') return;
-            host.__touchaiReady = false;
-            host.dataset.touchaiReady = 'false';
+            if (loadState !== attempt) return;
+            if (controller.signal.aborted || (error as Error)?.name === 'AbortError') {
+                setLoadState({ phase: 'idle' });
+                host.dataset.touchaiStatus = 'idle';
+                return;
+            }
+            setLoadState({ phase: 'error' });
             host.dataset.touchaiStatus = 'error';
             host.dataset.touchaiError = error instanceof Error ? error.message : String(error);
             console.error('TouchAI component mount failed:', error);
         } finally {
-            if (host.__touchaiController === controller) {
-                host.__touchaiController = null;
+            if (loadState === attempt && controller.signal.aborted) {
+                setLoadState({ phase: 'idle' });
+                host.dataset.touchaiStatus = 'idle';
             }
         }
     };
@@ -869,10 +903,7 @@ const mount = (id: string): TouchAiHost | null => {
         dispatchMessage(host, data);
     };
 
-    host.reload = async () => {
-        host.__touchaiReady = false;
-        await load();
-    };
+    host.reload = load;
 
     if (host.dataset.loading !== 'lazy') {
         void load();

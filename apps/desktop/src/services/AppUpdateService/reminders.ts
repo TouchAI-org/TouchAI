@@ -3,6 +3,7 @@ import type {
     AppUpdateNotificationPayload,
 } from '@services/NativeService/types';
 import { log } from '@services/ObservabilityService';
+import { useStateMachine } from 'reka-ui';
 
 import { getAvailableAppUpdateVersion } from './availability';
 import { isWithinAppUpdateHours } from './timing';
@@ -92,17 +93,39 @@ export class AppUpdateReminderController {
     private work = Promise.resolve();
     private unsubscribe: (() => void) | null = null;
     private unlisten: (() => void) | null = null;
-    private initialized = false;
+    private readonly lifecycle = useStateMachine('idle', {
+        idle: { initialize: 'initializing', dispose: 'disposed' },
+        initializing: { ready: 'ready', failed: 'idle', dispose: 'disposed' },
+        ready: { dispose: 'disposed' },
+        disposed: {},
+    });
+    private initializePromise: Promise<void> | null = null;
     private openingSettings = false;
-    private disposed = false;
 
     constructor(private readonly deps: AppUpdateReminderDeps) {}
 
     async initialize(): Promise<void> {
-        if (this.initialized || this.disposed) return;
+        if (this.lifecycle.state.value === 'ready' || this.isDisposed()) return;
+        if (this.initializePromise) return this.initializePromise;
 
+        this.lifecycle.dispatch('initialize');
+        this.initializePromise = this.initializeReminder();
+        try {
+            await this.initializePromise;
+        } catch (error) {
+            this.releaseSubscriptions();
+            this.lifecycle.dispatch('failed');
+            throw error;
+        } finally {
+            this.initializePromise = null;
+        }
+    }
+
+    private async initializeReminder(): Promise<void> {
         this.history = parseHistory(await this.deps.storage.load());
+        if (this.isDisposed()) return;
         const unlisten = await this.deps.notifications.listen((action) => {
+            if (this.isDisposed()) return;
             // Both native open/update actions now lead to user-confirmed update details.
             if (action.action !== 'ignore') {
                 if (this.openingSettings) return;
@@ -137,29 +160,39 @@ export class AppUpdateReminderController {
                 await this.persistHistory();
             });
         });
-        if (this.disposed) {
+        if (this.isDisposed()) {
             unlisten();
             return;
         }
 
         this.unlisten = unlisten;
-        this.initialized = true;
+        this.lifecycle.dispatch('ready');
         this.unsubscribe = this.deps.updates.subscribe(() => {
             this.enqueue(() => this.remindIfDue());
         });
     }
 
     dispose(): void {
-        this.disposed = true;
-        this.initialized = false;
-        this.unsubscribe?.();
-        this.unlisten?.();
+        this.lifecycle.dispatch('dispose');
+        this.releaseSubscriptions();
+    }
+
+    private isDisposed(): boolean {
+        return this.lifecycle.state.value === 'disposed';
+    }
+
+    private releaseSubscriptions(): void {
+        const { unsubscribe, unlisten } = this;
+        this.unsubscribe = null;
+        this.unlisten = null;
+        unsubscribe?.();
+        unlisten?.();
     }
 
     private enqueue(operation: () => Promise<void>): void {
         this.work = this.work
             .then(async () => {
-                if (!this.disposed) await operation();
+                if (!this.isDisposed()) await operation();
             })
             .catch((error) => {
                 log.warn('[AppUpdateService] Update reminder failed:', error);

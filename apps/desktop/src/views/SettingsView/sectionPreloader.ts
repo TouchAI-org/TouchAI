@@ -1,5 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { useStateMachine } from 'reka-ui';
+
 export interface SectionPreloaderOptions {
     load: (section: string) => Promise<unknown>;
     /** 调度下一次加载；默认在空闲时执行，避免与首屏交互抢主线程。 */
@@ -19,8 +21,12 @@ export function createSectionPreloader(options: SectionPreloaderOptions) {
     const loadedSections = new Set<string>();
     const inFlightSections = new Set<string>();
     const queue: string[] = [];
-    let draining = false;
-    let disposed = false;
+    const lifecycle = useStateMachine('idle', {
+        idle: { schedule: 'scheduled', dispose: 'disposed' },
+        scheduled: { start: 'loading', dispose: 'disposed' },
+        loading: { complete: 'idle', dispose: 'disposed' },
+        disposed: {},
+    });
     let cancelScheduled: (() => void) | undefined;
 
     const schedule =
@@ -45,40 +51,54 @@ export function createSectionPreloader(options: SectionPreloaderOptions) {
         });
 
     function scheduleDrain(): void {
+        if (lifecycle.state.value !== 'idle' || queue.length === 0) return;
+        lifecycle.dispatch('schedule');
         const cancel = schedule(drainQueue);
-        cancelScheduled = typeof cancel === 'function' ? cancel : undefined;
+        if (typeof cancel !== 'function') return;
+        if (isScheduled()) {
+            cancelScheduled = cancel;
+        } else if (isDisposed()) {
+            cancel();
+        }
     }
 
     function drainQueue(): void {
+        if (lifecycle.state.value !== 'scheduled') return;
         cancelScheduled = undefined;
-        if (disposed) return;
+        lifecycle.dispatch('start');
         const nextSection = queue.shift();
         if (nextSection === undefined) {
-            draining = false;
+            lifecycle.dispatch('complete');
             return;
         }
 
         inFlightSections.add(nextSection);
-        void options
-            .load(nextSection)
-            .then(() => {
-                loadedSections.add(nextSection);
-            })
-            .catch((error: unknown) => {
-                options.onError?.(nextSection, error);
-            })
-            .finally(() => {
-                inFlightSections.delete(nextSection);
-                if (!disposed && queue.length > 0) {
-                    scheduleDrain();
-                } else {
-                    draining = false;
-                }
-            });
+        void loadSection(nextSection);
+    }
+
+    async function loadSection(section: string): Promise<void> {
+        try {
+            await options.load(section);
+            loadedSections.add(section);
+        } catch (error) {
+            options.onError?.(section, error);
+        } finally {
+            inFlightSections.delete(section);
+            lifecycle.dispatch('complete');
+            scheduleDrain();
+        }
+    }
+
+    function isDisposed(): boolean {
+        return lifecycle.state.value === 'disposed';
+    }
+
+    function isScheduled(): boolean {
+        return lifecycle.state.value === 'scheduled';
     }
 
     function prefetch(section: string, prefetchOptions: { priority?: boolean } = {}): void {
-        if (disposed || loadedSections.has(section) || inFlightSections.has(section)) {
+        if (isDisposed() || loadedSections.has(section) || inFlightSections.has(section)) {
             return;
         }
 
@@ -94,21 +114,17 @@ export function createSectionPreloader(options: SectionPreloaderOptions) {
             queue.push(section);
         }
 
-        if (draining) {
-            return;
-        }
-
-        draining = true;
         scheduleDrain();
     }
 
     return {
         prefetch,
         dispose() {
-            disposed = true;
-            cancelScheduled?.();
+            lifecycle.dispatch('dispose');
+            const cancel = cancelScheduled;
             cancelScheduled = undefined;
             queue.length = 0;
+            cancel?.();
         },
         isLoaded: (section: string) => loadedSections.has(section),
         pendingCount: () => queue.length + inFlightSections.size,

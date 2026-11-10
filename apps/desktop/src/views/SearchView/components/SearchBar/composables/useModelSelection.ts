@@ -1,6 +1,7 @@
 import { findModelsWithProvider } from '@database/queries';
 import type { ModelWithProvider } from '@database/queries/models';
 import { log } from '@services/ObservabilityService';
+import { useStateMachine } from 'reka-ui';
 import { computed, onMounted, type Ref, ref, watch } from 'vue';
 
 import { aiService } from '@/services/AgentService';
@@ -25,6 +26,17 @@ export interface UseModelSelectionDeps {
     getActiveModel: () => Promise<ModelWithProvider | null>;
     findModelByOverride: (override: SearchModelOverride) => Promise<ModelWithProvider | null>;
 }
+
+const DROPDOWN_MODELS_LIFECYCLE = {
+    pending: { complete: 'ready', fail: 'failed', invalidate: 'invalidated' },
+    ready: { invalidate: 'invalidated' },
+    failed: { invalidate: 'invalidated' },
+    invalidated: {},
+} as const;
+
+type DropdownModelsLoad = ReturnType<typeof useStateMachine<typeof DROPDOWN_MODELS_LIFECYCLE>> & {
+    promise: Promise<ModelWithProvider[]> | null;
+};
 
 const DEFAULT_DEPS: UseModelSelectionDeps = {
     findModels: () => findModelsWithProvider(),
@@ -62,8 +74,7 @@ export function useModelSelection(
     const hasResolvedActiveModel = ref(false);
     const resolvedOverrideModel = ref<ModelWithProvider | null>(null);
     const availableModels = ref<ModelWithProvider[]>([]);
-    let hasLoadedDropdownModels = false;
-    let dropdownModelsLoadPromise: Promise<ModelWithProvider[]> | null = null;
+    let dropdownModelsLoad: DropdownModelsLoad | null = null;
     let resolveOverrideRequestId = 0;
 
     const selectedModel = computed(() => {
@@ -185,35 +196,42 @@ export function useModelSelection(
      * @returns 当前可用的模型列表。
      */
     async function loadDropdownModels(): Promise<ModelWithProvider[]> {
-        if (hasLoadedDropdownModels) {
+        if (dropdownModelsLoad?.state.value === 'ready') {
             return availableModels.value;
         }
 
-        if (dropdownModelsLoadPromise) {
-            return dropdownModelsLoadPromise;
+        if (dropdownModelsLoad?.state.value === 'pending') {
+            return dropdownModelsLoad.promise!;
         }
 
-        dropdownModelsLoadPromise = (async () => {
+        const load: DropdownModelsLoad = {
+            ...useStateMachine('pending', DROPDOWN_MODELS_LIFECYCLE),
+            promise: null,
+        };
+        dropdownModelsLoad = load;
+        load.promise = (async () => {
             try {
                 const models = await deps.findModels();
-                availableModels.value = models;
-                hasLoadedDropdownModels = true;
+                if (load.state.value !== 'invalidated') {
+                    availableModels.value = models;
+                    load.dispatch('complete');
+                }
                 return models;
             } catch (error) {
                 log.error('[SearchBar] Failed to load popup models:', error);
-                availableModels.value = [];
+                if (load.state.value !== 'invalidated') {
+                    availableModels.value = [];
+                    load.dispatch('fail');
+                }
                 return [];
-            } finally {
-                dropdownModelsLoadPromise = null;
             }
         })();
 
-        return dropdownModelsLoadPromise;
+        return load.promise;
     }
 
     function invalidateDropdownModels() {
-        hasLoadedDropdownModels = false;
-        dropdownModelsLoadPromise = null;
+        dropdownModelsLoad?.dispatch('invalidate');
     }
 
     /**

@@ -14,6 +14,7 @@
     import { log } from '@services/ObservabilityService';
     import { getCurrentWindow } from '@tauri-apps/api/window';
     import { storeToRefs } from 'pinia';
+    import { useStateMachine } from 'reka-ui';
     import { computed, nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
     import type { SearchKeybindingActionId } from '@/config/searchKeybindings';
@@ -208,13 +209,25 @@
     let pendingOverlayFocus: ActiveSearchOverlay = 'none';
     let pendingOverlayFocusEpoch = 0;
     let overlayIntentEpoch = 0;
-    let pendingModelOpen = false;
+    let pendingModelOpenEpoch: number | null = null;
     const modelDropdownQuery = ref('');
     const quickSearchOpen = ref(false);
     // Keep QuickSearch mounted while a submitted query hands the surface to the
     // conversation panel. The shell then collapses in CSS instead of disappearing.
-    const quickSearchHandoff = ref(false);
-    const quickSearchHandoffClosing = ref(false);
+    const quickSearchHandoffLifecycle = useStateMachine('idle', {
+        idle: { begin: 'holding', dispose: 'disposed' },
+        holding: { close: 'closing', finish: 'idle', dispose: 'disposed' },
+        closing: { finish: 'idle', dispose: 'disposed' },
+        disposed: {},
+    });
+    const quickSearchHandoff = computed(
+        () =>
+            quickSearchHandoffLifecycle.state.value === 'holding' ||
+            quickSearchHandoffLifecycle.state.value === 'closing'
+    );
+    const quickSearchHandoffClosing = computed(
+        () => quickSearchHandoffLifecycle.state.value === 'closing'
+    );
     const quickSearchPanel = ref<QuickSearchHandle>();
     const quickSearchHandoffShell = ref<HTMLElement | null>(null);
     type QuickSearchRevealPhase = 'idle' | 'measuring' | 'open' | 'folding' | 'handoff';
@@ -364,6 +377,7 @@
 
     function beginOverlayIntent() {
         overlayIntentEpoch += 1;
+        pendingModelOpenEpoch = null;
         return overlayIntentEpoch;
     }
 
@@ -1038,7 +1052,6 @@
         surfaceHiding.value = true;
         cancelSessionExpansion();
         beginOverlayIntent();
-        pendingModelOpen = false;
         clearPendingOverlayFocus();
         try {
             await hideSearchWindowBase();
@@ -1156,8 +1169,7 @@
         if (quickSearchHandoff.value) {
             quickSearchPanel.value?.close();
             finalizeQuickSearchClose();
-            quickSearchHandoff.value = false;
-            quickSearchHandoffClosing.value = false;
+            quickSearchHandoffLifecycle.dispatch('finish');
         }
     }
 
@@ -1208,7 +1220,7 @@
 
     async function startQuickSearchHandoffClose(signal: AbortSignal) {
         if (signal.aborted || !quickSearchHandoff.value || quickSearchHandoffClosing.value) return;
-        quickSearchHandoffClosing.value = true;
+        quickSearchHandoffLifecycle.dispatch('close');
         // Freeze measurement for the fold. The results row keeps its place while it
         // collapses and the conversation grows into the space it gives up, so the
         // live height loop would otherwise chase both.
@@ -1233,8 +1245,7 @@
         finalizeQuickSearchClose();
         await nextTick();
         if (signal.aborted) return;
-        quickSearchHandoffClosing.value = false;
-        quickSearchHandoff.value = false;
+        quickSearchHandoffLifecycle.dispatch('finish');
     }
 
     async function submitSearchQuery(
@@ -1245,8 +1256,7 @@
         const expansion = shouldExpand || quickSearchWasOpen ? beginSessionExpansion() : null;
 
         if (quickSearchWasOpen) {
-            quickSearchHandoff.value = true;
-            quickSearchHandoffClosing.value = false;
+            quickSearchHandoffLifecycle.dispatch('begin');
         }
         try {
             if (shouldExpand) {
@@ -1716,14 +1726,17 @@
         overlayRegionElement.value = null;
     }
 
+    function clearPendingModelOpen(intentEpoch: number) {
+        if (pendingModelOpenEpoch === intentEpoch) pendingModelOpenEpoch = null;
+    }
+
     async function handleToggleModelDropdownRequest() {
         if (surfaceHiding.value || searchViewListenersDisposed) return;
-        if (pendingModelOpen) {
+        if (pendingModelOpenEpoch !== null) {
             // A second toggle while the model data is still loading means
             // "cancel the pending open". Invalidate the first intent without
             // starting another asynchronous load.
             beginOverlayIntent();
-            pendingModelOpen = false;
             return;
         }
 
@@ -1734,49 +1747,46 @@
             return;
         }
 
-        pendingModelOpen = true;
-        // The picker layers over the results list instead of dismissing it: the list is what the
-        // user was reading, and collapsing it to show a popup makes the surface collapse and grow
-        // again for something that only hangs above it.
-        await closeSessionHistoryOverlayForIntent(intentEpoch, false);
-        if (!isOverlayIntentCurrent(intentEpoch)) {
-            pendingModelOpen = false;
-            return;
-        }
-        await controller.prepareModelDropdownOpen();
-        if (!isOverlayIntentCurrent(intentEpoch)) {
-            pendingModelOpen = false;
-            return;
-        }
-        overlayAnchorElement.value = controller.getModelDropdownAnchor();
-        // The picker belongs to the editor row, including its padding, in every surface mode.
-        overlayPositionAnchorElement.value =
-            overlayAnchorElement.value?.closest<HTMLElement>('[data-testid="search-bar"]') ??
-            pageContent.value ??
-            overlayAnchorElement.value;
-        if (quickSearchOpen.value) {
-            // A popup opened over the results list covers it: the slot's left edge is the surface's and
-            // its top edge is the list's first row, which is the search box's bottom.
-            alignOverlayToResultsSlot(true);
+        pendingModelOpenEpoch = intentEpoch;
+        try {
+            // The picker layers over the results list instead of dismissing it: the list is what the
+            // user was reading, and collapsing it to show a popup makes the surface collapse and grow
+            // again for something that only hangs above it.
+            await closeSessionHistoryOverlayForIntent(intentEpoch, false);
+            if (!isOverlayIntentCurrent(intentEpoch)) return;
+            await controller.prepareModelDropdownOpen();
+            if (!isOverlayIntentCurrent(intentEpoch)) return;
+            overlayAnchorElement.value = controller.getModelDropdownAnchor();
+            // The picker belongs to the editor row, including its padding, in every surface mode.
             overlayPositionAnchorElement.value =
-                overlayLeftAlignElement.value ??
-                document.querySelector<HTMLElement>("[data-testid='search-bar']") ??
-                overlayPositionAnchorElement.value;
-        } else {
-            alignOverlayToResultsSlot(false);
+                overlayAnchorElement.value?.closest<HTMLElement>('[data-testid="search-bar"]') ??
+                pageContent.value ??
+                overlayAnchorElement.value;
+            if (quickSearchOpen.value) {
+                // A popup opened over the results list covers it: the slot's left edge is the surface's and
+                // its top edge is the list's first row, which is the search box's bottom.
+                alignOverlayToResultsSlot(true);
+                overlayPositionAnchorElement.value =
+                    overlayLeftAlignElement.value ??
+                    document.querySelector<HTMLElement>("[data-testid='search-bar']") ??
+                    overlayPositionAnchorElement.value;
+            } else {
+                alignOverlayToResultsSlot(false);
+            }
+            if (!overlayAnchorElement.value || !overlayPositionAnchorElement.value) {
+                return;
+            }
+            modelDropdownState.value = { isOpen: true };
+            renderedOverlay.value = 'model-dropdown';
+            overlayPositionReady.value = false;
+            overlaySettleEpoch += 1;
+            activeOverlay.value = 'model-dropdown';
+            clearPendingModelOpen(intentEpoch);
+            await focusActiveOverlay(intentEpoch);
+            if (!isOverlayIntentCurrent(intentEpoch)) return;
+        } finally {
+            clearPendingModelOpen(intentEpoch);
         }
-        if (!overlayAnchorElement.value || !overlayPositionAnchorElement.value) {
-            pendingModelOpen = false;
-            return;
-        }
-        modelDropdownState.value = { isOpen: true };
-        renderedOverlay.value = 'model-dropdown';
-        overlayPositionReady.value = false;
-        overlaySettleEpoch += 1;
-        activeOverlay.value = 'model-dropdown';
-        pendingModelOpen = false;
-        await focusActiveOverlay(intentEpoch);
-        if (!isOverlayIntentCurrent(intentEpoch)) return;
     }
 
     async function openHistoryDialog() {
@@ -2513,6 +2523,7 @@
 
     onUnmounted(() => {
         cancelSessionExpansion();
+        quickSearchHandoffLifecycle.dispatch('dispose');
         beginOverlayIntent();
         clearPendingOverlayFocus();
         searchViewListenersDisposed = true;

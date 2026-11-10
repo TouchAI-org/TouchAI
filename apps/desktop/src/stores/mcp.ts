@@ -6,7 +6,8 @@ import { AppEvent, eventService, type McpServerStatus } from '@services/EventSer
 import { error as obsError, log } from '@services/ObservabilityService';
 import { ATTR } from '@services/ObservabilityService/attributes';
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { useStateMachine } from 'reka-ui';
+import { computed, onScopeDispose, ref } from 'vue';
 
 import { mcpManager } from '@/services/AgentService/infrastructure/mcp';
 
@@ -16,8 +17,32 @@ export const useMcpStore = defineStore('mcp', () => {
     const statuses = ref<Record<number, McpServerStatus>>({});
     const errors = ref<Record<number, string | null>>({});
     const tools = ref<Record<number, McpToolEntity[]>>({});
-    const initialized = ref(false);
-    const loading = ref(false);
+    const lifecycle = useStateMachine('idle', {
+        idle: { initialize: 'initializing', dispose: 'disposed' },
+        initializing: { ready: 'ready', failed: 'idle', dispose: 'disposed' },
+        ready: { dispose: 'disposed' },
+        disposed: {},
+    });
+    const initialized = computed(() => lifecycle.state.value === 'ready');
+    const pendingReads = ref(0);
+    const loading = computed(() => pendingReads.value > 0);
+    let initializePromise: Promise<void> | null = null;
+    let unlistenStatus: (() => void) | null = null;
+
+    function isDisposed(): boolean {
+        return lifecycle.state.value === 'disposed';
+    }
+
+    function releaseSubscription() {
+        const unlisten = unlistenStatus;
+        unlistenStatus = null;
+        unlisten?.();
+    }
+
+    onScopeDispose(() => {
+        lifecycle.dispatch('dispose');
+        releaseSubscription();
+    });
 
     // 计算属性
     const enabledServers = computed(() => servers.value.filter((s) => s.enabled));
@@ -49,21 +74,24 @@ export const useMcpStore = defineStore('mcp', () => {
     // 操作
     async function loadServers() {
         try {
-            loading.value = true;
-            servers.value = await findAllMcpServers();
+            pendingReads.value += 1;
+            const loaded = await findAllMcpServers();
+            if (isDisposed()) return;
+            servers.value = loaded;
             errors.value = Object.fromEntries(
                 servers.value.map((server) => [server.id, server.last_error])
             );
         } catch (error) {
             log.error('[McpStore] Failed to load servers:', error);
         } finally {
-            loading.value = false;
+            pendingReads.value -= 1;
         }
     }
 
     async function loadServerTools(serverId: number) {
         try {
-            tools.value[serverId] = await findMcpToolsByServerId(serverId);
+            const loaded = await findMcpToolsByServerId(serverId);
+            if (!isDisposed()) tools.value[serverId] = loaded;
         } catch (error) {
             log.error(`[McpStore] Failed to load tools for server ${serverId}:`, error);
         }
@@ -78,9 +106,25 @@ export const useMcpStore = defineStore('mcp', () => {
     }
 
     async function initialize() {
-        if (initialized.value) return;
+        if (initialized.value || isDisposed()) return;
+        if (initializePromise) return initializePromise;
 
+        lifecycle.dispatch('initialize');
+        initializePromise = initializeStore();
+        try {
+            await initializePromise;
+        } catch (error) {
+            releaseSubscription();
+            lifecycle.dispatch('failed');
+            throw error;
+        } finally {
+            initializePromise = null;
+        }
+    }
+
+    async function initializeStore() {
         await loadServers();
+        if (isDisposed()) return;
 
         // 首先将所有服务器初始化为 'disconnected' 状态
         // 真实状态会在 autoConnect 完成后通过 MCP_STATUS 事件更新
@@ -92,7 +136,8 @@ export const useMcpStore = defineStore('mcp', () => {
         // 监听 MCP_STATUS 事件以实现跨窗口状态同步
         // 当一个窗口中的服务器连接/断开时，所有窗口都需要反映相同的状态
         // 事件系统处理这种广播
-        await eventService.on(AppEvent.MCP_STATUS, (event) => {
+        const unlisten = await eventService.on(AppEvent.MCP_STATUS, (event) => {
+            if (isDisposed()) return;
             const previousStatus = statuses.value[event.serverId];
             setServerStatus(event.serverId, event.status);
             setServerError(event.serverId, event.error ?? null);
@@ -112,12 +157,17 @@ export const useMcpStore = defineStore('mcp', () => {
                 loadServerTools(event.serverId);
             }
         });
+        if (isDisposed()) {
+            unlisten();
+            return;
+        }
+        unlistenStatus = unlisten;
 
         // 从 Rust 后端批量刷新所有服务器状态
         // 这确保我们获得真实的连接状态，而不仅仅是数据库状态
         await mcpManager.refreshAllServerStatuses();
 
-        initialized.value = true;
+        lifecycle.dispatch('ready');
     }
 
     return {

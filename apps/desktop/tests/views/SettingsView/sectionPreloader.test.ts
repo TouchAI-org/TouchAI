@@ -11,6 +11,55 @@ function deferred() {
 }
 
 describe('createSectionPreloader', () => {
+    it('user encounters a synchronous import failure and the next section still loads', async () => {
+        const errors: string[] = [];
+        const preloader = createSectionPreloader({
+            load: (section) => {
+                if (section === 'broken') throw new Error('import unavailable');
+                return Promise.resolve();
+            },
+            schedule: (run) => run(),
+            onError: (section) => {
+                errors.push(section);
+            },
+        });
+
+        expect(() => preloader.prefetch('broken')).not.toThrow();
+        preloader.prefetch('healthy');
+        for (let index = 0; index < 10; index += 1) await Promise.resolve();
+
+        expect(errors).toEqual(['broken']);
+        expect(preloader.isLoaded('healthy')).toBe(true);
+        expect(preloader.pendingCount()).toBe(0);
+    });
+
+    it('user closes during a synchronously scheduled import and only pending work is cancelled', async () => {
+        const loading = deferred();
+        const cancel = vi.fn();
+        const imported: string[] = [];
+        const preloader = createSectionPreloader({
+            load: async (section) => {
+                imported.push(section);
+                await loading.promise;
+            },
+            schedule: (run) => {
+                run();
+                return cancel;
+            },
+        });
+        preloader.prefetch('active');
+        preloader.prefetch('queued');
+
+        preloader.dispose();
+        preloader.dispose();
+        loading.resolve();
+        for (let index = 0; index < 10; index += 1) await Promise.resolve();
+
+        expect(cancel).not.toHaveBeenCalled();
+        expect(imported).toEqual(['active']);
+        expect(preloader.pendingCount()).toBe(0);
+    });
+
     it('loads each section once and deduplicates repeats', async () => {
         const load = vi.fn(async () => undefined);
         const preloader = createSectionPreloader({ load, schedule: (run) => run() });

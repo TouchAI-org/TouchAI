@@ -1,12 +1,14 @@
 import { mount } from '@vue/test-utils';
 import { motion } from 'motion-v';
-import { createPinia } from 'pinia';
+import { createPinia, disposePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, nextTick, ref } from 'vue';
 
 import App from '@/App.vue';
 import { useMotion } from '@/composables/useMotion';
 import { useSettingsStore } from '@/stores/settings';
+
+import { mockTauriCommand } from '../utils/tauri';
 
 // motion-v captures the frame scheduler on import. Keep the real animation engine,
 // while controlling its clock and frames instead of waiting for wall-clock animation.
@@ -26,6 +28,7 @@ const { frames } = vi.hoisted(() => {
 vi.mock('@components/AppUpdateRequiredGate.vue', () => ({ default: { render: () => null } }));
 
 let wrapper: ReturnType<typeof mount> | undefined;
+let pinia: ReturnType<typeof createPinia> | undefined;
 let clock = 0;
 let systemReduced = false;
 const listeners = new Set<(event: { matches: boolean }) => void>();
@@ -46,6 +49,8 @@ beforeEach(() => {
 afterEach(async () => {
     wrapper?.unmount();
     wrapper = undefined;
+    if (pinia) disposePinia(pinia);
+    pinia = undefined;
     await paint(20);
     listeners.clear();
     systemReduced = false;
@@ -74,9 +79,10 @@ describe('user recovers motion without reopening a surface', () => {
     it.each(['automatic', 'system'] as const)(
         'user animates an element mounted during %s reduction after recovery',
         async (mode) => {
-            const pinia = createPinia();
+            pinia = createPinia();
             const store = useSettingsStore(pinia);
-            store.initialized = true;
+            mockTauriCommand('database_query', { rows: [], rowsAffected: 0, lastInsertId: null });
+            await store.initialize();
             store.settings.automaticallyReduceMotion = mode === 'automatic';
             systemReduced = mode === 'system';
             const shown = ref(false);

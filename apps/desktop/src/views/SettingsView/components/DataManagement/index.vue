@@ -21,6 +21,7 @@
     import { MetaKey, StatisticKey } from '@database/schema';
     import { log } from '@services/ObservabilityService';
     import { relaunch } from '@tauri-apps/plugin-process';
+    import { useStateMachine } from 'reka-ui';
     import { computed, onMounted, onUnmounted, ref } from 'vue';
 
     import { t, tt } from '@/i18n';
@@ -51,12 +52,30 @@
     });
 
     // Dialog states
-    const showImportModeDialog = ref(false);
-    const isImportModeDialogMounted = ref(false);
+    const DIALOG_LIFECYCLE = {
+        closed: { open: 'open', dispose: 'disposed' },
+        open: { close: 'closing', dispose: 'disposed' },
+        closing: { open: 'open', closed: 'closed', dispose: 'disposed' },
+        disposed: {},
+    } as const;
+    const importDialog = useStateMachine('closed', DIALOG_LIFECYCLE);
+    const showImportModeDialog = computed({
+        get: () => importDialog.state.value === 'open',
+        set: (open: boolean) => importDialog.dispatch(open ? 'open' : 'close'),
+    });
+    const isImportModeDialogMounted = computed(
+        () => importDialog.state.value === 'open' || importDialog.state.value === 'closing'
+    );
 
     // Progress Dialog states
-    const showProgressDialog = ref(false);
-    const isProgressDialogMounted = ref(false);
+    const progressDialog = useStateMachine('closed', DIALOG_LIFECYCLE);
+    const showProgressDialog = computed({
+        get: () => progressDialog.state.value === 'open',
+        set: (open: boolean) => progressDialog.dispatch(open ? 'open' : 'close'),
+    });
+    const isProgressDialogMounted = computed(
+        () => progressDialog.state.value === 'open' || progressDialog.state.value === 'closing'
+    );
     const progressTitle = ref('');
     const progressMessage = ref('');
     const progressValue = ref(0);
@@ -147,6 +166,8 @@
     });
 
     onUnmounted(() => {
+        importDialog.dispatch('dispose');
+        progressDialog.dispatch('dispose');
         if (countdownTimer) {
             clearInterval(countdownTimer);
             countdownTimer = null;
@@ -233,7 +254,6 @@
 
             const exportedPath = await databaseBackup.exportDatabase((msg, prog) => {
                 if (!showProgressDialog.value) {
-                    isProgressDialogMounted.value = true;
                     showProgressDialog.value = true;
                 }
                 updateProgress(msg, prog);
@@ -256,16 +276,15 @@
     };
 
     const openImportModeDialog = () => {
-        isImportModeDialogMounted.value = true;
         showImportModeDialog.value = true;
     };
 
     const handleImportModeDialogClosed = () => {
-        if (!showImportModeDialog.value) isImportModeDialogMounted.value = false;
+        importDialog.dispatch('closed');
     };
 
     const handleProgressDialogClosed = () => {
-        if (!showProgressDialog.value) isProgressDialogMounted.value = false;
+        progressDialog.dispatch('closed');
     };
 
     const startRestartCountdown = async () => {
@@ -303,7 +322,6 @@
 
             const result = await databaseBackup.importDatabase(mode, (msg, prog) => {
                 if (!showProgressDialog.value) {
-                    isProgressDialogMounted.value = true;
                     showProgressDialog.value = true;
                 }
                 updateProgress(msg, prog);

@@ -11,6 +11,7 @@ import { AppEvent, eventService } from '@services/EventService';
 import { native } from '@services/NativeService';
 import { log } from '@services/ObservabilityService';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { useStateMachine } from 'reka-ui';
 
 import type { AppUpdateChannel } from '@/config/appUpdate';
 import { useSettingsStore } from '@/stores/settings';
@@ -65,6 +66,18 @@ interface AppUpdateControllerDeps {
 }
 
 type StateListener = (state: AppUpdateState) => void;
+
+const INITIALIZATION_LIFECYCLE = {
+    pending: { ready: 'ready', dispose: 'disposed' },
+    ready: { dispose: 'disposed' },
+    disposed: {},
+} as const;
+
+type UpdateInitialization = ReturnType<typeof useStateMachine<typeof INITIALIZATION_LIFECYCLE>> & {
+    promise: Promise<void> | null;
+    unlistenProgress: UnlistenFn | null;
+    unlistenCheckEvents: UnlistenFn | null;
+};
 
 /**
  * Update lifecycle analytics. Injected so the controller stays testable and so
@@ -121,8 +134,7 @@ export class AppUpdateController {
     private readonly analytics: AppUpdateAnalytics;
     private readonly now: () => string;
     private readonly checkEvents: AppUpdateControllerDeps['checkEvents'];
-    private initialized = false;
-    private initializePromise: Promise<void> | null = null;
+    private initialization: UpdateInitialization | null = null;
     private checkPromise: Promise<boolean> | null = null;
     private downloadPromise: Promise<boolean> | null = null;
     private installPromise: Promise<boolean> | null = null;
@@ -132,8 +144,6 @@ export class AppUpdateController {
     private updateOperation: UpdateOperation | null = null;
     private updateOperationId: string | null = null;
     private updateSource: UpdateSource = 'user';
-    private unlistenProgress: UnlistenFn | null = null;
-    private unlistenCheckEvents: UnlistenFn | null = null;
 
     constructor(deps: AppUpdateControllerDeps) {
         this.native = deps.native;
@@ -156,38 +166,60 @@ export class AppUpdateController {
     }
 
     async initialize(): Promise<void> {
-        if (this.initialized) {
+        if (this.initialization?.state.value === 'ready') {
             return;
         }
 
-        if (this.initializePromise) {
-            return this.initializePromise;
+        if (this.initialization?.state.value === 'pending') {
+            return this.initialization.promise!;
         }
 
-        this.initializePromise = this.initializeController();
+        const initialization: UpdateInitialization = {
+            ...useStateMachine('pending', INITIALIZATION_LIFECYCLE),
+            promise: null,
+            unlistenProgress: null,
+            unlistenCheckEvents: null,
+        };
+        this.initialization = initialization;
+        initialization.promise = this.initializeController(initialization);
+        return initialization.promise;
+    }
+
+    private async initializeController(initialization: UpdateInitialization): Promise<void> {
         try {
-            await this.initializePromise;
-        } finally {
-            this.initializePromise = null;
+            await this.settings.initialize();
+            if (!this.isInitializationActive(initialization)) return;
+            this.syncSettings();
+            if (!this.isInitializationActive(initialization)) return;
+            await Promise.all([
+                this.listenForProgress(initialization),
+                this.listenForCheckResults(initialization),
+            ]);
+            initialization.dispatch('ready');
+        } catch (error) {
+            this.releaseInitialization(initialization);
+            throw error;
         }
     }
 
-    private async initializeController(): Promise<void> {
-        await this.settings.initialize();
-        this.syncSettings();
-        await Promise.all([this.listenForProgress(), this.listenForCheckResults()]);
-        this.initialized = true;
+    private isInitializationActive(initialization: UpdateInitialization): boolean {
+        return initialization.state.value !== 'disposed';
+    }
+
+    private releaseInitialization(initialization: UpdateInitialization): void {
+        initialization.dispatch('dispose');
+        const { unlistenProgress, unlistenCheckEvents } = initialization;
+        initialization.unlistenProgress = null;
+        initialization.unlistenCheckEvents = null;
+        unlistenProgress?.();
+        unlistenCheckEvents?.();
     }
 
     async dispose(): Promise<void> {
         this.releaseUpdateOperation();
-        if (this.unlistenProgress) {
-            this.unlistenProgress();
-            this.unlistenProgress = null;
+        if (this.initialization) {
+            this.releaseInitialization(this.initialization);
         }
-        this.unlistenCheckEvents?.();
-        this.unlistenCheckEvents = null;
-        this.initialized = false;
     }
 
     async setAutoCheckEnabled(enabled: boolean): Promise<void> {
@@ -537,28 +569,31 @@ export class AppUpdateController {
         }
     }
 
-    private async listenForProgress(): Promise<void> {
-        if (this.unlistenProgress) {
-            return;
-        }
-
+    private async listenForProgress(initialization: UpdateInitialization): Promise<void> {
         try {
-            this.unlistenProgress = await listen<number>('updater://download-progress', (event) => {
+            const unlisten = await listen<number>('updater://download-progress', (event) => {
+                if (!this.isInitializationActive(initialization)) return;
                 this.commit({ type: 'download-progress', progress: event.payload });
             });
+            if (!this.isInitializationActive(initialization)) {
+                unlisten();
+                return;
+            }
+            initialization.unlistenProgress = unlisten;
         } catch (error) {
             log.warn('[AppUpdateService] Failed to listen for update progress:', error);
         }
     }
 
-    private async listenForCheckResults(): Promise<void> {
-        if (!this.checkEvents || this.unlistenCheckEvents) {
+    private async listenForCheckResults(initialization: UpdateInitialization): Promise<void> {
+        if (!this.checkEvents) {
             return;
         }
 
         try {
-            this.unlistenCheckEvents = await this.checkEvents.listen((result, checkedAt) => {
+            const unlisten = await this.checkEvents.listen((result, checkedAt) => {
                 if (
+                    !this.isInitializationActive(initialization) ||
                     result.channel !== this.settings.getChannel() ||
                     this.checkPromise ||
                     (parseTime(checkedAt) ?? 0) < (parseTime(this.state.lastCheckedAt) ?? 0) ||
@@ -574,6 +609,11 @@ export class AppUpdateController {
                     checkedAt,
                 });
             });
+            if (!this.isInitializationActive(initialization)) {
+                unlisten();
+                return;
+            }
+            initialization.unlistenCheckEvents = unlisten;
         } catch (error) {
             log.warn('[AppUpdateService] Failed to listen for update checks:', error);
         }
