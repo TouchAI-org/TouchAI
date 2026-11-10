@@ -47,16 +47,15 @@ function stepBlock(job, name) {
     return next === -1 ? job.slice(start) : job.slice(start, start + 1 + next);
 }
 
-function concurrencyGroup() {
-    const match = /concurrency:\n(?: {4}.*\n)*? {4}group: (.+)\n/.exec(workflow);
+function concurrencyField(name) {
+    const match = new RegExp(`concurrency:\\n(?: {4}.*\\n)*? {4}${name}: (.+)\\n`).exec(workflow);
 
     expect(match).not.toBeNull();
 
     return match[1];
 }
 
-function concurrencyKey(eventName, event, actor = 'maintainer') {
-    const group = concurrencyGroup();
+function evaluateConcurrency(value, eventName, event, actor) {
     const values = {
         github: {
             actor,
@@ -65,15 +64,22 @@ function concurrencyKey(eventName, event, actor = 'maintainer') {
         },
         inputs: {},
     };
-    const expression = group.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, source) => {
+
+    return value.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, source) => {
         const tokens = new Lexer(source.trim()).lex().tokens;
         const ast = new Parser(tokens, Object.keys(values), []).parse();
         const context = JSON.parse(JSON.stringify(values), data.reviver);
 
         return new Evaluator(ast, context).evaluate().coerceString();
     });
+}
 
-    return expression;
+function concurrencyKey(eventName, event, actor = 'maintainer') {
+    return evaluateConcurrency(concurrencyField('group'), eventName, event, actor);
+}
+
+function cancelsInProgress(eventName, event, actor = 'maintainer') {
+    return evaluateConcurrency(concurrencyField('cancel-in-progress'), eventName, event, actor);
 }
 
 describe('user opens a pull request that runs the preview', () => {
@@ -82,9 +88,15 @@ describe('user opens a pull request that runs the preview', () => {
         expect(workflow).toContain('permissions: {}');
     });
 
-    it('user gets a superseded run cancelled instead of queued', () => {
-        expect(workflow).toContain('cancel-in-progress: true');
+    it('user gets a superseded preview cancelled instead of queued', () => {
+        expect(workflow).toContain('cancel-in-progress: ${{');
         expect(workflow).toContain('ui-preview-${{');
+        expect(
+            cancelsInProgress('pull_request_target', {
+                action: 'synchronize',
+                pull_request: { number: 42 },
+            })
+        ).toBe('true');
     });
 
     it('user gets the preview run preserved when the App adds its approval label', () => {
@@ -99,6 +111,17 @@ describe('user opens a pull request that runs the preview', () => {
         );
 
         expect(key).toBe('ui-preview-42-approval');
+        expect(
+            cancelsInProgress(
+                'pull_request_target',
+                {
+                    action: 'labeled',
+                    label: { name: 'status:ui-preview-approved' },
+                    pull_request: { number: 42 },
+                },
+                'touchai-preview[bot]'
+            )
+        ).toBe('true');
     });
 
     it.each([
@@ -122,6 +145,16 @@ describe('user opens a pull request that runs the preview', () => {
 
             expect(comment).toBe('ui-preview-42-comment');
             expect(comment).not.toBe(active);
+            expect(
+                cancelsInProgress(
+                    eventName,
+                    {
+                        comment: { body: '@coderabbitai review' },
+                        issue: { number: 42, pull_request: {} },
+                    },
+                    actor
+                )
+            ).toBe('true');
         }
     );
 
@@ -138,9 +171,16 @@ describe('user opens a pull request that runs the preview', () => {
 
         expect(label).toBe('ui-preview-42-label');
         expect(label).not.toBe(active);
+        expect(
+            cancelsInProgress('pull_request_target', {
+                action: 'labeled',
+                label: { name: 'documentation' },
+                pull_request: { number: 42 },
+            })
+        ).toBe('true');
     });
 
-    it('user gets a human-applied gated label kept outside the active preview group', () => {
+    it('user gets a human-applied gated label queued after the active preview', () => {
         const active = concurrencyKey('pull_request_target', {
             action: 'synchronize',
             pull_request: { number: 42 },
@@ -151,8 +191,62 @@ describe('user opens a pull request that runs the preview', () => {
             pull_request: { number: 42 },
         });
 
-        expect(labelled).toBe('ui-preview-42-human-label');
-        expect(labelled).not.toBe(active);
+        expect(labelled).toBe(active);
+        expect(
+            cancelsInProgress('pull_request_target', {
+                action: 'labeled',
+                label: { name: 'status:ui-preview-approved' },
+                pull_request: { number: 42 },
+            })
+        ).toBe('false');
+    });
+
+    it('user gets an untrusted gated label queued instead of cancelling a maintainer preview', () => {
+        const key = concurrencyKey('pull_request_target', {
+            action: 'labeled',
+            label: { name: 'ui-preview' },
+            pull_request: { number: 42 },
+        });
+
+        expect(key).toBe('ui-preview-42-run');
+        expect(
+            cancelsInProgress('pull_request_target', {
+                action: 'labeled',
+                label: { name: 'ui-preview' },
+                pull_request: { number: 42 },
+            })
+        ).toBe('false');
+    });
+
+    it('user gets an untrusted unlabeled event that neither cancels nor drops a preview', () => {
+        const unlabelled = concurrencyKey('pull_request_target', {
+            action: 'unlabeled',
+            label: { name: 'status:ui-preview-skip' },
+            pull_request: { number: 42 },
+        });
+
+        expect(unlabelled).toBe('ui-preview-42-run');
+        expect(
+            cancelsInProgress('pull_request_target', {
+                action: 'unlabeled',
+                label: { name: 'status:ui-preview-skip' },
+                pull_request: { number: 42 },
+            })
+        ).toBe('false');
+    });
+
+    it('user gets the App removing an invalid gated label kept outside the preview group', () => {
+        const key = concurrencyKey(
+            'pull_request_target',
+            {
+                action: 'unlabeled',
+                label: { name: 'ui-preview' },
+                pull_request: { number: 42 },
+            },
+            'touchai-preview[bot]'
+        );
+
+        expect(key).toBe('ui-preview-42-approval');
     });
 
     it('user gets a real preview request superseding the previous run', () => {
@@ -171,6 +265,16 @@ describe('user opens a pull request that runs the preview', () => {
 
         expect(comment).toBe('ui-preview-42-run');
         expect(comment).toBe(active);
+        expect(
+            cancelsInProgress(
+                'issue_comment',
+                {
+                    comment: { body: '/ui-preview', author_association: 'MEMBER' },
+                    issue: { number: 42, pull_request: {} },
+                },
+                'maintainer'
+            )
+        ).toBe('true');
     });
 
     it('user gets an untrusted preview command kept outside the active preview group', () => {
@@ -189,6 +293,16 @@ describe('user opens a pull request that runs the preview', () => {
 
         expect(comment).toBe('ui-preview-42-untrusted-comment');
         expect(comment).not.toBe(active);
+        expect(
+            cancelsInProgress(
+                'issue_comment',
+                {
+                    comment: { body: '/ui-preview', author_association: 'CONTRIBUTOR' },
+                    issue: { number: 42, pull_request: {} },
+                },
+                'outside-contributor'
+            )
+        ).toBe('true');
     });
 
     it('user gets a preview from another pull request kept apart', () => {

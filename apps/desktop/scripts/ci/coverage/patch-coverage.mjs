@@ -112,6 +112,10 @@ function hasStatementOn(fileCoverage, line) {
 export function measurePatchCoverage(changedLines, coverageReport, options = {}) {
     const { repoRoot = '', ignore = () => false } = options;
     const normalise = (path) => path.replace(/\\/g, '/');
+    /**
+     * Resolves an existing path to one canonical spelling, so Windows 8.3
+     * aliases and junctions match the checkout they point at.
+     */
     const canonicalise = (path) => {
         const value = String(path ?? '');
         const normalised = normalise(value);
@@ -126,6 +130,10 @@ export function measurePatchCoverage(changedLines, coverageReport, options = {})
             return normalised;
         }
     };
+    /**
+     * Picks the path flavour that matches the root, so `relative` never mixes
+     * Windows and POSIX separators.
+     */
     const pathFor = (value) => {
         const text = String(value ?? '');
         return win32.isAbsolute(text) ? win32 : posix;

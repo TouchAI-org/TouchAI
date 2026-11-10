@@ -1,5 +1,14 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    realpathSync,
+    rmdirSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -79,7 +88,7 @@ describe('user measures covered changes with absolute report paths', () => {
         expect(result).toMatchObject({ total: 1, covered: 0, percent: 0 });
     });
 
-    it('user gets full coverage when a report path is another name for the checkout', () => {
+    it('user gets full coverage when a report path is another name for the checkout', (ctx) => {
         // tmpdir() already returns the 8.3 form on some Windows runners, so
         // start from the long spelling and shorten the checkout for the report.
         const longRoot =
@@ -88,12 +97,27 @@ describe('user measures covered changes with absolute report paths', () => {
                 : tmpdir();
         const temporaryRoot = existsSync(longRoot) ? realpathSync.native(longRoot) : tmpdir();
         const checkout = mkdtempSync(join(temporaryRoot, 'patch-coverage-alias-'));
+        let junction: string | null = null;
 
         try {
             const file = join(checkout, sourcePath);
             mkdirSync(join(checkout, 'apps/desktop/src'), { recursive: true });
             writeFileSync(file, 'export const added = 2;\n');
-            const reportRoot = shortWindowsPath(checkout);
+            let reportRoot = shortWindowsPath(checkout);
+
+            // 8.3 names can be disabled per volume. Fall back to a junction,
+            // which is another spelling for the same directory without it.
+            if (process.platform === 'win32' && reportRoot === checkout) {
+                junction = `${checkout}-junction`;
+
+                try {
+                    symlinkSync(checkout, junction, 'junction');
+                } catch {
+                    ctx.skip('this Windows volume provides no 8.3 or junction alias');
+                }
+
+                reportRoot = junction;
+            }
 
             if (process.platform === 'win32') {
                 expect(reportRoot).not.toBe(checkout);
@@ -108,6 +132,9 @@ describe('user measures covered changes with absolute report paths', () => {
 
             expect(result).toMatchObject({ total: 1, covered: 1, percent: 100 });
         } finally {
+            if (junction && existsSync(junction)) {
+                rmdirSync(junction);
+            }
             rmSync(checkout, { recursive: true, force: true });
         }
     }, 15000);

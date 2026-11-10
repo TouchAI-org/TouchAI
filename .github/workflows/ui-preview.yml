@@ -39,13 +39,16 @@ env:
 
 concurrency:
     # Only a trusted preview request may replace an active preview. The App's
-    # approval label gets its own group because the /ui-preview path adds it.
-    # Ordinary comments, untrusted gated labels, untrusted preview commands and
-    # unrelated labels get groups that cannot collide with `run`. The job
-    # filters run after concurrency, so the group must protect the active run
-    # without waiting for them.
-    group: ui-preview-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}-${{ github.event_name == 'pull_request_target' && github.event.action == 'labeled' && github.event.label.name == 'status:ui-preview-approved' && endsWith(github.actor, '[bot]') && 'approval' || github.event_name == 'issue_comment' && !startsWith(github.event.comment.body, '/ui-preview') && 'comment' || github.event_name == 'issue_comment' && !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) && 'untrusted-comment' || github.event_name == 'pull_request_target' && contains(fromJSON('["labeled","unlabeled"]'), github.event.action) && contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name) && 'human-label' || github.event_name == 'pull_request_target' && contains(fromJSON('["labeled","unlabeled"]'), github.event.action) && !contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name) && 'label' || 'run' }}
-    cancel-in-progress: true
+    # label events get their own group because the /ui-preview path adds and
+    # removes the approval label. Ordinary comments, untrusted preview commands
+    # and unrelated labels get groups that cannot collide with `run`.
+    #
+    # Gated-label events from people cannot be trust-classified before `detect`
+    # reads the actor's permission, so they stay in `run` but never cancel:
+    # they queue behind the active preview and run after it. A maintainer who
+    # needs to replace an active preview immediately uses `/ui-preview`.
+    group: ui-preview-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}-${{ github.event_name == 'pull_request_target' && contains(fromJSON('["labeled","unlabeled"]'), github.event.action) && endsWith(github.actor, '[bot]') && contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name) && 'approval' || github.event_name == 'issue_comment' && !startsWith(github.event.comment.body, '/ui-preview') && 'comment' || github.event_name == 'issue_comment' && !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) && 'untrusted-comment' || github.event_name == 'pull_request_target' && contains(fromJSON('["labeled","unlabeled"]'), github.event.action) && !contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name) && 'label' || 'run' }}
+    cancel-in-progress: ${{ !(github.event_name == 'pull_request_target' && contains(fromJSON('["labeled","unlabeled"]'), github.event.action) && contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name) && !endsWith(github.actor, '[bot]')) }}
 
 jobs:
     # These jobs run trusted code only and read repository-level secrets. They
