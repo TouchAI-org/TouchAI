@@ -262,6 +262,10 @@ and security scopes remain unchanged.
 43. Given a native memory sample, when a process-count budget changes, then its
     report identifies the owned processes and rejected parent-PID reuses using
     the same enumeration, without recording executable paths or command lines.
+44. Given the complete repository test suite, when its default parallel workers
+    run CPU-intensive tooling checks, then the bounded native-memory fixture runs
+    in a separate execution group; all 18 cases and 18 recovery samples retain
+    their existing assertions and 15-second subprocess deadline.
 
 ## Verification evidence
 
@@ -510,3 +514,54 @@ the combined memory, native-motion and report-comparison suites pass 3 files /
 budget. No samples, percentiles, session counts, pressure guards or budgets were
 changed. A new native run must use the identity evidence to evaluate the anomaly;
 a later passing run alone does not establish the cause of the earlier failure.
+
+At `f19f6e1c`, the repository CI gate failed before any of the 18 native-memory
+assertions ran: its single PowerShell fixture process reached the unchanged
+15-second deadline on Ubuntu 24.04 / PowerShell 7.6.9. The other 14 tooling files
+passed 382 tests; the 18 skipped assertions are not passing results. The same
+36-input batch, instrumented locally on Windows PowerShell, completed in 6.5
+seconds. Neither a collector assertion failure nor stdin contention has been
+established as the cause of the CI timeout.
+
+The fixture now retains stderr progress for startup, input parsing, every sample
+and final serialization when the subprocess fails. This is diagnostic evidence,
+not a claimed timeout fix. It does not change the input, collector, deadline,
+assertions or recovery samples. The in-flight instrumented Windows native run is
+preserved rather than cancelled by an immediate push.
+
+The completed `f19f6e1c` frontend merge passed 504 files / 6,203 tests with
+92.16% statements, 85.84% branches, 91.45% functions and 92.92% lines. Patch
+coverage remains 348/352 (98.86%) against the unchanged 85% floor. Rust passed
+820 tests with one existing ignored test; lines are 76.60% and regions 76.35%.
+UI-preview tooling passed 17 files / 216 tests. These passing checks do not
+override the failed repository CI gate or the still-pending native acceptance.
+
+The default local `pnpm test:ci` reproduces the same batch-timeout symptom:
+14 files / 382 tests pass and all 18 memory assertions are skipped. The added
+progress shows that stdin parsing finished and samples 1 through 31 completed;
+the deadline interrupts sample 32 of 36. The single-worker full run passes all
+400 tests. This establishes a local resource-contention failure, not a blocked
+input stream; the original Ubuntu run has no phase trace to prove its exact
+stopping point.
+
+The installed Vitest execution groups isolate the one native-memory fixture
+from the other tooling workers. Repository tests retain their default worker
+parallelism; no test, recovery sample, timeout, coverage or performance budget
+is removed or relaxed. This is test-runner resource isolation, not serialization
+of any product concurrency scenario. Scenario 44 precedes the configuration
+change; the actual default-command failure is its regression evidence. The CI
+run on Ubuntu must still verify the change before that failure is resolved.
+
+With execution groups, the same default `pnpm test:ci` passes 15 files / 400
+tests in 44.42 seconds. The native fixture completes in 6.58 seconds rather than
+being interrupted at 15.09 seconds. Collection still contains 15 unique files:
+14 in the parallel repository group and one in the native-memory group. The
+default `pnpm test:ui-preview` also passes 16 files / 190 tests on Windows, with
+two existing Linux-only cases skipped. CI-test and runner-config type checks,
+repository-tooling ESLint, changed-file Prettier and diff checks pass.
+
+Four OS-process-boundary fault injections verify that absent progress, startup,
+partial collection and serialization failures preserve the available progress
+and original timeout cause. These diagnostic checks fail before the error
+reporting change and pass afterward; they are separate from the 400 suite tests.
+No Ubuntu or native-performance pass is inferred from the local results.

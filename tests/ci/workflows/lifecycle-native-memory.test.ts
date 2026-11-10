@@ -11,7 +11,9 @@ const memoryScript = join(root, 'apps/desktop/e2e-tests/performance/process-memo
 const shell = process.platform === 'win32' ? 'powershell.exe' : 'pwsh';
 const systemBoundary = `
 $ErrorActionPreference = 'Stop'
+[Console]::Error.WriteLine('Native memory fixtures: process started')
 $fixtures = [Console]::In.ReadToEnd() | ConvertFrom-Json
+[Console]::Error.WriteLine("Native memory fixtures: parsed $($fixtures.Count) inputs")
 function Get-CimInstance {
     param([string]$ClassName)
     if ($ClassName -ne 'Win32_Process') { throw 'Unexpected system query.' }
@@ -31,7 +33,10 @@ function Get-Process {
         $live[0]
     }
 }
+$fixtureIndex = 0
 $reports = foreach ($fixture in $fixtures) {
+    $fixtureIndex += 1
+    [Console]::Error.WriteLine("Native memory fixtures: collecting $fixtureIndex/$($fixtures.Count)")
     $output = @()
     try {
         $output = @(& $env:TOUCHAI_MEMORY_SCRIPT)
@@ -40,7 +45,9 @@ $reports = foreach ($fixture in $fixtures) {
         @{ output = $output -join [Environment]::NewLine; error = $_.Exception.Message }
     }
 }
+[Console]::Error.WriteLine('Native memory fixtures: serializing reports')
 ConvertTo-Json -InputObject @($reports) -Depth 3 -Compress
+[Console]::Error.WriteLine('Native memory fixtures: reports serialized')
 `;
 
 interface NativeProcess {
@@ -129,7 +136,14 @@ function sample(inputs: ReturnType<typeof fixture>[]) {
             timeout: 15000,
         }
     );
-    if (result.error) throw result.error;
+    if (result.error) {
+        throw Object.assign(
+            new Error(
+                `Native memory fixtures did not finish: ${result.error.message}\n${result.stderr || 'No subprocess progress was captured.'}`
+            ),
+            { cause: result.error }
+        );
+    }
     expect(result.status, result.stderr).toBe(0);
     return JSON.parse(result.stdout) as { output: string; error: string | null }[];
 }
