@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
+import { executeReadTool } from '@/services/BuiltInToolService/tools/read';
 import {
     buildReadApprovalRequest,
     buildReadConversationSemantic,
@@ -91,6 +92,23 @@ describe('user reads file contents and approvals in their own language', () => {
         ).rejects.toThrow(
             'File not found: C:\\Users\\tester\\Desktop\\notes.txt\n\nDid you mean one of these?\nnotes.txt.bak'
         );
+    });
+
+    it('user sees a stable failure when the filesystem exposes internal details', async () => {
+        statMock.mockRejectedValueOnce(
+            new Error('EACCES: /home/alice/.ssh/id_rsa token=secret from native host')
+        );
+
+        const result = await executeReadTool(
+            { filePath: 'C:\\tmp\\private.txt' },
+            {},
+            createExecutionContext()
+        );
+
+        expect(result.result).toBe('工具执行失败');
+        expect(result.errorMessage).toBe('工具执行失败');
+        expect(result.result).not.toContain('/home/alice/.ssh/id_rsa');
+        expect(result.result).not.toContain('token=secret');
     });
 
     it('user reads directory pagination in English', async () => {

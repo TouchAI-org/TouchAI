@@ -52,9 +52,12 @@ describe('when the user changes which model is in use', () => {
                 (2, 8, 'Disabled', 'disabled-model', 0);
         `);
 
-        await expect(setDefaultModel({ modelId: 2 })).rejects.toThrow(
-            '无法设置默认模型：服务商 "Disabled" 未启用'
-        );
+        const error = await setDefaultModel({ modelId: 2 }).catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe('无法设置默认模型：服务商未启用');
+        expect((error as Error).message).not.toContain('Disabled');
+        expect((error as Error).message).not.toContain('The model provider is disabled');
 
         expect(defaultModelIds(database)).toEqual([1]);
     });

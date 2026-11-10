@@ -9,16 +9,23 @@ import ProgressDialog from '@/views/SettingsView/components/DataManagement/compo
 import DataManagement from '@/views/SettingsView/components/DataManagement/index.vue';
 
 const {
+    alertMock,
     countMessagesMock,
     countSessionsMock,
     countSessionTurnsMock,
+    exportDatabaseMock,
     getStatisticMock,
     importDatabaseMock,
     relaunchMock,
 } = vi.hoisted(() => ({
+    alertMock: {
+        error: vi.fn(),
+        success: vi.fn(),
+    },
     countMessagesMock: vi.fn(),
     countSessionsMock: vi.fn(),
     countSessionTurnsMock: vi.fn(),
+    exportDatabaseMock: vi.fn(),
     getStatisticMock: vi.fn(),
     importDatabaseMock: vi.fn(),
     relaunchMock: vi.fn(),
@@ -36,7 +43,7 @@ vi.mock('@database/queries', () => ({
 
 vi.mock('@database/backup', () => ({
     databaseBackup: {
-        exportDatabase: vi.fn(),
+        exportDatabase: exportDatabaseMock,
         importDatabase: importDatabaseMock,
     },
     isDatabaseBackupCancelledError: (error: unknown) =>
@@ -46,10 +53,7 @@ vi.mock('@database/backup', () => ({
 }));
 
 vi.mock('@composables/useAlert', () => ({
-    useAlert: () => ({
-        error: vi.fn(),
-        success: vi.fn(),
-    }),
+    useAlert: () => alertMock,
 }));
 
 vi.mock('@composables/useConfirm', () => ({
@@ -220,6 +224,59 @@ describe('user manages the app data', () => {
         expect(message.classes()).toContain('whitespace-normal');
         expect(message.classes()).toContain('[overflow-wrap:anywhere]');
         expect(wrapper.text()).toContain('42%');
+    });
+
+    it('user gets a generic export failure without the internal database text', async () => {
+        exportDatabaseMock.mockRejectedValueOnce(
+            new Error('database is locked while opening /home/user/touchai.db')
+        );
+
+        const wrapper = mount(DataManagement, {
+            global: {
+                stubs: {
+                    ImportModeDialog: true,
+                    ProgressDialog: true,
+                },
+            },
+        });
+        await flushMountedPromises();
+
+        const exportButton = wrapper.findAll('button').find((button) => button.text() === '导出');
+        await exportButton?.trigger('click');
+        await flushMountedPromises();
+
+        expect(alertMock.error).toHaveBeenCalledWith('导出备份失败');
+        expect(alertMock.error).not.toHaveBeenCalledWith(
+            expect.stringContaining('database is locked')
+        );
+        wrapper.unmount();
+    });
+
+    it('user gets a generic import failure without the internal database text', async () => {
+        importDatabaseMock.mockRejectedValueOnce(
+            new Error('database is locked while importing /home/user/backup.db')
+        );
+
+        const wrapper = mount(DataManagement, {
+            global: {
+                stubs: {
+                    ImportModeDialog: true,
+                    ProgressDialog: true,
+                },
+            },
+        });
+        await flushMountedPromises();
+
+        const importButton = wrapper.findAll('button').find((button) => button.text() === '导入');
+        await importButton?.trigger('click');
+        await wrapper.getComponent(ImportModeDialog).vm.$emit('select', 'full');
+        await flushMountedPromises();
+
+        expect(alertMock.error).toHaveBeenCalledWith('导入备份失败');
+        expect(alertMock.error).not.toHaveBeenCalledWith(
+            expect.stringContaining('database is locked')
+        );
+        wrapper.unmount();
     });
 
     it('user starts the restart countdown after the import completes', async () => {

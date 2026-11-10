@@ -4,6 +4,7 @@ import { vi } from 'vitest';
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
 import { setLocale } from '@/i18n';
 import { AppEvent, eventService } from '@/services/EventService';
+import { SettingsErrorCode, SettingsServiceError } from '@/services/SettingsService/types';
 import GeneralSection from '@/views/SettingsView/components/Shortcuts/index.vue';
 
 const originalPlatform = navigator.platform;
@@ -530,6 +531,55 @@ describe('user configures keyboard shortcuts', () => {
             'Mod+Shift+H'
         );
         expect((input.element as HTMLInputElement).value).toBe('Ctrl+Shift+H');
+    });
+
+    it('user is told the owner rejected a search shortcut that collides with the activation shortcut', async () => {
+        settingsStoreMock.updateSearchKeybindings.mockRejectedValueOnce(
+            new SettingsServiceError(SettingsErrorCode.Rejected, {
+                rejection: { kind: 'shortcut-global-conflict' },
+            })
+        );
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const input = wrapper.get(
+            '[data-testid="settings-search-shortcut-input-search.history.open"]'
+        );
+        await input.trigger('focus');
+        await flushPromises();
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2' }));
+        await flushPromises();
+
+        expect(alertMessageMock.error).toHaveBeenCalledWith(
+            '该快捷键与全局唤起快捷键冲突，请换一个组合',
+            3000
+        );
+        expect(alertMessageMock.error).not.toHaveBeenCalledWith(
+            expect.stringContaining('settings locked'),
+            expect.anything()
+        );
+    });
+
+    it('user gets the generic settings message for an internal search shortcut failure', async () => {
+        settingsStoreMock.updateSearchKeybindings.mockRejectedValueOnce(
+            new SettingsServiceError(SettingsErrorCode.PersistenceFailed, {
+                cause: new Error('settings locked: /root/touchai.db'),
+            })
+        );
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const input = wrapper.get(
+            '[data-testid="settings-search-shortcut-input-search.history.open"]'
+        );
+        await input.trigger('focus');
+        await flushPromises();
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F3' }));
+        await flushPromises();
+
+        expect(alertMessageMock.error).toHaveBeenCalledWith('保存设置失败', 3000);
     });
 
     it('user captures Windows system key events while editing a search shortcut', async () => {

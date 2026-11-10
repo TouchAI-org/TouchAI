@@ -1,4 +1,3 @@
-import { formatShortcutRegistrationError } from '@services/SettingsService/messages';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -9,8 +8,8 @@ import GeneralShortcutSettings from '@/views/SettingsView/components/General/Gen
  * The generalShortcutSettings test covers recording, saving and the conflict
  * paths. This file covers what the field does when it is *not* being recorded:
  * the busy state while a save is in flight, the preset menu's open/close guard,
- * the reserved keys that must be left to the page, and the notification text the
- * user reads when the OS rejects a combination for each of its known reasons.
+ * the reserved keys that must be left to the page, and the generic notification the
+ * user reads when the OS rejects a combination.
  */
 
 const settingsMock = await vi.hoisted(async () => {
@@ -160,9 +159,9 @@ afterEach(() => {
 });
 
 describe('user reads the notification when the OS rejects a shortcut', () => {
-    async function rejectionBody(reason: string): Promise<string> {
+    it('user gets a generic save failure without the internal OS reason', async () => {
         settingsMock.updateGlobalShortcut.mockRejectedValue(
-            new Error(formatShortcutRegistrationError('Ctrl+N', new Error(reason)))
+            new Error('already registered: database origin unavailable')
         );
         const wrapper = await mountSection();
         await startCapture(wrapper);
@@ -170,39 +169,10 @@ describe('user reads the notification when the OS rejects a shortcut', () => {
 
         const body = (notifyMock.mock.calls[0]?.[0]?.body ?? '') as string;
         wrapper.unmount();
-        return body;
-    }
 
-    it('user is told the shortcut is taken when the OS says it is registered', async () => {
-        expect(await rejectionBody('already registered')).toContain('Ctrl+N');
-    });
-
-    it('user is told the shortcut is taken when the OS answers in Chinese', async () => {
-        expect(await rejectionBody('已注册')).toContain('Ctrl+N');
-    });
-
-    it('user is told the format is invalid when the OS rejects it', async () => {
-        const body = await rejectionBody('invalid shortcut format');
-
-        expect(body.length).toBeGreaterThan(0);
-    });
-
-    it('user is told the format is invalid when the OS answers in Chinese', async () => {
-        const body = await rejectionBody('无效的快捷键');
-
-        expect(body.length).toBeGreaterThan(0);
-    });
-
-    it('user is told the key is unsupported when the OS does not know it', async () => {
-        const body = await rejectionBody('Unknown key F13');
-
-        expect(body.length).toBeGreaterThan(0);
-    });
-
-    it('user gets the raw reason echoed when the failure has no known cause', async () => {
-        const body = await rejectionBody('something else entirely');
-
-        expect(body).toContain('something else entirely');
+        expect(body).toBe('保存快捷键失败');
+        expect(body).not.toContain('already registered');
+        expect(body).not.toContain('database');
     });
 });
 

@@ -17,15 +17,24 @@ interface ControlledSource {
     stream: ReadableStream<Uint8Array>;
     pulls: () => number;
     cancelReasons: unknown[];
+    readerCancelReasons: unknown[];
+    releasePull: () => void;
 }
 
 function createSource(
     chunkCount: number,
-    options: { cancelRejects?: boolean; highWaterMark?: number; errorAtChunk?: number } = {}
+    options: {
+        cancelRejects?: boolean;
+        highWaterMark?: number;
+        errorAtChunk?: number;
+        holdPull?: boolean;
+    } = {}
 ): ControlledSource {
     let pulls = 0;
     let index = 0;
     const cancelReasons: unknown[] = [];
+    const readerCancelReasons: unknown[] = [];
+    const pullResolvers: Array<() => void> = [];
     const chunks = Array.from({ length: chunkCount }, (_, i) =>
         new TextEncoder().encode(`chunk-${i}`)
     );
@@ -34,6 +43,9 @@ function createSource(
         {
             async pull(controller) {
                 pulls += 1;
+                if (options.holdPull) {
+                    await new Promise<void>((resolve) => pullResolvers.push(resolve));
+                }
                 if (options.errorAtChunk === index) {
                     throw new Error('upstream read failed');
                 }
@@ -55,11 +67,29 @@ function createSource(
         new CountQueuingStrategy({ highWaterMark: options.highWaterMark ?? 1 })
     );
 
-    return { stream, pulls: () => pulls, cancelReasons };
+    return {
+        stream,
+        pulls: () => pulls,
+        cancelReasons,
+        readerCancelReasons,
+        releasePull: () => pullResolvers.shift()?.(),
+    };
 }
 
 async function openResponse(source: ControlledSource): Promise<Response> {
-    pluginFetch.mockResolvedValue(new Response(source.stream, { status: 200 }));
+    const upstream = new Response(source.stream, { status: 200 });
+    const body = upstream.body!;
+    const getReader = body.getReader.bind(body);
+    body.getReader = ((...args: Parameters<typeof getReader>) => {
+        const reader = getReader(...args);
+        const cancel = reader.cancel.bind(reader);
+        reader.cancel = ((reason?: unknown) => {
+            source.readerCancelReasons.push(reason);
+            return cancel(reason);
+        }) as typeof reader.cancel;
+        return reader;
+    }) as typeof body.getReader;
+    pluginFetch.mockResolvedValue(upstream);
     return createTauriFetch()('https://example.com/stream', { method: 'POST' });
 }
 
@@ -99,13 +129,15 @@ describe('user streams a response through the Tauri HTTP plugin', () => {
         await settle();
 
         expect(response.body).not.toBeNull();
-        expect(source.pulls()).toBeLessThanOrEqual(1);
+        // An unwrapped response would still be at zero here. Exactly one pull proves the
+        // wrapper forwards downstream demand instead of eagerly draining the upstream.
+        expect(source.pulls()).toBe(1);
 
         const reader = response.body!.getReader();
         await reader.read();
         await settle();
         const pullsAfterOneRead = source.pulls();
-        expect(pullsAfterOneRead).toBeLessThanOrEqual(2);
+        expect(pullsAfterOneRead).toBe(2);
 
         await new Promise((resolve) => setTimeout(resolve, 5));
         expect(source.pulls()).toBe(pullsAfterOneRead);
@@ -131,6 +163,21 @@ describe('user streams a response through the Tauri HTTP plugin', () => {
         expect(source.cancelReasons).toEqual(['first']);
     });
 
+    it('user cancelling while an upstream read is in flight still stops the request', async () => {
+        const source = createSource(2, { holdPull: true });
+        const response = await openResponse(source);
+        const reader = response.body!.getReader();
+        const pendingRead = reader.read();
+        await settle();
+        expect(source.pulls()).toBe(1);
+
+        await reader.cancel('stop-now');
+        source.releasePull();
+        await pendingRead;
+
+        expect(source.cancelReasons).toEqual(['stop-now']);
+    });
+
     it('user sees a mid-stream upstream read failure surface as a read error', async () => {
         const source = createSource(4, { errorAtChunk: 1 });
         const response = await openResponse(source);
@@ -139,6 +186,10 @@ describe('user streams a response through the Tauri HTTP plugin', () => {
         await reader.read();
 
         await expect(reader.read()).rejects.toThrow('upstream read failed');
+        await settle();
+
+        expect(source.readerCancelReasons).toHaveLength(1);
+        expect(source.stream.locked).toBe(false);
     });
 
     it('user sees the upstream reader released once the response fully drains', async () => {

@@ -583,6 +583,35 @@ describe('user data is read and written through typed database operations', () =
             expect(error).toMatchObject({ code });
         }
     });
+
+    it.each([
+        {
+            command: 'database_export_backup',
+            code: 'database-backup-failed',
+            message: 'Database backup export failed',
+            call: () => database.exportBackup('D:/private/backup.db'),
+        },
+        {
+            command: 'database_import_backup',
+            code: 'database-import-failed',
+            message: 'Database backup import failed',
+            call: () =>
+                database.importBackup({
+                    sourcePath: 'D:/private/import.db',
+                    mode: 'full',
+                }),
+        },
+    ])('user sees a stable backup error for $command', async ({ command, code, message, call }) => {
+        interceptTauriInvoke((invokeCall, next) => {
+            if (invokeCall.cmd === command) {
+                throw { code, message };
+            }
+
+            return next();
+        });
+
+        await expect(call()).rejects.toMatchObject({ code, message });
+    });
 });
 
 describe('user uses MCP tools', () => {

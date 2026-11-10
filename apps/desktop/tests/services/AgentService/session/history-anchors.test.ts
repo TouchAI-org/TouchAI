@@ -79,7 +79,7 @@ async function build(
 }
 
 describe('user reopens a conversation whose turn points at a deleted reply', () => {
-    it('user sees the failure noted on the last reply instead of losing it', async () => {
+    it('user sees a generic failure noted on the last reply instead of losing it', async () => {
         const history = await build(
             [userRow(1, 'run it'), assistantRow(2, 'the answer')],
             [
@@ -95,7 +95,8 @@ describe('user reopens a conversation whose turn points at a deleted reply', () 
 
         expect(history).toHaveLength(2);
         expect(history[1]?.content).toBe('the answer');
-        expect(history[1]?.statusText).toContain('Provider returned 500');
+        expect(history[1]?.statusText).toContain('未知错误');
+        expect(history[1]?.statusText).not.toContain('Provider returned 500');
     });
 
     it('user sees a cancellation noted on the last reply when its message is gone', async () => {
@@ -122,7 +123,7 @@ describe('user reopens a conversation whose turn points at a deleted reply', () 
 });
 
 describe('user reopens a conversation whose turn points at a deleted prompt', () => {
-    it('user sees the failure noted on the last reply when nothing else anchors it', async () => {
+    it('user sees a generic failure noted on the last reply when nothing else anchors it', async () => {
         const history = await build(
             [userRow(1, 'kept'), assistantRow(2, 'reply')],
             [
@@ -138,10 +139,11 @@ describe('user reopens a conversation whose turn points at a deleted prompt', ()
 
         expect(history).toHaveLength(2);
         expect(history[1]?.content).toBe('reply');
-        expect(history[1]?.statusText).toContain('offline');
+        expect(history[1]?.statusText).toContain('未知错误');
+        expect(history[1]?.statusText).not.toContain('offline');
     });
 
-    it('user sees a separate failure note when the last message has nothing visible', async () => {
+    it('user sees a separate generic failure note when the last message has nothing visible', async () => {
         const history = await build(
             [userRow(1, 'kept')],
             [
@@ -157,7 +159,8 @@ describe('user reopens a conversation whose turn points at a deleted prompt', ()
         // The last message is the prompt itself, which cannot carry a status line.
         expect(history).toHaveLength(2);
         expect(history[1]).toMatchObject({ role: 'assistant', isError: true });
-        expect(history[1]?.content).toContain('offline');
+        expect(history[1]?.content).toContain('未知错误');
+        expect(history[1]?.content).not.toContain('offline');
     });
 
     it('user sees the retry note added at the end when no prompt anchors it', async () => {

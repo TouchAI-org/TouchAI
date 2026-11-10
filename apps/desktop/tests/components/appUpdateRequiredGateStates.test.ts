@@ -372,16 +372,20 @@ describe('user takes the update the gate offers', () => {
 });
 
 describe('user sees a broken updater explained', () => {
-    it('user sees the failure reason in the detail block', () => {
-        const wrapper = mountGate({ status: 'failed', error: 'download failed: 504' });
+    it('user sees a generic failure without the internal cause', () => {
+        const wrapper = mountGate({
+            status: 'failed',
+            error: 'download failed: 504 at https://updates.example.test',
+        });
 
-        expect(wrapper.text()).toContain('download failed: 504');
+        expect(wrapper.text()).toContain('更新失败，请重试');
+        expect(wrapper.text()).not.toContain('updates.example.test');
     });
 
     it('user sees no failure block when the error is only whitespace', () => {
         const wrapper = mountGate({ status: 'failed', error: '   ' });
 
-        expect(wrapper.text()).not.toContain('原因');
+        expect(wrapper.text()).not.toContain('更新失败，请重试');
     });
 
     it('user still sees the gate when the updater itself could not start', async () => {

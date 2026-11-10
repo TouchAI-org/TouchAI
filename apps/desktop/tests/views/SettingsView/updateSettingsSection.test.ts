@@ -298,11 +298,11 @@ describe('user reads what the updater is doing', () => {
         expect(statusTitle(wrapper)).toContain('0.1.0');
     });
 
-    it('user sees that the last check failed', () => {
-        const wrapper = mountSection({ status: 'failed', error: 'network down' });
+    it('user sees that the last check failed without an internal cause', () => {
+        const wrapper = mountSection({ status: 'failed', error: 'network down at 10.0.0.8' });
 
         expect(statusTitle(wrapper)).toContain('失败');
-        expect(wrapper.text()).toContain('network down');
+        expect(wrapper.text()).not.toContain('network down');
     });
 
     it('user is told the platform cannot update itself', () => {
@@ -845,15 +845,14 @@ describe('user reads the details dialog content', () => {
         expect(dialog(wrapper).attributes('data-published')).toBe('');
     });
 
-    it('user sees the error carried into the dialog after a failed check', async () => {
-        // An unsupported result only opens the dialog when a newer release is known,
-        // because that release is what the user is being pointed at.
+    it('user sees a generic failure in the dialog instead of the internal cause', async () => {
         const wrapper = await openDialog({
-            status: 'unsupported',
-            error: 'this build has no updater',
+            status: 'failed',
+            error: 'updater signature chain failed: C:\\Users\\alice',
             latestUpdate: channelLatest({ releaseNotes: '', publishedAt: null, downloads: [] }),
         });
 
-        expect(dialog(wrapper).attributes('data-error')).toBe('this build has no updater');
+        expect(dialog(wrapper).attributes('data-error')).toBe('更新检查失败');
+        expect(dialog(wrapper).attributes('data-error')).not.toContain('C:\\Users\\alice');
     });
 });

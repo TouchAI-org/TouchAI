@@ -102,7 +102,7 @@ describe('user changes a setting while a refresh is in flight', () => {
         setActiveSettingsService(owner);
         await owner.initialize();
 
-        const client = new SettingsService({ transport: bus.transport('win-settings') });
+        const client = new SettingsService({ transport: bus.transport('settings') });
         setActiveSettingsService(client);
         const { useSettingsStore } = await import('@/stores/settings');
         const store = useSettingsStore();
@@ -120,7 +120,7 @@ describe('user changes a setting while a refresh is in flight', () => {
                 entry.message.kind === 'reply' &&
                 entry.message.snapshot?.revision === 1
         ).length;
-        bus.focus('win-settings');
+        bus.focus('settings');
         await vi.waitFor(() => {
             const refreshReplies = bus.sent.filter(
                 (entry) =>

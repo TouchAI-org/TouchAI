@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { setLocale } from '@/i18n';
 import { executeWebSearchTool } from '@/services/BuiltInToolService/tools/webSearch';
 import type { WebSearchRequest } from '@/services/BuiltInToolService/tools/webSearch/helper';
 import {
@@ -501,6 +502,7 @@ describe('user gets search results from the DeepSeek provider', () => {
     });
 
     it('user sees billing failures surfaced without retrying', async () => {
+        setLocale('zh-CN');
         readEffectiveSettingValueMock.mockResolvedValueOnce(
             deepseekSettings({ apiKey: 'inline-key', endpoint: 'https://api.deepseek.com' })
         );
@@ -517,6 +519,8 @@ describe('user gets search results from the DeepSeek provider', () => {
         expect(result.isError).toBe(true);
         expect(result.status).toBe('error');
         expect(result.errorMessage).toContain('insufficient balance');
+        expect(result.result).toContain('原因:');
+        expect(result.result).not.toContain('Reason:');
         expect(tauriFetchMock).toHaveBeenCalledTimes(1);
     });
 });

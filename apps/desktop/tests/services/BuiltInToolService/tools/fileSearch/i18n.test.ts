@@ -90,7 +90,8 @@ describe('user reads file search results in their own language', () => {
         );
 
         expect(errorResult.result).toContain('Local file search failed');
-        expect(errorResult.result).toContain('Reason: Everything service unavailable');
+        expect(errorResult.result).not.toContain('Everything service unavailable');
+        expect(errorResult.errorMessage).toBe('Local file search failed');
         expect(errorResult.result).not.toContain('本机文件搜索失败');
         expect(errorResult.result).not.toContain('原因:');
     });

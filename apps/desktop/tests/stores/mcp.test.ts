@@ -1,14 +1,19 @@
 import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { findAllMcpServersMock, findMcpToolsByServerIdMock, onMock, obsErrorMock } = vi.hoisted(
-    () => ({
-        findAllMcpServersMock: vi.fn(),
-        findMcpToolsByServerIdMock: vi.fn(),
-        onMock: vi.fn(),
-        obsErrorMock: vi.fn(),
-    })
-);
+const {
+    findAllMcpServersMock,
+    findMcpToolsByServerIdMock,
+    onMock,
+    obsErrorMock,
+    refreshAllServerStatusesMock,
+} = vi.hoisted(() => ({
+    findAllMcpServersMock: vi.fn(),
+    findMcpToolsByServerIdMock: vi.fn(),
+    onMock: vi.fn(),
+    obsErrorMock: vi.fn(),
+    refreshAllServerStatusesMock: vi.fn(),
+}));
 
 vi.mock('@database/queries', () => ({
     findAllMcpServers: findAllMcpServersMock,
@@ -18,7 +23,7 @@ vi.mock('@database/queries', () => ({
 vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
     mcpManager: {
         setStatusFromEvent: vi.fn(),
-        refreshAllServerStatuses: vi.fn(),
+        refreshAllServerStatuses: refreshAllServerStatusesMock,
     },
 }));
 
@@ -57,6 +62,18 @@ describe('user sees the saved mcp servers', () => {
         await expect(store.loadServerTools(1)).resolves.toBeUndefined();
 
         expect(store.getServerTools(1)).toEqual([]);
+    });
+
+    it('user opening MCP settings observes shared status without taking over a connection', async () => {
+        findAllMcpServersMock.mockResolvedValue([]);
+        const { useMcpStore } = await import('@/stores/mcp');
+        const store = useMcpStore();
+
+        await store.initialize();
+
+        expect(refreshAllServerStatusesMock).toHaveBeenCalledTimes(1);
+        expect(onMock).toHaveBeenCalledTimes(1);
+        expect(store.initialized).toBe(true);
     });
 
     it('user gets one connect failure event when a server enters the error state', async () => {

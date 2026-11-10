@@ -163,6 +163,23 @@ describe('user is offered a stronger model when the current one runs out', () =>
         );
     });
 
+    it('user sees a stable failure when the model lookup leaks database details', async () => {
+        findModelByProviderAndModelIdMock.mockRejectedValueOnce(
+            new Error('sqlite path /home/alice/.config/touchai.db token=secret')
+        );
+
+        const result = await executeUpgradeModelTool(
+            {},
+            { chain: [{ providerId: 1, modelId: 'model-a' }] },
+            createContext()
+        );
+
+        expect(result.result).toContain('模型升级失败');
+        expect(result.errorMessage).toBe('模型升级失败');
+        expect(result.result).not.toContain('/home/alice/.config/touchai.db');
+        expect(result.result).not.toContain('token=secret');
+    });
+
     it('user reads upgrade chain validation errors in English', () => {
         setLocale('en-US');
 

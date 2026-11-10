@@ -444,10 +444,11 @@ describe('when the global shortcut registration fails in different ways', () => 
         expect(body).toBeTruthy();
     });
 
-    it('user gets the raw error echoed when the failure has no known cause', async () => {
+    it('user gets no raw error echoed when the failure has no known cause', async () => {
         const body = await registerFailure(new Error('something else entirely'));
 
-        expect(body).toContain('something else entirely');
+        expect(body).not.toContain('something else entirely');
+        expect(body).toContain('注册快捷键失败');
     });
 });
 

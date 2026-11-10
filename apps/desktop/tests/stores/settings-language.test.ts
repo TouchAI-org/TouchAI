@@ -195,7 +195,7 @@ describe('user changes the app language', () => {
         const owner = new SettingsService({ transport: bus.transport('main') });
         setActiveSettingsService(owner);
         await owner.initialize();
-        const otherWindow = new SettingsService({ transport: bus.transport('win-settings') });
+        const otherWindow = new SettingsService({ transport: bus.transport('settings') });
         await otherWindow.initialize();
 
         await owner.mutate('language', 'en-US');
@@ -204,7 +204,7 @@ describe('user changes the app language', () => {
         expect(otherWindow.getSnapshot().language).toBe('en-US');
     });
 
-    it('user sees a warning and keeps the saved value when cross-window sync fails', async () => {
+    it('user keeps the saved value when cross-window sync fails', async () => {
         mockSettings({ language: 'zh-CN' });
 
         const store = await createStore();
@@ -214,8 +214,8 @@ describe('user changes the app language', () => {
         await store.updateLanguage('en-US');
         bus.failNotices = false;
 
-        // The change is committed; the failed broadcast is surfaced, not swallowed.
+        // The change is committed; the failed broadcast remains an internal diagnostic.
         expect(store.settings.language).toBe('en-US');
-        expect(store.lastWarning).toBeTruthy();
+        expect('lastWarning' in store).toBe(false);
     });
 });

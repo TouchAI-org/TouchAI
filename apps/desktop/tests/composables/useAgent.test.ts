@@ -2,6 +2,7 @@ import { mountComposable } from '@tests/utils/composables';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useAgent } from '@/composables/agent/useAgent';
+import { setLocale } from '@/i18n';
 import type { SessionTaskSnapshot } from '@/services/AgentService';
 
 const { findSessionByIdMock, notifyMock, sessionTaskCenterMock } = vi.hoisted(() => ({
@@ -70,6 +71,7 @@ function deferred<T>() {
 describe('when the user sends a prompt', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        setLocale('zh-CN');
         findSessionByIdMock.mockResolvedValue({ id: 1, title: 'Active session' });
         sessionTaskCenterMock.attachSessionView.mockReturnValue(null);
         sessionTaskCenterMock.subscribeTask.mockImplementation((_taskId, listener) => {
@@ -78,18 +80,19 @@ describe('when the user sends a prompt', () => {
         });
     });
 
-    it('user gets the failure reported in the app without a second desktop notification', async () => {
+    it('user gets a generic failure without raw runtime details or a second notification', async () => {
         sessionTaskCenterMock.startTask.mockResolvedValue({
             taskId: 'task-1',
             sessionId: 1,
-            completion: Promise.reject(new Error('task failed')),
+            completion: Promise.reject(new Error('provider 500: secret diagnostic')),
         });
 
         const mounted = await mountComposable(() => useAgent());
 
         await mounted.result.sendRequest('hello');
 
-        expect(mounted.result.error.value?.message).toBe('task failed');
+        expect(mounted.result.error.value?.message).toBe('未知错误');
+        expect(mounted.result.error.value?.message).not.toContain('secret diagnostic');
         expect(notifyMock).not.toHaveBeenCalled();
 
         mounted.unmount();
@@ -104,7 +107,7 @@ describe('when the user sends a prompt', () => {
 
         expect(notifyMock).toHaveBeenCalledWith({
             title: 'TouchAI - 请求失败',
-            body: 'startup failed',
+            body: '未知错误',
         });
 
         mounted.unmount();

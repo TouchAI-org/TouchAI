@@ -1228,7 +1228,7 @@ describe('user calls a tool the agent does not have', () => {
         );
     });
 
-    it('user sees the tool reported as failed when it throws a plain message', async () => {
+    it('user sees a generic tool failure without the raw rejection text', async () => {
         resolveToolCallMock.mockResolvedValue({
             serverId: 1,
             originalName: 'search',
@@ -1254,6 +1254,11 @@ describe('user calls a tool the agent does not have', () => {
 
         expect(outcome.type).toBe('completed');
         expect(persister.persistToolResult).toHaveBeenCalledWith(
+            expect.objectContaining({
+                result: expect.stringContaining('工具执行失败'),
+            })
+        );
+        expect(persister.persistToolResult).not.toHaveBeenCalledWith(
             expect.objectContaining({
                 result: expect.stringContaining('server went away'),
             })

@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { BaseBuiltInToolExecutionContext } from '@/services/BuiltInToolService';
+import { resolveToolFailure } from '@/services/BuiltInToolService/errors';
 import { executeShowWidgetTool } from '@/services/BuiltInToolService/tools/widgetTool/showWidget';
+import { readShowWidgetGuidelines } from '@/services/BuiltInToolService/tools/widgetTool/visualizeReadMe/guidelines';
 
 function createContext(): BaseBuiltInToolExecutionContext {
     return {
@@ -108,6 +110,43 @@ describe('user asks for a widget and gets a visible one', () => {
                 createContext()
             )
         ).resolves.toMatchObject({ status: 'success' });
+    });
+
+    it('user gets actionable design validation text instead of a generic host failure', async () => {
+        const error = await executeShowWidgetTool(
+            {
+                i_have_seen_read_me: true,
+                widget_code: '<svg><linearGradient id="g"></linearGradient></svg>',
+            },
+            {},
+            createContext()
+        ).catch((caught: unknown) => caught);
+        const failure = resolveToolFailure(error, {
+            toolId: 'show_widget',
+            fallbackMessage: 'Tool execution failed',
+        });
+
+        expect(failure.status).toBe('error');
+        expect(failure.message).toContain('ShowWidget design validation failed');
+        expect(failure.message).not.toBe('Tool execution failed');
+    });
+
+    it('user gets the valid guideline modules named when an unknown module is requested', () => {
+        const error = (() => {
+            try {
+                return readShowWidgetGuidelines(['not-a-module']);
+            } catch (caught) {
+                return caught;
+            }
+        })();
+        const failure = resolveToolFailure(error, {
+            toolId: 'visualize_read_me',
+            fallbackMessage: 'Tool execution failed',
+        });
+
+        expect(failure.message).toContain('Unknown show widget module: not-a-module');
+        expect(failure.message).toContain('Valid modules:');
+        expect(failure.message).not.toBe('Tool execution failed');
     });
 
     it.each([

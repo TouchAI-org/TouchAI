@@ -845,7 +845,36 @@ describe('user is told when the request cannot be retried any further', () => {
             expect.anything(),
             expect.objectContaining({ retryScope: 'restart' })
         );
-        expect(events).toContainEqual(expect.objectContaining({ type: 'task_failed', turnId: 9 }));
+        expect(events).toContainEqual(
+            expect.objectContaining({
+                type: 'task_failed',
+                turnId: 9,
+                error: new AiError(AiErrorCode.UNAUTHORIZED).getDisplayMessage(),
+            })
+        );
+    });
+
+    it('user receives generic copy in the failure event for an unclassified cause', async () => {
+        const executor = createExecutor();
+        executor.runAttempt.mockResolvedValue(
+            failedResult({
+                error: new AiError(
+                    AiErrorCode.UNKNOWN,
+                    undefined,
+                    'database is locked at /home/user/touchai.db'
+                ),
+            })
+        );
+        const { runtime, events } = run(executor, { taskId: 'task-1' });
+
+        await expect(runtime.run()).rejects.toMatchObject({ code: AiErrorCode.UNKNOWN });
+
+        const failed = events.find((event) => event.type === 'task_failed');
+        expect(failed).toMatchObject({
+            type: 'task_failed',
+            error: new AiError(AiErrorCode.UNKNOWN).getDisplayMessage(),
+        });
+        expect(failed && 'error' in failed ? failed.error : '').not.toContain('touchai.db');
     });
 
     it('user sees a failure after a retry recorded against the checkpoint it resumed from', async () => {

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
 import { getLocale, setLocale } from '@/i18n';
+import { resolveToolFailure } from '@/services/BuiltInToolService/errors';
 import {
     buildSettingApprovalRequest,
     executeSettingTool,
@@ -10,16 +11,13 @@ import {
 } from '@/services/BuiltInToolService/tools/setting';
 import { SETTING_TOOL_INPUT_SCHEMA } from '@/services/BuiltInToolService/tools/setting/constants';
 import {
-    formatShortcutRegistrationError,
     formatSingleUpdate,
     getSettings,
     listSupportedSettings,
     parseSettingRequest,
 } from '@/services/BuiltInToolService/tools/setting/helper';
 import { setActiveSettingsService } from '@/services/SettingsService';
-import { replyErrorMessage } from '@/services/SettingsService/messages';
 import { SettingsService } from '@/services/SettingsService/service';
-import { SettingsErrorCode } from '@/services/SettingsService/types';
 
 const originalPlatform = navigator.platform;
 
@@ -107,25 +105,12 @@ describe('user changes app settings through the assistant', () => {
         expect(getOutput).toContain('Global shortcut (global_shortcut): Alt+Space');
     });
 
-    it('user reads setting updates, approval cards, and registration errors in English', () => {
+    it('user reads setting updates and approval cards in English', () => {
         setLocale('en-US');
 
         expect(formatSingleUpdate('start_minimized', true)).toBe(
             '1. Start minimized (start_minimized): true'
         );
-        expect(formatShortcutRegistrationError('Alt+Space', 'already registered')).toBe(
-            'Shortcut Alt+Space is already used by another app.'
-        );
-        expect(formatShortcutRegistrationError('Alt+Space', 'invalid shortcut')).toBe(
-            'Shortcut Alt+Space has an invalid format.'
-        );
-        expect(formatShortcutRegistrationError('Alt+Space', 'Unknown key')).toBe(
-            'Shortcut contains an unsupported key.'
-        );
-        expect(formatShortcutRegistrationError('Alt+Space', 'system error')).toBe(
-            'Failed to register shortcut: system error'
-        );
-
         const approval = buildSettingApprovalRequest({
             action: 'set',
             key: 'start_minimized',
@@ -182,19 +167,21 @@ describe('user changes app settings through the assistant', () => {
         expect(result).toMatchObject({
             isError: true,
             status: 'error',
-            errorMessage: 'Shortcut Alt+Shift+Space has an invalid format.',
+            errorMessage: 'Setting update failed.',
         });
         expect(result.result).toContain('Setting update failed');
+        expect(result.result).not.toContain('invalid shortcut');
+        expect(result.result).not.toContain('owner');
         expect(service.getSnapshot().globalShortcut).toBe('Alt+Space');
     });
 
-    it('user reads an unconfirmed setting update with stable failure copy', async () => {
+    it('user reads an unconfirmed setting update without being told it failed', async () => {
         setLocale('en-US');
         vi.spyOn(service, 'mutate').mockResolvedValueOnce({
             status: 'unknown',
             key: 'start_minimized',
             code: SettingsErrorCode.Timeout,
-            message: 'database timeout on settings table',
+            message: 'Settings result unknown: re-check settings before retrying.',
         });
 
         const result = await executeSettingTool(
@@ -211,37 +198,10 @@ describe('user changes app settings through the assistant', () => {
         expect(result).toMatchObject({
             isError: true,
             status: 'error',
-            errorMessage: 'The setting result is unconfirmed. Re-check settings before retrying.',
+            errorMessage: 'Settings result unknown: re-check settings before retrying.',
         });
-        expect(result.result).toContain('The setting result is unconfirmed');
-        expect(result.result).not.toContain('database timeout');
-    });
-
-    it('user does not see internal setting failure details', async () => {
-        setLocale('en-US');
-        vi.spyOn(service, 'mutate').mockRejectedValueOnce(
-            new Error('database password and owner epoch details')
-        );
-
-        const result = await executeSettingTool(
-            {
-                action: 'set',
-                key: 'start_minimized',
-                value: false,
-                reason: 'User asked for it.',
-            },
-            {},
-            createExecutionContext()
-        );
-
-        expect(result).toMatchObject({
-            isError: true,
-            status: 'error',
-            errorMessage: 'Setting update failed.',
-        });
-        expect(result.result).toContain('Setting update failed');
-        expect(result.result).not.toContain('database password');
-        expect(result.result).not.toContain('owner epoch');
+        expect(result.result).toContain('Settings result unknown');
+        expect(result.result).not.toContain('Setting update failed');
     });
 
     it('user cancels while the settings owner initializes and no setting is written', async () => {
@@ -421,29 +381,31 @@ describe('user changes app settings through the assistant', () => {
     it('user reads invalid setting values in the active language with validation details kept', () => {
         setLocale('en-US');
 
-        expect(() =>
-            parseSettingRequest({
-                action: 'set',
-                key: 'start_minimized',
-                value: 'yes',
-                reason: 'User asked for it.',
-            })
-        ).toThrow(/Setting tool received an invalid value for "start_minimized"\.\n- /);
-    });
+        const error = (() => {
+            try {
+                return parseSettingRequest({
+                    action: 'set',
+                    key: 'start_minimized',
+                    value: 'yes',
+                    reason: 'User asked for it.',
+                });
+            } catch (caught) {
+                return caught;
+            }
+        })();
+        const failure = resolveToolFailure(error, {
+            toolId: 'setting',
+            fallbackMessage: 'Tool execution failed',
+        });
 
-    it('user reads short owner-reply failure messages in English', async () => {
-        setLocale('en-US');
-
-        expect(replyErrorMessage(SettingsErrorCode.NotReady)).toBe(
-            'Settings are not ready yet. Try again shortly.'
+        expect(failure).toMatchObject({ status: 'error' });
+        expect(failure.message).toMatch(
+            /Setting tool received an invalid value for "start_minimized"\.\n- /
         );
-        expect(replyErrorMessage(SettingsErrorCode.StaleEpoch)).toBe('Setting update failed.');
-        expect(replyErrorMessage(SettingsErrorCode.OwnerDisposed)).toBe('Setting update failed.');
-        expect(replyErrorMessage(SettingsErrorCode.TooManyPending)).toBe('Setting update failed.');
-        expect(replyErrorMessage('something-unknown')).toBe('Setting update failed.');
+        expect(failure.message).not.toBe('Tool execution failed');
     });
 
-    it('user sees a note when a setting saved but syncing to other windows failed', async () => {
+    it('user sees success without an internal sync note when cross-window notification fails', async () => {
         setLocale('en-US');
         bus.failNotices = true;
 
@@ -463,7 +425,7 @@ describe('user changes app settings through the assistant', () => {
             isError: false,
             status: 'success',
         });
-        expect(result.result).toContain('Note');
-        expect(result.result).toContain('syncing to other windows failed');
+        expect(result.result).not.toContain('Note');
+        expect(result.result).not.toContain('sync');
     });
 });
