@@ -57,6 +57,7 @@ jobs:
                         /^apps\/desktop\/src\/styles\//,
                         /^apps\/desktop\/src\/views\//,
                         /^apps\/desktop\/tests\/visual\//,
+                        /^apps\/desktop\/tests\/layout\//,
                         /^apps\/desktop\/\.storybook\//,
                         /^apps\/desktop\/playwright\.config\.ts$/,
                         /^apps\/desktop\/package\.json$/,
@@ -201,6 +202,9 @@ jobs:
             - name: Regenerate component baselines
               if: ${{ inputs.update_visual_baselines }}
               run: pnpm --filter @touchai/desktop test:visual:components:update
+
+            - name: Run conversation appearance tests
+              run: pnpm --filter @touchai/desktop test:layout:conversation
 
             # The upload reads from a directory rather than the results tree, so the
             # images are gathered first: the retry directory holds a second copy of the

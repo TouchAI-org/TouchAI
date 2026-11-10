@@ -39,6 +39,7 @@
         "test:e2e:visual:update": "node ./scripts/run-e2e-command.mjs --update-baselines",
         "storybook": "storybook dev --port 6006",
         "test:visual:components": "playwright test",
+        "test:layout:conversation": "node --test tests/layout/conversationAppearance.browser.mjs",
         "test:visual:components:update": "playwright test --update-snapshots"
     },
     "dependencies": {
