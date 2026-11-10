@@ -526,15 +526,16 @@ established as the cause of the CI timeout.
 The fixture now retains stderr progress for startup, input parsing, every sample
 and final serialization when the subprocess fails. This is diagnostic evidence,
 not a claimed timeout fix. It does not change the input, collector, deadline,
-assertions or recovery samples. The in-flight instrumented Windows native run is
-preserved rather than cancelled by an immediate push.
+assertions or recovery samples. The instrumented Windows native run was preserved
+until its artifacts were complete rather than cancelled by an immediate push.
 
 The completed `f19f6e1c` frontend merge passed 504 files / 6,203 tests with
 92.16% statements, 85.84% branches, 91.45% functions and 92.92% lines. Patch
 coverage remains 348/352 (98.86%) against the unchanged 85% floor. Rust passed
 820 tests with one existing ignored test; lines are 76.60% and regions 76.35%.
 UI-preview tooling passed 17 files / 216 tests. These passing checks do not
-override the failed repository CI gate or the still-pending native acceptance.
+override the failed repository CI gate. The native job completed separately, as
+recorded below.
 
 The default local `pnpm test:ci` reproduces the same batch-timeout symptom:
 14 files / 382 tests pass and all 18 memory assertions are skipped. The added
@@ -565,3 +566,34 @@ partial collection and serialization failures preserve the available progress
 and original timeout cause. These diagnostic checks fail before the error
 reporting change and pass afterward; they are separate from the 400 suite tests.
 No Ubuntu or native-performance pass is inferred from the local results.
+
+### Completed instrumented native acceptance
+
+The [Windows job at `f19f6e1c`](https://github.com/TouchAI-org/TouchAI/actions/runs/42871101361/job/130022346984)
+completed both release builds, all 45 smoke tests, app-window visual steps and
+the aggregate E2E gate. Its baseline is `1b6d2d759096050914beb758e1948779cac7afda`.
+The complete `lifecycle-release-performance` artifact contains all 12 ABBA
+sessions, six per revision and 300 timing samples per phase. Replaying its raw
+reports with the unchanged comparator exactly reproduces the uploaded summary:
+all 24 budgets pass the unchanged 5% limit. P95 private bytes change +1.22%,
+working set +1.21%; process and renderer P95 remain 10 and 3. Normal motion,
+visibility, WebView, DPI and viewport checks pass without dropping samples.
+
+All 60 native memory samples were checked against their 602 process records:
+unique IDs, one application root, complete ancestry, parent-before-child
+creation times, renderer counts and summed byte counters agree. No PID-reuse
+edge was rejected in this run. Each revision has 29 ten-process samples and
+one eleven-process sample, with three renderers in every sample. Head block 1
+adds a second `msedgewebview2.exe` GPU process in its second memory sample;
+baseline block 8 adds a third WebView utility process in its fourth sample.
+Both extra processes are genuine descendants and disappear in the next
+snapshot. Their counts and bytes remain in the comparison; no executable,
+role, outlier or transient-process exclusion is introduced.
+
+This identifies the extra processes in the instrumented run, not the two
+unidentified processes in the earlier `abf529ec` artifact. That original corpus
+still fails its original process-count P95 budget. Neither this passing result
+nor the independent parent-PID reuse fix establishes the identities or cause
+of those historical samples. The repository CI fixture fix still requires a
+new Ubuntu run, and human review remains pending; native success alone is not
+final acceptance of the PR.
