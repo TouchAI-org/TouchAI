@@ -82,7 +82,7 @@ describe('TouchAI search smoke', () => {
         }
     });
 
-    it('user sees the native gray ring when opening the search card', async () => {
+    it('user sees a subtle gray ring when opening the search card', async () => {
         const styles = await browser.execute(() => {
             const card = document.querySelector('[data-testid="search-view-card"]');
             if (!(card instanceof HTMLElement)) {
@@ -92,6 +92,7 @@ describe('TouchAI search smoke', () => {
             return {
                 radius: style.borderRadius,
                 shadow: style.boxShadow,
+                stroke: getComputedStyle(card, '::after').boxShadow,
             };
         });
 
@@ -99,11 +100,12 @@ describe('TouchAI search smoke', () => {
             throw new Error('The search card was not available for style inspection.');
         }
         if (
-            !styles.shadow.includes('inset') ||
-            !styles.shadow.includes('0px 0px 0px 1px') ||
-            !styles.shadow.includes('rgb(169, 169, 169)')
+            styles.shadow.includes('inset') ||
+            !styles.stroke.includes('inset') ||
+            !styles.stroke.includes('0px 0px 0px 1px') ||
+            !styles.stroke.includes('rgba(117, 117, 117, 0.3)')
         ) {
-            throw new Error(`The search card lost its native gray ring: ${styles.shadow}.`);
+            throw new Error(`The search card lost its subtle gray ring: ${styles.stroke}.`);
         }
         if (styles.radius === '0px') {
             throw new Error('The search card lost its rounded native surface.');
