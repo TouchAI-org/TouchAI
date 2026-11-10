@@ -1,4 +1,7 @@
-use super::{download_bytes, download_to_path, DownloadError, DownloadRequest, DownloadTimeouts};
+use super::{
+    download_bytes, download_to_path, transfer_deadline, DownloadError, DownloadRequest,
+    DownloadTimeouts,
+};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -178,4 +181,15 @@ fn user_is_told_why_a_transfer_cannot_start() {
 
     assert!(matches!(error, DownloadError::InvalidRequest(_)));
     assert!(!destination.exists());
+}
+
+#[test]
+fn user_gets_a_total_transfer_budget_that_scales_with_the_declared_size() {
+    let idle_timeout = Duration::from_secs(60);
+
+    assert_eq!(transfer_deadline(0, idle_timeout), idle_timeout);
+    assert_eq!(
+        transfer_deadline(125 * 1024 * 1024, idle_timeout),
+        Duration::from_secs(1000)
+    );
 }

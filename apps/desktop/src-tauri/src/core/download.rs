@@ -18,13 +18,21 @@ use std::{
 
 const BUFFER_SIZE: usize = 64 * 1024;
 const MAX_ATTEMPTS: usize = 2;
+const MIN_TRANSFER_BYTES_PER_SECOND: u64 = 128 * 1024;
 
 #[cfg(test)]
 mod tests;
 
+/// Timeouts for a transfer.
 #[derive(Debug, Clone, Copy)]
 pub struct DownloadTimeouts {
+    /// Maximum time to establish the connection.
     pub connect: Duration,
+    /// Maximum idle time while waiting for response headers or body bytes.
+    ///
+    /// This is not a deadline for the whole transfer: a slow but progressing
+    /// download keeps extending it. `download_bytes` adds a size-scaled total
+    /// budget on top so a trickling response cannot run forever.
     pub operation: Duration,
 }
 
@@ -148,6 +156,10 @@ pub fn download_to_path(
     let client = Client::builder()
         .connect_timeout(request.timeouts.connect)
         .timeout(request.timeouts.operation)
+        .no_gzip()
+        .no_brotli()
+        .no_deflate()
+        .no_zstd()
         .build()?;
 
     for attempt in 0..MAX_ATTEMPTS {
@@ -267,7 +279,8 @@ pub async fn download_bytes(
         .ok_or_else(|| DownloadError::InvalidRequest("SHA-256 is required".to_string()))?;
     let client = reqwest::Client::builder()
         .connect_timeout(timeouts.connect)
-        .timeout(timeouts.operation)
+        .read_timeout(timeouts.operation)
+        .timeout(transfer_deadline(expected_size, timeouts.operation))
         .no_gzip()
         .no_brotli()
         .no_deflate()
@@ -315,6 +328,12 @@ pub async fn download_bytes(
         return Err(DownloadError::ChecksumMismatch);
     }
     Ok(data)
+}
+
+fn transfer_deadline(expected_size: u64, idle_timeout: Duration) -> Duration {
+    idle_timeout.max(Duration::from_secs(
+        expected_size / MIN_TRANSFER_BYTES_PER_SECOND,
+    ))
 }
 
 fn validate_expected<'a>(
