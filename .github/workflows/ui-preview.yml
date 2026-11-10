@@ -38,17 +38,16 @@ env:
     UI_PREVIEW_DESKTOP_COLOUR: '#d9d4c8'
 
 concurrency:
-    # Only a trusted preview request may replace an active preview. The App's
+    # Only a new commit or a manual run may replace an active preview. The App's
     # label events get their own group because the /ui-preview path adds and
-    # removes the approval label. Ordinary comments, untrusted preview commands
-    # and unrelated labels get groups that cannot collide with `run`.
+    # removes the approval label.
     #
-    # Gated-label events from people cannot be trust-classified before `detect`
-    # reads the actor's permission, so they stay in `run` but never cancel:
-    # they queue behind the active preview and run after it. A maintainer who
-    # needs to replace an active preview immediately uses `/ui-preview`.
+    # Comments and human label events cannot be trust-classified before `detect`
+    # reads the actor's permission: `author_association` does not prove write
+    # access. They never cancel, so an unauthorized request cannot kill a
+    # running preview; they queue and `detect` then accepts or skips them.
     group: ui-preview-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}-${{ github.event_name == 'pull_request_target' && contains(fromJSON('["labeled","unlabeled"]'), github.event.action) && endsWith(github.actor, '[bot]') && contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name) && 'approval' || github.event_name == 'issue_comment' && !startsWith(github.event.comment.body, '/ui-preview') && 'comment' || github.event_name == 'issue_comment' && !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) && 'untrusted-comment' || github.event_name == 'pull_request_target' && contains(fromJSON('["labeled","unlabeled"]'), github.event.action) && !contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name) && 'label' || 'run' }}
-    cancel-in-progress: ${{ !(github.event_name == 'pull_request_target' && contains(fromJSON('["labeled","unlabeled"]'), github.event.action) && contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name) && !endsWith(github.actor, '[bot]')) }}
+    cancel-in-progress: ${{ !(github.event_name == 'issue_comment' || (github.event_name == 'pull_request_target' && contains(fromJSON('["labeled","unlabeled"]'), github.event.action) && contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name) && !endsWith(github.actor, '[bot]'))) }}
 
 jobs:
     # These jobs run trusted code only and read repository-level secrets. They

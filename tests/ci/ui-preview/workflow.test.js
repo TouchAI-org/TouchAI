@@ -145,16 +145,6 @@ describe('user opens a pull request that runs the preview', () => {
 
             expect(comment).toBe('ui-preview-42-comment');
             expect(comment).not.toBe(active);
-            expect(
-                cancelsInProgress(
-                    eventName,
-                    {
-                        comment: { body: '@coderabbitai review' },
-                        issue: { number: 42, pull_request: {} },
-                    },
-                    actor
-                )
-            ).toBe('true');
         }
     );
 
@@ -249,7 +239,7 @@ describe('user opens a pull request that runs the preview', () => {
         expect(key).toBe('ui-preview-42-approval');
     });
 
-    it('user gets a real preview request superseding the previous run', () => {
+    it('user gets a maintainer preview request queued after the active run', () => {
         const active = concurrencyKey('pull_request_target', {
             action: 'synchronize',
             pull_request: { number: 42 },
@@ -274,10 +264,10 @@ describe('user opens a pull request that runs the preview', () => {
                 },
                 'maintainer'
             )
-        ).toBe('true');
+        ).toBe('false');
     });
 
-    it('user gets an untrusted preview command kept outside the active preview group', () => {
+    it('user gets an untrusted preview command that cannot cancel active work', () => {
         const active = concurrencyKey('pull_request_target', {
             action: 'synchronize',
             pull_request: { number: 42 },
@@ -302,7 +292,30 @@ describe('user opens a pull request that runs the preview', () => {
                 },
                 'outside-contributor'
             )
-        ).toBe('true');
+        ).toBe('false');
+    });
+
+    it('user gets a read-only member command that cannot cancel active work', () => {
+        const key = concurrencyKey(
+            'issue_comment',
+            {
+                comment: { body: '/ui-preview', author_association: 'MEMBER' },
+                issue: { number: 42, pull_request: {} },
+            },
+            'read-only-member'
+        );
+
+        expect(key).toBe('ui-preview-42-run');
+        expect(
+            cancelsInProgress(
+                'issue_comment',
+                {
+                    comment: { body: '/ui-preview', author_association: 'MEMBER' },
+                    issue: { number: 42, pull_request: {} },
+                },
+                'read-only-member'
+            )
+        ).toBe('false');
     });
 
     it('user gets a preview from another pull request kept apart', () => {
