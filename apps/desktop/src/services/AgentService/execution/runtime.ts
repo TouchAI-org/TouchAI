@@ -32,11 +32,12 @@ import { getCurrentModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import { composePromptSnapshot } from '../prompt/composer';
 import { summarizePromptSnapshot } from '../prompt/serialization';
-import { buildPromptTransportMessages } from '../prompt/transport';
+import { buildPromptTransportMessages, buildUserPromptMessage } from '../prompt/transport';
 import type { PromptSnapshot } from '../prompt/types';
 import { createSessionReadModel } from '../session/readModel';
 import { buildSessionTitle } from '../session/title';
 import { findUnsupportedSessionAttachmentTypes } from '../session/transport';
+import type { DeliveredPendingUserMessage, PendingUserMessage } from '../task/types';
 import {
     AiRequestExecutor,
     type AttemptCheckpoint,
@@ -87,7 +88,8 @@ export interface RuntimePersistenceIssue {
         | 'turn_completed'
         | 'turn_cancelled'
         | 'turn_failed'
-        | 'retry_started';
+        | 'retry_started'
+        | 'user_message_delivery';
     title: string;
     body: string;
     error: unknown;
@@ -144,6 +146,11 @@ export type RuntimeTurnEvent =
           maxRetries: number;
           reason: string;
           checkpoint: AttemptCheckpoint;
+      }
+    | {
+          type: 'user_messages_delivered';
+          taskId: string;
+          messages: DeliveredPendingUserMessage[];
       };
 
 export interface ExecuteRequestOptions extends RequestExecutionCallbacks {
@@ -156,6 +163,7 @@ export interface ExecuteRequestOptions extends RequestExecutionCallbacks {
     executionMode?: TaskExecutionMode;
     promptSnapshot?: PromptSnapshot;
     environment?: ConversationRuntimeEnvironment;
+    takePriorityUserMessages?: () => PendingUserMessage[];
 }
 
 interface RuntimeContext {
@@ -418,6 +426,87 @@ export class AiConversationRuntime {
             persister,
             requestStartRecordPromise,
         };
+    }
+
+    /**
+     * 在工具轮结束后的安全边界投递插队消息。
+     *
+     * 消息先按普通用户消息落库，再作为下一条上下文发给模型；落库失败不会
+     * 阻断对话，只是与普通轮次一样报告持久化问题。
+     */
+    private async deliverPriorityUserMessagesAtToolBoundary(
+        persister: PersistenceProjector,
+        model: ModelWithProvider
+    ): Promise<AiMessage[]> {
+        const pending = this.options.takePriorityUserMessages?.() ?? [];
+        if (pending.length === 0) {
+            return [];
+        }
+
+        const attachmentCapabilities = getModelAttachmentCapabilities(model);
+        const delivered: DeliveredPendingUserMessage[] = [];
+        const messages: AiMessage[] = [];
+
+        for (const pendingMessage of pending) {
+            let contextSource: AiMessage['contextSource'];
+            try {
+                const persisted = await persister.persistInjectedUserMessage({
+                    prompt: pendingMessage.prompt,
+                    attachments: pendingMessage.attachments,
+                });
+                contextSource = persisted.source;
+            } catch (error) {
+                log.error(
+                    '[AiConversationRuntime] Failed to persist an inserted user message:',
+                    error
+                );
+                await this.reportPersistenceIssue({
+                    phase: 'user_message_delivery',
+                    ...buildPersistenceIssue('agent.persistenceIssue.userMessageDelivery'),
+                    error,
+                });
+            }
+
+            try {
+                const message = await buildUserPromptMessage({
+                    prompt: pendingMessage.prompt,
+                    attachments: pendingMessage.attachments,
+                    attachmentCapabilities,
+                });
+                if (contextSource) {
+                    message.contextSource = contextSource;
+                }
+                messages.push(message);
+                delivered.push({
+                    id: pendingMessage.id,
+                    prompt: pendingMessage.prompt,
+                    attachments: pendingMessage.attachments,
+                    ...(pendingMessage.inputSnapshot
+                        ? { inputSnapshot: pendingMessage.inputSnapshot }
+                        : {}),
+                });
+            } catch (error) {
+                log.error(
+                    '[AiConversationRuntime] Failed to build an inserted user message:',
+                    error
+                );
+                await this.reportPersistenceIssue({
+                    phase: 'user_message_delivery',
+                    ...buildPersistenceIssue('agent.persistenceIssue.userMessageDelivery'),
+                    error,
+                });
+            }
+        }
+
+        if (delivered.length > 0 && this.options.taskId) {
+            this.notifyTurnEvent({
+                type: 'user_messages_delivered',
+                taskId: this.options.taskId,
+                messages: delivered,
+            });
+        }
+
+        return messages;
     }
 
     /**
@@ -707,6 +796,11 @@ export class AiConversationRuntime {
                                     this.options.onChunk?.(chunk);
                                 },
                                 onTurnEvent: (event) => this.notifyTurnEvent(event),
+                                onToolBoundary: ({ persister, model }) =>
+                                    this.deliverPriorityUserMessagesAtToolBoundary(
+                                        persister,
+                                        model
+                                    ),
                                 requestToolApproval: requestToolApproval
                                     ? (payload) =>
                                           requestToolApproval({

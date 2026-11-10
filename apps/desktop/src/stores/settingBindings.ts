@@ -10,6 +10,7 @@ import {
 import { computed, type ComputedRef, type Ref } from 'vue';
 
 import type { AppUpdateChannel } from '@/config/appUpdate';
+import type { SubmitShortcutMode } from '@/config/chatSubmission';
 import type { AnimationSpeed } from '@/config/motion';
 import type { SearchKeybindings } from '@/config/searchKeybindings';
 import type { SearchWindowDefaultSize, SearchWindowSizePreset } from '@/config/searchWindow';
@@ -19,6 +20,7 @@ export interface GeneralSettingsComputedRefs {
     animationSpeed: ComputedRef<AnimationSpeed>;
     automaticallyReduceMotion: ComputedRef<boolean>;
     outputScrollBehavior: ComputedRef<OutputScrollBehavior>;
+    submitShortcutMode: ComputedRef<SubmitShortcutMode>;
     globalShortcut: ComputedRef<string>;
     searchKeybindings: ComputedRef<SearchKeybindings>;
     searchWindowSizePreset: ComputedRef<SearchWindowSizePreset>;

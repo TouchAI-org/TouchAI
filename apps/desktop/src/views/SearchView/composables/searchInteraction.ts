@@ -25,6 +25,7 @@ import type {
     SearchModelDropdownState,
     SearchModelOverride,
     SearchPageController,
+    SubmitShortcutIntent,
 } from '../types';
 
 export type SearchActivationSource = 'shortcut' | 'manual' | 'unknown';
@@ -126,7 +127,7 @@ interface CreateSearchKeyboardRouterOptions {
     onRejectApproval: (callId?: string, decisionId?: string) => void;
     onApproveApproval: (callId?: string, decisionId?: string) => void;
     onForwardToOverlay: (key: string) => void;
-    onSubmit: () => void | Promise<void>;
+    onSubmit: (intent?: SubmitShortcutIntent) => void | Promise<void>;
     onOpenQuickSearch: () => void;
     onMoveQuickSearchSelection: (direction: SearchQuickSearchDirection) => void;
     onOpenHighlightedQuickSearchItem: () => void | Promise<void>;
@@ -160,7 +161,8 @@ export interface UseSearchKeyboardOptions {
     controller: SearchPageController;
     sessionHistory: Ref<SessionMessage[]>;
     pendingRequest: Ref<PendingRequest | null>;
-    isWaitingForCompletion: Ref<boolean>;
+    cancelPendingRequest?: () => boolean;
+    cancelLatestPendingMessage?: () => boolean;
     isLoading: Ref<boolean>;
     pendingToolApproval: Ref<PendingToolApproval | null>;
     approvePendingToolApproval: (callId?: string, decisionId?: string) => boolean;
@@ -178,7 +180,7 @@ export interface UseSearchKeyboardOptions {
     ) => SessionInputHistoryNavigationResult;
     closeModelDropdown: () => Promise<void>;
     toggleWindowMaximize: () => Promise<void>;
-    handleSubmit: (query: string) => Promise<void>;
+    handleSubmit: (query: string, intent?: SubmitShortcutIntent) => Promise<void>;
     handleSearchKeybindingAction?: (actionId: SearchKeybindingActionId) => void | Promise<void>;
     clearAll: () => void;
     cancelRequest: () => void;
@@ -887,7 +889,9 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
                     // first lets ResizeObserver enqueue a stale shrink and causes
                     // the host to jump back to the compact height.
                     if (queryText.trim() || hasAttachments() || hasInputContent?.()) {
-                        runKeyboardEffect(onSubmit);
+                        runKeyboardEffect(() =>
+                            onSubmit(input.ctrlKey || input.metaKey ? 'enter-modified' : 'enter')
+                        );
                     } else {
                         onCloseQuickSearch();
                     }
@@ -919,7 +923,9 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
                 }
 
                 if (queryText.trim() || hasAttachments() || hasInputContent?.()) {
-                    runKeyboardEffect(onSubmit);
+                    runKeyboardEffect(() =>
+                        onSubmit(input.ctrlKey || input.metaKey ? 'enter-modified' : 'enter')
+                    );
                     return true;
                 }
 
@@ -930,7 +936,9 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
 
         if (getActiveSurface() === 'search-surface' && input.key === 'Enter' && !input.shiftKey) {
             if (queryText.trim() || hasAttachments() || hasInputContent?.()) {
-                runKeyboardEffect(onSubmit);
+                runKeyboardEffect(() =>
+                    onSubmit(input.ctrlKey || input.metaKey ? 'enter-modified' : 'enter')
+                );
             }
             return true;
         }
@@ -962,7 +970,8 @@ export function createSearchKeydownHandler(
         controller,
         sessionHistory,
         pendingRequest,
-        isWaitingForCompletion,
+        cancelPendingRequest,
+        cancelLatestPendingMessage,
         isLoading,
         pendingToolApproval,
         approvePendingToolApproval,
@@ -1029,8 +1038,8 @@ export function createSearchKeydownHandler(
         onForwardToOverlay: (key) => {
             forwardOverlayKeydown?.(key);
         },
-        onSubmit: async () => {
-            await handleSubmit(queryText.value);
+        onSubmit: async (intent) => {
+            await handleSubmit(queryText.value, intent);
         },
         onOpenQuickSearch: () => {
             controller.openQuickSearch();
@@ -1207,8 +1216,7 @@ export function createSearchKeydownHandler(
 
                 if (timeSinceLastBackspace < DOUBLE_BACKSPACE_INTERVAL) {
                     event.preventDefault();
-                    pendingRequest.value = null;
-                    isWaitingForCompletion.value = false;
+                    (cancelLatestPendingMessage ?? cancelPendingRequest)?.();
                     lastBackspaceTime = 0;
                 }
                 return;

@@ -32,6 +32,7 @@ const {
     findUnsupportedSessionAttachmentTypesMock,
     composePromptSnapshotMock,
     buildPromptTransportMessagesMock,
+    buildUserPromptMessageMock,
     getCurrentModelLanguageContextMock,
     shouldRetryRequestFailureMock,
     waitForRetryDelayMock,
@@ -46,6 +47,7 @@ const {
     findUnsupportedSessionAttachmentTypesMock: vi.fn(),
     composePromptSnapshotMock: vi.fn(),
     buildPromptTransportMessagesMock: vi.fn(),
+    buildUserPromptMessageMock: vi.fn(),
     getCurrentModelLanguageContextMock: vi.fn(),
     shouldRetryRequestFailureMock: vi.fn(),
     waitForRetryDelayMock: vi.fn(async () => undefined),
@@ -63,6 +65,10 @@ const {
         markCancelled: vi.fn(async () => undefined),
         markFailed: vi.fn(async () => undefined),
         beginNextAttempt: vi.fn(async () => undefined),
+        persistInjectedUserMessage: vi.fn(async () => ({
+            messageId: 11,
+            source: { id: 11, fingerprint: 'f'.repeat(64) },
+        })),
     },
 }));
 
@@ -94,6 +100,7 @@ vi.mock('@/services/AgentService/prompt/composer', () => ({
 
 vi.mock('@/services/AgentService/prompt/transport', () => ({
     buildPromptTransportMessages: buildPromptTransportMessagesMock,
+    buildUserPromptMessage: buildUserPromptMessageMock,
 }));
 
 vi.mock('@/services/AgentService/languageContext', () => ({
@@ -339,6 +346,49 @@ describe('user starts a turn that needs a new conversation', () => {
         await runtime.run();
 
         expect(events[1]).toMatchObject({ type: 'task_started', turnId: null });
+    });
+
+    it('user gets an inserted message persisted and announced at the tool boundary', async () => {
+        const executor = createExecutor();
+        buildUserPromptMessageMock.mockResolvedValue({ role: 'user', content: 'Insert this' });
+        const { runtime, events } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Insert this',
+                    attachments: [],
+                    delivery: 'priority',
+                    createdAt: 1,
+                },
+            ],
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        const inserted = await attemptOptions.onToolBoundary!({
+            persister: projectorMock as never,
+            model: createModel(),
+        });
+
+        expect(projectorMock.persistInjectedUserMessage).toHaveBeenCalledWith({
+            prompt: 'Insert this',
+            attachments: [],
+        });
+        // The stored row is the context source, so the next request can point back at it.
+        expect(inserted).toEqual([
+            {
+                role: 'user',
+                content: 'Insert this',
+                contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
+            },
+        ]);
+        expect(events).toContainEqual({
+            type: 'user_messages_delivered',
+            taskId: 'task-1',
+            messages: [{ id: 'pending-1', prompt: 'Insert this', attachments: [] }],
+        });
     });
 
     it('user sees no live task events when the request runs outside a task', async () => {

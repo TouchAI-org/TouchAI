@@ -359,7 +359,8 @@
     const inputHistoryRestoreVersion = ref(0);
     const mcpStore = useMcpStore();
     const settingsStore = useSettingsStore();
-    const { searchWindowDefaultSize, searchKeybindings } = storeToRefs(settingsStore);
+    const { searchWindowDefaultSize, searchKeybindings, submitShortcutMode } =
+        storeToRefs(settingsStore);
     const { sessionStatuses, refreshAllStatuses: refreshSessionStatuses } = useSessionStatus();
     const { isPinned, syncWindowPinState, setWindowPinned, toggleWindowPin } = useSearchWindowPin();
     type E2eAskUserRequest =
@@ -567,7 +568,7 @@
 
     const {
         pendingRequest,
-        isWaitingForCompletion,
+        pendingUserMessages,
         isLoading,
         error,
         currentSessionId,
@@ -596,6 +597,8 @@
         handleSubmit,
         clearAll,
         cancelRequest,
+        cancelPendingRequest,
+        cancelLatestPendingMessage,
         handleRegenerateMessage: handleRegenerateMessageRequest,
     } = useSearchRequestFlow({
         modelOverride,
@@ -603,6 +606,7 @@
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
         getCurrentInputSnapshot: buildCurrentInputHistorySnapshot,
+        submitShortcutMode,
     });
 
     const floatingPicker = computed(
@@ -1336,8 +1340,16 @@
     }
 
     async function submitSearchQuery(
-        ...args: Parameters<typeof handleSubmit>
+        query: string,
+        inputSnapshotOrIntent?:
+            | Parameters<typeof handleSubmit>[1]
+            | Parameters<typeof handleSubmit>[2],
+        intent?: Parameters<typeof handleSubmit>[2]
     ): ReturnType<typeof handleSubmit> {
+        const inputSnapshot =
+            typeof inputSnapshotOrIntent === 'string' ? undefined : inputSnapshotOrIntent;
+        const shortcutIntent =
+            typeof inputSnapshotOrIntent === 'string' ? inputSnapshotOrIntent : intent;
         const quickSearchWasOpen = quickSearchOpen.value;
         const shouldExpand = sessionHistory.value.length === 0 && !effectiveWindowMaximized.value;
         const expansion = shouldExpand || quickSearchWasOpen ? beginSessionExpansion() : null;
@@ -1350,7 +1362,14 @@
                 await hideAllOverlays(false);
             }
 
-            const submitPromise = handleSubmit(...args);
+            // Only pass the arguments the caller actually supplied, so callers that
+            // submit without a snapshot or shortcut keep the simplest call shape.
+            const submitPromise =
+                shortcutIntent === undefined
+                    ? inputSnapshot === undefined
+                        ? handleSubmit(query)
+                        : handleSubmit(query, inputSnapshot)
+                    : handleSubmit(query, inputSnapshot, shortcutIntent);
             if (expansion?.signal.aborted) return submitPromise;
             if (quickSearchWasOpen) {
                 // Hand the viewport over: the results row collapses on the card's curve
@@ -1435,7 +1454,8 @@
         controller,
         sessionHistory,
         pendingRequest,
-        isWaitingForCompletion,
+        cancelPendingRequest,
+        cancelLatestPendingMessage,
         isLoading,
         pendingToolApproval,
         approvePendingToolApproval,
@@ -2791,6 +2811,7 @@
                                 <ConversationPanel
                                     ref="conversationPanel"
                                     :messages="sessionHistory"
+                                    :pending-messages="pendingUserMessages"
                                     :is-loading="isLoading"
                                     :error="error"
                                     :is-pinned="isPinned"
@@ -2837,9 +2858,7 @@
                             >
                                 <SearchBar
                                     ref="searchBar"
-                                    :disabled="
-                                        isWaitingForCompletion || Boolean(pendingToolApproval)
-                                    "
+                                    :disabled="Boolean(pendingToolApproval)"
                                     :query-text="queryText"
                                     :attachments="attachments"
                                     :complete-file="completeFile"

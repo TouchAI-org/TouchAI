@@ -15,6 +15,7 @@ describe('user watches reasoning and the answer arrive interleaved', () => {
             status: 'running',
             executionMode: 'foreground',
             sessionHistory: [],
+            pendingUserMessages: [],
             pendingToolApproval: null,
             pendingApprovals: [],
             pendingUserQuestion: null,

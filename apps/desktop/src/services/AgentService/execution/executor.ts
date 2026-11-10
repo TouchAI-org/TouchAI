@@ -85,6 +85,10 @@ export interface RequestExecutionCallbacks {
     signal?: AbortSignal;
     onChunk?: (chunk: AiStreamChunk) => void;
     onTurnEvent?: (event: RuntimeTurnEvent) => void;
+    onToolBoundary?: (context: {
+        persister: PersistenceProjector;
+        model: ModelWithProvider;
+    }) => Promise<AiMessage[]>;
     /** Per-logical-request analytics sink; absent for callers without one. */
     analytics?: AgentRequestAnalytics;
     onAttachmentManifestResolved?: (
@@ -1426,6 +1430,14 @@ export class AiRequestExecutor {
                 } finally {
                     if (options.signal?.aborted) options.analytics?.noteAbort();
                     leaveTool?.();
+                }
+
+                const insertedMessages = await options.onToolBoundary?.({
+                    persister: options.persister,
+                    model: runtime.activeModel,
+                });
+                if (insertedMessages?.length) {
+                    runtime.messages.push(...insertedMessages);
                 }
 
                 runtime.iteration += 1;

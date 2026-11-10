@@ -28,6 +28,7 @@ const {
         sessionHistory: { value: [] as SessionMessage[] },
         pendingToolApproval: { value: null },
         pendingUserQuestion: { value: null },
+        pendingUserMessages: { value: [] as unknown[] },
         sendRequest: vi.fn().mockResolvedValue(undefined),
         cancel: vi.fn(),
         clearSession: vi.fn(),
@@ -35,6 +36,27 @@ const {
         approvePendingToolApproval: vi.fn(() => true),
         rejectPendingToolApproval: vi.fn(() => true),
         settleUserQuestion: vi.fn(),
+        enqueueUserMessage: vi.fn(
+            (
+                input: { prompt: string; attachments: unknown[] },
+                delivery: string
+            ): {
+                id: string;
+                prompt: string;
+                attachments: unknown[];
+                delivery: string;
+                createdAt: number;
+            } | null => ({
+                id: `pending-${input.prompt}`,
+                prompt: input.prompt,
+                attachments: input.attachments,
+                delivery,
+                createdAt: 1,
+            })
+        ),
+        removePendingUserMessage: vi.fn(() => true),
+        clearPendingUserMessages: vi.fn(() => true),
+        updatePendingUserMessagesModel: vi.fn(() => true),
     };
     return {
         agentCallbacks: callbacksHolder,
@@ -135,6 +157,7 @@ interface FlowOptions {
     clearDraft?: (options?: { preserveModelTag?: boolean }) => void;
     attachments?: Index[];
     unsupportedMessage?: string | null;
+    submitShortcutMode?: Ref<'queue_on_enter' | 'priority_on_enter'>;
 }
 
 async function mountFlow(options: FlowOptions = {}) {
@@ -159,6 +182,7 @@ async function mountFlow(options: FlowOptions = {}) {
                     text: query,
                     attachments,
                 }),
+            submitShortcutMode: options.submitShortcutMode,
         })
     );
 
@@ -235,6 +259,7 @@ describe('when the user sends a second prompt while a request is running', () =>
         agentState.isLoading.value = true;
         agentState.currentSessionId.value = null;
         agentState.sessionHistory.value = [];
+        agentState.pendingUserMessages.value = [];
         listSessionsMock.mockResolvedValue([]);
         agentState.sendRequest.mockResolvedValue(undefined);
     });
@@ -243,29 +268,7 @@ describe('when the user sends a second prompt while a request is running', () =>
         document.body.innerHTML = '';
     });
 
-    it('user sees the follow-up queued instead of interrupting the running request', async () => {
-        const attachment = createAttachment('queued-1');
-        const { result, unmount } = await mountFlow({
-            modelOverride: ref({ modelId: 'queued-model', providerId: 3 }),
-            attachments: [attachment],
-        });
-
-        await result.handleSubmit('queued prompt');
-
-        expect(result.isWaitingForCompletion.value).toBe(true);
-        expect(result.pendingRequest.value).toEqual({
-            query: 'queued prompt',
-            attachments: [attachment],
-            inputSnapshot: expect.objectContaining({ text: 'queued prompt' }),
-            modelId: 'queued-model',
-            providerId: 3,
-        });
-        expect(agentState.sendRequest).not.toHaveBeenCalled();
-
-        unmount();
-    });
-
-    it('user gets the queued prompt sent automatically once the running request completes', async () => {
+    it('user sees the follow-up queued as a pending bubble instead of interrupting the run', async () => {
         const attachment = createAttachment('queued-1');
         const { result, clearDraft, unmount } = await mountFlow({
             modelOverride: ref({ modelId: 'queued-model', providerId: 3 }),
@@ -274,47 +277,84 @@ describe('when the user sends a second prompt while a request is running', () =>
 
         await result.handleSubmit('queued prompt');
 
-        agentState.isLoading.value = false;
-        await (agentCallbacks.current?.onComplete as (() => Promise<void>) | undefined)?.();
-
-        expect(agentState.sendRequest).toHaveBeenCalledWith(
-            'queued prompt',
-            [attachment],
-            expect.objectContaining({ text: 'queued prompt' }),
-            'queued-model',
-            3
+        expect(agentState.enqueueUserMessage).toHaveBeenCalledWith(
+            {
+                prompt: 'queued prompt',
+                attachments: [attachment],
+                inputSnapshot: expect.objectContaining({ text: 'queued prompt' }),
+                modelId: 'queued-model',
+                providerId: 3,
+            },
+            'queue'
         );
+        expect(agentState.sendRequest).not.toHaveBeenCalled();
         expect(clearDraft).toHaveBeenCalledWith({ preserveModelTag: true });
-        expect(result.pendingRequest.value).toBeNull();
-        expect(result.isWaitingForCompletion.value).toBe(false);
 
         unmount();
     });
 
-    it('user can drop the queued prompt without cancelling the request that is already running', async () => {
+    it('user gets Ctrl+Enter inserted as priority rather than queued', async () => {
         const { result, unmount } = await mountFlow();
 
-        await result.handleSubmit('queued prompt');
-        expect(result.cancelPendingRequest()).toBe(true);
+        await result.handleSubmit('insert this', undefined, 'enter-modified');
 
-        expect(result.pendingRequest.value).toBeNull();
-        expect(result.isWaitingForCompletion.value).toBe(false);
+        expect(agentState.enqueueUserMessage).toHaveBeenCalledWith(
+            expect.objectContaining({ prompt: 'insert this' }),
+            'priority'
+        );
+
+        unmount();
+    });
+
+    it('user gets the two delivery modes swapped when the setting is inverted', async () => {
+        const { result, unmount } = await mountFlow({
+            submitShortcutMode: ref('priority_on_enter'),
+        });
+
+        await result.handleSubmit('plain enter', undefined, 'enter');
+        await result.handleSubmit('ctrl enter', undefined, 'enter-modified');
+
+        expect(agentState.enqueueUserMessage).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({ prompt: 'plain enter' }),
+            'priority'
+        );
+        expect(agentState.enqueueUserMessage).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({ prompt: 'ctrl enter' }),
+            'queue'
+        );
+
+        unmount();
+    });
+
+    it('user keeps the draft when the running task can no longer accept a message', async () => {
+        agentState.enqueueUserMessage.mockReturnValueOnce(null);
+        const { result, clearDraft, unmount } = await mountFlow();
+
+        await result.handleSubmit('too late');
+
+        expect(clearDraft).not.toHaveBeenCalled();
+
+        unmount();
+    });
+
+    it('user can drop the latest pending message without cancelling the run', async () => {
+        agentState.pendingUserMessages.value = [{ id: 'm1' }, { id: 'm2' }] as never;
+        const { result, unmount } = await mountFlow();
+
+        expect(result.cancelLatestPendingMessage()).toBe(true);
+        expect(agentState.removePendingUserMessage).toHaveBeenCalledWith('m2');
         expect(agentState.cancel).not.toHaveBeenCalled();
-        expect(result.cancelPendingRequest()).toBe(false);
 
         unmount();
     });
 
-    it('user gets a failed request drop the queued prompt instead of leaving it stuck', async () => {
+    it('user gets nothing removed when no pending message exists', async () => {
         const { result, unmount } = await mountFlow();
 
-        await result.handleSubmit('queued prompt');
-        expect(result.isWaitingForCompletion.value).toBe(true);
-
-        await (agentCallbacks.current?.onError as (() => void) | undefined)?.();
-
-        expect(result.pendingRequest.value).toBeNull();
-        expect(result.isWaitingForCompletion.value).toBe(false);
+        expect(result.cancelLatestPendingMessage()).toBe(false);
+        expect(agentState.removePendingUserMessage).not.toHaveBeenCalled();
 
         unmount();
     });
@@ -342,7 +382,7 @@ describe('when the user cancels a running request', () => {
 
         expect(agentState.cancel).toHaveBeenCalled();
         expect(result.pendingRequest.value).toBeNull();
-        expect(result.isWaitingForCompletion.value).toBe(false);
+        expect(agentState.clearPendingUserMessages).toHaveBeenCalled();
 
         unmount();
     });
@@ -565,14 +605,12 @@ describe('when the user opens a stored conversation', () => {
         });
 
         await result.handleSubmit('queued before open');
-        expect(result.pendingRequest.value?.query).toBe('queued before open');
+        expect(agentState.enqueueUserMessage).toHaveBeenCalled();
 
         const loadedSession = await result.openSession(7);
 
         expect(clearDraft).toHaveBeenCalledWith({ preserveModelTag: true });
         expect(dismissSessionTerminalStatusMock).toHaveBeenCalledWith(7);
-        expect(result.pendingRequest.value).toBeNull();
-        expect(result.isWaitingForCompletion.value).toBe(false);
         expect(modelOverride.value).toEqual({ modelId: 'gpt-5', providerId: 9 });
         expect(loadedSession).toEqual({
             sessionId: 7,
@@ -596,9 +634,9 @@ describe('when the user opens a stored conversation', () => {
 
         await expect(result.openSession(7)).rejects.toThrow('session not found');
 
-        expect(clearDraft).not.toHaveBeenCalledWith({ preserveModelTag: true });
-        expect(result.pendingRequest.value?.query).toBe('queued before failed open');
-        expect(result.isWaitingForCompletion.value).toBe(true);
+        // Only the queue submission clears the draft; a failed open must not clear it again.
+        expect(clearDraft).toHaveBeenCalledTimes(1);
+        expect(agentState.enqueueUserMessage).toHaveBeenCalled();
         expect(modelOverride.value).toEqual({ modelId: 'stale-model', providerId: 2 });
 
         unmount();

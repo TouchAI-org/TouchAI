@@ -187,6 +187,9 @@ const zhCNMessages = {
     'settings.general.interfaceLanguage': '界面语言',
     'settings.general.conversationExperience': '对话体验',
     'settings.general.conversationExperienceDescription': '调整长输出场景下的阅读位置',
+    'settings.general.submitShortcutMode.label': '运行中提交方式',
+    'settings.general.submitShortcutMode.queueOnEnter': 'Enter 排队',
+    'settings.general.submitShortcutMode.priorityOnEnter': 'Enter 插队',
     'settings.general.update.channelTitle': '版本更新',
     'settings.general.update.channelDescription': '选择您适合的版本更新频率',
     'settings.general.update.channelRowLabel': '版本更新通道',
@@ -1188,6 +1191,8 @@ const zhCNMessages = {
     'agent.persistenceIssue.turnCancelled': '保存会话取消状态失败，对话记录可能不完整。',
     'agent.persistenceIssue.retryStarted': '保存重试检查点失败，但本轮仍会继续重试。',
     'agent.persistenceIssue.turnFailed': '保存会话失败状态失败，对话记录可能不完整。',
+    'agent.persistenceIssue.userMessageDelivery':
+        '保存插队消息失败，对话将继续但该消息可能未写入历史。',
     'agent.mcp.toolDescriptionFallback': '工具：{toolName}',
     'settings.diagnostics.title': '诊断与支持',
     'settings.analytics.title': '隐私与产品统计',
@@ -1415,6 +1420,9 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.general.conversationExperience': 'Conversation experience',
     'settings.general.conversationExperienceDescription':
         'Adjust the reading position for long streaming output',
+    'settings.general.submitShortcutMode.label': 'Submit while running',
+    'settings.general.submitShortcutMode.queueOnEnter': 'Enter queues',
+    'settings.general.submitShortcutMode.priorityOnEnter': 'Enter inserts',
     'settings.general.update.channelTitle': 'Version updates',
     'settings.general.update.channelDescription': 'Choose the update frequency that fits you',
     'settings.general.update.channelRowLabel': 'Version update channel',
@@ -2502,6 +2510,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'Failed to save retry checkpoint, but this turn will continue retrying.',
     'agent.persistenceIssue.turnFailed':
         'Failed to save session failure state. Conversation records may be incomplete.',
+    'agent.persistenceIssue.userMessageDelivery':
+        'Failed to save the inserted message. The conversation continues but it may be missing from history.',
     'agent.mcp.toolDescriptionFallback': 'Tool: {toolName}',
     'settings.diagnostics.title': 'Diagnostics and support',
     'settings.analytics.title': 'Privacy and product analytics',

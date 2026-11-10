@@ -1260,6 +1260,34 @@ describe('user calls a tool the agent does not have', () => {
         );
     });
 
+    it('user gets an inserted message carried into the next request after the tool result', async () => {
+        resolveToolCallMock.mockResolvedValue(null);
+        providerMock.stream
+            .mockImplementationOnce(
+                streamOneToolCall({ id: 'call-1', name: 'ghost', arguments: '{}' })
+            )
+            .mockImplementationOnce(async function* (request: AiRequestOptions) {
+                const tail = request.messages.slice(-2);
+                // The tool result stays where it belongs; the inserted user turn follows it
+                // and is the last thing the model sees before answering.
+                expect(tail[0]).toMatchObject({ role: 'tool' });
+                expect(tail[1]).toEqual({ role: 'user', content: 'Insert this' });
+                yield { content: 'Done', done: true };
+            });
+
+        const onToolBoundary = vi
+            .fn()
+            .mockResolvedValue([{ role: 'user', content: 'Insert this' }]);
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persisterStub() as never,
+            onToolBoundary,
+        });
+
+        expect(outcome.type).toBe('completed');
+        expect(onToolBoundary).toHaveBeenCalledTimes(1);
+    });
+
     it('user sees a tool call with non-object arguments rejected before it runs', async () => {
         providerMock.stream
             .mockImplementationOnce(

@@ -486,7 +486,6 @@ describe('when the user clicks around the search window', () => {
                 controller: controller as never,
                 sessionHistory: ref([]),
                 pendingRequest: ref(null),
-                isWaitingForCompletion: ref(false),
                 isLoading: ref(false),
                 pendingToolApproval: ref(null),
                 approvePendingToolApproval: vi.fn(() => false),

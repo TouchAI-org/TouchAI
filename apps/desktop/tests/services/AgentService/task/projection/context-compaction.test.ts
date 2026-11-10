@@ -15,6 +15,7 @@ describe('given a conversation that compacts older context', () => {
             status: 'running',
             executionMode: 'foreground',
             sessionHistory: [],
+            pendingUserMessages: [],
             pendingToolApproval: null,
             pendingApprovals: [],
             pendingUserQuestion: null,

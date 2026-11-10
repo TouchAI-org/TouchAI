@@ -45,6 +45,7 @@ function createTaskSnapshot(
         status: 'running' as const,
         executionMode: 'foreground' as const,
         sessionHistory: [],
+        pendingUserMessages: [],
         pendingToolApproval: null,
         pendingApprovals: [],
         pendingUserQuestion: null,

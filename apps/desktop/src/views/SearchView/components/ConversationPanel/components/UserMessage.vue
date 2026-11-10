@@ -2,12 +2,25 @@
 
 <template>
     <div class="mb-4 flex flex-col items-end">
-        <div class="max-w-[80%] rounded-lg bg-secondary px-4 py-2 break-words">
+        <div
+            :class="[
+                'max-w-[80%] rounded-lg px-4 py-2 break-words',
+                message.pendingDelivery
+                    ? 'border border-dashed border-border-subtle bg-transparent text-text-tertiary'
+                    : 'bg-secondary',
+            ]"
+            :data-pending-delivery="message.pendingDelivery"
+        >
             <div class="text-reading leading-[1.6]">
                 <!-- 文本内容 -->
                 <div
                     v-if="inlineParts.length"
-                    class="user-text font-serif whitespace-pre-wrap text-message-foreground select-text"
+                    :class="[
+                        'user-text font-serif whitespace-pre-wrap select-text',
+                        message.pendingDelivery
+                            ? 'text-text-tertiary'
+                            : 'text-message-foreground',
+                    ]"
                     data-no-i18n="true"
                     translate="no"
                 >
@@ -56,7 +69,7 @@
         </div>
 
         <!-- 复制按钮 - 气泡外部右下角 -->
-        <div v-if="message.content" class="mt-1">
+        <div v-if="message.content && !message.pendingDelivery" class="mt-1">
             <ActionButton
                 icon="copy"
                 :handler="handleCopy"
