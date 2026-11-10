@@ -105,10 +105,10 @@
     --shadow-control-warm: 0 6px 18px rgb(107 95 84 / 0.12);
 
     /*
-     * Opaque neutral gray matches the native frame reference. A translucent
-     * surface stroke changes its visible color with the content underneath.
+     * A translucent neutral stroke keeps the window edge subtle against both
+     * light surfaces and darker content.
      */
-    --color-window-stroke: rgb(169 169 169);
+    --color-window-stroke: rgb(117 117 117 / 0.3);
 
     /*
      * The transparent room around a floating window. Keep this in sync with

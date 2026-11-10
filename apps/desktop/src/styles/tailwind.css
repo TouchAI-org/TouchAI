@@ -15,7 +15,7 @@
     --search-surface-background: rgb(251 251 246);
     --search-surface-border: var(--color-window-border);
     --search-surface-radius: var(--radius-window);
-    /* Popovers are in-window surfaces; the native search card overrides this. */
+    /* The search card paints its window stroke separately, above its content. */
     --search-surface-shadow:
         var(--shadow-window-halo), var(--shadow-window-mid), var(--shadow-window-far);
 }
@@ -439,6 +439,14 @@
 
 .search-view-surface-card {
     isolation: isolate;
+}
+
+/* Paint the window stroke above opaque conversation and result surfaces. */
+.search-view-surface-card.search-surface-elevated::after {
+    @apply pointer-events-none absolute inset-0 z-30;
+    content: '';
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px var(--color-window-border);
 }
 
 /* QuickSearch hands its existing viewport to the conversation card. Keeping the

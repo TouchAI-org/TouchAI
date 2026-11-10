@@ -73,7 +73,7 @@ try {
             ['default', 1168, 748],
             ['minimum', 968, 608],
         ]) {
-            await test(`user sees one native gray border when Settings opens at ${size} size with ${surface} content`, async () => {
+            await test(`user sees one subtle gray border when Settings opens at ${size} size with ${surface} content`, async () => {
                 const page = await browser.newPage({ viewport: { width, height } });
                 try {
                     await page.setContent(`<style>${css}</style>
@@ -87,10 +87,10 @@ try {
                     ]);
                     assert.equal(gutter[3], 0, 'The shadow gutter must have no surface border');
                     for (const channel of [0, 1, 2]) {
-                        const expected = 169;
+                        const expected = Math.round(117 * 0.3 + content[channel] * 0.7);
                         assert.ok(
                             Math.abs(edge[channel] - expected) <= 1,
-                            `Opaque content must not change or hide the native neutral gray border: ${edge} vs ${content}`
+                            `The translucent border must blend once over opaque content: ${edge} vs ${content}`
                         );
                     }
                     if (process.env.TOUCHAI_LAYOUT_OUTPUT) {
@@ -129,18 +129,29 @@ try {
                 }
             });
         }
-        await test(`user sees the same native gray border when search paints ${surface} content`, async () => {
+        await test(`user sees the same subtle border when opaque ${surface} content fills the search card`, async () => {
             const page = await browser.newPage({ viewport: { width: 1168, height: 748 } });
             try {
                 await page.setContent(`<style>${css}</style>
-                <div class="${frameClass}"><div class="search-surface-elevated" style="width:100%;height:100%;background:${background}"></div></div>`);
-                const [edge] = await pixels(page, [[584, 24]]);
+                <div class="${frameClass}"><div class="search-view-surface-card search-surface-elevated relative overflow-hidden border-0" style="width:100%;height:100%;background:${background}">
+                    <div style="position:absolute;inset:0;background:${background}"></div>
+                </div></div>`);
+                const [edge, content] = await pixels(page, [
+                    [584, 24],
+                    [584, 26],
+                ]);
                 for (const channel of [0, 1, 2]) {
                     assert.ok(
-                        Math.abs(edge[channel] - 169) <= 1,
-                        `The search border must match the native neutral gray: ${edge}`
+                        Math.abs(edge[channel] - Math.round(117 * 0.3 + content[channel] * 0.7)) <=
+                            1,
+                        `The search border must blend once over opaque content: ${edge} vs ${content}`
                     );
                 }
+                const stroke = await page.locator('.search-view-surface-card').evaluate((card) => ({
+                    width: getComputedStyle(card).borderWidth,
+                    pointerEvents: getComputedStyle(card, '::after').pointerEvents,
+                }));
+                assert.deepEqual(stroke, { width: '0px', pointerEvents: 'none' });
             } finally {
                 await page.close();
             }
