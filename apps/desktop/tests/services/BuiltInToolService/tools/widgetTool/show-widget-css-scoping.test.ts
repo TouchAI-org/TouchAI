@@ -1,8 +1,8 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { createWidgetRenderer, widgetDocument, widgetWindow } from '@tests/utils/widgetFrame';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createWidgetRenderer } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
 import { log } from '@/services/ObservabilityService';
 
 /**
@@ -25,9 +25,9 @@ function mountHost(): HTMLElement {
 }
 
 function renderedStyles(host: HTMLElement): string[] {
-    return Array.from(host.querySelectorAll('style:not([data-touchai-widget-base-style])')).map(
-        (style) => style.textContent ?? ''
-    );
+    return Array.from(
+        widgetDocument(host).querySelectorAll('style:not([data-touchai-widget-base-style])')
+    ).map((style) => style.textContent ?? '');
 }
 
 function renderReady(
@@ -71,7 +71,7 @@ describe('user sees a draft whose style block is already complete', () => {
 
         renderDraft(renderer, '<style>.card{color:red}</style><div class="card">Card</div>');
 
-        await waitForCondition(() => host.querySelector('.card') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('.card') !== null);
 
         // The block is closed, so there is no half-written CSS to hide: the user gets it now.
         const styles = renderedStyles(host);
@@ -85,7 +85,9 @@ describe('user sees a draft whose style block is already complete', () => {
     it('user gets a style-only draft applied without any visible content', async () => {
         const host = mountHost();
         const renderer = createWidgetRenderer(host);
-        const root = host.querySelector<HTMLElement>('[data-touchai-widget-root="true"]')!;
+        const root = widgetDocument(host).querySelector<HTMLElement>(
+            '[data-touchai-widget-root="true"]'
+        )!;
 
         renderDraft(renderer, '<style>.skeleton{color:red}</style>');
 
@@ -115,7 +117,7 @@ describe('user gets widget CSS with awkward selectors scoped correctly', () => {
             ].join('')
         );
 
-        await waitForCondition(() => host.querySelector('[data-note]') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('[data-note]') !== null);
 
         const [styleText] = renderedStyles(host);
         expect(styleText).toContain(`${hostSelector} [data-note="a\\"b"]{color:red}`);
@@ -130,7 +132,7 @@ describe('user gets widget CSS with awkward selectors scoped correctly', () => {
 
         renderReady(renderer, '<style>.a, , .b{color:red}</style><div class="a">A</div>');
 
-        await waitForCondition(() => host.querySelector('.a') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('.a') !== null);
 
         const [styleText] = renderedStyles(host);
         expect(styleText).toContain(`${hostSelector} .a, ${hostSelector} .b{color:red}`);
@@ -149,7 +151,7 @@ describe('user gets widget CSS with awkward selectors scoped correctly', () => {
             `<style>${hostSelector} .card{color:red}</style><div class="card">Card</div>`
         );
 
-        await waitForCondition(() => host.querySelector('.card') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('.card') !== null);
 
         const [styleText] = renderedStyles(host);
         expect(styleText).toContain(`${hostSelector} .card{color:red}`);
@@ -165,7 +167,7 @@ describe('user gets widget CSS with awkward selectors scoped correctly', () => {
 
         renderReady(renderer, '<style>.a{color:red}\n.b{color:blue}</style><div class="a">A</div>');
 
-        await waitForCondition(() => host.querySelector('.a') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('.a') !== null);
 
         // A truncated stylesheet must not lose the rules that were complete.
         const [styleText] = renderedStyles(host);
@@ -183,7 +185,7 @@ describe('user gets widget CSS with awkward selectors scoped correctly', () => {
             '<style>@charset "utf-8";.card{color:blue}</style><div class="card">Card</div>'
         );
 
-        await waitForCondition(() => host.querySelector('.card') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('.card') !== null);
 
         const [styleText] = renderedStyles(host);
         expect(styleText).not.toContain('@charset');
@@ -202,7 +204,10 @@ describe('user gets widget CSS with awkward selectors scoped correctly', () => {
         );
 
         await waitForCondition(
-            () => host.querySelector('style:not([data-touchai-widget-base-style])') !== null
+            () =>
+                widgetDocument(host).querySelector(
+                    'style:not([data-touchai-widget-base-style])'
+                ) !== null
         );
 
         const [styleText] = renderedStyles(host);
@@ -218,7 +223,12 @@ describe('user gets widget CSS with awkward selectors scoped correctly', () => {
 
         renderReady(renderer, '<style></style><div>content</div>');
 
-        await waitForCondition(() => host.textContent?.includes('content') === true);
+        await waitForCondition(
+            () =>
+                widgetDocument(host)
+                    .querySelector('[data-touchai-widget-root]')
+                    ?.textContent?.includes('content') === true
+        );
 
         expect(renderedStyles(host)).toEqual(['']);
 
@@ -242,17 +252,21 @@ describe('user gets widget script escapes decoded in an action', () => {
             ].join('')
         );
 
-        await waitForCondition(() => host.querySelector('#tab') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#tab') !== null);
 
-        expect(host.querySelector('#tab')?.getAttribute('data-send-prompt')).toBe('a\tb');
-        expect(host.querySelector('#bs')?.getAttribute('data-send-prompt')).toBe('a\\b');
+        expect(widgetDocument(host).querySelector('#tab')?.getAttribute('data-send-prompt')).toBe(
+            'a\tb'
+        );
+        expect(widgetDocument(host).querySelector('#bs')?.getAttribute('data-send-prompt')).toBe(
+            'a\\b'
+        );
 
-        host.querySelector('#tab')!.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
-        );
-        host.querySelector('#bs')!.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
-        );
+        widgetDocument(host)
+            .querySelector('#tab')!
+            .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        widgetDocument(host)
+            .querySelector('#bs')!
+            .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
         expect(sendPrompt).toHaveBeenNthCalledWith(1, 'a\tb');
         expect(sendPrompt).toHaveBeenNthCalledWith(2, 'a\\b');
@@ -275,9 +289,11 @@ describe('user gets widget script escapes decoded in an action', () => {
             ].join('')
         );
 
-        await waitForCondition(() => host.querySelector('#ok') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#ok') !== null);
 
-        expect(host.querySelector('#ok')?.getAttribute('data-send-prompt')).toBe('fine');
+        expect(widgetDocument(host).querySelector('#ok')?.getAttribute('data-send-prompt')).toBe(
+            'fine'
+        );
 
         renderer.destroy();
     });
@@ -298,12 +314,16 @@ describe('user gets widget script escapes decoded in an action', () => {
             ].join('')
         );
 
-        await waitForCondition(() => host.querySelector('#content') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#content') !== null);
 
-        expect(host.querySelector('#empty')?.getAttribute('onclick')).toBeNull();
-        expect(host.querySelector('#empty')?.getAttribute('data-send-prompt')).toBeNull();
-        expect(host.querySelector('#blank')?.getAttribute('data-send-prompt')).toBeNull();
-        expect(host.querySelector('#content')?.textContent).toBe('still here');
+        expect(widgetDocument(host).querySelector('#empty')?.getAttribute('onclick')).toBeNull();
+        expect(
+            widgetDocument(host).querySelector('#empty')?.getAttribute('data-send-prompt')
+        ).toBeNull();
+        expect(
+            widgetDocument(host).querySelector('#blank')?.getAttribute('data-send-prompt')
+        ).toBeNull();
+        expect(widgetDocument(host).querySelector('#content')?.textContent).toBe('still here');
 
         renderer.destroy();
     });
@@ -320,11 +340,11 @@ describe('user clicks a widget action with an address the app will not open', ()
             '<button id="blank" type="button" data-open-link="   ">Blank</button>'
         );
 
-        await waitForCondition(() => host.querySelector('#blank') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#blank') !== null);
 
-        host.querySelector('#blank')!.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
-        );
+        widgetDocument(host)
+            .querySelector('#blank')!
+            .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
         expect(open).not.toHaveBeenCalled();
 
@@ -342,11 +362,11 @@ describe('user clicks a widget action with an address the app will not open', ()
             '<button id="relative" type="button" data-open-link="/settings">Settings</button>'
         );
 
-        await waitForCondition(() => host.querySelector('#relative') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#relative') !== null);
 
-        host.querySelector('#relative')!.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
-        );
+        widgetDocument(host)
+            .querySelector('#relative')!
+            .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
         expect(open).not.toHaveBeenCalled();
 
@@ -361,11 +381,11 @@ describe('user clicks a widget action with an address the app will not open', ()
 
         renderReady(renderer, '<a id="mail" href="mailto:team@example.com">Mail</a>');
 
-        await waitForCondition(() => host.querySelector('#mail') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#mail') !== null);
 
-        host.querySelector('#mail')!.dispatchEvent(
-            new MouseEvent('click', { bubbles: true, cancelable: true })
-        );
+        widgetDocument(host)
+            .querySelector('#mail')!
+            .dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
         expect(open).not.toHaveBeenCalled();
 
@@ -384,10 +404,10 @@ describe('user gets widget media constrained to the message column', () => {
             '<svg viewBox="0 0 100 50"><rect width="100" height="50"></rect></svg>'
         );
 
-        await waitForCondition(() => host.querySelector('svg') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('svg') !== null);
 
         // An svg with a viewBox but no inline width would otherwise grow past the column.
-        const svg = host.querySelector<HTMLElement>('svg')!;
+        const svg = widgetDocument(host).querySelector<HTMLElement>('svg')!;
         expect(svg.style.maxWidth).toBe('100%');
 
         renderer.destroy();
@@ -399,9 +419,9 @@ describe('user gets widget media constrained to the message column', () => {
 
         renderReady(renderer, '<img src="https://example.com/chart.png" alt="Chart">');
 
-        await waitForCondition(() => host.querySelector('img') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('img') !== null);
 
-        expect(host.querySelector<HTMLElement>('img')!.style.maxWidth).toBe('100%');
+        expect(widgetDocument(host).querySelector<HTMLElement>('img')!.style.maxWidth).toBe('100%');
 
         renderer.destroy();
     });
@@ -420,9 +440,11 @@ describe('user gets widget script attributes carried across', () => {
             ].join('')
         );
 
-        await waitForCondition(() => host.querySelector('#result')?.textContent === 'ran');
+        await waitForCondition(
+            () => widgetDocument(host).querySelector('#result')?.textContent === 'ran'
+        );
 
-        expect(host.querySelector('#result')?.textContent).toBe('ran');
+        expect(widgetDocument(host).querySelector('#result')?.textContent).toBe('ran');
 
         renderer.destroy();
     });
@@ -434,9 +456,9 @@ describe('user gets widget script attributes carried across', () => {
 
         renderReady(renderer, '<div id="content">visible</div><script></script>');
 
-        await waitForCondition(() => host.querySelector('#content') !== null);
+        await waitForCondition(() => widgetDocument(host).querySelector('#content') !== null);
 
-        expect(host.querySelector('#content')?.textContent).toBe('visible');
+        expect(widgetDocument(host).querySelector('#content')?.textContent).toBe('visible');
         expect(consoleError).not.toHaveBeenCalled();
 
         consoleError.mockRestore();
@@ -459,18 +481,16 @@ describe('user gets a widget script that reaches for the page outside it', () =>
             [
                 '<div id="inside">content</div>',
                 '<script>',
-                'window.__probe = document.activeElement === null ? "none" : "something";',
+                'window.__probe = document.activeElement?.id === "app-input" ? "outside" : "isolated";',
                 '</script>',
             ].join('')
         );
 
         await waitForCondition(
-            () => (window as Window & { __probe?: unknown }).__probe !== undefined
+            () => (widgetWindow(host) as Window & { __probe?: unknown }).__probe !== undefined
         );
 
-        expect((window as Window & { __probe?: unknown }).__probe).toBe('none');
-
-        delete (window as Window & { __probe?: unknown }).__probe;
+        expect((widgetWindow(host) as Window & { __probe?: unknown }).__probe).toBe('isolated');
         renderer.destroy();
     });
 });

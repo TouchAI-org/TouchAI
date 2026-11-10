@@ -3,6 +3,7 @@
 import type { JSONContent } from '@tiptap/core';
 
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import type { PromptSnapshotSkill, SelectedSkill } from '@/services/AgentService/skills';
 
 import type { AttachmentDerivedKind, AttachmentSemanticIntent } from '../contracts/protocol';
 import type { ModelLanguageContext } from '../languageContext';
@@ -22,6 +23,7 @@ export type PromptFragmentSource =
     | 'session_memory'
     | 'mode'
     | 'feature'
+    | 'skill'
     | 'user_append';
 
 /**
@@ -60,9 +62,11 @@ export interface PromptAssembly {
     fragments: PromptFragment[];
     userPrompt: string;
     attachments: PromptSnapshotAttachmentSummary[];
+    skills?: PromptSnapshotSkill[];
 }
 
 export interface PromptInputSnapshot {
+    skills?: SelectedSkill[];
     editorDoc?: JSONContent;
     excludeFromHistory?: boolean;
 }

@@ -1,13 +1,25 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { setLocale } from '@/i18n';
 import type { ShowWidgetEventPayload } from '@/services/AgentService/contracts/tooling';
+import { parseSkillMarkdown } from '@/services/AgentService/skills/parser';
 import { showWidgetTool } from '@/services/BuiltInToolService/tools/widgetTool/showWidget';
 import { buildShowWidgetSummary } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/helper';
 import { buildShowWidgetDraftFromArgumentsBuffer } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
-import { visualizeReadMeTool } from '@/services/BuiltInToolService/tools/widgetTool/visualizeReadMe';
-import { readShowWidgetGuidelines } from '@/services/BuiltInToolService/tools/widgetTool/visualizeReadMe/guidelines';
-import { buildGuidelineResult } from '@/services/BuiltInToolService/tools/widgetTool/visualizeReadMe/helper';
+
+function readWidgetSkill(): string {
+    return readFileSync(
+        resolve(
+            dirname(fileURLToPath(import.meta.url)),
+            '../../../../../src/prompts/skills/widget/SKILL.md'
+        ),
+        'utf8'
+    );
+}
 
 function createPayload(overrides: Partial<ShowWidgetEventPayload> = {}): ShowWidgetEventPayload {
     return {
@@ -85,15 +97,6 @@ describe('user reads widget summaries in their own language', () => {
         });
     });
 
-    it('user reads the guideline summary target in English', () => {
-        setLocale('en-US');
-
-        expect(visualizeReadMeTool.buildConversationSemantic({})).toMatchObject({
-            action: 'review',
-            target: 'visualization specification',
-        });
-    });
-
     it('user reads the widget summary fallback target in English', () => {
         setLocale('en-US');
 
@@ -104,54 +107,82 @@ describe('user reads widget summaries in their own language', () => {
     });
 
     it('user is not told to rely on stripped onload attributes in chart widgets', () => {
-        const guidelines = readShowWidgetGuidelines(['chart']);
+        const guidelines = readWidgetSkill();
 
-        expect(guidelines.markdown).toContain('Chart.js');
-        expect(guidelines.markdown).not.toContain('onload=');
+        expect(guidelines).toContain('Chart.js');
+        expect(guidelines).not.toContain('onload=');
     });
 
-    it('user sees the model told to draw a widget instead of answering in plain text after reading guidelines', () => {
-        const result = buildGuidelineResult(readShowWidgetGuidelines(['diagram']));
+    it('user can load the complete widget guide as a standard built-in skill', () => {
+        const result = readWidgetSkill();
+        const parsed = parseSkillMarkdown(result, '/appRoot/skills/.system/widget/SKILL.md');
 
-        expect(result).toContain(
+        expect(parsed.name).toBe('widget');
+        expect(parsed.description).toBeTruthy();
+        expect(parsed.shortDescription).toBeTruthy();
+        expect(result.match(/\{\{WIDGET_SKILL_KEY\}\}/g)).toHaveLength(1);
+        expect(result).toContain('builtin__activate_skill');
+        expect(result).toContain('skills/.system/widget/SKILL.md');
+        expect(result).not.toContain('builtin://');
+        expect(result).not.toContain('i_have_seen_read_me');
+        expect(result).not.toContain('visualize_read_me');
+        expect(result).not.toContain(
             'Do not answer the user with plain text after reading this guide.'
         );
-        expect(result).toContain(
+        expect(result).not.toContain(
             'Your next assistant step must be a builtin__show_widget tool call'
         );
+        for (const section of [
+            'Core Design System',
+            'When nothing fits',
+            'UI components',
+            'Color palette',
+            'Charts (Chart.js)',
+            'SVG setup',
+            'Diagram types',
+            'Art and illustration',
+        ]) {
+            expect(result).toContain(`## ${section}`);
+        }
+    });
+
+    it('user receives instructions matching the sandbox when loading the widget guide', () => {
+        const result = readWidgetSkill();
+
+        expect(result).toContain('opaque-origin sandbox iframe');
+        expect(result).toContain('controlled theme');
+        expect(result).toContain('data-widget-key');
+        expect(result).toContain('classic');
+        expect(result).not.toMatch(/native DOM \(not (?:an )?iframe\)|instead of an iframe/i);
     });
 
     it('user sees namespaced widget tool names in model-facing instructions', () => {
         const modelFacingDescriptions = [
             showWidgetTool.description,
-            visualizeReadMeTool.description,
             ...collectSchemaDescriptions(showWidgetTool.inputSchema),
-            ...collectSchemaDescriptions(visualizeReadMeTool.inputSchema),
         ].join('\n');
         const withoutNamespacedNames = modelFacingDescriptions
             .replace(/builtin__show_widget/g, '')
-            .replace(/builtin__visualize_read_me/g, '');
+            .replace(/builtin__activate_skill/g, '');
 
         expect(modelFacingDescriptions).toContain('builtin__show_widget');
-        expect(modelFacingDescriptions).toContain('builtin__visualize_read_me');
-        expect(withoutNamespacedNames).not.toMatch(/\b(?:show_widget|visualize_read_me)\b/);
+        expect(modelFacingDescriptions).toContain('builtin__activate_skill');
+        expect(withoutNamespacedNames).not.toMatch(
+            /\b(?:show_widget|activate_skill|visualize_read_me)\b/
+        );
     });
 
     it('user does not see bare widget tool names leak into guideline text', () => {
-        const result = buildGuidelineResult(
-            readShowWidgetGuidelines(['diagram', 'interactive', 'chart'])
-        );
+        const result = readWidgetSkill();
         const withoutNamespacedNames = result
             .replace(/builtin__show_widget/g, '')
-            .replace(/builtin__visualize_read_me/g, '');
+            .replace(/builtin__activate_skill/g, '');
 
         expect(withoutNamespacedNames).not.toMatch(/\b(?:show_widget|visualize_read_me|read_me)\b/);
     });
 
     it('user does not see guideline examples that contradict the flat visual rules', () => {
-        const result = buildGuidelineResult(
-            readShowWidgetGuidelines(['diagram', 'interactive', 'art'])
-        );
+        const result = readWidgetSkill();
 
         expect(result).not.toMatch(/one gradient per diagram is permitted/i);
         expect(result).not.toMatch(/<linearGradient\s+(?:id|gradientUnits|x1|x2|y1|y2)=/i);
@@ -161,7 +192,7 @@ describe('user reads widget summaries in their own language', () => {
     });
 
     it('user is not told to delay the visible root element behind leading CSS', () => {
-        const result = buildGuidelineResult(readShowWidgetGuidelines(['interactive']));
+        const result = readWidgetSkill();
         const modelFacingDescriptions = [
             showWidgetTool.description,
             ...collectSchemaDescriptions(showWidgetTool.inputSchema),
@@ -178,9 +209,7 @@ describe('user reads widget summaries in their own language', () => {
     });
 
     it('user does not see legacy artifact tool names that TouchAI does not expose', () => {
-        const result = buildGuidelineResult(
-            readShowWidgetGuidelines(['diagram', 'interactive', 'mockup', 'art'])
-        );
+        const result = readWidgetSkill();
 
         expect(result).not.toContain('imagine_svg');
         expect(result).not.toContain('imagine_html');
@@ -188,7 +217,7 @@ describe('user reads widget summaries in their own language', () => {
     });
 
     it('user does not see custom UI tags recommended that the widget runtime does not implement', () => {
-        const result = buildGuidelineResult(readShowWidgetGuidelines(['interactive', 'mockup']));
+        const result = readWidgetSkill();
 
         expect(result).not.toMatch(/<\/?ui-(?:card|badge|button|input)\b/i);
         expect(result).not.toMatch(/`ui-(?:card|badge|button|input)`/i);
@@ -197,9 +226,7 @@ describe('user reads widget summaries in their own language', () => {
     });
 
     it('user does not see sanitizer-stripped inline event attributes recommended for interactions', () => {
-        const result = buildGuidelineResult(
-            readShowWidgetGuidelines(['diagram', 'interactive', 'mockup', 'chart'])
-        );
+        const result = readWidgetSkill();
 
         expect(result).not.toMatch(/\son(?:click|input|change|load)\s*=/i);
         expect(result).not.toMatch(/\bsendPrompt\b(?!-)/);
@@ -209,7 +236,7 @@ describe('user reads widget summaries in their own language', () => {
     });
 
     it('user sees Mermaid ERD guidance that works with classic inline widget scripts', () => {
-        const result = buildGuidelineResult(readShowWidgetGuidelines(['diagram']));
+        const result = readWidgetSkill();
 
         expect(result).not.toContain('<script type="module">');
         expect(result).not.toMatch(/import\s+mermaid\s+from/i);

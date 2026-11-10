@@ -46,6 +46,32 @@ function mountItem(overrides: Partial<ToolCallInfo> = {}) {
 }
 
 describe('user reads which tool ran', () => {
+    it.each([{ name: 'widget' }, { path: 'C:\\TouchAI\\skills\\widget\\SKILL.md' }])(
+        'user given a built-in skill activation with %j when reading its status then sees the editor skill label beside its verb and duration',
+        (args) => {
+            const wrapper = mountItem({
+                name: 'activate_skill',
+                namespacedName: 'builtin__activate_skill',
+                source: 'builtin',
+                status: 'completed',
+                arguments: args,
+                builtinPresentation: { verb: 'Read', content: 'widget skill' },
+                durationMs: 181,
+            });
+            expect(wrapper.get('[data-slot="tool-call-activated-skill"]').text()).toBe('widget');
+            expect(wrapper.text()).toContain('Read');
+            expect(wrapper.text()).toContain('181ms');
+            expect(wrapper.text()).not.toContain('widget skill');
+            wrapper.unmount();
+        }
+    );
+
+    it('user given an MCP tool with the same name when reading its status then keeps the ordinary tool presentation', () => {
+        const wrapper = mountItem({ name: 'activate_skill', arguments: { name: 'widget' } });
+        expect(wrapper.find('[data-slot="tool-call-activated-skill"]').exists()).toBe(false);
+        wrapper.unmount();
+    });
+
     it('user sees the tool name when the call carries one', () => {
         const wrapper = mountItem({ name: 'read_file' });
 

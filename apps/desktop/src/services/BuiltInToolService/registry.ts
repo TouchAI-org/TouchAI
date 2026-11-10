@@ -1,5 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { builtInTools as activateSkillTools } from './tools/activateSkill';
 import { builtInTools as askUserTools } from './tools/askUser';
 import { builtInTools as bashTools } from './tools/bash';
 import { builtInTools as browserTools } from './tools/browser';
@@ -56,6 +57,7 @@ class BuiltInToolRegistry {
 export const builtInToolRegistry = new BuiltInToolRegistry();
 
 builtInToolRegistry.register(askUserTools);
+builtInToolRegistry.register(activateSkillTools);
 builtInToolRegistry.register(bashTools);
 builtInToolRegistry.register(browserTools);
 builtInToolRegistry.register(fileSearchTools);

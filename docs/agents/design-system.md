@@ -146,6 +146,22 @@ evidence.
   ring, radius, gutter and shadow together. Keep `--spacing-window-gutter` in sync with
   Rust's `WINDOW_SHADOW_GUTTER`.
 
+### The widget contract
+
+The `show-widget` tool asks the model to style generated HTML against a fixed set of
+variable names, documented in `apps/desktop/src/prompts/skills/widget/SKILL.md`.
+Those names live in the `Widget contract` block of `semantic.css`.
+
+This used to be a second design language. Twenty of the twenty-nine variables had no token
+behind them, so `runtimeConstants.ts` supplied hardcoded fallbacks: a neutral grey
+`#2c2c2a` where the app uses its warm brown `#4a4039`, an 8px radius where the app uses
+10px, and a third copy of the monospace stack. Widgets rendered through the fallback path
+did not match the interface they sat in, which is the opposite of what the prompt asks for
+("users shouldn't notice where TouchAI ends and your widget begins").
+
+`apps/desktop/tests/ci/design-widget-contract.test.ts` fails if a declared variable stops
+resolving to a token, or if a fallback value diverges from its token.
+
 ## Not covered
 
 - Runtime styling in the `show-widget` renderer, which is generated from tokens at

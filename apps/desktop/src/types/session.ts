@@ -7,6 +7,7 @@ import type {
     ToolExecutionSource as AiToolExecutionSource,
 } from '@/services/AgentService/contracts/tooling';
 import type { Index } from '@/services/AgentService/infrastructure/attachments';
+import type { SelectedSkill } from '@/services/AgentService/skills';
 import type {
     BuiltInToolConversationPresentation,
     BuiltInToolConversationSemantic,
@@ -162,6 +163,7 @@ export interface PendingToolApproval {
 export interface InputHistorySnapshot {
     text: string;
     attachments: Index[];
+    skills?: SelectedSkill[];
     editorDoc?: JSONContent;
     excludeFromHistory?: boolean;
 }
@@ -203,6 +205,14 @@ export function cloneInputHistorySnapshot(
     return {
         text: snapshot.text,
         attachments,
+        ...(snapshot.skills?.length
+            ? {
+                  skills: snapshot.skills.map((skill) => ({
+                      name: skill.name,
+                      path: skill.path,
+                  })),
+              }
+            : {}),
         ...(snapshot.editorDoc ? { editorDoc: cloneJsonContent(snapshot.editorDoc) } : {}),
         ...(snapshot.excludeFromHistory ? { excludeFromHistory: true } : {}),
     };
@@ -211,6 +221,7 @@ export function cloneInputHistorySnapshot(
 export function createInputHistorySnapshot(input: {
     text: string;
     attachments?: Index[] | null;
+    skills?: SelectedSkill[] | null;
     editorDoc?: JSONContent | null;
     excludeFromHistory?: boolean;
 }): InputHistorySnapshot {
@@ -218,18 +229,24 @@ export function createInputHistorySnapshot(input: {
         cloneInputHistorySnapshot({
             text: input.text,
             attachments: input.attachments ?? [],
+            ...(input.skills?.length ? { skills: input.skills } : {}),
             ...(input.editorDoc ? { editorDoc: input.editorDoc } : {}),
             ...(input.excludeFromHistory ? { excludeFromHistory: true } : {}),
         }) ?? {
             text: input.text,
             attachments: [],
+            ...(input.skills?.length ? { skills: input.skills } : {}),
             ...(input.excludeFromHistory ? { excludeFromHistory: true } : {}),
         }
     );
 }
 
 export function hasInputHistorySnapshotContent(snapshot: InputHistorySnapshot): boolean {
-    return snapshot.text.trim().length > 0 || snapshot.attachments.length > 0;
+    return (
+        snapshot.text.trim().length > 0 ||
+        snapshot.attachments.length > 0 ||
+        (snapshot.skills?.length ?? 0) > 0
+    );
 }
 
 export function getInputHistorySnapshotKey(snapshot: InputHistorySnapshot): string {
@@ -244,6 +261,10 @@ export function getInputHistorySnapshotKey(snapshot: InputHistorySnapshot): stri
             path: attachment.path,
             originPath: attachment.originPath,
             name: attachment.name,
+        })),
+        skills: (snapshot.skills ?? []).map((skill) => ({
+            name: skill.name,
+            path: skill.path,
         })),
     });
 }

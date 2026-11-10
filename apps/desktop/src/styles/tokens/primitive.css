@@ -16,6 +16,8 @@
  */
 
 @theme {
+    --color-logo-blue-start: #2d78fb;
+    --color-logo-blue-end: #338efd;
     --default-transition-duration: var(--duration-quick);
     --default-transition-timing-function: var(--ease-smooth-out);
 

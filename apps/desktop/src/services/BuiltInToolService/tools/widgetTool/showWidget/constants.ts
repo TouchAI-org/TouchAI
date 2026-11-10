@@ -53,7 +53,7 @@ export const FORBIDDEN_WIDGET_RULES = [
     },
     {
         pattern: /<(?:iframe|embed|object)\b/i,
-        reason: 'Do not embed iframe/object content. Render inline DOM directly.',
+        reason: 'Do not embed iframe/object content inside the widget sandbox.',
     },
 ] as const;
 
@@ -75,8 +75,7 @@ export const SHOW_WIDGET_STYLE_GUIDELINES = [
 
 export const SHOW_WIDGET_TOOL_NAME = 'ShowWidget';
 export const showWidgetRawArgsSchema = z.object({
-    i_have_seen_read_me: z.boolean().optional(),
-    iHaveSeenReadMe: z.boolean().optional(),
+    skill_key: z.string().min(1),
     widget_code: optionalTrimmedStringSchema,
     html: optionalTrimmedStringSchema,
     mode: z.enum(['render', 'remove']).optional(),
@@ -89,12 +88,12 @@ export const showWidgetRawArgsSchema = z.object({
  * 暴露给模型的 ShowWidget 工具说明。
  */
 export const SHOW_WIDGET_TOOL_DESCRIPTION = [
-    'CRITICAL STREAMING INSTRUCTION: Start widget_code IMMEDIATELY after the required boolean.',
+    'CRITICAL STREAMING INSTRUCTION: Pass skill_key first, then start widget_code IMMEDIATELY.',
     'The first characters of widget_code must already contain a visible root element (<svg>, <div>, <section>).',
     'Output visible structure first, metadata fields last.',
     'Use this tool to create live inline visual artifacts.',
-    'TouchAI renders widgets as native DOM (not iframe) that streams progressively token-by-token.',
-    "This tool is exposed to the model as builtin__show_widget. Before using it, call builtin__visualize_read_me with relevant modules (['diagram'], ['chart'], ['interactive'], ['mockup'], ['art']) and pass i_have_seen_read_me=true in the next round.",
+    'TouchAI streams widget DOM into an opaque-origin sandbox iframe, with controlled host theme variables, keyed DOM patching, and final classic scripts.',
+    'This tool is exposed to the model as builtin__show_widget. Load the built-in widget skill with builtin__activate_skill using its exact catalog path under appRoot/skills/.system/widget/SKILL.md. Pass the current request credential from that skill as skill_key for every creation, update, or removal.',
     'Structure: visible root and visible HTML/SVG first, optional inline <style> inside that root after the first visible content, scripts last.',
     'Outputs using gradients, shadows, blur, glass effects, full-page HTML, iframe/object, or non-allowlisted external resources will be rejected.',
     SHOW_WIDGET_STYLE_GUIDELINES,
@@ -110,15 +109,15 @@ function withExamples(description: string, ...examples: string[]): string {
 export const SHOW_WIDGET_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
     type: 'object',
     properties: {
-        i_have_seen_read_me: {
-            type: 'boolean',
+        skill_key: {
+            type: 'string',
             description:
-                'Set this to true only after you have called builtin__visualize_read_me and carefully read the returned guideline.',
+                'The current request credential supplied by the activated built-in widget skill. Pass it exactly as supplied, before widget_code. Never include it in widget content or user-facing text.',
         },
         widget_code: {
             type: 'string',
             description: withExamples(
-                'STREAMING CRITICAL: Start this parameter FIRST. The opening characters must already be a visible root element (<svg viewBox="...", <div>, <section>) with visible structure or labels immediately inside it. Use inline styles for controls that must look correct mid-stream, or place a short <style> inside the visible root after the first visible content. Put optional <script> last. The widget streams token-by-token, so emit structure early. Self-contained HTML, CSS, and JavaScript. Transparent background by default. No outer card shell, gradient, shadow, blur, or rounded wrapper unless explicitly a mockup. Feel like a natural conversation extension.',
+                'Required for render mode; omit for remove mode. STREAMING CRITICAL: Start this parameter immediately after skill_key. The opening characters must already be a visible root element (<svg viewBox="...", <div>, <section>) with visible structure or labels immediately inside it. Use inline styles for controls that must look correct mid-stream, or place a short <style> inside the visible root after the first visible content. Put optional <script> last. The widget streams token-by-token, so emit structure early. Self-contained HTML, CSS, and JavaScript. Transparent background by default. No outer card shell, gradient, shadow, blur, or rounded wrapper unless explicitly a mockup. Feel like a natural conversation extension.',
                 '"<svg viewBox=\\"0 0 320 140\\" role=\\"img\\" aria-label=\\"Weekly revenue trend\\"><path d=\\"...\\" /></svg>"',
                 '"<section><style>.root{display:grid;gap:8px}.row{display:flex;justify-content:space-between;border-bottom:1px solid color-mix(in oklch, currentColor 18%, transparent)}</style><div class=\\"root\\">...</div></section>"'
             ),
@@ -141,6 +140,6 @@ export const SHOW_WIDGET_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
             ),
         },
     },
-    required: ['i_have_seen_read_me', 'widget_code'],
+    required: ['skill_key'],
     additionalProperties: false,
 };

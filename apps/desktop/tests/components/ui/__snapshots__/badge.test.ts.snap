@@ -203,3 +203,22 @@ exports[`user sees a badge > user sees a display tag > user tone=purple 尺寸 s
   "whitespace-normal",
 ]
 `;
+
+exports[`user sees a badge > user sees a source label with the shared provider presentation 1`] = `
+[
+  "bg-badge-surface",
+  "border",
+  "border-badge-border",
+  "inline-flex",
+  "items-center",
+  "leading-none",
+  "min-w-max",
+  "px-1",
+  "py-0.5",
+  "rounded",
+  "shadow-sm",
+  "text-3xs",
+  "text-badge-foreground",
+  "whitespace-nowrap",
+]
+`;

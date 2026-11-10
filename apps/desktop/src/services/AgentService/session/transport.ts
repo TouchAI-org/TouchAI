@@ -182,6 +182,7 @@ export async function loadSessionTransportMessages(options: {
                     : [];
             const attachmentParts =
                 attachments.length > 0 ? await buildAttachmentParts(attachments) : [];
+            const text = getMessageText(row.parts);
 
             messages.push({
                 contextSource,
@@ -189,10 +190,12 @@ export async function loadSessionTransportMessages(options: {
                 content:
                     attachmentParts.length > 0
                         ? ([
-                              { type: 'text', text: getMessageText(row.parts) },
+                              ...(text.trim() ? [{ type: 'text' as const, text }] : []),
                               ...attachmentParts,
                           ] as AiContentPart[])
-                        : getMessageText(row.parts),
+                        : text.trim()
+                          ? text
+                          : 'no prompt',
             });
             continue;
         }

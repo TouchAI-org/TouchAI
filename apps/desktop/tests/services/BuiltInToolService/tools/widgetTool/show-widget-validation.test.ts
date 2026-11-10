@@ -1,18 +1,31 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { WidgetSkillAccess } from '@/services/AgentService/skills/widgetAccess';
 import type { BaseBuiltInToolExecutionContext } from '@/services/BuiltInToolService';
 import { executeShowWidgetTool } from '@/services/BuiltInToolService/tools/widgetTool/showWidget';
 
 function createContext(): BaseBuiltInToolExecutionContext {
+    const widgetSkillAccess = new WidgetSkillAccess();
+    widgetSkillAccess.activate('{{WIDGET_SKILL_KEY}}');
     return {
         callId: 'call-1',
         iteration: 1,
         emitToolEvent: vi.fn(),
-        hasExecutedBuiltInTool: (toolId) => toolId === 'visualize_read_me',
+        widgetSkillAccess,
     };
 }
 
+const skillKey = '00000000-0000-4000-8000-000000000001';
+
 describe('user asks for a widget and gets a visible one', () => {
+    beforeEach(() => {
+        vi.spyOn(crypto, 'randomUUID').mockReturnValue(skillKey);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     it.each([
         ['style', '<style>.root{display:grid}</style><section class="root">content</section>'],
         ['script', '<script>window.__probe = true</script><section>content</section>'],
@@ -36,7 +49,7 @@ describe('user asks for a widget and gets a visible one', () => {
             await expect(
                 executeShowWidgetTool(
                     {
-                        i_have_seen_read_me: true,
+                        skill_key: skillKey,
                         widget_code: widgetCode,
                     },
                     {},
@@ -50,7 +63,7 @@ describe('user asks for a widget and gets a visible one', () => {
         await expect(
             executeShowWidgetTool(
                 {
-                    i_have_seen_read_me: true,
+                    skill_key: skillKey,
                     widget_code: '<!--<style>.ignored{}</style>--><section>content</section>',
                 },
                 {},
@@ -69,7 +82,7 @@ describe('user asks for a widget and gets a visible one', () => {
         await expect(
             executeShowWidgetTool(
                 {
-                    i_have_seen_read_me: true,
+                    skill_key: skillKey,
                     widget_code: widgetCode,
                 },
                 {},
@@ -101,7 +114,7 @@ describe('user asks for a widget and gets a visible one', () => {
             await expect(
                 executeShowWidgetTool(
                     {
-                        i_have_seen_read_me: true,
+                        skill_key: skillKey,
                         widget_code: widgetCode,
                     },
                     {},

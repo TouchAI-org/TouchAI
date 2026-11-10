@@ -20,7 +20,7 @@ import { LiveUsageTracker } from '@/services/UsageService/liveUsage';
 import type { InputHistorySnapshot } from '@/types/session';
 
 import { AiError, AiErrorCode } from '../contracts/errors';
-import type { AiCallRecord } from '../contracts/protocol';
+import type { AiCallRecord, AiMessage } from '../contracts/protocol';
 import {
     type AgentPersistenceResult,
     type AgentRequestAnalytics,
@@ -30,11 +30,13 @@ import {
 import { getCurrentModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import { composePromptSnapshot } from '../prompt/composer';
+import { summarizePromptSnapshot } from '../prompt/serialization';
 import { buildPromptTransportMessages } from '../prompt/transport';
 import type { PromptSnapshot } from '../prompt/types';
 import { createSessionReadModel } from '../session/readModel';
 import { buildSessionTitle } from '../session/title';
 import { findUnsupportedSessionAttachmentTypes } from '../session/transport';
+import { WidgetSkillAccess } from '../skills/widgetAccess';
 import type { TaskExecutionMode } from '../task/types';
 import {
     AiRequestExecutor,
@@ -43,6 +45,7 @@ import {
     type AttemptFailureResult,
     type ModelWithProvider,
     type RequestExecutionCallbacks,
+    type RequestPrivateState,
 } from './executor';
 import {
     getRetryDelayMs,
@@ -207,6 +210,13 @@ function buildPersistenceIssue(
  * It does not run the streaming loop itself but delegates to AiRequestExecutor.
  */
 export class AiConversationRuntime {
+    /** Request-only contents never enter published checkpoints or persistence. */
+    private readonly privateState: RequestPrivateState = {
+        messageContents: new Map<number, AiMessage['content']>(),
+        messageToolCalls: new Map(),
+        skillActivationAttempts: 0,
+        widgetSkillAccess: new WidgetSkillAccess(),
+    };
     private readonly startedAt = Date.now();
     private requestFinalized = false;
     /** Live usage tracker for the running turn; null before it starts. */
@@ -353,7 +363,7 @@ export class AiConversationRuntime {
         }
         // The prompt snapshot is built once per turn and reused by retries,
         // tool iterations, and checkpoint resumes.
-        const promptSnapshot =
+        const composedPromptSnapshot =
             this.options.promptSnapshot ??
             (await composePromptSnapshot({
                 prompt: this.options.prompt,
@@ -361,6 +371,9 @@ export class AiConversationRuntime {
                 executionMode: this.options.executionMode ?? 'foreground',
                 inputSnapshot: this.options.inputSnapshot,
             }));
+        const livePromptSnapshot =
+            await this.privateState.widgetSkillAccess.prepareSnapshot(composedPromptSnapshot);
+        const promptSnapshot = summarizePromptSnapshot(livePromptSnapshot);
         const modelLanguageContext =
             promptSnapshot.modelLanguageContext ?? getCurrentModelLanguageContext();
         const baseMessages = await buildPromptTransportMessages({
@@ -370,6 +383,12 @@ export class AiConversationRuntime {
             attachmentCapabilities,
             readModel: sessionReadModel,
         });
+        if (livePromptSnapshot.systemPrompt !== promptSnapshot.systemPrompt) {
+            if (baseMessages[0]?.role !== 'system') {
+                baseMessages.unshift({ role: 'system', content: promptSnapshot.systemPrompt });
+            }
+            this.privateState.messageContents.set(0, livePromptSnapshot.systemPrompt);
+        }
         const initialCheckpoint = this.executor.createInitialCheckpoint({
             initialModel,
             baseMessages,
@@ -622,6 +641,9 @@ export class AiConversationRuntime {
             }
             throw error;
         } finally {
+            this.privateState.messageContents.clear();
+            this.privateState.messageToolCalls.clear();
+            this.privateState.widgetSkillAccess.clear();
             this.options.signal?.removeEventListener('abort', onAbort);
             try {
                 this.liveTracker?.stop();
@@ -668,6 +690,7 @@ export class AiConversationRuntime {
                     (attemptSpan) =>
                         this.executor.runAttempt({
                             startCheckpoint: resumeCheckpoint,
+                            privateState: this.privateState,
                             persister: context.persister,
                             taskId: this.options.taskId,
                             signal: this.options.signal,

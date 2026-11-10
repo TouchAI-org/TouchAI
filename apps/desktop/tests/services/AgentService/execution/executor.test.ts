@@ -7,12 +7,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiError, AiErrorCode } from '@/services/AgentService/contracts/errors';
 import type {
+    AiMessage,
     AiRequestOptions,
     PersistedOutputPart,
 } from '@/services/AgentService/contracts/protocol';
 import type { AiToolCall } from '@/services/AgentService/contracts/tooling';
 import { AiRequestExecutor } from '@/services/AgentService/execution';
-import type { AttemptCheckpoint } from '@/services/AgentService/execution/executor';
+import type {
+    AttemptCheckpoint,
+    RequestPrivateState,
+} from '@/services/AgentService/execution/executor';
+import { WidgetSkillAccess } from '@/services/AgentService/skills/widgetAccess';
 
 const providerMock = vi.hoisted(() => ({
     stream: vi.fn(),
@@ -199,6 +204,151 @@ describe('user sends a prompt and receives a streamed answer', () => {
         vi.useRealTimers();
     });
 
+    it('user selects oversized private instructions and receives a context error before sending an over-budget request', async () => {
+        const checkpoint = createCheckpoint();
+        checkpoint.activeModel.context_limit = 8000;
+        checkpoint.activeModel.output_limit = 1000;
+        checkpoint.messages.unshift({ role: 'system', content: 'Selected skill: summary' });
+        const sent: AiRequestOptions[] = [];
+        providerMock.stream.mockImplementation(async function* (request: AiRequestOptions) {
+            sent.push(request);
+            yield { content: 'Unexpected over-budget answer', done: true };
+        });
+        const result = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: checkpoint,
+            privateState: {
+                messageContents: new Map([[0, 'Private instructions '.repeat(3000)]]),
+                messageToolCalls: new Map(),
+                skillActivationAttempts: 0,
+                widgetSkillAccess: new WidgetSkillAccess(),
+            },
+            persister: {
+                getSessionId: () => 42,
+                persistOutputProgress: async () => undefined,
+            } as never,
+        });
+        expect(result).toMatchObject({
+            type: 'failed',
+            error: { code: AiErrorCode.CONTEXT_TOO_LARGE },
+        });
+        expect(sent).toEqual([]);
+    });
+
+    it.each(['tool round', 'retry'] as const)(
+        'user compacts history then continues through a %s with private content attached only to its original message',
+        async (continuation) => {
+            const checkpoint = createLongCheckpoint();
+            const privateCall = {
+                id: 'retained-private-call',
+                name: 'builtin__show_widget',
+                arguments: '{"skill_key":"request-only-key","widgetId":"chart"}',
+            };
+            const start = checkpoint.messages.length;
+            const source = { id: 100, fingerprint: 'b'.repeat(64) };
+            checkpoint.messages.push(
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [{ ...privateCall, arguments: '{"widgetId":"chart"}' }],
+                    contextSource: source,
+                },
+                {
+                    role: 'tool',
+                    content: 'Public result',
+                    tool_call_id: privateCall.id,
+                    name: privateCall.name,
+                    contextSource: source,
+                }
+            );
+            const privateState: RequestPrivateState = {
+                messageContents: new Map<number, AiMessage['content']>([
+                    [1, 'ARCHIVED_PRIVATE_BODY'],
+                    [start + 1, 'RETAINED_PRIVATE_BODY'],
+                ]),
+                messageToolCalls: new Map([[start, [privateCall]]]),
+                skillActivationAttempts: 0,
+                widgetSkillAccess: new WidgetSkillAccess(),
+            };
+            const nextCall = { id: 'next-call', name: 'builtin__read', arguments: '{}' };
+            const sent: AiRequestOptions[] = [];
+            const summaries: AiRequestOptions[] = [];
+            providerMock.stream.mockImplementation(async function* (request: AiRequestOptions) {
+                if (request.toolChoice === 'none') {
+                    summaries.push(request);
+                    yield { content: 'Goal: finish the task.', done: true, finishReason: 'stop' };
+                    return;
+                }
+                sent.push(request);
+                if (sent.length === 1) {
+                    if (continuation === 'retry') throw new AiError(AiErrorCode.NETWORK_ERROR);
+                    yield {
+                        content: '',
+                        done: true,
+                        finishReason: 'tool_calls',
+                        toolCalls: [nextCall],
+                    };
+                    return;
+                }
+                yield { content: 'Final answer', done: true, finishReason: 'stop' };
+            });
+            builtInExecuteToolMock.mockResolvedValue({
+                toolCall: nextCall,
+                result: 'Next result stays intact',
+                isError: false,
+                toolLogId: 2,
+                builtInToolId: 'read_file',
+            });
+            const persisted: unknown[] = [];
+            const persister = {
+                getSessionId: () => 42,
+                persistContextSummary: async (summary: unknown) => {
+                    persisted.push(summary);
+                    return 1;
+                },
+                validateContextSummary: async () => undefined,
+                persistOutputProgress: async () => undefined,
+                persistToolCallMessage: async () => 101,
+                persistToolResult: async () => undefined,
+                getContextMessageSource: async () => ({ id: 101, fingerprint: 'c'.repeat(64) }),
+                persistCheckpoint: async (value: unknown) => {
+                    persisted.push(value);
+                },
+            };
+            const executor = new AiRequestExecutor();
+            let result = await executor.runAttempt({
+                startCheckpoint: checkpoint,
+                privateState,
+                persister: persister as never,
+            });
+            if (continuation === 'retry') {
+                expect(result.type).toBe('failed');
+                if (result.type !== 'failed') throw new Error('Expected a retryable failure');
+                persisted.push(result.resumeCheckpoint);
+                result = await executor.runAttempt({
+                    startCheckpoint: result.resumeCheckpoint,
+                    privateState,
+                    persister: persister as never,
+                });
+            }
+            expect(result).toMatchObject({ type: 'completed', response: 'Final answer' });
+            expect(sent).toHaveLength(2);
+            expect(summaries.length).toBeGreaterThan(0);
+            for (const request of sent) {
+                expect(
+                    request.messages.find((message) => message.tool_call_id === privateCall.id)
+                ).toMatchObject({ role: 'tool', content: 'RETAINED_PRIVATE_BODY' });
+                expect(
+                    request.messages.flatMap((message) => message.tool_calls ?? [])
+                ).toContainEqual(privateCall);
+                expect(JSON.stringify(request)).not.toContain('ARCHIVED_PRIVATE_BODY');
+            }
+            for (const value of [summaries, persisted]) {
+                expect(JSON.stringify(value)).not.toContain('PRIVATE_BODY');
+                expect(JSON.stringify(value)).not.toContain('request-only-key');
+            }
+        }
+    );
+
     it('user sees no duplicated prior output when next-step preparation fails after a complete tool round', async () => {
         const checkpoint = createCheckpoint();
         checkpoint.activeModel.context_limit = 8000;
@@ -243,7 +393,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         expect(result.partialOutputParts).toEqual([]);
     });
 
-    it('user keeps the same cache route across retries and later turns while other sessions stay separate', async () => {
+    it('user retries and continues a session with the same budget calibration while other sessions stay separate', async () => {
         const sent: AiRequestOptions[] = [];
         providerMock.stream.mockImplementation(async function* (request: AiRequestOptions) {
             sent.push(request);

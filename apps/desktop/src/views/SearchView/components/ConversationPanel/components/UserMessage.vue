@@ -6,12 +6,15 @@
             <div class="text-reading leading-[1.6]">
                 <!-- 文本内容 -->
                 <div
-                    v-if="message.content"
+                    v-if="inlineParts.length"
                     class="user-text font-serif whitespace-pre-wrap text-message-foreground select-text"
                     data-no-i18n="true"
                     translate="no"
                 >
-                    {{ message.content }}
+                    <template v-for="(part, index) in inlineParts" :key="index">
+                        <SkillLabel v-if="part.type === 'skill'" :name="part.name" />
+                        <template v-else>{{ part.text }}</template>
+                    </template>
                 </div>
 
                 <!-- 用户消息的附件 -->
@@ -66,18 +69,25 @@
 <script setup lang="ts">
     import ActionButton from '@components/ActionButton.vue';
     import AppIcon from '@components/AppIcon.vue';
+    import SkillLabel from '@components/SkillLabel.vue';
     import { notify } from '@services/NotificationService';
     import { log } from '@services/ObservabilityService';
+    import { computed } from 'vue';
 
     import { t } from '@/i18n';
     import { clipboardService } from '@/services/ClipboardService';
     import type { SessionMessage } from '@/types/session';
+
+    import { buildUserMessageInlineParts } from './userMessageParts';
 
     interface Props {
         message: SessionMessage;
     }
 
     const props = defineProps<Props>();
+    const inlineParts = computed(() =>
+        buildUserMessageInlineParts(props.message.content, props.message.inputSnapshot)
+    );
 
     async function handleCopy() {
         try {

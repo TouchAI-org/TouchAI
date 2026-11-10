@@ -48,7 +48,7 @@ function fakeContext(): BaseBuiltInToolExecutionContext {
     return {
         callId: 'call-1',
         iteration: 0,
-        hasExecutedBuiltInTool: () => false,
+
         requestUserQuestions: async (_callId, questions) =>
             questions.map((question, questionIndex) => ({
                 questionIndex,
@@ -62,7 +62,6 @@ function fakeContextWithoutQuestions(): BaseBuiltInToolExecutionContext {
     return {
         callId: 'call-1',
         iteration: 0,
-        hasExecutedBuiltInTool: () => false,
     };
 }
 

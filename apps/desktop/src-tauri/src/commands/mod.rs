@@ -13,6 +13,7 @@ pub mod observability;
 pub mod paths;
 pub mod quick_search;
 pub mod shortcut;
+pub mod skills;
 pub mod updater;
 pub mod window;
 
@@ -23,6 +24,15 @@ pub mod window;
 pub fn invoke_handler<R: tauri::Runtime>(
 ) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
+        skills::agent_skills_get_user_root,
+        skills::agent_skills_discover_user_files,
+        skills::agent_skills_discover_system_files,
+        skills::agent_skills_read_user_file,
+        skills::agent_skills_read_enabled_user_file,
+        skills::agent_skills_delete_user_directory,
+        skills::agent_skills_set_user_skill_disabled,
+        skills::agent_skills_open_user_root,
+        skills::agent_skills_open_user_directory,
         window::hide_search_window,
         window::show_search_window,
         window::drag_search_window,

@@ -13,6 +13,7 @@ import { log } from '@services/ObservabilityService';
 import { tt } from '@/i18n';
 import type { ToolEventStructuredPayload } from '@/services/AgentService/contracts/tooling';
 import { hydratePersistedAttachments } from '@/services/AgentService/infrastructure/attachments';
+import type { SelectedSkill } from '@/services/AgentService/skills';
 import {
     buildBuiltInToolConversationPresentation,
     resolveBuiltInToolConversationSemantic,
@@ -169,6 +170,20 @@ function syncBuiltInToolCallPresentation(toolCall: ToolCallInfo): void {
                 semantic: toolCall.builtinConversationSemantic,
             }
         ) ?? undefined;
+}
+
+function getPromptSnapshotInputSkills(promptSnapshot?: PromptSnapshot): SelectedSkill[] {
+    if (promptSnapshot?.inputSnapshot?.skills?.length) {
+        return promptSnapshot.inputSnapshot.skills.map((skill) => ({
+            name: skill.name,
+            path: skill.path,
+        }));
+    }
+
+    return (promptSnapshot?.skills ?? []).map((skill) => ({
+        name: skill.name,
+        path: skill.path,
+    }));
 }
 
 function isCancellationStatusText(text?: string | null): boolean {
@@ -568,6 +583,7 @@ function convertEntriesToSessionHistory(
                 inputSnapshot: createInputHistorySnapshot({
                     text: content,
                     attachments: entry.attachments ?? [],
+                    skills: getPromptSnapshotInputSkills(promptSnapshot),
                     editorDoc: promptSnapshot?.inputSnapshot?.editorDoc,
                     excludeFromHistory: promptSnapshot?.inputSnapshot?.excludeFromHistory,
                 }),

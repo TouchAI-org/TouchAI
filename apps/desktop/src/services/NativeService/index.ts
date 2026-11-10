@@ -12,6 +12,7 @@ import { paths } from './paths';
 import { quickSearch } from './quickSearch';
 import { runtime } from './runtime';
 import { shortcut } from './shortcut';
+import { skills } from './skills';
 import { updater } from './updater';
 import { window } from './window';
 
@@ -87,6 +88,7 @@ export {
     quickSearch,
     runtime,
     shortcut,
+    skills,
     updater,
     window,
 };
@@ -95,6 +97,7 @@ export const native = {
     analytics,
     window,
     shortcut,
+    skills,
     autostart,
     browser,
     clipboard,

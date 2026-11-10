@@ -29,7 +29,7 @@ function context(
     return {
         callId: 'call-1',
         iteration: 0,
-        hasExecutedBuiltInTool: () => false,
+
         ...(requestUserQuestions ? { requestUserQuestions } : {}),
         ...overrides,
     };

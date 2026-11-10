@@ -38,6 +38,14 @@ export const TonesAndSizes: Story = {
                     </div>
                 </div>
                 <div class="flex flex-col gap-2">
+                    <p class="text-dense text-text-tertiary">source</p>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <Badge variant="source">App</Badge>
+                        <Badge variant="source">Global</Badge>
+                        <Badge variant="source">Built-in</Badge>
+                    </div>
+                </div>
+                <div class="flex flex-col gap-2">
                     <p class="text-dense text-text-tertiary">tag, with explicit sizes</p>
                     <div class="flex flex-wrap items-center gap-2">
                         <Badge variant="tag" size="sm">built-in</Badge>

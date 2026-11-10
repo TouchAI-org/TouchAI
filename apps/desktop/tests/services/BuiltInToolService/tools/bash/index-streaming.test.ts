@@ -116,7 +116,6 @@ describe('user watches a shell command produce output live', () => {
                 currentModel: undefined,
                 signal: undefined,
                 emitToolEvent,
-                hasExecutedBuiltInTool: vi.fn(),
             }
         );
 
@@ -213,7 +212,6 @@ describe('user watches a shell command produce output live', () => {
                         done: false,
                         toolEvent,
                     }),
-                hasExecutedBuiltInTool: vi.fn(),
             }
         );
 
@@ -287,7 +285,6 @@ describe('user watches a shell command produce output live', () => {
                 currentModel: undefined,
                 signal: undefined,
                 emitToolEvent,
-                hasExecutedBuiltInTool: vi.fn(),
             }
         );
 
@@ -362,7 +359,6 @@ describe('user watches a shell command produce output live', () => {
                 currentModel: undefined,
                 signal: undefined,
                 emitToolEvent,
-                hasExecutedBuiltInTool: vi.fn(),
             }
         );
         isSettled = true;
@@ -415,7 +411,6 @@ describe('user watches a shell command produce output live', () => {
                     currentModel: undefined,
                     signal: undefined,
                     emitToolEvent,
-                    hasExecutedBuiltInTool: vi.fn(),
                 }
             )
         ).rejects.toThrow('native bridge failed');
@@ -467,7 +462,6 @@ describe('user watches a shell command produce output live', () => {
                 currentModel: undefined,
                 signal: undefined,
                 emitToolEvent: vi.fn(),
-                hasExecutedBuiltInTool: vi.fn(),
             }
         );
 
@@ -515,7 +509,6 @@ describe('user watches a shell command produce output live', () => {
                 currentModel: undefined,
                 signal: undefined,
                 emitToolEvent: vi.fn(),
-                hasExecutedBuiltInTool: vi.fn(),
             }
         );
 

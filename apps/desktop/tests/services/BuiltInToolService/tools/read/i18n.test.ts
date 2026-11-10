@@ -182,6 +182,5 @@ function createExecutionContext(
         signal: controller.signal,
         callId: 'read-call',
         iteration: 1,
-        hasExecutedBuiltInTool: vi.fn(() => false),
     };
 }

@@ -79,7 +79,7 @@ function validateShowWidgetMarkup(html: string): void {
     if (violations.size > 0) {
         throw new Error(
             [
-                'ShowWidget design validation failed. Re-read builtin__visualize_read_me and regenerate the widget_code.',
+                'ShowWidget design validation failed. Review the built-in widget skill and regenerate the widget_code.',
                 ...[...violations].map((reason) => `- ${reason}`),
             ].join('\n')
         );
@@ -101,13 +101,13 @@ export async function executeShowWidgetTool(
     void config;
     void context.signal;
 
-    if (!context.hasExecutedBuiltInTool('visualize_read_me')) {
+    const parsed = parseShowWidgetArgs(args, context);
+
+    if (!context.widgetSkillAccess?.isAuthorized(parsed.skillKey)) {
         throw new Error(
-            'ShowWidget guideline has not been loaded in a previous tool round yet. Call builtin__visualize_read_me first, let the model read the returned guideline, and then call builtin__show_widget in the next round.'
+            'ShowWidget requires the current request skill_key. Load the built-in widget skill with builtin__activate_skill using its exact catalog path, then pass the credential from that skill.'
         );
     }
-
-    const parsed = parseShowWidgetArgs(args, context);
 
     if (parsed.mode === 'render' && parsed.html.trim()) {
         validateShowWidgetMarkup(parsed.html);

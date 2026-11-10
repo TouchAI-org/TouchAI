@@ -12,6 +12,7 @@ export type NavigationSection =
     | 'search'
     | 'browser'
     | 'mcp-tools'
+    | 'skills'
     | 'data-management';
 
 export interface SettingsNavigationItem {
@@ -89,6 +90,12 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
                 descriptionKey: 'settings.nav.builtInTools.description',
             },
             ...jsonSettingsNavigationDefinitions,
+            {
+                id: 'skills',
+                icon: 'skill',
+                labelKey: 'skills.title',
+                descriptionKey: 'skills.description',
+            },
             {
                 id: 'mcp-tools',
                 icon: 'mcp',

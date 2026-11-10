@@ -55,9 +55,6 @@ const WIDGET_DRAFT_THROTTLE_MIN_CHARS = 2000;
 export class ProjectionWidgets {
     private readonly showWidgetCallIds = new Set<string>();
     private readonly draftBuildStates = new Map<string, WidgetDraftBuildState>();
-    private readonly widgetCodeRegex = /"widget_code"\s*:/;
-    private readonly readmeRegex = /"i_have_seen_read_me"\s*:\s*true/;
-    private readonly htmlRegex = /"html"\s*:/;
 
     constructor(private readonly onDraftUpdated: () => void = () => {}) {}
 
@@ -197,17 +194,7 @@ export class ProjectionWidgets {
             return;
         }
 
-        const streamedName = toolCallDelta.name;
-        const matchesShowWidgetName =
-            streamedName === SHOW_WIDGET_TOOL_NAME ||
-            (typeof streamedName === 'string' &&
-                (SHOW_WIDGET_TOOL_NAME.startsWith(streamedName) ||
-                    streamedName.startsWith(SHOW_WIDGET_TOOL_NAME)));
-        const matchesShowWidgetArguments = this.looksLikeShowWidgetArgumentsBuffer(
-            toolCallDelta.argumentsBuffer
-        );
-
-        if (matchesShowWidgetName || matchesShowWidgetArguments) {
+        if (toolCallDelta.name === SHOW_WIDGET_TOOL_NAME) {
             this.showWidgetCallIds.add(toolCallDelta.callId);
             this.ensureShowWidgetDraftShell(history, messageId, toolCallDelta.callId);
         }
@@ -381,17 +368,5 @@ export class ProjectionWidgets {
             mode: 'render',
             phase: 'draft',
         });
-    }
-
-    private looksLikeShowWidgetArgumentsBuffer(argumentsBuffer: string): boolean {
-        if (!argumentsBuffer.trim()) {
-            return false;
-        }
-
-        if (this.widgetCodeRegex.test(argumentsBuffer)) {
-            return true;
-        }
-
-        return this.readmeRegex.test(argumentsBuffer) && this.htmlRegex.test(argumentsBuffer);
     }
 }

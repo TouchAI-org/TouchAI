@@ -150,7 +150,7 @@ async function buildUserPromptMessage(options: {
     } else if (hasAttachments) {
         content = attachmentParts;
     } else {
-        content = options.prompt || 'no prompt';
+        content = hasText ? options.prompt : 'no prompt';
     }
 
     return {

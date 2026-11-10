@@ -14,11 +14,13 @@ import type {
     ToolEventStructuredPayload,
 } from '@/services/AgentService/contracts/tooling';
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
+import type { WidgetSkillAccess } from '@/services/AgentService/skills/widgetAccess';
 
 /**
  * 当前内置工具体系允许暴露给模型的稳定工具标识。
  */
 export type BuiltInToolId =
+    | 'activate_skill'
     | 'bash'
     | 'file_search'
     | 'read'
@@ -43,12 +45,12 @@ export interface BaseBuiltInToolExecutionContext {
     callId: string;
     iteration: number;
     emitToolEvent?: (toolEvent: ToolEvent) => void;
-    hasExecutedBuiltInTool: (toolId: BuiltInToolId) => boolean;
     requestUserQuestions?: (
         callId: string,
         questions: AskUserQuestion[]
     ) => Promise<AskUserAnswer[] | null>;
     requestedTimeoutMs?: number;
+    widgetSkillAccess?: WidgetSkillAccess;
 }
 
 /**
@@ -73,6 +75,7 @@ export interface BuiltInToolExecutionResult {
     isError: boolean;
     status: 'success' | 'error' | 'timeout';
     errorMessage?: string | null;
+    persistedResult?: string;
     approvalSummary?: string | null;
     conversationSemantic?: BuiltInToolConversationSemantic;
     attachments?: AttachmentIndex[];
