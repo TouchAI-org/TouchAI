@@ -27,6 +27,10 @@
         (event: 'action'): void;
     }>();
 
+    const isDownloading = computed(
+        () => props.downloadProgress !== null && props.downloadProgress !== undefined
+    );
+
     const versionLabel = computed(() => {
         const label = `${props.channel} V${props.version.replace(/^v/i, '')}`;
         const date = formatShortDate(props.publishedAt);
@@ -83,11 +87,11 @@
                     </div>
 
                     <div
-                        v-if="downloadProgress !== null && downloadProgress !== undefined"
+                        v-if="isDownloading"
                         class="mt-4 h-1 overflow-hidden rounded-full bg-neutral-200/80"
                         role="progressbar"
                         :aria-label="t('settings.update.downloadProgress')"
-                        :aria-valuenow="downloadProgress"
+                        :aria-valuenow="downloadProgress ?? undefined"
                         :aria-valuemin="0"
                         :aria-valuemax="100"
                     >
@@ -110,7 +114,13 @@
                         class="inline-flex h-9 items-center justify-center px-4"
                         @click="$emit('close')"
                     >
-                        {{ t('common.cancel') }}
+                        {{
+                            t(
+                                isDownloading
+                                    ? 'settings.general.update.dialog.action.continueInBackground'
+                                    : 'common.cancel'
+                            )
+                        }}
                     </Button>
                     <Button
                         variant="strong"
