@@ -266,9 +266,9 @@ pub(super) async fn find_history(
     let mut transaction = pool.begin().await.map_err(DatabaseOperationError::from)?;
     let session = find_by_id_on(&mut *transaction, session_id)
         .await?
-        .ok_or_else(|| {
-            DatabaseOperationError::not_found(format!("Session {session_id} not found"))
-        })?;
+        // Keep the row id out of the log; the stable code is the caller contract and
+        // the session identity is user data.
+        .ok_or_else(|| DatabaseOperationError::not_found("Session was not found"))?;
     let messages = load_messages_on(&mut *transaction, session_id).await?;
     let turn_rows = fetch_rows(
         &mut *transaction,

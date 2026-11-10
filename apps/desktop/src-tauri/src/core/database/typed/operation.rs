@@ -909,10 +909,10 @@ mod tests {
         assert!(!validation.message.contains("api_key"));
         assert!(!validation.message.contains("Unsupported"));
 
-        let not_found = DatabaseOperationError::not_found("Session 42 not found");
+        let not_found = DatabaseOperationError::not_found("row 42 missing");
         assert_eq!(not_found.code, "database-not-found");
         assert_eq!(not_found.message, "Database record was not found");
         assert!(!not_found.message.contains("42"));
-        assert!(!not_found.message.contains("Session"));
+        assert!(!not_found.message.contains("row"));
     }
 }

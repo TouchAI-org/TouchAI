@@ -123,7 +123,8 @@ pub(super) async fn update_many(
         )
         .await?
         .ok_or_else(|| {
-            log::debug!(target: "database", "Built-in tool {id} was not found during bulk update");
+            // Keep the tool id out of the log; the stable code is the caller contract.
+            log::debug!(target: "database", "Built-in tool was not found during bulk update");
             DatabaseOperationError::with_code("built-in-tool-not-found", "Built-in tool not found")
         })?;
         updated.push(JsonValue::Object(row));
