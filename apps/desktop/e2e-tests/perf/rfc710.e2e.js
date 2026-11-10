@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import {
+    isSeededSessionReady,
+    seededSessionMessageId,
+} from '../../scripts/perf/710/history-session.mjs';
 import { selectHistorySurface } from '../../scripts/perf/710/history-surface.mjs';
 
 const flow = process.env.TOUCHAI_PERF_FLOW ?? '';
@@ -1040,21 +1044,35 @@ async function openSeededSession() {
     );
     await browser.switchToWindow(originalHandle);
     await waitForMainWindow();
+    const expectedMessageId = seededSessionMessageId(historyLevel);
     await browser.waitUntil(
-        async () =>
-            (await browser.execute(
-                () => document.querySelectorAll('[data-message-role]').length
-            )) >= historyLevel,
+        async () => {
+            const mountedMessageIds = await browser.execute(() =>
+                [...document.querySelectorAll('[data-message-id]')].map((element) =>
+                    element.getAttribute('data-message-id')
+                )
+            );
+            return isSeededSessionReady({ historyLevel, mountedMessageIds });
+        },
         {
             timeout: 5 * 60 * 1000,
-            timeoutMsg: `The seeded ${historyLevel}-message session did not finish rendering.`,
+            timeoutMsg:
+                `The seeded ${historyLevel}-message session did not mount its final message ` +
+                `(${expectedMessageId ?? 'none'}).`,
         }
     );
     await clearEditor();
+    const mountedMessageIds = await browser.execute(() =>
+        [...document.querySelectorAll('[data-message-id]')].map((element) =>
+            element.getAttribute('data-message-id')
+        )
+    );
     appendEvent({
         type: 'long-phase',
         phase: 'open-complete',
         historyLevel,
+        expectedMessageId,
+        mountedMessageIds,
         ...(await domMetrics()),
     });
 }
