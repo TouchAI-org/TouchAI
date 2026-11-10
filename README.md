@@ -40,6 +40,8 @@
 ### 下载使用
 在 [Releases](https://github.com/TouchAI-org/TouchAI/releases) 下载最新安装包。
 
+通道选择、禁止降级和安装包校验说明见[安装与更新包验证](docs/release-verification.zh-CN.md)。
+
 ### 开发贡献
 
 如果你想参与 TouchAI 的开发，请阅读 [contributing docs](./CONTRIBUTING.md)。外部代码贡献需要完成 CLA 签署。
