@@ -225,6 +225,9 @@ importers:
       reka-ui:
         specifier: ^2.11.0
         version: 2.11.0(vue@3.5.43(typescript@6.0.3))
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       stream-diffs:
         specifier: 0.0.2
         version: 0.0.2(@shikijs/themes@4.5.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vue@3.5.43(typescript@6.0.3))
@@ -379,9 +382,6 @@ importers:
       prettier-plugin-tailwindcss:
         specifier: ^0.8.1
         version: 0.8.1(@trivago/prettier-plugin-sort-imports@6.0.0(@vue/compiler-sfc@3.5.43)(prettier@3.8.5))(prettier-plugin-astro@0.14.1)(prettier@3.8.5)
-      semver:
-        specifier: ^7.8.5
-        version: 7.8.5
       storybook:
         specifier: 10.6.3
         version: 10.6.3(@types/react@19.3.0)(prettier@3.8.5)(react@19.3.0)
