@@ -11,6 +11,7 @@
     import { Input } from '@components/ui/input';
     import { useAlert } from '@composables/useAlert';
     import type { Model, NewModel } from '@database/schema';
+    import { log } from '@services/ObservabilityService';
     import { computed, ref, watch } from 'vue';
 
     import { t } from '@/i18n';
@@ -201,7 +202,8 @@
                 props.mode === 'create'
                     ? t('settings.ai.createFailed')
                     : t('settings.ai.saveFailed');
-            alert.error(err instanceof Error ? err.message : fallback);
+            log.error('Failed to submit model form:', err);
+            alert.error(fallback);
         }
     };
 </script>

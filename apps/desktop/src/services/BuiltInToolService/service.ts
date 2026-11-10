@@ -26,6 +26,7 @@ import type {
     ToolEvent,
 } from '@/services/AgentService/contracts/tooling';
 
+import { resolveToolFailure } from './errors';
 import { builtInToolRegistry } from './registry';
 import type {
     BaseBuiltInToolExecutionContext,
@@ -151,18 +152,28 @@ class BuiltInToolService {
         }
     }
 
-    private buildFailedToolResult(error: unknown): BuiltInToolExecutionResult {
+    private buildFailedToolResult(
+        error: unknown,
+        toolId: BuiltInToolId
+    ): BuiltInToolExecutionResult {
         const aiError = AiError.fromError(error);
         if (aiError.is(AiErrorCode.REQUEST_CANCELLED)) {
             throw aiError;
         }
 
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        // Tool-owned validation and policy failures are explicitly marked as safe. Every
+        // other exception may contain database paths, credentials, or transport internals,
+        // so the boundary replaces it with stable text while the original stays in logs.
+        const failure = resolveToolFailure(error, {
+            toolId,
+            fallbackMessage: tt('工具执行失败'),
+            timeoutMessage: tt('工具执行超时，请稍后重试'),
+        });
         return {
-            result: tt('工具执行失败：{error}', { error: errorMessage }),
+            result: failure.message,
             isError: true,
-            status: 'error',
-            errorMessage,
+            status: failure.status,
+            errorMessage: failure.message,
         };
     }
 
@@ -512,7 +523,7 @@ class BuiltInToolService {
             );
         } catch (error) {
             try {
-                toolResult = this.buildFailedToolResult(error);
+                toolResult = this.buildFailedToolResult(error, resolved.tool.id);
             } catch (finalError) {
                 const aiError = AiError.fromError(finalError);
                 await markCancelledToolLog({

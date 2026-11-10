@@ -13,6 +13,7 @@ import { log } from '@services/ObservabilityService';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 import type { AppUpdateChannel } from '@/config/appUpdate';
+import { t } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
 
 import { createInitialAppUpdateState, reduceAppUpdateState } from './state';
@@ -92,7 +93,10 @@ const defaultAppUpdateAnalytics: AppUpdateAnalytics = {
 };
 
 function toErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
+    // The controller state can be consumed by UI code. Keep native updater
+    // diagnostics in the log boundary and expose only stable copy here.
+    log.error('[AppUpdateService] Update action failed:', error);
+    return t('settings.update.failure');
 }
 
 function mapUpdateSource(source: AppUpdateCheckSource): UpdateSource {

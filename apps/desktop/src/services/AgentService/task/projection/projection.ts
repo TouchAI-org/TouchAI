@@ -18,7 +18,6 @@ import {
 } from '@/types/session';
 import { createReasoningPart, createTextPart, selectToolCalls } from '@/utils/session';
 
-import { AiError } from '../../contracts/errors';
 import type { AiStreamChunk } from '../../contracts/protocol';
 import type {
     AskUserAnswer,
@@ -355,7 +354,7 @@ export class SessionTaskProjection {
         this.publish();
     }
 
-    markFailed(errorMessage: string, displayMessage = errorMessage): void {
+    markFailed(displayMessage: string): void {
         this.widgets.resetTransientState();
         const statusText = tt('请求失败: {error}', { error: displayMessage });
         let shouldCreateStandaloneStatus = true;
@@ -454,7 +453,10 @@ export class SessionTaskProjection {
 
         if (event.type === 'task_failed') {
             this.snapshot.turnId = event.turnId;
-            this.markFailed(event.error, AiError.getKnownDefaultDisplayMessage(event.error));
+            // TaskEvent is a presentation boundary: the runtime already converted the
+            // diagnostic error to user-facing copy. Re-normalizing localized text here
+            // would turn a valid English message back into the generic unknown error.
+            this.markFailed(event.error);
             return;
         }
 

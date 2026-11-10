@@ -69,7 +69,8 @@ export const zhToEnTextMap = {
     设置修改失败: 'Setting update failed',
     原因: 'Reason',
     恢复失败: 'Restore failed',
-    '工具执行失败：{error}': 'Tool execution failed: {error}',
+    工具执行失败: 'Tool execution failed',
+    '工具执行超时，请稍后重试': 'Tool execution timed out. Try again later.',
     '工具参数协议错误：{toolName} 返回了无效的 JSON 参数。':
         'Tool argument protocol error: {toolName} returned invalid JSON arguments.',
     '工具参数协议错误：{toolName} 必须接收 JSON 对象。':
@@ -90,38 +91,7 @@ export const zhToEnTextMap = {
         'Shortcut {shortcut} has an invalid format. Set it again.',
     '不支持的按键，请使用常规按键组合': 'Unsupported key. Use a standard key combination.',
     '快捷键包含不支持的按键。': 'Shortcut contains an unsupported key.',
-    '注册快捷键失败：{error}': 'Failed to register shortcut: {error}',
-    注意: 'Note',
     '设置修改失败。': 'Setting update failed.',
-    '设置尚未就绪，暂时无法修改。': 'Settings are not ready yet; try again in a moment.',
-    '设置所有者已关闭。': 'The settings owner was closed.',
-    '设置所有者不可用。': 'The settings owner is unavailable.',
-    '设置结果未知：设置所有者已变化。': 'Settings result unknown: the settings owner changed.',
-    '设置结果未知：请求超时，请重新查看设置后再决定是否重试。':
-        'Settings result unknown: the request timed out. Re-check settings before retrying.',
-    '设置结果未知：响应来自已失效的设置所有者。':
-        'Settings result unknown: the response came from a superseded settings owner.',
-    '设置结果未知：未收到有效响应。': 'Settings result unknown: no valid response was received.',
-    '设置修改队列已满，请稍后重试。': 'The settings change queue is full. Try again later.',
-    '系统设置状态未确认，已暂停新的修改，请重新检查设置。':
-        'The system setting state is unconfirmed; new changes are paused. Re-check settings.',
-    '设置值无效：{error}': 'Invalid setting value: {error}',
-    '设置未生效：{error}': 'The setting did not take effect: {error}',
-    '设置结果未知：保存未确认，请重新查看设置。':
-        'Settings result unknown: the save is unconfirmed. Re-check settings.',
-    '设置未保存，已恢复到执行前的值。':
-        'The setting was not saved; it was restored to the previous value.',
-    '设置可能未保存，且无法确认系统状态，请重新检查设置。':
-        'The setting may not be saved and the system state cannot be confirmed. Re-check settings.',
-    '设置结果未知：保存过程中设置所有者已变化。':
-        'Settings result unknown: the settings owner changed while saving.',
-    '设置已保存，但同步到其他窗口失败。':
-        'The setting was saved, but syncing to other windows failed.',
-    '设置同步失败。': 'Failed to sync settings.',
-    '设置同步失败：未收到有效快照。': 'Failed to sync settings: no valid snapshot was received.',
-    '设置请求超时。': 'The settings request timed out.',
-    '设置请求过多，请稍后重试。': 'Too many settings requests. Try again later.',
-    '设置同步超时。': 'Settings sync timed out.',
     'TouchAI - 快捷键注册失败': 'TouchAI - Shortcut registration failed',
     '写下你的需求...': 'Write your request...',
     '搜索模型名称、ID 或供应商': 'Search model name, ID, or provider',
@@ -448,7 +418,6 @@ export const zhToEnTextMap = {
     名称: 'Name',
     断开: 'Disconnect',
     '断开中...': 'Disconnecting...',
-    '断开失败: {error}': 'Disconnect failed: {error}',
     连接: 'Connect',
     '连接中...': 'Connecting...',
     连接中: 'Connecting',
@@ -501,8 +470,7 @@ export const zhToEnTextMap = {
     '未配置可用的 AI 模型，请前往设置页面添加模型':
         'No available AI model is configured. Add a model in Settings.',
     模型不存在: 'Model does not exist.',
-    '无法设置默认模型：服务商 "{provider}" 未启用':
-        'Cannot set the default model: provider "{provider}" is disabled.',
+    '无法设置默认模型：服务商未启用': 'Cannot set the default model: provider is disabled.',
     指定的模型不存在: 'The specified model does not exist.',
     该模型已被禁用: 'This model has been disabled.',
     该服务商已被禁用: 'This provider has been disabled.',
@@ -635,7 +603,6 @@ export const zhToEnTextMap = {
     设置成功: 'Set successfully',
     设置失败: 'Set failed',
     '刷新成功，新增 {count} 个模型': 'Refresh complete, added {count} models',
-    '获取模型列表失败：{error}': 'Failed to fetch model list: {error}',
     '请填写模型名称和模型 ID': 'Enter model name and model ID',
     '请填写服务商名称和 Base URL': 'Enter provider name and Base URL',
     请填写服务商名称: 'Enter provider name',
@@ -711,13 +678,9 @@ export const zhToEnTextMap = {
     连接失败: 'Connection failed',
     断开超时: 'Disconnect timed out',
     更新服务器状态失败: 'Failed to update server status',
-    '连接服务器失败：{error}': 'Failed to connect server: {error}',
-    '连接失败: {error}': 'Connection failed: {error}',
     切换服务器状态失败: 'Failed to toggle server status',
     日志: 'Logs',
     删除服务器失败: 'Failed to delete server',
-    '自动连接服务器失败：{error}': 'Failed to auto-connect server: {error}',
-    '重新连接失败: {error}': 'Reconnect failed: {error}',
     '服务器 "{serverName}" 已断开': 'Server "{serverName}" disconnected',
     '服务器 "{serverName}" 连接成功': 'Server "{serverName}" connected',
     '服务器 "{serverName}" 重新连接成功': 'Server "{serverName}" reconnected',
@@ -781,6 +744,10 @@ export const zhToEnTextMap = {
     '此操作会与网页交互，可能触发提交、导航或状态变更。':
         'This operation will interact with the webpage and may trigger submission, navigation, or state changes.',
     浏览器: 'Browser',
+    浏览器权限不允许此操作: 'Browser permission does not allow this operation.',
+    需要用户确认浏览器操作: 'This browser operation requires user confirmation.',
+    用户未批准浏览器操作: 'The user did not approve this browser operation.',
+    未找到可连接的已有浏览器会话: 'No connectable existing browser session was found.',
     浏览器控制: 'Browser Control',
     '管理 TouchAI 控制浏览器的行为。': 'Manage how TouchAI controls browser behavior.',
     '管理 TouchAI 控制浏览器的行为。可在本页设置默认主页、浏览器软件位置、权限、截图附件和会话连接策略。':

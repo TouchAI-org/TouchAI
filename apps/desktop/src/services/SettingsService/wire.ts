@@ -20,12 +20,44 @@ export const SETTINGS_TRANSPORT_EVENT = 'settings:command';
  */
 export const SETTINGS_BROADCAST_TARGET = '*';
 
+/** Window labels that may own or consume the GeneralSettings transport. */
+export const SETTINGS_WINDOW_LABELS = ['main', 'settings', 'tray-menu'] as const;
+
 /**
- * A message target must be a concrete single window. The broadcast target and the empty
- * string are rejected so a client cannot ask the owner to reply into a broadcast.
+ * Windows that may receive the settings snapshot. The tray menu renders only the
+ * current language and motion preferences, so it reads settings but never writes.
+ */
+export const SETTINGS_SNAPSHOT_REQUESTER_LABELS = ['settings', 'tray-menu'] as const;
+
+/** Only the settings window may ask the owner to change a GeneralSettings value. */
+export const SETTINGS_MUTATION_REQUESTER_LABELS = ['settings'] as const;
+
+const settingsWindowLabels = new Set<string>(SETTINGS_WINDOW_LABELS);
+const settingsSnapshotRequesters = new Set<string>(SETTINGS_SNAPSHOT_REQUESTER_LABELS);
+const settingsMutationRequesters = new Set<string>(SETTINGS_MUTATION_REQUESTER_LABELS);
+
+/** Whether a window is a supported settings owner/client surface. */
+export function isSettingsWindowLabel(label: unknown): label is string {
+    return typeof label === 'string' && settingsWindowLabels.has(label);
+}
+
+/** Whether a window may read the current settings snapshot. */
+export function isSettingsSnapshotRequester(label: unknown): label is string {
+    return typeof label === 'string' && settingsSnapshotRequesters.has(label);
+}
+
+/** Whether a window may issue a GeneralSettings mutation. */
+export function isSettingsMutationRequester(label: unknown): label is string {
+    return typeof label === 'string' && settingsMutationRequesters.has(label);
+}
+
+/**
+ * A message target must be a supported single settings window. The broadcast target,
+ * empty strings and popup/preview/unknown windows are rejected so a request cannot make
+ * the owner leak a snapshot outside the settings boundary.
  */
 export function isDeliverableSettingsTarget(target: unknown): target is string {
-    return typeof target === 'string' && target.length > 0 && target !== SETTINGS_BROADCAST_TARGET;
+    return isSettingsWindowLabel(target);
 }
 
 export interface SettingsWireSnapshotRequest {
@@ -52,7 +84,6 @@ export interface SettingsWireReply {
     snapshot?: SettingsSnapshot;
     result?: SettingsMutationResult;
     code?: string;
-    message?: string;
 }
 
 export interface SettingsWireNotice {
@@ -75,15 +106,18 @@ const nonNegativeRevision = z.number().int().nonnegative().finite();
 const requestIdSchema = z.string().min(1);
 const hostEpochSchema = z.string().nullable();
 const settingKeySchema = z.string().min(1);
-const requesterSchema = z.string().refine(isDeliverableSettingsTarget, {
-    message: 'settings sender must be a concrete single window',
+const snapshotRequesterSchema = z.string().refine(isSettingsSnapshotRequester, {
+    message: 'settings snapshot sender must be a read-only settings window',
+});
+const mutationRequesterSchema = z.string().refine(isSettingsMutationRequester, {
+    message: 'settings mutation sender must be the settings window',
 });
 
 const snapshotRequestSchema = z
     .object({
         kind: z.literal('snapshot-request'),
         requestId: requestIdSchema,
-        from: requesterSchema,
+        from: snapshotRequesterSchema,
         hostEpoch: hostEpochSchema,
     })
     .strict();
@@ -92,7 +126,7 @@ const mutateRequestSchema = z
     .object({
         kind: z.literal('mutate-request'),
         requestId: requestIdSchema,
-        from: requesterSchema,
+        from: mutationRequesterSchema,
         hostEpoch: hostEpochSchema,
         key: settingKeySchema,
         value: z.unknown(),
@@ -118,7 +152,13 @@ const committedResultSchema = z
         key: settingKeySchema,
         value: z.unknown(),
         revision: nonNegativeRevision,
-        warning: z.string().optional(),
+    })
+    .strict();
+
+const rejectionSchema = z
+    .object({
+        kind: z.enum(['shortcut-reserved', 'shortcut-conflict', 'shortcut-global-conflict']),
+        actionLabelKey: z.string().min(1).optional(),
     })
     .strict();
 
@@ -127,7 +167,7 @@ const rejectedResultSchema = z
         status: z.literal('rejected'),
         key: settingKeySchema,
         code: z.string().min(1),
-        message: z.string(),
+        rejection: rejectionSchema.optional(),
     })
     .strict();
 
@@ -136,7 +176,6 @@ const nonCommittedResultSchema = z
         status: z.enum(['restored', 'recovery-required', 'unknown']),
         key: settingKeySchema,
         code: z.string().min(1),
-        message: z.string(),
     })
     .strict();
 
@@ -155,7 +194,6 @@ const replySchema = z
         snapshot: snapshotSchema.optional(),
         result: mutationResultSchema.optional(),
         code: z.string().min(1).optional(),
-        message: z.string().optional(),
     })
     .strict()
     .superRefine((reply, context) => {

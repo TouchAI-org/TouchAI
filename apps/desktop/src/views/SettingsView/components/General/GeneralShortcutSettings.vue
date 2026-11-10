@@ -6,6 +6,7 @@
     import { native } from '@services/NativeService';
     import { notify } from '@services/NotificationService';
     import { log } from '@services/ObservabilityService';
+    import { describeSettingsFailure } from '@services/SettingsService/messages';
     import { storeToRefs } from 'pinia';
     import { computed, onMounted, ref, watch } from 'vue';
 
@@ -196,10 +197,10 @@
             alertMessage.value?.success(t('settings.general.shortcutSaved'), 3000);
         } catch (error) {
             log.error('Failed to save shortcut:', error);
-            const errorMessage =
-                error instanceof Error && error.message
-                    ? error.message
-                    : t('settings.general.saveShortcutFailed');
+            const errorMessage = describeSettingsFailure(
+                error,
+                t('settings.general.saveShortcutFailed')
+            );
             notify({
                 title: t('notification.shortcutRegistrationFailed.title'),
                 body: errorMessage,

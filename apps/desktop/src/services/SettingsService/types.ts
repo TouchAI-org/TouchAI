@@ -1,6 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import type { GeneralSettingKey, GeneralSettingsData, GeneralSettingValue } from './domain';
+import type { SettingsRejectionDescriptor } from './policy';
 
 export type SettingsRole = 'owner' | 'client';
 
@@ -28,11 +29,20 @@ export type SettingsErrorCodeValue = (typeof SettingsErrorCode)[keyof typeof Set
  */
 export class SettingsServiceError extends Error {
     readonly code: SettingsErrorCodeValue;
+    readonly rejection?: SettingsRejectionDescriptor;
+    readonly cause?: unknown;
 
-    constructor(code: SettingsErrorCodeValue, message: string) {
-        super(message);
+    constructor(
+        code: SettingsErrorCodeValue,
+        options: { cause?: unknown; rejection?: SettingsRejectionDescriptor } = {}
+    ) {
+        // The message is deliberately the stable code, not localized user copy. Callers
+        // branch on `code`; presentation decides whether to show a generic failure notice.
+        super(code);
         this.name = 'SettingsServiceError';
         this.code = code;
+        this.cause = options.cause;
+        this.rejection = options.rejection;
     }
 }
 
@@ -48,22 +58,19 @@ export interface SettingsCommittedResult {
     key: GeneralSettingKey;
     value: GeneralSettingValue;
     revision: number;
-    /** Set when the local commit succeeded but cross-window notification failed. */
-    warning?: string;
 }
 
 export interface SettingsRejectedResult {
     status: 'rejected';
     key: GeneralSettingKey;
     code: SettingsErrorCodeValue;
-    message: string;
+    rejection?: SettingsRejectionDescriptor;
 }
 
 export interface SettingsNonCommittedResult {
     status: 'restored' | 'recovery-required' | 'unknown';
     key: GeneralSettingKey;
     code: SettingsErrorCodeValue;
-    message: string;
 }
 
 export type SettingsMutationResult =

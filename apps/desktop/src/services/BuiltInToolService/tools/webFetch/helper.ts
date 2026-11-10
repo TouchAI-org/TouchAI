@@ -6,6 +6,7 @@ import TurndownService from 'turndown';
 import { t, tt } from '@/i18n';
 import { normalizeOptionalString } from '@/utils/text';
 
+import { ToolUserFacingError } from '../../errors';
 import { parseToolArguments } from '../../utils/toolSchema';
 import {
     DEFAULT_MAX_RESPONSE_BYTES,
@@ -147,15 +148,15 @@ function isDisallowedHostname(hostname: string): boolean {
 
 export function validateWebFetchUrl(url: URL): void {
     if (!SUPPORTED_PROTOCOLS.has(url.protocol)) {
-        throw new Error(t('builtInTools.webFetch.error.unsupportedProtocol'));
+        throw new ToolUserFacingError(t('builtInTools.webFetch.error.unsupportedProtocol'));
     }
 
     if (url.username || url.password) {
-        throw new Error(t('builtInTools.webFetch.error.embeddedCredentials'));
+        throw new ToolUserFacingError(t('builtInTools.webFetch.error.embeddedCredentials'));
     }
 
     if (isDisallowedHostname(url.hostname)) {
-        throw new Error(t('builtInTools.webFetch.error.blockedHost'));
+        throw new ToolUserFacingError(t('builtInTools.webFetch.error.blockedHost'));
     }
 }
 
@@ -173,7 +174,7 @@ export function parseWebFetchRequest(args: Record<string, unknown>): WebFetchReq
     try {
         parsedUrl = new URL(rawUrl);
     } catch {
-        throw new Error(t('builtInTools.webFetch.error.invalidUrl', { url: rawUrl }));
+        throw new ToolUserFacingError(t('builtInTools.webFetch.error.invalidUrl', { url: rawUrl }));
     }
 
     validateWebFetchUrl(parsedUrl);

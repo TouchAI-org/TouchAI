@@ -80,7 +80,7 @@
     import { useSearchPanelDragging } from './composables/useSearchPanelDragging';
     import { useSearchPanelInteraction } from './composables/useSearchPanelInteraction';
     import { useSearchPanelResizing } from './composables/useSearchPanelResizing';
-    import { useSearchRequestFlow } from './composables/useSearchRequest';
+    import { isSessionNotFoundError, useSearchRequestFlow } from './composables/useSearchRequest';
     import { useSearchWindowResize } from './composables/useSearchWindowResize';
     import {
         createSearchSurfacePreparationController,
@@ -2048,8 +2048,7 @@
             if (expansion.signal.aborted) return;
             log.error('[SearchView] Failed to open session:', error);
 
-            const isMissingSession =
-                error instanceof Error && /not found|不存在/i.test(error.message);
+            const isMissingSession = isSessionNotFoundError(error, sessionId);
 
             if (isMissingSession) {
                 void refreshSessionList().catch((refreshError) => {

@@ -2,6 +2,7 @@
 
 import { parseJsonWithSchema } from '@/utils/zod';
 
+import { ToolUserFacingError } from '../../../errors';
 import {
     CORE_SECTION_KEYS,
     CORE_SECTION_ORDER,
@@ -99,14 +100,14 @@ export function readShowWidgetGuidelines(
     modules: readonly string[]
 ): ShowWidgetGuidelineReadResult {
     if (modules.length === 0) {
-        throw new Error('visualize_read_me requires at least one module name.');
+        throw new ToolUserFacingError('visualize_read_me requires at least one module name.');
     }
 
     const normalizedGuideNames = new Set<ShowWidgetGuideModule>(['CORE']);
     for (const moduleName of modules) {
         const normalized = normalizeGuideName(moduleName);
         if (!normalized) {
-            throw new Error(
+            throw new ToolUserFacingError(
                 `Unknown show widget module: ${moduleName}. Valid modules: ${SHOW_WIDGET_GUIDE_MODULES.join(', ')}.`
             );
         }

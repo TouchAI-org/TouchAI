@@ -13,8 +13,7 @@ import type { McpToolOutcome, ToolCallInvocation } from './types';
 
 const formatToolNotFoundError = (toolName: string): string =>
     tt('未找到工具：{toolName}', { toolName });
-const formatToolExecutionFailedError = (errorMessage: string): string =>
-    tt('工具执行失败：{error}', { error: errorMessage });
+const formatToolExecutionFailedError = (): string => tt('工具执行失败');
 
 /**
  * 执行一次 MCP 工具调用：解析命名空间、发事件、写调用日志、调用并回写结果。
@@ -97,12 +96,11 @@ export async function executeMcpTool(invocation: ToolCallInvocation): Promise<Mc
                 cause: error,
             });
         }
-        const errorMessage = error instanceof Error ? error.message : String(error);
         if (!cancellation) {
             log.error(`[McpToolAdapter] MCP tool execution failed: ${toolCall.name}`, error);
         }
         toolResult = {
-            result: formatToolExecutionFailedError(errorMessage),
+            result: formatToolExecutionFailedError(),
             isError: true,
         };
     }

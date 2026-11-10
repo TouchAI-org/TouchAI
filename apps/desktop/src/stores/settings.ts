@@ -23,16 +23,17 @@ export type { GeneralSettingsData, OutputScrollBehavior } from '@services/Settin
 
 function toSettingsError(result: SettingsMutationResult): SettingsServiceError {
     if (result.status === 'committed') {
-        return new SettingsServiceError(SettingsErrorCode.PersistenceFailed, '');
+        return new SettingsServiceError(SettingsErrorCode.PersistenceFailed);
     }
-    return new SettingsServiceError(result.code, result.message);
+    return new SettingsServiceError(result.code, {
+        rejection: result.status === 'rejected' ? result.rejection : undefined,
+    });
 }
 
 export const useSettingsStore = defineStore('settings', () => {
     const settings = ref<GeneralSettingsData>(createDefaultGeneralSettings());
     const initialized = ref(false);
     const loading = ref(false);
-    const lastWarning = ref<string | null>(null);
 
     let initializePromise: Promise<void> | null = null;
     let unsubscribe: (() => void) | null = null;
@@ -83,11 +84,9 @@ export const useSettingsStore = defineStore('settings', () => {
 
         if (result.status === 'committed') {
             settlePendingMutation(key, token);
-            lastWarning.value = result.warning ?? null;
             return;
         }
         settlePendingMutation(key, token);
-        lastWarning.value = null;
         throw toSettingsError(result);
     }
 
@@ -145,7 +144,6 @@ export const useSettingsStore = defineStore('settings', () => {
         settings,
         initialized,
         loading,
-        lastWarning,
         initialize,
         dispose,
         refresh,

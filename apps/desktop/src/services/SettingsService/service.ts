@@ -25,35 +25,8 @@ import {
     serializeParsedGeneralSettingValue,
 } from './domain';
 import { createDefaultSettingsEffects, type SettingsEffects } from './effects';
-import {
-    compensationFailedMessage,
-    describeRejection,
-    formatShortcutRegistrationError,
-    invalidResponseMessage,
-    invalidValueMessage,
-    mutationFailedMessage,
-    nativeFailedMessage,
-    nativeReconcilePendingMessage,
-    notReadyMessage,
-    ownerChangedDuringWriteMessage,
-    ownerChangedMessage,
-    ownerClosedMessage,
-    ownerQueueFullMessage,
-    ownerUnavailableMessage,
-    persistenceUnconfirmedMessage,
-    replyErrorMessage,
-    requestTimeoutMessage,
-    restoredMessage,
-    snapshotFailedMessage,
-    staleOwnerResponseMessage,
-    syncFailedMessage,
-    syncTimeoutMessage,
-    syncWarningMessage,
-    tooManyPendingMessage,
-    unknownKeyMessage,
-    writeTimeoutMessage,
-} from './messages';
 import { SettingsRejection, validateGlobalShortcut, validateSearchKeybindings } from './policy';
+import { projectSettingsSnapshotFor } from './snapshotProjection';
 import { SETTINGS_BROADCAST_TARGET, type SettingsTransport } from './transport';
 import {
     type SettingsChangeNotice,
@@ -64,11 +37,14 @@ import {
     SettingsServiceError,
     type SettingsSnapshot,
 } from './types';
-import type {
-    SettingsReplyBody,
-    SettingsWireMessage,
-    SettingsWireMutateRequest,
-    SettingsWireReply,
+import {
+    isSettingsMutationRequester,
+    isSettingsSnapshotRequester,
+    isSettingsWindowLabel,
+    type SettingsReplyBody,
+    type SettingsWireMessage,
+    type SettingsWireMutateRequest,
+    type SettingsWireReply,
 } from './wire';
 
 const DEFAULT_OWNER_LABEL = 'main';
@@ -277,7 +253,7 @@ export class SettingsService {
         this.assertNotDisposed();
         if (this.role === 'owner') {
             if (!this.ready) {
-                throw new SettingsServiceError(SettingsErrorCode.NotReady, notReadyMessage());
+                throw new SettingsServiceError(SettingsErrorCode.NotReady);
             }
             return this.enqueueAuthority(
                 (context) => this.runMutation(key, value, context),
@@ -285,13 +261,18 @@ export class SettingsService {
             );
         }
 
+        if (!isSettingsMutationRequester(this.transport.label)) {
+            // Read-only clients must fail locally instead of sending a request the owner
+            // will deliberately drop and leaving the caller waiting for a timeout.
+            throw new SettingsServiceError(SettingsErrorCode.Rejected);
+        }
         if (!this.ready) {
-            throw new SettingsServiceError(SettingsErrorCode.NotReady, notReadyMessage());
+            throw new SettingsServiceError(SettingsErrorCode.NotReady);
         }
         if (this.hostEpoch === null) {
             // A client may only mutate once it holds the owner's authority epoch; without
             // one, a late/duplicate write could target a previous owner's state.
-            throw new SettingsServiceError(SettingsErrorCode.NotReady, notReadyMessage());
+            throw new SettingsServiceError(SettingsErrorCode.NotReady);
         }
 
         let reply: SettingsWireReply;
@@ -316,7 +297,6 @@ export class SettingsService {
                         status: 'unknown',
                         key,
                         code: SettingsErrorCode.Timeout,
-                        message: writeTimeoutMessage(),
                     };
                 }
                 if (error.code === SettingsErrorCode.StaleEpoch) {
@@ -325,7 +305,6 @@ export class SettingsService {
                         status: 'unknown',
                         key,
                         code: SettingsErrorCode.StaleEpoch,
-                        message: staleOwnerResponseMessage(),
                     };
                 }
             }
@@ -352,7 +331,6 @@ export class SettingsService {
                 status: 'unknown',
                 key,
                 code: SettingsErrorCode.TransportFailed,
-                message: invalidResponseMessage(),
             };
         }
 
@@ -367,14 +345,10 @@ export class SettingsService {
                 status: 'unknown',
                 key,
                 code: reply.code as SettingsErrorCodeValue,
-                message: reply.message ?? staleOwnerResponseMessage(),
             };
         }
 
-        throw new SettingsServiceError(
-            reply.code as never,
-            reply.message ?? mutationFailedMessage()
-        );
+        throw new SettingsServiceError(reply.code as never);
     }
 
     dispose(): void {
@@ -402,9 +376,7 @@ export class SettingsService {
         this.releaseListeners();
         this.subscribers.clear();
         this.recentMutations.clear();
-        this.rejectAllPending(
-            new SettingsServiceError(SettingsErrorCode.OwnerDisposed, ownerClosedMessage())
-        );
+        this.rejectAllPending(new SettingsServiceError(SettingsErrorCode.OwnerDisposed));
     }
 
     // ---- owner lifecycle ----
@@ -537,6 +509,18 @@ export class SettingsService {
     }
 
     private onOwnerMessage(message: SettingsWireMessage): void {
+        if (message.kind === 'snapshot-request' && !isSettingsSnapshotRequester(message.from)) {
+            // Defense in depth after the wire parser: a compromised or replaced transport
+            // must not turn the owner into a settings RPC endpoint for popup/preview windows.
+            log.warn('[SettingsService] Ignored a request from an unsupported window.');
+            return;
+        }
+        if (message.kind === 'mutate-request' && !isSettingsMutationRequester(message.from)) {
+            // The tray reads preferences but must never write GeneralSettings. Drop the
+            // request so a compromised transport cannot acquire settings write authority.
+            log.warn('[SettingsService] Ignored a mutation from a read-only settings window.');
+            return;
+        }
         if (message.kind === 'snapshot-request') {
             void this.replySnapshot(message.requestId, message.from);
             return;
@@ -555,7 +539,10 @@ export class SettingsService {
             await this.replyError(requestId, requester, SettingsErrorCode.NotReady);
             return;
         }
-        await this.reply(requestId, requester, { ok: true, snapshot: this.snapshot() });
+        await this.reply(requestId, requester, {
+            ok: true,
+            snapshot: this.snapshot(requester),
+        });
     }
 
     private async replyMutation(message: SettingsWireMutateRequest): Promise<void> {
@@ -589,7 +576,6 @@ export class SettingsService {
             await this.reply(message.requestId, message.from, {
                 ok: false,
                 code,
-                message: error instanceof Error ? error.message : String(error),
             });
         }
     }
@@ -611,7 +597,6 @@ export class SettingsService {
         await this.reply(requestId, target, {
             ok: false,
             code,
-            message: replyErrorMessage(code),
         });
     }
 
@@ -634,9 +619,7 @@ export class SettingsService {
         context: AuthorityContext
     ): Promise<T> {
         if (this.authorityDepth >= this.maxOwnerQueue) {
-            return Promise.reject(
-                new SettingsServiceError(SettingsErrorCode.TooManyPending, ownerQueueFullMessage())
-            );
+            return Promise.reject(new SettingsServiceError(SettingsErrorCode.TooManyPending));
         }
         this.authorityDepth += 1;
         const run = this.authorityQueue.then(
@@ -667,9 +650,7 @@ export class SettingsService {
             ) {
                 // A re-used request id for a different command must not receive another
                 // command's result, nor replay a different side effect.
-                return Promise.reject(
-                    new SettingsServiceError(SettingsErrorCode.Rejected, invalidResponseMessage())
-                );
+                return Promise.reject(new SettingsServiceError(SettingsErrorCode.Rejected));
             }
             return existing.promise;
         }
@@ -715,7 +696,6 @@ export class SettingsService {
                 status: 'unknown',
                 key,
                 code: SettingsErrorCode.OwnerDisposed,
-                message: ownerChangedMessage(),
             };
         }
 
@@ -724,7 +704,6 @@ export class SettingsService {
                 status: 'recovery-required',
                 key,
                 code: SettingsErrorCode.CompensationFailed,
-                message: nativeReconcilePendingMessage(),
             };
         }
 
@@ -734,7 +713,6 @@ export class SettingsService {
                 status: 'rejected',
                 key,
                 code: SettingsErrorCode.UnknownKey,
-                message: unknownKeyMessage(key),
             };
         }
 
@@ -742,11 +720,11 @@ export class SettingsService {
         try {
             parsed = parseGeneralSettingUpdateValue(key, value);
         } catch (error) {
+            log.warn(`[SettingsService] Rejected invalid value for ${key}:`, error);
             return {
                 status: 'rejected',
                 key,
                 code: SettingsErrorCode.InvalidValue,
-                message: invalidValueMessage(error),
             };
         }
 
@@ -758,14 +736,14 @@ export class SettingsService {
                     status: 'rejected',
                     key,
                     code: SettingsErrorCode.Rejected,
-                    message: describeRejection(error),
+                    rejection: error.toDescriptor(),
                 };
             }
+            log.warn(`[SettingsService] Unexpected validation failure for ${key}:`, error);
             return {
                 status: 'rejected',
                 key,
                 code: SettingsErrorCode.Rejected,
-                message: String(error),
             };
         }
 
@@ -777,19 +755,17 @@ export class SettingsService {
             // The native action may have partially applied; reconcile instead of assuming
             // it did not. Only report "rejected" when the OS is confirmed back on the
             // committed value; otherwise the outcome is unresolved.
+            log.warn(`[SettingsService] Native effect failed for ${key}:`, error);
             this.osDirty = true;
             const reconciled = await this.ensureReconciled();
-            const message =
-                error instanceof SettingsServiceError ? error.message : nativeFailedMessage(error);
             if (!reconciled) {
                 return {
                     status: 'recovery-required',
                     key,
                     code: SettingsErrorCode.NativeFailed,
-                    message: nativeReconcilePendingMessage(),
                 };
             }
-            return { status: 'rejected', key, code: SettingsErrorCode.NativeFailed, message };
+            return { status: 'rejected', key, code: SettingsErrorCode.NativeFailed };
         }
 
         // The owner may have been disposed while the native effect was in flight. Do not
@@ -800,7 +776,6 @@ export class SettingsService {
                 status: 'unknown',
                 key,
                 code: SettingsErrorCode.OwnerDisposed,
-                message: ownerChangedDuringWriteMessage(),
             };
         }
 
@@ -828,7 +803,6 @@ export class SettingsService {
                 status: 'unknown',
                 key,
                 code: SettingsErrorCode.PersistenceFailed,
-                message: persistenceUnconfirmedMessage(),
             };
         }
 
@@ -846,13 +820,11 @@ export class SettingsService {
                       status: 'restored',
                       key,
                       code: SettingsErrorCode.PersistenceFailed,
-                      message: restoredMessage(),
                   }
                 : {
                       status: 'recovery-required',
                       key,
                       code: SettingsErrorCode.CompensationFailed,
-                      message: compensationFailedMessage(),
                   };
         }
 
@@ -863,7 +835,6 @@ export class SettingsService {
                 status: 'unknown',
                 key,
                 code: SettingsErrorCode.OwnerDisposed,
-                message: ownerChangedDuringWriteMessage(),
             };
         }
 
@@ -875,12 +846,10 @@ export class SettingsService {
         }
         this.revision += 1;
 
-        let warning: string | undefined;
         try {
             await this.broadcastNotice('change', [key]);
         } catch (error) {
             log.warn('[SettingsService] Failed to broadcast setting change:', error);
-            warning = syncWarningMessage();
         }
         this.notifySubscribers([key]);
 
@@ -889,7 +858,6 @@ export class SettingsService {
             key,
             value: getGeneralSettingEventValue(this.committed, key),
             revision: this.revision,
-            warning,
         };
     }
 
@@ -909,10 +877,9 @@ export class SettingsService {
                 try {
                     await this.effects.registerGlobalShortcut(String(parsed));
                 } catch (error) {
-                    throw new SettingsServiceError(
-                        SettingsErrorCode.NativeFailed,
-                        formatShortcutRegistrationError(String(parsed), error)
-                    );
+                    throw new SettingsServiceError(SettingsErrorCode.NativeFailed, {
+                        cause: error,
+                    });
                 }
                 return;
             case 'start_on_boot':
@@ -957,6 +924,9 @@ export class SettingsService {
 
     private async initializeClient(): Promise<void> {
         this.assertNotDisposed();
+        if (!isSettingsWindowLabel(this.transport.label)) {
+            throw new SettingsServiceError(SettingsErrorCode.OwnerUnavailable);
+        }
         // Register the reply/notice listener before requesting, so ready/change is not missed.
         // A retry must reuse the existing listener rather than add a duplicate.
         if (!this.unlisten) {
@@ -972,7 +942,7 @@ export class SettingsService {
         await this.syncFromOwner();
         if (this.disposed) {
             this.releaseListeners();
-            throw new SettingsServiceError(SettingsErrorCode.OwnerDisposed, ownerClosedMessage());
+            throw new SettingsServiceError(SettingsErrorCode.OwnerDisposed);
         }
         this.ready = true;
     }
@@ -1002,9 +972,7 @@ export class SettingsService {
                 throw error;
             }
         }
-        throw (
-            lastError ?? new SettingsServiceError(SettingsErrorCode.Timeout, syncTimeoutMessage())
-        );
+        throw lastError ?? new SettingsServiceError(SettingsErrorCode.Timeout);
     }
 
     private onClientMessage(message: SettingsWireMessage): void {
@@ -1044,17 +1012,11 @@ export class SettingsService {
             return null;
         }
         if (reply.hostEpoch === null) {
-            return new SettingsServiceError(
-                SettingsErrorCode.TransportFailed,
-                invalidResponseMessage()
-            );
+            return new SettingsServiceError(SettingsErrorCode.TransportFailed);
         }
         if (this.isStaleEpoch(reply.hostEpoch)) {
             // An answer from a superseded owner epoch must never settle this request.
-            return new SettingsServiceError(
-                SettingsErrorCode.StaleEpoch,
-                staleOwnerResponseMessage()
-            );
+            return new SettingsServiceError(SettingsErrorCode.StaleEpoch);
         }
         if (
             entry.kind === 'mutate' &&
@@ -1063,22 +1025,13 @@ export class SettingsService {
         ) {
             // A mutation must be answered by the same owner epoch that ran it; only a
             // snapshot may adopt a new epoch (owner restart).
-            return new SettingsServiceError(
-                SettingsErrorCode.StaleEpoch,
-                staleOwnerResponseMessage()
-            );
+            return new SettingsServiceError(SettingsErrorCode.StaleEpoch);
         }
         if (entry.kind === 'snapshot' && !reply.snapshot) {
-            return new SettingsServiceError(
-                SettingsErrorCode.TransportFailed,
-                snapshotFailedMessage()
-            );
+            return new SettingsServiceError(SettingsErrorCode.TransportFailed);
         }
         if (entry.kind === 'mutate' && !reply.result) {
-            return new SettingsServiceError(
-                SettingsErrorCode.TransportFailed,
-                invalidResponseMessage()
-            );
+            return new SettingsServiceError(SettingsErrorCode.TransportFailed);
         }
         if (
             entry.kind === 'mutate' &&
@@ -1086,10 +1039,7 @@ export class SettingsService {
             entry.key !== null &&
             reply.result.key !== entry.key
         ) {
-            return new SettingsServiceError(
-                SettingsErrorCode.TransportFailed,
-                invalidResponseMessage()
-            );
+            return new SettingsServiceError(SettingsErrorCode.TransportFailed);
         }
         return null;
     }
@@ -1101,12 +1051,7 @@ export class SettingsService {
                 return;
             }
             this.ownerAvailable = false;
-            this.rejectAllPending(
-                new SettingsServiceError(
-                    SettingsErrorCode.OwnerUnavailable,
-                    ownerUnavailableMessage()
-                )
-            );
+            this.rejectAllPending(new SettingsServiceError(SettingsErrorCode.OwnerUnavailable));
             return;
         }
 
@@ -1170,12 +1115,9 @@ export class SettingsService {
             return reply.snapshot;
         }
         if (!reply.ok) {
-            throw new SettingsServiceError(
-                reply.code as never,
-                reply.message ?? syncFailedMessage()
-            );
+            throw new SettingsServiceError(reply.code as never);
         }
-        throw new SettingsServiceError(SettingsErrorCode.TransportFailed, snapshotFailedMessage());
+        throw new SettingsServiceError(SettingsErrorCode.TransportFailed);
     }
 
     private sendRequest(
@@ -1185,30 +1127,19 @@ export class SettingsService {
         allowUnavailable: boolean
     ): Promise<SettingsWireReply> {
         if (this.disposed) {
-            return Promise.reject(
-                new SettingsServiceError(SettingsErrorCode.OwnerDisposed, ownerClosedMessage())
-            );
+            return Promise.reject(new SettingsServiceError(SettingsErrorCode.OwnerDisposed));
         }
         if (!allowUnavailable && !this.ownerAvailable) {
-            return Promise.reject(
-                new SettingsServiceError(
-                    SettingsErrorCode.OwnerUnavailable,
-                    ownerUnavailableMessage()
-                )
-            );
+            return Promise.reject(new SettingsServiceError(SettingsErrorCode.OwnerUnavailable));
         }
         if (this.pending.size >= this.maxPendingRequests) {
-            return Promise.reject(
-                new SettingsServiceError(SettingsErrorCode.TooManyPending, tooManyPendingMessage())
-            );
+            return Promise.reject(new SettingsServiceError(SettingsErrorCode.TooManyPending));
         }
 
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 this.pending.delete(message.requestId);
-                reject(
-                    new SettingsServiceError(SettingsErrorCode.Timeout, requestTimeoutMessage())
-                );
+                reject(new SettingsServiceError(SettingsErrorCode.Timeout));
             }, this.requestTimeoutMs);
             this.pending.set(message.requestId, {
                 kind,
@@ -1225,7 +1156,9 @@ export class SettingsService {
                 }
                 clearTimeout(entry.timer);
                 this.pending.delete(message.requestId);
-                reject(new SettingsServiceError(SettingsErrorCode.TransportFailed, String(error)));
+                reject(
+                    new SettingsServiceError(SettingsErrorCode.TransportFailed, { cause: error })
+                );
             });
         });
     }
@@ -1304,12 +1237,13 @@ export class SettingsService {
 
     // ---- helpers ----
 
-    private snapshot(): SettingsSnapshot {
+    private snapshot(requester?: string): SettingsSnapshot {
+        const data = cloneGeneralSettingsSnapshot(this.committed);
         return {
             hostEpoch: this.hostEpoch ?? '',
             revision: this.revision,
             ready: this.ready,
-            data: cloneGeneralSettingsSnapshot(this.committed),
+            data: requester ? projectSettingsSnapshotFor(requester, data) : data,
         };
     }
 
@@ -1354,14 +1288,14 @@ export class SettingsService {
 
     private assertNotDisposed(): void {
         if (this.disposed) {
-            throw new SettingsServiceError(SettingsErrorCode.OwnerDisposed, ownerClosedMessage());
+            throw new SettingsServiceError(SettingsErrorCode.OwnerDisposed);
         }
     }
 
     private assertAliveDuringInit(): void {
         if (this.disposed) {
             this.releaseListeners();
-            throw new SettingsServiceError(SettingsErrorCode.OwnerDisposed, ownerClosedMessage());
+            throw new SettingsServiceError(SettingsErrorCode.OwnerDisposed);
         }
     }
 

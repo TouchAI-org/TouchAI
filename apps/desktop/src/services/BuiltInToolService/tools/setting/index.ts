@@ -1,5 +1,8 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
+import { log } from '@services/ObservabilityService';
+import { describeRejection } from '@services/SettingsService/messages';
+
 import { t, tt } from '@/i18n';
 import type { ToolApprovalRequest } from '@/services/AgentService/contracts/tooling';
 import { truncateText } from '@/utils/text';
@@ -131,27 +134,34 @@ export async function executeSettingTool(
         };
     }
 
-    let errorMessage: string;
+    let errorMessage = tt('设置修改失败。');
+    let rejectionMessage: string | null = null;
     try {
         if (context.signal?.aborted) return cancelledSettingResult();
         const result = await settingsService.mutate(request.key, request.value);
         if (result.status === 'committed') {
-            const warningNote = result.warning ? `\n${tt('注意')}：${result.warning}` : '';
             return {
-                result:
-                    [tt('设置已更新'), formatSingleUpdate(request.key, request.value)].join('\n') +
-                    warningNote,
+                result: [tt('设置已更新'), formatSingleUpdate(request.key, request.value)].join(
+                    '\n'
+                ),
                 isError: false,
                 status: 'success',
             };
         }
-        errorMessage = result.message;
+        if (result.status === 'rejected' && result.rejection) {
+            rejectionMessage = describeRejection(result.rejection);
+            errorMessage = rejectionMessage;
+        }
     } catch (error) {
-        errorMessage = error instanceof Error ? error.message : String(error);
+        log.warn('[SettingTool] Failed to update setting:', error);
     }
 
+    const resultLines = [tt('设置修改失败。'), formatSingleUpdate(request.key, request.value)];
+    if (rejectionMessage) {
+        resultLines.push(`${tt('原因')}: ${rejectionMessage}`);
+    }
     return {
-        result: `${tt('设置修改失败')}\n${formatSingleUpdate(request.key, request.value)}\n${tt('原因')}: ${errorMessage}`,
+        result: resultLines.join('\n'),
         isError: true,
         status: 'error',
         errorMessage,

@@ -286,6 +286,7 @@ export async function initializeApp() {
 
     void initializeFontLoader();
     const settingsWindow = isSettingsWindow();
+    const isMainWindow = getCurrentWindowLabel() === 'main';
 
     let settingsInitializeError: unknown;
     try {
@@ -305,7 +306,7 @@ export async function initializeApp() {
         );
     }
 
-    if (!settingsWindow) {
+    if (!settingsWindow && isMainWindow) {
         // 后台能力：工具补种、Bash 预热、元数据同步。
         // 启动阶段不 await；首帧后的请求由能力就绪门按需等待。
         registerStartupCapability('built-in-tools', syncBuiltInTools());
@@ -321,7 +322,9 @@ export async function initializeApp() {
         scheduleModelMetadataRefresh();
     }
 
-    // 用量维护只读写数据库，与哪个窗口无关，但只需跑一次：
-    // 内部已有节流，重开窗口不会重复汇总。
-    scheduleUsageMaintenance(pinia);
+    // 用量维护会写用量明细，数据库权限模型只允许 main 窗口执行。
+    // Settings/预览/未知窗口必须保持只读，不能在这里触发 UsageWrite。
+    if (!settingsWindow && isMainWindow) {
+        scheduleUsageMaintenance(pinia);
+    }
 }

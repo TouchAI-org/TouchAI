@@ -32,7 +32,7 @@ import {
     type SearchKeybindingActionId,
     type SearchKeybindings,
 } from '@/config/searchKeybindings';
-import { type MessageKey, type MessageParams, t } from '@/i18n';
+import { type MessageKey, t } from '@/i18n';
 import { useSettingsStore } from '@/stores/settings';
 import { isE2eTestMode } from '@/utils/runtimeMode';
 import { normalizeLocalShortcutString } from '@/utils/shortcuts';
@@ -585,22 +585,18 @@ export function useSearchPageLifecycle(options: UseSearchPageLifecycleOptions) {
 
             const errorStr = String(error);
             let messageKey: MessageKey = 'notification.shortcutRegistrationFailed.generic';
-            let messageParams: MessageParams = { error: errorStr };
 
             if (errorStr.includes('already registered') || errorStr.includes('已注册')) {
                 messageKey = 'notification.shortcutRegistrationFailed.alreadyRegisteredInSettings';
-                messageParams = {};
             } else if (errorStr.includes('invalid') || errorStr.includes('无效')) {
                 messageKey = 'notification.shortcutRegistrationFailed.invalidInSettings';
-                messageParams = {};
             } else if (errorStr.includes('Unknown key')) {
                 messageKey = 'notification.shortcutRegistrationFailed.unsupportedInSettings';
-                messageParams = {};
             }
 
             notify({
                 title: t('notification.shortcutRegistrationFailed.title'),
-                body: t(messageKey, messageParams),
+                body: t(messageKey),
             });
         }
     }

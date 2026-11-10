@@ -7,6 +7,8 @@ import {
 
 import { normalizeOptionalString } from '@/utils/text';
 
+import { ToolUserFacingError } from '../../errors';
+
 export function parseBrowserOperation(args: Record<string, unknown>): string | null {
     return normalizeOptionalString(args.operation, { collapseWhitespace: true }) ?? null;
 }
@@ -17,7 +19,7 @@ export function requireBrowserOperation(
 ): string {
     const operation = parseBrowserOperation(args);
     if (!operation) {
-        throw new Error(`Missing required ${toolId} operation`);
+        throw new ToolUserFacingError(`Missing required ${toolId} operation`);
     }
 
     return operation;
@@ -71,7 +73,7 @@ export function resolveBrowserOperationDescription(
     }
 
     if (requiresBrowserDescription(operation)) {
-        throw new Error(`browser ${operation} requires a non-empty description`);
+        throw new ToolUserFacingError(`browser ${operation} requires a non-empty description`);
     }
 
     return fixedBrowserDescription(fallbackOperation) ?? fallbackOperation;

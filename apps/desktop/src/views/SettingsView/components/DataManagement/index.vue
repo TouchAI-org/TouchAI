@@ -243,10 +243,8 @@
             log.error('Failed to export settings:', error);
             showProgressDialog.value = false;
 
-            const message =
-                error instanceof Error ? error.message : t('settings.dataManagement.exportFailed');
             if (!isDatabaseBackupCancelledError(error)) {
-                alert.error(translateDataManagementMessage(message));
+                alert.error(t('settings.dataManagement.exportFailed'));
             }
         } finally {
             isLoading.value = false;
@@ -319,10 +317,8 @@
 
             showProgressDialog.value = false;
 
-            const message =
-                error instanceof Error ? error.message : t('settings.dataManagement.importFailed');
             if (!isDatabaseBackupCancelledError(error)) {
-                alert.error(translateDataManagementMessage(message));
+                alert.error(t('settings.dataManagement.importFailed'));
             }
         } finally {
             isLoading.value = false;

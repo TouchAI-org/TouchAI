@@ -4,6 +4,7 @@ import { tt } from '@/i18n';
 import type { ShowWidgetEventPayload } from '@/services/AgentService/contracts/tooling';
 import { normalizeOptionalString, truncateText } from '@/utils/text';
 
+import { ToolUserFacingError } from '../../../errors';
 import {
     type BaseBuiltInToolExecutionContext,
     BuiltInTool,
@@ -46,11 +47,13 @@ function validateShowWidgetMarkup(html: string): void {
     rootTemplate.innerHTML = html;
     const firstElement = rootTemplate.content.firstElementChild;
     if (!firstElement) {
-        throw new Error('ShowWidget widget_code must contain a visible root element.');
+        throw new ToolUserFacingError(
+            'ShowWidget widget_code must contain a visible root element.'
+        );
     }
 
     if (NON_VISIBLE_ROOT_TAG_NAMES.has(firstElement.tagName.toUpperCase())) {
-        throw new Error(
+        throw new ToolUserFacingError(
             'ShowWidget widget_code must start with a visible root element before style or script blocks.'
         );
     }
@@ -77,7 +80,7 @@ function validateShowWidgetMarkup(html: string): void {
     }
 
     if (violations.size > 0) {
-        throw new Error(
+        throw new ToolUserFacingError(
             [
                 'ShowWidget design validation failed. Re-read builtin__visualize_read_me and regenerate the widget_code.',
                 ...[...violations].map((reason) => `- ${reason}`),
@@ -102,7 +105,7 @@ export async function executeShowWidgetTool(
     void context.signal;
 
     if (!context.hasExecutedBuiltInTool('visualize_read_me')) {
-        throw new Error(
+        throw new ToolUserFacingError(
             'ShowWidget guideline has not been loaded in a previous tool round yet. Call builtin__visualize_read_me first, let the model read the returned guideline, and then call builtin__show_widget in the next round.'
         );
     }

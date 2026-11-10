@@ -384,11 +384,17 @@ export const database = {
     },
 
     exportBackup(targetPath: string): Promise<void> {
-        return invoke('database_export_backup', { request: { targetPath } });
+        return invoke<void>('database_export_backup', { request: { targetPath } }).catch(
+            (error: unknown) => {
+                throw normalizeDatabaseOperationError(error);
+            }
+        );
     },
 
     importBackup(request: DatabaseImportRequest): Promise<void> {
-        return invoke('database_import_backup', { request });
+        return invoke<void>('database_import_backup', { request }).catch((error: unknown) => {
+            throw normalizeDatabaseOperationError(error);
+        });
     },
 } as const;
 

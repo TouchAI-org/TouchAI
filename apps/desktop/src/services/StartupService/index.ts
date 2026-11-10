@@ -59,7 +59,10 @@ function getImportModeNotificationText(importMode: ImportMode): string {
 function notifyImportSuccess(value: string): void {
     const payload = parseImportSuccessStartupPayload(value);
     if (!payload) {
-        notify({ title: 'TouchAI', body: value });
+        // The marker is internal state. Never put an unreadable/raw marker in a
+        // user notification; keep the raw value in diagnostics only.
+        log.warn('[StartupService] Ignoring unreadable import success marker:', value);
+        notify({ title: 'TouchAI', body: t('startup.import.successGeneric') });
         return;
     }
 
