@@ -247,6 +247,12 @@ and security scopes remain unchanged.
     motion, application pressure remains active or the window is hidden, then
     acceptance rejects the observed environment instead of trusting the command
     response, changing application policy or waiting for pressure to clear.
+39. Given a captured native process tree, when a child exits or its PID is reused
+    before a later lookup, then memory and process/renderer counts describe the
+    same captured tree rather than failing or mixing unrelated process data.
+40. Given a missing or ambiguous app root, no renderer, unavailable counters or
+    a failed system query, when native memory is sampled, then no valid report
+    is emitted; a later valid sample succeeds without retries or zero fallback.
 
 ## Verification evidence
 
@@ -353,6 +359,13 @@ PR's passing checks:
   the seven report cases (**2 files / 16 tests**). These tests run the real
   request/readback helper against HTTP and WebView system boundaries; they do
   not replace actual Windows native integration or performance evidence.
+- The native-memory boundary suite reproduces **4 failures / 5 passes** with
+  the two-query collector. With one process-tree enumeration, all **9/9 pass**;
+  the combined memory/media/report suites pass **3 files / 25 tests**. The full
+  repository tooling suite passes **15 files / 391 tests**. Only OS query
+  boundaries are replaced; the actual PowerShell collector runs unchanged in
+  these tests, including rejection and subsequent recovery. No native memory
+  measurement or passing release comparison is inferred from those fixtures.
 - Expanded-head CI, native E2E, visual checks and release performance results
   are recorded in the PR's testing evidence and linked check reports. Old-head
   `c1367abc` checks are historical evidence only, not acceptance of later code.
@@ -440,3 +453,20 @@ No OS setting, product preference, shared smoke/visual configuration, automatic
 pressure detection or animation duration is changed. The environment report
 identifies the media-control method; per-flow reports contain actual conditions.
 The same six-session ABBA run and unchanged budgets must pass on the new head.
+
+At `950af148`, both release builds, all 45 native smoke tests and app-window
+visuals passed. Actual search/settings media readback and all measured frames
+confirmed visible windows with normal motion. The artifact contains one complete
+baseline session, not a paired comparison: the first head session completed its
+four animated flows but failed when a child exited between process enumeration
+and a later `Get-Process -Id` memory lookup.
+
+The collector now takes ownership, renderer counts and memory counters from the
+same `Win32_Process` enumeration, without a second mutable PID lookup, retry or
+catch-and-ignore. `PrivatePageCount` and `WorkingSetSize` map to the same native
+fields that [.NET uses for private bytes and working set](https://raw.githubusercontent.com/dotnet/runtime/main/src/libraries/System.Diagnostics.Process/src/System/Diagnostics/ProcessManager.Windows.cs).
+A missing/ambiguous app root, absent renderer, missing counter or failed query
+still rejects the sample. The environment report identifies the collection method.
+System-boundary regression tests reproduce process exit, PID reuse and missing
+counters before the fix; the actual release job must still complete all sessions
+and budgets before this work is accepted.

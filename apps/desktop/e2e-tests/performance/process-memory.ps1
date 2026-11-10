@@ -14,12 +14,13 @@ do {
     }
 } while ($owned.Count -ne $previousCount)
 $tree = @($processes | Where-Object { $owned.Contains([int]$_.ProcessId) })
-$live = @(Get-Process -Id @($owned))
 $renderers = @($tree | Where-Object { $_.CommandLine -match '--type=renderer' })
 if ($renderers.Count -lt 1) { throw 'The benchmark did not include a WebView2 renderer.' }
+$missingCounters = @($tree | Where-Object { $null -eq $_.PrivatePageCount -or $null -eq $_.WorkingSetSize })
+if ($missingCounters.Count -gt 0) { throw 'The benchmark did not include native memory counters for every owned process.' }
 @{
-    privateBytes = [double](($live | Measure-Object PrivateMemorySize64 -Sum).Sum)
-    workingSetBytes = [double](($live | Measure-Object WorkingSet64 -Sum).Sum)
-    processes = $live.Count
+    privateBytes = [double](($tree | Measure-Object PrivatePageCount -Sum).Sum)
+    workingSetBytes = [double](($tree | Measure-Object WorkingSetSize -Sum).Sum)
+    processes = $tree.Count
     renderers = $renderers.Count
 } | ConvertTo-Json -Compress

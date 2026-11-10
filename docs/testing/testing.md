@@ -58,6 +58,10 @@ pnpm test:pr           # Full PR gate (quality checks + all tests + frontend cov
 pnpm check             # Quality checks only (type, lint, format, Rust)
 ```
 
+The repository workflow tests execute the native memory collector with PowerShell
+(`powershell.exe` on Windows, `pwsh` elsewhere). The hosted CI image includes it.
+These tests replace only OS process queries and do not require a running desktop app.
+
 For Rust:
 
 ```bash

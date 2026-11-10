@@ -40,6 +40,7 @@ New-Item -ItemType Directory -Path $reports, $env:TEMP | Out-Null
     processor = (Get-CimInstance Win32_Processor).Name
     webviewArguments = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
     motionControl = 'EdgeDriver Emulation.setEmulatedMedia: prefers-reduced-motion=no-preference, verified per window'
+    memoryCollection = 'Win32_Process PrivatePageCount/WorkingSetSize from the same process-tree enumeration'
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $reports 'environment.json') -Encoding utf8
 
 function Invoke-Native {
