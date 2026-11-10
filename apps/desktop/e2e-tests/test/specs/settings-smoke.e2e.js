@@ -93,7 +93,7 @@ describe('user works in the settings window', () => {
                 !styles.shadow.includes('inset') &&
                     styles.stroke.includes('inset') &&
                     styles.stroke.includes('0px 0px 0px 1px') &&
-                    styles.stroke.includes('rgb(169, 169, 169)'),
+                    styles.stroke.includes('rgba(117, 117, 117, 0.3)'),
                 `The settings window lost its visible surface stroke: ${styles.stroke}.`
             );
             assertVisible(
@@ -106,7 +106,7 @@ describe('user works in the settings window', () => {
             );
         });
 
-        it('user sees the native gray content border when the title bar paints an opaque background', async () => {
+        it('user sees a subtle gray content border when the title bar paints an opaque background', async () => {
             const screenshot = await browser.takeScreenshot();
             const [stroke, content] = await browser.execute(async (imageData) => {
                 const shell = document.querySelector('[data-testid="settings-window-shell"]');
@@ -133,14 +133,14 @@ describe('user works in the settings window', () => {
 
             assertVisible(
                 content[3] === 255 &&
-                    content.slice(0, 3).some((value) => Math.abs(value - 169) > 2),
+                    content.slice(0, 3).some((value) => Math.abs(value - 117) > 2),
                 `The screenshot must sample opaque content distinct from the border: ${content}.`
             );
             for (const channel of [0, 1, 2]) {
-                const expected = 169;
+                const expected = Math.round(117 * 0.3 + content[channel] * 0.7);
                 assertVisible(
                     Math.abs(stroke[channel] - expected) <= 2,
-                    `The content background changed or hid the neutral gray border: ${stroke} vs ${content}.`
+                    `The border did not blend once over the content: ${stroke} vs ${content}.`
                 );
             }
         });

@@ -22,13 +22,12 @@ mod win {
         Foundation::{HWND, RECT},
         Graphics::Dwm::{
             DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE,
-            DWMWA_WINDOW_CORNER_PREFERENCE,
+            DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
         },
         Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn, HGDIOBJ, HRGN},
         UI::WindowsAndMessaging::GetClientRect,
     };
 
-    const DWMWCP_ROUND: u32 = 2;
     const FALLBACK_CORNER_RADIUS_PX: i32 = 12;
 
     fn should_manage_window(window: &WebviewWindow<impl Runtime>) -> bool {
@@ -61,13 +60,15 @@ mod win {
 
     fn set_dwm_corner_preference(hwnd: HWND) -> Result<(), String> {
         unsafe {
+            // CSS owns the inset card's corners and shadow. Native rounding adds a
+            // second shadow around the entire HWND, including its transparent gutter.
             DwmSetWindowAttribute(
                 hwnd,
                 DWMWA_WINDOW_CORNER_PREFERENCE,
-                &DWMWCP_ROUND as *const _ as *const _,
-                std::mem::size_of::<u32>() as u32,
+                &DWMWCP_DONOTROUND as *const _ as *const _,
+                std::mem::size_of_val(&DWMWCP_DONOTROUND) as u32,
             )
-            .map_err(|error| format!("Failed to set DWM rounded corners: {}", error))?;
+            .map_err(|error| format!("Failed to disable native window rounding: {}", error))?;
 
             DwmSetWindowAttribute(
                 hwnd,
@@ -142,6 +143,71 @@ mod win {
 
     pub fn sync_window_corner_style<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
         apply_window_corner_style(window)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::set_dwm_corner_preference;
+        use windows::{
+            core::w,
+            Win32::{
+                Foundation::{E_INVALIDARG, HWND},
+                Graphics::Dwm::{
+                    DwmGetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DEFAULT,
+                    DWMWCP_DONOTROUND,
+                },
+                UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, WS_POPUP},
+            },
+        };
+
+        struct TestWindow(HWND);
+
+        impl Drop for TestWindow {
+            fn drop(&mut self) {
+                unsafe {
+                    let _ = DestroyWindow(self.0);
+                }
+            }
+        }
+
+        #[test]
+        fn user_opens_settings_without_native_rounded_chrome_around_the_transparent_gutter() {
+            let window = TestWindow(unsafe {
+                CreateWindowExW(
+                    Default::default(),
+                    w!("STATIC"),
+                    w!("TouchAI settings chrome test"),
+                    WS_POPUP,
+                    0,
+                    0,
+                    800,
+                    600,
+                    None,
+                    None,
+                    None,
+                    None,
+                )
+                .expect("Create a borderless test window")
+            });
+            let mut preference = DWMWCP_DEFAULT;
+            let read_preference = |value: &mut _| unsafe {
+                DwmGetWindowAttribute(
+                    window.0,
+                    DWMWA_WINDOW_CORNER_PREFERENCE,
+                    value as *mut _ as *mut _,
+                    std::mem::size_of_val(value) as u32,
+                )
+            };
+            if let Err(error) = read_preference(&mut preference) {
+                assert_eq!(error.code(), E_INVALIDARG);
+                // Windows 10 has no native rounded-window chrome to suppress.
+                return;
+            }
+
+            set_dwm_corner_preference(window.0).expect("Apply settings window chrome");
+            read_preference(&mut preference).expect("Read the resulting native window chrome");
+            assert_eq!(preference, DWMWCP_DONOTROUND);
+        }
     }
 }
 

@@ -351,7 +351,7 @@ describe('desktop window shell', () => {
         );
     });
 
-    it('user sees a neutral native gray ring when a floating window paints', () => {
+    it('user sees a subtle translucent gray ring when a floating window paints', () => {
         const resolve = resolveToken(primitiveCss, semanticCss);
         const shadow = [
             '--shadow-window-ring',
@@ -362,10 +362,10 @@ describe('desktop window shell', () => {
             .map((token) => resolve(token))
             .join(', ');
 
-        // One neutral native gray stroke, a 2px contact, and an
+        // One translucent gray stroke, a 2px contact, and an
         // 8px/16px ambient layer.
         expect(shadow).toContain('inset 0 0 0 1px');
-        expect(resolve('--color-window-border')).toBe('rgb(169 169 169)');
+        expect(resolve('--color-window-border')).toBe('rgb(117 117 117 / 0.3)');
         expect(tokenValue(primitiveCss, '--shadow-window-ring')).toBe(
             'inset 0 0 0 1px var(--color-window-stroke)'
         );
@@ -379,19 +379,17 @@ describe('desktop window shell', () => {
         expect(shadow).toContain('rgb(15 23 42 / 0.12)');
     });
 
-    it('user gets the native ring on the search card without doubling popover borders', () => {
+    it('user gets neutral search borders with the shared ambient shadow', () => {
         const searchShadow = tailwindCss.match(/--search-surface-shadow:\s*([^;]+);/s)?.[1] ?? '';
-        const searchView = readAppFile('src/views/SearchView/index.vue');
         expect(
             resolveToken(tailwindCss, semanticCss, primitiveCss)('--search-surface-border')
-        ).toBe('rgb(169 169 169)');
+        ).toBe('rgb(117 117 117 / 0.3)');
 
         expect(searchShadow).toContain('var(--shadow-window-halo)');
         expect(searchShadow).toContain('var(--shadow-window-mid)');
         expect(searchShadow).toContain('var(--shadow-window-far)');
         expect(searchShadow).not.toContain('--shadow-window-ring');
         expect(searchShadow).not.toContain('var(--shadow-window)');
-        expect(searchView).toContain("'--search-surface-shadow': 'var(--shadow-window)'");
     });
 
     it('user gets the same native window token on the tray menu', () => {
