@@ -635,7 +635,7 @@ fn manager(channel: AppUpdateChannel) -> Result<AppUpdateManager, VelopackError>
 
 fn update_options(channel: AppUpdateChannel) -> UpdateOptions {
     UpdateOptions {
-        AllowVersionDowngrade: true,
+        AllowVersionDowngrade: false,
         ExplicitChannel: Some(channel.as_str().to_string()),
         MaximumDeltasBeforeFallback: MAXIMUM_DELTAS_BEFORE_FULL_FALLBACK,
         ..UpdateOptions::default()
@@ -1099,7 +1099,7 @@ mod tests {
     }
 
     #[test]
-    fn channel_update_options_allow_deltas_and_use_explicit_channel() {
+    fn user_gets_delta_updates_with_the_explicit_channel_and_no_downgrade() {
         let options = update_options(AppUpdateChannel::Nightly);
 
         assert_eq!(options.ExplicitChannel.as_deref(), Some("nightly"));
@@ -1107,7 +1107,7 @@ mod tests {
             options.MaximumDeltasBeforeFallback,
             MAXIMUM_DELTAS_BEFORE_FULL_FALLBACK
         );
-        assert!(options.AllowVersionDowngrade);
+        assert!(!options.AllowVersionDowngrade);
     }
 
     #[test]
@@ -1307,6 +1307,14 @@ mod tests {
         assert!(version_is_at_least("0.2.0", "0.2.0-beta.1"));
         assert!(!version_is_at_least("0.2.0-beta.1", "0.2.0"));
         assert!(version_is_less_than("0.2.0-nightly.1", "0.2.0-beta.1"));
+    }
+
+    #[test]
+    fn user_sees_later_beta_builds_as_newer_than_earlier_betas() {
+        assert!(version_is_less_than("1.0.0-beta.8", "1.0.0-beta.9"));
+        assert!(version_is_less_than("1.0.0-beta.9", "1.0.0-beta.10"));
+        assert!(version_is_less_than("1.0.0-beta.10", "1.0.0-beta.11"));
+        assert!(version_is_less_than("1.0.0-beta.11", "1.0.0"));
     }
 
     #[test]
