@@ -19,6 +19,8 @@ function fixture(
         headMemory?: number;
         headDpr?: number;
         headSessions?: number;
+        headReducedMotion?: boolean;
+        headVisibility?: string;
     } = {}
 ) {
     const directory = mkdtempSync(join(temporaryRoot, 'touchai-native-performance-'));
@@ -50,8 +52,14 @@ function fixture(
                                     dpr: variant === 'head' ? (options.headDpr ?? 1) : 1,
                                     width: 750,
                                     height: 1080,
-                                    visibility: 'visible',
-                                    reducedMotion: false,
+                                    visibility:
+                                        variant === 'head'
+                                            ? (options.headVisibility ?? 'visible')
+                                            : 'visible',
+                                    reducedMotion:
+                                        variant === 'head'
+                                            ? (options.headReducedMotion ?? false)
+                                            : false,
                                 },
                             },
                         ])
@@ -107,6 +115,18 @@ describe('user receives native release acceptance evidence', () => {
     it('user supplies incomplete native sessions and cannot receive a passing report', () => {
         expect(() => compareReports(fixture({ headSessions: 5 }))).toThrow(
             'six independent native sessions'
+        );
+    });
+
+    it('user supplies reduced-motion measurements and cannot bypass real animation acceptance', () => {
+        expect(() => compareReports(fixture({ headReducedMotion: true }))).toThrow(
+            'visible windows with normal motion'
+        );
+    });
+
+    it('user supplies hidden-window measurements and cannot receive a passing report', () => {
+        expect(() => compareReports(fixture({ headVisibility: 'hidden' }))).toThrow(
+            'visible windows with normal motion'
         );
     });
 });

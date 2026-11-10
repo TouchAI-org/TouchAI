@@ -137,6 +137,42 @@ describe('user shares and disposes settings initialization', () => {
         ]);
     });
 
+    it('user ignores already registered settings events after disposal while their native handle is pending', async () => {
+        const registrationStarted = deferred();
+        const registration = deferred();
+        interceptTauriInvoke(async (call, next) => {
+            if (isSettingsRegistration(call)) {
+                const result = await next();
+                registrationStarted.resolve();
+                await registration.promise;
+                return result;
+            }
+            return next();
+        });
+        const store = useSettingsStore();
+        const initialization = store.initialize();
+        await registrationStarted.promise;
+
+        try {
+            await store.dispose();
+            await broadcastLanguage();
+            expect(store.initialized).toBe(false);
+            expect(store.settings.language).toBe('zh-CN');
+        } finally {
+            registration.resolve();
+            await initialization;
+            await flushPromises();
+        }
+
+        await broadcastLanguage();
+        expect(store.settings.language).toBe('zh-CN');
+        expect(getTauriInvokeCalls('plugin:event|unlisten')).toEqual([
+            expect.objectContaining({
+                payload: expect.objectContaining({ event: AppEvent.SETTINGS_GENERAL_UPDATED }),
+            }),
+        ]);
+    });
+
     it('user reinitializes after disposal without waiting for the previous registration', async () => {
         const registrationStarted = deferred();
         const registration = deferred();

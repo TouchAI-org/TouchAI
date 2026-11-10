@@ -220,6 +220,22 @@ and security scopes remain unchanged.
     packages either revision, then it embeds that directory as local assets rather
     than interpreting the drive letter as a URL; native IPC retains its normal
     trusted origin without changing CSP or the release profile.
+31. Given a native settings listener registered before its handle returns, when
+    the store disposes and a queued setting arrives, then it cannot mutate the
+    disposed store, and the late handle is still released.
+32. Given a disposed progress subscription whose native handle is still pending,
+    when a new update owner downloads and receives progress, then each progress
+    fact reaches its subscribers once and late old-handle cleanup keeps the new
+    subscription usable.
+33. Given multiple search results and a view-toggle button, when native menu
+    acceptance opens a result menu in either grid or list view, then readiness
+    and input dispatch target the same first result without ambiguous selection.
+34. Given a benchmark runner whose system prefers reduced motion, when either
+    isolated revision launches, then only that benchmark WebView receives the
+    normal-motion override; real animations and automatic pressure remain active.
+35. Given an ongoing native measurement, when system motion, application pressure
+    or window visibility makes any sampled frame invalid, then acceptance fails
+    with the observed conditions rather than including that sample as normal.
 
 ## Verification evidence
 
@@ -297,6 +313,11 @@ PR's passing checks:
   **3 files / 37 tests**. Startup race tests now wait for observable preparation
   barriers rather than assuming a fixed number of promise microtasks, so hiding,
   disposal and supersession still exercise the intended in-flight phase.
+- Two additional native-boundary regressions cover events arriving after listener
+  registration but before its handle returns: disposed settings cannot change,
+  and a replacement update owner receives each progress fact once. Removing their
+  existing guards makes both tests fail; restoring the guards passes **2 files /
+  20 tests**. These strengthen existing behavior rather than change product code.
 - The broader SearchView and motion characterization passed **80 files / 929
   tests** before the last synchronous-disposal case; the final 37-test suite covers
   that added admission guard. Full new-head CI remains a separate acceptance gate.
@@ -312,9 +333,10 @@ PR's passing checks:
   coverage mapper. The local full CI-tooling run had **331 passed / 40 failed**;
   failures included subprocess/test timeouts and temporary-file locking while
   concurrent checks ran. This is not recorded as a passing full gate.
-- The new native-report comparison tests avoid per-case Node startup and test
-  the public report API: **5/5 passed** in 1.28 seconds of test execution. CI
-  still invokes the real CLI/native harness; no timeout or budget changed.
+- The native-report comparison tests avoid per-case Node startup and test the
+  public report API. The original five passed; reduced-motion and hidden-window
+  rejection extend the characterization to **7/7 passed**. CI still invokes the
+  real CLI/native harness; no timeout or budget changed.
 - Expanded-head CI, native E2E, visual checks and release performance results
   are recorded in the PR's testing evidence and linked check reports. Old-head
   `c1367abc` checks are historical evidence only, not acceptance of later code.
@@ -363,3 +385,20 @@ The runner now resolves its temporary `frontendDist` relative to the archived
 scratch. The existing native bridge startup assertion is the regression guard;
 the origin check, CSP, security scopes and release optimization flags are unchanged.
 Local syntax/path checks are not recorded as a successful native build or sample.
+
+At `7c76c4ba`, both native release builds and all 45 smoke tests passed, but the
+first benchmark session failed: the menu prerequisite matched six results plus
+the view-toggle button. Its partial baseline report also recorded the Windows
+runner's reduced-motion preference. Neither the incomplete cases nor those
+reduced-motion samples are valid performance evidence.
+
+Readiness and menu dispatch now share the first result's grid/list selector.
+Only the benchmark subprocess environment receives
+`--force-prefers-no-reduced-motion`, before the launch arguments are recorded.
+[Chromium's implementation](https://chromium.googlesource.com/chromium/src/+/refs/tags/140.0.7291.1/ui/gfx/animation/animation.cc)
+explicitly gives this switch precedence over the operating-system preference;
+conflicting forced reduced motion is rejected. No OS setting, product preference,
+shared smoke/visual configuration, automatic pressure detection or animation
+duration is changed. Every measured frame requires normal motion and a visible
+window; failures distinguish system preference from application pressure.
+The same six-session ABBA run and unchanged budgets must pass on the new head.

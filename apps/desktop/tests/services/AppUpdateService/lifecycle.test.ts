@@ -3,10 +3,11 @@ import { AppUpdateReminderController } from '@services/AppUpdateService/reminder
 import type { AppUpdateChannel, AppUpdateCheckResult } from '@services/AppUpdateService/types';
 import { AppEvent, eventService } from '@services/EventService';
 import { native } from '@services/NativeService';
+import { emit } from '@tauri-apps/api/event';
 import { flushPromises } from '@vue/test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { getTauriInvokeCalls, interceptTauriInvoke } from '../../utils/tauri';
+import { getTauriInvokeCalls, interceptTauriInvoke, mockTauriCommand } from '../../utils/tauri';
 
 const checkedAt = '2026-11-10T10:00:00.000Z';
 const available: AppUpdateCheckResult = {
@@ -213,6 +214,48 @@ describe('user initializes and disposes update listeners', () => {
         expect(stateBeforePreviousCompletion.status).toBe('available');
         await broadcastAvailable();
         expect(controller.getState().status).toBe('available');
+    });
+
+    it('user receives download progress once when a disposed subscription returns after reinitialization', async () => {
+        const registration = deferRegistration('updater://download-progress', true);
+        const controller = createController();
+        const previous = controller.initialize();
+        await registration.started;
+        await controller.dispose();
+        await controller.initialize();
+        await broadcastAvailable();
+
+        const downloadStarted = deferred();
+        const downloadFinished = deferred();
+        mockTauriCommand('updater_download_update', async () => {
+            downloadStarted.resolve();
+            await downloadFinished.promise;
+            return available.update;
+        });
+        const progress: number[] = [];
+        const unsubscribe = controller.subscribe((state) => {
+            if (state.status === 'downloading' && state.downloadProgress !== null) {
+                progress.push(state.downloadProgress);
+            }
+        });
+        const downloading = controller.download();
+
+        try {
+            await downloadStarted.promise;
+            await emit('updater://download-progress', 75);
+            expect(progress).toEqual([0, 75]);
+
+            registration.finish();
+            await previous;
+            await emit('updater://download-progress', 80);
+            expect(progress).toEqual([0, 75, 80]);
+        } finally {
+            registration.finish();
+            downloadFinished.resolve();
+            await previous;
+            await downloading;
+            unsubscribe();
+        }
     });
 
     it('user retries a failed settings load and receives update results after recovery', async () => {
