@@ -264,6 +264,9 @@ PR's passing checks:
   coverage mapper. The local full CI-tooling run had **331 passed / 40 failed**;
   failures included subprocess/test timeouts and temporary-file locking while
   concurrent checks ran. This is not recorded as a passing full gate.
+- The new native-report comparison tests avoid per-case Node startup and test
+  the public report API: **5/5 passed** in 1.28 seconds of test execution. CI
+  still invokes the real CLI/native harness; no timeout or budget changed.
 - Expanded-head CI, native E2E, visual checks and release performance remain
   pending. Old-head `c1367abc` checks are historical evidence only.
 

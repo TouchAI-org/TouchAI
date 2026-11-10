@@ -1,8 +1,7 @@
-import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -10,6 +9,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const temporaryRoot = resolve(tmpdir());
 const directories: string[] = [];
 const cases = ['menu', 'model', 'confirm', 'import'];
+const { compareReports } = (await import(
+    pathToFileURL(join(root, 'apps/desktop/e2e-tests/performance/compare.mjs')).href
+)) as { compareReports: (directory: string) => { passed: boolean } };
 
 function fixture(
     options: {
@@ -67,17 +69,6 @@ function fixture(
     return directory;
 }
 
-function compare(directory: string) {
-    return spawnSync(
-        process.execPath,
-        [join(root, 'apps/desktop/e2e-tests/performance/compare.mjs'), directory],
-        {
-            encoding: 'utf8',
-            windowsHide: true,
-        }
-    );
-}
-
 afterEach(() => {
     for (const directory of directories.splice(0)) {
         if (dirname(resolve(directory)) !== temporaryRoot)
@@ -89,7 +80,7 @@ afterEach(() => {
 describe('user receives native release acceptance evidence', () => {
     it('user stays at the five percent latency limit and the full paired report passes', () => {
         const directory = fixture({ headLatency: 105 });
-        expect(compare(directory).status).toBe(0);
+        expect(compareReports(directory).passed).toBe(true);
         expect(JSON.parse(readFileSync(join(directory, 'summary.json'), 'utf8'))).toMatchObject({
             passed: true,
             samplesPerPhase: 300,
@@ -99,23 +90,23 @@ describe('user receives native release acceptance evidence', () => {
 
     it('user exceeds the latency budget and acceptance fails while preserving the report', () => {
         const directory = fixture({ headLatency: 106 });
-        expect(compare(directory).status).toBe(1);
+        expect(compareReports(directory).passed).toBe(false);
         expect(readFileSync(join(directory, 'summary.md'), 'utf8')).toContain('Acceptance failed');
     });
 
     it('user retains too much native process memory and acceptance fails', () => {
-        expect(compare(fixture({ headMemory: 1051 })).status).toBe(1);
+        expect(compareReports(fixture({ headMemory: 1051 })).passed).toBe(false);
     });
 
     it('user changes DPI between revisions and the comparison is rejected instead of normalized', () => {
-        const result = compare(fixture({ headDpr: 2 }));
-        expect(result.status).not.toBe(0);
-        expect(result.stderr).toContain('same WebView, DPI and viewport');
+        expect(() => compareReports(fixture({ headDpr: 2 }))).toThrow(
+            'same WebView, DPI and viewport'
+        );
     });
 
     it('user supplies incomplete native sessions and cannot receive a passing report', () => {
-        const result = compare(fixture({ headSessions: 5 }));
-        expect(result.status).not.toBe(0);
-        expect(result.stderr).toContain('six independent native sessions');
+        expect(() => compareReports(fixture({ headSessions: 5 }))).toThrow(
+            'six independent native sessions'
+        );
     });
 });

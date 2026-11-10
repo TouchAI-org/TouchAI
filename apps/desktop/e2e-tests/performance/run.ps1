@@ -78,7 +78,7 @@ for ($block = 0; $block -lt $sequence.Count; $block += 1) {
     $env:TOUCHAI_PERF_VARIANT = $variant
     $env:TOUCHAI_PERF_COMMIT = $revisions[$variant]
     $env:TOUCHAI_PERF_BLOCK = [string]$block
-    $env:TOUCHAI_PERF_APP = $executables[$variant]
+    $env:TOUCHAI_PERF_APP = [IO.Path]::GetFullPath($executables[$variant])
     $env:TOUCHAI_CARGO_TARGET_DIR = Join-Path $scratch "binary-$variant"
     $env:TOUCHAI_PERF_REPORT = Join-Path $reports "sample-$block-$variant.json"
     try {
