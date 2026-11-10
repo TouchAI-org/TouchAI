@@ -84,7 +84,8 @@ describe('user runs a browser tool', () => {
             builtInToolId: 'browser',
             isError: true,
         });
-        expect(result?.result).toContain('Missing required browser operation');
+        // Validation failures raised by the tool itself are caller-safe and stay visible.
+        expect(result?.result).toBe('Missing required browser operation');
         expect(requestToolApproval).not.toHaveBeenCalled();
         expect(getLastTauriInvokeCall('browser_act')).toBeUndefined();
         expect(emitToolEvent).not.toHaveBeenCalledWith(

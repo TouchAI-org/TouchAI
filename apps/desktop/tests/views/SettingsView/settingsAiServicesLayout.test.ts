@@ -697,6 +697,20 @@ describe('user manages providers and models', () => {
         expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 20');
     });
 
+    it('user gets a generic provider load failure without the database text', async () => {
+        queries.findAllProvidersSorted.mockRejectedValueOnce(
+            new Error('database is locked while reading provider credentials')
+        );
+
+        const wrapper = mount(AiServicesSection);
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('加载失败');
+        expect(wrapper.text()).not.toContain('database is locked');
+        expect(wrapper.text()).not.toContain('provider credentials');
+        wrapper.unmount();
+    });
+
     it('user keeps the previous default and disabled state when enabling fails', async () => {
         const wrapper = await mountDefaultModelSelection(0);
         queries.updateProvider.mockRejectedValueOnce(new Error('Enable failed'));
@@ -709,7 +723,8 @@ describe('user manages providers and models', () => {
         expect(wrapper.get('[data-testid="set-default-model"]').text()).toContain('default: 10');
         expect(eventServiceMock.emit).not.toHaveBeenCalled();
         expect(scrollToDefaultModelMock).not.toHaveBeenCalled();
-        expect(alertMock.error).toHaveBeenCalledWith('Enable failed');
+        expect(alertMock.error).toHaveBeenCalledWith('设置失败');
+        expect(alertMock.error).not.toHaveBeenCalledWith('Enable failed');
     });
 
     it('user keeps the previous default when saving a new default fails', async () => {
@@ -725,7 +740,8 @@ describe('user manages providers and models', () => {
         expect(wrapper.get('[data-testid="model-20"]').text()).toContain('default: 0');
         expect(eventServiceMock.emit).not.toHaveBeenCalled();
         expect(scrollToDefaultModelMock).not.toHaveBeenCalled();
-        expect(alertMock.error).toHaveBeenCalledWith('Save failed');
+        expect(alertMock.error).toHaveBeenCalledWith('设置失败');
+        expect(alertMock.error).not.toHaveBeenCalledWith('Save failed');
     });
 
     it('user sees the enabled provider state even when saving its default model fails', async () => {
@@ -743,7 +759,8 @@ describe('user manages providers and models', () => {
             sourceId: expect.any(String),
             updatedAt: expect.any(Number),
         });
-        expect(alertMock.error).toHaveBeenCalledWith('Save failed');
+        expect(alertMock.error).toHaveBeenCalledWith('设置失败');
+        expect(alertMock.error).not.toHaveBeenCalledWith('Save failed');
         expect(alertMock.success).not.toHaveBeenCalled();
     });
 });

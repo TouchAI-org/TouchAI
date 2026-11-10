@@ -77,7 +77,7 @@ describe('user is told the import succeeded when the app starts again', () => {
         });
     });
 
-    it('user sees an unreadable import marker shown as written', async () => {
+    it('user sees a generic import notice when the marker is unreadable', async () => {
         setLocale('en-US');
         const payload = JSON.stringify({
             type: 'import-success',
@@ -91,11 +91,12 @@ describe('user is told the import succeeded when the app starts again', () => {
 
         expect(notifyMock).toHaveBeenCalledWith({
             title: 'TouchAI',
-            body: payload,
+            body: 'Data imported successfully',
         });
+        expect(notifyMock).not.toHaveBeenCalledWith(expect.objectContaining({ body: payload }));
     });
 
-    it('user sees an unsupported import mode shown as written', async () => {
+    it('user sees a generic import notice for an unsupported import mode', async () => {
         setLocale('en-US');
         const payload = JSON.stringify({
             type: 'import-success',
@@ -109,8 +110,9 @@ describe('user is told the import succeeded when the app starts again', () => {
 
         expect(notifyMock).toHaveBeenCalledWith({
             title: 'TouchAI',
-            body: payload,
+            body: 'Data imported successfully',
         });
+        expect(notifyMock).not.toHaveBeenCalledWith(expect.objectContaining({ body: payload }));
     });
 
     it('user can still start the app when a startup task fails', async () => {
@@ -127,7 +129,7 @@ describe('user is told the import succeeded when the app starts again', () => {
         consoleSpy.mockRestore();
     });
 
-    it('user sees an old import notice shown as written', async () => {
+    it('user sees a generic import notice for an old marker', async () => {
         setLocale('en-US');
         getMetaMock.mockResolvedValue('数据导入成功（覆盖设置，差量导入对话数据）');
         const { runStartupTasks } = await import('@services/StartupService');
@@ -136,7 +138,10 @@ describe('user is told the import succeeded when the app starts again', () => {
 
         expect(notifyMock).toHaveBeenCalledWith({
             title: 'TouchAI',
-            body: '数据导入成功（覆盖设置，差量导入对话数据）',
+            body: 'Data imported successfully',
         });
+        expect(notifyMock).not.toHaveBeenCalledWith(
+            expect.objectContaining({ body: '数据导入成功（覆盖设置，差量导入对话数据）' })
+        );
     });
 });

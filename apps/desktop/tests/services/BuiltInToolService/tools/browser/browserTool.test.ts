@@ -873,7 +873,7 @@ describe('user runs browser actions and reads their results', () => {
         );
 
         expect(result.isError).toBe(true);
-        expect(result.result).toContain('domain-blocked');
+        expect(result.result).toBe('浏览器权限不允许此操作');
         expect(getLastTauriInvokeCall('browser_navigate')).toBeUndefined();
     });
 
@@ -964,11 +964,11 @@ describe('user runs browser actions and reads their results', () => {
         );
 
         expect(unavailable.isError).toBe(true);
-        expect(unavailable.result).toContain('requires user confirmation');
+        expect(unavailable.result).toBe('需要用户确认浏览器操作');
         expect(rejected.isError).toBe(true);
-        expect(rejected.result).toContain('was not approved');
+        expect(rejected.result).toBe('用户未批准浏览器操作');
         expect(skipped.isError).toBe(true);
-        expect(skipped.result).toContain('was not approved');
+        expect(skipped.result).toBe('用户未批准浏览器操作');
         expect(getLastTauriInvokeCall('browser_navigate')).toBeUndefined();
     });
 
@@ -982,7 +982,7 @@ describe('user runs browser actions and reads their results', () => {
         );
 
         expect(result.isError).toBe(true);
-        expect(result.result).toContain('No connectable existing browser session was found');
+        expect(result.result).toBe('未找到可连接的已有浏览器会话');
     });
 
     it('user sees an existing browser connection denied when policy says deny', async () => {
@@ -1011,7 +1011,7 @@ describe('user runs browser actions and reads their results', () => {
         );
 
         expect(result.isError).toBe(true);
-        expect(result.result).toContain('existing-browser-session-policy-deny');
+        expect(result.result).toBe('浏览器权限不允许此操作');
         expect(getLastTauriInvokeCall('browser_discover_existing')).toBeUndefined();
         expect(getLastTauriInvokeCall('browser_connect_existing')).toBeUndefined();
     });
@@ -1179,9 +1179,9 @@ describe('user runs browser actions and reads their results', () => {
         );
 
         expect(cancelled.isError).toBe(true);
-        expect(cancelled.result).toContain('cancelled');
+        expect(cancelled.result).toBe('用户未批准浏览器操作');
         expect(invalid.isError).toBe(true);
-        expect(invalid.result).toContain('not found');
+        expect(invalid.result).toBe('未找到可连接的已有浏览器会话');
         expect(getLastTauriInvokeCall('browser_connect_existing')).toBeUndefined();
     });
 
@@ -1361,7 +1361,7 @@ describe('user runs browser actions and reads their results', () => {
         expect(result.result).toContain('stale');
     });
 
-    it('user sees observe routed through the tool instance with errors redacted', async () => {
+    it('user sees a stable failure when the browser host exposes internal details', async () => {
         mockTauriCommand('browser_observe', () => {
             throw new Error(
                 'console contained password=secret and https://example.test/?token=secret#hash'
@@ -1380,7 +1380,9 @@ describe('user runs browser actions and reads their results', () => {
                 status: 'error',
             })
         );
-        expect(result.result).toContain('https://example.test/');
+        expect(result.result).toBe('工具执行失败');
+        expect(result.errorMessage).toBe('工具执行失败');
+        expect(result.result).not.toContain('https://example.test/');
         expect(result.result).not.toContain('password=secret');
         expect(result.result).not.toContain('token=secret');
     });
@@ -1534,7 +1536,7 @@ describe('user runs browser actions and reads their results', () => {
         });
     });
 
-    it('user sees redacted error results when native browser commands fail', async () => {
+    it('user sees no native browser details when a command fails', async () => {
         mockTauriCommand('browser_navigate', () => {
             throw new Error(
                 'navigation failed with token=secret at https://example.test/path?token=secret#hash'
@@ -1557,8 +1559,9 @@ describe('user runs browser actions and reads their results', () => {
                 status: 'error',
             })
         );
-        expect(result.result).toContain('Browser tool failed');
-        expect(result.result).toContain('https://example.test/path');
+        expect(result.result).toBe('工具执行失败');
+        expect(result.errorMessage).toBe('工具执行失败');
+        expect(result.result).not.toContain('https://example.test/path');
         expect(result.result).not.toContain('token=secret');
         expect(result.result).not.toContain('#hash');
     });

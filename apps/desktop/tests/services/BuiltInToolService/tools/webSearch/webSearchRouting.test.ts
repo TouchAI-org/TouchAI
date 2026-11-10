@@ -254,8 +254,8 @@ describe('user gets a readable failure when the search cannot run', () => {
 
         expect(result.isError).toBe(true);
         expect(result.status).toBe('error');
-        expect(result.result).toContain('provider is down');
-        expect(result.errorMessage).toBe('provider is down');
+        expect(result.result).not.toContain('provider is down');
+        expect(result.errorMessage).toBe('工具执行失败');
     });
 
     it('user is told the search timed out when the provider stopped responding', async () => {
@@ -283,7 +283,8 @@ describe('user gets a readable failure when the search cannot run', () => {
 
         expect(result.isError).toBe(true);
         expect(result.status).toBe('error');
-        expect(result.errorMessage).toBe('network down');
+        expect(result.result).not.toContain('network down');
+        expect(result.errorMessage).toBe('工具执行失败');
     });
 
     it('user gets the searched-for wording kept even when the search failed', async () => {

@@ -26,12 +26,30 @@ describe('user reads request failures in their own language', () => {
         );
     });
 
-    it('user sees provider-supplied failure text exactly as the provider sent it', () => {
+    it('user sees a stable failure code while the provider payload stays diagnostic', () => {
         setLocale('en-US');
 
         const error = new AiError(AiErrorCode.API_ERROR, undefined, 'provider raw payload');
 
-        expect(error.getDisplayMessage()).toBe('provider raw payload');
+        expect(error.message).toBe('provider raw payload');
+        expect(error.getDisplayMessage()).toBe('API request failed.');
+    });
+
+    it('user never sees an unclassified internal error echoed', () => {
+        setLocale('en-US');
+
+        const error = new AiError(AiErrorCode.UNKNOWN, undefined, 'database connection failed');
+
+        expect(error.message).toBe('database connection failed');
+        expect(error.getDisplayMessage()).toBe('Unknown error');
+    });
+
+    it('user never sees an unclassified non-AiError cause echoed', () => {
+        setLocale('en-US');
+
+        expect(AiError.getDisplayMessage(new Error('SQLITE_BUSY: /home/user/touchai.db'))).toBe(
+            'Unknown error'
+        );
     });
 
     it('user sees an unsupported-endpoint failure explained for an input the model cannot take', () => {

@@ -93,7 +93,7 @@ describe('user connects an MCP server from settings', () => {
         expect(connection.isConnecting.value).toBe(false);
     });
 
-    it('user gets the backend reason shown when the server reports an error', async () => {
+    it('user gets a generic error when the server reports a connection failure', async () => {
         const store = seedStore();
         store.setServerError(1, 'spawn ENOENT');
         const connection = useMcpConnection(ref(1));
@@ -101,8 +101,7 @@ describe('user connects an MCP server from settings', () => {
         const pending = connection.handleConnect();
         store.setServerStatus(1, 'error');
 
-        // Without the reason the user cannot tell a bad command from a missing binary.
-        await expect(pending).resolves.toEqual({ success: false, error: 'spawn ENOENT' });
+        await expect(pending).resolves.toEqual({ success: false, error: 'Connection failed' });
     });
 
     it('user gets a clear message when the server was deleted meanwhile', async () => {
@@ -132,7 +131,7 @@ describe('user connects an MCP server from settings', () => {
         await first;
     });
 
-    it('user gets the backend failure reported when the request itself throws', async () => {
+    it('user gets a generic failure when the request itself throws', async () => {
         seedStore();
         vi.mocked(mcpManager.connectServer).mockImplementation(() => {
             throw new Error('bridge unavailable');
@@ -141,7 +140,7 @@ describe('user connects an MCP server from settings', () => {
 
         const outcome = await connection.handleConnect();
 
-        expect(outcome).toEqual({ success: false, error: 'bridge unavailable' });
+        expect(outcome).toEqual({ success: false, error: 'Connection failed' });
         expect(connection.isConnecting.value).toBe(false);
     });
 });

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
 import { getLocale, setLocale } from '@/i18n';
+import { resolveToolFailure } from '@/services/BuiltInToolService/errors';
 import {
     buildSettingApprovalRequest,
     executeSettingTool,
@@ -10,16 +11,13 @@ import {
 } from '@/services/BuiltInToolService/tools/setting';
 import { SETTING_TOOL_INPUT_SCHEMA } from '@/services/BuiltInToolService/tools/setting/constants';
 import {
-    formatShortcutRegistrationError,
     formatSingleUpdate,
     getSettings,
     listSupportedSettings,
     parseSettingRequest,
 } from '@/services/BuiltInToolService/tools/setting/helper';
 import { setActiveSettingsService } from '@/services/SettingsService';
-import { replyErrorMessage, unknownKeyMessage } from '@/services/SettingsService/messages';
 import { SettingsService } from '@/services/SettingsService/service';
-import { SettingsErrorCode } from '@/services/SettingsService/types';
 
 const originalPlatform = navigator.platform;
 
@@ -108,25 +106,12 @@ describe('user changes app settings through the assistant', () => {
         expect(getOutput).toContain('Global shortcut (global_shortcut): Alt+Space');
     });
 
-    it('user reads setting updates, approval cards, and registration errors in English', () => {
+    it('user reads setting updates and approval cards in English', () => {
         setLocale('en-US');
 
         expect(formatSingleUpdate('start_minimized', true)).toBe(
             '1. Start minimized (start_minimized): true'
         );
-        expect(formatShortcutRegistrationError('Alt+Space', 'already registered')).toBe(
-            'Shortcut Alt+Space is already used by another app.'
-        );
-        expect(formatShortcutRegistrationError('Alt+Space', 'invalid shortcut')).toBe(
-            'Shortcut Alt+Space has an invalid format.'
-        );
-        expect(formatShortcutRegistrationError('Alt+Space', 'Unknown key')).toBe(
-            'Shortcut contains an unsupported key.'
-        );
-        expect(formatShortcutRegistrationError('Alt+Space', 'system error')).toBe(
-            'Failed to register shortcut: system error'
-        );
-
         const approval = buildSettingApprovalRequest({
             action: 'set',
             key: 'start_minimized',
@@ -183,9 +168,11 @@ describe('user changes app settings through the assistant', () => {
         expect(result).toMatchObject({
             isError: true,
             status: 'error',
-            errorMessage: 'Shortcut Alt+Shift+Space has an invalid format.',
+            errorMessage: 'Setting update failed.',
         });
         expect(result.result).toContain('Setting update failed');
+        expect(result.result).not.toContain('invalid shortcut');
+        expect(result.result).not.toContain('owner');
         expect(service.getSnapshot().globalShortcut).toBe('Alt+Space');
     });
 
@@ -366,36 +353,31 @@ describe('user changes app settings through the assistant', () => {
     it('user reads invalid setting values in the active language with validation details kept', () => {
         setLocale('en-US');
 
-        expect(() =>
-            parseSettingRequest({
-                action: 'set',
-                key: 'start_minimized',
-                value: 'yes',
-                reason: 'User asked for it.',
-            })
-        ).toThrow(/Setting tool received an invalid value for "start_minimized"\.\n- /);
+        const error = (() => {
+            try {
+                return parseSettingRequest({
+                    action: 'set',
+                    key: 'start_minimized',
+                    value: 'yes',
+                    reason: 'User asked for it.',
+                });
+            } catch (caught) {
+                return caught;
+            }
+        })();
+        const failure = resolveToolFailure(error, {
+            toolId: 'setting',
+            fallbackMessage: 'Tool execution failed',
+        });
+
+        expect(failure).toMatchObject({ status: 'error' });
+        expect(failure.message).toMatch(
+            /Setting tool received an invalid value for "start_minimized"\.\n- /
+        );
+        expect(failure.message).not.toBe('Tool execution failed');
     });
 
-    it('user reads unknown-key and owner-reply messages in English', async () => {
-        setLocale('en-US');
-
-        expect(unknownKeyMessage('not_a_setting')).toBe('Unsupported setting key: not_a_setting');
-        expect(replyErrorMessage(SettingsErrorCode.NotReady)).toBe(
-            'Settings are not ready yet; try again in a moment.'
-        );
-        expect(replyErrorMessage(SettingsErrorCode.StaleEpoch)).toBe(
-            'Settings result unknown: the response came from a superseded settings owner.'
-        );
-        expect(replyErrorMessage(SettingsErrorCode.OwnerDisposed)).toBe(
-            'The settings owner was closed.'
-        );
-        expect(replyErrorMessage(SettingsErrorCode.TooManyPending)).toBe(
-            'Too many settings requests. Try again later.'
-        );
-        expect(replyErrorMessage('something-unknown')).toBe('The settings owner is unavailable.');
-    });
-
-    it('user sees a note when a setting saved but syncing to other windows failed', async () => {
+    it('user sees success without an internal sync note when cross-window notification fails', async () => {
         setLocale('en-US');
         bus.failNotices = true;
 
@@ -415,7 +397,7 @@ describe('user changes app settings through the assistant', () => {
             isError: false,
             status: 'success',
         });
-        expect(result.result).toContain('Note');
-        expect(result.result).toContain('syncing to other windows failed');
+        expect(result.result).not.toContain('Note');
+        expect(result.result).not.toContain('sync');
     });
 });

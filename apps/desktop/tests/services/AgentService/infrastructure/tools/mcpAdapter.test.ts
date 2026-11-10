@@ -117,7 +117,7 @@ describe('user runs an MCP tool call', () => {
         expect(mocks.createMcpToolLog).not.toHaveBeenCalled();
     });
 
-    it('user sees a localized failure when the MCP call rejects', async () => {
+    it('user sees a generic localized failure when the MCP call rejects', async () => {
         mocks.resolveToolCall.mockResolvedValue({
             serverId: 1,
             originalName: 'search',
@@ -132,10 +132,13 @@ describe('user runs an MCP tool call', () => {
         });
 
         expect(outcome).toMatchObject({
-            result: tt('工具执行失败：{error}', { error: 'socket closed' }),
+            result: tt('工具执行失败'),
             isError: true,
             toolLogId: 42,
         });
+        expect(outcome.result).not.toContain('socket closed');
+        // The raw rejection stays in diagnostics instead of model/user-visible
+        // tool output.
         expect(events[events.length - 1]).toMatchObject({
             type: 'call_end',
             isError: true,

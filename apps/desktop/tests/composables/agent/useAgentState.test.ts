@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { nextTick } from 'vue';
 
 import { useAgentState } from '@/composables/agent/useAgentState';
+import { setLocale } from '@/i18n';
 import type { SessionTaskSnapshot } from '@/services/AgentService';
 import type { SessionMessage, ToolCallInfo } from '@/types/session';
 import { selectToolCalls } from '@/utils/session';
@@ -76,6 +77,68 @@ describe('when a tool streams output into the conversation', () => {
     afterEach(() => {
         vi.clearAllMocks();
         document.body.innerHTML = '';
+    });
+
+    it('user gets a generic failure when the task subscription cannot be established', async () => {
+        setLocale('zh-CN');
+        subscribeTaskMock.mockImplementation(() => {
+            throw new Error('Task task-1 not found: internal lookup detail');
+        });
+
+        const mounted = await mountComposable(() => useAgentState());
+        mounted.result.attachTaskView('task-1');
+
+        expect(mounted.result.error.value?.message).toBe('未知错误');
+        expect(mounted.result.error.value?.message).not.toContain('internal lookup detail');
+        expect(mounted.result.attachedTaskId.value).toBeNull();
+
+        mounted.unmount();
+    });
+
+    it('user gets a generic failure when a task snapshot contains internal diagnostics', async () => {
+        setLocale('zh-CN');
+        subscribeTaskMock.mockImplementation(
+            (_taskId: string, callback: (snapshot: SessionTaskSnapshot) => void) => {
+                callback({
+                    ...createSnapshot(createToolCall('')),
+                    status: 'failed',
+                    error: 'database locked: /home/user/touchai.db',
+                });
+                return () => {};
+            }
+        );
+
+        const mounted = await mountComposable(() => useAgentState());
+        mounted.result.attachTaskView('task-1');
+        await nextTick();
+
+        expect(mounted.result.error.value?.message).toBe('未知错误');
+        expect(mounted.result.error.value?.message).not.toContain('touchai.db');
+        expect(mounted.result.isLoading.value).toBe(false);
+
+        mounted.unmount();
+    });
+
+    it('user sees the localized task failure after a language change', async () => {
+        setLocale('en-US');
+        subscribeTaskMock.mockImplementation(
+            (_taskId: string, callback: (snapshot: SessionTaskSnapshot) => void) => {
+                callback({
+                    ...createSnapshot(createToolCall('')),
+                    status: 'failed',
+                    error: 'API request failed.',
+                });
+                return () => {};
+            }
+        );
+
+        const mounted = await mountComposable(() => useAgentState());
+        mounted.result.attachTaskView('task-1');
+        await nextTick();
+
+        expect(mounted.result.error.value?.message).toBe('API request failed.');
+
+        mounted.unmount();
     });
 
     it('user sees the tool output as it streams, before the tool finishes', async () => {

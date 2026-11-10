@@ -149,7 +149,8 @@ describe('user is asked a question by the assistant', () => {
         const result = await run({ questions: [question()] }, context());
 
         expect(result.isError).toBe(true);
-        expect(result.errorMessage).toBe('ask_user_question is not available in this context');
+        expect(result.result).toBe('Tool execution failed');
+        expect(result.errorMessage).toBe('Tool execution failed');
     });
 
     it('user sees the request cancelled when they stop the turn while answering', async () => {

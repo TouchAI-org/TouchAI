@@ -46,6 +46,10 @@ const toolServiceMock = vi.hoisted(() => ({
 
 const prewarmBashMock = vi.hoisted(() => vi.fn());
 
+const usageMaintenanceMock = vi.hoisted(() => ({
+    runUsageMaintenance: vi.fn().mockResolvedValue(undefined),
+}));
+
 const llmMetadataMock = vi.hoisted(() => ({
     isLlmMetadataAliasEmpty: vi.fn(),
     isLlmMetadataEmpty: vi.fn(),
@@ -93,9 +97,7 @@ vi.mock('@/services/BuiltInToolService/tools/bash/helper', () => ({
     prewarmBashToolRuntime: prewarmBashMock,
 }));
 
-vi.mock('@services/UsageService/maintenance', () => ({
-    runUsageMaintenance: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock('@services/UsageService/maintenance', () => usageMaintenanceMock);
 
 vi.mock('@database/queries', () => llmMetadataMock);
 
@@ -168,6 +170,8 @@ describe('user opens the main window', () => {
         const root = await startApp();
 
         expect(root.textContent).toBe('route:/');
+        await vi.dynamicImportSettled();
+        expect(usageMaintenanceMock.runUsageMaintenance).toHaveBeenCalledTimes(1);
     });
 
     it('user never sees default settings because saved ones load before the window renders', async () => {
@@ -293,6 +297,7 @@ describe('user opens the tray menu or settings', () => {
         expect(toolServiceMock.syncRegisteredTools).not.toHaveBeenCalled();
         expect(metadataMock.syncAllModelsMetadata).not.toHaveBeenCalled();
         expect(initializeAppUpdateNotifications).not.toHaveBeenCalled();
+        expect(usageMaintenanceMock.runUsageMaintenance).not.toHaveBeenCalled();
     });
 
     it('user sees the settings window without waiting for the main-window warm-up', async () => {
@@ -314,10 +319,41 @@ describe('user opens the tray menu or settings', () => {
             expect(toolServiceMock.syncRegisteredTools).not.toHaveBeenCalled();
             releaseWarmUp();
             await startup;
+            await vi.dynamicImportSettled();
+            expect(usageMaintenanceMock.runUsageMaintenance).not.toHaveBeenCalled();
         } finally {
             releaseWarmUp();
         }
     });
+
+    it('user does not run main-only usage maintenance in the settings window', async () => {
+        stubRoot();
+        window.history.replaceState(null, '', '/');
+        vi.mocked(getCurrentWindow).mockReturnValue({ label: 'settings' } as never);
+
+        await startApp();
+        await vi.dynamicImportSettled();
+
+        expect(usageMaintenanceMock.runUsageMaintenance).not.toHaveBeenCalled();
+        expect(toolServiceMock.syncRegisteredTools).not.toHaveBeenCalled();
+    });
+
+    it.each(['preview-test', 'unknown-test'])(
+        'user does not run main-only database warm-up in the %s surface',
+        async (label) => {
+            stubRoot();
+            window.history.replaceState(null, '', '/');
+            vi.mocked(getCurrentWindow).mockReturnValue({ label } as never);
+
+            await startApp();
+            await vi.dynamicImportSettled();
+
+            expect(toolServiceMock.syncRegisteredTools).not.toHaveBeenCalled();
+            expect(metadataMock.syncAllModelsMetadata).not.toHaveBeenCalled();
+            expect(metadataMock.refreshModelMetadataIfStale).not.toHaveBeenCalled();
+            expect(usageMaintenanceMock.runUsageMaintenance).not.toHaveBeenCalled();
+        }
+    );
 });
 
 describe('user clicks a link inside the app', () => {

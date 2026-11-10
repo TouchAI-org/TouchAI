@@ -2,6 +2,7 @@ import type { BuiltInBashExecutionResponse } from '@services/NativeService';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale } from '@/i18n';
+import { resolveToolFailure } from '@/services/BuiltInToolService/errors';
 import { DEFAULT_BASH_TOOL_CONFIG } from '@/services/BuiltInToolService/tools/bash/constants';
 import {
     formatBashToolResult,
@@ -105,15 +106,25 @@ describe('user has a shell command context that is resolved', () => {
         expect(ctx.workingDirectory).toBe('C:\\Users\\test\\Desktop');
     });
 
-    it('user sees a command outside the allowed folders rejected', async () => {
+    it('user sees a command outside the allowed folders rejected with the policy reason', async () => {
         setLocale('en-US');
         const config = {
             ...baseConfig,
             allowedWorkingDirectories: ['D:/allowed'],
         };
-        await expect(
-            resolveCommandContext({ command: 'dir', workingDirectory: 'D:/other' }, config)
-        ).rejects.toThrow('Working directory is outside the allowed scope');
+        const error = await resolveCommandContext(
+            { command: 'dir', workingDirectory: 'D:/other' },
+            config
+        ).catch((caught: unknown) => caught);
+        const failure = resolveToolFailure(error, {
+            toolId: 'bash',
+            fallbackMessage: 'Tool execution failed',
+        });
+
+        expect(failure).toEqual({
+            message: 'Working directory is outside the allowed scope: D:/other',
+            status: 'error',
+        });
     });
 
     it('user sees a command inside the allowed folders accepted', async () => {

@@ -69,6 +69,7 @@ describe('when an MCP server connection goes wrong', () => {
         const connection = useMcpConnection(ref(404));
         const result = await connection.handleConnect();
 
+        // A deleted server is a structural state the user can act on, not an internal cause.
         expect(result).toEqual({
             success: false,
             error: 'Server does not exist',
@@ -113,7 +114,7 @@ describe('when an MCP server connection goes wrong', () => {
         vi.useRealTimers();
     });
 
-    it('user is told both that reconnecting failed and why', async () => {
+    it('user is told reconnecting failed without the internal disconnect text', async () => {
         vi.useFakeTimers();
         setLocale('en-US');
         addServer();
@@ -126,7 +127,7 @@ describe('when an MCP server connection goes wrong', () => {
 
         await expect(resultPromise).resolves.toEqual({
             success: false,
-            error: 'Disconnect failed: Disconnect timed out',
+            error: 'Disconnection failed',
         });
 
         vi.useRealTimers();

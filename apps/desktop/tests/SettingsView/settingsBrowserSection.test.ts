@@ -378,6 +378,21 @@ describe('user edits the browser settings', () => {
         expect(updateBrowserSettingsMock).not.toHaveBeenCalled();
     });
 
+    it('user gets a generic browser discovery failure without the probe detail', async () => {
+        mockTauriCommand('browser_discover_installed', () => {
+            throw new Error('exec probe failed at /usr/bin/google-chrome --version');
+        });
+
+        const wrapper = mount(BrowserSettingsView);
+        await flushPromises();
+
+        expect(wrapper.text()).toContain('无法读取已安装的浏览器');
+        expect(wrapper.text()).not.toContain('exec probe failed');
+        expect(wrapper.text()).not.toContain('/usr/bin/google-chrome');
+
+        wrapper.unmount();
+    });
+
     it('user sees the default homepage as the field value without saving it automatically', () => {
         browserSettingsPatch.value = { defaultHomepage: '' };
         const wrapper = mount(BrowserSettingsView);

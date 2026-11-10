@@ -137,6 +137,30 @@ describe('user asks the assistant to read a web page', () => {
         );
     });
 
+    it('user sees a stable failure when the reader fallback leaks transport details', async () => {
+        tauriFetchMock
+            .mockRejectedValueOnce(new Error('primary network path /home/alice/private'))
+            .mockRejectedValueOnce(
+                new Error('native fetch failed at /home/alice/.cache/proxy token=secret')
+            );
+
+        const result = await executeWebFetchTool(
+            {
+                url: 'https://blocked.example/article',
+                mode: 'reader',
+                maxChars: 2000,
+                enableThirdPartyReaderFallback: true,
+            },
+            {},
+            createExecutionContext()
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.errorMessage).toBe('Web page fetch failed');
+        expect(result.result).not.toContain('/home/alice/.cache/proxy');
+        expect(result.result).not.toContain('token=secret');
+    });
+
     it('user can still read an explicitly provided search result URL', async () => {
         tauriFetchMock.mockResolvedValueOnce(
             new Response('<main>Search result page explicitly requested</main>', {

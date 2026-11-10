@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setLocale, t } from '@/i18n';
 import { executeWebFetchTool } from '@/services/BuiltInToolService/tools/webFetch';
+import { MAX_WEB_FETCH_REDIRECTS } from '@/services/BuiltInToolService/tools/webFetch/constants';
 
 /**
  * The HTTP wrapper reads the upstream body on demand (pull-driven), so a response
@@ -135,6 +136,105 @@ describe('user asks the assistant to read a web page that is not consumed', () =
         expect(result.isError).toBe(true);
         expect(result.errorMessage).toBe(t('builtInTools.webFetch.error.blockedHost'));
         expect(redirect.cancelReasons).toEqual([REDIRECT_REASON]);
+    });
+
+    it('user gets the redirect-limit error and every discarded redirect body is released', async () => {
+        const redirects = Array.from({ length: MAX_WEB_FETCH_REDIRECTS + 1 }, () =>
+            controlledStream()
+        );
+        for (const [index, redirect] of redirects.entries()) {
+            pluginFetch.mockResolvedValueOnce(
+                new Response(redirect.stream, {
+                    status: 302,
+                    headers: { location: `/redirect-${index + 1}` },
+                })
+            );
+        }
+
+        const result = await executeWebFetchTool(
+            { url: 'https://example.test/start', mode: 'reader', maxChars: 1000 },
+            {},
+            createExecutionContext()
+        );
+
+        expect(result.isError).toBe(true);
+        expect(result.errorMessage).toBe(
+            t('builtInTools.webFetch.error.tooManyRedirects', {
+                maxRedirections: MAX_WEB_FETCH_REDIRECTS,
+            })
+        );
+        expect(redirects.map((redirect) => redirect.cancelReasons)).toEqual(
+            redirects.map(() => [REDIRECT_REASON])
+        );
+    });
+
+    it('user gets the blocked response when the fallback is non-OK and the fallback body is released', async () => {
+        const blocked = controlledStream();
+        const fallback = controlledStream();
+        pluginFetch
+            .mockResolvedValueOnce(
+                new Response(blocked.stream, {
+                    status: 403,
+                    statusText: 'Forbidden',
+                    headers: { 'content-type': 'text/plain' },
+                })
+            )
+            .mockResolvedValueOnce(
+                new Response(fallback.stream, {
+                    status: 503,
+                    statusText: 'Service Unavailable',
+                    headers: { 'content-type': 'text/plain' },
+                })
+            );
+
+        const result = await executeWebFetchTool(
+            {
+                url: 'https://blocked.example/article',
+                mode: 'reader',
+                maxChars: 2000,
+                enableThirdPartyReaderFallback: true,
+            },
+            {},
+            createExecutionContext()
+        );
+
+        expect(result).toMatchObject({ isError: true, status: 'error' });
+        expect(result.errorMessage).toBe('HTTP 403 Forbidden');
+        expect(fallback.cancelReasons).toEqual([DISCARD_REASON]);
+    });
+
+    it('user gets the blocked response when the fallback is non-textual and the fallback body is released', async () => {
+        const blocked = controlledStream();
+        const fallback = controlledStream();
+        pluginFetch
+            .mockResolvedValueOnce(
+                new Response(blocked.stream, {
+                    status: 429,
+                    statusText: 'Too Many Requests',
+                    headers: { 'content-type': 'text/plain' },
+                })
+            )
+            .mockResolvedValueOnce(
+                new Response(fallback.stream, {
+                    status: 200,
+                    headers: { 'content-type': 'image/png' },
+                })
+            );
+
+        const result = await executeWebFetchTool(
+            {
+                url: 'https://blocked.example/article',
+                mode: 'reader',
+                maxChars: 2000,
+                enableThirdPartyReaderFallback: true,
+            },
+            {},
+            createExecutionContext()
+        );
+
+        expect(result).toMatchObject({ isError: true, status: 'error' });
+        expect(result.errorMessage).toBe('HTTP 429 Too Many Requests');
+        expect(fallback.cancelReasons).toEqual([DISCARD_REASON]);
     });
 
     it('user gets the invalid-location error and the redirect body is released', async () => {

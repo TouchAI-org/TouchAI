@@ -2,6 +2,7 @@ import { createSettingsBus, type SettingsBus } from '@tests/utils/settingsTransp
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDefaultSearchKeybindings } from '@/config/searchKeybindings';
+import { createDefaultGeneralSettings } from '@/services/SettingsService/domain';
 import type { SettingsEffects } from '@/services/SettingsService/effects';
 import { SettingsService } from '@/services/SettingsService/service';
 import { SettingsErrorCode } from '@/services/SettingsService/types';
@@ -149,7 +150,11 @@ describe('user changes a setting through the single owner', () => {
 
             const result = await owner.mutate('global_shortcut', 'Mod+K');
 
-            expect(result.status).toBe('rejected');
+            expect(result).toMatchObject({
+                status: 'rejected',
+                rejection: { kind: 'shortcut-conflict' },
+            });
+            expect(result).not.toHaveProperty('message');
             expect(owner.getSnapshot().globalShortcut).toBe('Alt+Space');
             expect(dbMock.values.get('global_shortcut')).toBe('Alt+Space');
         });
@@ -166,7 +171,11 @@ describe('user changes a setting through the single owner', () => {
                 'search.input.focus': 'Mod+9',
             });
 
-            expect(result.status).toBe('rejected');
+            expect(result).toMatchObject({
+                status: 'rejected',
+                rejection: { kind: 'shortcut-global-conflict' },
+            });
+            expect(result).not.toHaveProperty('message');
             expect(owner.getSnapshot().searchKeybindings['search.input.focus']).toBe('Mod+L');
         });
     });
@@ -181,7 +190,12 @@ describe('user changes a setting through the single owner', () => {
 
         const result = await owner.mutate('global_shortcut', 'Ctrl+Shift+A');
 
-        expect(result.status).toBe('rejected');
+        expect(result).toMatchObject({
+            status: 'rejected',
+            code: SettingsErrorCode.NativeFailed,
+        });
+        expect(result).not.toHaveProperty('message');
+        expect(result).not.toHaveProperty('rejection');
         expect(owner.getSnapshot().globalShortcut).toBe('Alt+Space');
         expect(dbMock.values.get('global_shortcut')).toBe('Alt+Space');
     });
@@ -238,7 +252,7 @@ describe('user changes a setting through the single owner', () => {
         bus.failNotices = false;
 
         expect(result.status).toBe('committed');
-        expect(result.status === 'committed' ? result.warning : undefined).toBeTruthy();
+        expect(result).not.toHaveProperty('warning');
         expect(owner.getSnapshot().outputScrollBehavior).toBe('stay_position');
     });
 
@@ -262,17 +276,84 @@ describe('user changes a setting through the single owner', () => {
         );
     });
 
+    it('user never receives a settings snapshot when a popup asks outside the settings boundary', async () => {
+        const owner = createOwner(createEffects());
+        await owner.initialize();
+        const popup = bus.transport('popup-model');
+
+        await popup.send('main', {
+            kind: 'snapshot-request',
+            requestId: 'req-popup-snapshot',
+            from: 'popup-model',
+            hostEpoch: null,
+        });
+        await flush();
+
+        expect(
+            bus.sent.some(
+                (record) =>
+                    record.message.kind === 'reply' &&
+                    record.message.requestId === 'req-popup-snapshot'
+            )
+        ).toBe(false);
+    });
+
+    it('user never receives data or writes when a preview window forges a request', async () => {
+        const effects = createEffects();
+        const owner = createOwner(effects);
+        await owner.initialize();
+        dbMock.setCalls.length = 0;
+        vi.mocked(effects.applyLanguage).mockClear();
+        const ghost = bus.transport('ghost');
+
+        await ghost.send('main', {
+            kind: 'snapshot-request',
+            requestId: 'req-preview-snapshot',
+            from: 'preview-test',
+            hostEpoch: null,
+        });
+        await ghost.send('main', {
+            kind: 'mutate-request',
+            requestId: 'req-preview-write',
+            from: 'preview-test',
+            hostEpoch: owner.getHostEpoch(),
+            key: 'language',
+            value: 'en-US',
+        });
+        await flush();
+
+        for (const requestId of ['req-preview-snapshot', 'req-preview-write']) {
+            expect(
+                bus.sent.some(
+                    (record) =>
+                        record.message.kind === 'reply' && record.message.requestId === requestId
+                )
+            ).toBe(false);
+        }
+        expect(dbMock.setCalls).toHaveLength(0);
+        expect(effects.applyLanguage).not.toHaveBeenCalled();
+    });
+
+    it('user sees an unavailable settings owner when an unsupported window starts as a client', async () => {
+        const popup = createClient('popup-model', createEffects());
+
+        await expect(popup.initialize()).rejects.toMatchObject({
+            code: SettingsErrorCode.OwnerUnavailable,
+        });
+        expect(bus.sent).toHaveLength(0);
+    });
+
     it('user gets an unsupported-key rejection without changing anything', async () => {
         const effects = createEffects();
         const owner = createOwner(effects);
         await owner.initialize();
         dbMock.setCalls.length = 0;
 
-        const ghost = bus.transport('win-x');
+        const ghost = bus.transport('settings');
         await ghost.send('main', {
             kind: 'mutate-request',
             requestId: 'req-unknown-key',
-            from: 'win-x',
+            from: 'settings',
             hostEpoch: owner.getHostEpoch(),
             key: 'not_a_setting' as never,
             value: true,
@@ -298,7 +379,7 @@ describe('user changes a setting through the single owner', () => {
                 code: SettingsErrorCode.UnknownKey,
             },
         });
-        expect(reply?.result?.message).toContain('not_a_setting');
+        expect(reply?.result).not.toHaveProperty('message');
         expect(dbMock.setCalls).toHaveLength(0);
         expect(effects.setAutostart).not.toHaveBeenCalled();
     });
@@ -357,22 +438,89 @@ describe('user changes a setting through the single owner', () => {
         const effects = createEffects();
         const owner = createOwner(effects);
         await owner.initialize();
-        const windowA = createClient('win-a', effects);
-        const windowB = createClient('win-b', effects);
-        await windowA.initialize();
-        await windowB.initialize();
+        const window = createClient('settings', effects);
+        await window.initialize();
 
-        const first = windowA.mutate('search_keybindings', {
+        const first = owner.mutate('search_keybindings', {
             ...createDefaultSearchKeybindings(),
             'search.input.focus': 'Mod+9',
         });
-        const second = windowB.mutate('global_shortcut', 'Mod+9');
+        const second = window.mutate('global_shortcut', 'Mod+9');
         const [firstResult, secondResult] = await Promise.all([first, second]);
 
         expect(firstResult.status).toBe('committed');
         expect(secondResult.status).toBe('rejected');
         expect(owner.getSnapshot().searchKeybindings['search.input.focus']).toBe('Mod+9');
         expect(owner.getSnapshot().globalShortcut).toBe('Alt+Space');
+    });
+
+    it('user keeps provider credentials out of the tray snapshot', async () => {
+        dbMock.values.set(
+            'search_settings',
+            JSON.stringify({
+                providers: { brave: { enabled: true, apiKey: 'tray-must-not-see-this' } },
+            })
+        );
+        dbMock.values.set(
+            'browser_settings',
+            JSON.stringify({ browserDataPath: '/home/user/.private-browser-profile' })
+        );
+
+        const effects = createEffects();
+        const owner = createOwner(effects);
+        await owner.initialize();
+        const tray = createClient('tray-menu', effects);
+        await tray.initialize();
+
+        const traySnapshot = tray.getSnapshot();
+        expect(traySnapshot.language).toBe(owner.getSnapshot().language);
+        expect(traySnapshot.searchSettings).toEqual(createDefaultGeneralSettings().searchSettings);
+        expect(traySnapshot.browserSettings).toEqual(
+            createDefaultGeneralSettings().browserSettings
+        );
+
+        const wireDump = JSON.stringify(bus.sent);
+        expect(wireDump).not.toContain('tray-must-not-see-this');
+        expect(wireDump).not.toContain('.private-browser-profile');
+    });
+
+    it('user sees the tray read preferences but cannot send or forge a change', async () => {
+        const effects = createEffects();
+        const owner = createOwner(effects);
+        await owner.initialize();
+        const tray = createClient('tray-menu', effects);
+        await tray.initialize();
+
+        expect(tray.getSnapshot().language).toBe(owner.getSnapshot().language);
+        bus.sent.length = 0;
+        dbMock.setCalls.length = 0;
+        vi.mocked(effects.applyLanguage).mockClear();
+
+        await expect(tray.mutate('language', 'en-US')).rejects.toMatchObject({
+            code: SettingsErrorCode.Rejected,
+        });
+        expect(bus.sent.some((record) => record.message.kind === 'mutate-request')).toBe(false);
+
+        const ghost = bus.transport('tray-menu');
+        await ghost.send('main', {
+            kind: 'mutate-request',
+            requestId: 'req-tray-write',
+            from: 'tray-menu',
+            hostEpoch: owner.getHostEpoch(),
+            key: 'language',
+            value: 'en-US',
+        });
+        await flush();
+
+        expect(
+            bus.sent.some(
+                (record) =>
+                    record.message.kind === 'reply' && record.message.requestId === 'req-tray-write'
+            )
+        ).toBe(false);
+        expect(dbMock.setCalls).toHaveLength(0);
+        expect(effects.applyLanguage).not.toHaveBeenCalled();
+        expect(owner.getSnapshot().language).toBe(tray.getSnapshot().language);
     });
 
     it('user still gets settings when the ready broadcast is missed', async () => {
@@ -382,7 +530,7 @@ describe('user changes a setting through the single owner', () => {
         await owner.initialize();
         await owner.mutate('output_scroll_behavior', 'stay_position');
 
-        const window = createClient('win-a', effects);
+        const window = createClient('settings', effects);
         await window.initialize();
 
         expect(window.getSnapshot().outputScrollBehavior).toBe('stay_position');
@@ -392,7 +540,7 @@ describe('user changes a setting through the single owner', () => {
         const effects = createEffects();
         const owner = createOwner(effects);
         await owner.initialize();
-        const window = createClient('win-a', effects);
+        const window = createClient('settings', effects);
         await window.initialize();
 
         bus.dropNotices = true;
@@ -400,7 +548,7 @@ describe('user changes a setting through the single owner', () => {
         expect(window.getSnapshot().outputScrollBehavior).toBe('follow_output');
 
         bus.dropNotices = false;
-        bus.focus('win-a');
+        bus.focus('settings');
         await flush();
 
         expect(window.getSnapshot().outputScrollBehavior).toBe('stay_position');
@@ -410,7 +558,7 @@ describe('user changes a setting through the single owner', () => {
         const effects = createEffects();
         const owner = createOwner(effects);
         await owner.initialize();
-        const window = createClient('win-a', effects);
+        const window = createClient('settings', effects);
         await window.initialize();
 
         owner.dispose();
@@ -426,13 +574,13 @@ describe('user changes a setting through the single owner', () => {
         const effects = createEffects();
         const owner = createOwner(effects);
         await owner.initialize();
-        const window = createClient('win-a', effects);
+        const window = createClient('settings', effects);
         await window.initialize();
 
         owner.dispose();
         const reopened = createOwner(effects);
         await reopened.initialize();
-        bus.focus('win-a');
+        bus.focus('settings');
         await flush();
 
         const result = await window.mutate('output_scroll_behavior', 'stay_position');
@@ -445,7 +593,7 @@ describe('user changes a setting through the single owner', () => {
         const effects = createEffects();
         const owner = createOwner(effects);
         await owner.initialize();
-        const window = createClient('win-a', effects);
+        const window = createClient('settings', effects);
         await window.initialize();
 
         bus.dropRequests = true;
@@ -467,7 +615,7 @@ describe('user changes a setting through the single owner', () => {
         const ownerInit = owner.initialize();
         await flush();
 
-        const window = createClient('win-a', effects);
+        const window = createClient('settings', effects);
         const clientInit = window.initialize();
         await flush();
         expect(window.isReady()).toBe(false);
@@ -484,7 +632,7 @@ describe('user changes a setting through the single owner', () => {
         const effects = createEffects();
         const owner = createOwner(effects);
         await owner.initialize();
-        const window = createClient('win-a', effects);
+        const window = createClient('settings', effects);
         await window.initialize();
         dbMock.setCalls.length = 0;
 
@@ -507,7 +655,7 @@ describe('user changes a setting through the single owner', () => {
         );
 
         // A focus re-reads the authoritative state and converges without re-running the write.
-        bus.focus('win-a');
+        bus.focus('settings');
         await flush();
         expect(window.getSnapshot().outputScrollBehavior).toBe('stay_position');
         expect(
@@ -521,11 +669,11 @@ describe('user changes a setting through the single owner', () => {
         await owner.initialize();
         dbMock.setCalls.length = 0;
 
-        const ghost = bus.transport('win-a');
+        const ghost = bus.transport('settings');
         const message = {
             kind: 'mutate-request' as const,
             requestId: 'req-dup',
-            from: 'win-a',
+            from: 'settings',
             hostEpoch: owner.getHostEpoch(),
             key: 'output_scroll_behavior' as const,
             value: 'stay_position' as const,
@@ -587,13 +735,13 @@ describe('user changes a setting through the single owner', () => {
         const clientEffects = createEffects();
         const owner = createOwner(ownerEffects);
         await owner.initialize();
-        const window = createClient('win-a', clientEffects);
+        const window = createClient('settings', clientEffects);
         await window.initialize();
 
         const result = await owner.mutate('language', 'en-US');
         expect(result.status).toBe('committed');
 
-        bus.focus('win-a');
+        bus.focus('settings');
         await flush();
 
         expect(window.getSnapshot().language).toBe('en-US');
@@ -606,14 +754,14 @@ describe('user changes a setting through the single owner', () => {
         const owner = createOwner(effects);
         await owner.initialize();
         const firstEpoch = owner.getHostEpoch();
-        const window = createClient('win-a', effects);
+        const window = createClient('settings', effects);
         await window.initialize();
 
         owner.dispose();
         const reopened = createOwner(effects);
         await reopened.initialize();
         const secondEpoch = reopened.getHostEpoch();
-        bus.focus('win-a');
+        bus.focus('settings');
         await flush();
 
         expect(secondEpoch).not.toBe(firstEpoch);
@@ -648,11 +796,11 @@ describe('user changes a setting through the single owner', () => {
         await owner.initialize();
         dbMock.setCalls.length = 0;
 
-        const ghost = bus.transport('win-x');
+        const ghost = bus.transport('settings');
         await ghost.send('main', {
             kind: 'mutate-request',
             requestId: 'req-null-epoch',
-            from: 'win-x',
+            from: 'settings',
             hostEpoch: null,
             key: 'start_on_boot',
             value: true,
@@ -706,13 +854,13 @@ describe('user changes a setting through the single owner', () => {
         const owner = createOwner(effects);
         await owner.initialize();
         const firstEpoch = owner.getHostEpoch();
-        const window = createClient('win-a', effects);
+        const window = createClient('settings', effects);
         await window.initialize();
 
         owner.dispose();
         const reopened = createOwner(effects);
         await reopened.initialize();
-        bus.focus('win-a');
+        bus.focus('settings');
         await flush();
         expect(reopened.getHostEpoch()).not.toBe(firstEpoch);
         expect(window.getSnapshot().outputScrollBehavior).toBe('follow_output');
@@ -729,7 +877,7 @@ describe('user changes a setting through the single owner', () => {
         expect(requestId).toBeTruthy();
 
         const ghost = bus.transport('ghost');
-        await ghost.send('win-a', {
+        await ghost.send('settings', {
             kind: 'reply',
             requestId: requestId as string,
             hostEpoch: firstEpoch,
@@ -784,17 +932,17 @@ describe('user changes a setting through the single owner', () => {
         expect(owner.getSnapshot().globalShortcut).toBe(committedBefore);
     });
 
-    it('user gets a not-ready reply whose text matches the code while the owner loads', async () => {
+    it('user gets a code-only not-ready reply while the owner loads', async () => {
         const owner = createOwner(createEffects());
         dbMock.holdReads = true;
         const ownerInit = owner.initialize();
         await flush();
 
-        const ghost = bus.transport('win-x');
+        const ghost = bus.transport('settings');
         await ghost.send('main', {
             kind: 'snapshot-request',
             requestId: 'req-not-ready',
-            from: 'win-x',
+            from: 'settings',
             hostEpoch: null,
         });
         await flush();
@@ -812,7 +960,7 @@ describe('user changes a setting through the single owner', () => {
             )
             .find((message) => message.requestId === 'req-not-ready');
         expect(reply).toMatchObject({ ok: false, code: SettingsErrorCode.NotReady });
-        expect(reply?.message).toContain('设置尚未就绪');
+        expect(reply).not.toHaveProperty('message');
 
         releaseHeldReads();
         await ownerInit;

@@ -122,7 +122,7 @@ describe('user changes motion in General settings', () => {
         const store = useSettingsStore();
         await store.initialize();
         const wrapper = mount(MotionSettingsSection);
-        const otherWindow = new SettingsService({ transport: bus.transport('win-settings') });
+        const otherWindow = new SettingsService({ transport: bus.transport('settings') });
         await otherWindow.initialize();
         setSetting.mockClear();
 

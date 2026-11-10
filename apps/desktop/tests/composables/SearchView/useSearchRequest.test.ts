@@ -749,6 +749,28 @@ describe('when the user reopens the last closed conversation', () => {
         unmount();
     });
 
+    it('user forgets a deleted conversation when Rust reports the not-found category', async () => {
+        agentState.currentSessionId.value = 23;
+        const { result, unmount } = await mountFlow();
+
+        result.clearSession();
+        agentState.currentSessionId.value = null;
+        agentState.openSession.mockRejectedValueOnce(
+            Object.assign(new Error('Database record was not found'), {
+                code: 'database-not-found',
+            })
+        );
+
+        await expect(result.reopenLastClosedSession()).rejects.toThrow(
+            'Database record was not found'
+        );
+
+        await expect(result.reopenLastClosedSession()).resolves.toBeNull();
+        expect(agentState.openSession).toHaveBeenCalledTimes(1);
+
+        unmount();
+    });
+
     it('user gets nothing reopened when the closed conversation is already on screen', async () => {
         agentState.currentSessionId.value = 23;
         const { result, clearDraft, unmount } = await mountFlow();

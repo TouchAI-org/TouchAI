@@ -1114,7 +1114,7 @@ export function routeDatabaseOperation(
                     });
                 }
                 if (target.enabled === 0) {
-                    throw Object.assign(new Error(String(target.provider_name)), {
+                    throw Object.assign(new Error('The model provider is disabled'), {
                         code: 'provider-disabled',
                     });
                 }
@@ -1398,10 +1398,9 @@ export function routeDatabaseOperation(
                         data(request.data)
                     );
                     if (!row) {
-                        throw Object.assign(
-                            new Error(`Built-in tool not found after update: ${id}`),
-                            { code: 'built-in-tool-not-found' }
-                        );
+                        throw Object.assign(new Error('Built-in tool not found'), {
+                            code: 'built-in-tool-not-found',
+                        });
                     }
                     rows.push(row);
                 }

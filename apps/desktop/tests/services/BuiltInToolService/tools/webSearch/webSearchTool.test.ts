@@ -691,9 +691,11 @@ describe('user searches the web from the assistant', () => {
             createExecutionContext()
         );
 
-        // 关键点：不能静默变成「没有结果」，要把真实失败原因暴露出来。
+        // 关键点：不能静默变成「没有结果」，也不能把上游工具协议细节暴露给用户。
         expect(result.isError).toBe(true);
-        expect(result.result).toContain('Input validation error');
+        expect(result.result).toContain('搜索失败');
+        expect(result.result).not.toContain('Input validation error');
+        expect(result.errorMessage).toBe('工具执行失败');
     });
 
     it('user sees academic searches routed to Semantic Scholar when configured', async () => {

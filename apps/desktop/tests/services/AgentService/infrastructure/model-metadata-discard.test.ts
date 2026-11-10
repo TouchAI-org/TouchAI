@@ -1,16 +1,30 @@
-import { updateModelMetadata } from '@services/AgentService/infrastructure/modelMetadata';
-import { interceptTauriInvoke } from '@tests/utils/tauri';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
- * The metadata refresh throws on a non-2xx source without reading the body. With
- * the pull-driven wrapper that response has to be cancelled explicitly. The real
- * `createTauriFetch` runs against a controlled upstream stream; the database is
- * reached only to read the stored ETag and answers empty here.
+ * Keep the production module and the real pull-driven HTTP wrapper in this test. The
+ * database boundary only answers reads; the assertions are about discarded response
+ * bodies, not about a mocked cancellation helper.
  */
-const { pluginFetch } = vi.hoisted(() => ({ pluginFetch: vi.fn() }));
+const { pluginFetch, db } = vi.hoisted(() => ({
+    pluginFetch: vi.fn(),
+    db: {
+        readSourceEtag: vi.fn(async () => 'W/"cached"'),
+        markChecked: vi.fn(async () => undefined),
+        replaceMetadata: vi.fn(async () => undefined),
+        readLastCheckedAt: vi.fn(async () => null),
+    },
+}));
 
 vi.mock('@tauri-apps/plugin-http', () => ({ fetch: pluginFetch }));
+vi.mock('@/services/AgentService/infrastructure/modelMetadata/store', () => ({
+    markModelMetadataChecked: db.markChecked,
+    readModelMetadataLastCheckedAt: db.readLastCheckedAt,
+    readModelMetadataSourceEtag: db.readSourceEtag,
+    replaceModelMetadata: db.replaceMetadata,
+}));
+
+const { updateModelMetadata } =
+    await import('@/services/AgentService/infrastructure/modelMetadata');
 
 const DISCARD_REASON = 'ModelMetadata response discarded';
 
@@ -19,44 +33,38 @@ interface ControlledStream {
     cancelReasons: unknown[];
 }
 
-function controlledStream(chunkCount = 4): ControlledStream {
-    let index = 0;
+function controlledStream(): ControlledStream {
     const cancelReasons: unknown[] = [];
-    const chunks = Array.from({ length: chunkCount }, (_, i) =>
-        new TextEncoder().encode(`chunk-${i}`)
-    );
-    const stream = new ReadableStream<Uint8Array>(
-        {
-            pull(controller) {
-                const chunk = chunks[index];
-                if (chunk === undefined) {
-                    controller.close();
-                    return;
-                }
-                controller.enqueue(chunk);
-                index += 1;
-            },
-            cancel(reason) {
-                cancelReasons.push(reason);
-            },
+    const stream = new ReadableStream<Uint8Array>({
+        pull() {},
+        cancel(reason) {
+            cancelReasons.push(reason);
         },
-        new CountQueuingStrategy({ highWaterMark: 1 })
-    );
+    });
     return { stream, cancelReasons };
 }
 
-describe('user refreshes model metadata and the source rejects the request', () => {
+describe('user refreshes model metadata through the real HTTP wrapper', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        interceptTauriInvoke((call) => {
-            if (call.cmd === 'database_operation') {
-                return null;
-            }
-            return undefined;
-        });
+        db.readSourceEtag.mockResolvedValue('W/"cached"');
+        db.markChecked.mockResolvedValue(undefined);
+        db.replaceMetadata.mockResolvedValue(undefined);
     });
 
-    it('user gets the metadata refresh failure and the unread error body is released', async () => {
+    it('user keeps cached metadata on a 304 without exposing a body', async () => {
+        pluginFetch.mockResolvedValueOnce(new Response(null, { status: 304 }));
+
+        await expect(updateModelMetadata()).resolves.toEqual({ status: 'unchanged' });
+
+        expect(db.markChecked).toHaveBeenCalledWith({
+            checkedAt: expect.any(String),
+            etag: 'W/"cached"',
+        });
+        expect(db.replaceMetadata).not.toHaveBeenCalled();
+    });
+
+    it('user gets the refresh failure and the unread error body is released', async () => {
         const source = controlledStream();
         pluginFetch.mockResolvedValueOnce(
             new Response(source.stream, {
@@ -69,5 +77,6 @@ describe('user refreshes model metadata and the source rejects the request', () 
             'Failed to fetch metadata: Internal Server Error'
         );
         expect(source.cancelReasons).toEqual([DISCARD_REASON]);
+        expect(db.replaceMetadata).not.toHaveBeenCalled();
     });
 });
