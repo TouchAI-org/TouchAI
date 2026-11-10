@@ -286,12 +286,12 @@ export async function handleUpdateProxyRequest(request, env, context) {
     }
 
     const r2Response = await responseFromR2(request, env, parsed.key, parsed.fileName);
-    if (r2Response) {
+    if (r2Response && r2Response.status !== 503) {
         return r2Response;
     }
 
     if (isFeedFile(parsed.fileName)) {
-        return textResponse('Not found', 404);
+        return r2Response ?? textResponse('Not found', 404);
     }
 
     const cacheHit = await cachedResponse(request);
@@ -306,6 +306,9 @@ export async function handleUpdateProxyRequest(request, env, context) {
     }
 
     const githubResponse = await responseFromGitHub(request, env, parsed.fileName);
+    if (r2Response && !githubResponse?.ok) {
+        return r2Response;
+    }
     if (!githubResponse) {
         return textResponse('Not found', 404);
     }

@@ -80,6 +80,17 @@ function r2Object(
     };
 }
 
+function unavailableStorageEnv() {
+    const lookup = async () => {
+        throw new Error('r2 unavailable');
+    };
+    return {
+        UPDATE_BASE_PATH: 'touchai-app/v1',
+        GITHUB_REPOSITORY: 'TouchAI-org/TouchAI',
+        UPDATE_BUCKET: { get: vi.fn(lookup), head: vi.fn(lookup) },
+    };
+}
+
 afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -272,9 +283,9 @@ describe('update proxy Worker', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('returns a controlled error when R2 access fails', async () => {
+    it('user receives the storage failure when the archive is missing during an R2 outage', async () => {
         const worker = await loadWorker();
-        const fetchMock = vi.fn<typeof fetch>();
+        const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 404 }));
         vi.stubGlobal('fetch', fetchMock);
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -304,7 +315,10 @@ describe('update proxy Worker', () => {
                 method: 'GET',
             })
         );
-        expect(fetchMock).not.toHaveBeenCalled();
+        expect(fetchMock).toHaveBeenCalledWith(
+            'https://github.com/TouchAI-org/TouchAI/releases/download/v0.2.0/TouchAI-0.2.0-windows.msi',
+            expect.objectContaining({ method: 'GET' })
+        );
     });
 
     it('forwards range requests to GitHub but does not cache partial responses', async () => {
@@ -406,4 +420,166 @@ describe('update proxy Worker', () => {
         expect(response.status).toBe(404);
         expect(fetchMock).not.toHaveBeenCalled();
     });
+});
+
+describe('user downloads an update during a storage outage', () => {
+    const assetUrl = 'https://updates.touch-ai.org/touchai-app/v1/TouchAI-0.2.0-windows.msi';
+    const archiveUrl =
+        'https://github.com/TouchAI-org/TouchAI/releases/download/v0.2.0/TouchAI-0.2.0-windows.msi';
+
+    it.each(['GET', 'HEAD'])(
+        'user receives cached binary content or metadata when making a %s request',
+        async (method) => {
+            const worker = await loadWorker();
+            const cache = new MemoryCache();
+            installCache(cache);
+            await cache.put(
+                new Request(assetUrl),
+                new Response('cached-binary', {
+                    headers: { 'content-length': '13', 'content-type': 'application/octet-stream' },
+                })
+            );
+            const fetchMock = vi.fn<typeof fetch>();
+            vi.stubGlobal('fetch', fetchMock);
+
+            const response = await worker!.default.fetch(
+                new Request(assetUrl, { method }),
+                unavailableStorageEnv(),
+                workerContext().context
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-length')).toBe('13');
+            expect(await response.text()).toBe(method === 'HEAD' ? '' : 'cached-binary');
+            expect(fetchMock).not.toHaveBeenCalled();
+        }
+    );
+
+    it.each(['GET', 'HEAD'])(
+        'user receives the original release binary or metadata when making an uncached %s request',
+        async (method) => {
+            const worker = await loadWorker();
+            const cache = new MemoryCache();
+            installCache(cache);
+            const fetchMock = vi.fn<typeof fetch>(async () => {
+                return new Response(method === 'HEAD' ? null : 'from-github', {
+                    headers: {
+                        'content-length': '11',
+                        'content-type': 'application/octet-stream',
+                        'set-cookie': 'upstream-session=ignored',
+                    },
+                });
+            });
+            vi.stubGlobal('fetch', fetchMock);
+            const { context, flush } = workerContext();
+
+            const response = await worker!.default.fetch(
+                new Request(assetUrl, { method }),
+                unavailableStorageEnv(),
+                context
+            );
+            await flush();
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-length')).toBe('11');
+            expect(response.headers.get('cache-control')).toContain('immutable');
+            expect(response.headers.get('set-cookie')).toBeNull();
+            expect(await response.text()).toBe(method === 'HEAD' ? '' : 'from-github');
+            expect(fetchMock).toHaveBeenCalledWith(
+                archiveUrl,
+                expect.objectContaining({ method, redirect: 'follow' })
+            );
+            const cached = await cache.match(new Request(assetUrl));
+            expect(await cached?.text()).toBe(method === 'HEAD' ? undefined : 'from-github');
+        }
+    );
+
+    it.each(['GET', 'HEAD'])(
+        'user receives the requested range without replacing the full cached binary on %s',
+        async (method) => {
+            const worker = await loadWorker();
+            const cache = new MemoryCache();
+            installCache(cache);
+            await cache.put(new Request(assetUrl), new Response('0123456789'));
+            const fetchMock = vi.fn<typeof fetch>(async () => {
+                return new Response(method === 'HEAD' ? null : '2345', {
+                    status: 206,
+                    headers: { 'content-range': 'bytes 2-5/10', 'content-length': '4' },
+                });
+            });
+            vi.stubGlobal('fetch', fetchMock);
+            const { context, flush } = workerContext();
+
+            const response = await worker!.default.fetch(
+                new Request(assetUrl, { method, headers: { range: 'bytes=2-5' } }),
+                unavailableStorageEnv(),
+                context
+            );
+            await flush();
+
+            expect(response.status).toBe(206);
+            expect(response.headers.get('content-range')).toBe('bytes 2-5/10');
+            expect(response.headers.get('content-length')).toBe('4');
+            expect(await response.text()).toBe(method === 'HEAD' ? '' : '2345');
+            expect(fetchMock).toHaveBeenCalledWith(archiveUrl, expect.objectContaining({ method }));
+            const forwardedHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+            expect(forwardedHeaders.get('range')).toBe('bytes=2-5');
+            const cached = await cache.match(new Request(assetUrl));
+            expect(await cached?.text()).toBe('0123456789');
+        }
+    );
+
+    it('user sees the feed storage failure instead of stale or guessed release metadata', async () => {
+        const worker = await loadWorker();
+        const cache = new MemoryCache();
+        installCache(cache);
+        const request = new Request(
+            'https://updates.touch-ai.org/touchai-app/v1/releases.win-beta.json'
+        );
+        await cache.put(request, new Response('{"previous":true}'));
+        const fetchMock = vi.fn<typeof fetch>();
+        vi.stubGlobal('fetch', fetchMock);
+
+        const response = await worker!.default.fetch(
+            request,
+            unavailableStorageEnv(),
+            workerContext().context
+        );
+
+        expect(response.status).toBe(503);
+        expect(await response.text()).toBe('Update storage failed: r2 unavailable');
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it.each([500, 'offline'] as const)(
+        'user receives the original storage error when the archive is %s',
+        async (failure) => {
+            const worker = await loadWorker();
+            const cache = new MemoryCache();
+            installCache(cache);
+            const fetchMock = vi.fn<typeof fetch>(async () => {
+                if (failure === 'offline') {
+                    throw new TypeError('network unavailable');
+                }
+                return new Response(null, { status: failure });
+            });
+            vi.stubGlobal('fetch', fetchMock);
+            const { context, flush } = workerContext();
+
+            const response = await worker!.default.fetch(
+                new Request(assetUrl),
+                unavailableStorageEnv(),
+                context
+            );
+            await flush();
+
+            expect(fetchMock).toHaveBeenCalledWith(
+                archiveUrl,
+                expect.objectContaining({ method: 'GET' })
+            );
+            expect(response.status).toBe(503);
+            expect(await response.text()).toBe('Update storage failed: r2 unavailable');
+            expect(await cache.match(new Request(assetUrl))).toBeUndefined();
+        }
+    );
 });
