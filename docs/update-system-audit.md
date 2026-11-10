@@ -60,9 +60,11 @@
 
 - 保留 Velopack 的安装/差量/校验机制，而不重写更新器。已安装的
   `velopack 1.3.39-g8d2844f` 的 HTTP 下载实现使用 `File::create` 且默认无超时，
-  无法完成断点续传。因此仅替换 HTTP 传输，使用已有 reqwest 与 sha2，不自行实现 TLS 或摘要算法。
+  无法完成断点续传。因此仅替换 HTTP 传输，并抽成共享的 `core/download.rs`：更新包与字体
+  CDN 共用同一套 Range、长度、SHA-256、重试和进度策略，底层仍使用已有 reqwest 与 sha2，
+  不自行实现 TLS 或摘要算法。
 - 发布脚本复用已有版本解析和通道校验工具。元数据准备作业不需要为比较几个标签而安装整套
-  前端依赖；前端初始通道判断仍使用已有的 `semver` 包。
+  前端依赖；前端版本比较直接使用已有 `semver` 包的 `valid` 与 `gt`，不再维护手写正则比较器。
 - 使用 Node 内建流和 crypto 生成跨平台清单，而非新增依赖或将大文件整体读入内存。
 - 使用固定提交的 GitHub `actions/attest` 与 Anchore SBOM action，并固定 Syft 版本。
   `attest-build-provenance` 上游已建议新集成使用 `actions/attest`，所以没有添加一层旧包装。

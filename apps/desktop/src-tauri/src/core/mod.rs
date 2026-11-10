@@ -8,6 +8,7 @@ pub mod analytics;
 pub mod browser;
 pub mod built_in_tools;
 pub mod database;
+pub mod download;
 pub mod mcp;
 pub mod observability;
 pub mod product_config;
