@@ -194,6 +194,9 @@ and security scopes remain unchanged.
 22. Given a loaded or loading website demo, when its source is removed and reload
     is requested, then readiness clears without a new fetch and any old request
     cannot later publish content or readiness.
+23. Given baseline and head builds in external Windows scratch directories, when
+    Vite emits Monaco workers, then both revisions write assets to their intended
+    scratch output instead of appending an absolute drive path to the source root.
 
 ## Verification evidence
 

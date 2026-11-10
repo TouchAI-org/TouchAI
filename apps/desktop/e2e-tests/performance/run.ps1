@@ -53,11 +53,12 @@ foreach ($variant in @('baseline', 'head')) {
     $tree = Join-Path $scratch "source-$variant"
     $archive = Join-Path $scratch "source-$variant.zip"
     $dist = Join-Path $scratch "frontend-$variant"
+    $viteOutDir = [IO.Path]::GetRelativePath((Join-Path $tree 'apps/desktop'), $dist)
     $configPath = Join-Path $scratch "tauri-$variant.json"
     Invoke-Native -Executable git -Arguments @('-C', $repoRoot, 'archive', '--format=zip', '-o', $archive, $revisions[$variant])
     Expand-Archive -LiteralPath $archive -DestinationPath $tree
     Invoke-Native -Executable pnpm.cmd -Arguments @('--dir', $tree, 'install', '--frozen-lockfile')
-    Invoke-Native -Executable pnpm.cmd -Arguments @('--dir', $tree, '--filter', '@touchai/desktop', 'exec', 'vite', 'build', '--configLoader', 'runner', '--outDir', $dist, '--emptyOutDir')
+    Invoke-Native -Executable pnpm.cmd -Arguments @('--dir', $tree, '--filter', '@touchai/desktop', 'exec', 'vite', 'build', '--configLoader', 'runner', '--outDir', $viteOutDir, '--emptyOutDir')
     @{ build = @{ beforeBuildCommand = ''; frontendDist = $dist } } |
         ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding utf8
     Invoke-Native -Executable pnpm.cmd -Arguments @('--dir', $tree, 'tauri', 'build', '--no-bundle', '--config', $configPath)
