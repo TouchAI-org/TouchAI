@@ -4,7 +4,7 @@
 
 <template>
     <div
-        class="conversation-surface relative h-full min-h-0 w-full bg-background-primary font-serif text-foreground"
+        class="relative h-full min-h-0 w-full"
         @wheel.capture.passive="cancelNavigation"
         @touchstart.capture.passive="cancelNavigation"
         @pointerdown.capture="cancelNavigation"

@@ -11,6 +11,8 @@
  * model call would make the pixels depend on a network response, and the point of
  * a baseline is that a difference means the code changed.
  */
+import assert from 'node:assert/strict';
+
 import {
     assertVisible,
     callE2eBridge,
@@ -109,6 +111,60 @@ describe('user works in the main window with a conversation', () => {
         await browser.pause(1200);
 
         await expectSearchSurfaceSnapshot('main-window-conversation');
+    });
+
+    it('user sees a warm message bubble and white file attachment when reopening a conversation', async () => {
+        await callE2eBridge('setConversation', [
+            {
+                ...CONVERSATION_FIXTURE[0],
+                attachments: [
+                    {
+                        id: 'appearance-file',
+                        type: 'file',
+                        name: 'Report.pdf',
+                        path: '/fixture/Report.pdf',
+                        originPath: '/fixture/Report.pdf',
+                    },
+                ],
+            },
+        ]);
+        await waitForTestIdDisplayed('conversation-panel-host');
+        await $('[data-message-id="e2e-user-1"] .user-text').waitForDisplayed();
+        await $('[data-testid="search-editor-host"]').moveTo();
+
+        const palette = await browser.execute(() => {
+            const message = document.querySelector('[data-message-id="e2e-user-1"]');
+            const text = message.querySelector('.user-text');
+            const file = [...message.querySelectorAll('span')].find(
+                (element) => element.textContent.trim() === 'Report.pdf'
+            );
+            const context = document.createElement('canvas').getContext('2d');
+            const rootStyle = getComputedStyle(document.documentElement);
+            const rgb = (value) => {
+                context.fillStyle = value;
+                context.fillRect(0, 0, 1, 1);
+                return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3);
+            };
+
+            return {
+                actual: {
+                    bubble: rgb(getComputedStyle(text.parentElement.parentElement).backgroundColor),
+                    text: rgb(getComputedStyle(text).color),
+                    attachment: rgb(getComputedStyle(file.parentElement).backgroundColor),
+                    filename: rgb(getComputedStyle(file).color),
+                    copy: rgb(getComputedStyle(message.querySelector('button')).color),
+                },
+                expected: {
+                    bubble: [235, 231, 227],
+                    text: rgb(rootStyle.getPropertyValue('--color-gray-900')),
+                    attachment: [255, 255, 255],
+                    filename: rgb(rootStyle.getPropertyValue('--color-gray-700')),
+                    copy: rgb(rootStyle.getPropertyValue('--color-gray-400')),
+                },
+            };
+        });
+
+        assert.deepEqual(palette.actual, palette.expected);
     });
 
     it('user sees the ask-user panel when a tool needs a decision', async () => {
