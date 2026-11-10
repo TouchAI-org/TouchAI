@@ -58,6 +58,9 @@ const {
                 setMeta: vi.fn(() => this.state.tr),
             },
             doc: {
+                content: { size: 0 },
+                textBetween: (from: number, to: number) =>
+                    this.__text.slice(Math.max(0, from - 1), Math.max(0, to - 1)),
                 descendants: (callback: (node: { type: { name: string } }) => boolean | void) => {
                     callback({ type: { name: 'paragraph' } });
                 },
@@ -75,6 +78,9 @@ const {
 
         constructor(options: Record<string, unknown>) {
             this.options = options;
+            Object.defineProperty(this.state.doc, 'content', {
+                get: () => ({ size: this.__text.length + 2 }),
+            });
             this.view.dom.style.lineHeight = '20px';
             Object.defineProperty(this.view.dom, 'scrollHeight', {
                 configurable: true,

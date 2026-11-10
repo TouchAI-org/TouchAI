@@ -4,7 +4,9 @@
 
 use std::collections::HashMap;
 
-use crate::core::search::{self, QuickSearchFileItem, QuickSearchResult, QuickSearchStatus};
+use crate::core::search::{
+    self, QuickSearchFileItem, QuickSearchResult, QuickSearchStatus, QuickShortcutItem,
+};
 
 /// 搜索快捷项（前端主查询入口）。
 #[tauri::command]
@@ -26,7 +28,14 @@ pub async fn quick_search_search_files(
     search::quick_search_search_files(query, limit, include_shortcuts).await
 }
 
-/// 获取单个快捷项图标。
+#[tauri::command]
+pub async fn quick_search_file_reference_suggestions(
+    recent_paths: Vec<String>,
+    limit: Option<usize>,
+) -> Result<Vec<QuickShortcutItem>, String> {
+    search::quick_search_file_reference_suggestions(recent_paths, limit).await
+}
+
 #[tauri::command]
 pub async fn quick_search_get_shortcut_icon(
     path: String,

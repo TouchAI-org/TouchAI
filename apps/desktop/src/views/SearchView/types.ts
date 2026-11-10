@@ -1,8 +1,11 @@
 import type { ModelWithProvider } from '@database/queries/models';
 import type { SessionEntity } from '@database/types';
+import type { QuickShortcutItem } from '@services/NativeService';
 
 import type { Index } from '@/services/AgentService/infrastructure/attachments';
+import type { SelectedSkill } from '@/services/AgentService/skills';
 import type { SessionTaskStatus } from '@/services/AgentService/task/types';
+import type { SearchActivationContext } from '@/services/SearchService';
 import type { InputHistorySnapshot, SessionMessage } from '@/types/session';
 
 import type {
@@ -30,6 +33,7 @@ export interface SearchBarHandle {
     loadActiveModel: () => void | Promise<void>;
 
     insertTextAtCursor: (text: string) => void;
+    insertSkillAtCursor: (skill: SelectedSkill) => void;
     insertAttachmentAtCursor: (
         attachmentId: string,
         fileName: string,
@@ -37,17 +41,26 @@ export interface SearchBarHandle {
         preview?: string,
         alias?: string
     ) => void;
+    isSkillAutocompleteOpen: () => boolean;
+    isSkillAutocompleteActive: () => boolean;
+    closeSkillAutocomplete: () => void;
+    isFileAutocompleteOpen?: () => boolean;
+    closeFileAutocomplete?: () => void;
+    completeFileReference?: (index?: number) => boolean;
 
     captureInputHistorySnapshot: () => InputHistorySnapshot;
+    captureSearchActivationInput?: () => NonNullable<SearchActivationContext['input']>;
     restoreInputHistorySnapshot: (snapshot: InputHistorySnapshot) => string;
 }
 
 export interface QuickSearchHandle {
+    getContentHeight: () => number;
     open: () => void;
     close: () => void;
     settleInteraction: () => void;
-    moveSelection: (direction: 'up' | 'down' | 'left' | 'right') => void;
+    moveSelection: (direction: 'up' | 'down' | 'left' | 'right') => boolean;
     getHighlightedItem: () => unknown | null;
+    getReferenceCandidate: (index?: number, expectedQuery?: string) => QuickShortcutItem | null;
     openHighlightedItem: () => Promise<void>;
     triggerSearch: (query: string) => void;
     goToPage: (page: number) => void;
@@ -82,6 +95,11 @@ export interface SearchPageController {
     getModelDropdownContext: () => SearchModelDropdownContext;
     isQuickSearchOpen: () => boolean;
     isQuickSearchItemHighlighted: () => boolean;
+    isSkillAutocompleteOpen: () => boolean;
+    isSkillAutocompleteActive: () => boolean;
+    closeSkillAutocomplete: () => void;
+    isFileAutocompleteOpen?: () => boolean;
+    hasInputContent: () => boolean;
     openQuickSearch: () => void;
     closeQuickSearch: () => void;
     settleQuickSearchInteraction: () => void;

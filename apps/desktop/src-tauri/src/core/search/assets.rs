@@ -5,7 +5,7 @@
 //! 本模块为 Quick Search 提供快捷方式图标和图片缩略图的提取能力，
 //! 由三个子模块协作完成：
 //!
-//! - [cache] — 内存 LRU 缓存 + 磁盘 JPEG 持久化缓存
+//! - [cache] — 内存 LRU 缓存 + 磁盘 PNG/JPEG 持久化缓存
 //! - [codec] — RGBA/BGRA 色彩空间转换与 Data URL 编码
 //! - [win] — Windows Shell API 封装（HICON / IShellItemImageFactory）
 //!
@@ -360,7 +360,7 @@ pub(super) fn get_image_thumbnails(
     Ok(result)
 }
 
-/// 内存 LRU + 磁盘 JPEG 缓存。
+/// 内存 LRU + 磁盘图像缓存。
 mod cache;
 /// RGBA / BGRA 色彩转换与 Data URL 编码。
 mod codec;

@@ -239,22 +239,6 @@
             "count": 15
         }
     },
-    "src/views/SearchView/components/QuickSearchPanel/QuickSearchListItem.vue": {
-        "tailwindcss/no-arbitrary-value": {
-            "count": 1
-        },
-        "vue/no-restricted-class": {
-            "count": 3
-        }
-    },
-    "src/views/SearchView/components/QuickSearchPanel/index.vue": {
-        "tailwindcss/no-arbitrary-value": {
-            "count": 3
-        },
-        "vue/no-restricted-class": {
-            "count": 7
-        }
-    },
     "src/views/SearchView/components/SearchBar/index.vue": {
         "tailwindcss/no-custom-classname": {
             "count": 4
@@ -262,7 +246,7 @@
     },
     "src/views/SearchView/components/SearchBar/tags/attachment/AttachmentTagView.vue": {
         "tailwindcss/no-custom-classname": {
-            "count": 11
+            "count": 9
         }
     },
     "src/views/SearchView/components/SearchBar/tags/model/ModelTagView.vue": {

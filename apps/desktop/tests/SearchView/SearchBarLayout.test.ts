@@ -1,124 +1,77 @@
-import { mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { nextTick } from 'vue';
-
-const { isMultiLine, useSearchInputMock } = vi.hoisted(() => {
-    const fakeRef = <T>(value: T) => ({
-        __v_isRef: true,
-        value,
-    });
-    const isMultiLine = fakeRef(false);
-    return {
-        isMultiLine,
-        useSearchInputMock: vi.fn(() => ({
-            editor: fakeRef({}),
-            selectedModel: fakeRef(null),
-            activeModel: fakeRef({
-                model_id: 'mimo-v2.5',
-                name: 'mimo-v2.5',
-            }),
-            prefetchModelDropdownData: vi.fn(),
-            invalidateModelDropdownData: vi.fn(),
-            prepareModelDropdownOpen: vi.fn(),
-            selectModelFromDropdown: vi.fn(),
-            getModelDropdownAnchor: vi.fn(),
-            getModelDropdownContext: vi.fn(),
-            isMultiLine,
-            cursorAtStart: fakeRef(false),
-            cursorAtTextStart: fakeRef(true),
-            cursorAtEnd: fakeRef(true),
-            focus: vi.fn(),
-            loadActiveModel: vi.fn(),
-            captureInputHistorySnapshot: vi.fn(),
-            restoreInputHistorySnapshot: vi.fn(),
-            handleContainerMouseDown: vi.fn(),
-            handleEditorMouseDown: vi.fn(),
-            initEditor: vi.fn(),
-            destroyEditor: vi.fn(),
-            onEditorClick: vi.fn(),
-            logoContainerRef: fakeRef(null),
-        })),
-    };
-});
-
-vi.mock('@assets/logos/models/deepseek.png', () => ({ default: 'deepseek.png' }));
-
-vi.mock('@components/ModelLogo.vue', () => ({
-    default: {
-        name: 'ModelLogo',
-        props: ['modelId', 'name'],
-        template: '<div class="mock-model-logo" />',
-    },
-}));
-
-vi.mock('@tiptap/vue-3', () => ({
-    EditorContent: {
-        name: 'EditorContent',
-        props: ['editor'],
-        template: '<div class="mock-editor-content" />',
-    },
-}));
-
-vi.mock('@/views/SearchView/components/SearchBar/composables/useSearchLogic', () => ({
-    useSearchInput: useSearchInputMock,
-}));
+import { mockTauriCommand } from '@tests/utils/tauri';
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
+import { createPinia } from 'pinia';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SearchBar from '@/views/SearchView/components/SearchBar/index.vue';
 
-describe('SearchBar layout', () => {
+enableAutoUnmount(afterEach);
+const rangeDescriptors = ['getClientRects', 'getBoundingClientRect'].map((name) => ({
+    name,
+    descriptor: Object.getOwnPropertyDescriptor(Range.prototype, name),
+}));
+
+describe('given the main input displays a draft', () => {
     beforeEach(() => {
-        isMultiLine.value = false;
-        useSearchInputMock.mockClear();
+        mockTauriCommand('database_query', { rows: [], rowsAffected: 0, lastInsertId: null });
+        Object.defineProperties(Range.prototype, {
+            getClientRects: { configurable: true, value: () => [] },
+            getBoundingClientRect: { configurable: true, value: () => new DOMRect() },
+        });
+    });
+    afterEach(async () => {
+        await new Promise(requestAnimationFrame);
+        for (const { name, descriptor } of rangeDescriptors) {
+            if (descriptor) Object.defineProperty(Range.prototype, name, descriptor);
+            else Reflect.deleteProperty(Range.prototype, name);
+        }
     });
 
-    function mountSearchBar() {
-        return mount(SearchBar, {
+    async function mountSearchBar() {
+        const wrapper = mount(SearchBar, {
             props: {
                 startDragging: vi.fn().mockResolvedValue(undefined),
-                queryText: '',
-                attachments: [],
-                modelOverride: {
-                    modelId: null,
-                    providerId: null,
-                },
+                queryText: 'Draft',
             },
+            global: { plugins: [createPinia()] },
         });
+        await flushPromises();
+        return wrapper;
     }
 
-    it('user sees a single-line draft vertically centred in the window', () => {
-        const wrapper = mountSearchBar();
-
+    it('user opens a single-line draft and sees it vertically centred in the window', async () => {
+        const wrapper = await mountSearchBar();
         const searchBar = wrapper.get('[data-testid="search-bar"]');
 
+        expect(wrapper.get('.ProseMirror').text()).toBe('Draft');
         expect(searchBar.classes()).toContain('items-center');
         expect(searchBar.classes()).not.toContain('items-start');
     });
 
-    it('keeps the search bar content-sized instead of inheriting the panel height', () => {
-        const wrapper = mountSearchBar();
-
+    it('user opens the input and sees a content-sized row instead of a full-height panel', async () => {
+        const wrapper = await mountSearchBar();
         const searchBar = wrapper.get('[data-testid="search-bar"]');
 
         expect(searchBar.classes()).not.toContain('h-full');
         expect(searchBar.classes()).toContain('min-h-14');
     });
 
-    it('top-aligns the search bar row when the editor becomes multiline', async () => {
-        const wrapper = mountSearchBar();
-
-        isMultiLine.value = true;
-        wrapper.vm.$forceUpdate();
-        await nextTick();
-
+    it('user restores a multiline draft and sees the input row align to its top', async () => {
+        const wrapper = await mountSearchBar();
+        wrapper.vm.restoreInputHistorySnapshot({
+            text: 'First line\nSecond line',
+            attachments: [],
+        });
+        await flushPromises();
         const searchBar = wrapper.get('[data-testid="search-bar"]');
 
+        expect(wrapper.findAll('.ProseMirror p')).toHaveLength(2);
         expect(searchBar.classes()).toContain('items-start');
         expect(searchBar.classes()).not.toContain('items-center');
     });
 
-    it('user gets at most seven visible lines before the draft scrolls', () => {
-        const wrapper = mountSearchBar();
-
+    it('user opens the draft and gets at most seven visible lines before scrolling', async () => {
+        const wrapper = await mountSearchBar();
         const editorHost = wrapper.get('[data-testid="search-editor-host"]');
 
         expect(editorHost.attributes('style')).toContain('max-height: calc(10.5em + 8px)');

@@ -21,6 +21,16 @@
  */
 export const SEARCH_FIXTURE_QUERY = 'touchai-visual-fixture';
 
+export const SKILL_FIXTURE_NAME = 'touchai-e2e-summary-with-a-long-descriptive-name';
+export const SKILL_FIXTURE_CONTENT = [
+    '---',
+    `name: ${SKILL_FIXTURE_NAME}`,
+    'description: Summarize a document in three concise points.',
+    '---',
+    '# Private E2E skill instructions',
+    'Write exactly three bullet points.',
+].join('\n');
+
 /**
  * The rows the results panel renders for {@link SEARCH_FIXTURE_QUERY}.
  *

@@ -195,7 +195,7 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         modelId?: string,
         providerId?: number
     ) {
-        if (!prompt.trim() && attachments.length === 0) {
+        if (!prompt.trim() && attachments.length === 0 && !inputSnapshot?.skills?.length) {
             error.value = new Error(t('search.error.promptEmpty'));
             return;
         }

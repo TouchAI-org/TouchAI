@@ -24,6 +24,7 @@ import {
     waitForE2eBridge,
     waitForTestIdDisplayed,
 } from '../support/desktop.js';
+import { manageSkillAcrossWindows, selectSkillWithKeyboard } from '../support/skills.js';
 
 describe('user works in the settings window', () => {
     let mainWindowHandle;
@@ -194,6 +195,18 @@ describe('user works in the settings window', () => {
             if ((await getAriaChecked(restoredToggle)) !== original) {
                 throw new Error('The start-minimized switch did not return to its original state.');
             }
+        });
+    });
+
+    describe('given a skill is installed in the isolated user home', () => {
+        for (const trigger of ['$', '/']) {
+            it(`user inserts a skill with Tab after typing ${trigger} in the main window`, async () => {
+                await selectSkillWithKeyboard(mainWindowHandle, trigger);
+            });
+        }
+
+        it('user views, disables, restores and confirms deletion of the installed skill', async () => {
+            await manageSkillAcrossWindows(mainWindowHandle);
         });
     });
 

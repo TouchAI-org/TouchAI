@@ -1,7 +1,7 @@
 import { native, type QuickShortcutItem } from '@services/NativeService';
 import { log } from '@services/ObservabilityService';
 import { getPathExtension, IMAGE_EXTENSIONS } from '@utils/path';
-import { type Ref, ref } from 'vue';
+import { getCurrentScope, onScopeDispose, type Ref, ref, watch } from 'vue';
 
 import { ITEM_SIZE_PX, LIST_ROW_HEIGHT_PX, type ViewMode } from './useLayout';
 
@@ -13,9 +13,8 @@ export const ICON_CACHE_MAX_BYTES = 3 * 1024 * 1024;
 /** 图片缩略图解码成本更高，预算更保守。 */
 export const IMAGE_CACHE_MAX_ENTRIES = 120;
 export const IMAGE_CACHE_MAX_BYTES = 2 * 1024 * 1024;
-const ICON_LOAD_DELAY_MS = 220; // 图标批次调度延时（非立即模式）
 const SCROLL_THROTTLE_MS = 40; // 滚动后重新排队加载的节流窗口
-const ICON_BATCH_SIZE = 4; // 单批图标请求数量
+const ICON_BATCH_SIZE = 32; // Cover the initial viewport without serial IPC rounds.
 const ICON_MAX_ATTEMPTS = 2; // 单个图标的最大重试次数
 const IMAGE_LOAD_DELAY_MS = 120; // 图片批次调度延时（非立即模式）
 const IMAGE_BATCH_SIZE = 2; // 单批图片预览请求数量
@@ -27,7 +26,7 @@ const ICON_SIZE = 48; // 图标请求尺寸（px）
 
 interface UseAssetLoaderOptions {
     isOpen: Ref<boolean>;
-    results: Ref<QuickShortcutItem[]>;
+    results: Readonly<Ref<readonly (QuickShortcutItem | null)[]>>;
     requestId: Ref<number>;
     searchInFlight: Ref<boolean>;
     pendingQuery: Ref<string | null>;
@@ -36,6 +35,7 @@ interface UseAssetLoaderOptions {
     selectionMaxHeight: Ref<number>;
     scrollRef: Ref<HTMLElement | null>;
     viewMode: Ref<ViewMode>;
+    rowHeight?: Readonly<Ref<number>>;
 }
 
 export interface UseAssetLoaderDeps {
@@ -180,8 +180,8 @@ export function useAssetLoader(
      * @param item 待判断条目。
      * @returns 条目是本地图片文件时返回 true。
      */
-    function isImageItem(item: QuickShortcutItem): boolean {
-        return item.source === 'file' && isImageFilePath(item.path);
+    function isImageItem(item: QuickShortcutItem | null): boolean {
+        return item?.source === 'file' && isImageFilePath(item.path);
     }
 
     /**
@@ -190,8 +190,8 @@ export function useAssetLoader(
      * @param item 当前条目。
      * @returns 可展示路径提示文本；非路径来源返回空字符串。
      */
-    function getItemHoverTitle(item: QuickShortcutItem): string {
-        return item.source === 'file' || item.source === 'shortcut_file' ? item.path : '';
+    function getItemHoverTitle(item: QuickShortcutItem | null): string {
+        return item?.source === 'file' || item?.source === 'shortcut_file' ? item.path : '';
     }
 
     /**
@@ -207,7 +207,7 @@ export function useAssetLoader(
             return;
         }
 
-        const keepPaths = new Set(results.value.map((item) => item.path));
+        const keepPaths = new Set(results.value.flatMap((item) => (item ? [item.path] : [])));
         for (const path of Object.keys(iconMap.value)) {
             if (!keepPaths.has(path) && !iconLoadingPaths.has(path)) {
                 delete iconMap.value[path];
@@ -237,11 +237,12 @@ export function useAssetLoader(
      * @param items 总结果列表。
      * @returns [startIndex, endIndex) 范围。
      */
-    function computeViewportRange(items: QuickShortcutItem[]): [number, number] {
+    function computeViewportRange(items: readonly (QuickShortcutItem | null)[]): [number, number] {
         const columns = Math.max(gridColumns.value, 1);
         const gap = viewMode.value === 'list' ? 0 : Math.max(gridGap.value, 0);
         const rowHeight = Math.max(
-            (viewMode.value === 'list' ? LIST_ROW_HEIGHT_PX : ITEM_SIZE_PX) + gap,
+            (options.rowHeight?.value ??
+                (viewMode.value === 'list' ? LIST_ROW_HEIGHT_PX : ITEM_SIZE_PX)) + gap,
             1
         );
         const scrollTop = scrollRef.value?.scrollTop ?? 0;
@@ -270,7 +271,7 @@ export function useAssetLoader(
      * @param includeTopPriority 是否在视口不足时补充顶部预热项。
      */
     function collectItemsFromViewport(
-        items: QuickShortcutItem[],
+        items: readonly (QuickShortcutItem | null)[],
         predicate: (item: QuickShortcutItem) => boolean,
         pushPath: (path: string) => void,
         queue: string[],
@@ -281,9 +282,13 @@ export function useAssetLoader(
 
         // shortcut 优先于 file 排入队列，提升应用入口图标的体感命中率。
         const shortcutItems = visibleItems.filter(
-            (item) => item.source !== 'file' && predicate(item)
+            (item): item is QuickShortcutItem =>
+                item !== null && item.source !== 'file' && predicate(item)
         );
-        const fileItems = visibleItems.filter((item) => item.source === 'file' && predicate(item));
+        const fileItems = visibleItems.filter(
+            (item): item is QuickShortcutItem =>
+                item !== null && item.source === 'file' && predicate(item)
+        );
         for (const item of shortcutItems) pushPath(item.path);
         for (const item of fileItems) pushPath(item.path);
 
@@ -291,7 +296,7 @@ export function useAssetLoader(
         if (includeTopPriority && queue.length < PRELOAD_MIN_COUNT) {
             const topItems = items.slice(0, PRELOAD_MIN_COUNT * 2);
             for (const item of topItems) {
-                if (predicate(item)) pushPath(item.path);
+                if (item && predicate(item)) pushPath(item.path);
             }
         }
     }
@@ -304,7 +309,7 @@ export function useAssetLoader(
      * @returns 图片预览加载路径队列。
      */
     function collectImageQueue(
-        items: QuickShortcutItem[],
+        items: readonly (QuickShortcutItem | null)[],
         options: { includeTopPriority?: boolean } = {}
     ): string[] {
         if (items.length === 0) return [];
@@ -332,7 +337,7 @@ export function useAssetLoader(
      * @returns 图标加载路径队列。
      */
     function collectIconQueue(
-        items: QuickShortcutItem[],
+        items: readonly (QuickShortcutItem | null)[],
         options: { includeTopPriority?: boolean } = {}
     ): string[] {
         if (items.length === 0) return [];
@@ -364,7 +369,7 @@ export function useAssetLoader(
      */
     function createBatchLoader(config: {
         collectQueue: (
-            items: QuickShortcutItem[],
+            items: readonly (QuickShortcutItem | null)[],
             options?: { includeTopPriority?: boolean }
         ) => string[];
         batchSize: number;
@@ -491,7 +496,7 @@ export function useAssetLoader(
         clearTimer: clearIconLoadTimer,
         schedule: (...args) => scheduleIconLoadRef.value(...args),
         executeBatch: (paths) => deps.getShortcutIcons(paths, ICON_SIZE),
-        delayMs: ICON_LOAD_DELAY_MS,
+        delayMs: 0,
         errorLabel: 'shortcut icons',
     });
     scheduleIconLoadRef.value = iconLoader.scheduleLoad;
@@ -532,6 +537,30 @@ export function useAssetLoader(
 
     const scheduleIconLoad = iconLoader.scheduleLoad;
     const scheduleImageLoad = imageLoader.scheduleLoad;
+
+    // The rendered viewport can grow after native host resizing even when the
+    // logical row cap is unchanged. Observe the real scroller so newly revealed
+    // rows request assets without waiting for a scroll or layout-state change.
+    let viewportResizeObserver: ResizeObserver | null = null;
+    watch(
+        scrollRef,
+        (container) => {
+            viewportResizeObserver?.disconnect();
+            viewportResizeObserver = null;
+            if (!container || typeof ResizeObserver === 'undefined') return;
+
+            viewportResizeObserver = new ResizeObserver(() => {
+                if (!isOpen.value) return;
+                scheduleIconLoad(requestId.value, true);
+                scheduleImageLoad(requestId.value, false);
+            });
+            viewportResizeObserver.observe(container);
+        },
+        { flush: 'post', immediate: true }
+    );
+    if (getCurrentScope()) {
+        onScopeDispose(() => viewportResizeObserver?.disconnect());
+    }
 
     /**
      * 处理滚动事件，节流后按新视口重新调度资源加载。

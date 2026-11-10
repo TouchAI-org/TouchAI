@@ -2,12 +2,12 @@
 
 //! 图标 / 缩略图双层缓存。
 //!
-//! 提供内存 LRU 缓存和磁盘 JPEG 持久化缓存两级加速：
+//! 提供内存 LRU 缓存和磁盘图像缓存两级加速：
 //!
 //! 1. 内存 LRU（[IconCache]）：容量 [ICON_CACHE_CAPACITY] 条，
 //!    以 cache_key → data_url 形式存储，访问时自动提升到队尾。
-//! 2. 磁盘缓存*：将 Data URL 解码后重新编码为 JPEG（质量 [THUMBNAIL_JPEG_QUALITY]），
-//!    写入 {app_root}/cache/icons/{hash}.jpeg，冷启动时可直接读取。
+//! 2. 磁盘缓存：图标保留 PNG 透明通道，缩略图使用 JPEG。
+//!    写入 {app_root}/cache/icons/{hash}.{png,jpeg}，冷启动时可直接读取。
 //!
 //! # 缓存键策略
 //!
@@ -19,13 +19,14 @@
 use super::codec::rgba_to_rgb_over_white;
 use crate::core::system::paths::{app_directory_path, AppDirectory};
 use base64::Engine as _;
-use image::{codecs::jpeg::JpegEncoder, ColorType};
+use image::{codecs::jpeg::JpegEncoder, ColorType, ImageFormat};
 use log::warn;
 use std::{
     collections::hash_map::DefaultHasher,
     collections::{HashMap, VecDeque},
     fs,
     hash::{Hash, Hasher},
+    io::Cursor,
     path::{Path, PathBuf},
     sync::{Mutex, MutexGuard, OnceLock},
     time::UNIX_EPOCH,
@@ -51,10 +52,6 @@ const SHORTCUT_EXTENSION: &str = "lnk";
 const DATA_URL_IMAGE_PREFIX: &str = "data:image/";
 /// Data URL Base64 标记。
 const DATA_URL_BASE64_MARKER: &str = ";base64";
-/// JPEG Data URL 前缀。
-const DATA_URL_JPEG_PREFIX: &str = "data:image/jpeg;base64,";
-/// 磁盘缓存文件扩展名。
-const DISK_CACHE_FILE_EXTENSION: &str = "jpeg";
 /// JPEG 质量下限。
 const JPEG_QUALITY_MIN: u8 = 20;
 /// JPEG 质量上限。
@@ -183,44 +180,63 @@ pub(super) fn normalize_thumbnail_cache_key(path: &str, size: u32) -> String {
 // 磁盘缓存读写
 // ---------------------------------------------------------------------------
 
-/// 从磁盘缓存读取图标/缩略图，返回 data:image/jpeg;base64,... 格式。
+/// Read the cached image using its original PNG or JPEG media type.
 pub(super) fn read_icon_from_disk_cache(cache_key: &str) -> Option<String> {
     let cache_path = icon_disk_cache_file_path(cache_key)?;
-    let bytes = fs::read(&cache_path).ok()?;
-    if bytes.is_empty() {
+    read_cached_image(&cache_path)
+}
+
+fn read_cached_image(cache_path: &Path) -> Option<String> {
+    let bytes = fs::read(cache_path).ok()?;
+    let format = ImageFormat::from_path(cache_path).ok()?;
+    if image::guess_format(&bytes).ok()? != format {
         return None;
     }
     Some(format!(
-        "{}{}",
-        DATA_URL_JPEG_PREFIX,
+        "data:{};base64,{}",
+        format.to_mime_type(),
         base64::engine::general_purpose::STANDARD.encode(bytes)
     ))
 }
 
-/// 将 Data URL 重新编码为 JPEG 后写入磁盘缓存。
-///
-/// 统一转 JPEG 以节省磁盘空间，原始格式（PNG / JPEG）不影响缓存质量。
+/// Persist icons losslessly; thumbnail compression remains separate.
 pub(super) fn write_icon_to_disk_cache(cache_key: &str, data_url: &str) {
+    let Some(cache_path) = icon_disk_cache_file_path(cache_key) else {
+        return;
+    };
+    write_cached_image(&cache_path, data_url);
+}
+
+fn write_cached_image(cache_path: &Path, data_url: &str) {
     // 解码 Data URL 中的 base64 图像字节
     let Some(image_bytes) = decode_data_url_image_bytes(data_url) else {
         return;
     };
-    // 重新编码为 JPEG 以统一格式并压缩
-    let jpeg_bytes = match reencode_image_bytes_to_jpeg(&image_bytes, THUMBNAIL_JPEG_QUALITY) {
+    let Ok(format) = ImageFormat::from_path(cache_path) else {
+        return;
+    };
+    let encoded = if image::guess_format(&image_bytes).ok() == Some(format) {
+        // Native extraction already returns the correct format; avoid recompression.
+        Ok(image_bytes)
+    } else if format == ImageFormat::Png {
+        image::load_from_memory(&image_bytes)
+            .and_then(|image| {
+                let mut bytes = Cursor::new(Vec::new());
+                image.write_to(&mut bytes, ImageFormat::Png)?;
+                Ok(bytes.into_inner())
+            })
+            .map_err(|error| error.to_string())
+    } else {
+        reencode_image_bytes_to_jpeg(&image_bytes, THUMBNAIL_JPEG_QUALITY)
+    };
+    let image_bytes = match encoded {
         Ok(bytes) => bytes,
         Err(error) => {
-            warn!(
-                "[QuickSearch] Failed to re-encode cache image to JPEG: {}",
-                error
-            );
+            warn!("[QuickSearch] Failed to encode cached image: {}", error);
             return;
         }
     };
-    let Some(cache_path) = icon_disk_cache_file_path(cache_key) else {
-        return;
-    };
-
-    if let Err(error) = fs::write(&cache_path, jpeg_bytes) {
+    if let Err(error) = fs::write(cache_path, image_bytes) {
         warn!(
             "[QuickSearch] Failed to write icon disk cache '{}': {}",
             cache_path.display(),
@@ -284,11 +300,13 @@ fn icon_disk_cache_file_path(cache_key: &str) -> Option<PathBuf> {
             return None;
         }
     };
-    let file_name = format!(
-        "{}.{}",
-        hash_icon_cache_key(cache_key),
-        DISK_CACHE_FILE_EXTENSION
-    );
+    // Old flattened JPEG icons are cache misses; regenerate from the shell.
+    let extension = if cache_key.starts_with("thumb|") {
+        "jpeg"
+    } else {
+        "png"
+    };
+    let file_name = format!("{}.{}", hash_icon_cache_key(cache_key), extension);
     Some(icon_dir.join(file_name))
 }
 
@@ -336,11 +354,47 @@ fn reencode_image_bytes_to_jpeg(bytes: &[u8], quality: u8) -> Result<Vec<u8>, St
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_thumbnail_cache_key, IconCache};
+    use super::{
+        decode_data_url_image_bytes, normalize_thumbnail_cache_key, read_cached_image,
+        write_cached_image, IconCache,
+    };
+    use crate::core::search::assets::codec::encode_rgba_to_png_data_url;
     use std::{
         fs::{self, OpenOptions},
         time::{Duration, UNIX_EPOCH},
     };
+
+    #[test]
+    fn user_sees_transparent_icon_edges_and_original_colors_after_disk_cache_reload() {
+        let temp = tempfile::tempdir().expect("temporary cache directory");
+        let path = temp.path().join("icon.png");
+        let pixels = vec![0, 0, 0, 0, 40, 80, 120, 128, 255, 255, 255, 255];
+        let original = encode_rgba_to_png_data_url(3, 1, pixels.clone()).expect("source icon");
+
+        write_cached_image(&path, &original);
+        let restored = read_cached_image(&path).expect("cached icon");
+        let bytes = decode_data_url_image_bytes(&restored).expect("restored image bytes");
+        let image = image::load_from_memory(&bytes).expect("readable cached image");
+
+        assert_eq!(image.to_rgba8().into_raw(), pixels);
+        assert!(restored.starts_with("data:image/png;base64,"));
+    }
+
+    #[test]
+    fn user_still_gets_a_readable_jpeg_thumbnail_after_disk_cache_reload() {
+        let temp = tempfile::tempdir().expect("temporary cache directory");
+        let path = temp.path().join("thumbnail.jpeg");
+        let original =
+            encode_rgba_to_png_data_url(1, 1, vec![20, 40, 60, 255]).expect("source thumbnail");
+
+        write_cached_image(&path, &original);
+        let restored = read_cached_image(&path).expect("cached thumbnail");
+        let bytes = decode_data_url_image_bytes(&restored).expect("restored image bytes");
+        let image = image::load_from_memory(&bytes).expect("readable cached image");
+
+        assert!(restored.starts_with("data:image/jpeg;base64,"));
+        assert_eq!((image.width(), image.height()), (1, 1));
+    }
 
     #[test]
     fn user_gets_fresh_thumbnail_when_same_size_image_changes_within_one_second() {

@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { provisionFontForAppRoot } from './e2e-font.js';
+import { SKILL_FIXTURE_CONTENT, SKILL_FIXTURE_NAME } from './test/support/fixtures.js';
 import { resolveE2eAppBinaryPath, resolveTauriBuildArgs } from './wdio.paths.js';
 import { withE2eWebView2Env } from './webview2-env.js';
 
@@ -183,6 +184,8 @@ export const config = {
             path.join(__dirname, 'test/specs/main-window-visual.e2e.js'),
             path.join(__dirname, 'test/specs/conversation-scroll.e2e.js'),
             path.join(__dirname, 'test/specs/search-smoke.e2e.js'),
+            path.join(__dirname, 'test/specs/file-reference.e2e.js'),
+            path.join(__dirname, 'test/specs/search-text-layout.e2e.js'),
             path.join(__dirname, 'test/specs/settings-smoke.e2e.js'),
             path.join(__dirname, 'test/specs/prompt-compose.e2e.js'),
             path.join(__dirname, 'test/specs/window-size.e2e.js'),
@@ -292,6 +295,17 @@ export const config = {
 
         sessionRuntimePath = path.resolve(runtimeRoot, `session-${Date.now()}`);
         fs.mkdirSync(sessionRuntimePath, { recursive: true });
+        const userHome = path.join(sessionRuntimePath, 'user-home');
+        const appData = path.join(userHome, 'AppData', 'Roaming');
+        const localAppData = path.join(userHome, 'AppData', 'Local');
+        if (process.platform === 'win32') {
+            // Windows rejects known-folder lookups when the isolated profile lacks these folders.
+            fs.mkdirSync(appData, { recursive: true });
+            fs.mkdirSync(localAppData, { recursive: true });
+        }
+        const skillDirectory = path.join(userHome, '.agents', 'skills', SKILL_FIXTURE_NAME);
+        fs.mkdirSync(skillDirectory, { recursive: true });
+        fs.writeFileSync(path.join(skillDirectory, 'SKILL.md'), SKILL_FIXTURE_CONTENT);
 
         // Without the product font the app falls back to a generic serif and every
         // screenshot stops matching what a user sees. Provisioning is verified
@@ -318,6 +332,11 @@ export const config = {
                     TEMP: resolveTempDirectory(),
                     TOUCHAI_APP_ROOT: sessionRuntimePath,
                     TOUCHAI_E2E: '1',
+                    USERPROFILE: userHome,
+                    HOME: userHome,
+                    ...(process.platform === 'win32'
+                        ? { APPDATA: appData, LOCALAPPDATA: localAppData }
+                        : {}),
                     TMP: resolveTempDirectory(),
                 },
                 { userDataFolder: webviewUserDataFolder }

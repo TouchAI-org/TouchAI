@@ -81,7 +81,7 @@ const originalThresholds = {
         functions: 75,
         lines: 80,
     },
-    'src/views/SearchView/components/QuickSearchPanel/utils/**/*.ts': {
+    'src/utils/searchHighlight.ts': {
         statements: 95,
         branches: 60,
         functions: 100,

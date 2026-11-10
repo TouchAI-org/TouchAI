@@ -144,8 +144,8 @@ afterEach(() => {
 
 describe('when the panel shows results as a list', () => {
     it('user gets a later starting row than the grid layout would use for the same scroll', async () => {
-        // List rows are 40px, grid tiles 88px: at 400px scrolled the list is already
-        // past row 9 while the grid is still around row 4.
+        // List rows are 48px, grid tiles 88px: at 400px scrolled the list is already
+        // past row 7 while the grid is still around row 4.
         const items = Array.from({ length: 40 }, (_, index) =>
             createItem(`Item ${index}`, `D:/list/item-${index}.lnk`)
         );
@@ -162,10 +162,9 @@ describe('when the panel shows results as a list', () => {
         await vi.advanceTimersByTimeAsync(0);
         await flushAsyncWork();
 
-        // A batch holds at most 4 icons, and the first one is from the list viewport.
+        // The visible list rows take priority over offscreen preloading.
         const requested = mockCalls(context.deps.getShortcutIcons)[0]![0] as string[];
-        expect(requested).toHaveLength(4);
-        expect(requested[0]).toBe('D:/list/item-9.lnk');
+        expect(requested[0]).toBe('D:/list/item-7.lnk');
 
         context.loader.resetLoadingState();
     });

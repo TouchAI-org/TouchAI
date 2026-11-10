@@ -26,6 +26,7 @@ const { assetLoaderMock, clickStatsMock, contextMenuState, layoutMock, openPathM
             pruneIconMaps: vi.fn(),
         },
         clickStatsMock: {
+            prefetch: vi.fn(async () => undefined),
             rankResults: vi.fn(async (_query: string, items: QuickShortcutItem[]) => items),
             recordClick: vi.fn(),
         },

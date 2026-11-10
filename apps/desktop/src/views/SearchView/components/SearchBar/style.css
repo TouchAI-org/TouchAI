@@ -7,14 +7,14 @@
     font-size: 1.125rem; /* text-lg */
     line-height: 1.5rem;
     caret-color: var(--color-gray-500);
-    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    font-family: var(--font-sans);
     word-break: break-word;
     white-space: pre-wrap;
 }
 
 /* 框选期间禁用标签的 pointer-events，避免鼠标经过标签时中断选区 */
-.search-bar-editor-host--range-selecting :deep(.search-tag-chip),
-.search-bar-editor-host--range-selecting :deep(.search-tag-close) {
+.search-bar-editor-host--range-selecting :deep([data-search-tag]),
+.search-bar-editor-host--range-selecting :deep([data-tag-close]) {
     pointer-events: none;
 }
 
@@ -36,22 +36,32 @@
     user-select: none;
 }
 
+:deep([data-inline-completion]) {
+    color: var(--color-search-muted);
+    pointer-events: none;
+    user-select: none;
+}
+
+:deep([data-inline-completion])::after {
+    content: attr(data-inline-completion);
+}
+
 /* 标签为原子节点，禁用浏览器原生 ::selection 高亮，由 range-selected 类统一控制 */
-:deep(.search-tag-chip::selection),
-:deep(.search-tag-chip *::selection) {
+:deep([data-search-tag]::selection),
+:deep([data-search-tag] *::selection) {
     background: transparent;
     color: inherit;
 }
 
-:deep(.search-tag-chip::-moz-selection),
-:deep(.search-tag-chip *::-moz-selection) {
+:deep([data-search-tag]::-moz-selection),
+:deep([data-search-tag] *::-moz-selection) {
     background: transparent;
     color: inherit;
 }
 
 /* ─── 标签通用样式 ─────────────────────────────────────────────── */
 
-:deep(.search-tag-chip) {
+:deep([data-search-tag]) {
     display: inline-block;
     box-sizing: border-box;
     border-radius: 0.375rem;
@@ -76,13 +86,24 @@
     min-height: 1.5rem;
 }
 
+:deep([data-search-tag-kind='skill']),
+:deep([data-attachment-file]) {
+    display: inline;
+    margin-right: 0;
+    border-radius: var(--radius-xs);
+    font-size: inherit;
+    line-height: inherit;
+    vertical-align: baseline;
+    white-space: normal;
+}
+
 :deep(.search-tag-label) {
     display: block;
     line-height: 1;
     pointer-events: none;
 }
 
-:deep(.search-tag-close) {
+:deep([data-tag-close]) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -104,15 +125,16 @@
 }
 
 /* 范围选中标签的高亮样式（由 createTagRangeSelectionPlugin 添加） */
-:deep(.search-tag-chip.search-tag-range-selected) {
+:deep([data-search-tag].search-tag-range-selected),
+:deep([data-search-tag][data-range-selected='true']) {
     background-color: var(--color-selection-bg);
 }
 
 /* 单独选中标签时的边框高亮（ProseMirror NodeSelection） */
-:deep(.search-tag-chip.ProseMirror-selectednode) {
+:deep([data-search-tag].ProseMirror-selectednode) {
     box-shadow: inset 0 0 0 1px var(--color-selection-outline);
 }
 
-:deep(.search-tag-close:active) {
+:deep([data-tag-close]:active) {
     scale: var(--scale-small);
 }

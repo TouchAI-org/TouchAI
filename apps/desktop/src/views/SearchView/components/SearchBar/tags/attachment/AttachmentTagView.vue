@@ -1,6 +1,6 @@
 <!--
   附件标签 Vue NodeView。
-  根据 fileType 动态展示：图片显示缩略图预览，文件显示截断文件名。
+  根据 fileType 动态展示：图片显示缩略图预览，文件显示行内引用。
   支持 supportStatus 驱动置灰（opacity + grayscale）和悬停提示。
 -->
 <template>
@@ -18,10 +18,22 @@
         data-no-i18n="true"
         translate="no"
         :data-attachment-id="node.attrs.attachmentId"
+        :data-attachment-file="!isImage ? '' : undefined"
         :title="tooltipText"
         contenteditable="false"
     >
-        <span class="search-tag-content">
+        <span
+            v-if="!isImage"
+            class="inline-flex max-w-full min-w-0 items-baseline gap-1 align-baseline text-text-info"
+        >
+            <AppIcon
+                name="document-text"
+                class="h-4 w-4 shrink-0 translate-y-0.5 self-center"
+                aria-hidden="true"
+            />
+            <span class="min-w-0 break-words">{{ fileName }}</span>
+        </span>
+        <span v-else class="search-tag-content">
             <img
                 v-if="node.attrs.preview"
                 :src="node.attrs.preview"
@@ -30,14 +42,6 @@
                 data-no-i18n="true"
                 translate="no"
             />
-            <span
-                v-if="!isImage"
-                class="search-tag-label search-tag-label--attachment"
-                data-no-i18n="true"
-                translate="no"
-            >
-                {{ truncatedName }}
-            </span>
             <button
                 class="search-tag-close search-tag-close--attachment"
                 data-tag-close
@@ -52,6 +56,7 @@
 </template>
 
 <script setup lang="ts">
+    import AppIcon from '@components/AppIcon.vue';
     import type { NodeViewProps } from '@tiptap/core';
     import { NodeViewWrapper } from '@tiptap/vue-3';
     import { computed } from 'vue';
@@ -64,10 +69,6 @@
 
     const fileName = computed(() => props.node.attrs.fileName || 'file');
     const isImage = computed(() => props.node.attrs.fileType === 'image');
-    const truncatedName = computed(() => {
-        const name = fileName.value;
-        return name.length > 12 ? name.slice(0, 10) + '…' : name;
-    });
 
     /**
      * 范围选区高亮：ProseMirror 的原生 ::selection 无法覆盖原子节点，
@@ -96,16 +97,13 @@
 </script>
 
 <style scoped>
-    .search-tag-chip--attachment {
-        border: 0 solid transparent;
-        border-inline-width: 0.125rem;
-        background-clip: padding-box;
-        background-color: var(--color-gray-50);
-        padding: 0 0.375rem;
-        color: var(--color-gray-700);
+    .search-tag-chip--image {
+        background-color: var(--color-surface-hover);
+        padding: 0 var(--spacing);
+        color: var(--color-text-secondary);
         margin-left: 0;
         margin-right: 0;
-        box-shadow: inset 0 0 0 1px var(--color-gray-200);
+        box-shadow: inset 0 0 0 1px var(--color-border);
     }
 
     .search-tag-chip--unsupported {
@@ -113,46 +111,35 @@
         filter: grayscale(1);
     }
 
-    .search-tag-chip--image {
-        padding: 0 0.25rem;
-    }
-
     .search-tag-chip--image .search-tag-content {
-        gap: 0.25rem;
+        gap: var(--spacing);
     }
 
     .attachment-tag-preview {
         display: inline-block;
-        width: 1rem;
-        height: 1rem;
+        width: calc(var(--spacing) * 4);
+        height: calc(var(--spacing) * 4);
         flex-shrink: 0;
-        margin-right: 0.25rem;
-        border-radius: 0.25rem;
+        margin-right: var(--spacing);
+        border-radius: var(--radius-xs);
         object-fit: cover;
         pointer-events: none;
     }
 
-    .search-tag-label--attachment {
-        max-width: 6rem;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
     .search-tag-close--attachment {
-        color: var(--color-gray-500);
+        color: var(--color-text-tertiary);
     }
 
     .search-tag-close--attachment:hover {
-        background-color: var(--color-gray-200);
+        background-color: var(--color-surface-active);
     }
 
     .search-tag-chip--attachment.search-tag-range-selected {
-        box-shadow: inset 0 0 0 1px var(--color-blue-100);
+        box-shadow: inset 0 0 0 1px var(--color-selection-outline);
     }
 
     .search-tag-chip--attachment.ProseMirror-selectednode {
-        background-color: var(--color-blue-50);
-        box-shadow: inset 0 0 0 1px var(--color-blue-200);
+        background-color: var(--color-selection-bg);
+        box-shadow: inset 0 0 0 1px var(--color-selection-outline);
     }
 </style>

@@ -49,6 +49,8 @@ const {
                 $anchor: { pos: number };
             };
             doc: {
+                content: { size: number };
+                textBetween: (from: number, to: number) => string;
                 descendants: (
                     callback: (node: { type: { name: string } }) => boolean | void
                 ) => void;
@@ -73,6 +75,9 @@ const {
                     $anchor: { pos: 1 },
                 },
                 doc: {
+                    content: { size: 0 },
+                    textBetween: (from, to) =>
+                        this.__text.slice(Math.max(0, from - 1), Math.max(0, to - 1)),
                     descendants: (
                         callback: (node: { type: { name: string } }) => boolean | void
                     ) => {
@@ -81,6 +86,9 @@ const {
                 },
                 tr: { setMeta: vi.fn() },
             };
+            Object.defineProperty(this.state.doc, 'content', {
+                get: () => ({ size: this.__text.length + 2 }),
+            });
             this.view = {
                 dom: document.createElement('div'),
                 focus: () => this.view.dom.focus(),
@@ -532,14 +540,10 @@ describe('when the typed draft grows to several lines', () => {
         expect(result.isMultiLine.value).toBe(false);
 
         // Two paragraph nodes: the composer has to grow into a multi-line input.
-        const twoParagraphDoc = {
-            descendants: (callback: (node: { type: { name: string } }) => boolean | void) => {
-                callback({ type: { name: 'paragraph' } });
-                callback({ type: { name: 'paragraph' } });
-            },
+        editor.state.doc.descendants = (callback) => {
+            callback({ type: { name: 'paragraph' } });
+            callback({ type: { name: 'paragraph' } });
         };
-        editor.state.doc = twoParagraphDoc as never;
-        editor.view.state.doc = twoParagraphDoc as never;
         editor.__text = 'line one\nline two';
         triggerEditorUpdate('line one\nline two');
 

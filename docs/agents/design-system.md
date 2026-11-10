@@ -146,6 +146,18 @@ evidence.
   ring, radius, gutter and shadow together. Keep `--spacing-window-gutter` in sync with
   Rust's `WINDOW_SHADOW_GUTTER`.
 
+A local run on a scaled display resamples every capture back down, which costs a couple
+of percent on text-heavy screens before any code changes.
+`visualMismatchTolerance()` returns 2% at `devicePixelRatio === 1` and 5% above it, so
+the gate stays strict where it counts and a laptop can still run the suite.
+
+Be honest about what the budget buys: 2% of a 752x648 element is about 9,700 pixels, so
+a small control that disappears, or a one-pixel border that changes colour, can sit
+inside it. The baselines catch what moves a visible share of a screen — a token swap, a
+spacing change, a font change, a section that no longer renders. If a specific small
+control matters, assert it directly with a `data-testid` check, or give it a story so
+the component layer measures it in isolation.
+
 ### The widget contract
 
 The `show-widget` tool asks the model to style generated HTML against a fixed set of

@@ -45,6 +45,40 @@ function createScrollContainer(
     return container;
 }
 
+class ResizeObserverMock {
+    static instances: ResizeObserverMock[] = [];
+
+    readonly observed: Element[] = [];
+    disconnected = false;
+
+    constructor(private readonly callback: ResizeObserverCallback) {
+        ResizeObserverMock.instances.push(this);
+    }
+
+    observe(element: Element) {
+        this.observed.push(element);
+    }
+
+    disconnect() {
+        this.disconnected = true;
+    }
+
+    emit(element = this.observed[0]) {
+        if (!element) throw new Error('No observed viewport');
+        this.callback(
+            [{ target: element } as unknown as ResizeObserverEntry],
+            this as unknown as ResizeObserver
+        );
+    }
+}
+
+function setClientHeight(container: HTMLElement, clientHeight: number) {
+    Object.defineProperty(container, 'clientHeight', {
+        configurable: true,
+        value: clientHeight,
+    });
+}
+
 function createAssetMap(paths: string[], prefix: string) {
     return Object.fromEntries(paths.map((path) => [path, `${prefix}:${path}`]));
 }
@@ -142,11 +176,97 @@ describe('when the quick search panel loads icons and previews', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         vi.useFakeTimers();
+        ResizeObserverMock.instances = [];
+        vi.stubGlobal('ResizeObserver', ResizeObserverMock);
     });
 
     afterEach(() => {
         vi.useRealTimers();
+        vi.unstubAllGlobals();
         document.body.innerHTML = '';
+    });
+
+    it('user gets icons immediately after the current search settles', async () => {
+        const context = createLoaderContext({
+            items: [createItem('Report', 'D:/docs/report.txt', 'file')],
+            searchInFlight: true,
+        });
+        context.loader.scheduleIconLoad();
+        expect(context.loader.iconMap.value).toEqual({});
+
+        context.searchInFlight.value = false;
+        context.loader.flushPendingLoads();
+        await vi.advanceTimersByTimeAsync(0);
+        await flushAsyncWork();
+
+        expect(context.loader.iconMap.value['D:/docs/report.txt']).toBe('icon:D:/docs/report.txt');
+        context.loader.resetLoadingState();
+    });
+
+    it('user sees both visible grid rows when the first icon request finishes', async () => {
+        const ready = deferred<void>();
+        const items = Array.from({ length: 14 }, (_, index) =>
+            createItem(`App ${index}`, `D:/apps/app-${index}.lnk`)
+        );
+        const context = createLoaderContext({
+            items,
+            gridColumns: 7,
+            clientHeight: 200,
+            deps: {
+                getShortcutIcons: async (paths) => {
+                    await ready.promise;
+                    return createAssetMap(paths, 'icon');
+                },
+            },
+        });
+        context.loader.scheduleIconLoad(context.requestId.value, true);
+        await vi.advanceTimersByTimeAsync(0);
+        ready.resolve();
+        await flushAsyncWork();
+
+        expect(context.loader.iconMap.value).toEqual(
+            createAssetMap(
+                items.map((item) => item.path),
+                'icon'
+            )
+        );
+        context.loader.resetLoadingState();
+    });
+
+    it('user sees newly revealed rows load when the rendered viewport grows', async () => {
+        const items = Array.from({ length: 36 }, (_, index) =>
+            createItem(`File ${index + 1}`, `D:/files/file-${index + 1}.md`, 'file')
+        );
+        const context = createLoaderContext({
+            items,
+            gridColumns: 7,
+            clientHeight: 96,
+        });
+
+        context.loader.scheduleIconLoad(context.requestId.value, true);
+        await vi.advanceTimersByTimeAsync(0);
+        await flushAsyncWork();
+
+        expect(context.loader.iconMap.value).toEqual(
+            createAssetMap(
+                items.slice(0, 21).map((item) => item.path),
+                'icon'
+            )
+        );
+
+        setClientHeight(context.scrollRef.value!, 392);
+        ResizeObserverMock.instances[ResizeObserverMock.instances.length - 1]!.emit(
+            context.scrollRef.value!
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        await flushAsyncWork();
+
+        expect(context.loader.iconMap.value).toEqual(
+            createAssetMap(
+                items.map((item) => item.path),
+                'icon'
+            )
+        );
     });
 
     it('user gets the icons of the visible rows requested, shortcuts first', async () => {
@@ -174,16 +294,15 @@ describe('when the quick search panel loads icons and previews', () => {
         await flushAsyncWork();
 
         expect(context.deps.getShortcutIcons).toHaveBeenCalledTimes(1);
-        expect(context.deps.getShortcutIcons).toHaveBeenCalledWith(
-            [
-                'D:/visible/shortcut-1.lnk',
-                'D:/visible/shortcut-2.lnk',
-                'D:/visible/file-1.txt',
-                'D:/visible/file-2.txt',
-            ],
-            48
-        );
-        expect(context.loader.iconMap.value).toEqual({
+        const requested = vi.mocked(context.deps.getShortcutIcons).mock.calls[0]![0];
+        expect(requested.slice(0, 4)).toEqual([
+            'D:/visible/shortcut-1.lnk',
+            'D:/visible/shortcut-2.lnk',
+            'D:/visible/file-1.txt',
+            'D:/visible/file-2.txt',
+        ]);
+        expect(requested.some((path) => path.endsWith('.png'))).toBe(false);
+        expect(context.loader.iconMap.value).toMatchObject({
             'D:/visible/shortcut-1.lnk': 'icon:D:/visible/shortcut-1.lnk',
             'D:/visible/shortcut-2.lnk': 'icon:D:/visible/shortcut-2.lnk',
             'D:/visible/file-1.txt': 'icon:D:/visible/file-1.txt',

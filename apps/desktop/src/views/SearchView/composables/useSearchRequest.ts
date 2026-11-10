@@ -658,6 +658,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         const inputSnapshot = createInputHistorySnapshot({
             text: userMessage.inputSnapshot?.text ?? userMessage.content,
             attachments: userMessage.inputSnapshot?.attachments ?? userMessage.attachments ?? [],
+            skills: userMessage.inputSnapshot?.skills ?? [],
             editorDoc: userMessage.inputSnapshot?.editorDoc,
             excludeFromHistory: true,
         });

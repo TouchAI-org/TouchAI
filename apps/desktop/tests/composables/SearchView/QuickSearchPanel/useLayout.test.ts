@@ -25,6 +25,121 @@ async function flushAsyncWork() {
 }
 
 describe('when the quick search panel lays out its results', () => {
+    it.each(['grid', 'list'] as const)(
+        'user given more %s results when scrolling past the first batch then expands once before scrolling normally',
+        (mode) => {
+            const scrollElement = document.createElement('div');
+            setReadonlyNumber(scrollElement, 'clientWidth', 400);
+            const results = ref(Array.from({ length: 60 }, (_, index) => createShortcut(index)));
+            const layout = useLayout({
+                isOpen: ref(true),
+                results,
+                highlightedIndex: ref(-1),
+                scrollRef: ref(scrollElement),
+            });
+            if (mode === 'list') layout.toggleViewMode();
+            layout.resetLayoutState();
+            layout.updateLayout();
+            const initialHeight = layout.selectionMaxHeight.value;
+            const upward = new WheelEvent('wheel', { deltaY: -120, cancelable: true });
+            layout.handleWheel(upward);
+            expect(layout.selectionMaxHeight.value).toBe(initialHeight);
+            expect(upward.defaultPrevented).toBe(false);
+
+            const downward = new WheelEvent('wheel', { deltaY: 120, cancelable: true });
+            layout.handleWheel(downward);
+            expect(layout.selectionMaxHeight.value).toBeGreaterThan(initialHeight);
+            expect(downward.defaultPrevented).toBe(true);
+            expect(scrollElement.scrollTop).toBe(0);
+
+            const expandedHeight = layout.selectionMaxHeight.value;
+            const nextScroll = new WheelEvent('wheel', { deltaY: 120, cancelable: true });
+            layout.handleWheel(nextScroll);
+            expect(layout.selectionMaxHeight.value).toBe(expandedHeight);
+            expect(nextScroll.defaultPrevented).toBe(false);
+
+            results.value = [createShortcut(1)];
+            layout.resetLayoutState();
+            layout.updateLayout();
+            const shortHeight = layout.selectionMaxHeight.value;
+            const shortScroll = new WheelEvent('wheel', { deltaY: 120, cancelable: true });
+            layout.handleWheel(shortScroll);
+            expect(layout.selectionMaxHeight.value).toBe(shortHeight);
+            expect(shortScroll.defaultPrevented).toBe(false);
+        }
+    );
+
+    it.each(['grid', 'list'] as const)(
+        'user navigates back into the first %s batch and sees the panel collapse then expand when leaving it again',
+        (mode) => {
+            const scrollElement = document.createElement('div');
+            setReadonlyNumber(scrollElement, 'clientWidth', 400);
+            const highlightedIndex = ref(-1);
+            const layout = useLayout({
+                isOpen: ref(true),
+                results: ref(Array.from({ length: 60 }, (_, index) => createShortcut(index))),
+                highlightedIndex,
+                scrollRef: ref(scrollElement),
+            });
+            if (mode === 'list') layout.toggleViewMode();
+            layout.updateLayout();
+            const initialHeight = layout.selectionMaxHeight.value;
+            const initialRows = layout.visibleRows.value;
+            for (let index = 0; index <= initialRows; index++) layout.moveSelection('down');
+            expect(layout.selectionMaxHeight.value).toBeGreaterThan(initialHeight);
+            layout.moveSelection('up');
+            expect(layout.selectionMaxHeight.value).toBe(initialHeight);
+            layout.moveSelection('down');
+            expect(layout.selectionMaxHeight.value).toBeGreaterThan(initialHeight);
+        }
+    );
+
+    it('user given a collapsed grid when switching layout then keeps the first batch until requesting more', () => {
+        const layout = useLayout({
+            isOpen: ref(true),
+            results: ref(Array.from({ length: 60 }, (_, index) => createShortcut(index))),
+            highlightedIndex: ref(-1),
+            scrollRef: ref(null),
+        });
+        layout.toggleViewMode();
+        expect(layout.selectionMaxHeight.value).toBe(304);
+        layout.toggleViewMode();
+        expect(layout.selectionMaxHeight.value).toBe(200);
+    });
+
+    it.each(['grid', 'list'] as const)(
+        'user given a height-constrained %s picker when moving below the viewport then sees the active row',
+        async (mode) => {
+            const frames: FrameRequestCallback[] = [];
+            vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+                frames.push(callback);
+                return frames.length;
+            });
+            const scrollElement = document.createElement('div');
+            setReadonlyNumber(scrollElement, 'clientWidth', 220);
+            setReadonlyNumber(scrollElement, 'clientHeight', 200);
+            setReadonlyNumber(scrollElement, 'scrollHeight', 2000);
+            const highlightedIndex = ref(-1);
+            const layout = useLayout({
+                isOpen: ref(true),
+                results: ref(Array.from({ length: 40 }, (_, i) => createShortcut(i))),
+                highlightedIndex,
+                scrollRef: ref(scrollElement),
+            });
+            if (mode === 'list') layout.toggleViewMode();
+            layout.updateLayout();
+            for (let i = 0; i < 8; i++) {
+                layout.moveSelection('down');
+                while (frames.length) frames.shift()!(performance.now());
+            }
+            const row = mode === 'list' ? highlightedIndex.value : highlightedIndex.value / 2;
+            const rowTop = 8 + row * (mode === 'list' ? 48 : 96);
+            const rowBottom = rowTop + (mode === 'list' ? 48 : 88);
+            expect(rowTop).toBeGreaterThanOrEqual(scrollElement.scrollTop);
+            expect(rowBottom).toBeLessThanOrEqual(scrollElement.scrollTop + 200);
+        }
+    );
+
     beforeEach(() => {
         vi.clearAllMocks();
     });
@@ -98,7 +213,7 @@ describe('when the quick search panel lays out its results', () => {
         expect(layout.visibleRows.value).toBe(2);
         expect(layout.selectionMaxHeight.value).toBe(200);
         expect(layout.gridStyle.value).toEqual({
-            gridTemplateColumns: 'repeat(4, 88px)',
+            gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
             gap: '8px',
         });
     });
@@ -239,7 +354,7 @@ describe('when the quick search panel lays out its results', () => {
         // Toggle to list should set expanded list rows.
         layout.toggleViewMode();
         expect(layout.viewMode.value).toBe('list');
-        expect(layout.visibleRows.value).toBe(15);
+        expect(layout.visibleRows.value).toBe(10);
 
         // Toggle back to grid should set expanded grid rows.
         layout.toggleViewMode();
@@ -372,11 +487,11 @@ describe('when the quick search panel lays out its results', () => {
         });
 
         layout.toggleViewMode();
-        layout.setVisibleRows(15);
-        expect(layout.visibleRows.value).toBe(15);
+        layout.setVisibleRows(10);
+        expect(layout.visibleRows.value).toBe(10);
 
         layout.resetLayoutState();
-        expect(layout.visibleRows.value).toBe(8);
+        expect(layout.visibleRows.value).toBe(6);
     });
 
     it('user sees the layout measured after the panel renders', async () => {

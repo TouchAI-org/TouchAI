@@ -30,6 +30,8 @@
     --motion-status-delay-2: -160ms;
     --motion-loading-cycle: 2600ms;
     --motion-spinner-cycle: 800ms;
+    --motion-description-delay: 700ms;
+    --motion-description-pixel-duration: 40ms;
 }
 
 /* Shared by reasoning and context status; text geometry stays unchanged. */

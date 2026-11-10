@@ -28,6 +28,7 @@ export function useDragging(options: UseDraggingOptions) {
     let suppressNextEditorClick = false;
     // 超时句柄，用于在未触发 click 时自动清除抑制标记
     let suppressClickTimeout: ReturnType<typeof setTimeout> | null = null;
+    let cancelPendingGesture: (() => void) | null = null;
     // 允许在文本可选区域附近多少像素内仍视为"文本选择意图"而非"拖拽意图"。
     const textSelectionSlopPx = 8;
 
@@ -124,11 +125,15 @@ export function useDragging(options: UseDraggingOptions) {
      * @param event 鼠标按下事件。
      * @returns Promise<void>
      */
-    async function handleContainerMouseDown(event: MouseEvent) {
+    function handleContainerMouseDown(event: MouseEvent) {
         const target = event.target;
         const currentTarget = event.currentTarget;
 
-        if (!(target instanceof HTMLElement) || !(currentTarget instanceof HTMLElement)) {
+        if (
+            event.button !== 0 ||
+            !(target instanceof HTMLElement) ||
+            !(currentTarget instanceof HTMLElement)
+        ) {
             return;
         }
 
@@ -143,17 +148,18 @@ export function useDragging(options: UseDraggingOptions) {
             return;
         }
 
-        await startDragging(event);
+        trackBlankAreaGesture(event, () => editor.value?.commands.focus('end'));
     }
 
     /**
-     * 编辑器拖拽入口：编辑器无内容时整体充当拖拽区域。
-     * 有内容时不拦截，保留文本编辑体验。
+     * 编辑器空白处先保留点击，移动超过阈值后才启动窗口拖动。
+     * 文本附近不介入，让浏览器处理光标定位与选择。
      *
      * @param event 鼠标按下事件。
      * @returns void
      */
     function handleEditorMouseDown(event: MouseEvent): boolean {
+        cancelPendingGesture?.();
         const ed = editor.value;
         if (!ed || event.button !== 0) return false;
 
@@ -167,31 +173,33 @@ export function useDragging(options: UseDraggingOptions) {
             !ed.isEmpty &&
             isBlankEditorAreaTarget(target) &&
             !isNearSelectableTextBoundary(ed, event);
-        if (isBlankAreaDrag) {
-            // Tauri 的原生拖动必须由原始 mousedown 手势启动。若等到
-            // mousemove 才调用，WebView2 可能已经把手势交给 contenteditable，
-            // 导致有文本时的编辑器空白区无法拖动窗口。
-            event.preventDefault();
-            void startDragging(event);
-            return true;
-        }
-
-        if (!ed.isEmpty) {
+        if (!ed.isEmpty && !isBlankAreaDrag) {
             return false;
         }
 
+        trackBlankAreaGesture(event, () => ed.commands.focus('end'));
+        return true;
+    }
+
+    function trackBlankAreaGesture(event: MouseEvent, onClick?: () => void) {
+        clearEditorSelectionDragState();
+        // Reserve blank space for the click/drag decision instead of handing it to
+        // contenteditable's selection gesture before native dragging can begin.
+        event.preventDefault();
         const startX = event.clientX;
         const startY = event.clientY;
         const dragThreshold = 4;
-        let dragStarted = false;
 
         const cleanup = () => {
             window.removeEventListener('mousemove', handleMouseMove, true);
             window.removeEventListener('mouseup', handleMouseUp, true);
+            window.removeEventListener('blur', cleanup, true);
+            if (cancelPendingGesture === cleanup) cancelPendingGesture = null;
         };
 
         const handleMouseMove = (moveEvent: MouseEvent) => {
-            if (dragStarted) {
+            if (!(moveEvent.buttons & 1)) {
+                cleanup();
                 return;
             }
 
@@ -201,7 +209,6 @@ export function useDragging(options: UseDraggingOptions) {
                 return;
             }
 
-            dragStarted = true;
             suppressNextEditorClick = true;
             // 设置超时：如果 500ms 内没有 click 事件，自动清除抑制标记
             suppressClickTimeout = setTimeout(() => {
@@ -215,11 +222,13 @@ export function useDragging(options: UseDraggingOptions) {
 
         const handleMouseUp = () => {
             cleanup();
+            onClick?.();
         };
 
+        cancelPendingGesture = cleanup;
         window.addEventListener('mousemove', handleMouseMove, true);
         window.addEventListener('mouseup', handleMouseUp, true);
-        return false;
+        window.addEventListener('blur', cleanup, true);
     }
 
     /**
@@ -227,6 +236,7 @@ export function useDragging(options: UseDraggingOptions) {
      * 在组件卸载时调用，防止内存泄漏。
      */
     function clearEditorSelectionDragState() {
+        cancelPendingGesture?.();
         if (suppressClickTimeout !== null) {
             clearTimeout(suppressClickTimeout);
             suppressClickTimeout = null;

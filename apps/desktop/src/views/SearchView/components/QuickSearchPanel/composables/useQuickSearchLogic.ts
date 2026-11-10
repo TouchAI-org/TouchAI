@@ -15,13 +15,25 @@ import { openPath, revealItemInDir } from '@tauri-apps/plugin-opener';
 import { computed, nextTick, onMounted, onUnmounted, type Ref, ref, watch } from 'vue';
 
 import { t } from '@/i18n';
-import { createPerfTrace } from '@/utils/perfTrace';
-
 import {
-    buildMatchTokens,
-    type NameSegment,
-    splitNameByTokens,
-} from '../utils/quickSearchHighlight';
+    SearchActionDispatcher,
+    type SearchActionOutcome,
+    searchActions,
+    type SearchActivationContext,
+    type SearchMatch,
+    type SearchProviderRegistry,
+    searchProviders,
+    type SearchSnapshot,
+} from '@/services/SearchService';
+import { loadFileReferenceSuggestions } from '@/services/SearchService/fileReferenceHistory';
+import {
+    createFileSearchProvider,
+    type FileOpenAction,
+    fileSearchItem,
+} from '@/services/SearchService/files';
+import { createPerfTrace } from '@/utils/perfTrace';
+import { buildMatchTokens, type NameSegment, splitNameByTokens } from '@/utils/searchHighlight';
+
 import { useAssetLoader } from './useAssetLoader';
 import { COLLAPSED_VISIBLE_ROWS, useLayout } from './useLayout';
 import { useQuickSearchClickStats } from './useQuickSearchClickStats';
@@ -45,12 +57,19 @@ function createContextMenuItems(): ContextMenuItem[] {
 }
 
 interface UseQuickSearchFlowOptions {
+    onActionOutcome?: (outcome: SearchActionOutcome) => void;
     searchQuery: Ref<string>;
     enabled: Ref<boolean>;
+    referenceMode?: Readonly<Ref<boolean>>;
+    autoSelectFirst?: Readonly<Ref<boolean>>;
+    showEmptyResults?: Readonly<Ref<boolean>>;
     emitOpenUpdate: (value: boolean) => void;
     isOpen: Ref<boolean>;
     handoff?: Readonly<Ref<boolean>>;
-    results: Ref<QuickShortcutItem[]>;
+    results: Ref<SearchMatch[]>;
+    getActivationContext?: () => Partial<
+        Omit<SearchActivationContext, 'query' | 'epoch' | 'intent' | 'signal'>
+    >;
     highlightedIndex: Ref<number>;
     itemRefs: Ref<HTMLElement[]>;
     requestId: Ref<number>;
@@ -74,12 +93,17 @@ export interface UseQuickSearchDeps {
     quickSearch: Pick<typeof native.quickSearch, 'getStatus' | 'prepareIndex' | 'searchShortcuts'>;
     window: Pick<typeof native.window, 'hideSearchWindow'>;
     openPath: typeof openPath;
+    registry?: SearchProviderRegistry;
+    actions?: SearchActionDispatcher;
+    loadReferenceSuggestions?: (limit: number, signal: AbortSignal) => Promise<QuickShortcutItem[]>;
 }
 
 const DEFAULT_DEPS: UseQuickSearchDeps = {
     quickSearch: native.quickSearch,
     window: native.window,
     openPath,
+    loadReferenceSuggestions: (limit, signal) =>
+        loadFileReferenceSuggestions(native.quickSearch, limit, signal),
 };
 
 type E2EQuickSearchBridge = Window & {
@@ -103,11 +127,16 @@ function resolveE2eQuickSearchFallbackResults(query: string): QuickShortcutItem[
 }
 
 interface UseQuickSearchLogicOptions {
+    onActionOutcome?: UseQuickSearchFlowOptions['onActionOutcome'];
     open: Ref<boolean>;
     searchQuery: Ref<string>;
     enabled: Ref<boolean>;
+    referenceMode?: Readonly<Ref<boolean>>;
     emitOpenUpdate: (value: boolean) => void;
     handoff?: Readonly<Ref<boolean>>;
+    compact?: Readonly<Ref<boolean>>;
+    maxHeight?: Readonly<Ref<number | undefined>>;
+    getActivationContext?: UseQuickSearchFlowOptions['getActivationContext'];
 }
 
 /**
@@ -149,7 +178,90 @@ function useQuickSearchFlow(
     // 1. 搜索流程状态
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let lastSearchedQuery = '';
+    const searchState = ref<'idle' | 'loading' | 'ready' | 'error'>('idle');
     const clickStats = useQuickSearchClickStats();
+    const session = (deps.registry ?? searchProviders).createSession([
+        createFileSearchProvider(deps.quickSearch, {
+            rank: (query, items) =>
+                items.length ? clickStats.rankResults(query, items) : Promise.resolve(items),
+            fallback: resolveE2eQuickSearchFallbackResults,
+            loadReferenceSuggestions: deps.loadReferenceSuggestions,
+        }),
+    ]);
+    const actions = new SearchActionDispatcher(deps.actions ?? searchActions);
+    actions.register<FileOpenAction>('file.open', async (action, context) => {
+        clickStats.recordClick(context.query, action.path);
+        await deps.openPath(action.path);
+        return { status: 'completed' };
+    });
+    let visibleEpoch = -1;
+    const unsubscribe = session.subscribe(applySnapshot);
+
+    function applySnapshot(snapshot: SearchSnapshot) {
+        if (
+            !enabled.value ||
+            options.handoff?.value ||
+            snapshot.query !== searchQuery.value.trim() ||
+            (!snapshot.query && !options.referenceMode?.value)
+        )
+            return;
+        const newQuery = snapshot.epoch !== visibleEpoch;
+        // Retain the previous painted rows while a new query is pending. Their
+        // provenance is already invalid, so neither pointer nor keyboard can use them.
+        if (newQuery && snapshot.loading && !snapshot.items.length) {
+            searchState.value = 'loading';
+            return;
+        }
+        const previousKey = results.value[highlightedIndex.value]?.key;
+        results.value = [...snapshot.items];
+        totalResults.value = snapshot.providers.reduce((sum, provider) => sum + provider.total, 0);
+        totalFiles.value = snapshot.providers.reduce(
+            (sum, provider) => sum + (provider.totals?.file ?? 0),
+            0
+        );
+        nextOffset.value = Number(
+            snapshot.providers.find((provider) => provider.providerId === 'files')?.nextCursor ?? 0
+        );
+        searchState.value = snapshot.loading
+            ? 'loading'
+            : snapshot.providers.some((provider) => provider.error) && !snapshot.items.length
+              ? 'error'
+              : 'ready';
+        if (newQuery) {
+            visibleEpoch = snapshot.epoch;
+            currentPage.value = 0;
+            resetLoadingState();
+            itemRefs.value = [];
+            highlightedIndex.value =
+                options.autoSelectFirst?.value && results.value.length ? 0 : -1;
+            setVisibleRows(COLLAPSED_VISIBLE_ROWS);
+        } else {
+            highlightedIndex.value = previousKey
+                ? results.value.findIndex((item) => item.key === previousKey)
+                : -1;
+            if (
+                highlightedIndex.value < 0 &&
+                options.autoSelectFirst?.value &&
+                results.value.length
+            )
+                highlightedIndex.value = 0;
+        }
+        lastSearchedQuery = snapshot.query;
+        if (!results.value.length && !snapshot.loading) {
+            settleSearchInteractionSession(0);
+            emitOpenUpdate(searchState.value === 'ready' && !!options.showEmptyResults?.value);
+            void syncLayout();
+            return;
+        }
+        if (results.value.length) {
+            emitOpenUpdate(true);
+            reportQuickSearchExposure();
+            void syncLayout().then(() => {
+                scheduleIconLoad(requestId.value, false);
+                scheduleImageLoad(requestId.value, false);
+            });
+        }
+    }
 
     // One quick-search interaction settles once, on selection, close or blur,
     // using the final stable results rather than any intermediate query.
@@ -290,14 +402,20 @@ function useQuickSearchFlow(
      */
     async function executeSearch(query: string) {
         const trimmedQuery = query.trim();
-        if (!trimmedQuery) {
+        if (!trimmedQuery && !options.referenceMode?.value) {
             if (options.handoff?.value) return;
             close();
             return;
         }
 
         // 相同查询且已有结果时跳过，避免失焦恢复等场景重复搜索覆盖多页结果。
-        if (trimmedQuery === lastSearchedQuery && results.value.length > 0) {
+        if (
+            trimmedQuery === lastSearchedQuery &&
+            session.snapshot.intent ===
+                (options.referenceMode?.value ? 'file-reference' : 'launcher') &&
+            results.value.length > 0 &&
+            results.value.every((item) => session.resolve(item))
+        ) {
             return;
         }
 
@@ -305,62 +423,30 @@ function useQuickSearchFlow(
         const searchTrace = createPerfTrace('quickSearch.query');
         // 点击统计与 native 查询并行加载：搜索通常更慢，等结果回来时统计多半已命中缓存。
         // 点击统计预取与原生搜索并行；统计实现不支持预取时退化为串行排序。
-        const clickStatsReady = Promise.resolve(clickStats.prefetch?.(trimmedQuery));
+        void clickStats.prefetch(trimmedQuery);
 
         try {
-            const searchResult = await deps.quickSearch.searchShortcuts(trimmedQuery, PAGE_SIZE, 0);
+            const snapshot = await session.search({
+                query: trimmedQuery,
+                intent: options.referenceMode?.value ? 'file-reference' : 'launcher',
+                limit: PAGE_SIZE,
+            });
             if (reqId !== requestId.value) return;
-
+            if (snapshot.stale) return;
             if (searchQuery.value.trim() !== trimmedQuery || !enabled.value) return;
-
-            let rankedShortcuts = searchResult.shortcuts;
-            if (searchResult.shortcuts.length > 0) {
-                await clickStatsReady;
-                rankedShortcuts = await clickStats.rankResults(trimmedQuery, rankedShortcuts);
-                if (reqId !== requestId.value) return;
-            }
-
-            let mergedResults = [...rankedShortcuts, ...searchResult.files];
-
-            if (mergedResults.length === 0) {
-                mergedResults = resolveE2eQuickSearchFallbackResults(trimmedQuery);
-                if (mergedResults.length === 0) {
-                    if (options.handoff?.value) return;
-                    // The previous query's results are no longer what the user
-                    // sees; settle with the real empty result before closing.
-                    settleSearchInteractionSession(0);
-                    close();
-                    return;
-                }
-            }
-
-            // Mount and measure the result DOM before asking the parent to
-            // reveal it. Emitting first exposes an empty shell to the native host,
-            // which can paint a large white panel before the result list exists.
-            results.value = mergedResults;
-            emitOpenUpdate(true);
-            reportQuickSearchExposure();
-            lastSearchedQuery = trimmedQuery;
-            totalFiles.value =
-                searchResult.total_files > 0
-                    ? searchResult.total_files
-                    : mergedResults.filter((item) => item.source === 'file').length;
-            totalResults.value =
-                searchResult.total_results > 0 ? searchResult.total_results : mergedResults.length;
-            nextOffset.value = searchResult.next_offset;
-            currentPage.value = 0;
-            itemRefs.value = [];
-            resetLoadingState();
-            highlightedIndex.value = -1;
-            setVisibleRows(COLLAPSED_VISIBLE_ROWS);
-            await syncLayout();
-            scheduleIconLoad(reqId, false);
-            scheduleImageLoad(reqId, false);
+            for (const provider of snapshot.providers)
+                if (provider.error)
+                    log.error(
+                        '[QuickSearchPanel] Search provider failed:',
+                        provider.providerId,
+                        provider.error
+                    );
         } catch (error) {
             log.error('[QuickSearchPanel] Failed to search shortcuts:', error);
             if (reqId === requestId.value && !options.handoff?.value) {
                 settleSearchInteractionSession(0);
                 close();
+                searchState.value = 'error';
             }
         } finally {
             searchTrace.end();
@@ -375,7 +461,7 @@ function useQuickSearchFlow(
      */
     function goToPage() {
         const query = searchQuery.value.trim();
-        if (!query) return;
+        if (!query && !options.referenceMode?.value) return;
         void executeSearch(query);
     }
 
@@ -387,25 +473,34 @@ function useQuickSearchFlow(
      */
     async function runSearchLoop(query: string) {
         let currentQuery = query.trim();
-        if (!currentQuery) {
-            if (!options.handoff?.value) close();
+        if (!currentQuery && !options.referenceMode?.value) {
+            if (!options.handoff?.value) {
+                close();
+            }
             return;
         }
 
         if (searchInFlight.value) {
+            const active = session.snapshot;
+            if (
+                active.query === currentQuery &&
+                active.intent === (options.referenceMode?.value ? 'file-reference' : 'launcher')
+            )
+                return;
             pendingQuery.value = currentQuery;
+            session.cancel();
             return;
         }
 
         searchInFlight.value = true;
         try {
-            while (currentQuery) {
+            while (true) {
                 await executeSearch(currentQuery);
 
-                const pending = pendingQuery.value?.trim() ?? '';
+                const pending = pendingQuery.value;
                 pendingQuery.value = null;
-                if (!pending || pending === currentQuery) break;
-                currentQuery = pending;
+                if (pending === null) break;
+                currentQuery = pending.trim();
             }
         } finally {
             searchInFlight.value = false;
@@ -422,6 +517,38 @@ function useQuickSearchFlow(
     function scheduleSearch(query: string) {
         if (options.handoff?.value) return;
         clearDebounceTimer();
+        if (
+            session.restorePrevious({
+                query: query.trim(),
+                intent: options.referenceMode?.value ? 'file-reference' : 'launcher',
+                limit: PAGE_SIZE,
+            })
+        ) {
+            pendingQuery.value = null;
+            return;
+        }
+        if (query.trim() !== lastSearchedQuery) searchState.value = 'loading';
+        if (options.referenceMode?.value) {
+            if (query.trim() !== lastSearchedQuery) {
+                requestId.value += 1;
+                resetLoadingState();
+                highlightedIndex.value = -1;
+                searchState.value = 'loading';
+            } else if (results.value.length > 0) {
+                requestId.value += 1;
+                searchState.value = 'ready';
+                if (options.autoSelectFirst?.value && highlightedIndex.value < 0)
+                    highlightedIndex.value = 0;
+            }
+            emitOpenUpdate(results.value.length > 0 || options.isOpen.value);
+        }
+        if (
+            session.snapshot.intent !==
+            (options.referenceMode?.value ? 'file-reference' : 'launcher')
+        ) {
+            void runSearchLoop(query);
+            return;
+        }
         debounceTimer = setTimeout(() => {
             void runSearchLoop(query);
         }, DEBOUNCE_MS);
@@ -436,7 +563,7 @@ function useQuickSearchFlow(
         if (!enabled.value) return;
 
         const query = searchQuery.value.trim();
-        if (!query) {
+        if (!query && !options.referenceMode?.value) {
             close();
             return;
         }
@@ -455,8 +582,10 @@ function useQuickSearchFlow(
         settleSearchInteractionSession();
         clearDebounceTimer();
         lastSearchedQuery = '';
+        searchState.value = 'idle';
         requestId.value += 1;
         pendingQuery.value = null;
+        session.cancel();
         resetLoadingState();
         emitOpenUpdate(false);
         if (!options.isOpen.value) resetResultState();
@@ -471,14 +600,14 @@ function useQuickSearchFlow(
     function triggerSearch(query: string) {
         if (!enabled.value) return;
 
-        if (!query.trim()) {
+        if (!query.trim() && !options.referenceMode?.value) {
             close();
             return;
         }
 
         // Keep the surface out of the layout while results are pending. The parent
         // uses the open state to switch to intrinsic sizing, so opening here would
-        // resize the host before the result panel exists (and shrink it again on no hits).
+        // resize the host before the completed result or empty state can be measured.
         beginSearchInteractionSession();
         scheduleSearch(query);
     }
@@ -516,7 +645,8 @@ function useQuickSearchFlow(
     }
 
     function handleContextMenu(event: MouseEvent, index: number) {
-        const item = results.value[index];
+        const match = results.value[index];
+        const item = match && session.resolve(match) ? fileSearchItem(match.result) : null;
         if (!item) return;
         highlightedIndex.value = index;
         isContextMenuOpen.value = true;
@@ -524,7 +654,8 @@ function useQuickSearchFlow(
     }
 
     function openContextMenuForItem(index: number) {
-        const item = results.value[index];
+        const match = results.value[index];
+        const item = match && session.resolve(match) ? fileSearchItem(match.result) : null;
         if (!item) return;
         highlightedIndex.value = index;
         const el = itemRefs.value[index];
@@ -552,26 +683,37 @@ function useQuickSearchFlow(
     }
 
     // Item interactions
-    function getHighlightedItem(): QuickShortcutItem | null {
+    function getHighlightedItem(): SearchMatch | null {
         if (highlightedIndex.value < 0) return null;
-        return results.value[highlightedIndex.value] ?? null;
+        const item = results.value[highlightedIndex.value];
+        return item && searchQuery.value.trim() === lastSearchedQuery
+            ? session.resolve(item)
+            : null;
+    }
+
+    function getReferenceCandidate(
+        index?: number,
+        expectedQuery = searchQuery.value
+    ): QuickShortcutItem | null {
+        if (
+            !enabled.value ||
+            !options.isOpen.value ||
+            options.handoff?.value ||
+            (!options.referenceMode?.value && !searchQuery.value.trim()) ||
+            (options.referenceMode?.value && searchState.value !== 'ready') ||
+            searchQuery.value.trim() !== lastSearchedQuery ||
+            expectedQuery.trim() !== lastSearchedQuery
+        )
+            return null;
+        const match = index === undefined ? getHighlightedItem() : results.value[index];
+        const current = match ? session.resolve(match) : null;
+        return current?.result.completionAction?.kind === 'file.reference'
+            ? fileSearchItem(current.result)
+            : null;
     }
 
     async function openHighlightedItem() {
-        const item = getHighlightedItem();
-        if (!item) return;
-
-        clickStats.recordClick(searchQuery.value, item.path);
-
-        const selection = captureSearchSelection();
-        let opened = false;
-        try {
-            await deps.openPath(item.path);
-            opened = true;
-        } catch (error) {
-            log.error('[QuickSearchPanel] Failed to open path:', error);
-        }
-        finishSearchSelection(selection, opened);
+        await handleItemClick(highlightedIndex.value);
     }
 
     /**
@@ -582,28 +724,41 @@ function useQuickSearchFlow(
      */
     async function handleItemClick(index: number) {
         const item = results.value[index];
-        if (!item) return;
+        if (
+            !item ||
+            !session.resolve(item) ||
+            searchQuery.value.trim() !== lastSearchedQuery ||
+            !enabled.value ||
+            options.handoff?.value
+        )
+            return;
 
         highlightedIndex.value = index;
-        clickStats.recordClick(searchQuery.value, item.path);
-
-        const selection = captureSearchSelection();
+        const selection = fileSearchItem(item.result) ? captureSearchSelection() : null;
         let opened = false;
         try {
-            await deps.openPath(item.path);
-            opened = true;
+            const outcome = await session.activate(item, 'primary', actions, {
+                ...options.getActivationContext?.(),
+                signal: new AbortController().signal,
+            });
+            opened = outcome.status === 'completed' || outcome.status === 'started';
+            options.onActionOutcome?.(outcome);
         } catch (error) {
             log.error('[QuickSearchPanel] Failed to open path:', error);
+            options.onActionOutcome?.({ status: 'failed' });
         }
         finishSearchSelection(selection, opened);
     }
 
     return {
         prepareIndex,
+        session,
+        searchState,
         open,
         close,
         settleInteraction: settleSearchInteractionSession,
         getHighlightedItem,
+        getReferenceCandidate,
         openHighlightedItem,
         triggerSearch,
         goToPage,
@@ -616,6 +771,8 @@ function useQuickSearchFlow(
         isContextMenuOpen,
         closeContextMenuAndReset,
         cleanup: () => {
+            unsubscribe();
+            session.dispose();
             clearDebounceTimer();
             pruneIconMaps(true);
             // Unmount is an abandon path: release any handle that never reached
@@ -637,7 +794,7 @@ function useQuickSearchFlow(
 function useQuickSearchState(options: UseQuickSearchLogicOptions) {
     const { open, emitOpenUpdate } = options;
 
-    const results = ref<QuickShortcutItem[]>([]);
+    const results = ref<SearchMatch[]>([]);
     const highlightedIndex = ref(-1);
     const itemRefs = ref<HTMLElement[]>([]);
     const scrollRef = ref<HTMLElement | null>(null);
@@ -654,11 +811,13 @@ function useQuickSearchState(options: UseQuickSearchLogicOptions) {
         results,
         highlightedIndex,
         scrollRef,
+        compact: options.compact,
+        maxHeight: options.maxHeight,
     });
 
     const assets = useAssetLoader({
         isOpen: open,
-        results,
+        results: computed(() => results.value.map((match) => fileSearchItem(match.result))),
         requestId,
         searchInFlight,
         pendingQuery,
@@ -667,6 +826,7 @@ function useQuickSearchState(options: UseQuickSearchLogicOptions) {
         selectionMaxHeight: layout.selectionMaxHeight,
         scrollRef,
         viewMode: layout.viewMode,
+        rowHeight: layout.rowHeight,
     });
 
     /**
@@ -722,7 +882,7 @@ export function useQuickSearchLogic(
     options: UseQuickSearchLogicOptions,
     deps: UseQuickSearchDeps = DEFAULT_DEPS
 ) {
-    const { open, searchQuery, enabled, emitOpenUpdate, handoff } = options;
+    const { open, searchQuery, enabled, emitOpenUpdate, handoff, referenceMode } = options;
 
     const {
         state: {
@@ -759,6 +919,11 @@ export function useQuickSearchLogic(
             emitOpenUpdate,
             isOpen: open,
             handoff,
+            referenceMode,
+            autoSelectFirst: options.compact,
+            showEmptyResults: options.compact,
+            getActivationContext: options.getActivationContext,
+            onActionOutcome: options.onActionOutcome,
             results,
             highlightedIndex,
             itemRefs,
@@ -789,32 +954,17 @@ export function useQuickSearchLogic(
     async function loadMore() {
         // 正在加载时不重复发请求（滚动事件可能连续触发）。
         if (isLoadingMore.value) return;
-        if (results.value.length >= totalResults.value) return;
+        if (!quickSearch.session.snapshot.providers.some((provider) => provider.nextCursor)) return;
 
         const generation = ++loadMoreGeneration;
-        const requestAtStart = requestId.value;
         isLoadingMore.value = true;
         const query = searchQuery.value.trim();
-        const offset = nextOffset.value;
+        const reqId = requestId.value;
         try {
-            const searchResult = await deps.quickSearch.searchShortcuts(query, PAGE_SIZE, offset);
-
-            // 旧查询、已关闭面板、搜索词变化或已有更新翻页时，迟到结果不得混入当前列表。
-            if (
-                generation !== loadMoreGeneration ||
-                !open.value ||
-                requestId.value !== requestAtStart ||
-                searchQuery.value.trim() !== query
-            ) {
-                return;
-            }
-
-            if (searchResult.files.length === 0) return;
             const savedScrollTop = scrollRef.value?.scrollTop ?? 0;
-            results.value.push(...searchResult.files);
-            totalFiles.value = searchResult.total_files;
-            totalResults.value = searchResult.total_results;
-            nextOffset.value = searchResult.next_offset;
+            await quickSearch.session.loadMore();
+            if (reqId !== requestId.value || query !== searchQuery.value.trim() || !enabled.value)
+                return;
             currentPage.value++;
             await nextTick();
             requestAnimationFrame(() => {
@@ -844,7 +994,8 @@ export function useQuickSearchLogic(
 
     // Keyboard navigation
     function moveSelection(direction: 'up' | 'down' | 'left' | 'right') {
-        layout.moveSelection(direction);
+        if (referenceMode?.value && quickSearch.searchState.value !== 'ready') return false;
+        return layout.moveSelection(direction);
     }
 
     // 6. 生命周期与状态同步
@@ -870,10 +1021,20 @@ export function useQuickSearchLogic(
         }
     });
 
+    // Expansion and layout switches reveal rows without necessarily causing a scroll.
     watch(
-        [searchQuery, enabled],
+        [layout.selectionMaxHeight, layout.gridColumns, layout.viewMode],
+        () => {
+            assets.scheduleIconLoad(requestId.value, true);
+            assets.scheduleImageLoad(requestId.value, false);
+        },
+        { flush: 'post' }
+    );
+
+    watch(
+        [searchQuery, enabled, () => referenceMode?.value ?? false],
         ([query, isEnabled]) => {
-            if (!isEnabled || !open.value || handoff?.value) return;
+            if (!isEnabled || (!open.value && !referenceMode?.value) || handoff?.value) return;
             quickSearch.scheduleSearch(query);
         },
         { flush: 'post' }
@@ -881,6 +1042,7 @@ export function useQuickSearchLogic(
 
     onMounted(() => {
         void quickSearch.prepareIndex(false);
+        if (referenceMode?.value && enabled.value) quickSearch.triggerSearch(searchQuery.value);
         window.addEventListener('resize', handleViewportResize);
     });
 
@@ -926,12 +1088,21 @@ export function useQuickSearchLogic(
 
     // Return
     return {
-        results,
+        items: results,
+        results: computed(() =>
+            results.value.flatMap((match) => {
+                const file = fileSearchItem(match.result);
+                return file ? [file] : [];
+            })
+        ),
+        searchState: quickSearch.searchState,
         highlightedIndex,
         itemRefs,
         scrollRef,
-        scrollStyle: layout.scrollStyle,
+        viewportHeight: layout.selectionMaxHeight,
+        viewportPadding: layout.edgeSpace,
         gridStyle: layout.gridStyle,
+        handleWheel: layout.handleWheel,
         moveSelection,
         iconMap: assets.iconMap,
         imagePreviewMap: assets.imagePreviewMap,
@@ -949,6 +1120,7 @@ export function useQuickSearchLogic(
         close: requestCloseFromPanel,
         settleInteraction: quickSearch.settleInteraction,
         getHighlightedItem: quickSearch.getHighlightedItem,
+        getReferenceCandidate: quickSearch.getReferenceCandidate,
         openHighlightedItem: quickSearch.openHighlightedItem,
         triggerSearch: quickSearch.triggerSearch,
         goToPage: quickSearch.goToPage,

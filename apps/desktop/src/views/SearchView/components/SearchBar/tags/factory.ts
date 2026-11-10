@@ -9,6 +9,7 @@
 
 import { mergeAttributes, Node, type NodeConfig } from '@tiptap/core';
 import type { DOMOutputSpec } from '@tiptap/pm/model';
+import type { Transaction } from '@tiptap/pm/state';
 
 // Tiptap renderHTML 的 HTMLAttributes 参数即 Record<string, any>，
 // 此处定义别名以保持一致性并集中抑制 lint 规则。
@@ -44,6 +45,20 @@ export function createTagCloseButton(kind: string): DOMOutputSpec {
         },
         '×',
     ];
+}
+
+/** Keep completion and its separator in the same undo transaction. */
+export function appendTagSeparator(tr: Transaction, position: number): number {
+    const cursor = tr.doc.resolve(position);
+    const next = cursor.nodeAfter;
+    if (
+        next?.type.name === 'hardBreak' ||
+        /^[\r\n]/u.test(next?.text ?? '') ||
+        (!next && cursor.after() < tr.doc.content.size)
+    )
+        return position;
+    if (!/^\s/u.test(next?.text ?? '')) tr.insertText(' ', position);
+    return position + 1;
 }
 
 /**

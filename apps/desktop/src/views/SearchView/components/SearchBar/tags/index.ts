@@ -5,6 +5,7 @@
  */
 import './model';
 import './attachment';
+import './skill';
 
 export { createSearchTagNode } from './factory';
 export {

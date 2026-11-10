@@ -37,6 +37,8 @@ const {
             selection: { empty: boolean; from: number; to: number; $anchor: { pos: number } };
             doc: {
                 descendants: (cb: (node: { type: { name: string } }) => boolean | void) => void;
+                content: { readonly size: number };
+                textBetween: (from: number, to: number) => string;
             };
             tr: { setMeta: ReturnType<typeof vi.fn> };
         };
@@ -49,12 +51,19 @@ const {
 
         constructor(options: Record<string, unknown>) {
             this.options = options;
+            const getText = () => this.__text;
             this.state = {
                 selection: { empty: true, from: 1, to: 1, $anchor: { pos: 1 } },
                 doc: {
                     descendants: (cb: (node: { type: { name: string } }) => boolean | void) => {
                         cb({ type: { name: 'paragraph' } });
                     },
+                    content: {
+                        get size() {
+                            return getText().length;
+                        },
+                    },
+                    textBetween: (from, to) => getText().slice(from, to),
                 },
                 tr: { setMeta: vi.fn() },
             };

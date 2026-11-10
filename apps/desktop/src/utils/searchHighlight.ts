@@ -3,6 +3,20 @@ export interface NameSegment {
     matched: boolean;
 }
 
+/** Keep fuzzy eligibility and visible match positions on the same ordered-character rule. */
+export function findOrderedMatchIndices(value: string, query: string): number[] | null {
+    const normalized = value.toLowerCase();
+    const indices: number[] = [];
+    let from = 0;
+    for (const character of query.toLowerCase()) {
+        const index = normalized.indexOf(character, from);
+        if (index < 0) return null;
+        for (let offset = 0; offset < character.length; offset++) indices.push(index + offset);
+        from = index + character.length;
+    }
+    return indices;
+}
+
 /**
  * 将查询文本标准化为去重 token 列表，按长度降序排列。
  *
@@ -19,47 +33,27 @@ export function buildMatchTokens(query: string): string[] {
 }
 
 /**
- * 高亮分段缓存。
- *
- * 模板会在每次重渲染时对每条结果重新调用分段；同一 (name, tokens) 的结果不变，
- * 因此缓存最近用到的分段，只保留有限条目。
- */
-const SEGMENT_CACHE_LIMIT = 256;
-const segmentCache = new Map<string, NameSegment[]>();
-
-function cacheSegments(key: string, segments: NameSegment[]): NameSegment[] {
-    segmentCache.set(key, segments);
-    if (segmentCache.size > SEGMENT_CACHE_LIMIT) {
-        const oldestKey = segmentCache.keys().next().value;
-        if (oldestKey !== undefined) {
-            segmentCache.delete(oldestKey);
-        }
-    }
-    return segments;
-}
-
-/**
  * 将名称按 token 匹配结果拆分成高亮片段。
  *
  * @param name 原始名称文本。
  * @param tokens 查询 token 列表。
  * @returns 供模板渲染的高亮分段列表。
  */
-export function splitNameByTokens(name: string, tokens: string[]): NameSegment[] {
+export function splitNameByTokens(name: string, tokens: string[], fuzzy = false): NameSegment[] {
     if (!name) return [{ text: '', matched: false }];
     if (tokens.length === 0) return [{ text: name, matched: false }];
-
-    const cacheKey = `${tokens.join('\u0000')}\u0001${name}`;
-    const cached = segmentCache.get(cacheKey);
-    if (cached) {
-        return cached;
-    }
 
     const lowerName = name.toLowerCase();
     // 每个字符位置是否命中任一 token，后续再据此合并连续区间。
     const matchedMask = new Array(name.length).fill(false);
 
     for (const token of tokens) {
+        if (fuzzy && !lowerName.includes(token)) {
+            for (const index of findOrderedMatchIndices(name, token) ?? []) {
+                matchedMask[index] = true;
+            }
+            continue;
+        }
         let searchFrom = 0;
         while (searchFrom < lowerName.length) {
             const index = lowerName.indexOf(token, searchFrom);
@@ -96,5 +90,5 @@ export function splitNameByTokens(name: string, tokens: string[]): NameSegment[]
         segments.push({ text: currentText, matched: currentMatched });
     }
 
-    return cacheSegments(cacheKey, segments);
+    return segments;
 }
