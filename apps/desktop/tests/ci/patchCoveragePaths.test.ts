@@ -26,10 +26,20 @@ function shortWindowsPath(path: string) {
         return path;
     }
 
-    return execFileSync('cmd.exe', ['/d', '/c', `for %I in (${path}) do @echo %~sI`], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
+    // Quote the path inside a batch file. Passing it as a command argument
+    // loses the quotes, while a script keeps spaces in a single item.
+    const directory = mkdtempSync(join(tmpdir(), 'short-path-'));
+    const script = join(directory, 'short-path.cmd');
+    writeFileSync(script, `@echo off\r\nfor %%I in ("${path}") do @echo %%~sI\r\n`);
+
+    try {
+        return execFileSync('cmd.exe', ['/d', '/c', script], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+        }).trim();
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
 }
 
 describe('user measures covered changes with absolute report paths', () => {

@@ -71,6 +71,10 @@ export const SEARCH_CONVERSATION_REQUIRED_MESSAGE =
     'the submitted prompt did not reveal a conversation';
 export const SEARCH_CONVERSATION_NOT_VISIBLE_MESSAGE =
     'the submitted prompt conversation is clipped inside the compact preview frame';
+export const SEARCH_USER_MESSAGE_REQUIRED_MESSAGE =
+    'the submitted prompt conversation did not show the user message';
+export const SEARCH_REQUEST_STATUS_REQUIRED_MESSAGE =
+    'the submitted prompt did not show the running or error state';
 
 /**
  * Floating top-level windows reserve transparent room for their CSS shadow.
@@ -212,20 +216,42 @@ export const SEARCH_CONTENT_SCRIPT = searchContentScript();
  * The fixed conversation frame must already be applied when this runs.
  */
 export function conversationCheck(content) {
-    if (content?.conversationVisible && content?.userMessageVisible) {
+    if (!content?.conversationPresent) {
         return {
-            status: 'pass',
-            detail: `${content.userMessageCount ?? 0} user message(s), request status ${
-                content.requestStatusVisible ? 'visible' : 'not visible'
-            }`,
+            status: 'fail',
+            message: SEARCH_CONVERSATION_REQUIRED_MESSAGE,
+            detail: `0 message(s), content height ${content?.contentHeight ?? 0}px`,
+        };
+    }
+
+    if (!content?.conversationVisible) {
+        return {
+            status: 'fail',
+            message: SEARCH_CONVERSATION_NOT_VISIBLE_MESSAGE,
+            detail: `${content?.messageCount ?? 0} message(s), content height ${
+                content?.contentHeight ?? 0
+            }px`,
+        };
+    }
+
+    if (!content?.userMessageVisible) {
+        return {
+            status: 'fail',
+            message: SEARCH_USER_MESSAGE_REQUIRED_MESSAGE,
+            detail: `${content?.messageCount ?? 0} message(s), no visible user message`,
+        };
+    }
+
+    if (!content?.requestStatusVisible) {
+        return {
+            status: 'fail',
+            message: SEARCH_REQUEST_STATUS_REQUIRED_MESSAGE,
+            detail: `${content?.messageCount ?? 0} message(s), request status not visible`,
         };
     }
 
     return {
-        status: 'fail',
-        message: content?.conversationPresent
-            ? SEARCH_CONVERSATION_NOT_VISIBLE_MESSAGE
-            : SEARCH_CONVERSATION_REQUIRED_MESSAGE,
-        detail: `${content?.messageCount ?? 0} message(s), content height ${content?.contentHeight ?? 0}px`,
+        status: 'pass',
+        detail: `${content.userMessageCount ?? 0} user message(s), request status visible`,
     };
 }

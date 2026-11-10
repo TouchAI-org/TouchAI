@@ -408,6 +408,7 @@ async function applySearchWindowFrame({
         scale: state.profile.scale,
     });
     state.searchFrame = name;
+    state.conversationFrame = expanded && conversationPresent;
     state.previewFrame = frame;
     await waitForPaint(session);
     return true;
@@ -415,8 +416,9 @@ async function applySearchWindowFrame({
 
 async function expandSearchFrameForContent({ session, platform, display, handle, state }) {
     const content = await searchContent(session);
+    const needsConversationFrame = content.conversationPresent && !state.conversationFrame;
 
-    if (!content.expanded || state.searchFrame === 'expanded') {
+    if (!content.expanded || (state.searchFrame === 'expanded' && !needsConversationFrame)) {
         return false;
     }
 
@@ -429,27 +431,68 @@ async function expandSearchFrameForContent({ session, platform, display, handle,
         expanded: true,
         contentHeight: content.contentHeight,
         conversationPresent: content.conversationPresent,
+        force: needsConversationFrame,
     });
     return true;
 }
 
-async function waitForConversationPresence(session, timeoutMs = 8000) {
+/**
+ * Polls the search surface until `done` accepts a reading or the timeout
+ * expires. Returns the last reading either way so the caller can explain it.
+ */
+async function waitForSearchState(session, done, timeoutMs = 8000) {
     const startedAt = Date.now();
     let lastState = null;
 
     while (Date.now() - startedAt < timeoutMs) {
         lastState = await searchContent(session);
 
-        if (lastState.conversationPresent) {
+        if (done(lastState)) {
             return lastState;
         }
 
         await sleep(250);
     }
 
-    throw new Error(
-        `${SEARCH_CONVERSATION_REQUIRED_MESSAGE} (content height ${lastState?.contentHeight ?? 0}px)`
+    return lastState;
+}
+
+/**
+ * Waits for the conversation host, not its content, because the compact frame
+ * clips the message and request-status nodes until the frame is expanded.
+ */
+async function waitForConversationPresence(session, timeoutMs = 8000) {
+    const state = await waitForSearchState(
+        session,
+        (content) => content.conversationPresent,
+        timeoutMs
     );
+
+    if (!state?.conversationPresent) {
+        throw new Error(
+            `${SEARCH_CONVERSATION_REQUIRED_MESSAGE} (content height ${state?.contentHeight ?? 0}px)`
+        );
+    }
+
+    return state;
+}
+
+/**
+ * Records the query and Enter that a search scene actually performed, so
+ * conversation evidence is only required after a real submission.
+ */
+function trackSearchProgress(state, step) {
+    if (step.do === 'bridge' && step.value === 'setSearchQuery') {
+        if (String(step.args?.[0] ?? '').trim()) {
+            state.queryEntered = true;
+        }
+    } else if (step.do === 'type') {
+        if (String(step.value ?? '').trim()) {
+            state.queryEntered = true;
+        }
+    } else if (step.do === 'press' && step.value === 'Enter' && state.queryEntered) {
+        state.promptSubmitted = true;
+    }
 }
 
 /**
@@ -1314,9 +1357,11 @@ async function main() {
         const state = {
             profile,
             searchFrame: 'compact',
+            conversationFrame: false,
             previewFrame: compactFrame,
             mainHandle,
             promptSubmitted: false,
+            conversationChecked: false,
             conversationVerified: false,
             queryEntered: false,
             settingsHandle: opened.settings,
@@ -1368,6 +1413,7 @@ async function main() {
 
             try {
                 state.promptSubmitted = false;
+                state.conversationChecked = false;
                 state.conversationVerified = false;
                 state.queryEntered = false;
 
@@ -1592,26 +1638,15 @@ async function main() {
                         await runStep(session, step);
 
                         if (scene.surface === 'search') {
-                            if (
-                                step.do === 'bridge' &&
-                                step.value === 'setSearchQuery' &&
-                                String(step.args?.[0] ?? '').trim()
-                            ) {
-                                state.queryEntered = true;
-                            } else if (step.do === 'type' && String(step.value ?? '').trim()) {
-                                state.queryEntered = true;
-                            } else if (step.do === 'press' && step.value === 'Enter') {
-                                state.promptSubmitted = state.queryEntered;
-                            }
+                            trackSearchProgress(state, step);
                         }
                     } catch (error) {
                         const repaired = await recoverStep(session, step);
 
                         if (repaired) {
                             console.log(`step repaired (${repaired}): ${currentStep}`);
-                            if (scene.surface === 'search' && step.do === 'press') {
-                                state.promptSubmitted =
-                                    step.value === 'Enter' && state.queryEntered;
+                            if (scene.surface === 'search') {
+                                trackSearchProgress(state, step);
                             }
                         } else {
                             manifest.skippedSteps.push({
@@ -1649,9 +1684,18 @@ async function main() {
                         if (
                             scene.surface === 'search' &&
                             state.promptSubmitted &&
-                            !state.conversationVerified
+                            !state.conversationVerified &&
+                            !state.conversationChecked
                         ) {
-                            await waitForConversationPresence(session);
+                            state.conversationChecked = true;
+
+                            try {
+                                await waitForConversationPresence(session);
+                            } catch (error) {
+                                fail('conversation', error.message);
+                                throw error;
+                            }
+
                             await expandSearchFrameForContent({
                                 session,
                                 platform,
@@ -1721,7 +1765,11 @@ async function main() {
                 }
 
                 if (scene.surface === 'search') {
-                    if (state.promptSubmitted && !state.conversationVerified) {
+                    if (
+                        state.promptSubmitted &&
+                        !state.conversationVerified &&
+                        !state.conversationChecked
+                    ) {
                         fail('conversation', SEARCH_CONVERSATION_REQUIRED_MESSAGE);
                     }
 

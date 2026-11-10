@@ -5,6 +5,8 @@ import {
     conversationCheck,
     SEARCH_CONVERSATION_NOT_VISIBLE_MESSAGE,
     SEARCH_CONVERSATION_REQUIRED_MESSAGE,
+    SEARCH_REQUEST_STATUS_REQUIRED_MESSAGE,
+    SEARCH_USER_MESSAGE_REQUIRED_MESSAGE,
     SEARCH_WINDOW_IDLE_HEIGHT,
     SEARCH_WINDOW_RESULTS_HEIGHT,
     SEARCH_WINDOW_WIDTH,
@@ -241,6 +243,12 @@ describe('user submits a prompt in the preview search window', () => {
         expect(SEARCH_CONVERSATION_REQUIRED_MESSAGE).toBe(
             'the submitted prompt did not reveal a conversation'
         );
+        expect(SEARCH_USER_MESSAGE_REQUIRED_MESSAGE).toBe(
+            'the submitted prompt conversation did not show the user message'
+        );
+        expect(SEARCH_REQUEST_STATUS_REQUIRED_MESSAGE).toBe(
+            'the submitted prompt did not show the running or error state'
+        );
     });
 
     it('user gets no success until the conversation renders a message', () => {
@@ -290,9 +298,26 @@ describe('user submits a prompt in the preview search window', () => {
             })
         ).toMatchObject({
             status: 'fail',
-            message:
-                'the submitted prompt conversation is clipped inside the compact preview frame',
-            detail: '1 message(s), content height 420px',
+            message: 'the submitted prompt conversation did not show the user message',
+            detail: '1 message(s), no visible user message',
+        });
+    });
+
+    it('user gets no passing check until the running or error state is visible', () => {
+        expect(
+            conversationCheck({
+                conversationPresent: true,
+                conversationVisible: true,
+                userMessageVisible: true,
+                messageCount: 1,
+                userMessageCount: 1,
+                requestStatusVisible: false,
+                contentHeight: 420,
+            })
+        ).toMatchObject({
+            status: 'fail',
+            message: 'the submitted prompt did not show the running or error state',
+            detail: '1 message(s), request status not visible',
         });
     });
 

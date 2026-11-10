@@ -50,7 +50,9 @@ function stepBlock(job, name) {
 function concurrencyGroup() {
     const match = /concurrency:\n(?: {4}.*\n)*? {4}group: (.+)\n/.exec(workflow);
 
-    return match?.[1] ?? '';
+    expect(match).not.toBeNull();
+
+    return match[1];
 }
 
 function concurrencyKey(eventName, event, actor = 'maintainer') {
@@ -138,6 +140,21 @@ describe('user opens a pull request that runs the preview', () => {
         expect(label).not.toBe(active);
     });
 
+    it('user gets a human-applied gated label kept outside the active preview group', () => {
+        const active = concurrencyKey('pull_request_target', {
+            action: 'synchronize',
+            pull_request: { number: 42 },
+        });
+        const labelled = concurrencyKey('pull_request_target', {
+            action: 'labeled',
+            label: { name: 'status:ui-preview-approved' },
+            pull_request: { number: 42 },
+        });
+
+        expect(labelled).toBe('ui-preview-42-human-label');
+        expect(labelled).not.toBe(active);
+    });
+
     it('user gets a real preview request superseding the previous run', () => {
         const active = concurrencyKey('pull_request_target', {
             action: 'synchronize',
@@ -146,7 +163,7 @@ describe('user opens a pull request that runs the preview', () => {
         const comment = concurrencyKey(
             'issue_comment',
             {
-                comment: { body: '/ui-preview' },
+                comment: { body: '/ui-preview', author_association: 'MEMBER' },
                 issue: { number: 42, pull_request: {} },
             },
             'maintainer'
@@ -154,6 +171,24 @@ describe('user opens a pull request that runs the preview', () => {
 
         expect(comment).toBe('ui-preview-42-run');
         expect(comment).toBe(active);
+    });
+
+    it('user gets an untrusted preview command kept outside the active preview group', () => {
+        const active = concurrencyKey('pull_request_target', {
+            action: 'synchronize',
+            pull_request: { number: 42 },
+        });
+        const comment = concurrencyKey(
+            'issue_comment',
+            {
+                comment: { body: '/ui-preview', author_association: 'CONTRIBUTOR' },
+                issue: { number: 42, pull_request: {} },
+            },
+            'outside-contributor'
+        );
+
+        expect(comment).toBe('ui-preview-42-untrusted-comment');
+        expect(comment).not.toBe(active);
     });
 
     it('user gets a preview from another pull request kept apart', () => {

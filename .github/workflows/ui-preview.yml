@@ -38,12 +38,13 @@ env:
     UI_PREVIEW_DESKTOP_COLOUR: '#d9d4c8'
 
 concurrency:
-    # Only a preview request may replace an active preview. The App's approval
-    # label gets its own group because the /ui-preview path adds it; ordinary
-    # comments and unrelated labels get event-specific groups that cannot
-    # collide with `run`. The job filter still performs the authoritative
-    # decision, but workflow concurrency acts before any job runs.
-    group: ui-preview-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}-${{ github.event_name == 'pull_request_target' && github.event.action == 'labeled' && github.event.label.name == 'status:ui-preview-approved' && endsWith(github.actor, '[bot]') && 'approval' || github.event_name == 'issue_comment' && !startsWith(github.event.comment.body, '/ui-preview') && 'comment' || github.event_name == 'pull_request_target' && contains(fromJSON('["labeled","unlabeled"]'), github.event.action) && !contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name) && 'label' || 'run' }}
+    # Only a trusted preview request may replace an active preview. The App's
+    # approval label gets its own group because the /ui-preview path adds it.
+    # Ordinary comments, untrusted gated labels, untrusted preview commands and
+    # unrelated labels get groups that cannot collide with `run`. The job
+    # filters run after concurrency, so the group must protect the active run
+    # without waiting for them.
+    group: ui-preview-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}-${{ github.event_name == 'pull_request_target' && github.event.action == 'labeled' && github.event.label.name == 'status:ui-preview-approved' && endsWith(github.actor, '[bot]') && 'approval' || github.event_name == 'issue_comment' && !startsWith(github.event.comment.body, '/ui-preview') && 'comment' || github.event_name == 'issue_comment' && !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) && 'untrusted-comment' || github.event_name == 'pull_request_target' && contains(fromJSON('["labeled","unlabeled"]'), github.event.action) && contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name) && 'human-label' || github.event_name == 'pull_request_target' && contains(fromJSON('["labeled","unlabeled"]'), github.event.action) && !contains(fromJSON('["ui-preview","status:ui-preview-approved","status:ui-preview-skip"]'), github.event.label.name) && 'label' || 'run' }}
     cancel-in-progress: true
 
 jobs:
