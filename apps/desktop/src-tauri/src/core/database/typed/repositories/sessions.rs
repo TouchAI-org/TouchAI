@@ -406,7 +406,7 @@ pub(super) async fn update(
     for key in data.keys() {
         if !SESSION_COLUMNS.contains(&key.as_str()) {
             return Err(DatabaseOperationError::validation(format!(
-                "Unsupported column '{key}'"
+                "Unsupported field '{key}'"
             )));
         }
         if key == "updated_at" {

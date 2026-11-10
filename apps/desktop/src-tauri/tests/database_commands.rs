@@ -128,6 +128,173 @@ fn user_can_read_and_write_settings_through_the_typed_database_operation() {
 }
 
 #[test]
+fn user_gets_a_stable_busy_error_when_the_database_is_write_locked() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let path = database_path_for_tests(&test_app.main_webview);
+
+    // Hold the write lock outside the runtime pool so the command must wait for the
+    // pool's 5 second busy timeout and then surface the stable category.
+    let mut blocker = tauri::async_runtime::block_on(async {
+        let mut connection =
+            SqliteConnection::connect_with(&SqliteConnectOptions::new().filename(path))
+                .await
+                .expect("open blocking connection");
+        sqlx::query("BEGIN EXCLUSIVE")
+            .execute(&mut connection)
+            .await
+            .expect("hold write lock");
+        connection
+    });
+
+    let error = invoke_command_err(
+        &test_app.main_webview,
+        "database_operation",
+        json!({
+            "request": {
+                "kind": "setting_set",
+                "key": "language",
+                "value": "en-US"
+            }
+        }),
+    );
+    assert_eq!(error["code"], "database-busy");
+    assert_eq!(error["message"], "Database is busy");
+
+    tauri::async_runtime::block_on(async {
+        sqlx::query("ROLLBACK")
+            .execute(&mut blocker)
+            .await
+            .expect("release write lock");
+        blocker.close().await.expect("close blocking connection");
+    });
+}
+
+#[test]
+fn user_gets_a_sanitized_conflict_error_when_sqlite_rejects_duplicate_data() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO built_in_tools (tool_id, display_name)
+         VALUES ('conflict-probe-tool', 'Conflict probe')",
+        json!([]),
+    );
+
+    let error = invoke_command_err(
+        &test_app.main_webview,
+        "database_operation",
+        json!({
+            "request": {
+                "kind": "built_in_tool_create",
+                "data": {
+                    "tool_id": "conflict-probe-tool",
+                    "display_name": "Duplicate conflict probe"
+                }
+            }
+        }),
+    );
+
+    assert_eq!(error["code"], "database-conflict");
+    assert_eq!(
+        error["message"],
+        "Database operation conflicts with existing data"
+    );
+    let message = error["message"].as_str().expect("error message");
+    assert!(!message.contains("built_in_tools"));
+    assert!(!message.contains("UNIQUE"));
+}
+
+#[test]
+fn user_never_sees_validation_field_names_or_database_diagnostics() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO sessions (id, session_id, title, model)
+         VALUES (9911, 'validation-message-probe', 'Validation probe', 'probe-model')",
+        json!([]),
+    );
+
+    let error = invoke_command_err(
+        &test_app.main_webview,
+        "database_operation",
+        json!({
+            "request": {
+                "kind": "session_update",
+                "id": 9911,
+                "data": { "api_key": "sk-validation-probe" }
+            }
+        }),
+    );
+
+    assert_eq!(error["code"], "database-validation");
+    assert_eq!(error["message"], "Database operation received invalid data");
+    let message = error["message"].as_str().expect("error message");
+    for leaked in [
+        "api_key",
+        "sk-validation-probe",
+        "Unsupported field",
+        "sessions",
+    ] {
+        assert!(
+            !message.contains(leaked),
+            "message leaked {leaked}: {message}"
+        );
+    }
+}
+
+#[test]
+fn user_never_sees_session_ids_or_table_names_in_not_found_errors() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+
+    let error = invoke_command_err(
+        &test_app.main_webview,
+        "database_operation",
+        json!({ "request": { "kind": "session_history", "sessionId": 424242 } }),
+    );
+    assert_eq!(error["code"], "database-not-found");
+    assert_eq!(error["message"], "Database record was not found");
+
+    let message = error["message"].as_str().expect("error message");
+    for fragment in ["424242", "Session", "sessions", "SELECT"] {
+        assert!(
+            !message.contains(fragment),
+            "message leaked {fragment}: {message}"
+        );
+    }
+}
+
+#[test]
+fn user_gets_a_stable_not_found_error_when_an_attachment_is_missing() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+
+    let error = invoke_command_err(
+        &test_app.main_webview,
+        "database_operation",
+        json!({
+            "request": {
+                "kind": "attachment_ensure",
+                "input": {
+                    "attachmentId": 515151,
+                    "hash": "missing-attachment-hash",
+                    "type": "file",
+                    "originalName": "missing.txt",
+                    "originPath": "/tmp/missing.txt"
+                }
+            }
+        }),
+    );
+
+    assert_eq!(error["code"], "database-not-found");
+    assert_eq!(error["message"], "Database record was not found");
+    let message = error["message"].as_str().expect("error message");
+    for fragment in ["515151", "missing-attachment-hash", "attachments"] {
+        assert!(
+            !message.contains(fragment),
+            "message leaked {fragment}: {message}"
+        );
+    }
+}
+
+#[test]
 fn user_gets_exactly_one_default_model_through_the_typed_database_operation() {
     let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
     execute_sql(
@@ -186,7 +353,7 @@ fn user_keeps_the_previous_default_when_the_typed_target_provider_is_disabled() 
         }),
     );
     assert_eq!(error["code"], "provider-disabled");
-    assert_eq!(error["message"], "Disabled");
+    assert_eq!(error["message"], "The model provider is disabled");
 
     let defaults = query_sql(
         &test_app.main_webview,
@@ -325,6 +492,8 @@ fn user_keeps_built_in_tool_state_when_a_typed_bulk_update_is_invalid() {
         }),
     );
     assert_eq!(error["code"], "built-in-tool-not-found");
+    assert_eq!(error["message"], "Built-in tool not found");
+    assert!(!error.to_string().contains("999999"));
 
     assert_eq!(
         query_sql(
@@ -730,11 +899,93 @@ fn user_cannot_read_agent_sessions_from_settings_or_popup_windows() {
             json!({ "request": { "kind": "session_list", "limit": 40 } }),
         );
         assert_eq!(error["code"], "database-forbidden");
+        assert_eq!(
+            error["message"],
+            "Database operation is not allowed for this window"
+        );
+        assert!(!error.to_string().contains(webview.label()));
     }
 }
 
 #[test]
-fn user_cannot_use_a_popup_window_for_any_database_group() {
+fn user_can_clear_local_agent_data_from_the_settings_window() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let settings = WebviewWindowBuilder::new(&test_app.app, "settings", WebviewUrl::default())
+        .build()
+        .expect("settings window");
+
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO providers (id, name, driver, api_endpoint, logo)
+         VALUES (9101, 'Maintenance provider', 'openai', 'https://example.test', 'openai');
+         INSERT INTO models (id, provider_id, name, model_id)
+         VALUES (9101, 9101, 'Maintenance model', 'maintenance-model');
+         INSERT INTO sessions (id, session_id, title, model)
+         VALUES (9101, 'settings-maintenance', 'Maintenance', 'maintenance-model');
+         INSERT INTO messages (id, session_id, role)
+         VALUES (9101, 9101, 'user');
+         INSERT INTO session_turns (id, session_id, model_id, task_id, prompt_snapshot_json)
+         VALUES (9101, 9101, 9101, 'settings-maintenance-task', '{}')",
+        json!([]),
+    );
+
+    for count_kind in ["session_count", "message_count", "session_turn_count"] {
+        assert_eq!(
+            invoke_command_ok::<serde_json::Value>(
+                &settings,
+                "database_operation",
+                json!({ "request": { "kind": count_kind } }),
+            ),
+            json!(1),
+            "{count_kind}"
+        );
+    }
+
+    // Delete leaf rows first so this test proves each Settings maintenance
+    // operation independently and avoids relying on session cascade order.
+    for (count_kind, delete_kind, retained_counts) in [
+        (
+            "message_count",
+            "message_delete_all",
+            &["session_count", "session_turn_count"][..],
+        ),
+        (
+            "session_turn_count",
+            "session_turn_delete_all",
+            &["session_count"][..],
+        ),
+        ("session_count", "session_delete_all", &[][..]),
+    ] {
+        invoke_command_ok::<serde_json::Value>(
+            &settings,
+            "database_operation",
+            json!({ "request": { "kind": delete_kind } }),
+        );
+        assert_eq!(
+            invoke_command_ok::<serde_json::Value>(
+                &settings,
+                "database_operation",
+                json!({ "request": { "kind": count_kind } }),
+            ),
+            json!(0),
+            "{count_kind} after delete"
+        );
+        for retained_count in retained_counts {
+            assert_eq!(
+                invoke_command_ok::<serde_json::Value>(
+                    &settings,
+                    "database_operation",
+                    json!({ "request": { "kind": retained_count } }),
+                ),
+                json!(1),
+                "{retained_count} after {delete_kind}"
+            );
+        }
+    }
+}
+
+#[test]
+fn user_cannot_use_popup_preview_unknown_or_tray_windows_for_any_database_group() {
     let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
     let popup = WebviewWindowBuilder::new(
         &test_app.app,
@@ -743,6 +994,23 @@ fn user_cannot_use_a_popup_window_for_any_database_group() {
     )
     .build()
     .expect("popup window");
+    let preview = WebviewWindowBuilder::new(
+        &test_app.app,
+        "preview-database-test",
+        WebviewUrl::default(),
+    )
+    .build()
+    .expect("preview window");
+    let unknown = WebviewWindowBuilder::new(
+        &test_app.app,
+        "unknown-database-test",
+        WebviewUrl::default(),
+    )
+    .build()
+    .expect("unknown window");
+    let tray = WebviewWindowBuilder::new(&test_app.app, "tray-menu", WebviewUrl::default())
+        .build()
+        .expect("tray window");
 
     for request in [
         json!({
@@ -791,10 +1059,179 @@ fn user_cannot_use_a_popup_window_for_any_database_group() {
             "key": "language",
             "value": "en-US"
         }),
+        json!({
+            "kind": "session_count"
+        }),
+        json!({
+            "kind": "mcp_server_list",
+            "enabledOnly": false
+        }),
+        json!({
+            "kind": "built_in_tool_list",
+            "enabledOnly": false
+        }),
+        json!({
+            "kind": "usage_append_llm_call_parts",
+            "messageId": 1,
+            "calls": []
+        }),
     ] {
-        let error = invoke_command_err(&popup, "database_operation", json!({ "request": request }));
-        assert_eq!(error["code"], "database-forbidden");
+        for webview in [&popup, &preview, &unknown, &tray] {
+            let error = invoke_command_err(
+                webview,
+                "database_operation",
+                json!({ "request": request.clone() }),
+            );
+            assert_eq!(error["code"], "database-forbidden", "{}", webview.label());
+        }
     }
+}
+
+#[test]
+fn user_can_manage_configuration_and_inspect_tool_history_from_the_settings_window() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let settings = WebviewWindowBuilder::new(&test_app.app, "settings", WebviewUrl::default())
+        .build()
+        .expect("settings window");
+
+    database_operation(
+        &test_app.main_webview,
+        json!({ "kind": "setting_set", "key": "language", "value": "zh-CN" }),
+    );
+    assert_eq!(
+        database_operation(
+            &settings,
+            json!({ "kind": "setting_get", "key": "language" })
+        ),
+        json!("zh-CN")
+    );
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO built_in_tools (id, tool_id, display_name, enabled)
+         VALUES (9201, 'settings-config-test', 'Settings config test', 1)",
+        json!([]),
+    );
+    let updated = database_operation(
+        &settings,
+        json!({
+            "kind": "built_in_tool_update",
+            "id": 9201,
+            "data": { "enabled": 0 }
+        }),
+    );
+    assert_eq!(updated["enabled"], 0);
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT enabled FROM built_in_tools WHERE id = 9201",
+            json!([]),
+        )["rows"],
+        json!([{ "enabled": 0 }])
+    );
+
+    let providers = invoke_command_ok::<serde_json::Value>(
+        &settings,
+        "database_operation",
+        json!({ "request": { "kind": "provider_list" } }),
+    );
+    assert!(providers
+        .as_array()
+        .is_some_and(|providers| !providers.is_empty()));
+    assert_eq!(
+        invoke_command_ok::<serde_json::Value>(
+            &settings,
+            "database_operation",
+            json!({
+                "request": {
+                    "kind": "tool_part_list",
+                    "toolKind": "mcp",
+                    "filter": { "kind": "server_id", "serverId": 9101 }
+                }
+            }),
+        ),
+        json!([])
+    );
+
+    let search_error = invoke_command_err(
+        &settings,
+        "database_operation",
+        json!({
+            "request": {
+                "kind": "quick_search_find",
+                "queryNorm": "file",
+                "limit": 10
+            }
+        }),
+    );
+    assert_eq!(search_error["code"], "database-forbidden");
+}
+
+#[test]
+fn user_can_manage_mcp_configuration_from_the_settings_window() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let settings = WebviewWindowBuilder::new(&test_app.app, "settings", WebviewUrl::default())
+        .build()
+        .expect("settings window");
+
+    let created = database_operation(
+        &settings,
+        json!({
+            "kind": "mcp_server_create",
+            "data": {
+                "name": "settings-mcp",
+                "transport_type": "stdio",
+                "command": "npx",
+                "enabled": 1,
+                "tool_timeout": 30000
+            }
+        }),
+    );
+    let server_id = created["id"].as_i64().expect("created MCP server id");
+
+    let updated = database_operation(
+        &settings,
+        json!({
+            "kind": "mcp_server_update",
+            "id": server_id,
+            "data": { "enabled": 0 }
+        }),
+    );
+    assert_eq!(updated["enabled"], 0);
+
+    database_operation(
+        &settings,
+        json!({
+            "kind": "mcp_tool_sync",
+            "serverId": server_id,
+            "tools": [{
+                "name": "inspect",
+                "description": "Inspect",
+                "inputSchema": { "type": "object" }
+            }]
+        }),
+    );
+    let tools = database_operation(
+        &settings,
+        json!({
+            "kind": "mcp_tool_list",
+            "serverId": server_id,
+            "enabledOnly": false
+        }),
+    );
+    assert_eq!(tools[0]["name"], "inspect");
+
+    database_operation(
+        &settings,
+        json!({ "kind": "mcp_server_delete", "id": server_id }),
+    );
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT id FROM mcp_servers WHERE id = ?",
+            json!([server_id]),
+        )["rows"],
+        json!([])
+    );
 }
 
 #[test]
@@ -864,6 +1301,85 @@ fn user_cannot_write_settings_from_the_settings_window() {
             json!({ "kind": "meta_get", "key": "import_success" })
         ),
         "local"
+    );
+}
+
+#[test]
+fn user_cannot_create_or_update_agent_tool_history_from_the_settings_window() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let settings = WebviewWindowBuilder::new(&test_app.app, "settings", WebviewUrl::default())
+        .build()
+        .expect("settings window");
+    execute_sql(
+        &test_app.main_webview,
+        "INSERT INTO sessions (id, session_id, title, model)
+         VALUES (9301, 'settings-tool-write', 'Settings tool write', 'gpt-test')",
+        json!([]),
+    );
+
+    let create_error = invoke_command_err(
+        &settings,
+        "database_operation",
+        json!({
+            "request": {
+                "kind": "tool_part_create",
+                "toolKind": "builtin",
+                "data": {
+                    "session_id": 9301,
+                    "tool_call_id": "settings-forbidden-create",
+                    "tool_id": "bash",
+                    "input": "{}"
+                }
+            }
+        }),
+    );
+    assert_eq!(create_error["code"], "database-forbidden");
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT COUNT(*) AS count FROM message_parts WHERE tool_call_id = ?",
+            json!(["settings-forbidden-create"]),
+        )["rows"],
+        json!([{ "count": 0 }])
+    );
+
+    let created = database_operation(
+        &test_app.main_webview,
+        json!({
+            "kind": "tool_part_create",
+            "toolKind": "builtin",
+            "data": {
+                "session_id": 9301,
+                "tool_call_id": "settings-forbidden-update",
+                "tool_id": "bash",
+                "input": "{}",
+                "status": "pending"
+            }
+        }),
+    );
+    let update_error = invoke_command_err(
+        &settings,
+        "database_operation",
+        json!({
+            "request": {
+                "kind": "tool_part_update",
+                "toolKind": "builtin",
+                "filter": { "kind": "id", "id": created["id"] },
+                "data": { "status": "success", "output": "settings wrote this" }
+            }
+        }),
+    );
+    assert_eq!(update_error["code"], "database-forbidden");
+    assert_eq!(
+        query_sql(
+            &test_app.main_webview,
+            "SELECT
+                 json_extract(data, '$.status') AS status,
+                 json_extract(data, '$.output') AS output
+             FROM message_parts WHERE id = ?",
+            json!([created["id"]]),
+        )["rows"],
+        json!([{ "status": "pending", "output": null }])
     );
 }
 
@@ -993,6 +1509,32 @@ fn user_exports_a_consistent_database_backup() {
 }
 
 #[test]
+fn user_never_sees_backup_paths_or_native_diagnostics_in_export_failures() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let target_dir = tempfile::tempdir().expect("backup destination");
+    let target = target_dir
+        .path()
+        .join("missing-parent")
+        .join("private-backup.db");
+
+    let error = invoke_command_err(
+        &test_app.main_webview,
+        "database_export_backup",
+        json!({
+            "request": {
+                "targetPath": target.to_string_lossy()
+            }
+        }),
+    );
+
+    assert_eq!(error["code"], "database-backup-failed");
+    assert_eq!(error["message"], "Database backup export failed");
+    let serialized = error.to_string();
+    assert!(!serialized.contains("private-backup.db"));
+    assert!(!serialized.contains("missing-parent"));
+}
+
+#[test]
 fn user_can_use_main_and_settings_windows_for_backup_operations() {
     let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
     let settings = WebviewWindowBuilder::new(&test_app.app, "settings", WebviewUrl::default())
@@ -1017,7 +1559,7 @@ fn user_can_use_main_and_settings_windows_for_backup_operations() {
 }
 
 #[test]
-fn user_cannot_use_popup_or_preview_windows_for_database_backups() {
+fn user_cannot_use_popup_preview_unknown_or_tray_windows_for_database_backups() {
     let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
     let popup = WebviewWindowBuilder::new(
         &test_app.app,
@@ -1030,10 +1572,17 @@ fn user_cannot_use_popup_or_preview_windows_for_database_backups() {
         WebviewWindowBuilder::new(&test_app.app, "preview-backup-test", WebviewUrl::default())
             .build()
             .expect("preview window");
+    let unknown =
+        WebviewWindowBuilder::new(&test_app.app, "unknown-backup-test", WebviewUrl::default())
+            .build()
+            .expect("unknown window");
+    let tray = WebviewWindowBuilder::new(&test_app.app, "tray-menu", WebviewUrl::default())
+        .build()
+        .expect("tray window");
     let target_dir = tempfile::tempdir().expect("backup destination");
     let target = target_dir.path().join("forbidden.db");
 
-    for webview in [&popup, &preview] {
+    for webview in [&popup, &preview, &unknown, &tray] {
         let export_error = invoke_command_err(
             webview,
             "database_export_backup",
@@ -1043,10 +1592,12 @@ fn user_cannot_use_popup_or_preview_windows_for_database_backups() {
                 }
             }),
         );
-        assert!(export_error
-            .as_str()
-            .unwrap_or_default()
-            .contains("not allowed"));
+        assert_eq!(export_error["code"], "database-forbidden");
+        assert_eq!(
+            export_error["message"],
+            "Database operation is not allowed for this window"
+        );
+        assert!(!export_error.to_string().contains(webview.label()));
 
         let import_error = invoke_command_err(
             webview,
@@ -1058,12 +1609,38 @@ fn user_cannot_use_popup_or_preview_windows_for_database_backups() {
                 }
             }),
         );
-        assert!(import_error
-            .as_str()
-            .unwrap_or_default()
-            .contains("not allowed"));
+        assert_eq!(import_error["code"], "database-forbidden");
+        assert_eq!(
+            import_error["message"],
+            "Database operation is not allowed for this window"
+        );
+        assert!(!import_error.to_string().contains(webview.label()));
     }
     assert!(!target.exists());
+}
+
+#[test]
+fn user_never_sees_import_paths_or_native_diagnostics_in_import_failures() {
+    let test_app = build_test_app(TestAppOptions::with_database_runtime()).expect("test app");
+    let source_dir = tempfile::tempdir().expect("import source");
+    let source = source_dir.path().join("private-import.db");
+
+    let error = invoke_command_err(
+        &test_app.main_webview,
+        "database_import_backup",
+        json!({
+            "request": {
+                "sourcePath": source.to_string_lossy(),
+                "mode": "full"
+            }
+        }),
+    );
+
+    assert_eq!(error["code"], "database-import-failed");
+    assert_eq!(error["message"], "Database backup import failed");
+    let serialized = error.to_string();
+    assert!(!serialized.contains("private-import.db"));
+    assert!(!serialized.contains("source"));
 }
 
 #[test]

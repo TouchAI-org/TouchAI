@@ -624,13 +624,13 @@ impl DatabaseOperation {
             | Self::SessionHistory { .. }
             | Self::SessionUpdate { .. }
             | Self::SessionDismissTerminalStatus { .. }
-            | Self::SessionRefreshMetadata { .. }
-            | Self::SessionCount
+            | Self::SessionRefreshMetadata { .. } => OperationSurface::new(OperationGroup::Agent),
+            Self::SessionCount
             | Self::SessionDeleteAll
             | Self::MessageCount
             | Self::MessageDeleteAll
             | Self::SessionTurnCount
-            | Self::SessionTurnDeleteAll => OperationSurface::new(OperationGroup::Agent),
+            | Self::SessionTurnDeleteAll => OperationSurface::new(OperationGroup::Maintenance),
             Self::ToolPartCreate { .. } | Self::ToolPartUpdate { .. } => {
                 OperationSurface::new(OperationGroup::Agent)
             }
@@ -726,35 +726,62 @@ pub(crate) struct DatabaseOperationError {
 }
 
 impl DatabaseOperationError {
-    pub(crate) fn validation(message: impl Into<String>) -> Self {
+    /// Validation and not-found codes keep their stable category, but the diagnostic
+    /// text (field names, row ids, table names, SQL) stays in the log. Callers only
+    /// observe the fixed public message for the category.
+    pub(crate) fn validation(diagnostic: impl std::fmt::Display) -> Self {
+        log::error!(target: "database", "Database operation received invalid data: {diagnostic}");
         Self {
             code: "database-validation",
-            message: message.into(),
+            message: public_database_error_message("database-validation").to_string(),
         }
     }
 
-    pub(crate) fn not_found(message: impl Into<String>) -> Self {
+    pub(crate) fn not_found(diagnostic: impl std::fmt::Display) -> Self {
+        log::debug!(target: "database", "Database row was not found: {diagnostic}");
         Self {
             code: "database-not-found",
-            message: message.into(),
+            message: public_database_error_message("database-not-found").to_string(),
         }
     }
 
     pub(crate) fn forbidden(window_label: &str) -> Self {
+        log::warn!(
+            target: "database",
+            "Database operation was denied for window '{window_label}'"
+        );
         Self {
             code: "database-forbidden",
-            message: format!(
-                "Database operation is not allowed for window '{}'",
-                window_label
-            ),
+            message: "Database operation is not allowed for this window".to_string(),
         }
     }
 
-    pub(crate) fn unavailable(message: impl Into<String>) -> Self {
+    pub(crate) fn backup_failed(diagnostic: impl std::fmt::Display) -> Self {
+        log::error!(target: "database", "Database backup export failed: {diagnostic}");
+        Self {
+            code: "database-backup-failed",
+            message: public_database_error_message("database-backup-failed").to_string(),
+        }
+    }
+
+    pub(crate) fn import_failed(diagnostic: impl std::fmt::Display) -> Self {
+        log::error!(target: "database", "Database backup import failed: {diagnostic}");
+        Self {
+            code: "database-import-failed",
+            message: public_database_error_message("database-import-failed").to_string(),
+        }
+    }
+
+    pub(crate) fn unavailable(diagnostic: impl std::fmt::Display) -> Self {
+        log::error!(target: "database", "Database operation is unavailable: {diagnostic}");
         Self {
             code: "database-unavailable",
-            message: message.into(),
+            message: public_database_error_message("database-unavailable").to_string(),
         }
+    }
+
+    pub(crate) fn invalid_data(diagnostic: impl std::fmt::Display) -> Self {
+        Self::validation(diagnostic)
     }
 
     pub(crate) fn with_code(code: &'static str, message: impl Into<String>) -> Self {
@@ -767,27 +794,45 @@ impl DatabaseOperationError {
 
 impl From<sqlx::Error> for DatabaseOperationError {
     fn from(error: sqlx::Error) -> Self {
-        match error {
-            sqlx::Error::RowNotFound => Self::not_found("Database row was not found"),
-            sqlx::Error::Database(error) if error.is_unique_violation() => Self {
-                code: "database-conflict",
-                message: error.message().to_string(),
-            },
-            sqlx::Error::Database(error) if error.is_foreign_key_violation() => Self {
-                code: "database-conflict",
-                message: error.message().to_string(),
-            },
-            sqlx::Error::Database(error) => {
-                let code = error.code().and_then(|code| code.parse::<i32>().ok());
-                match code {
-                    Some(code) => {
-                        Self::with_code(sqlite_error_code(code), error.message().to_string())
-                    }
-                    None => Self::with_code("database-query", error.message().to_string()),
-                }
+        let code = match &error {
+            sqlx::Error::RowNotFound => "database-not-found",
+            sqlx::Error::Database(error)
+                if error.is_unique_violation() || error.is_foreign_key_violation() =>
+            {
+                "database-conflict"
             }
-            other => Self::unavailable(other.to_string()),
+            sqlx::Error::Database(error) => error
+                .code()
+                .and_then(|code| code.parse::<i32>().ok())
+                .map(sqlite_error_code)
+                .unwrap_or("database-query"),
+            _ => "database-unavailable",
+        };
+
+        if code == "database-not-found" {
+            log::debug!(target: "database", "Database row was not found: {error}");
+        } else {
+            log::error!(target: "database", "Database operation failed: {error}");
         }
+
+        Self {
+            code,
+            message: public_database_error_message(code).to_string(),
+        }
+    }
+}
+
+fn public_database_error_message(code: &str) -> &'static str {
+    match code {
+        "database-busy" => "Database is busy",
+        "database-locked" => "Database is locked",
+        "database-conflict" => "Database operation conflicts with existing data",
+        "database-backup-failed" => "Database backup export failed",
+        "database-import-failed" => "Database backup import failed",
+        "database-not-found" => "Database record was not found",
+        "database-unavailable" => "Database operation is unavailable",
+        "database-validation" => "Database operation received invalid data",
+        _ => "Database operation failed",
     }
 }
 
@@ -798,12 +843,6 @@ fn sqlite_error_code(code: i32) -> &'static str {
         5 => "database-busy",
         6 => "database-locked",
         _ => "database-query",
-    }
-}
-
-impl From<String> for DatabaseOperationError {
-    fn from(message: String) -> Self {
-        Self::validation(message)
     }
 }
 
@@ -820,7 +859,7 @@ impl OperationSurface {
 
 #[cfg(test)]
 mod tests {
-    use super::sqlite_error_code;
+    use super::{public_database_error_message, sqlite_error_code, DatabaseOperationError};
 
     #[test]
     fn user_sees_busy_and_locked_as_distinct_database_error_codes() {
@@ -829,5 +868,51 @@ mod tests {
         assert_eq!(sqlite_error_code(6), "database-locked");
         assert_eq!(sqlite_error_code(262), "database-locked");
         assert_eq!(sqlite_error_code(1), "database-query");
+    }
+
+    #[test]
+    fn user_never_receives_raw_database_error_text() {
+        assert_eq!(
+            public_database_error_message("database-busy"),
+            "Database is busy"
+        );
+        assert_eq!(
+            public_database_error_message("database-locked"),
+            "Database is locked"
+        );
+        assert_eq!(
+            public_database_error_message("database-conflict"),
+            "Database operation conflicts with existing data"
+        );
+        assert_eq!(
+            public_database_error_message("database-unavailable"),
+            "Database operation is unavailable"
+        );
+        assert_eq!(
+            public_database_error_message("database-validation"),
+            "Database operation received invalid data"
+        );
+        assert_eq!(
+            public_database_error_message("database-query"),
+            "Database operation failed"
+        );
+    }
+
+    #[test]
+    fn user_never_receives_validation_or_not_found_diagnostics() {
+        let validation = DatabaseOperationError::validation("Unsupported field 'api_key'");
+        assert_eq!(validation.code, "database-validation");
+        assert_eq!(
+            validation.message,
+            "Database operation received invalid data"
+        );
+        assert!(!validation.message.contains("api_key"));
+        assert!(!validation.message.contains("Unsupported"));
+
+        let not_found = DatabaseOperationError::not_found("Session 42 not found");
+        assert_eq!(not_found.code, "database-not-found");
+        assert_eq!(not_found.message, "Database record was not found");
+        assert!(!not_found.message.contains("42"));
+        assert!(!not_found.message.contains("Session"));
     }
 }

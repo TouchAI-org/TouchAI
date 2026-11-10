@@ -27,7 +27,7 @@ pub async fn database_export_backup<R: Runtime>(
     window: WebviewWindow<R>,
     runtime: State<'_, DatabaseRuntime>,
     request: DatabaseBackupExportRequest,
-) -> Result<(), String> {
+) -> Result<(), DatabaseOperationError> {
     runtime
         .export_backup(window.label(), &request.target_path)
         .await
@@ -40,10 +40,13 @@ pub async fn database_import_backup<R: Runtime>(
     window: WebviewWindow<R>,
     runtime: State<'_, DatabaseRuntime>,
     request: DatabaseImportRequest,
-) -> Result<(), String> {
+) -> Result<(), DatabaseOperationError> {
     runtime.import_backup(window.label(), request).await?;
     if let Some(analytics) = app.try_state::<AnalyticsRuntime>() {
-        analytics.synchronize_after_restore().await?;
+        analytics
+            .synchronize_after_restore()
+            .await
+            .map_err(DatabaseOperationError::import_failed)?;
     }
     Ok(())
 }

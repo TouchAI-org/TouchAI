@@ -280,7 +280,7 @@ pub(super) async fn sync_tools(
 
     for definition in tools {
         let input_schema = serde_json::to_string(&definition.input_schema)
-            .map_err(|error| DatabaseOperationError::validation(error.to_string()))?;
+            .map_err(DatabaseOperationError::invalid_data)?;
         let data = JsonMap::from_iter([
             ("server_id".to_string(), JsonValue::Number(server_id.into())),
             (

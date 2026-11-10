@@ -19,7 +19,7 @@ fn selected_columns<'a>(
     for key in data.keys() {
         if !allowed.contains(&key.as_str()) {
             return Err(DatabaseOperationError::validation(format!(
-                "Unsupported column '{key}'"
+                "Unsupported field '{key}'"
             )));
         }
     }

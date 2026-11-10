@@ -42,6 +42,7 @@ pub(crate) enum OperationGroup {
     SettingsWrite,
     Config,
     Agent,
+    Maintenance,
     Search,
     ToolHistory,
     Usage,
@@ -54,9 +55,18 @@ impl OperationSurface {
         let surface = Surface::from_label(window_label);
         match surface {
             Surface::Main => true,
-            Surface::Settings => !matches!(
+            // Settings owns configuration, usage, logs, and local-data maintenance
+            // surfaces. It must not gain access to the main window's agent loop,
+            // search index, settings writes, or usage writes just because those
+            // groups happen to share a database.
+            Surface::Settings => matches!(
                 self.group,
-                OperationGroup::Agent | OperationGroup::UsageWrite | OperationGroup::SettingsWrite
+                OperationGroup::Settings
+                    | OperationGroup::Config
+                    | OperationGroup::Maintenance
+                    | OperationGroup::ToolHistory
+                    | OperationGroup::Usage
+                    | OperationGroup::Backup
             ),
             // There is no standalone popup WebView in the product. Keep the
             // surface fail-closed so a future popup cannot reach search,
@@ -125,6 +135,61 @@ mod tests {
     }
 
     #[test]
+    fn user_gets_only_the_explicit_settings_surface_groups() {
+        let allowed = [
+            OperationGroup::Settings,
+            OperationGroup::Config,
+            OperationGroup::Maintenance,
+            OperationGroup::ToolHistory,
+            OperationGroup::Usage,
+            OperationGroup::Backup,
+        ];
+        let denied = [
+            OperationGroup::SettingsWrite,
+            OperationGroup::Agent,
+            OperationGroup::Search,
+            OperationGroup::UsageWrite,
+        ];
+
+        for group in allowed {
+            assert!(OperationSurface::new(group).allows("settings"));
+        }
+        for group in denied {
+            assert!(!OperationSurface::new(group).allows("settings"));
+        }
+    }
+
+    #[test]
+    fn user_cannot_reach_database_groups_from_popup_preview_or_unknown_surfaces() {
+        let groups = [
+            OperationGroup::Settings,
+            OperationGroup::SettingsWrite,
+            OperationGroup::Config,
+            OperationGroup::Agent,
+            OperationGroup::Maintenance,
+            OperationGroup::Search,
+            OperationGroup::ToolHistory,
+            OperationGroup::Usage,
+            OperationGroup::UsageWrite,
+            OperationGroup::Backup,
+        ];
+
+        for group in groups {
+            for label in [
+                "popup-database-test",
+                "preview-test",
+                "unknown-test",
+                "tray-menu",
+            ] {
+                assert!(
+                    !OperationSurface::new(group).allows(label),
+                    "{group:?} {label}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn user_cannot_write_settings_from_the_settings_surface() {
         let operation = DatabaseOperation::SettingSet {
             key: "language".to_string(),
@@ -150,6 +215,13 @@ mod tests {
             },
         ] {
             assert!(!operation.surface().allows("settings"));
+        }
+    }
+
+    #[test]
+    fn user_can_maintain_local_data_from_the_settings_surface() {
+        for group in [OperationGroup::Maintenance] {
+            assert!(OperationSurface::new(group).allows("settings"));
         }
     }
 

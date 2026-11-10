@@ -286,11 +286,10 @@ async fn write_llm_call_parts(
     .unwrap_or(-1);
 
     for (index, call) in calls.iter().enumerate() {
-        serde_json::from_str::<JsonMap<String, JsonValue>>(&call.data).map_err(|error| {
-            DatabaseOperationError::validation(format!(
-                "LLM call part data must be a JSON object: {error}"
-            ))
-        })?;
+        // The serde error names parser internals; keep it in the diagnostic log and
+        // return the fixed validation copy promised by the IPC contract.
+        serde_json::from_str::<JsonMap<String, JsonValue>>(&call.data)
+            .map_err(DatabaseOperationError::invalid_data)?;
         let mut part = JsonMap::new();
         part.insert(
             "message_id".to_string(),
