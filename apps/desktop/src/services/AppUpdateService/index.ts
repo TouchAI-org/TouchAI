@@ -15,6 +15,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { AppUpdateChannel } from '@/config/appUpdate';
 import { useSettingsStore } from '@/stores/settings';
 
+import { getDownloadableAppUpdate, getInstallableAppUpdate } from './availability';
 import { createInitialAppUpdateState, reduceAppUpdateState } from './state';
 import { AUTO_CHECK_INTERVAL_MS, isWithinAppUpdateHours } from './timing';
 import type {
@@ -220,7 +221,10 @@ export class AppUpdateController {
             return this.checkPromise;
         }
 
-        if (['downloading', 'downloaded', 'installing'].includes(this.state.status)) {
+        if (
+            ['downloading', 'downloaded', 'installing'].includes(this.state.status) ||
+            getInstallableAppUpdate(this.state)
+        ) {
             return false;
         }
 
@@ -326,7 +330,7 @@ export class AppUpdateController {
             return false;
         }
 
-        const update = this.state.status === 'available' ? this.state.availableUpdate : null;
+        const update = getDownloadableAppUpdate(this.state);
         if (!update) {
             this.releaseUpdateOperation();
             return false;
@@ -397,7 +401,7 @@ export class AppUpdateController {
             return false;
         }
 
-        const update = this.state.status === 'downloaded' ? this.state.downloadedUpdate : null;
+        const update = getInstallableAppUpdate(this.state);
         if (!update) {
             this.releaseUpdateOperation();
             return false;
@@ -562,7 +566,8 @@ export class AppUpdateController {
                     result.channel !== this.settings.getChannel() ||
                     this.checkPromise ||
                     (parseTime(checkedAt) ?? 0) < (parseTime(this.state.lastCheckedAt) ?? 0) ||
-                    ['downloading', 'downloaded', 'installing'].includes(this.state.status)
+                    ['downloading', 'downloaded', 'installing'].includes(this.state.status) ||
+                    getInstallableAppUpdate(this.state)
                 ) {
                     return;
                 }

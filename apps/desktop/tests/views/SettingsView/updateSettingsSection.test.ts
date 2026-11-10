@@ -411,6 +411,22 @@ describe('user checks for updates', () => {
         expect(dialogExists(wrapper)).toBe(false);
     });
 
+    it('user can reopen a failed installation without losing the downloaded update', async () => {
+        const wrapper = mountSection({
+            status: 'failed',
+            downloadedUpdate: update(),
+            error: 'file in use',
+        });
+        appUpdateServiceMock.checkNow.mockResolvedValue(false);
+
+        await primaryAction(wrapper).trigger('click');
+        await flushPromises();
+
+        expect(dialogExists(wrapper)).toBe(true);
+        expect(dialog(wrapper).attributes('data-error')).toBe('file in use');
+        expect(dialog(wrapper).attributes('data-action')).toContain('重启');
+    });
+
     it('user gets the action unavailable while a check is already running', () => {
         const wrapper = mountSection({ status: 'checking' });
 
@@ -535,6 +551,37 @@ describe('user acts on the update from the details dialog', () => {
         await flushPromises();
 
         expect(appUpdateServiceMock.download).toHaveBeenCalled();
+        expect(openUrlMock).not.toHaveBeenCalled();
+    });
+
+    it('user retries a failed download in the app instead of opening a download page', async () => {
+        const wrapper = await openDialog({
+            status: 'failed',
+            availableUpdate: update(),
+            error: 'connection lost',
+        });
+
+        await wrapper.get('[data-testid="dialog-action"]').trigger('click');
+        await flushPromises();
+
+        expect(appUpdateServiceMock.download).toHaveBeenCalledOnce();
+        expect(appUpdateServiceMock.install).not.toHaveBeenCalled();
+        expect(openUrlMock).not.toHaveBeenCalled();
+    });
+
+    it('user retries a failed installation using the already downloaded package', async () => {
+        const wrapper = await openDialog({
+            status: 'failed',
+            availableUpdate: update(),
+            downloadedUpdate: update(),
+            error: 'file in use',
+        });
+
+        await wrapper.get('[data-testid="dialog-action"]').trigger('click');
+        await flushPromises();
+
+        expect(appUpdateServiceMock.install).toHaveBeenCalledOnce();
+        expect(appUpdateServiceMock.download).not.toHaveBeenCalled();
         expect(openUrlMock).not.toHaveBeenCalled();
     });
 

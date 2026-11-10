@@ -1,6 +1,6 @@
 import { APP_VERSION } from '@/config/product';
 
-import type { AppUpdateState } from './types';
+import type { AppUpdateInfo, AppUpdateState } from './types';
 
 function isNewerVersion(version: string, currentVersion: string): boolean {
     const pattern = /^v?(\d+)\.(\d+)\.(\d+)(?:-([^+]+))?(?:\+.*)?$/;
@@ -65,5 +65,20 @@ export function getAvailableAppUpdateVersion(
         state.status !== 'not_available' &&
         isNewerVersion(latestVersion, state.currentVersion ?? currentVersion)
         ? latestVersion
+        : null;
+}
+
+export function getDownloadableAppUpdate(state: AppUpdateState): AppUpdateInfo | null {
+    return (state.status === 'available' || state.status === 'failed') &&
+        !state.downloadedUpdate &&
+        (state.updateRequirement?.targetSatisfiesRequirement ?? true)
+        ? state.availableUpdate
+        : null;
+}
+
+export function getInstallableAppUpdate(state: AppUpdateState): AppUpdateInfo | null {
+    return (state.status === 'downloaded' || state.status === 'failed') &&
+        (state.updateRequirement?.targetSatisfiesRequirement ?? true)
+        ? state.downloadedUpdate
         : null;
 }

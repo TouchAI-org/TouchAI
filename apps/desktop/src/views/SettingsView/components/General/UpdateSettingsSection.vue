@@ -3,7 +3,11 @@
     import SettingsRow from '@components/SettingsRow.vue';
     import { Switch } from '@components/ui/switch';
     import { appUpdateService } from '@services/AppUpdateService';
-    import { getAvailableAppUpdateVersion } from '@services/AppUpdateService/availability';
+    import {
+        getAvailableAppUpdateVersion,
+        getDownloadableAppUpdate,
+        getInstallableAppUpdate,
+    } from '@services/AppUpdateService/availability';
     import type { AppUpdateChannel } from '@services/AppUpdateService/types';
     import { log } from '@services/ObservabilityService';
     import { getVersion } from '@tauri-apps/api/app';
@@ -81,12 +85,8 @@
     const isDownloading = computed(() => updateState.value.status === 'downloading');
     const isInstalling = computed(() => updateState.value.status === 'installing');
     const isBusy = computed(() => isChecking.value || isDownloading.value || isInstalling.value);
-    const canInstall = computed(() => updateState.value.status === 'downloaded');
-    const canUseInAppUpdate = computed(
-        () =>
-            updateState.value.status === 'available' &&
-            (updateState.value.updateRequirement?.targetSatisfiesRequirement ?? true)
-    );
+    const canInstall = computed(() => Boolean(getInstallableAppUpdate(updateState.value)));
+    const canUseInAppUpdate = computed(() => Boolean(getDownloadableAppUpdate(updateState.value)));
     const statusTitle = computed(() => {
         if (isChecking.value) {
             return t('settings.general.update.status.checking');
@@ -200,6 +200,8 @@
         const completed = await checkForUpdates(source);
         const updateCanBeShown =
             completed ||
+            canInstall.value ||
+            canUseInAppUpdate.value ||
             ['available', 'downloaded', 'unsupported'].includes(updateState.value.status);
         if (updateCanBeShown && hasUpdateDetails.value) {
             detailsOpen.value = true;

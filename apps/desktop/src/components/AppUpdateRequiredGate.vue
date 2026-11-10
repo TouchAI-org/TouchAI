@@ -1,6 +1,10 @@
 ﻿<script setup lang="ts">
     import AppIcon from '@components/AppIcon.vue';
     import { appUpdateService } from '@services/AppUpdateService';
+    import {
+        getDownloadableAppUpdate,
+        getInstallableAppUpdate,
+    } from '@services/AppUpdateService/availability';
     import { getAppUpdateRequirementReasonText } from '@services/AppUpdateService/requirementText';
     import type { AppUpdateState } from '@services/AppUpdateService/types';
     import { log } from '@services/ObservabilityService';
@@ -30,10 +34,10 @@
     const isBusy = computed(() => isChecking.value || isDownloading.value || isInstalling.value);
     const canUseInAppUpdate = computed(
         () =>
-            updateState.value.status === 'available' &&
+            Boolean(getDownloadableAppUpdate(updateState.value)) &&
             (requirement.value?.targetSatisfiesRequirement ?? false)
     );
-    const canInstall = computed(() => updateState.value.status === 'downloaded');
+    const canInstall = computed(() => Boolean(getInstallableAppUpdate(updateState.value)));
     const releaseNotes = computed(
         () => visibleUpdate.value?.notes?.trim() || latestUpdate.value?.releaseNotes?.trim() || ''
     );
