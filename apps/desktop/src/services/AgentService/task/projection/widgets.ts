@@ -12,6 +12,7 @@ import {
     SHOW_WIDGET_TOOL_NAME,
     type ShowWidgetPayload,
 } from '@/services/BuiltInToolService/tools/widgetTool';
+import { SHOW_WIDGET_DRAFT_THROTTLE_MIN_CHARS } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtimeConstants';
 import type { SessionMessage, WidgetInfo } from '@/types/session';
 import { normalizeString } from '@/utils/text';
 
@@ -37,14 +38,6 @@ interface WidgetDraftBuildState {
 
 // 流式参数 buffer 的草稿重建间隔；窗口内的 delta 只记录最新 buffer。
 const WIDGET_DRAFT_REBUILD_INTERVAL_MS = 80;
-
-/**
- * 只有累计参数超过该长度才启用节流。
- *
- * 小体量草稿（刚开始的几十个字符）重建很便宜，保持与每个 delta 同步，
- * 以免草稿展示滞后；真正贵的是大段生成中的 HTML。
- */
-const WIDGET_DRAFT_THROTTLE_MIN_CHARS = 2000;
 
 /**
  * Widget 投影状态管理器。
@@ -241,7 +234,7 @@ export class ProjectionWidgets {
 
         const now = Date.now();
         if (
-            buffer.length >= WIDGET_DRAFT_THROTTLE_MIN_CHARS &&
+            buffer.length >= SHOW_WIDGET_DRAFT_THROTTLE_MIN_CHARS &&
             state.lastBuildAt !== null &&
             now - state.lastBuildAt < WIDGET_DRAFT_REBUILD_INTERVAL_MS
         ) {

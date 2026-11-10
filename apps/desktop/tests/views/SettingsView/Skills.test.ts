@@ -389,6 +389,40 @@ describe('given local skills are installed', () => {
         await flushPromises();
         expect(wrapper.get('[data-testid="settings-skills-list"]').text()).not.toContain('alpha');
     });
+    it.each([
+        ['', 'z-app'],
+        ['match', 'z-global-match'],
+        ['app-delete', null],
+    ] as const)(
+        'user deletes the selected skill with filter "%s" and sees the first visible replacement %s',
+        async (query, replacement) => {
+            installSkillCommands([
+                skillFile('a-global'),
+                skillFile('app-delete-match', false, 'app'),
+                skillFile('z-app', false, 'app'),
+                skillFile('z-global-match'),
+            ]);
+            await open();
+            expect(wrapper.get('h2').text()).toBe('app-delete-match');
+            await wrapper.get('input[aria-label="Search skills"]').setValue(query);
+            await wrapper.get('[data-testid="settings-skills-delete"]').trigger('click');
+            await flushPromises();
+            const confirm = Array.from(
+                document.querySelectorAll('[role="alertdialog"] button, [role="dialog"] button')
+            ).find((button) => button.textContent?.trim() === 'Delete skill') as HTMLButtonElement;
+            confirm.click();
+            await flushPromises();
+            const selected = wrapper.find('button[aria-pressed="true"]');
+            if (replacement) {
+                expect(wrapper.get('h2').text()).toBe(replacement);
+                expect(selected.text()).toContain(replacement);
+                expect(wrapper.get('pre').text()).toContain(`Private ${replacement} instructions`);
+            } else {
+                expect(selected.exists()).toBe(false);
+                expect(wrapper.find('[data-testid="settings-skills-detail"]').exists()).toBe(false);
+            }
+        }
+    );
     it('user cancels deletion without losing the selected skill', async () => {
         await open();
         await wrapper.get('[data-testid="settings-skills-delete"]').trigger('click');
@@ -581,6 +615,17 @@ describe('given discovery takes time to finish', () => {
         expect(wrapper.get('[data-testid="settings-skills-list"]').text()).not.toContain('alpha');
         expect(wrapper.get('h2').text()).toBe('beta');
         expect(wrapper.get('pre').text()).toContain('Private beta instructions');
+    });
+    it('user refreshes after the selected filtered skill is removed and sees no hidden replacement', async () => {
+        await open();
+        await wrapper.get('input[aria-label="Search skills"]').setValue('alpha');
+        installSkillCommands([skillFile('beta', true)]);
+        await wrapper.get('[aria-label="Refresh skills"]').trigger('click');
+        await flushPromises();
+        expect(wrapper.get('[data-testid="settings-skills-list"]').text()).toContain(
+            'No matching skills'
+        );
+        expect(wrapper.find('[data-testid="settings-skills-detail"]').exists()).toBe(false);
     });
 });
 

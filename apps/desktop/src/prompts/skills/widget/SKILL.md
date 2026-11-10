@@ -91,24 +91,15 @@ Outputs using these will fail validation:
 
 ## Modules
 
-This skill includes complete guidance for each of these use cases:
-
-- **diagram**: Flowcharts, org charts, system diagrams, architecture
-- **chart**: Data visualization with Chart.js
-- **interactive**: Forms, calculators, configurators, games
-- **mockup**: UI mockups, wireframes, design comps
-- **art**: Illustrations, decorative graphics, creative visuals
-
-## Modules
-
 Use the relevant sections below; all guidance is included in this skill:
 
-- `diagram` — SVG flowcharts, structural diagrams, illustrative diagrams
-- `mockup` — UI mockups, forms, cards, dashboards
-- `interactive` — interactive explainers with controls
+- `diagram` — SVG flowcharts, org charts, system architecture, illustrative diagrams
+- `mockup` — UI mockups, wireframes, forms, cards, dashboards
+- `interactive` — interactive explainers, calculators, configurators, games
 - `chart` — charts and data analysis (includes Chart.js)
 - `art` — illustration and generative art
-  Pick the closest fit and follow the shared core rules alongside its detailed guidance.
+
+Pick the closest fit and follow the shared core rules alongside its detailed guidance.
 
 **Complexity budget — hard limits:**
 

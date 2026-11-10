@@ -89,8 +89,7 @@
                 return updated ? [{ ...skill, disabled: updated.disabled }] : [];
             });
             if (!skills.value.some((skill) => skill.path === selectedPath.value)) {
-                selectedPath.value =
-                    groups.value[0]?.skills[0]?.path ?? skills.value[0]?.path ?? null;
+                selectedPath.value = groups.value[0]?.skills[0]?.path ?? null;
             }
             if (selected.value && selectedPath.value === previousPath) await loadContent(true);
         } catch {
@@ -177,7 +176,7 @@
             if (disposed) return;
             skills.value = skills.value.filter((item) => item.path !== skill.path);
             if (selectedPath.value === skill.path)
-                selectedPath.value = skills.value[0]?.path ?? null;
+                selectedPath.value = groups.value[0]?.skills[0]?.path ?? null;
         } catch {
             if (!disposed) error.value = t('skills.deleteFailed');
         } finally {

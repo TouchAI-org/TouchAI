@@ -61,7 +61,7 @@ import { publicWidgetArguments, WidgetSkillAccess } from '../skills/widgetAccess
 import { ContextWindow, type SummaryResult } from './context';
 import { snapshotAiMessages } from './messages';
 import type { TurnEvent } from './runtime';
-import { publicToolCall, publicWidgetChunk } from './widgetStream';
+import { createPublicWidgetStream, publicToolCall } from './widgetStream';
 
 const BUILT_IN_UPGRADE_TOOL_NAME = 'builtin__upgrade_model';
 const BUILT_IN_SKILL_TOOL_NAME = 'builtin__activate_skill';
@@ -1148,6 +1148,7 @@ export class AiRequestExecutor {
         };
         let streamError: unknown;
         let streamFailed = false;
+        const projectPublicChunk = createPublicWidgetStream(runtime.privateState.widgetSkillAccess);
         try {
             for await (const chunk of runtime.provider.stream(modelRequest)) {
                 throwIfAborted(options.signal);
@@ -1197,9 +1198,7 @@ export class AiRequestExecutor {
                     finalUsage = chunk.usage;
                     usageReported = chunk.usageReported === true;
                 }
-                options.onChunk?.(
-                    await publicWidgetChunk(chunk, runtime.privateState.widgetSkillAccess)
-                );
+                options.onChunk?.(await projectPublicChunk(chunk));
                 if (chunk.done) {
                     break;
                 }
@@ -1303,16 +1302,14 @@ export class AiRequestExecutor {
 
         if (options.toolCall.name === BUILT_IN_SKILL_TOOL_NAME) {
             if (runtime.privateState.skillActivationAttempts >= MAX_SELECTED_SKILLS) {
-                const result = t('skills.contextLimit', { count: MAX_SELECTED_SKILLS });
-                this.emitToolEvent(options.onChunk, {
-                    type: 'call_end',
-                    callId: options.toolCall.id,
-                    result,
-                    isError: true,
+                return this.rejectToolCall({
+                    ...options,
+                    iteration: runtime.iteration,
+                    sessionId: options.persister.getSessionId(),
+                    input: serializeAuditPayload(options.toolCall.arguments),
+                    result: t('skills.contextLimit', { count: MAX_SELECTED_SKILLS }),
                     durationMs: 0,
-                    finalStatus: 'error',
                 });
-                return { toolCall: options.toolCall, result, isError: true, toolLogId: null };
             }
             runtime.privateState.skillActivationAttempts++;
         }

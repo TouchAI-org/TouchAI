@@ -345,10 +345,11 @@ describe('given a skill is activated during a conversation that needs a retry', 
         }
     );
 
-    it('user can finish a turn after repeated model activations reach the instruction limit', async () => {
+    it('user reaches the skill limit and retains the rejected call as a verifiable history entry', async () => {
         setLocale('en-US');
         let calls = 0;
         let lastRequest = '';
+        const checkpoints: TurnEvent[] = [];
         httpFetch.mockImplementation(async (_url, init) => {
             calls++;
             lastRequest = init.body;
@@ -356,11 +357,38 @@ describe('given a skill is activated during a conversation that needs a retry', 
         });
         const result = await new AiConversationRuntime(new AiRequestExecutor(), {
             prompt: 'Summarize',
+            taskId: 'skill-limit-history',
+            onTurnEvent: (event) => {
+                if (event.type === 'checkpoint_committed') checkpoints.push(event);
+            },
             requestToolApproval: async () => true,
         }).run();
         expect(result.response).toBe('Three concise points.');
         expect(lastRequest.split(privateMarker).length - 1).toBe(16);
         expect(lastRequest).toContain('Skill context limit reached');
+        const stored = database
+            .prepare("SELECT data FROM message_parts WHERE type = 'tool_call' AND tool_call_id = ?")
+            .get('skill-17') as { data: string } | undefined;
+        expect(stored).toBeDefined();
+        expect(JSON.parse(stored!.data)).toMatchObject({
+            toolCallId: 'skill-17',
+            status: 'error',
+            output: expect.stringContaining('Skill context limit reached'),
+        });
+        const checkpoint = checkpoints[checkpoints.length - 1];
+        if (checkpoint?.type !== 'checkpoint_committed') throw new Error('Expected checkpoint');
+        const rejected = checkpoint.checkpoint.messages.filter(
+            (message) =>
+                message.tool_call_id === 'skill-17' ||
+                message.tool_calls?.some((call) => call.id === 'skill-17')
+        );
+        expect(rejected).toHaveLength(2);
+        for (const message of rejected) {
+            expect(message.contextSource).toEqual({
+                id: expect.any(Number),
+                fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+            });
+        }
     });
 
     it.each(['disabled', 'failed'] as const)(

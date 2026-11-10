@@ -50,6 +50,7 @@ export interface ColorRampStops {
 }
 
 export const SHOW_WIDGET_DRAFT_MIN_INTERVAL_MS = 150;
+export const SHOW_WIDGET_DRAFT_THROTTLE_MIN_CHARS = 2000;
 export const SHOW_WIDGET_FADE_IN_ANIMATION =
     'touchai-widget-fade-in var(--touchai-widget-duration-fast, 250ms) var(--touchai-widget-ease, cubic-bezier(0.22, 1, 0.36, 1))';
 export const SHOW_WIDGET_MAX_WIDTH_PX = 680;
