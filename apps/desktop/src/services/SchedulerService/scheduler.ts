@@ -2,18 +2,23 @@
 
 import { log } from '@services/ObservabilityService';
 import { Cron } from 'croner';
+import { useStateMachine } from 'reka-ui';
 
 import { sessionTaskCenter } from '@/services/AgentService';
 
 import { eventTriggerRegistry } from './eventRegistry';
 import type { ScheduledTask, ScheduleTrigger } from './types';
 
-type TimerHandle = ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>;
+const SCHEDULE_LIFECYCLE = {
+    pending: { arm: 'armed', dispose: 'disposed' },
+    armed: { arm: 'armed', dispose: 'disposed' },
+    disposed: {},
+} as const;
 
-interface TimerBinding {
-    kind: 'timeout' | 'interval';
-    handle: TimerHandle;
-}
+type ScheduleBinding = ReturnType<typeof useStateMachine<typeof SCHEDULE_LIFECYCLE>> & {
+    version: number;
+    cleanup: (() => void) | null;
+};
 
 export interface CreateScheduledTaskInput {
     name: string;
@@ -52,8 +57,7 @@ function cloneValue<T>(value: T): T {
  */
 export class TaskScheduler {
     private readonly tasks = new Map<string, ScheduledTask>();
-    private readonly timers = new Map<string, TimerBinding>();
-    private readonly eventCleanups = new Map<string, () => void>();
+    private readonly scheduleBindings = new Map<string, ScheduleBinding>();
     private readonly runningTasks = new Set<string>();
     private readonly scheduleVersions = new Map<string, number>();
 
@@ -152,6 +156,7 @@ export class TaskScheduler {
 
         const version = this.bumpScheduleVersion(taskId);
         this.clearTaskResources(taskId);
+        if (!this.isCurrentScheduleVersion(taskId, version)) return;
 
         if (!task.enabled) {
             task.nextRunAt = null;
@@ -160,6 +165,11 @@ export class TaskScheduler {
             return;
         }
 
+        this.scheduleBindings.set(taskId, {
+            ...useStateMachine('pending', SCHEDULE_LIFECYCLE),
+            version,
+            cleanup: null,
+        });
         await this.scheduleTaskWithVersion(task, version);
     }
 
@@ -295,10 +305,7 @@ export class TaskScheduler {
                     void this.executeTask(task.id, version);
                 }, task.trigger.milliseconds);
 
-                this.timers.set(task.id, {
-                    kind: 'interval',
-                    handle: intervalHandle,
-                });
+                this.attachResource(task.id, version, () => clearInterval(intervalHandle));
                 return;
             }
             case 'once': {
@@ -316,10 +323,7 @@ export class TaskScheduler {
                     await this.executeTask(task.id, version);
                 }, delay);
 
-                this.timers.set(task.id, {
-                    kind: 'timeout',
-                    handle: timeoutHandle,
-                });
+                this.attachResource(task.id, version, () => clearTimeout(timeoutHandle));
                 return;
             }
             case 'cron': {
@@ -339,12 +343,7 @@ export class TaskScheduler {
                     void this.executeTask(task.id, version);
                 });
 
-                if (!this.isCurrentScheduleVersion(task.id, version)) {
-                    cleanup();
-                    return;
-                }
-
-                this.eventCleanups.set(task.id, cleanup);
+                this.attachResource(task.id, version, cleanup);
                 return;
             }
             default: {
@@ -383,28 +382,35 @@ export class TaskScheduler {
             await this.executeTask(taskId, version);
         }, delay);
 
-        this.timers.set(taskId, {
-            kind: 'timeout',
-            handle: timeoutHandle,
-        });
+        this.attachResource(taskId, version, () => clearTimeout(timeoutHandle));
+    }
+
+    private attachResource(taskId: string, version: number, cleanup: () => void): void {
+        const binding = this.scheduleBindings.get(taskId);
+        if (
+            !binding ||
+            binding.version !== version ||
+            binding.state.value === 'disposed' ||
+            !this.isCurrentScheduleVersion(taskId, version)
+        ) {
+            cleanup();
+            return;
+        }
+
+        const previousCleanup = binding.cleanup;
+        binding.cleanup = cleanup;
+        binding.dispatch('arm');
+        previousCleanup?.();
     }
 
     private clearTaskResources(taskId: string): void {
-        const timer = this.timers.get(taskId);
-        if (timer) {
-            if (timer.kind === 'interval') {
-                clearInterval(timer.handle);
-            } else {
-                clearTimeout(timer.handle);
-            }
-            this.timers.delete(taskId);
-        }
-
-        const cleanup = this.eventCleanups.get(taskId);
-        if (cleanup) {
-            cleanup();
-            this.eventCleanups.delete(taskId);
-        }
+        const binding = this.scheduleBindings.get(taskId);
+        if (!binding) return;
+        this.scheduleBindings.delete(taskId);
+        binding.dispatch('dispose');
+        const cleanup = binding.cleanup;
+        binding.cleanup = null;
+        cleanup?.();
     }
 
     private bumpScheduleVersion(taskId: string): number {

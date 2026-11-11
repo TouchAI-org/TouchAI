@@ -15,7 +15,8 @@ import {
 } from '@services/AnalyticsService/productInteractions';
 import { notify } from '@services/NotificationService';
 import { log } from '@services/ObservabilityService';
-import { onUnmounted, type Ref, ref } from 'vue';
+import { useStateMachine } from 'reka-ui';
+import { computed, onUnmounted, type Ref, ref } from 'vue';
 
 import {
     type Index,
@@ -84,7 +85,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     } = options;
 
     const pendingRequest = ref<PendingRequest | null>(null);
-    const isWaitingForCompletion = ref(false);
+    const isWaitingForCompletion = computed(() => pendingRequest.value !== null);
     const sessionHistoryOverlayOpen = ref(false);
     const sessionList = ref<SessionEntity[]>([]);
     const sessionListQuery = ref('');
@@ -95,7 +96,12 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
     let sessionListInFlightKey: string | null = null;
     let sessionListResolvedKey: string | null = null;
     let stopSessionStatusListener: (() => void) | null = null;
-    let sessionStatusListenerDisposed = false;
+    const sessionStatusLifecycle = useStateMachine('pending', {
+        pending: { ready: 'active', failed: 'failed', dispose: 'disposed' },
+        active: { dispose: 'disposed' },
+        failed: { dispose: 'disposed' },
+        disposed: {},
+    });
     let pendingSessionSearch: { timer: ReturnType<typeof setTimeout>; resolve: () => void } | null =
         null;
 
@@ -248,7 +254,6 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
      */
     function clearPendingRequestState() {
         pendingRequest.value = null;
-        isWaitingForCompletion.value = false;
     }
 
     function cancelPendingRequest(): boolean {
@@ -328,6 +333,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
 
     void eventService
         .on(AppEvent.SESSION_TASK_STATUS_CHANGED, (event) => {
+            if (sessionStatusLifecycle.state.value === 'disposed') return;
             if (event.status !== 'completed' && event.status !== 'failed') {
                 return;
             }
@@ -349,21 +355,23 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
             });
         })
         .then((unlisten) => {
-            if (sessionStatusListenerDisposed) {
+            if (sessionStatusLifecycle.state.value === 'disposed') {
                 unlisten();
                 return;
             }
 
             stopSessionStatusListener = unlisten;
+            sessionStatusLifecycle.dispatch('ready');
         })
         .catch((error) => {
+            sessionStatusLifecycle.dispatch('failed');
             log.error('[SearchView] Failed to subscribe session status events:', error);
         });
 
     onUnmounted(() => {
         cancelScheduledSessionSearch();
         invalidateSessionListRequest();
-        sessionStatusListenerDisposed = true;
+        sessionStatusLifecycle.dispatch('dispose');
         stopSessionStatusListener?.();
         stopSessionStatusListener = null;
         const ready = historyInteraction;
@@ -517,7 +525,6 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                 modelId: selectedModelId ?? undefined,
                 providerId: selectedProviderId ?? undefined,
             };
-            isWaitingForCompletion.value = true;
             return;
         }
 

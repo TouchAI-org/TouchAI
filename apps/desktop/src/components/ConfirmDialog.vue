@@ -13,7 +13,8 @@
         AlertDialogHeader,
         AlertDialogTitle,
     } from '@components/ui/alert-dialog';
-    import { ref, watch } from 'vue';
+    import { useStateMachine } from 'reka-ui';
+    import { computed, watch } from 'vue';
 
     import { t } from '@/i18n';
 
@@ -41,16 +42,19 @@
     });
 
     const emit = defineEmits<Emits>();
-    const isOpen = ref(props.open);
-    const hasResult = ref(false);
+    const { state: phase, dispatch } = useStateMachine(props.open ? 'open' : 'closed', {
+        open: { confirm: 'confirmed', cancel: 'cancelled' },
+        confirmed: { open: 'open', finish: 'closed' },
+        cancelled: { open: 'open', finish: 'closed' },
+        closed: { open: 'open' },
+    } as const);
+    const isOpen = computed(() => phase.value === 'open');
 
     const closeWithResult = (result: 'confirm' | 'cancel') => {
-        if (!hasResult.value) {
-            hasResult.value = true;
-            if (result === 'confirm') emit('confirm');
-            else emit('cancel');
-        }
-        isOpen.value = false;
+        if (!isOpen.value) return;
+        dispatch(result);
+        if (result === 'confirm') emit('confirm');
+        else emit('cancel');
     };
 
     const handleConfirm = () => closeWithResult('confirm');
@@ -63,8 +67,7 @@
         () => props.open,
         (open) => {
             if (open) {
-                hasResult.value = false;
-                isOpen.value = true;
+                dispatch('open');
             } else if (isOpen.value) {
                 handleCancel();
             }
@@ -72,12 +75,16 @@
     );
 
     const handleOpenChange = (open: boolean) => {
-        isOpen.value = open;
-        if (!open && !hasResult.value) closeWithResult('cancel');
+        if (!open) closeWithResult('cancel');
     };
 
     const handleAnimationEnd = (event: AnimationEvent) => {
-        if (event.target === event.currentTarget && event.animationName === 't-modal-out') {
+        if (
+            (phase.value === 'confirmed' || phase.value === 'cancelled') &&
+            event.target === event.currentTarget &&
+            event.animationName === 't-modal-out'
+        ) {
+            dispatch('finish');
             emit('closed');
         }
     };

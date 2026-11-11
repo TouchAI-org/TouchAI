@@ -2,6 +2,23 @@ import { createWindowCloseHandler } from '@services/ObservabilityService';
 import { vi } from 'vitest';
 
 describe('user closes a window with pending logs', () => {
+    it('user retries closing after a synchronous flush failure and the window closes', async () => {
+        const flush = vi
+            .fn()
+            .mockImplementationOnce(() => {
+                throw new Error('flush unavailable');
+            })
+            .mockResolvedValue(undefined);
+        const closeWindow = vi.fn().mockResolvedValue(undefined);
+        const handleCloseRequested = createWindowCloseHandler(closeWindow, flush);
+
+        await handleCloseRequested({ preventDefault: vi.fn() });
+        expect(closeWindow).not.toHaveBeenCalled();
+        await handleCloseRequested({ preventDefault: vi.fn() });
+
+        expect(closeWindow).toHaveBeenCalledOnce();
+    });
+
     it('user gets the window closed after the pending logs flush', async () => {
         const flush = vi.fn().mockResolvedValue(undefined);
         const closeWindow = vi.fn().mockResolvedValue(undefined);

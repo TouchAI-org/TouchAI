@@ -5,7 +5,8 @@ import { AppEvent, eventService } from '@services/EventService';
 import { log } from '@services/ObservabilityService';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
+import { useStateMachine } from 'reka-ui';
+import { computed, onScopeDispose, ref, shallowRef } from 'vue';
 
 import {
     applyGeneralSettingValue,
@@ -28,15 +29,26 @@ import {
 
 export type { GeneralSettingsData, OutputScrollBehavior } from './setting';
 
+const SETTINGS_LIFECYCLE = {
+    pending: { ready: 'ready', dispose: 'disposed' },
+    ready: { dispose: 'disposed' },
+    disposed: {},
+} as const;
+
+type SettingsInitialization = ReturnType<typeof useStateMachine<typeof SETTINGS_LIFECYCLE>> & {
+    promise: Promise<void> | null;
+    unlisten: (() => void) | null;
+};
+
 export const useSettingsStore = defineStore('settings', () => {
     const settings = ref<GeneralSettingsData>(createDefaultGeneralSettings());
-    const initialized = ref(false);
-    const loading = ref(false);
+    const initialization = shallowRef<SettingsInitialization | null>(null);
+    const initialized = computed(() => initialization.value?.state.value === 'ready');
+    const pendingReads = ref(0);
+    const loading = computed(() => pendingReads.value > 0);
     const windowLabel = ref('unknown');
 
     const instanceId = crypto.randomUUID();
-    let initializePromise: Promise<void> | null = null;
-    let unlistenSettingsUpdated: (() => void) | null = null;
 
     function cloneSettingsSnapshot(): GeneralSettingsData {
         return cloneGeneralSettingsSnapshot(settings.value);
@@ -61,12 +73,13 @@ export const useSettingsStore = defineStore('settings', () => {
         await setSetting({ key, value: serializeSetting(key) });
     }
 
-    async function loadFromDatabase() {
-        loading.value = true;
+    async function loadFromDatabase(canApply?: () => boolean) {
+        pendingReads.value += 1;
         try {
             const settingValues = await getSettingValues({
                 keys: GENERAL_SETTING_DEFINITIONS.map((definition) => definition.key),
             });
+            if (canApply && !canApply()) return;
             const settingRows = GENERAL_SETTING_DEFINITIONS.map(
                 (definition) => settingValues[definition.key] ?? null
             );
@@ -105,7 +118,7 @@ export const useSettingsStore = defineStore('settings', () => {
                 );
             }
         } finally {
-            loading.value = false;
+            pendingReads.value -= 1;
         }
     }
 
@@ -156,53 +169,67 @@ export const useSettingsStore = defineStore('settings', () => {
     }
 
     async function initialize() {
-        if (initialized.value) {
+        const current = initialization.value;
+        if (current?.state.value === 'ready') return;
+        if (current?.state.value === 'pending') {
+            await current.promise;
             return;
         }
 
-        if (initializePromise) {
-            await initializePromise;
-            return;
-        }
-
-        initializePromise = (async () => {
+        const attempt: SettingsInitialization = {
+            ...useStateMachine('pending', SETTINGS_LIFECYCLE),
+            promise: null,
+            unlisten: null,
+        };
+        initialization.value = attempt;
+        const isActive = () => attempt.state.value !== 'disposed';
+        attempt.promise = (async () => {
             try {
                 windowLabel.value = getCurrentWindow().label;
             } catch {
                 windowLabel.value = 'unknown';
             }
 
-            await loadFromDatabase();
+            await loadFromDatabase(isActive);
+            if (!isActive()) return;
 
-            if (!unlistenSettingsUpdated) {
-                unlistenSettingsUpdated = await eventService.on(
-                    AppEvent.SETTINGS_GENERAL_UPDATED,
-                    (payload) => {
-                        if (payload.sourceId === instanceId) {
-                            return;
-                        }
-                        applySetting(payload.key, payload.value);
-                    }
-                );
+            const unlisten = await eventService.on(AppEvent.SETTINGS_GENERAL_UPDATED, (payload) => {
+                if (!isActive() || payload.sourceId === instanceId) {
+                    return;
+                }
+                applySetting(payload.key, payload.value);
+            });
+            if (!isActive()) {
+                unlisten();
+                return;
             }
-
-            initialized.value = true;
+            attempt.unlisten = unlisten;
+            attempt.dispatch('ready');
         })();
 
         try {
-            await initializePromise;
+            await attempt.promise;
+        } catch (error) {
+            releaseInitialization(attempt);
+            throw error;
         } finally {
-            initializePromise = null;
+            attempt.promise = null;
         }
     }
 
-    async function dispose() {
-        if (unlistenSettingsUpdated) {
-            unlistenSettingsUpdated();
-            unlistenSettingsUpdated = null;
-        }
-        initialized.value = false;
+    function releaseInitialization(attempt = initialization.value) {
+        if (!attempt) return;
+        attempt.dispatch('dispose');
+        const unlisten = attempt.unlisten;
+        attempt.unlisten = null;
+        unlisten?.();
     }
+
+    async function dispose() {
+        releaseInitialization();
+    }
+
+    onScopeDispose(() => releaseInitialization());
 
     async function refresh() {
         await loadFromDatabase();

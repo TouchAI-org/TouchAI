@@ -2,6 +2,7 @@
 
 import type { AppIconName } from '@components/appIconMap';
 import ContextMenuVue from '@components/ContextMenu.vue';
+import { useStateMachine } from 'reka-ui';
 import { type App, type ComponentPublicInstance, createApp, onScopeDispose } from 'vue';
 
 export interface ContextMenuItem {
@@ -12,6 +13,12 @@ export interface ContextMenuItem {
 }
 
 type ContextMenuItemsSource = ContextMenuItem[] | (() => ContextMenuItem[]);
+
+const MENU_LIFECYCLE = {
+    open: { close: 'closing', dispose: 'disposed' },
+    closing: { dispose: 'disposed' },
+    disposed: {},
+} as const;
 
 let contextMenuSequence = 0;
 
@@ -27,12 +34,10 @@ export function useContextMenu<T = void>(
         component: (ComponentPublicInstance & { close?: () => void }) | null;
         keydownHandler: ((event: KeyboardEvent) => void) | null;
         activeIndex: number;
-        closing: boolean;
-        closeNotified: boolean;
+        lifecycle: ReturnType<typeof useStateMachine<typeof MENU_LIFECYCLE>>;
         cleanupTimer: ReturnType<typeof setTimeout> | null;
         context: T | undefined;
         animationFrame: number | null;
-        disposed: boolean;
     };
 
     let active: MenuInstance | null = null;
@@ -44,16 +49,9 @@ export function useContextMenu<T = void>(
         }
     };
 
-    const notifyClose = (instance: MenuInstance) => {
-        if (!instance.closeNotified) {
-            instance.closeNotified = true;
-            onClose?.();
-        }
-    };
-
     const dispose = (instance: MenuInstance) => {
-        if (instance.disposed) return;
-        instance.disposed = true;
+        if (instance.lifecycle.state.value === 'disposed') return;
+        instance.lifecycle.dispatch('dispose');
         if (instance.cleanupTimer !== null) {
             clearTimeout(instance.cleanupTimer);
             instance.cleanupTimer = null;
@@ -70,15 +68,14 @@ export function useContextMenu<T = void>(
         if (active === instance) active = null;
     };
 
-    const beginClose = (instance: MenuInstance, notify = true) => {
-        if (instance.disposed) return;
-        if (notify) notifyClose(instance);
+    const beginClose = (instance: MenuInstance) => {
+        if (instance.lifecycle.state.value !== 'open') return;
+        instance.lifecycle.dispatch('close');
         detachKeyboard(instance);
-        if (instance.closing) return;
-        instance.closing = true;
         // The timer is a safety net for reduced motion, animation cancellation,
         // test DOMs, and app shutdowns where animationend cannot be delivered.
         instance.cleanupTimer = setTimeout(() => dispose(instance), 600);
+        onClose?.();
     };
 
     /** 获取当前菜单项元素列表。Reka UI teleports content to body. */
@@ -130,12 +127,10 @@ export function useContextMenu<T = void>(
             component: null,
             keydownHandler: null,
             activeIndex: 0,
-            closing: false,
-            closeNotified: false,
+            lifecycle: useStateMachine('open', MENU_LIFECYCLE),
             cleanupTimer: null,
             context: value,
             animationFrame: null,
-            disposed: false,
         };
         active = instance;
         document.body.appendChild(instance.container);
@@ -146,7 +141,9 @@ export function useContextMenu<T = void>(
             items: resolveItems(),
             menuId: instance.id,
             onSelect: (key: string) => {
-                if (!instance.disposed) onSelect(key, instance.context as T);
+                if (instance.lifecycle.state.value === 'open') {
+                    onSelect(key, instance.context as T);
+                }
             },
             onClose: () => beginClose(instance),
             onClosed: () => dispose(instance),
@@ -156,7 +153,7 @@ export function useContextMenu<T = void>(
         // 捕获阶段优先于主应用键盘路由. It is removed as soon as closing
         // starts, so the exit animation never traps focus or keystrokes.
         instance.keydownHandler = (event: KeyboardEvent) => {
-            if (active !== instance || instance.closing) return;
+            if (active !== instance || instance.lifecycle.state.value !== 'open') return;
             const menuItems = getMenuItems(instance);
             switch (event.key) {
                 case 'Escape':
@@ -196,16 +193,17 @@ export function useContextMenu<T = void>(
 
         instance.animationFrame = requestAnimationFrame(() => {
             instance.animationFrame = null;
-            if (!instance.disposed && !instance.closing) updateHighlight(instance);
+            if (instance.lifecycle.state.value === 'open') updateHighlight(instance);
         });
     };
 
     const close = () => {
-        if (!active) return;
-        if (active.component?.close) active.component.close();
+        const instance = active;
+        if (!instance) return;
+        if (instance.component?.close) instance.component.close();
         else {
-            notifyClose(active);
-            dispose(active);
+            beginClose(instance);
+            dispose(instance);
         }
     };
 

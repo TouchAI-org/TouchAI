@@ -1,6 +1,7 @@
 <!-- Copyright (c) 2026. Qian Cheng. Licensed under GPL v3 -->
 
 <script setup lang="ts">
+    import { useStateMachine } from 'reka-ui';
     import {
         computed,
         type CSSProperties,
@@ -84,9 +85,29 @@
     const overlayElement = ref<HTMLElement | null>(null);
     const overlayStyle = ref<CSSProperties>({ visibility: 'hidden' });
     const overlayOrigin = ref('top-left');
-    const renderOverlay = ref(props.open);
-    const overlayMotionState = ref<'entering' | 'open' | 'closing'>(
-        props.open ? 'entering' : 'closing'
+    const { state: overlayPhase, dispatch: transitionOverlay } = useStateMachine(
+        props.open ? 'entering' : 'closed',
+        {
+            closed: { enter: 'entering', dispose: 'disposed' },
+            entering: {
+                enter: 'entering',
+                reveal: 'open',
+                close: 'closing',
+                finish: 'closed',
+                dispose: 'disposed',
+            },
+            open: { enter: 'entering', close: 'closing', finish: 'closed', dispose: 'disposed' },
+            closing: { enter: 'entering', finish: 'closed', dispose: 'disposed' },
+            disposed: {},
+        }
+    );
+    const renderOverlay = computed(
+        () => overlayPhase.value !== 'closed' && overlayPhase.value !== 'disposed'
+    );
+    const overlayMotionState = computed(() =>
+        overlayPhase.value === 'closed' || overlayPhase.value === 'disposed'
+            ? 'closing'
+            : overlayPhase.value
     );
     const { reducedMotion, duration } = useMotion();
     const overlayMotionStyle = computed(
@@ -181,7 +202,7 @@
 
     function scheduleOpenTransition() {
         cancelOpenTransition();
-        overlayMotionState.value = 'entering';
+        transitionOverlay('enter');
         const token = openTransitionToken;
 
         void refreshPosition().then(async () => {
@@ -195,7 +216,7 @@
                 if (!props.open || !props.reveal || token !== openTransitionToken) {
                     return;
                 }
-                overlayMotionState.value = 'open';
+                transitionOverlay('reveal');
                 await nextTick();
                 if (isMounted && props.open && props.reveal && token === openTransitionToken) {
                     emit('revealed');
@@ -232,7 +253,7 @@
         }
         closeTransitionElement?.removeEventListener('transitionend', handleCloseTransitionEnd);
         closeTransitionElement = null;
-        renderOverlay.value = false;
+        transitionOverlay('finish');
         overlayStyle.value = { visibility: 'hidden' };
         emit('regionChange', null);
         emit('afterLeave');
@@ -240,7 +261,7 @@
 
     function scheduleCloseTransition() {
         cancelCloseTransition();
-        overlayMotionState.value = 'closing';
+        transitionOverlay('close');
         const token = closeTransitionToken;
 
         if (reducedMotion.value) {
@@ -366,8 +387,7 @@
             }
 
             cancelCloseTransition();
-            renderOverlay.value = true;
-            overlayMotionState.value = 'entering';
+            transitionOverlay('enter');
             void nextTick().then(() => {
                 if (!isMounted || !props.open) {
                     return;
@@ -437,6 +457,7 @@
 
     onUnmounted(() => {
         isMounted = false;
+        transitionOverlay('dispose');
         document.removeEventListener('pointerdown', handleDocumentPointerDown, true);
         window.removeEventListener('resize', schedulePositionUpdate);
         window.removeEventListener('scroll', schedulePositionUpdate, true);

@@ -234,12 +234,12 @@ export function useSearchPageController(options: {
         searchBar.value?.invalidateModelDropdownData();
     }
 
-    async function prepareModelDropdownOpen() {
+    async function prepareModelDropdownOpen(isCurrent?: () => boolean) {
         if (!searchBar.value) {
             await nextTick();
         }
 
-        await searchBar.value?.prepareModelDropdownOpen();
+        await searchBar.value?.prepareModelDropdownOpen(isCurrent);
     }
 
     async function selectModelFromDropdown(modelDbId: number) {

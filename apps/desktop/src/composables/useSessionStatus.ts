@@ -1,6 +1,7 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3
 
 import { log } from '@services/ObservabilityService';
+import { useStateMachine } from 'reka-ui';
 import { onUnmounted, ref } from 'vue';
 
 import { sessionTaskCenter } from '@/services/AgentService';
@@ -22,7 +23,12 @@ function isActiveSessionStatus(
 export function useSessionStatus() {
     const sessionStatuses = ref<Map<number, SessionTaskStatus>>(new Map());
     let unsubscribe: (() => void) | null = null;
-    let disposed = false;
+    const lifecycle = useStateMachine('pending', {
+        pending: { ready: 'active', failed: 'failed', dispose: 'disposed' },
+        active: { dispose: 'disposed' },
+        failed: { dispose: 'disposed' },
+        disposed: {},
+    });
 
     function setSessionStatus(sessionId: number, status: SessionTaskStatus) {
         const nextStatuses = new Map(sessionStatuses.value);
@@ -62,6 +68,7 @@ export function useSessionStatus() {
      */
     void eventService
         .on(AppEvent.SESSION_TASK_STATUS_CHANGED, (event) => {
+            if (lifecycle.state.value === 'disposed') return;
             if (isActiveSessionStatus(event.status)) {
                 setSessionStatus(event.sessionId, event.status);
                 return;
@@ -70,19 +77,21 @@ export function useSessionStatus() {
             clearSessionStatus(event.sessionId);
         })
         .then((unlisten) => {
-            if (disposed) {
+            if (lifecycle.state.value === 'disposed') {
                 unlisten();
                 return;
             }
 
             unsubscribe = unlisten;
+            lifecycle.dispatch('ready');
         })
         .catch((error) => {
+            lifecycle.dispatch('failed');
             log.error('[useSessionStatus] Failed to subscribe session status updates:', error);
         });
 
     onUnmounted(() => {
-        disposed = true;
+        lifecycle.dispatch('dispose');
         unsubscribe?.();
         unsubscribe = null;
     });

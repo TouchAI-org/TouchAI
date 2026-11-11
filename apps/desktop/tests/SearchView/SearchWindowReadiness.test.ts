@@ -360,7 +360,7 @@ describe('search surface preparation controller', () => {
         controller.dispose();
     });
 
-    it('does not finish startup until a returned pending preparation commits', async () => {
+    it('user waits for the initial window until its pending preparation commits', async () => {
         const initial = preparation(7);
         const settling = deferred<void>();
         const harness = createHarness({
@@ -374,8 +374,7 @@ describe('search surface preparation controller', () => {
         void starting.then(() => {
             started = true;
         });
-        await Promise.resolve();
-        await Promise.resolve();
+        await vi.waitFor(() => expect(harness.options.settle).toHaveBeenCalledOnce());
 
         expect(started).toBe(false);
         expect(harness.options.flush).not.toHaveBeenCalled();
@@ -388,7 +387,7 @@ describe('search surface preparation controller', () => {
         controller.dispose();
     });
 
-    it('reports cancellation without throwing when disposal wins a pending initial commit', async () => {
+    it('user disposes a preparing window and startup reports cancellation without an error', async () => {
         const initial = preparation(7);
         const settling = deferred<void>();
         const harness = createHarness({
@@ -397,7 +396,7 @@ describe('search surface preparation controller', () => {
         });
         const controller = createSearchSurfacePreparationController(harness.options);
         const starting = controller.start();
-        for (let index = 0; index < 4; index += 1) await Promise.resolve();
+        await vi.waitFor(() => expect(harness.options.settle).toHaveBeenCalledOnce());
 
         controller.dispose();
         settling.resolve();
@@ -407,7 +406,7 @@ describe('search surface preparation controller', () => {
         expect(harness.options.onError).not.toHaveBeenCalled();
     });
 
-    it('reports cancellation without throwing when hidden wins a pending initial commit', async () => {
+    it('user hides a preparing window and startup reports cancellation without an error', async () => {
         const initial = preparation(7);
         const settling = deferred<void>();
         const harness = createHarness({
@@ -416,7 +415,7 @@ describe('search surface preparation controller', () => {
         });
         const controller = createSearchSurfacePreparationController(harness.options);
         const starting = controller.start();
-        for (let index = 0; index < 6; index += 1) await Promise.resolve();
+        await vi.waitFor(() => expect(harness.options.settle).toHaveBeenCalledOnce());
         const hidden: SearchSurfaceHiddenEvent = {
             reason: 'manual-dismiss',
             sequence: 31,
@@ -460,28 +459,36 @@ describe('search surface preparation controller', () => {
         }
     );
 
-    it('keeps startup pending when a newer preparation supersedes the returned one', async () => {
+    it('user waits for the latest preparation when it supersedes the initial window', async () => {
         const initial = preparation(7);
         const latest = preparation(8);
+        const initialSettling = deferred<void>();
+        const latestSettling = deferred<void>();
         const initialSettle = deferred<void>();
         const latestSettle = deferred<void>();
         const harness = createHarness({
             markRendererReady: vi.fn(async () => initial),
             settle: vi
                 .fn<() => Promise<void>>()
-                .mockImplementationOnce(() => initialSettle.promise)
-                .mockImplementationOnce(() => latestSettle.promise),
+                .mockImplementationOnce(() => {
+                    initialSettling.resolve();
+                    return initialSettle.promise;
+                })
+                .mockImplementationOnce(() => {
+                    latestSettling.resolve();
+                    return latestSettle.promise;
+                }),
         });
         const controller = createSearchSurfacePreparationController(harness.options);
         let started = false;
         const starting = controller.start().then(() => {
             started = true;
         });
-        for (let index = 0; index < 6; index += 1) await Promise.resolve();
+        await initialSettling.promise;
 
         harness.emitPrepare(latest);
         initialSettle.resolve();
-        for (let index = 0; index < 6; index += 1) await Promise.resolve();
+        await latestSettling.promise;
 
         expect(started).toBe(false);
         expect(harness.options.flush).not.toHaveBeenCalledWith(initial);
@@ -494,7 +501,7 @@ describe('search surface preparation controller', () => {
         controller.dispose();
     });
 
-    it('treats matching shown as success when it arrives before the flush promise settles', async () => {
+    it('user sees startup succeed when native visibility is confirmed before the commit returns', async () => {
         const initial = preparation(7);
         const flushResult = deferred<boolean>();
         const harness = createHarness({
@@ -503,9 +510,7 @@ describe('search surface preparation controller', () => {
         });
         const controller = createSearchSurfacePreparationController(harness.options);
         const starting = controller.start();
-        for (let index = 0; index < 12; index += 1) await Promise.resolve();
-
-        expect(harness.options.flush).toHaveBeenCalledOnce();
+        await vi.waitFor(() => expect(harness.options.flush).toHaveBeenCalledOnce());
         const shown = shownEvent(initial, 17);
         harness.emitShown(shown);
 
@@ -518,7 +523,7 @@ describe('search surface preparation controller', () => {
         }
     });
 
-    it('reuses an authoritative shown fact when mark-ready returns the same token later', async () => {
+    it('user keeps a natively shown window when the readiness request returns its preparation later', async () => {
         const initial = preparation(7);
         const markReadyResult = deferred<SearchSurfacePreparation | null>();
         const flush = vi.fn(async () => true);
@@ -528,11 +533,10 @@ describe('search surface preparation controller', () => {
         });
         const controller = createSearchSurfacePreparationController(harness.options);
         const starting = controller.start();
-        for (let index = 0; index < 6; index += 1) await Promise.resolve();
+        await vi.waitFor(() => expect(harness.options.markRendererReady).toHaveBeenCalledOnce());
 
         harness.emitPrepare(initial);
-        for (let index = 0; index < 12; index += 1) await Promise.resolve();
-        expect(flush).toHaveBeenCalledOnce();
+        await vi.waitFor(() => expect(flush).toHaveBeenCalledOnce());
 
         harness.emitShown(shownEvent(initial, 17));
         markReadyResult.resolve(initial);
@@ -542,7 +546,7 @@ describe('search surface preparation controller', () => {
         controller.dispose();
     });
 
-    it('does not revive a preparation returned after hidden cancels the mark-ready request', async () => {
+    it('user hides a window while readiness is pending and its late preparation cannot revive it', async () => {
         const initial = preparation(7);
         const markReadyResult = deferred<SearchSurfacePreparation | null>();
         const firstFlush = deferred<boolean>();
@@ -556,11 +560,10 @@ describe('search surface preparation controller', () => {
         });
         const controller = createSearchSurfacePreparationController(harness.options);
         const starting = controller.start();
-        for (let index = 0; index < 6; index += 1) await Promise.resolve();
+        await vi.waitFor(() => expect(harness.options.markRendererReady).toHaveBeenCalledOnce());
 
         harness.emitPrepare(initial);
-        for (let index = 0; index < 8; index += 1) await Promise.resolve();
-        expect(flush).toHaveBeenCalledOnce();
+        await vi.waitFor(() => expect(flush).toHaveBeenCalledOnce());
 
         harness.emitHidden({ reason: 'manual-dismiss', sequence: 32 });
         markReadyResult.resolve(initial);

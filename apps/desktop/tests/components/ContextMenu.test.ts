@@ -85,6 +85,7 @@ describe('user opens a context menu', () => {
 
     it('user gets the closed event only after the exit animation', async () => {
         const wrapper = mountMenu();
+        (wrapper.vm as unknown as { close: () => void }).close();
         const content = wrapper.findComponent({ name: 'DropdownMenuContent' });
 
         // A different animation is not this menu's exit.

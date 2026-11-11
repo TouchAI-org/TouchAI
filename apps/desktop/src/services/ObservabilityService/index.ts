@@ -1,6 +1,7 @@
 import { native } from '@services/NativeService';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { useStateMachine } from 'reka-ui';
 
 import { attachEarlyErrorSink, resetEarlyErrorsForTests } from '@/utils/early-errors';
 
@@ -171,25 +172,32 @@ export function createWindowCloseHandler(
     closeWindow: () => Promise<void>,
     flush: () => Promise<void> = flushBeforeExit
 ): (event: WindowCloseEvent) => Promise<void> {
-    let closeApproved = false;
+    const lifecycle = useStateMachine('open', {
+        open: { request: 'flushing' },
+        flushing: { approve: 'closing', failed: 'open' },
+        closing: { complete: 'closed', failed: 'open' },
+        closed: {},
+    });
     let closeRequest: Promise<void> | null = null;
 
     return async (event) => {
-        if (closeApproved) return;
+        if (lifecycle.state.value === 'closing' || lifecycle.state.value === 'closed') return;
 
         event.preventDefault();
-        if (closeRequest) {
+        if (lifecycle.state.value === 'flushing') {
             await closeRequest;
             return;
         }
 
+        lifecycle.dispatch('request');
         closeRequest = (async () => {
             try {
                 await flush();
-                closeApproved = true;
+                lifecycle.dispatch('approve');
                 await closeWindow();
+                lifecycle.dispatch('complete');
             } catch (error) {
-                closeApproved = false;
+                lifecycle.dispatch('failed');
                 reportLoggingFailure(error);
             } finally {
                 closeRequest = null;
