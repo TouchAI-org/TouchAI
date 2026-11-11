@@ -4,11 +4,7 @@ import { getMessageText } from '@database/queries/messageParts';
 import { getToolCallName, readToolCallData } from '@database/queries/toolParts';
 import type { MessagePartEntity } from '@database/types';
 
-import {
-    contextMessageSource,
-    contextSummaryText,
-    readContextSummary,
-} from '../contracts/context';
+import { contextMessageSource, contextSummaryText, readContextSummary } from '../contracts/context';
 import type { AiContentPart, AiMessage, JsonObject } from '../contracts/protocol';
 import type { AiToolCall } from '../contracts/tooling';
 import {

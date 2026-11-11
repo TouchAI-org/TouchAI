@@ -16,9 +16,7 @@ import { findUnsupportedSessionAttachmentTypes } from '@/services/AgentService/s
 const BASE_TIME = '2026-06-03T10:00:00.000Z';
 
 const mocks = vi.hoisted(() => ({
-    loadSessionMessages: vi.fn<
-        () => Promise<{ messages: MessageRow[]; summaryPart: null }>
-    >(),
+    loadSessionMessages: vi.fn<() => Promise<{ messages: MessageRow[]; summaryPart: null }>>(),
 }));
 
 vi.mock('@services/NativeService', () => ({
@@ -26,7 +24,7 @@ vi.mock('@services/NativeService', () => ({
 }));
 
 function setSessionRows(rows: MessageRow[]): void {
-    setSessionRows({ messages: rows, summaryPart: null });
+    mocks.loadSessionMessages.mockResolvedValue({ messages: rows, summaryPart: null });
 }
 
 function createAttachment(overrides: Partial<AttachmentIndex> = {}): AttachmentIndex {

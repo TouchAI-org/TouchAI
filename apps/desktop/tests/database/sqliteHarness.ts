@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
@@ -18,6 +19,7 @@ const journal = JSON.parse(readFileSync(`${databaseRoot}/drizzle/meta/_journal.j
     entries: Array<{ tag: string }>;
 };
 const openDatabases: SqliteDatabase[] = [];
+const beforeCommitHooks = new WeakMap<SqliteDatabase, (() => void) | undefined>();
 
 type Data = Record<string, unknown>;
 type OperationRequest = Data & { kind: string };
@@ -46,8 +48,9 @@ export function openMigratedDatabase(): SqliteDatabase {
  */
 export function routeQueriesTo(
     database: SqliteDatabase,
-    _options: { beforeCommit?: () => void } = {}
+    options: { beforeCommit?: () => void } = {}
 ): void {
+    beforeCommitHooks.set(database, options.beforeCommit);
     interceptTauriInvoke((call, next) => {
         const operation = routeDatabaseOperation(database, call);
         if (operation) {
@@ -94,9 +97,10 @@ function updateById(
 }
 
 function transaction<T>(database: SqliteDatabase, callback: () => T): T {
-    database.exec('BEGIN');
+    database.exec('BEGIN IMMEDIATE');
     try {
         const result = callback();
+        beforeCommitHooks.get(database)?.();
         database.exec('COMMIT');
         return result;
     } catch (error) {
@@ -593,6 +597,425 @@ function findPricing(database: SqliteDatabase, rawModelId: string): Data | null 
     };
 }
 
+function loadMessageRows(database: SqliteDatabase, sessionId: number): Data[] {
+    const messages = database
+        .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY id')
+        .all(sessionId) as Data[];
+    const parts = database
+        .prepare(
+            `SELECT message_parts.*
+             FROM message_parts
+             INNER JOIN messages ON messages.id = message_parts.message_id
+             WHERE messages.session_id = ?
+             ORDER BY message_parts.message_id, message_parts.sort_order, message_parts.id`
+        )
+        .all(sessionId) as Data[];
+    const attachments = database
+        .prepare(
+            `SELECT
+                 message_parts.message_id,
+                 message_parts.sort_order,
+                 attachments.id,
+                 attachments.hash,
+                 attachments.type,
+                 attachments.original_name,
+                 json_extract(message_parts.data, '$.originPath') AS origin_path,
+                 json_extract(message_parts.data, '$.toolCallId') AS tool_call_id,
+                 json_extract(message_parts.data, '$.toolKind') AS tool_kind,
+                 attachments.mime_type,
+                 attachments.size,
+                 attachments.created_at
+             FROM message_parts
+             INNER JOIN messages ON messages.id = message_parts.message_id
+             INNER JOIN attachments ON attachments.id = message_parts.attachment_id
+             WHERE messages.session_id = ? AND message_parts.type = 'attachment'
+             ORDER BY message_parts.message_id, message_parts.sort_order, message_parts.id`
+        )
+        .all(sessionId) as Data[];
+
+    const partsByMessage = new Map<number, Data[]>();
+    for (const part of parts) {
+        const messageId = Number(part.message_id);
+        const rows = partsByMessage.get(messageId) ?? [];
+        rows.push(part);
+        partsByMessage.set(messageId, rows);
+    }
+    const attachmentsByMessage = new Map<number, Data[]>();
+    for (const attachment of attachments) {
+        const messageId = Number(attachment.message_id);
+        const rows = attachmentsByMessage.get(messageId) ?? [];
+        rows.push(attachment);
+        attachmentsByMessage.set(messageId, rows);
+    }
+
+    return messages.map((message) => ({
+        ...message,
+        parts: partsByMessage.get(Number(message.id)) ?? [],
+        attachments: attachmentsByMessage.get(Number(message.id)) ?? [],
+    }));
+}
+
+function isContextSummaryPart(part: Data, messageId: number): boolean {
+    try {
+        const metadata = JSON.parse(String(part.data)) as Data;
+        if (
+            metadata.version !== 2 ||
+            (metadata.invalidatedAt !== undefined && metadata.invalidatedAt !== null)
+        )
+            return false;
+        if (
+            typeof metadata.id !== 'string' ||
+            !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+                metadata.id
+            )
+        ) {
+            return false;
+        }
+        const content = String(part.content ?? '').trim();
+        if (content.length === 0 || [...content].length > 32_000) return false;
+        const firstKept = Number(metadata.firstKeptMessageId);
+        if (!Number.isInteger(firstKept) || firstKept <= 0 || firstKept > messageId) return false;
+        const systemIds = metadata.systemMessageIds;
+        if (!Array.isArray(systemIds)) return false;
+        const unique = new Set<number>();
+        for (const value of systemIds) {
+            const id = Number(value);
+            if (!Number.isInteger(id) || id <= 0 || id >= firstKept || unique.has(id)) return false;
+            unique.add(id);
+        }
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function contextOperation(database: SqliteDatabase, sessionId: number): Data {
+    const messages = loadMessageRows(database, sessionId);
+    const summaryPart =
+        (database
+            .prepare(
+                `SELECT message_parts.*
+                 FROM messages
+                 INNER JOIN message_parts ON message_parts.message_id = messages.id
+                 WHERE messages.session_id = ? AND message_parts.type = 'context_compaction'
+                 ORDER BY message_parts.id DESC
+                 LIMIT 1`
+            )
+            .get(sessionId) as Data | undefined) ?? null;
+    if (!summaryPart || !isContextSummaryPart(summaryPart, Number(summaryPart.message_id))) {
+        return { messages, summaryPart: null };
+    }
+    const metadata = JSON.parse(String(summaryPart.data)) as Data;
+    const firstKept = Number(metadata.firstKeptMessageId);
+    const systemIds = new Set((metadata.systemMessageIds as unknown[]).map(Number));
+    const selected = messages.filter((message) => {
+        const id = Number(message.id);
+        return id >= firstKept || systemIds.has(id);
+    });
+    const systemRolesMatch = selected
+        .filter((message) => systemIds.has(Number(message.id)))
+        .every((message) => message.role === 'system');
+    return systemRolesMatch ? { messages: selected, summaryPart } : { messages, summaryPart: null };
+}
+
+function ensureAttachment(database: SqliteDatabase, input: Data): Data {
+    if (
+        typeof input.attachmentId === 'number' &&
+        typeof input.hash === 'string' &&
+        input.hash.trim()
+    ) {
+        const existing = database
+            .prepare('SELECT * FROM attachments WHERE id = ?')
+            .get(input.attachmentId) as Data | undefined;
+        if (!existing) {
+            throw Object.assign(new Error('Attachment was not found'), {
+                code: 'not-found',
+            });
+        }
+        return existing;
+    }
+    const hash = typeof input.hash === 'string' ? input.hash.trim() : '';
+    if (!hash) {
+        throw Object.assign(new Error('Attachment hash is required'), {
+            code: 'validation',
+        });
+    }
+    const inserted = database
+        .prepare(
+            `INSERT INTO attachments (hash, type, original_name, origin_path, mime_type, size)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(hash) DO NOTHING
+             RETURNING *`
+        )
+        .get(
+            hash,
+            String(input.type),
+            String(input.originalName),
+            String(input.originPath),
+            (input.mimeType as SQLInputValue | undefined) ?? null,
+            (input.size as SQLInputValue | undefined) ?? null
+        ) as Data | undefined;
+    const row =
+        inserted ??
+        (database.prepare('SELECT * FROM attachments WHERE hash = ?').get(hash) as
+            | Data
+            | undefined);
+    if (!row) {
+        throw Object.assign(new Error('Failed to load attachment'), {
+            code: 'unavailable',
+        });
+    }
+    return row;
+}
+
+function linkAttachment(
+    database: SqliteDatabase,
+    messageId: number,
+    attachmentId: number,
+    originPath: string,
+    toolCallId: string | null = null,
+    toolKind: string | null = null
+): void {
+    const data: Data = { attachmentId, originPath };
+    if (toolCallId !== null) data.toolCallId = toolCallId;
+    if (toolKind !== null) data.toolKind = toolKind;
+    database
+        .prepare(
+            `INSERT INTO message_parts (message_id, type, content, data, sort_order)
+             VALUES (?, 'attachment', '', ?, (
+                 SELECT COALESCE(MAX(sort_order), -1) + 1
+                 FROM message_parts WHERE message_id = ?
+             ))`
+        )
+        .run(messageId, JSON.stringify(data), messageId);
+}
+
+function linkAttachments(database: SqliteDatabase, messageId: number, attachments: unknown): void {
+    if (!Array.isArray(attachments)) return;
+    for (const attachment of attachments as Data[]) {
+        const row = ensureAttachment(database, attachment);
+        linkAttachment(database, messageId, Number(row.id), String(attachment.originPath));
+    }
+}
+
+function syncOutputParts(database: SqliteDatabase, messageId: number, drafts: Data[]): void {
+    const existing = database
+        .prepare(
+            `SELECT * FROM message_parts
+             WHERE message_id = ? AND type IN ('text', 'reasoning')
+             ORDER BY sort_order, id`
+        )
+        .all(messageId) as Data[];
+    const reservedOrders = new Set(
+        (
+            database
+                .prepare(
+                    `SELECT sort_order FROM message_parts
+                     WHERE message_id = ? AND type NOT IN ('text', 'reasoning')`
+                )
+                .all(messageId) as Data[]
+        ).map((part) => Number(part.sort_order))
+    );
+    for (const previous of existing) {
+        database
+            .prepare('UPDATE message_parts SET sort_order = ? WHERE id = ?')
+            .run(-Number(previous.id), Number(previous.id));
+    }
+    let sortOrder = 0;
+    drafts.forEach((draft, index) => {
+        while (reservedOrders.has(sortOrder)) sortOrder += 1;
+        const partData = typeof draft.data === 'string' ? draft.data : '{}';
+        const previous = existing[index];
+        if (previous) {
+            database
+                .prepare(
+                    `UPDATE message_parts
+                     SET type = ?, content = ?, data = ?, started_at = ?, ended_at = ?,
+                         sort_order = ?, updated_at = datetime('now')
+                     WHERE id = ?`
+                )
+                .run(
+                    String(draft.type),
+                    String(draft.content),
+                    partData,
+                    (draft.startedAt as SQLInputValue | undefined) ?? null,
+                    (draft.endedAt as SQLInputValue | undefined) ?? null,
+                    sortOrder,
+                    Number(previous.id)
+                );
+            sortOrder += 1;
+            return;
+        }
+        insertRow(database, 'message_parts', {
+            message_id: messageId,
+            type: draft.type,
+            content: draft.content,
+            data: partData,
+            started_at: draft.startedAt ?? null,
+            ended_at: draft.endedAt ?? null,
+            sort_order: sortOrder,
+        });
+        sortOrder += 1;
+    });
+    for (const previous of existing.slice(drafts.length)) {
+        database.prepare('DELETE FROM message_parts WHERE id = ?').run(Number(previous.id));
+    }
+}
+
+function writeOutputMessage(
+    database: SqliteDatabase,
+    sessionId: number,
+    role: string,
+    messageId: number | null,
+    parts: Data[]
+): Data {
+    const resolvedMessageId =
+        messageId ??
+        Number(
+            insertRow(database, 'messages', {
+                session_id: sessionId,
+                role,
+            })?.id
+        );
+    if (messageId !== null) {
+        database
+            .prepare("UPDATE messages SET role = ?, updated_at = datetime('now') WHERE id = ?")
+            .run(role, resolvedMessageId);
+    }
+    if (parts.length > 0) syncOutputParts(database, resolvedMessageId, parts);
+    routeDatabaseOperation(database, {
+        cmd: 'database_operation',
+        payload: { request: { kind: 'session_refresh_metadata', id: sessionId } },
+    });
+    return database.prepare('SELECT * FROM messages WHERE id = ?').get(resolvedMessageId) as Data;
+}
+
+function writeLlmCallParts(database: SqliteDatabase, messageId: number, calls: Data[]): void {
+    if (calls.length === 0) return;
+    const maximum = Number(
+        (
+            database
+                .prepare(
+                    'SELECT COALESCE(MAX(sort_order), -1) AS value FROM message_parts WHERE message_id = ?'
+                )
+                .get(messageId) as Data
+        ).value
+    );
+    calls.forEach((call, index) => {
+        JSON.parse(String(call.data));
+        insertRow(database, 'message_parts', {
+            message_id: messageId,
+            type: 'llm_call',
+            content: '',
+            data: call.data,
+            started_at: call.startedAt ?? null,
+            ended_at: call.endedAt ?? null,
+            sort_order: maximum + 1 + index,
+        });
+    });
+}
+
+function usagePatch(summary: Data): Data {
+    return {
+        input_tokens: summary.inputTokens ?? 0,
+        output_tokens: summary.outputTokens ?? 0,
+        cache_read_tokens: summary.cacheReadTokens ?? 0,
+        cache_write_tokens: summary.cacheWriteTokens ?? 0,
+        reasoning_tokens: summary.reasoningTokens ?? 0,
+        total_cost_micros: summary.totalCostMicros ?? 0,
+        unpriced_calls: summary.unpricedCalls ?? 0,
+        ttft_ms: summary.ttftMs ?? null,
+        llm_call_count: summary.llmCallCount ?? 0,
+    };
+}
+
+function updateAttemptUsage(database: SqliteDatabase, attemptId: number, usage: Data): void {
+    updateById(database, 'session_turn_attempts', attemptId, {
+        ...usagePatch(usage.summary as Data),
+        updated_at: new Date().toISOString(),
+    });
+}
+
+function recomputeTurnUsage(database: SqliteDatabase, turnId: number, behavior: Data): void {
+    database
+        .prepare(
+            `UPDATE session_turns
+             SET
+                 input_tokens = (SELECT COALESCE(SUM(input_tokens), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                 output_tokens = (SELECT COALESCE(SUM(output_tokens), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                 cache_read_tokens = (SELECT COALESCE(SUM(cache_read_tokens), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                 cache_write_tokens = (SELECT COALESCE(SUM(cache_write_tokens), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                 reasoning_tokens = (SELECT COALESCE(SUM(reasoning_tokens), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                 total_cost_micros = (SELECT COALESCE(SUM(total_cost_micros), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                 unpriced_calls = (SELECT COALESCE(SUM(unpriced_calls), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                 llm_call_count = (SELECT COALESCE(SUM(llm_call_count), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                 ttft_ms = (
+                     SELECT ttft_ms FROM session_turn_attempts
+                     WHERE turn_id = ? AND ttft_ms IS NOT NULL
+                     ORDER BY attempt_index LIMIT 1
+                 ),
+                 first_text_ms = ?,
+                 tool_call_count = ?,
+                 tool_argument_error_count = ?,
+                 model_switch_count = ?,
+                 hit_iteration_ceiling = ?,
+                 error_code = ?,
+                 retry_scope = ?,
+                 updated_at = datetime('now')
+             WHERE id = ?`
+        )
+        .run(
+            ...Array.from({ length: 9 }, () => turnId),
+            behavior.firstTextMs === null || behavior.firstTextMs === undefined
+                ? null
+                : Number(behavior.firstTextMs),
+            Number(behavior.toolCallCount ?? 0),
+            Number(behavior.toolArgumentErrorCount ?? 0),
+            Number(behavior.modelSwitchCount ?? 0),
+            behavior.hitIterationCeiling ? 1 : 0,
+            behavior.errorCode === null || behavior.errorCode === undefined
+                ? null
+                : String(behavior.errorCode),
+            behavior.retryScope === null || behavior.retryScope === undefined
+                ? null
+                : String(behavior.retryScope),
+            turnId
+        );
+}
+
+function contextMessageFingerprint(message: Data, parts: Data[]): string {
+    const semanticParts = parts
+        .filter((part) => !['context_compaction', 'llm_call'].includes(String(part.type)))
+        .map((part) => [part.type, part.content, part.data, part.sort_order]);
+    return createHash('sha256')
+        .update(JSON.stringify([message.role, semanticParts]))
+        .digest('hex');
+}
+
+function canonicalJson(value: unknown): string {
+    if (Array.isArray(value)) {
+        return `[${value.map(canonicalJson).join(',')}]`;
+    }
+    if (value && typeof value === 'object') {
+        return `{${Object.entries(value as Data)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+            .join(',')}}`;
+    }
+    return JSON.stringify(value);
+}
+
+function contextSummaryIdentity(metadata: Data, text: unknown): Data {
+    return {
+        ...Object.fromEntries(
+            ['version', 'id', 'firstKeptMessageId', 'systemMessageIds', 'invalidatedAt']
+                .filter((key) => metadata[key] !== undefined)
+                .map((key) => [key, metadata[key]])
+        ),
+        text,
+    };
+}
+
 /**
  * Routes one typed database operation to the test database. The production
  * bridge deliberately has no generic SQL fallback, so this is the test-side
@@ -781,6 +1204,69 @@ export function routeDatabaseOperation(
                 ),
             };
         }
+        case 'session_messages':
+            return { value: loadMessageRows(database, Number(request.sessionId)) };
+        case 'session_context':
+            return { value: contextOperation(database, Number(request.sessionId)) };
+        case 'session_history': {
+            const sessionId = Number(request.sessionId);
+            const session = read(`${SESSION_SELECT} WHERE sessions.id = ? LIMIT 1`, [sessionId])[0];
+            if (!session) {
+                throw Object.assign(new Error('Session was not found'), {
+                    code: 'not-found',
+                });
+            }
+            const turns = read(
+                `SELECT
+                     id, session_id, task_id, execution_mode, prompt_snapshot_json,
+                     prompt_message_id, response_message_id, status, error_message,
+                     created_at, updated_at
+                 FROM session_turns
+                 WHERE session_id = ?
+                 ORDER BY created_at, id`,
+                [sessionId]
+            );
+            const attempts = read(
+                `SELECT
+                     session_turn_attempts.id,
+                     session_turn_attempts.turn_id,
+                     session_turn_attempts.attempt_index,
+                     session_turn_attempts.max_retries,
+                     session_turn_attempts.status,
+                     session_turn_attempts.checkpoint_json,
+                     session_turn_attempts.delivery_manifest_json,
+                     session_turn_attempts.error_message,
+                     session_turn_attempts.started_at,
+                     session_turn_attempts.finished_at,
+                     session_turn_attempts.created_at,
+                     session_turn_attempts.updated_at
+                 FROM session_turn_attempts
+                 INNER JOIN session_turns ON session_turns.id = session_turn_attempts.turn_id
+                 WHERE session_turns.session_id = ?
+                 ORDER BY session_turn_attempts.turn_id,
+                          session_turn_attempts.attempt_index,
+                          session_turn_attempts.id`,
+                [sessionId]
+            );
+            const model =
+                read(
+                    `${MODEL_WITH_PROVIDER}
+                     INNER JOIN session_turns ON session_turns.model_id = models.id
+                     WHERE session_turns.session_id = ?
+                     ORDER BY session_turns.created_at DESC, session_turns.id DESC
+                     LIMIT 1`,
+                    [sessionId]
+                )[0] ?? null;
+            return {
+                value: {
+                    session,
+                    messages: loadMessageRows(database, sessionId),
+                    turns,
+                    attempts,
+                    model,
+                },
+            };
+        }
         case 'session_update': {
             const patch = data(request.data);
             const keys = Object.keys(patch).filter((key) => key !== 'updated_at');
@@ -916,8 +1402,575 @@ export function routeDatabaseOperation(
         case 'session_delete_all':
             run('DELETE FROM sessions');
             return { value: null };
+        case 'message_count':
+            return {
+                value: Number((read('SELECT count(*) AS count FROM messages')[0] as Data).count),
+            };
+        case 'message_delete_all':
+            transaction(database, () => run('DELETE FROM messages'));
+            return { value: null };
+        case 'session_turn_count':
+            return {
+                value: Number(
+                    (read('SELECT count(*) AS count FROM session_turns')[0] as Data).count
+                ),
+            };
+        case 'session_turn_delete_all':
+            transaction(database, () => {
+                run('DELETE FROM session_turn_attempts');
+                run('DELETE FROM session_turns');
+            });
+            return { value: null };
+        case 'attachment_ensure':
+            return { value: ensureAttachment(database, data(request.input)) };
+        case 'task_record_start': {
+            const input = data(request.input);
+            const value = transaction(database, () => {
+                const sessionId =
+                    input.sessionId === null || input.sessionId === undefined
+                        ? Number(
+                              insertRow(database, 'sessions', {
+                                  session_id: crypto.randomUUID(),
+                                  title: input.sessionTitle,
+                                  model: input.modelName,
+                                  provider_id: input.providerId,
+                              })?.id
+                          )
+                        : Number(input.sessionId);
+                if (input.sessionId !== null && input.sessionId !== undefined) {
+                    run(
+                        `UPDATE sessions
+                         SET model = ?, provider_id = ?, updated_at = datetime('now')
+                         WHERE id = ?`,
+                        [String(input.modelName), Number(input.providerId), sessionId]
+                    );
+                }
+
+                let userMessageId =
+                    typeof input.existingUserMessageId === 'number'
+                        ? input.existingUserMessageId
+                        : null;
+                if (userMessageId === null) {
+                    userMessageId = Number(
+                        insertRow(database, 'messages', {
+                            session_id: sessionId,
+                            role: 'user',
+                        })?.id
+                    );
+                    if (String(input.prompt ?? '').length > 0) {
+                        insertRow(database, 'message_parts', {
+                            message_id: userMessageId,
+                            type: 'text',
+                            content: input.prompt,
+                            sort_order: 0,
+                        });
+                    }
+                    linkAttachments(database, userMessageId, input.attachments);
+                    routeDatabaseOperation(database, {
+                        cmd: 'database_operation',
+                        payload: {
+                            request: { kind: 'session_refresh_metadata', id: sessionId },
+                        },
+                    });
+                }
+
+                const turn =
+                    typeof input.existingTurnId === 'number'
+                        ? (read('SELECT * FROM session_turns WHERE id = ? LIMIT 1', [
+                              input.existingTurnId,
+                          ])[0] ??
+                          (() => {
+                              throw Object.assign(new Error('Session turn was not found'), {
+                                  code: 'not-found',
+                              });
+                          })())
+                        : insertRow(database, 'session_turns', {
+                              session_id: sessionId,
+                              model_id: input.modelId,
+                              task_id: input.taskId,
+                              execution_mode: input.executionMode,
+                              prompt_snapshot_json: input.promptSnapshotJson,
+                              prompt_message_id: userMessageId,
+                              response_message_id: null,
+                              status: 'streaming',
+                          })!;
+                const turnId = Number(turn.id);
+                if (input.promptBreakdownJson) {
+                    run(
+                        `UPDATE session_turns
+                         SET prompt_breakdown_json = ?, updated_at = datetime('now')
+                         WHERE id = ?`,
+                        [String(input.promptBreakdownJson), turnId]
+                    );
+                }
+                const attempt =
+                    typeof input.existingAttemptId === 'number'
+                        ? (read(
+                              'SELECT * FROM session_turn_attempts WHERE id = ? AND turn_id = ? LIMIT 1',
+                              [input.existingAttemptId, turnId]
+                          )[0] ??
+                          (() => {
+                              throw Object.assign(new Error('Session turn attempt was not found'), {
+                                  code: 'not-found',
+                              });
+                          })())
+                        : insertRow(database, 'session_turn_attempts', {
+                              turn_id: turnId,
+                              attempt_index: 1,
+                              max_retries: input.maxRetries,
+                              status: 'streaming',
+                              checkpoint_json: input.checkpointJson,
+                              delivery_manifest_json: input.deliveryManifestJson,
+                              started_at: input.startedAt,
+                              created_at: input.startedAt,
+                              updated_at: input.startedAt,
+                          })!;
+                return {
+                    session_id: sessionId,
+                    user_message_id: userMessageId,
+                    turn,
+                    attempt,
+                };
+            });
+            return { value };
+        }
+        case 'task_persist_output_message': {
+            const input = data(request.input);
+            const value = transaction(database, () => {
+                const message = writeOutputMessage(
+                    database,
+                    Number(input.sessionId),
+                    String(input.role),
+                    typeof input.messageId === 'number' ? input.messageId : null,
+                    Array.isArray(input.parts) ? (input.parts as Data[]) : []
+                );
+                if (!input.linkTurn) return { message, turn: null };
+                const turnId = Number(input.turnId);
+                run(
+                    `UPDATE session_turns
+                     SET response_message_id = ?, updated_at = datetime('now')
+                     WHERE id = ?`,
+                    [Number(message.id), turnId]
+                );
+                const turn = read('SELECT * FROM session_turns WHERE id = ? LIMIT 1', [turnId])[0];
+                return { message, turn };
+            });
+            return { value };
+        }
+        case 'task_persist_tool_result': {
+            const input = data(request.input);
+            const value = transaction(database, () => {
+                let part: Data | undefined;
+                if (typeof input.toolCallPartId === 'number') {
+                    part = read(
+                        `SELECT message_parts.*, messages.session_id
+                         FROM message_parts
+                         INNER JOIN messages ON messages.id = message_parts.message_id
+                         WHERE message_parts.id = ? AND message_parts.type = 'tool_call'`,
+                        [input.toolCallPartId]
+                    )[0];
+                } else if (
+                    typeof input.toolCallId === 'string' &&
+                    typeof input.toolCallMessageId === 'number'
+                ) {
+                    part = read(
+                        `SELECT message_parts.*, messages.session_id
+                         FROM message_parts
+                         INNER JOIN messages ON messages.id = message_parts.message_id
+                         WHERE message_parts.type = 'tool_call'
+                           AND message_parts.tool_call_id = ?
+                           AND message_parts.message_id = ?
+                         ORDER BY message_parts.id LIMIT 1`,
+                        [input.toolCallId, input.toolCallMessageId]
+                    )[0];
+                }
+                if (!part) return { part: null };
+                const partData = JSON.parse(String(part.data)) as Data;
+                partData.output = input.result;
+                const updated = database
+                    .prepare(
+                        `UPDATE message_parts
+                         SET data = ?, updated_at = datetime('now')
+                         WHERE id = ?
+                         RETURNING *`
+                    )
+                    .get(JSON.stringify(partData), Number(part.id)) as Data;
+                if (Array.isArray(input.attachments)) {
+                    for (const attachment of input.attachments as Data[]) {
+                        const attachmentRow = ensureAttachment(database, attachment);
+                        linkAttachment(
+                            database,
+                            Number(part.message_id),
+                            Number(attachmentRow.id),
+                            String(attachment.originPath),
+                            typeof part.tool_call_id === 'string' ? part.tool_call_id : null,
+                            typeof part.tool_kind === 'string' ? part.tool_kind : null
+                        );
+                    }
+                }
+                routeDatabaseOperation(database, {
+                    cmd: 'database_operation',
+                    payload: {
+                        request: {
+                            kind: 'session_refresh_metadata',
+                            id: Number(part.session_id),
+                        },
+                    },
+                });
+                return { part: updated };
+            });
+            return { value };
+        }
+        case 'task_update_attempt': {
+            const input = data(request.input);
+            const patch: Data = {};
+            if (input.checkpointJson !== null && input.checkpointJson !== undefined) {
+                patch.checkpoint_json = input.checkpointJson;
+            }
+            if (input.deliveryManifestJson !== null && input.deliveryManifestJson !== undefined) {
+                patch.delivery_manifest_json = input.deliveryManifestJson;
+            }
+            if (Object.keys(patch).length === 0) {
+                throw Object.assign(new Error('At least one attempt field is required'), {
+                    code: 'validation',
+                });
+            }
+            return {
+                value: transaction(database, () =>
+                    updateById(database, 'session_turn_attempts', Number(input.attemptId), patch)
+                ),
+            };
+        }
+        case 'task_finish': {
+            const input = data(request.input);
+            const value = transaction(database, () => {
+                const parts = Array.isArray(input.parts) ? (input.parts as Data[]) : [];
+                const pendingMessageId =
+                    typeof input.pendingMessageId === 'number' ? input.pendingMessageId : null;
+                let assistantMessageId =
+                    typeof input.assistantMessageId === 'number'
+                        ? input.assistantMessageId
+                        : pendingMessageId;
+                if (input.assistantMessageId === null || input.assistantMessageId === undefined) {
+                    if (parts.length > 0 || pendingMessageId !== null) {
+                        const message = writeOutputMessage(
+                            database,
+                            Number(input.sessionId),
+                            'assistant',
+                            pendingMessageId,
+                            parts
+                        );
+                        assistantMessageId = Number(message.id);
+                    }
+                }
+                let turnId = typeof input.turnId === 'number' ? input.turnId : undefined;
+                if (turnId === undefined) {
+                    const bootstrap = input.turnBootstrap as Data | null;
+                    if (!bootstrap) {
+                        throw Object.assign(
+                            new Error(
+                                'A turn bootstrap is required when finishing without a turn id'
+                            ),
+                            { code: 'validation' }
+                        );
+                    }
+                    const created = insertRow(database, 'session_turns', {
+                        session_id: input.sessionId,
+                        model_id: bootstrap.modelId,
+                        task_id: bootstrap.taskId,
+                        execution_mode: bootstrap.executionMode,
+                        prompt_snapshot_json: bootstrap.promptSnapshotJson,
+                        prompt_message_id: bootstrap.promptMessageId ?? null,
+                        response_message_id: null,
+                        status: 'streaming',
+                    })!;
+                    turnId = Number(created.id);
+                }
+                const usage = input.usage as Data | null;
+                if (usage) {
+                    if (typeof input.attemptId === 'number') {
+                        updateAttemptUsage(database, input.attemptId, usage);
+                    }
+                    if (assistantMessageId !== null) {
+                        writeLlmCallParts(
+                            database,
+                            assistantMessageId,
+                            Array.isArray(usage.calls) ? (usage.calls as Data[]) : []
+                        );
+                    }
+                }
+                let attempt: Data | null = null;
+                if (typeof input.attemptId === 'number') {
+                    attempt =
+                        updateById(database, 'session_turn_attempts', input.attemptId, {
+                            status: input.status,
+                            error_message: input.errorMessage ?? null,
+                            duration_ms: input.durationMs ?? null,
+                            finished_at: input.finishedAt,
+                            updated_at: input.finishedAt,
+                        }) ?? null;
+                }
+                const turnPatch: Data = {
+                    status: input.status,
+                    error_message: input.errorMessage ?? null,
+                    response_message_id: assistantMessageId,
+                    duration_ms: input.durationMs ?? null,
+                };
+                if (input.status === 'completed') {
+                    turnPatch.tokens_used = input.tokensUsed ?? null;
+                }
+                updateById(database, 'session_turns', turnId, turnPatch);
+                if (usage) {
+                    recomputeTurnUsage(database, turnId, data(input.behavior));
+                }
+                return {
+                    assistant_message_id: assistantMessageId,
+                    turn: read('SELECT * FROM session_turns WHERE id = ?', [turnId])[0],
+                    attempt,
+                };
+            });
+            return { value };
+        }
+        case 'task_begin_next_attempt': {
+            const input = data(request.input);
+            const value = transaction(database, () => {
+                const usage = input.usage as Data | null;
+                if (usage) {
+                    updateAttemptUsage(database, Number(input.currentAttemptId), usage);
+                }
+                updateById(database, 'session_turn_attempts', Number(input.currentAttemptId), {
+                    status: 'failed',
+                    error_message: input.errorMessage,
+                    duration_ms: input.durationMs ?? null,
+                    finished_at: input.finishedAt,
+                    updated_at: input.finishedAt,
+                });
+                const attempt = insertRow(database, 'session_turn_attempts', {
+                    turn_id: input.turnId,
+                    attempt_index: input.attemptIndex,
+                    max_retries: input.maxRetries,
+                    status: 'streaming',
+                    checkpoint_json: input.checkpointJson,
+                    delivery_manifest_json: input.deliveryManifestJson,
+                    started_at: input.startedAt,
+                    created_at: input.startedAt,
+                    updated_at: input.startedAt,
+                })!;
+                run(
+                    `UPDATE session_turns
+                     SET status = 'streaming', error_message = NULL,
+                         updated_at = datetime('now')
+                     WHERE id = ?`,
+                    [Number(input.turnId)]
+                );
+                recomputeTurnUsage(database, Number(input.turnId), data(input.behavior));
+                return {
+                    turn: read('SELECT * FROM session_turns WHERE id = ?', [
+                        Number(input.turnId),
+                    ])[0],
+                    attempt,
+                };
+            });
+            return { value };
+        }
+        case 'task_persist_context_summary': {
+            const input = data(request.input);
+            const value = transaction(database, () => {
+                const metadata = JSON.parse(String(input.summaryJson)) as Data;
+                if (
+                    metadata.version !== 2 ||
+                    (metadata.invalidatedAt !== undefined && metadata.invalidatedAt !== null) ||
+                    typeof metadata.id !== 'string' ||
+                    String(input.text).trim().length === 0
+                ) {
+                    throw Object.assign(new Error('Context summary metadata is invalid'), {
+                        code: 'validation',
+                    });
+                }
+                const firstKept = Number(metadata.firstKeptMessageId);
+                const boundary = read(
+                    'SELECT id, role FROM messages WHERE id = ? AND session_id = ?',
+                    [firstKept, Number(input.sessionId)]
+                )[0];
+                if (!boundary) {
+                    throw Object.assign(
+                        new Error('Context summary boundary message was not found'),
+                        { code: 'validation' }
+                    );
+                }
+                if (input.previousSummaryJson) {
+                    const previous = JSON.parse(String(input.previousSummaryJson)) as Data;
+                    const previousPart = read(
+                        `SELECT message_parts.*
+                         FROM messages
+                         INNER JOIN message_parts ON message_parts.message_id = messages.id
+                         WHERE messages.session_id = ?
+                           AND message_parts.type = 'context_compaction'
+                         ORDER BY message_parts.id DESC LIMIT 1`,
+                        [Number(input.sessionId)]
+                    )[0];
+                    if (!previousPart) {
+                        throw Object.assign(new Error('Previous context summary was not found'), {
+                            code: 'validation',
+                        });
+                    }
+                    const saved = JSON.parse(String(previousPart.data)) as Data;
+                    if (
+                        canonicalJson(contextSummaryIdentity(saved, previousPart.content)) !==
+                        canonicalJson(previous)
+                    ) {
+                        throw Object.assign(new Error('Previous context summary changed'), {
+                            code: 'validation',
+                        });
+                    }
+                }
+                const messages = read('SELECT * FROM messages WHERE session_id = ? ORDER BY id', [
+                    Number(input.sessionId),
+                ]);
+                const allParts = read(
+                    `SELECT message_parts.*
+                     FROM message_parts
+                     INNER JOIN messages ON messages.id = message_parts.message_id
+                     WHERE messages.session_id = ?
+                     ORDER BY message_parts.message_id, message_parts.sort_order, message_parts.id`,
+                    [Number(input.sessionId)]
+                );
+                const partsByMessage = new Map<number, Data[]>();
+                for (const part of allParts) {
+                    const rows = partsByMessage.get(Number(part.message_id)) ?? [];
+                    rows.push(part);
+                    partsByMessage.set(Number(part.message_id), rows);
+                }
+                const sources = new Map<number, string>();
+                for (const source of input.sourceMessages as Data[]) {
+                    const id = Number(source.id);
+                    const fingerprint = String(source.fingerprint);
+                    const previous = sources.get(id);
+                    if (previous !== undefined && previous !== fingerprint) {
+                        throw Object.assign(
+                            new Error('Context source message fingerprints conflict'),
+                            { code: 'validation' }
+                        );
+                    }
+                    sources.set(id, fingerprint);
+                }
+                const previousBoundary =
+                    input.previousSummaryJson === null || input.previousSummaryJson === undefined
+                        ? null
+                        : Number(
+                              (JSON.parse(String(input.previousSummaryJson)) as Data)
+                                  .firstKeptMessageId
+                          );
+                const systemIds = new Set((metadata.systemMessageIds as unknown[]).map(Number));
+                for (const message of messages) {
+                    const id = Number(message.id);
+                    const retained =
+                        previousBoundary !== null && id < previousBoundary && sources.has(id);
+                    const inRange =
+                        previousBoundary === null
+                            ? id < firstKept
+                            : id >= previousBoundary && id < firstKept;
+                    if (!retained && !inRange) continue;
+                    if (systemIds.has(id) && message.role !== 'system') {
+                        throw Object.assign(new Error('Context system message changed role'), {
+                            code: 'validation',
+                        });
+                    }
+                    const parts = partsByMessage.get(id) ?? [];
+                    const hasVisibleText = parts.some(
+                        (part) =>
+                            ['text', 'reasoning'].includes(String(part.type)) &&
+                            String(part.content ?? '').trim().length > 0
+                    );
+                    const expected = sources.get(id);
+                    if (expected === undefined && message.role === 'assistant' && !hasVisibleText) {
+                        continue;
+                    }
+                    if (expected !== contextMessageFingerprint(message, parts)) {
+                        throw Object.assign(
+                            new Error(
+                                `Context source message ${id} changed (expected ${expected}, actual ${contextMessageFingerprint(message, parts)})`
+                            ),
+                            { code: 'validation' }
+                        );
+                    }
+                    sources.delete(id);
+                }
+                if (sources.size > 0) {
+                    throw Object.assign(
+                        new Error(
+                            `Context source messages are incomplete: ${[...sources.keys()].join(',')}`
+                        ),
+                        { code: 'validation' }
+                    );
+                }
+                let messageId =
+                    typeof input.pendingMessageId === 'number' ? input.pendingMessageId : null;
+                if (messageId !== null) {
+                    run(
+                        "UPDATE messages SET role = 'assistant', updated_at = datetime('now') WHERE id = ?",
+                        [messageId]
+                    );
+                } else {
+                    messageId = Number(
+                        insertRow(database, 'messages', {
+                            session_id: input.sessionId,
+                            role: 'assistant',
+                        })?.id
+                    );
+                }
+                const maximum = Number(
+                    (
+                        read(
+                            'SELECT COALESCE(MAX(sort_order), -1) AS value FROM message_parts WHERE message_id = ?',
+                            [messageId]
+                        )[0] as Data
+                    ).value
+                );
+                const createdAt = Number(metadata.createdAt);
+                const part = insertRow(database, 'message_parts', {
+                    message_id: messageId,
+                    type: 'context_compaction',
+                    content: input.text,
+                    data: input.summaryJson,
+                    started_at: createdAt,
+                    ended_at: createdAt,
+                    sort_order: maximum + 1,
+                })!;
+                run(
+                    `UPDATE session_turns
+                     SET response_message_id = ?, updated_at = datetime('now')
+                     WHERE id = ?`,
+                    [messageId, Number(input.turnId)]
+                );
+                const usage = input.usage as Data | null;
+                if (usage) {
+                    updateAttemptUsage(database, Number(input.attemptId), usage);
+                    database
+                        .prepare(
+                            `UPDATE session_turns
+                             SET
+                                 input_tokens = (SELECT COALESCE(SUM(input_tokens), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                                 output_tokens = (SELECT COALESCE(SUM(output_tokens), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                                 cache_read_tokens = (SELECT COALESCE(SUM(cache_read_tokens), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                                 cache_write_tokens = (SELECT COALESCE(SUM(cache_write_tokens), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                                 reasoning_tokens = (SELECT COALESCE(SUM(reasoning_tokens), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                                 total_cost_micros = (SELECT COALESCE(SUM(total_cost_micros), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                                 unpriced_calls = (SELECT COALESCE(SUM(unpriced_calls), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                                 llm_call_count = (SELECT COALESCE(SUM(llm_call_count), 0) FROM session_turn_attempts WHERE turn_id = ?),
+                                 updated_at = datetime('now')
+                             WHERE id = ?`
+                        )
+                        .run(...Array.from({ length: 9 }, () => Number(input.turnId)));
+                }
+                return { messageId, partId: Number(part.id) };
+            });
+            return { value };
+        }
         case 'tool_part_create':
-            return { value: createToolPartOperation(database, request) };
+            return {
+                value: transaction(database, () => createToolPartOperation(database, request)),
+            };
         case 'tool_part_list': {
             const filter = toolPartFilter(request);
             const params: SQLInputValue[] = [String(request.toolKind), ...filter.params];

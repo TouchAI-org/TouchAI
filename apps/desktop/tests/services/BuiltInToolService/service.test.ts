@@ -458,8 +458,8 @@ describe('user still runs a built-in tool when bookkeeping fails', () => {
         expect(result).toMatchObject({ result: '工具执行失败', isError: true });
         expect(result?.result).not.toContain('database is locked');
         expect(result?.result).not.toContain('provider credentials');
-        expect(updateBuiltInToolLogByCallIdMock).toHaveBeenLastCalledWith(
-            'call-builtin-1',
+        expect(updateBuiltInToolLogByIdMock).toHaveBeenLastCalledWith(
+            21,
             expect.objectContaining({
                 error_message: '工具执行失败',
                 output: '工具执行失败',
@@ -483,8 +483,8 @@ describe('user still runs a built-in tool when bookkeeping fails', () => {
             result: 'Working directory is outside the allowed scope',
             isError: true,
         });
-        expect(updateBuiltInToolLogByCallIdMock).toHaveBeenLastCalledWith(
-            'call-builtin-1',
+        expect(updateBuiltInToolLogByIdMock).toHaveBeenLastCalledWith(
+            21,
             expect.objectContaining({
                 error_message: 'Working directory is outside the allowed scope',
                 output: 'Working directory is outside the allowed scope',
@@ -509,8 +509,8 @@ describe('user still runs a built-in tool when bookkeeping fails', () => {
             isError: true,
         });
         expect(result?.result).not.toContain('native deadline exceeded');
-        expect(updateBuiltInToolLogByCallIdMock).toHaveBeenLastCalledWith(
-            'call-builtin-1',
+        expect(updateBuiltInToolLogByIdMock).toHaveBeenLastCalledWith(
+            21,
             expect.objectContaining({
                 status: 'timeout',
                 error_message: '工具执行超时，请稍后重试',

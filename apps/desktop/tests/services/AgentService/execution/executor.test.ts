@@ -24,10 +24,10 @@ const providerMock = vi.hoisted(() => ({
     classifyError: vi.fn(),
 }));
 
-const { createMcpToolLogMock, updateMcpToolLogByIdMock, resolveToolCallMock, executeToolMock } =
+const { createMcpToolLogMock, updateMcpToolLogByCallIdMock, resolveToolCallMock, executeToolMock } =
     vi.hoisted(() => ({
         createMcpToolLogMock: vi.fn(),
-        updateMcpToolLogByIdMock: vi.fn(),
+        updateMcpToolLogByCallIdMock: vi.fn(),
         resolveToolCallMock: vi.fn(),
         executeToolMock: vi.fn(),
     }));
@@ -52,7 +52,7 @@ const {
 
 vi.mock('@database/queries', () => ({
     createMcpToolLog: createMcpToolLogMock,
-    updateMcpToolLogById: updateMcpToolLogByIdMock,
+    updateMcpToolLogByCallId: updateMcpToolLogByCallIdMock,
 }));
 
 vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
@@ -917,7 +917,7 @@ function createToolCall(): AiToolCall {
 describe('user runs a tool call and watches it start', () => {
     it('user sees a tool call start reported before the tool runs', async () => {
         createMcpToolLogMock.mockResolvedValue({ id: 23 });
-        updateMcpToolLogByIdMock.mockResolvedValue(undefined);
+        updateMcpToolLogByCallIdMock.mockResolvedValue(undefined);
         resolveToolCallMock.mockResolvedValue({
             serverId: 1,
             originalName: 'search',
@@ -964,7 +964,7 @@ describe('user runs a tool call and watches it start', () => {
     it('user does not get mcp tool secrets stored in the audit log', async () => {
         vi.clearAllMocks();
         createMcpToolLogMock.mockResolvedValue({ id: 23 });
-        updateMcpToolLogByIdMock.mockResolvedValue(undefined);
+        updateMcpToolLogByCallIdMock.mockResolvedValue(undefined);
         resolveToolCallMock.mockResolvedValue({
             serverId: 1,
             originalName: 'search',
@@ -990,7 +990,7 @@ describe('user runs a tool call and watches it start', () => {
         });
 
         const storedInput = createMcpToolLogMock.mock.calls[0]?.[0] as { input: string };
-        const storedOutput = updateMcpToolLogByIdMock.mock.calls[0]?.[1] as {
+        const storedOutput = updateMcpToolLogByCallIdMock.mock.calls[0]?.[1] as {
             output: string;
         };
 
@@ -1235,7 +1235,7 @@ describe('user calls a tool the agent does not have', () => {
             toolTimeout: 30000,
         });
         createMcpToolLogMock.mockResolvedValue({ id: 23 });
-        updateMcpToolLogByIdMock.mockResolvedValue(undefined);
+        updateMcpToolLogByCallIdMock.mockResolvedValue(undefined);
         // A non-Error rejection must still surface a readable failure, not crash the turn.
         executeToolMock.mockRejectedValue('server went away');
         providerMock.stream

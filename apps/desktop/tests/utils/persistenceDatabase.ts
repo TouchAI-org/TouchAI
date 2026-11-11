@@ -92,6 +92,22 @@ export function createPersistenceDatabaseOperation(
 ): (request: DatabaseOperation) => Promise<unknown> {
     let turn: Row | null = null;
     let attempt: Row | null = null;
+    let summaryPart: Row | null = null;
+    let nextPartId = 1;
+    const messages = new Map<number, Row>();
+
+    function rememberMessage(message: Row): void {
+        const id = idOf(message);
+        const previous = messages.get(id);
+        messages.set(id, {
+            session_id: message.session_id ?? previous?.session_id ?? null,
+            role: message.role ?? previous?.role ?? null,
+            parts: message.parts ?? previous?.parts ?? [],
+            attachments: message.attachments ?? previous?.attachments ?? [],
+            ...previous,
+            ...message,
+        });
+    }
 
     async function writeOutputMessage(
         sessionId: number,
@@ -112,7 +128,15 @@ export function createPersistenceDatabaseOperation(
             );
         }
         await telemetry.refreshSessionMetadata(sessionId, {});
-        return { id: resolvedMessageId, session_id: sessionId, role };
+        const message = {
+            id: resolvedMessageId,
+            session_id: sessionId,
+            role,
+            parts: outputRows(parts, resolvedMessageId),
+            attachments: messages.get(resolvedMessageId)?.attachments ?? [],
+        };
+        rememberMessage(message);
+        return message;
     }
 
     return async function operation(request: DatabaseOperation): Promise<unknown> {
@@ -121,10 +145,17 @@ export function createPersistenceDatabaseOperation(
                 return telemetry.findAllMcpTools();
             case 'built_in_tool_list':
                 return telemetry.findAllBuiltInTools();
+            case 'session_context':
+                return {
+                    messages: [...messages.values()].sort(
+                        (left, right) => idOf(left) - idOf(right)
+                    ),
+                    ...(summaryPart ? { summaryPart } : {}),
+                };
             case 'attachment_ensure':
                 return { id: request.input.attachmentId ?? 1, ...request.input };
             case 'task_record_start': {
-                const result = await recordStart(telemetry, request.input as Row);
+                const result = await recordStart(telemetry, request.input as Row, rememberMessage);
                 turn = asRow(result.turn);
                 attempt = asRow(result.attempt);
                 return result;
@@ -172,6 +203,36 @@ export function createPersistenceDatabaseOperation(
                 attempt = asRow(result.attempt);
                 return result;
             }
+            case 'task_persist_context_summary': {
+                const input = request.input as Row;
+                const message = await writeOutputMessage(
+                    Number(input.sessionId),
+                    'assistant',
+                    typeof input.pendingMessageId === 'number' ? input.pendingMessageId : null,
+                    [
+                        {
+                            type: 'context_compaction',
+                            content: input.text,
+                            data: input.summaryJson,
+                        },
+                    ]
+                );
+                const partId = nextPartId++;
+                summaryPart = {
+                    id: partId,
+                    message_id: idOf(message),
+                    type: 'context_compaction',
+                    content: input.text,
+                    data: input.summaryJson,
+                    sort_order: 0,
+                };
+                rememberMessage({
+                    ...message,
+                    parts: [summaryPart],
+                    response_message_id: idOf(message),
+                });
+                return { messageId: idOf(message), partId };
+            }
             case 'task_persist_tool_result':
                 return persistToolResult(telemetry, request.input as Row);
             default:
@@ -180,7 +241,11 @@ export function createPersistenceDatabaseOperation(
     };
 }
 
-async function recordStart(telemetry: PersistenceDatabaseTelemetry, input: Row): Promise<Row> {
+async function recordStart(
+    telemetry: PersistenceDatabaseTelemetry,
+    input: Row,
+    rememberMessage: (message: Row) => void
+): Promise<Row> {
     const sessionId =
         input.sessionId === null || input.sessionId === undefined
             ? idOf(
@@ -227,6 +292,13 @@ async function recordStart(telemetry: PersistenceDatabaseTelemetry, input: Row):
             );
         }
     }
+    rememberMessage({
+        id: userMessageId,
+        session_id: sessionId,
+        role: 'user',
+        parts: [],
+        attachments: [],
+    });
 
     let createdTurn: Row;
     if (input.existingTurnId === null || input.existingTurnId === undefined) {

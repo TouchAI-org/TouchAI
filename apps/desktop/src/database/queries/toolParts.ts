@@ -136,8 +136,7 @@ export async function updateToolPart(
     target: number | ToolPartFilter,
     patch: McpToolLogUpdateData | BuiltInToolLogUpdateData
 ): Promise<ToolPartEntity | undefined> {
-    const filter: ToolPartFilter =
-        typeof target === 'number' ? { kind: 'id', id: target } : target;
+    const filter: ToolPartFilter = typeof target === 'number' ? { kind: 'id', id: target } : target;
     return (
         (await native.database.operation<ToolPartEntity | null>({
             kind: 'tool_part_update',

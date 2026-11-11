@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 
-import { findMessagesBySessionId } from '@database/queries/messages';
+import type { MessageRow } from '@database/queries/messages';
 import {
     closeTestDatabases,
     openMigratedDatabase,
@@ -19,6 +19,7 @@ import {
 import { PersistenceProjector } from '@/services/AgentService/outputs/persistence';
 import { loadSessionHistory } from '@/services/AgentService/session/history';
 import { loadSessionTransportMessages } from '@/services/AgentService/session/transport';
+import { native } from '@/services/NativeService';
 import {
     MAX_AUDIT_PAYLOAD_BYTES,
     serializeAuditPayload,
@@ -65,6 +66,13 @@ function checkpoint(): AttemptCheckpoint {
         } as AttemptCheckpoint['activeModel'],
         baseMessages: [{ role: 'user', content: 'Continue safely.' }],
         modelLanguageContext: { locale: 'en-US', label: 'English' },
+    });
+}
+
+async function sessionMessages(): Promise<MessageRow[]> {
+    return native.database.operation<MessageRow[]>({
+        kind: 'session_messages',
+        sessionId: 1,
     });
 }
 
@@ -237,9 +245,7 @@ describe('given a model requests a tool that cannot be executed', () => {
                 throw new Error('A reusable summary must not be saved again');
             },
         });
-        expect((await findMessagesBySessionId(1)).some((row) => row.role === 'tool_call')).toBe(
-            true
-        );
+        expect((await sessionMessages()).some((row) => row.role === 'tool_call')).toBe(true);
     });
 
     it('user reuses a call ID in a later message and keeps each rejected result with its own call', async () => {

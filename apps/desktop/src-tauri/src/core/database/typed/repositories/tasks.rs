@@ -1,6 +1,6 @@
 // Copyright (c) 2026. 千诚. Licensed under GPL v3.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sha2::{Digest, Sha256};
@@ -110,38 +110,51 @@ async fn sync_output_parts(
     let existing = fetch_rows(
         connection,
         "SELECT * FROM message_parts
-         WHERE message_id = ? AND type IN ('text', 'reasoning')",
+         WHERE message_id = ? AND type IN ('text', 'reasoning')
+         ORDER BY sort_order, id",
         vec![JsonValue::Number(message_id.into())],
     )
     .await?;
-    let by_order = existing
-        .into_iter()
-        .filter_map(|row| {
-            row.get("sort_order")
-                .and_then(JsonValue::as_i64)
-                .map(|order| (order, row))
-        })
-        .collect::<HashMap<_, _>>();
+    let reserved_orders = fetch_rows(
+        connection,
+        "SELECT sort_order FROM message_parts
+         WHERE message_id = ? AND type NOT IN ('text', 'reasoning')",
+        vec![JsonValue::Number(message_id.into())],
+    )
+    .await?
+    .into_iter()
+    .filter_map(|row| row.get("sort_order").and_then(JsonValue::as_i64))
+    .collect::<HashSet<_>>();
 
-    for (sort_order, draft) in drafts.iter().enumerate() {
-        let sort_order = sort_order as i64;
+    // Move replaceable parts out of the unique index range while they are rewritten.
+    for previous in &existing {
+        let id = previous
+            .get("id")
+            .and_then(JsonValue::as_i64)
+            .ok_or_else(|| DatabaseOperationError::unavailable("Message part id is missing"))?;
+        run(
+            connection,
+            "UPDATE message_parts SET sort_order = ? WHERE id = ?",
+            vec![
+                JsonValue::Number((-id).into()),
+                JsonValue::Number(id.into()),
+            ],
+        )
+        .await?;
+    }
+
+    let mut sort_order = 0_i64;
+    for (index, draft) in drafts.iter().enumerate() {
+        while reserved_orders.contains(&sort_order) {
+            sort_order += 1;
+        }
         let part_data = draft.data.clone().unwrap_or_else(|| "{}".to_string());
-        if let Some(previous) = by_order.get(&sort_order) {
-            let unchanged = previous.get("type").and_then(JsonValue::as_str)
-                == Some(draft.part_type.as_str())
-                && previous.get("content").and_then(JsonValue::as_str)
-                    == Some(draft.content.as_str())
-                && previous.get("started_at").and_then(JsonValue::as_i64) == draft.started_at
-                && previous.get("ended_at").and_then(JsonValue::as_i64) == draft.ended_at
-                && previous.get("data").and_then(JsonValue::as_str) == Some(part_data.as_str());
-            if unchanged {
-                continue;
-            }
+        if let Some(previous) = existing.get(index) {
             run(
                 connection,
                 "UPDATE message_parts
                  SET type = ?, content = ?, data = ?, started_at = ?, ended_at = ?,
-                     updated_at = datetime('now')
+                     sort_order = ?, updated_at = datetime('now')
                  WHERE id = ?",
                 vec![
                     JsonValue::String(draft.part_type.clone()),
@@ -155,10 +168,12 @@ async fn sync_output_parts(
                         .ended_at
                         .map(|value| JsonValue::Number(value.into()))
                         .unwrap_or(JsonValue::Null),
+                    JsonValue::Number(sort_order.into()),
                     previous.get("id").cloned().unwrap_or(JsonValue::Null),
                 ],
             )
             .await?;
+            sort_order += 1;
             continue;
         }
 
@@ -195,27 +210,17 @@ async fn sync_output_parts(
             JsonValue::Number(sort_order.into()),
         );
         insert_one(connection, "message_parts", &row, MESSAGE_PART_COLUMNS).await?;
+        sort_order += 1;
     }
 
-    let retained = drafts.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-    let mut params = vec![JsonValue::Number(message_id.into())];
-    for index in 0..drafts.len() {
-        params.push(JsonValue::Number((index as i64).into()));
+    for previous in existing.iter().skip(drafts.len()) {
+        run(
+            connection,
+            "DELETE FROM message_parts WHERE id = ?",
+            vec![previous.get("id").cloned().unwrap_or(JsonValue::Null)],
+        )
+        .await?;
     }
-    let predicate = if drafts.is_empty() {
-        String::new()
-    } else {
-        format!(" AND sort_order NOT IN ({retained})")
-    };
-    run(
-        connection,
-        &format!(
-            "DELETE FROM message_parts
-             WHERE message_id = ? AND type IN ('text', 'reasoning'){predicate}"
-        ),
-        params,
-    )
-    .await?;
     Ok(())
 }
 
@@ -1267,7 +1272,27 @@ fn message_fingerprint(
     ]);
     let bytes = serde_json::to_vec(&value)
         .map_err(|error| DatabaseOperationError::unavailable(error.to_string()))?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
+    Ok(Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+fn context_summary_identity(metadata: &JsonMap<String, JsonValue>, text: JsonValue) -> JsonValue {
+    let mut identity = JsonMap::new();
+    for key in [
+        "version",
+        "id",
+        "firstKeptMessageId",
+        "systemMessageIds",
+        "invalidatedAt",
+    ] {
+        if let Some(value) = metadata.get(key) {
+            identity.insert(key.to_string(), value.clone());
+        }
+    }
+    identity.insert("text".to_string(), text);
+    JsonValue::Object(identity)
 }
 
 fn validate_context_summary_json(
@@ -1301,9 +1326,7 @@ fn validate_context_summary_json(
         .get("firstKeptMessageId")
         .and_then(JsonValue::as_i64)
         .filter(|value| *value > 0)
-        .ok_or_else(|| {
-            DatabaseOperationError::validation("Context summary boundary is invalid")
-        })?;
+        .ok_or_else(|| DatabaseOperationError::validation("Context summary boundary is invalid"))?;
     let system_ids = metadata
         .get("systemMessageIds")
         .and_then(JsonValue::as_array)
@@ -1312,9 +1335,12 @@ fn validate_context_summary_json(
         })?;
     let mut unique = std::collections::HashSet::new();
     for id in system_ids {
-        let id = id.as_i64().filter(|id| *id > 0 && *id < first_kept).ok_or_else(|| {
-            DatabaseOperationError::validation("Context summary system ids are invalid")
-        })?;
+        let id = id
+            .as_i64()
+            .filter(|id| *id > 0 && *id < first_kept)
+            .ok_or_else(|| {
+                DatabaseOperationError::validation("Context summary system ids are invalid")
+            })?;
         if !unique.insert(id) {
             return Err(DatabaseOperationError::validation(
                 "Context summary system ids must be unique",
@@ -1413,7 +1439,7 @@ pub(super) async fn persist_context_summary(
             vec![JsonValue::Number(input.session_id.into())],
         )
         .await?;
-        let mut saved = previous_part
+        let saved = previous_part
             .as_ref()
             .and_then(|part| {
                 let data = part.get("data")?.as_str()?;
@@ -1427,8 +1453,7 @@ pub(super) async fn persist_context_summary(
             .and_then(|part| part.get("content"))
             .cloned()
             .unwrap_or(JsonValue::Null);
-        saved.insert("text".to_string(), text);
-        if JsonValue::Object(saved) != JsonValue::Object(previous.clone()) {
+        if context_summary_identity(&saved, text) != JsonValue::Object(previous.clone()) {
             return Err(DatabaseOperationError::validation(
                 "Previous context summary changed",
             ));
@@ -1453,29 +1478,34 @@ pub(super) async fn persist_context_summary(
     .await?;
     let mut parts_by_message: HashMap<i64, Vec<JsonMap<String, JsonValue>>> = HashMap::new();
     for part in part_rows {
-        let message_id = part.get("message_id").and_then(JsonValue::as_i64).ok_or_else(|| {
-            DatabaseOperationError::unavailable("Context message part has no message id")
-        })?;
+        let message_id = part
+            .get("message_id")
+            .and_then(JsonValue::as_i64)
+            .ok_or_else(|| {
+                DatabaseOperationError::unavailable("Context message part has no message id")
+            })?;
         parts_by_message.entry(message_id).or_default().push(part);
     }
-    let mut sources = input
-        .source_messages
-        .iter()
-        .map(|source| (source.id, source.fingerprint.clone()))
-        .collect::<HashMap<_, _>>();
-    if sources.len() != input.source_messages.len() {
-        return Err(DatabaseOperationError::validation(
-            "Context source message ids must be unique",
-        ));
+    let mut sources = HashMap::new();
+    for source in &input.source_messages {
+        if let Some(previous) = sources.insert(source.id, source.fingerprint.clone()) {
+            if previous != source.fingerprint {
+                return Err(DatabaseOperationError::validation(
+                    "Context source message fingerprints conflict",
+                ));
+            }
+        }
     }
 
     let rows = message_rows
         .into_iter()
         .filter(|message| {
-            let id = message.get("id").and_then(JsonValue::as_i64).unwrap_or_default();
-            let retained = previous_boundary.is_some_and(|boundary| {
-                id < boundary && sources.contains_key(&id)
-            });
+            let id = message
+                .get("id")
+                .and_then(JsonValue::as_i64)
+                .unwrap_or_default();
+            let retained = previous_boundary
+                .is_some_and(|boundary| id < boundary && sources.contains_key(&id));
             let in_range = previous_boundary
                 .map(|boundary| id >= boundary && id < first_kept)
                 .unwrap_or(id < first_kept);
@@ -1496,19 +1526,17 @@ pub(super) async fn persist_context_summary(
             ));
         }
         let expected = sources.remove(&message_id);
-        let has_visible_text = parts_by_message
-            .get(&message_id)
-            .is_some_and(|parts| {
-                parts.iter().any(|part| {
-                    matches!(
-                        part.get("type").and_then(JsonValue::as_str),
-                        Some("text" | "reasoning")
-                    ) && part
-                        .get("content")
-                        .and_then(JsonValue::as_str)
-                        .is_some_and(|content| !content.trim().is_empty())
-                })
-            });
+        let has_visible_text = parts_by_message.get(&message_id).is_some_and(|parts| {
+            parts.iter().any(|part| {
+                matches!(
+                    part.get("type").and_then(JsonValue::as_str),
+                    Some("text" | "reasoning")
+                ) && part
+                    .get("content")
+                    .and_then(JsonValue::as_str)
+                    .is_some_and(|content| !content.trim().is_empty())
+            })
+        });
         if expected.is_none()
             && message.get("role").and_then(JsonValue::as_str) == Some("assistant")
             && !has_visible_text
@@ -1517,7 +1545,10 @@ pub(super) async fn persist_context_summary(
         }
         let actual = message_fingerprint(
             message,
-            parts_by_message.get(&message_id).map(Vec::as_slice).unwrap_or(&[]),
+            parts_by_message
+                .get(&message_id)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]),
         )?;
         if expected.as_deref() != Some(actual.as_str()) {
             return Err(DatabaseOperationError::validation(
@@ -1586,10 +1617,7 @@ pub(super) async fn persist_context_summary(
         "started_at".to_string(),
         JsonValue::Number(created_at.into()),
     );
-    part.insert(
-        "ended_at".to_string(),
-        JsonValue::Number(created_at.into()),
-    );
+    part.insert("ended_at".to_string(), JsonValue::Number(created_at.into()));
     part.insert(
         "sort_order".to_string(),
         JsonValue::Number((maximum + 1).into()),
@@ -1623,9 +1651,6 @@ pub(super) async fn persist_context_summary(
         .map_err(DatabaseOperationError::from)?;
     Ok(object([
         ("messageId", JsonValue::Number(message_id.into())),
-        (
-            "partId",
-            part.get("id").cloned().unwrap_or(JsonValue::Null),
-        ),
+        ("partId", part.get("id").cloned().unwrap_or(JsonValue::Null)),
     ]))
 }

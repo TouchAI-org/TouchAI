@@ -1,13 +1,13 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
 import type { MessageRow } from '@database/queries/messages';
+import { getToolCallName, readToolCallData } from '@database/queries/toolParts';
 import type {
     AttachmentEntity,
     MessagePartEntity,
     SessionTurnAttemptEntity,
     SessionTurnEntity,
 } from '@database/types';
-import { getToolCallName, readToolCallData } from '@database/queries/toolParts';
 import { native } from '@services/NativeService';
 import type {
     DatabaseAttachmentInput,
@@ -327,9 +327,7 @@ export class PersistenceProjector {
             kind: 'session_context',
             sessionId: result.session_id,
         });
-        const sourceRow = context.messages.find(
-            (message) => message.id === result.user_message_id
-        );
+        const sourceRow = context.messages.find((message) => message.id === result.user_message_id);
         if (sourceRow) {
             const source = await contextMessageSource(sourceRow);
             const lastIndex = initialCheckpoint.messages.length - 1;
@@ -793,16 +791,16 @@ export class PersistenceProjector {
                     pendingMessageId: this.pendingOutputMessageId,
                     summaryJson: JSON.stringify(metadata),
                     text,
-                    previousSummaryJson: source.previous
-                        ? JSON.stringify(source.previous)
-                        : null,
+                    previousSummaryJson: source.previous ? JSON.stringify(source.previous) : null,
                     sourceMessages: source.messages,
                     usage: resolvedUsage.usage,
                 },
             });
         } catch (error) {
             if ((error as { code?: string }).code === 'validation') {
-                throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED);
+                throw new AiError(AiErrorCode.CONTEXT_COMPACTION_FAILED, undefined, undefined, {
+                    cause: error,
+                });
             }
             throw error;
         }

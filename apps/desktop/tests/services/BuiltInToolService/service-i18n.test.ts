@@ -236,8 +236,8 @@ describe('user reads built-in tool activity in their own language', () => {
             isError: true,
         });
         expect(result?.result).not.toContain('boom');
-        expect(updateBuiltInToolLogByCallIdMock).toHaveBeenLastCalledWith(
-            'tool-call-1',
+        expect(updateBuiltInToolLogByIdMock).toHaveBeenLastCalledWith(
+            11,
             expect.objectContaining({
                 output: '工具执行失败',
                 error_message: '工具执行失败',
@@ -257,8 +257,8 @@ describe('user reads built-in tool activity in their own language', () => {
             builtInToolService.executeTool(createExecutionOptions(controller.signal))
         ).rejects.toThrow('请求已取消');
 
-        expect(updateBuiltInToolLogByCallIdMock).toHaveBeenCalledWith(
-            'tool-call-1',
+        expect(updateBuiltInToolLogByIdMock).toHaveBeenCalledWith(
+            11,
             expect.objectContaining({
                 status: 'cancelled',
                 error_message: '请求已取消',

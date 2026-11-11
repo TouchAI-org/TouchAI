@@ -6,6 +6,7 @@ import { defineComponent, h, nextTick, ref } from 'vue';
 
 import App from '@/App.vue';
 import { useMotion } from '@/composables/useMotion';
+import type { DatabaseOperation } from '@/services/NativeService/database';
 import { setActiveSettingsService } from '@/services/SettingsService';
 import { useSettingsStore } from '@/stores/settings';
 
@@ -83,7 +84,13 @@ describe('user recovers motion without reopening a surface', () => {
         async (mode) => {
             pinia = createPinia();
             const store = useSettingsStore(pinia);
-            mockTauriCommand('database_query', { rows: [], rowsAffected: 0, lastInsertId: null });
+            mockTauriCommand('database_operation', (payload: unknown) => {
+                const { request } = payload as { request: DatabaseOperation };
+                if (request.kind === 'setting_get_many') {
+                    return Object.fromEntries(request.keys.map((key) => [key, null]));
+                }
+                return null;
+            });
             await store.initialize();
             store.settings.automaticallyReduceMotion = mode === 'automatic';
             systemReduced = mode === 'system';
