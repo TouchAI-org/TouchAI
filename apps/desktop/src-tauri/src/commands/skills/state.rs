@@ -4,14 +4,14 @@ use std::collections::BTreeSet;
 
 use sqlx::{Executor, Sqlite, SqliteConnection, SqlitePool, Transaction};
 
-use super::{read_disabled_skill_paths_from_file, EditableSkillRoot};
+use super::{validate_skill_directory_name, SkillId};
 
-pub(super) const SETTING_KEY: &str = "skills_disabled_paths_v1";
+pub(super) const SETTING_KEY: &str = "skills_disabled_ids_v1";
 const MAX_SETTING_BYTES: usize = 8 * 1024 * 1024;
 
 pub(super) async fn read<'a>(
     executor: impl Executor<'a, Database = Sqlite>,
-) -> Result<Option<BTreeSet<String>>, String> {
+) -> Result<Option<BTreeSet<SkillId>>, String> {
     let value: Option<Option<String>> =
         sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
             .bind(SETTING_KEY)
@@ -24,14 +24,19 @@ pub(super) async fn read<'a>(
             if value.len() > MAX_SETTING_BYTES {
                 return Err("Skill state is too large".into());
             }
-            serde_json::from_str(&value).map_err(|_| "Skill state is invalid".to_string())
+            let skills: BTreeSet<SkillId> =
+                serde_json::from_str(&value).map_err(|_| "Skill state is invalid".to_string())?;
+            for skill in &skills {
+                validate_skill_directory_name(&skill.directory_name)?;
+            }
+            Ok(skills)
         })
         .transpose()
 }
 
-fn serialize(paths: &BTreeSet<String>) -> Result<String, String> {
+fn serialize(skills: &BTreeSet<SkillId>) -> Result<String, String> {
     let value =
-        serde_json::to_string(paths).map_err(|_| "Cannot encode skill state".to_string())?;
+        serde_json::to_string(skills).map_err(|_| "Cannot encode skill state".to_string())?;
     if value.len() > MAX_SETTING_BYTES {
         return Err("Skill state is too large".into());
     }
@@ -40,10 +45,10 @@ fn serialize(paths: &BTreeSet<String>) -> Result<String, String> {
 
 pub(super) async fn write(
     connection: &mut SqliteConnection,
-    paths: &BTreeSet<String>,
+    skills: &BTreeSet<SkillId>,
 ) -> Result<(), String> {
     sqlx::query("UPDATE settings SET value = ?, updated_at = datetime('now') WHERE key = ?")
-        .bind(serialize(paths)?)
+        .bind(serialize(skills)?)
         .bind(SETTING_KEY)
         .execute(connection)
         .await
@@ -51,33 +56,14 @@ pub(super) async fn write(
     Ok(())
 }
 
-pub(super) async fn load(
-    pool: &SqlitePool,
-    roots: &[EditableSkillRoot],
-) -> Result<BTreeSet<String>, String> {
-    if let Some(paths) = read(pool).await? {
-        return Ok(paths);
-    }
-    let roots = roots.to_vec();
-    let paths = tauri::async_runtime::spawn_blocking(move || {
-        let mut paths = BTreeSet::new();
-        for root in roots {
-            paths.extend(read_disabled_skill_paths_from_file(
-                &root.directory,
-                &root.state_file,
-            )?);
-        }
-        Ok::<_, String>(paths)
-    })
-    .await
-    .map_err(|error| format!("Cannot import skill state: {error}"))??;
-    // Row presence, including [], marks a completed import. Concurrent imports must not overwrite a toggle.
+pub(super) async fn load(pool: &SqlitePool) -> Result<BTreeSet<SkillId>, String> {
+    // New installations have no released file-backed state to migrate.
     sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING")
         .bind(SETTING_KEY)
-        .bind(serialize(&paths)?)
+        .bind("[]")
         .execute(pool)
         .await
-        .map_err(|error| format!("Cannot import skill state: {error}"))?;
+        .map_err(|error| format!("Cannot initialize skill state: {error}"))?;
     read(pool)
         .await?
         .ok_or_else(|| "Skill state is missing".to_string())
@@ -85,31 +71,37 @@ pub(super) async fn load(
 
 pub(super) async fn set_disabled(
     transaction: &mut Transaction<'_, Sqlite>,
-    path: String,
+    skill: SkillId,
     disabled: bool,
 ) -> Result<(), String> {
-    let mut paths = read(&mut **transaction)
+    let mut skills = read(&mut **transaction)
         .await?
         .ok_or_else(|| "Skill state is missing".to_string())?;
     let changed = if disabled {
-        paths.insert(path)
+        skills.insert(skill)
     } else {
-        paths.remove(&path)
+        skills.remove(&skill)
     };
     if changed {
-        write(transaction, &paths).await?;
+        write(transaction, &skills).await?;
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{commands::skills::*, core::database::DatabaseRuntime};
+    use std::fs;
 
-    async fn change(pool: &SqlitePool, path: String, disabled: bool) -> Result<(), String> {
+    use super::*;
+    use crate::{commands::skills::SkillRootScope, core::database::DatabaseRuntime};
+
+    fn skill(scope: SkillRootScope, directory_name: &str) -> SkillId {
+        SkillId::new(scope, directory_name.into()).unwrap()
+    }
+
+    async fn change(pool: &SqlitePool, skill: SkillId, disabled: bool) -> Result<(), String> {
         let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await.unwrap();
-        set_disabled(&mut transaction, path, disabled).await?;
+        set_disabled(&mut transaction, skill, disabled).await?;
         transaction
             .commit()
             .await
@@ -117,96 +109,46 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn user_given_legacy_disabled_skills_when_loading_then_keeps_them_in_the_database_after_restart(
-    ) {
+    async fn user_given_missing_skill_state_when_loading_then_initializes_an_empty_database_state()
+    {
         let temp = tempfile::tempdir().unwrap();
         let runtime = DatabaseRuntime::initialize_for_tests(temp.path())
             .await
             .unwrap();
-        let app = temp.path().join("app");
-        let shared = temp.path().join("shared");
-        let roots = editable_skill_roots_at(&app, &shared, &temp.path().join("shared-state.txt"));
-        let mut expected = BTreeSet::new();
-        for root in &roots {
-            let directory = root.directory.join("example");
-            fs::create_dir_all(&directory).unwrap();
-            let path = directory.join("SKILL.md");
-            fs::write(&path, "---\nname: example\ndescription: Example\n---").unwrap();
-            let canonical = path_to_string(&path.canonicalize().unwrap());
-            fs::write(&root.state_file, format!("{canonical}\n{canonical}\n")).unwrap();
-            expected.insert(canonical);
-        }
-        let loaded = load(runtime.pool(), &roots).await.unwrap();
-        assert_eq!(loaded, expected);
+        assert!(load(runtime.pool()).await.unwrap().is_empty());
         let stored: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
             .bind(SETTING_KEY)
             .fetch_optional(runtime.pool())
             .await
             .unwrap();
-        assert_eq!(
-            stored.map(|value| serde_json::from_str::<BTreeSet<String>>(&value).unwrap()),
-            Some(expected.clone())
-        );
+        assert_eq!(stored.as_deref(), Some("[]"));
+    }
+
+    #[tokio::test]
+    async fn user_given_saved_skill_ids_when_the_database_reopens_then_keeps_the_same_state() {
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = DatabaseRuntime::initialize_for_tests(temp.path())
+            .await
+            .unwrap();
+        let expected = BTreeSet::from([skill(SkillRootScope::Shared, "demo")]);
+        load(runtime.pool()).await.unwrap();
+        change(runtime.pool(), skill(SkillRootScope::Shared, "demo"), true)
+            .await
+            .unwrap();
+
         runtime.pool().close().await;
-        let reopened = DatabaseRuntime::initialize_for_tests(temp.path())
+        let moved_runtime = DatabaseRuntime::initialize_for_tests(temp.path())
             .await
             .unwrap();
-        for root in &roots {
-            assert!(root.state_file.exists());
-            fs::write(&root.state_file, "").unwrap();
-        }
-        assert_eq!(load(reopened.pool(), &roots).await.unwrap(), expected);
-    }
-
-    #[tokio::test]
-    async fn user_given_saved_database_state_when_legacy_files_change_then_keeps_the_database_choice(
-    ) {
-        let temp = tempfile::tempdir().unwrap();
-        let runtime = DatabaseRuntime::initialize_for_tests(temp.path())
-            .await
-            .unwrap();
-        sqlx::query("INSERT INTO settings (key, value) VALUES (?, '[]')")
+        assert_eq!(load(moved_runtime.pool()).await.unwrap(), expected);
+        let stored: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
             .bind(SETTING_KEY)
-            .execute(runtime.pool())
+            .fetch_one(moved_runtime.pool())
             .await
             .unwrap();
-        let roots = editable_skill_roots_at(
-            temp.path(),
-            &temp.path().join("shared"),
-            &temp.path().join("old-state"),
-        );
-        fs::create_dir(&roots[1].state_file).unwrap();
-        assert!(load(runtime.pool(), &roots).await.unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn user_given_an_unreadable_legacy_file_when_migrating_then_can_retry_without_partial_database_state(
-    ) {
-        let temp = tempfile::tempdir().unwrap();
-        let runtime = DatabaseRuntime::initialize_for_tests(temp.path())
-            .await
-            .unwrap();
-        let roots = editable_skill_roots_at(
-            temp.path(),
-            &temp.path().join("shared"),
-            &temp.path().join("old-state"),
-        );
-        fs::create_dir(&roots[1].state_file).unwrap();
-        assert!(load(runtime.pool(), &roots).await.is_err());
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM settings WHERE key = ?")
-            .bind(SETTING_KEY)
-            .fetch_one(runtime.pool())
-            .await
-            .unwrap();
-        assert_eq!(count, 0);
-        fs::remove_dir(&roots[1].state_file).unwrap();
-        assert!(load(runtime.pool(), &roots).await.unwrap().is_empty());
-        let value: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
-            .bind(SETTING_KEY)
-            .fetch_optional(runtime.pool())
-            .await
-            .unwrap();
-        assert_eq!(value.as_deref(), Some("[]"));
+        assert!(stored.contains(r#""scope":"shared""#));
+        assert!(stored.contains(r#""directoryName":"demo""#));
+        assert!(!stored.contains(temp.path().to_string_lossy().as_ref()));
     }
 
     #[tokio::test]
@@ -221,7 +163,7 @@ mod tests {
             .execute(runtime.pool())
             .await
             .unwrap();
-        let error = load(runtime.pool(), &[]).await.unwrap_err();
+        let error = load(runtime.pool()).await.unwrap_err();
         assert!(!error.contains("private-invalid-state"));
         let stored: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
             .bind(SETTING_KEY)
@@ -238,21 +180,29 @@ mod tests {
         let runtime = DatabaseRuntime::initialize_for_tests(temp.path())
             .await
             .unwrap();
-        load(runtime.pool(), &[]).await.unwrap();
-        change(runtime.pool(), "first".into(), true).await.unwrap();
-        sqlx::query("CREATE TRIGGER reject_skill_update BEFORE UPDATE ON settings WHEN NEW.key = 'skills_disabled_paths_v1' BEGIN SELECT RAISE(ABORT, 'write rejected'); END")
+        load(runtime.pool()).await.unwrap();
+        change(runtime.pool(), skill(SkillRootScope::App, "first"), true)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TRIGGER reject_skill_update BEFORE UPDATE ON settings WHEN NEW.key = 'skills_disabled_ids_v1' BEGIN SELECT RAISE(ABORT, 'write rejected'); END")
             .execute(runtime.pool()).await.unwrap();
-        assert!(change(runtime.pool(), "second".into(), true).await.is_err());
+        assert!(
+            change(runtime.pool(), skill(SkillRootScope::App, "second"), true)
+                .await
+                .is_err()
+        );
         assert_eq!(
-            load(runtime.pool(), &[]).await.unwrap(),
-            BTreeSet::from(["first".into()])
+            load(runtime.pool()).await.unwrap(),
+            BTreeSet::from([skill(SkillRootScope::App, "first")])
         );
         sqlx::query("DROP TRIGGER reject_skill_update")
             .execute(runtime.pool())
             .await
             .unwrap();
-        change(runtime.pool(), "second".into(), true).await.unwrap();
-        assert_eq!(load(runtime.pool(), &[]).await.unwrap().len(), 2);
+        change(runtime.pool(), skill(SkillRootScope::App, "second"), true)
+            .await
+            .unwrap();
+        assert_eq!(load(runtime.pool()).await.unwrap().len(), 2);
     }
 
     #[tokio::test]
@@ -265,26 +215,32 @@ mod tests {
         let second = DatabaseRuntime::initialize_for_tests(temp.path())
             .await
             .unwrap();
-        load(first.pool(), &[]).await.unwrap();
+        load(first.pool()).await.unwrap();
         let (one, two) = tokio::join!(
-            change(first.pool(), "one".into(), true),
-            change(second.pool(), "two".into(), true)
+            change(first.pool(), skill(SkillRootScope::App, "one"), true),
+            change(second.pool(), skill(SkillRootScope::Shared, "two"), true)
         );
         one.unwrap();
         two.unwrap();
         assert_eq!(
-            load(first.pool(), &[]).await.unwrap(),
-            BTreeSet::from(["one".into(), "two".into()])
+            load(first.pool()).await.unwrap(),
+            BTreeSet::from([
+                skill(SkillRootScope::App, "one"),
+                skill(SkillRootScope::Shared, "two")
+            ])
         );
         let (one, two) = tokio::join!(
-            change(first.pool(), "one".into(), false),
-            change(second.pool(), "three".into(), true)
+            change(first.pool(), skill(SkillRootScope::App, "one"), false),
+            change(second.pool(), skill(SkillRootScope::App, "three"), true)
         );
         one.unwrap();
         two.unwrap();
         assert_eq!(
-            load(second.pool(), &[]).await.unwrap(),
-            BTreeSet::from(["two".into(), "three".into()])
+            load(second.pool()).await.unwrap(),
+            BTreeSet::from([
+                skill(SkillRootScope::Shared, "two"),
+                skill(SkillRootScope::App, "three")
+            ])
         );
     }
 
@@ -295,10 +251,14 @@ mod tests {
         let runtime = DatabaseRuntime::initialize_for_tests(temp.path())
             .await
             .unwrap();
-        load(runtime.pool(), &[]).await.unwrap();
-        change(runtime.pool(), "example".into(), true)
-            .await
-            .unwrap();
+        load(runtime.pool()).await.unwrap();
+        change(
+            runtime.pool(),
+            skill(SkillRootScope::Shared, "example"),
+            true,
+        )
+        .await
+        .unwrap();
         let restored_root = temp.path().join("restored");
         fs::create_dir(&restored_root).unwrap();
         let backup = restored_root.join("touchai.db");
@@ -310,8 +270,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            load(snapshot.pool(), &[]).await.unwrap(),
-            BTreeSet::from(["example".into()])
+            load(snapshot.pool()).await.unwrap(),
+            BTreeSet::from([skill(SkillRootScope::Shared, "example")])
         );
         let rows = sqlx::query("EXPLAIN QUERY PLAN SELECT value FROM settings WHERE key = ?")
             .bind(SETTING_KEY)
@@ -334,7 +294,22 @@ mod tests {
         for value in [None, Some("x".repeat(MAX_SETTING_BYTES + 1))] {
             sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
                 .bind(SETTING_KEY).bind(value).execute(runtime.pool()).await.unwrap();
-            assert!(load(runtime.pool(), &[]).await.is_err());
+            assert!(load(runtime.pool()).await.is_err());
         }
+    }
+
+    #[tokio::test]
+    async fn user_given_an_invalid_portable_identity_when_loading_then_gets_an_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let runtime = DatabaseRuntime::initialize_for_tests(temp.path())
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?)")
+            .bind(SETTING_KEY)
+            .bind(r#"[{"scope":"shared","directoryName":"../escape"}]"#)
+            .execute(runtime.pool())
+            .await
+            .unwrap();
+        assert!(load(runtime.pool()).await.is_err());
     }
 }

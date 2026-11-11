@@ -12,13 +12,24 @@ import { buildShowWidgetSummary } from '@/services/BuiltInToolService/tools/widg
 import { buildShowWidgetDraftFromArgumentsBuffer } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtime';
 
 function readWidgetSkill(): string {
-    return readFileSync(
-        resolve(
-            dirname(fileURLToPath(import.meta.url)),
-            '../../../../../src/prompts/skills/widget/SKILL.md'
-        ),
-        'utf8'
+    const root = resolve(
+        dirname(fileURLToPath(import.meta.url)),
+        '../../../../../src/prompts/skills/widget'
     );
+    return [
+        'SKILL.md',
+        'references/ui_components.md',
+        'references/color_palette.md',
+        'references/charts.md',
+        'references/svg_setup.md',
+        'references/diagram_overview.md',
+        'references/diagram_flowchart.md',
+        'references/diagram_structural.md',
+        'references/diagram_illustrative.md',
+        'references/art_and_illustration.md',
+    ]
+        .map((file) => readFileSync(resolve(root, file), 'utf8'))
+        .join('\n');
 }
 
 function createPayload(overrides: Partial<ShowWidgetEventPayload> = {}): ShowWidgetEventPayload {

@@ -34,10 +34,57 @@ pub struct UserSkillFile {
 }
 
 static SYSTEM_SKILL_INSTALL_LOCK: Mutex<()> = Mutex::new(());
-const BUNDLED_WIDGET_SKILL: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../src/prompts/skills/widget/SKILL.md"
-));
+const BUNDLED_WIDGET_SKILL: &str = concat!(
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../src/prompts/skills/widget/SKILL.md"
+    )),
+    "\n",
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../src/prompts/skills/widget/references/ui_components.md"
+    )),
+    "\n",
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../src/prompts/skills/widget/references/color_palette.md"
+    )),
+    "\n",
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../src/prompts/skills/widget/references/charts.md"
+    )),
+    "\n",
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../src/prompts/skills/widget/references/svg_setup.md"
+    )),
+    "\n",
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../src/prompts/skills/widget/references/diagram_overview.md"
+    )),
+    "\n",
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../src/prompts/skills/widget/references/diagram_flowchart.md"
+    )),
+    "\n",
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../src/prompts/skills/widget/references/diagram_structural.md"
+    )),
+    "\n",
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../src/prompts/skills/widget/references/diagram_illustrative.md"
+    )),
+    "\n",
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../src/prompts/skills/widget/references/art_and_illustration.md"
+    )),
+);
 struct BundledSkill {
     name: &'static str,
     content: &'static str,
@@ -58,11 +105,9 @@ const BUNDLED_SKILLS: &[BundledSkill] = &[
 ];
 const MAX_DISCOVERED_SKILLS: usize = 1024;
 const MAX_CATALOG_BYTES: usize = 8 * 1024 * 1024;
-const MAX_STATE_BYTES: u64 = 1024 * 1024;
 
 const MAX_DISCOVERY_FRONTMATTER_BYTES: usize = 64 * 1024;
 const MAX_SKILL_CONTENT_BYTES: u64 = 200_000;
-const DISABLED_SKILLS_FILE_NAME: &str = "disabled-skills.txt";
 const RAW_SKILL_CONTENT_READ_WINDOW_LABELS: &[&str] = &["settings"];
 const ENABLED_SKILL_CONTENT_READ_WINDOW_LABELS: &[&str] = &["main"];
 
@@ -93,42 +138,68 @@ fn user_skills_root() -> Result<PathBuf, String> {
     Ok(user_home_dir()?.join(".agents").join("skills"))
 }
 
-fn user_skills_state_file() -> Result<PathBuf, String> {
-    Ok(user_home_dir()?
-        .join(".agents")
-        .join(".touchai")
-        .join(DISABLED_SKILLS_FILE_NAME))
-}
-
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SkillRootScope {
     App,
     Shared,
 }
 
+#[derive(Debug, Clone, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SkillId {
+    scope: SkillRootScope,
+    directory_name: String,
+}
+
+impl SkillId {
+    fn new(scope: SkillRootScope, directory_name: String) -> Result<Self, String> {
+        validate_skill_directory_name(&directory_name)?;
+        Ok(Self {
+            scope,
+            directory_name,
+        })
+    }
+
+    fn from_skill_file(scope: SkillRootScope, path: &Path) -> Result<Self, String> {
+        let directory_name = path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| "Skill directory name is not valid UTF-8".to_string())?;
+        Self::new(scope, directory_name.to_string())
+    }
+}
+
+fn validate_skill_directory_name(directory_name: &str) -> Result<(), String> {
+    if directory_name.is_empty()
+        || directory_name == "."
+        || directory_name == ".."
+        || directory_name.starts_with('.')
+        || directory_name.contains('/')
+        || directory_name.contains('\\')
+        || directory_name.contains('\0')
+    {
+        return Err("Skill state contains an invalid directory name".into());
+    }
+    Ok(())
+}
+
 #[derive(Clone)]
 struct EditableSkillRoot {
     directory: PathBuf,
-    state_file: PathBuf,
     scope: SkillRootScope,
 }
 
-fn editable_skill_roots_at(
-    app_root: &Path,
-    shared_root: &Path,
-    shared_state: &Path,
-) -> [EditableSkillRoot; 2] {
+fn editable_skill_roots_at(app_root: &Path, shared_root: &Path) -> [EditableSkillRoot; 2] {
     let directory = app_root.join("skills");
     [
         EditableSkillRoot {
-            state_file: directory.join(".disabled-skills.txt"),
             directory,
             scope: SkillRootScope::App,
         },
         EditableSkillRoot {
             directory: shared_root.to_path_buf(),
-            state_file: shared_state.to_path_buf(),
             scope: SkillRootScope::Shared,
         },
     ]
@@ -138,7 +209,6 @@ fn editable_skill_roots() -> Result<[EditableSkillRoot; 2], String> {
     Ok(editable_skill_roots_at(
         &system_skills_app_root()?,
         &user_skills_root()?,
-        &user_skills_state_file()?,
     ))
 }
 
@@ -261,17 +331,17 @@ fn read_direct_child_skill_file(root: &Path, path: &Path) -> Result<String, Stri
 }
 
 fn read_enabled_direct_child_skill_file(
-    root: &Path,
+    root: &EditableSkillRoot,
     path: &Path,
-    disabled_paths: &BTreeSet<String>,
+    disabled_skills: &BTreeSet<SkillId>,
 ) -> Result<String, String> {
-    let path = validate_direct_child_skill_file(root, path)?;
-    let normalized_path = path_to_string(&path);
-    if disabled_paths.contains(&normalized_path) {
+    let path = validate_direct_child_skill_file(&root.directory, path)?;
+    let skill_id = SkillId::from_skill_file(root.scope, &path)?;
+    if disabled_skills.contains(&skill_id) {
         return Err("技能已禁用，无法读取".to_string());
     }
 
-    read_direct_child_skill_file(root, &path)
+    read_direct_child_skill_file(&root.directory, &path)
 }
 
 fn system_skills_app_root() -> Result<PathBuf, String> {
@@ -427,15 +497,15 @@ fn read_skill_file(
     app_root: &Path,
     user_root: &Path,
     path: &Path,
-    disabled_paths: Option<&BTreeSet<String>>,
+    disabled_skills: Option<&BTreeSet<SkillId>>,
 ) -> Result<String, String> {
     if let Some(content) = registered_system_skill_content(app_root, path)? {
         return Ok(content.to_string());
     }
-    let roots = editable_skill_roots_at(app_root, user_root, Path::new(""));
+    let roots = editable_skill_roots_at(app_root, user_root);
     let root = resolve_editable_skill_root(&roots, path)?;
-    match disabled_paths {
-        Some(paths) => read_enabled_direct_child_skill_file(&root.directory, path, paths),
+    match disabled_skills {
+        Some(skills) => read_enabled_direct_child_skill_file(root, path, skills),
         None => read_direct_child_skill_file(&root.directory, path),
     }
 }
@@ -516,61 +586,27 @@ fn read_skill_frontmatter(mut file: impl Read) -> Result<String, String> {
     }
 }
 
-fn read_disabled_skill_paths_from_file(
-    root: &Path,
-    state_file: &Path,
-) -> Result<Vec<String>, String> {
-    let file = match File::open(state_file) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(format!("Cannot read skill state: {}", error)),
-    };
-    let mut content = String::new();
-    file.take(MAX_STATE_BYTES + 1)
-        .read_to_string(&mut content)
-        .map_err(|error| format!("Cannot read skill state: {}", error))?;
-    if content.len() as u64 > MAX_STATE_BYTES {
-        return Err("Skill state is too large".into());
-    }
-
-    let mut disabled_paths = Vec::new();
-    for line in content.lines() {
-        let path = line.trim();
-        if path.is_empty() || path.starts_with('#') {
-            continue;
-        }
-
-        let Ok(path) = validate_direct_child_skill_file(root, Path::new(path)) else {
-            continue;
-        };
-        disabled_paths.push(path_to_string(&path));
-    }
-
-    disabled_paths.sort();
-    disabled_paths.dedup();
-    Ok(disabled_paths)
-}
-
 async fn set_disabled_skill_path(
     pool: &SqlitePool,
     roots: &[EditableSkillRoot],
     path: &Path,
     disabled: bool,
 ) -> Result<(), String> {
-    state::load(pool, roots).await?;
+    state::load(pool).await?;
     let mut transaction = pool
         .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|error| format!("Cannot begin skill state update: {error}"))?;
     let locations = roots.to_vec();
     let path = path.to_path_buf();
-    let path = tauri::async_runtime::spawn_blocking(move || {
+    let skill_id = tauri::async_runtime::spawn_blocking(move || {
         let root = resolve_editable_skill_root(&locations, &path)?;
-        validate_direct_child_skill_file(&root.directory, &path).map(|path| path_to_string(&path))
+        let path = validate_direct_child_skill_file(&root.directory, &path)?;
+        SkillId::from_skill_file(root.scope, &path)
     })
     .await
     .map_err(|error| format!("Skill operation failed: {error}"))??;
-    state::set_disabled(&mut transaction, path, disabled).await?;
+    state::set_disabled(&mut transaction, skill_id, disabled).await?;
     transaction
         .commit()
         .await
@@ -585,27 +621,28 @@ async fn delete_direct_child_skill_directory(
 ) -> Result<(), String> {
     let locations = roots.to_vec();
     let directory = directory.to_path_buf();
-    let (root, directory, skill_path) = tauri::async_runtime::spawn_blocking(move || {
+    let (root, directory, skill_id) = tauri::async_runtime::spawn_blocking(move || {
         let root = resolve_editable_skill_root(&locations, &directory.join("SKILL.md"))?;
         let directory = validate_direct_child_skill_directory(&root.directory, &directory)?;
         let path = validate_direct_child_skill_file(&root.directory, &directory.join("SKILL.md"))?;
-        Ok::<_, String>((root.directory.clone(), directory, path_to_string(&path)))
+        let skill_id = SkillId::from_skill_file(root.scope, &path)?;
+        Ok::<_, String>((root.clone(), directory, skill_id))
     })
     .await
     .map_err(|error| format!("Skill operation failed: {error}"))??;
-    state::load(pool, roots).await?;
+    state::load(pool).await?;
     let mut transaction = pool
         .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|error| format!("Cannot begin skill deletion: {error}"))?;
-    let mut paths = state::read(&mut *transaction)
+    let mut skills = state::read(&mut *transaction)
         .await?
         .ok_or_else(|| "Skill state is missing".to_string())?;
-    paths.remove(&skill_path);
+    skills.remove(&skill_id);
     // Validate the database write before removing content; a filesystem error rolls it back.
-    state::write(&mut transaction, &paths).await?;
+    state::write(&mut transaction, &skills).await?;
     tauri::async_runtime::spawn_blocking(move || {
-        let directory = validate_direct_child_skill_directory(&root, &directory)?;
+        let directory = validate_direct_child_skill_directory(&root.directory, &directory)?;
         remove_directory(&directory).map_err(|error| format!("删除技能目录失败：{error}"))
     })
     .await
@@ -644,7 +681,7 @@ pub async fn agent_skills_discover_user_files<R: Runtime>(
 ) -> Result<Vec<UserSkillFile>, String> {
     ensure_allowed_window(&window, &["main", "settings"])?;
     let roots = editable_skill_roots()?;
-    let disabled = state::load(database.pool(), &roots).await?;
+    let disabled = state::load(database.pool()).await?;
     tauri::async_runtime::spawn_blocking(move || discover_editable_skill_files(&roots, &disabled))
         .await
         .map_err(|error| format!("Skill operation failed: {}", error))?
@@ -652,7 +689,7 @@ pub async fn agent_skills_discover_user_files<R: Runtime>(
 
 fn discover_editable_skill_files(
     roots: &[EditableSkillRoot],
-    disabled_paths: &BTreeSet<String>,
+    disabled_skills: &BTreeSet<SkillId>,
 ) -> Result<Vec<UserSkillFile>, String> {
     let mut files = Vec::new();
     let mut metadata_bytes = 0;
@@ -695,12 +732,13 @@ fn discover_editable_skill_files(
             };
             let directory_name = entry.file_name().to_string_lossy().to_string();
             let skill_path_string = path_to_string(&skill_path);
+            let skill_id = SkillId::new(location.scope, directory_name.clone())?;
             files.push(UserSkillFile {
                 directory_name,
                 path: skill_path_string.clone(),
                 directory: path_to_string(directory),
                 frontmatter,
-                disabled: disabled_paths.contains(&skill_path_string),
+                disabled: disabled_skills.contains(&skill_id),
                 scope: location.scope,
             });
         }
@@ -739,7 +777,7 @@ pub async fn agent_skills_read_enabled_user_file<R: Runtime>(
     path: String,
 ) -> Result<String, String> {
     ensure_allowed_window(&window, ENABLED_SKILL_CONTENT_READ_WINDOW_LABELS)?;
-    let disabled = state::load(database.pool(), &editable_skill_roots()?).await?;
+    let disabled = state::load(database.pool()).await?;
     tauri::async_runtime::spawn_blocking(move || {
         read_skill_file(
             &system_skills_app_root()?,
@@ -861,15 +899,13 @@ mod tests {
         let shared = temp.path().join("shared");
         let common = write_skill(&shared, "same").join("SKILL.md");
         write_skill(&app.join("skills"), ".system");
-        let roots = editable_skill_roots_at(&app, &shared, &temp.path().join("shared-state.txt"));
+        let roots = editable_skill_roots_at(&app, &shared);
         set_disabled_skill_path(database.pool(), &roots, &private, true)
             .await
             .unwrap();
-        let files = discover_editable_skill_files(
-            &roots,
-            &state::load(database.pool(), &roots).await.unwrap(),
-        )
-        .unwrap();
+        let files =
+            discover_editable_skill_files(&roots, &state::load(database.pool()).await.unwrap())
+                .unwrap();
         assert_eq!(files.len(), 2);
         for (path, scope, disabled) in [(&private, "app", true), (&common, "shared", false)] {
             let file = files
@@ -889,12 +925,9 @@ mod tests {
         .unwrap();
         assert!(common.exists());
         assert_eq!(
-            discover_editable_skill_files(
-                &roots,
-                &state::load(database.pool(), &roots).await.unwrap()
-            )
-            .unwrap()
-            .len(),
+            discover_editable_skill_files(&roots, &state::load(database.pool()).await.unwrap())
+                .unwrap()
+                .len(),
             1
         );
     }
@@ -916,29 +949,54 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn user_given_a_disabled_app_skill_when_activating_then_keeps_shared_legacy_state_unchanged(
+    async fn user_given_same_named_skills_when_disabling_the_app_copy_then_leaves_the_shared_copy_enabled(
     ) {
         let temp = tempfile::tempdir().unwrap();
         let database = DatabaseRuntime::initialize_for_tests(temp.path())
             .await
             .unwrap();
         let app_root = temp.path().join("app");
-        let path = write_skill(&app_root.join("skills"), "private").join("SKILL.md");
+        let path = write_skill(&app_root.join("skills"), "same").join("SKILL.md");
         let shared = temp.path().join("shared");
-        let shared_path = write_skill(&shared, "shared").join("SKILL.md");
-        let shared_state = temp.path().join("shared-disabled.txt");
-        fs::write(&shared_state, path_to_string(&shared_path)).unwrap();
-        let original = fs::read(&shared_state).unwrap();
-        let roots = editable_skill_roots_at(&app_root, &shared, &shared_state);
+        let shared_path = write_skill(&shared, "same").join("SKILL.md");
+        let roots = editable_skill_roots_at(&app_root, &shared);
         set_disabled_skill_path(database.pool(), &roots, &path, true)
             .await
             .unwrap();
-        let disabled = state::load(database.pool(), &roots).await.unwrap();
-        assert_eq!(disabled.len(), 2);
+        let disabled = state::load(database.pool()).await.unwrap();
+        assert_eq!(disabled.len(), 1);
         let error = read_skill_file(&app_root, &shared, &path, Some(&disabled)).unwrap_err();
         assert!(error.contains("技能已禁用"));
         assert!(read_skill_file(&app_root, &shared, &path, None).is_ok());
-        assert_eq!(fs::read(shared_state).unwrap(), original);
+        assert_eq!(
+            read_skill_file(&app_root, &shared, &shared_path, Some(&disabled)).unwrap(),
+            fs::read_to_string(shared_path).unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn user_given_a_disabled_skill_when_the_app_and_shared_roots_move_then_keeps_the_choice()
+    {
+        let temp = tempfile::tempdir().unwrap();
+        let database = DatabaseRuntime::initialize_for_tests(temp.path())
+            .await
+            .unwrap();
+        let old_app_root = temp.path().join("old-app");
+        let old_shared_root = temp.path().join("old-shared");
+        let old_path = write_skill(&old_app_root.join("skills"), "demo").join("SKILL.md");
+        let old_root = editable_skill_roots_at(&old_app_root, &old_shared_root);
+        set_disabled_skill_path(database.pool(), &old_root, &old_path, true)
+            .await
+            .unwrap();
+        let disabled = state::load(database.pool()).await.unwrap();
+
+        let new_app_root = temp.path().join("new-app");
+        let new_shared_root = temp.path().join("new-shared");
+        let new_path = write_skill(&new_app_root.join("skills"), "demo").join("SKILL.md");
+        let error = read_skill_file(&new_app_root, &new_shared_root, &new_path, Some(&disabled))
+            .unwrap_err();
+
+        assert!(error.contains("技能已禁用"));
     }
 
     #[test]
@@ -1078,11 +1136,11 @@ mod tests {
             .unwrap();
         let root = temp.path().join("user-skills");
         let path = write_skill(&root, "widget").join("SKILL.md");
-        let roots = editable_skill_roots_at(temp.path(), &root, &temp.path().join("legacy.txt"));
+        let roots = editable_skill_roots_at(temp.path(), &root);
         set_disabled_skill_path(database.pool(), &roots, &path, true)
             .await
             .unwrap();
-        let disabled = state::load(database.pool(), &roots).await.unwrap();
+        let disabled = state::load(database.pool()).await.unwrap();
         let error = read_skill_file(temp.path(), &root, &path, Some(&disabled)).unwrap_err();
         assert!(error.contains("技能已禁用"));
         assert_eq!(
@@ -1092,7 +1150,7 @@ mod tests {
         set_disabled_skill_path(database.pool(), &roots, &path, false)
             .await
             .unwrap();
-        let disabled = state::load(database.pool(), &roots).await.unwrap();
+        let disabled = state::load(database.pool()).await.unwrap();
         assert_eq!(
             read_skill_file(temp.path(), &root, &path, Some(&disabled)).unwrap(),
             fs::read_to_string(path).unwrap()
@@ -1107,11 +1165,11 @@ mod tests {
             .unwrap();
         let root = temp.path().join("user-skills");
         let user_skill = write_skill(&root, "widget").join("SKILL.md");
-        let roots = editable_skill_roots_at(temp.path(), &root, &temp.path().join("legacy.txt"));
+        let roots = editable_skill_roots_at(temp.path(), &root);
         set_disabled_skill_path(database.pool(), &roots, &user_skill, true)
             .await
             .unwrap();
-        let original_state = state::load(database.pool(), &roots).await.unwrap();
+        let original_state = state::load(database.pool()).await.unwrap();
         let system_dir = write_skill(&temp.path().join("skills/.system"), "widget");
         let system_path = system_dir.join("SKILL.md");
         let original_skill = fs::read(&system_path).unwrap();
@@ -1131,10 +1189,7 @@ mod tests {
         .await
         .is_err());
         assert_eq!(fs::read(system_path).unwrap(), original_skill);
-        assert_eq!(
-            state::load(database.pool(), &roots).await.unwrap(),
-            original_state
-        );
+        assert_eq!(state::load(database.pool()).await.unwrap(), original_state);
         assert!(user_skill.exists());
     }
 
@@ -1419,19 +1474,15 @@ mod tests {
         let skill_dir = write_skill(&root, "demo");
         let skill_file = skill_dir.join("SKILL.md");
         let nested_skill = write_skill(&skill_dir, "nested").join("SKILL.md");
-        let roots = editable_skill_roots_at(
-            temp.path(),
-            &temp.path().join("shared"),
-            &temp.path().join("legacy.txt"),
-        );
+        let roots = editable_skill_roots_at(temp.path(), &temp.path().join("shared"));
         for _ in 0..2 {
             set_disabled_skill_path(database.pool(), &roots, &skill_file, true)
                 .await
                 .unwrap();
         }
         assert_eq!(
-            state::load(database.pool(), &roots).await.unwrap(),
-            BTreeSet::from([path_to_string(&skill_file.canonicalize().unwrap())])
+            state::load(database.pool()).await.unwrap(),
+            BTreeSet::from([SkillId::new(SkillRootScope::App, "demo".into()).unwrap()])
         );
         assert!(
             set_disabled_skill_path(database.pool(), &roots, &nested_skill, true)
@@ -1441,39 +1492,8 @@ mod tests {
         set_disabled_skill_path(database.pool(), &roots, &skill_file, false)
             .await
             .unwrap();
-        assert!(state::load(database.pool(), &roots)
-            .await
-            .unwrap()
-            .is_empty());
-        assert!(roots.iter().all(|root| !root.state_file.exists()));
+        assert!(state::load(database.pool()).await.unwrap().is_empty());
         assert!(skill_file.exists());
-    }
-
-    #[test]
-    fn user_given_legacy_state_when_importing_then_ignores_non_skill_paths() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("skills");
-        let state_file = temp.path().join("legacy.txt");
-        let skill_dir = write_skill(&root, "demo");
-        let skill_file = skill_dir.join("SKILL.md");
-        let nested_skill = write_skill(&skill_dir, "nested").join("SKILL.md");
-        fs::write(
-            &state_file,
-            [
-                path_to_string(&skill_file),
-                path_to_string(&nested_skill),
-                path_to_string(&root.join("missing/SKILL.md")),
-            ]
-            .join(
-                "
-",
-            ),
-        )
-        .unwrap();
-        assert_eq!(
-            read_disabled_skill_paths_from_file(&root, &state_file).unwrap(),
-            vec![path_to_string(&skill_file.canonicalize().unwrap())]
-        );
     }
 
     #[tokio::test]
@@ -1485,11 +1505,7 @@ mod tests {
         let root = temp.path().join("skills");
         let skill_dir = write_skill(&root, "demo");
         let skill_file = skill_dir.join("SKILL.md");
-        let roots = editable_skill_roots_at(
-            temp.path(),
-            &temp.path().join("shared"),
-            &temp.path().join("legacy.txt"),
-        );
+        let roots = editable_skill_roots_at(temp.path(), &temp.path().join("shared"));
         set_disabled_skill_path(database.pool(), &roots, &skill_file, true)
             .await
             .unwrap();
@@ -1502,8 +1518,8 @@ mod tests {
         assert!(error.contains("删除技能目录失败"));
         assert!(skill_dir.exists());
         assert_eq!(
-            state::load(database.pool(), &roots).await.unwrap(),
-            BTreeSet::from([path_to_string(&skill_file.canonicalize().unwrap())])
+            state::load(database.pool()).await.unwrap(),
+            BTreeSet::from([SkillId::new(SkillRootScope::App, "demo".into()).unwrap()])
         );
     }
 
@@ -1516,11 +1532,7 @@ mod tests {
         let root = temp.path().join("skills");
         let skill_dir = write_skill(&root, "demo");
         let skill_file = skill_dir.join("SKILL.md");
-        let roots = editable_skill_roots_at(
-            temp.path(),
-            &temp.path().join("shared"),
-            &temp.path().join("legacy.txt"),
-        );
+        let roots = editable_skill_roots_at(temp.path(), &temp.path().join("shared"));
         set_disabled_skill_path(database.pool(), &roots, &skill_file, true)
             .await
             .unwrap();
@@ -1530,10 +1542,7 @@ mod tests {
         .await
         .unwrap();
         assert!(!skill_dir.exists());
-        assert!(state::load(database.pool(), &roots)
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(state::load(database.pool()).await.unwrap().is_empty());
     }
 
     #[test]
@@ -1553,9 +1562,13 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("skills");
         let skill_file = write_skill(&root, "demo").join("SKILL.md");
-        let disabled = BTreeSet::from([path_to_string(&skill_file.canonicalize().unwrap())]);
+        let location = EditableSkillRoot {
+            directory: root,
+            scope: SkillRootScope::App,
+        };
+        let disabled = BTreeSet::from([SkillId::new(SkillRootScope::App, "demo".into()).unwrap()]);
         assert!(
-            read_enabled_direct_child_skill_file(&root, &skill_file, &disabled)
+            read_enabled_direct_child_skill_file(&location, &skill_file, &disabled)
                 .unwrap_err()
                 .contains("技能已禁用")
         );
@@ -1566,8 +1579,12 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("skills");
         let skill_file = write_skill(&root, "demo").join("SKILL.md");
+        let location = EditableSkillRoot {
+            directory: root,
+            scope: SkillRootScope::App,
+        };
         assert!(
-            read_enabled_direct_child_skill_file(&root, &skill_file, &BTreeSet::new())
+            read_enabled_direct_child_skill_file(&location, &skill_file, &BTreeSet::new())
                 .unwrap()
                 .contains("name: demo")
         );
@@ -1582,18 +1599,13 @@ mod tests {
         let root = temp.path().join("skills");
         let one = write_skill(&root, "one").join("SKILL.md");
         let two = write_skill(&root, "two").join("SKILL.md");
-        let roots = editable_skill_roots_at(
-            temp.path(),
-            &temp.path().join("shared"),
-            &temp.path().join("legacy.txt"),
-        );
+        let roots = editable_skill_roots_at(temp.path(), &temp.path().join("shared"));
         let (first, second) = tokio::join!(
             set_disabled_skill_path(database.pool(), &roots, &one, true),
             set_disabled_skill_path(database.pool(), &roots, &two, true)
         );
         first.unwrap();
         second.unwrap();
-        assert_eq!(state::load(database.pool(), &roots).await.unwrap().len(), 2);
-        assert!(roots.iter().all(|root| !root.state_file.exists()));
+        assert_eq!(state::load(database.pool()).await.unwrap().len(), 2);
     }
 }

@@ -58,4 +58,3 @@ Owner pages for areas with their own invariants and contracts:
 | Area               | Page                         | Read it when                                                                                     |
 | ------------------ | ---------------------------- | ------------------------------------------------------------------------------------------------ |
 | Product analytics  | [analytics.md](analytics.md) | Touching the event registry, consent, the delivery queue, the sender, or export/import scrubbing |
-| Skill enablement   | [skills.md](skills.md)       | Touching skill state, legacy import, discovery, or native enabled-content reads                  |
