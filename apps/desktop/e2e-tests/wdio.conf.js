@@ -12,7 +12,7 @@ import { withE2eWebView2Env } from './webview2-env.js';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const desktopRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopRoot, '..', '..');
-const runtimeRoot = path.resolve(process.env.TOUCHAI_E2E_OUTPUT_ROOT || repoRoot, '.e2e-runtime');
+const runtimeRoot = path.resolve(repoRoot, '.e2e-runtime');
 const visualBaselineRoot = path.resolve(__dirname, '__snapshots__');
 const visualRuntimeRoot = path.resolve(runtimeRoot, 'visual');
 const updateVisualBaselines = process.env.UPDATE_VISUAL_BASELINE === '1';
