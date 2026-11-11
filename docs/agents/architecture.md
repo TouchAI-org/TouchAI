@@ -58,4 +58,3 @@ Owner pages for areas with their own invariants and contracts:
 | Area | Page | Read it when |
 | --- | --- | --- |
 | Product analytics | [analytics.md](analytics.md) | Touching the event registry, consent, the delivery queue, the sender, or export/import scrubbing |
-| Lifecycle audit | [implicit-state-machines.md](../implicit-state-machines.md) | Reviewing implicit state, transition ownership, or lifecycle refactoring candidates |

@@ -11,10 +11,10 @@ $baseline = (git -C $repoRoot rev-parse --verify "$BaselineRef^{commit}").Trim()
 if ($LASTEXITCODE -ne 0) { throw 'The baseline commit is unavailable.' }
 $head = (git -C $repoRoot rev-parse --verify "$HeadRef^{commit}").Trim()
 if ($LASTEXITCODE -ne 0) { throw 'The head commit is unavailable.' }
-$selected = @(git -C $repoRoot diff --name-only $baseline $head -- docs/implicit-state-machines.md apps/desktop/e2e-tests/performance)
+$selected = @(git -C $repoRoot diff --name-only $baseline $head -- apps/desktop/e2e-tests/performance)
 if ($LASTEXITCODE -ne 0) { throw 'Cannot classify lifecycle acceptance changes.' }
 if (!$Force -and $selected.Count -eq 0) {
-    Write-Output 'No lifecycle-audit or benchmark changes; existing E2E acceptance applies.'
+    Write-Output 'No lifecycle benchmark changes; existing E2E acceptance applies.'
     exit 0
 }
 
