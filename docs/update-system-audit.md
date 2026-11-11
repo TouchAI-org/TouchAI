@@ -6,10 +6,11 @@
 ## 链路与职责
 
 1. `release-please.yml` 管理 Stable 的版本号与 `CHANGELOG.md`；`release.yml` 管理 Beta/Nightly。
-2. `prepare-release-notes.mjs` 对 Stable 读取 release-please 在发布 PR 中生成的
-   `CHANGELOG.md` 精确版本段，作为默认英文日志；`release-notes/<version>.json` 可提供
-   人工审核的中英文覆盖。Beta/Nightly 继续使用已发布正文或 GitHub 生成日志。脚本输出
-   兼容 Markdown、多语言 JSON 和 GitHub Release 正文。
+2. release-please 维护版本号和历史 `CHANGELOG.md`；面向用户的正式更新日志由
+   `release-notes/<version>.json` 提供，必须包含人工审核的 `en-US` 与 `zh-CN`。
+   Stable、Beta 和手动 Nightly 缺少任一语言时准备步骤直接失败；自动定时 Nightly
+   是内部验证例外，可以使用生成说明。脚本输出兼容 Markdown、双语 JSON 和 GitHub
+   Release 正文。
 3. `velopack-build.yml` 构建 Windows MSI/Velopack 包、macOS 和 Linux 安装包。
    Velopack 的历史包只用于差量生成，不混入本版本的公开发布清单。
 4. 聚合作业筛出本版本产物，按打包版本生成源码依赖 SBOM、流式 SHA-256 清单及 Sigstore
@@ -27,10 +28,10 @@
 | --- | --- |
 | 新装 Beta/Nightly 却默认检查 Stable | 从应用版本推导初始通道；已保存的选择优先 |
 | 切换通道可能降级，数据库却已迁移 | 原生明确禁止降级；保留数字化的 Beta 版本比较 |
-| Beta 日志可能与 Stable/Nightly 比较 | 生成日志时显式传上一个已发布且版本更低的 Beta 标签；首个 Beta 才回退 Stable |
-| 日志只有一种语言 | 发布端支持已审核的中英文内容；feed 与 IPC 保留语言映射，UI 即时切换并回退英语 |
-| 英文日志与版本发布脱节 | Stable 默认读取 release-please 发布 PR 的 `CHANGELOG.md` 精确版本段；人工语言文件可覆盖，已发布正文的手工修正优先保留 |
-| 发布重跑使双语重复，或被打包作业覆盖 | 仅准备作业写 Release 正文；识别生成的英文区段，保证重跑不重复嵌套翻译 |
+| 日志版本基线可能错位 | 自动 Nightly 生成日志时使用上一个已发布 Nightly；Beta 日志按流程与上一个已发布 Beta 对比，首个 Beta 才回退 Stable |
+| 正式日志只有一种语言或直接贴提交记录 | Stable、Beta 和手动 Nightly 强制要求经审核的双语版本文件；英文和中文都从实际改动重写，不直接发布 changelog 或 commit list |
+| 日志内容与版本发布脱节 | 版本文件放在被发布的提交中；release-please 的 `CHANGELOG.md` 只保留工程历史，自动定时 Nightly 才允许使用生成说明 |
+| 发布重跑改变日志，或被打包作业覆盖 | 正式发布只读取同一版本的双语文件；仅准备作业写 Release 正文，重跑保持相同内容 |
 | 下载或安装失败后只能跳外部网页 | 保留可重试的候选版本；安装重试复用已下载的包 |
 | 关闭下载对话框却标成“取消” | 改成“后台继续”，并允许通过“查看下载”重新打开进度，不重复检查或下载 |
 | 下载中断后从零开始 | 有 SHA-256 元数据时续传；验证精确 Range、长度和续传后的摘要，不信任任意追加响应 |
@@ -90,7 +91,7 @@
 ## 维护入口与参考
 
 - [发版流程（含 Agent 审批边界）](releasing.md)
-- [中英文日志编写规范](../apps/desktop/release-notes/README.md)
+- [更新日志规范](../apps/desktop/release-notes/README.md)
 - [安装与更新包验证](release-verification.zh-CN.md) / [English](release-verification.md)
 - [GitHub release notes API](https://docs.github.com/en/rest/releases/releases#generate-release-notes-content-for-a-release)
 - [Velopack 文档](https://docs.velopack.io/)

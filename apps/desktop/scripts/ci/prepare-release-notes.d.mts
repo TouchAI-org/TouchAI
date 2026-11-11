@@ -7,6 +7,7 @@ export function prepareReleaseNotes(
         tag: string;
         repository: string;
         targetCommitish: string;
+        eventName?: string;
         gh?: (args: string[]) => string;
     }
 ): Promise<void>;

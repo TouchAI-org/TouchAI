@@ -88,6 +88,7 @@ jobs:
                   RELEASE_TAG: ${{ inputs.tag }}
                   RELEASE_CHANNEL: ${{ inputs.channel }}
                   RELEASE_VERSION: ${{ inputs.version }}
+                  RELEASE_EVENT_NAME: ${{ github.event_name }}
                   TARGET_COMMITISH: ${{ inputs.target-commitish }}
               run: |
                   node scripts/ci/prepare-release-notes.mjs "$RUNNER_TEMP/release-notes"

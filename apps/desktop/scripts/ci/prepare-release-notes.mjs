@@ -9,44 +9,10 @@ import { previousReleaseTag } from './resolve-release-metadata.mjs';
 const ENGLISH_SECTION_START = '## English\n\n<!-- touchai-release-notes:en-US -->\n\n';
 const ENGLISH_SECTION_END = '\n\n<!-- /touchai-release-notes:en-US -->';
 const CHINESE_SECTION_HEADING = '## 简体中文';
-const RELEASE_PLEASE_CHANGELOG = 'CHANGELOG.md';
 
-function escapeRegExp(value) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/**
- * Release Please writes one level-two section per version. Keep the exact
- * version section so Stable notes stay tied to the release PR's changelog
- * instead of a separately generated comparison.
- */
-function releasePleaseChangelogSection(changelog, version) {
-    const text = typeof changelog === 'string' ? changelog.replace(/\r\n/g, '\n') : '';
-    const escapedVersion = escapeRegExp(version);
-    const heading = new RegExp(
-        `^##\\s+(?:\\[${escapedVersion}\\]|${escapedVersion}(?:\\s|$))`,
-        'm'
-    );
-    const match = heading.exec(text);
-    if (!match) {
-        return null;
-    }
-
-    const contentStart = match.index + match[0].length;
-    const nextSection = /^##\s+/m.exec(text.slice(contentStart));
-    const sectionEnd = nextSection ? contentStart + nextSection.index : text.length;
-    return text.slice(match.index, sectionEnd).trim() || null;
-}
-
-async function readReleasePleaseEnglishNotes(projectRoot, channel, version) {
-    if (channel !== 'stable') {
-        return null;
-    }
+async function readLocalizedNotes(path) {
     try {
-        return releasePleaseChangelogSection(
-            await readFile(join(projectRoot, RELEASE_PLEASE_CHANGELOG), 'utf8'),
-            version
-        );
+        return normalizeLocalizedReleaseNotes(JSON.parse(await readFile(path, 'utf8')));
     } catch (error) {
         if (error.code === 'ENOENT') {
             return null;
@@ -55,42 +21,51 @@ async function readReleasePleaseEnglishNotes(projectRoot, channel, version) {
     }
 }
 
-/**
- * Read back what a previous run published so a retry after a clean checkout
- * keeps every reviewed language instead of regenerating English only.
- */
-function parsePublishedReleaseBody(body) {
-    const text = typeof body === 'string' ? body.trim() : '';
-    if (!text) {
-        return { english: null, translations: {} };
+function requireBilingualNotes(localized, channel, version, source) {
+    const english = localized?.['en-US'] ?? localized?.en;
+    const chinese = localized?.['zh-CN'];
+    if (!english || !chinese) {
+        throw new Error(
+            `Reviewed bilingual release notes are required for ${channel} ${version}. ` +
+                `Provide en-US and zh-CN in release-notes/${source}.`
+        );
     }
-    if (!text.startsWith(ENGLISH_SECTION_START)) {
-        return { english: text, translations: {} };
+    return { 'en-US': english, 'zh-CN': chinese };
+}
+
+function generatedEnglishNotes(options) {
+    const { repository, tag, targetCommitish, channel, version } = options;
+    const gh = options.gh ?? ((args) => execFileSync('gh', args, { encoding: 'utf8' }));
+    const releases = JSON.parse(
+        gh(['api', `repos/${repository}/releases`, '--paginate', '--slurp'])
+    ).flat();
+    const published = releases.find((release) => release.tag_name === tag)?.body?.trim();
+    if (published) {
+        return published;
     }
 
-    const englishEnd = text.indexOf(ENGLISH_SECTION_END, ENGLISH_SECTION_START.length);
-    if (englishEnd < 0) {
-        throw new Error('Published release notes have an incomplete English section.');
+    const args = [
+        'api',
+        `repos/${repository}/releases/generate-notes`,
+        '-f',
+        `tag_name=${tag}`,
+        '-f',
+        `target_commitish=${targetCommitish}`,
+    ];
+    const baseline = previousReleaseTag(releases, channel, version);
+    if (baseline) {
+        args.push('-f', `previous_tag_name=${baseline}`);
     }
-
-    const english = text.slice(ENGLISH_SECTION_START.length, englishEnd).trim();
-    const translations = {};
-    const chineseStart = text.indexOf(
-        CHINESE_SECTION_HEADING,
-        englishEnd + ENGLISH_SECTION_END.length
-    );
-    if (chineseStart >= 0) {
-        const chinese = text.slice(chineseStart + CHINESE_SECTION_HEADING.length).trim();
-        if (chinese) {
-            translations['zh-CN'] = chinese;
-        }
+    const generated = JSON.parse(gh(args)).body?.trim();
+    if (!generated) {
+        throw new Error('Automatic Nightly notes are empty; cannot publish the release.');
     }
-
-    return { english: english || null, translations };
+    return generated;
 }
 
 export async function prepareReleaseNotes(projectRoot, outputRoot, options) {
     const { channel, version, tag, repository, targetCommitish } = options;
+    const eventName = options.eventName ?? 'workflow_dispatch';
     previousReleaseTag([], channel, version);
     if (tag !== `v${version}` || !/^[\w.-]+\/[\w.-]+$/.test(repository) || !targetCommitish) {
         throw new Error(
@@ -98,66 +73,19 @@ export async function prepareReleaseNotes(projectRoot, outputRoot, options) {
         );
     }
 
-    let localized = {};
-    try {
-        localized = normalizeLocalizedReleaseNotes(
-            JSON.parse(
-                await readFile(join(projectRoot, 'release-notes', `${version}.json`), 'utf8')
-            )
-        );
-    } catch (error) {
-        if (error.code !== 'ENOENT') {
-            throw error;
-        }
+    const versionNotesFile = `${version}.json`;
+    let localized = await readLocalizedNotes(join(projectRoot, 'release-notes', versionNotesFile));
+    if (localized) {
+        localized = requireBilingualNotes(localized, channel, version, versionNotesFile);
+    } else if (channel === 'nightly' && eventName === 'schedule') {
+        localized = normalizeLocalizedReleaseNotes({
+            'en-US': generatedEnglishNotes(options),
+        });
+    } else {
+        requireBilingualNotes(localized, channel, version, versionNotesFile);
     }
 
-    let english = localized['en-US'] || localized.en;
-    if (!english) {
-        const gh = options.gh ?? ((args) => execFileSync('gh', args, { encoding: 'utf8' }));
-        const releases = JSON.parse(
-            gh(['api', `repos/${repository}/releases`, '--paginate', '--slurp'])
-        ).flat();
-        const published = parsePublishedReleaseBody(
-            releases.find((release) => release.tag_name === tag)?.body
-        );
-        english = published.english;
-        for (const [locale, content] of Object.entries(published.translations)) {
-            if (!localized[locale]) {
-                localized[locale] = content;
-            }
-        }
-        const releasePleaseEnglish = await readReleasePleaseEnglishNotes(
-            projectRoot,
-            channel,
-            version
-        );
-        if (
-            releasePleaseEnglish &&
-            (!published.english || published.english.trim() === releasePleaseEnglish.trim())
-        ) {
-            english = releasePleaseEnglish;
-        }
-        if (!english) {
-            const previousTag = previousReleaseTag(releases, channel, version);
-            const args = [
-                'api',
-                `repos/${repository}/releases/generate-notes`,
-                '-f',
-                `tag_name=${tag}`,
-                '-f',
-                `target_commitish=${targetCommitish}`,
-            ];
-            if (previousTag) {
-                args.push('-f', `previous_tag_name=${previousTag}`);
-            }
-            english = JSON.parse(gh(args)).body?.trim();
-        }
-        if (!english) {
-            throw new Error('Release notes are empty; provide reviewed notes before publishing.');
-        }
-    }
-
-    localized = normalizeLocalizedReleaseNotes({ ...localized, 'en-US': english });
+    const english = localized['en-US'];
     const body = localized['zh-CN']
         ? `${ENGLISH_SECTION_START}${english}${ENGLISH_SECTION_END}\n\n${CHINESE_SECTION_HEADING}\n\n${localized['zh-CN']}`
         : english;
@@ -179,6 +107,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         tag: process.env.RELEASE_TAG,
         repository: process.env.GITHUB_REPOSITORY,
         targetCommitish: process.env.TARGET_COMMITISH,
+        eventName: process.env.RELEASE_EVENT_NAME ?? process.env.GITHUB_EVENT_NAME,
     }).catch((error) => {
         console.error(error.message ?? error);
         process.exitCode = 1;

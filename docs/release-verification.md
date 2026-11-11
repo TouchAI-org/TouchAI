@@ -93,10 +93,12 @@ unsigned successful release. Signing permissions are confined to the aggregate
 job and the reusable-workflow callers. The downloadable proof files live on
 GitHub Releases; the existing update CDN serves installers and feeds unchanged.
 
-Localized content is authored and validated as described in
-[localized release notes](../apps/desktop/release-notes/README.md). Missing
-translations fall back to English instead of invoking an external translation
-service at runtime.
+Formal release notes are authored and validated as described in
+[release notes](../apps/desktop/release-notes/README.md). Stable, Beta and manual
+Nightly releases must include both reviewed languages; a missing language is a
+release blocker. Automatic scheduled Nightly builds are the generated-notes
+exception. Runtime language selection does not call an external translation
+service.
 
 References: [GitHub attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds),
 [attest action](https://github.com/actions/attest),

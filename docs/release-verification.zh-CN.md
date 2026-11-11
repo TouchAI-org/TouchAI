@@ -67,7 +67,8 @@ Linux 下载全部清单文件后可运行 `sha256sum --check SHA256SUMS` 批量
 证明步骤失败会阻止本次上传和部署，不会静默回退成“签名成功”。证明文件发布在 GitHub
 Release，现有 CDN 仍分发安装包和更新 feed；签名权限只授予证明作业及其可复用工作流调用方。
 
-多语言内容的编写和校验见[更新日志规范](../apps/desktop/release-notes/README.md)。
-应用内切换语言立即选择相应日志；缺少翻译时回退英语，不会把用户内容发给在线翻译服务。
+正式更新日志的编写和校验见[更新日志规范](../apps/desktop/release-notes/README.md)。
+Stable、Beta 和手动 Nightly 必须同时包含两种已审核语言；缺少任一种即不得发版。
+自动定时 Nightly 是使用生成说明的例外。应用内切换语言不会调用在线翻译服务。
 
 更多来源与验证选项见[英文文档](release-verification.md)。

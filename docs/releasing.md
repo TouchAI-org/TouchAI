@@ -6,15 +6,15 @@
 
 | 通道 | 版本 | 触发方式 | 更新日志 |
 | --- | --- | --- | --- |
-| Stable | `X.Y.Z` | 合并 release-please 发布 PR | `CHANGELOG.md`，可用本地化 JSON 覆盖 |
-| Beta | `X.Y.Z-beta.N` | 在 `main` 手动触发 `release.yml` | 本地化 JSON，或 GitHub 生成 |
-| Nightly | 自动生成或 `X.Y.Z-nightly...` | 定时任务，或手动触发 | 本地化 JSON（仅精确版本），或 GitHub 生成 |
+| Stable | `X.Y.Z` | 合并 release-please 发布 PR | `release-notes/<version>.json` |
+| Beta | `X.Y.Z-beta.N` | 在 `main` 手动触发 `release.yml` | 同一文件，触发前已在 `main` |
+| Nightly | 自动生成或 `X.Y.Z-nightly...` | 定时任务，或手动触发 | 手动版本同上；自动定时任务例外，使用生成的说明 |
 
 只有从 `main` 触发的 Beta/Nightly 才部署生产 feed。
 
 ## Agent 授权
 
-用户提出发版时确认一次：通道、版本（Nightly 可省略）、目标提交、是否带中文日志。确认后 Agent 可以连续完成日志准备、合并发布 PR、触发工作流、必要的环境确认和验证，不再逐项询问。只有目标提交、版本或日志范围发生变化时才重新确认。
+用户提出发版时确认一次：通道、精确版本（自动 Nightly 可省略）、目标提交。确认后 Agent 可以连续完成日志准备、合并发布 PR、触发工作流、必要的环境确认和验证，不再逐项询问。只有目标提交、版本或通道发生变化时才重新确认。
 
 ## 发版前
 
@@ -26,24 +26,24 @@ git rev-parse origin/main
 
 - 工作区干净，Beta/Nightly 从最新 `main` 触发。
 - 版本高于当前同通道版本；不允许降级。
-- 发布日志已经人工审核，必需检查已经通过。
+- 面向用户的更新日志已完成两种语言并人工审核；必需检查已经通过。
 
-## 更新日志风格
+## 更新日志
 
-更新日志是给用户看的版本说明，不是提交记录。
+更新日志是给用户看的版本说明，不是提交记录、release-please 原始 changelog 或 GitHub 自动生成内容的直接拷贝。
 
 - 首句说明这版最值得注意的结果。
-- 按 `New Features` / `Fixes` / `Other Changes` 分组；只有一两个变化时可以只用一个编号列表。
+- 按 `New Features` / `Fixes` / `Other Changes` 分组；只有一两个变化时可以只用一个编号列表。两种语言使用相同的分组、顺序和事实。
 - 用编号列表，按影响从高到低排列；每条只讲一个变化，直接写用户能看到或做到什么。
 - 避免“优化体验”“修复问题”这类空话；说明具体改了什么。
 - 不写 commit hash、内部文件名、纯重构、测试或 CI 细节，除非它们直接影响用户。
 - 保留相关的 `#issue` 或 `#PR`，让用户能追溯背景。
-- 英文和中文保持相同结构；中文自然表达，不逐字翻译，也不使用机器翻译。缺少中文时只发英文。
+- 英文和中文都从实际 diff 重写：英文不要直接贴 changelog 或 commit list，中文不要逐字翻译英文；两种语言都使用自然、面向用户的表达。
 - 可在末尾感谢重要贡献者。
 
-需要定制日志时，在 `apps/desktop/release-notes/<version>.json` 写入经审核的 `en-US` 和 `zh-CN`。完整格式见 [`release-notes/README.md`](../apps/desktop/release-notes/README.md)。
+正式发布（Stable、Beta、手动 Nightly）必须在 `apps/desktop/release-notes/<version>.json` 提交经审核的 `en-US` 与 `zh-CN`。文件属于被发布的提交，两种语言同时审查；任一缺失即不得发版。自动定时 Nightly 是内部验证构建，可以使用生成的说明；需要正式日志时，改为手动指定版本并先提交双语文件。
 
-Stable 默认使用 release-please 的 `CHANGELOG.md`；它适合作为技术回退，不保证符合上面的风格。需要面向用户的正式文案时，应在合并发布 PR 前加入 JSON。
+完整格式见 [`release-notes/README.md`](../apps/desktop/release-notes/README.md)。
 
 ## Stable
 
@@ -55,7 +55,7 @@ gh pr list --repo TouchAI-org/TouchAI --state open --search 'release-please' \
 gh pr checks <number> --repo TouchAI-org/TouchAI
 ```
 
-2. 需要中文日志时，在同一发布 PR 中加入 `apps/desktop/release-notes/<version>.json`，然后推回该 PR 并重新等待检查。
+2. 在同一个发布 PR 中加入 `apps/desktop/release-notes/<version>.json`，推回该 PR 并重新等待检查。缺少该文件时不要合并。
 
 3. 合并发布 PR：
 
@@ -70,11 +70,11 @@ gh run list --repo TouchAI-org/TouchAI --workflow release-please.yml --branch ma
 gh run watch <run-id> --repo TouchAI-org/TouchAI --exit-status
 ```
 
-合并后再补当前版本的中文日志已经来不及；应用内 feed 使用发布时生成的内容。
+发布后再补当前版本的双语日志已经来不及；应用内 feed 使用发布时生成的内容。
 
 ## Beta
 
-1. 确保 `apps/desktop/release-notes/<version>.json` 已经在 `main` 上；不需要中文日志时可以跳过。
+1. 确保 `apps/desktop/release-notes/<version>.json` 已经在 `main` 上。缺少该文件时不要触发。
 2. 触发精确版本：
 
 ```bash
@@ -95,18 +95,16 @@ gh run watch <run-id> --repo TouchAI-org/TouchAI --exit-status
 
 ## Nightly
 
-默认由每日 18:00 UTC 的定时任务发布，不需要 Agent 操作。手动补发：
+默认由每日 18:00 UTC 的定时任务发布，不需要 Agent 操作；自动构建允许使用生成的说明。
 
-```bash
-gh workflow run release.yml --repo TouchAI-org/TouchAI --ref main -f channel=nightly
-```
-
-自动生成的 Nightly 无法提前知道版本号，因此通常只能使用 GitHub 生成日志。需要中文日志时，指定完整版本并先合入对应 JSON：
+需要面向用户的 Nightly 日志时，指定完整版本，并先把对应的双语文件合入 `main`：
 
 ```bash
 gh workflow run release.yml --repo TouchAI-org/TouchAI --ref main \
   -f channel=nightly -f version=<version>
 ```
+
+未指定精确版本的手动触发不具备正式日志，不要用于面向用户的发布。
 
 ## 发布后验证
 
@@ -115,7 +113,7 @@ gh release view v<version> --repo TouchAI-org/TouchAI \
   --json tagName,isDraft,isPrerelease,url,assets
 ```
 
-确认 GitHub Release、安装包、`SHA256SUMS`、`provenance.sigstore.json` 和对应语言日志都存在。再检查生产 feed：
+正式版本确认 GitHub Release、安装包、`SHA256SUMS`、`provenance.sigstore.json` 和双语日志都存在。再检查生产 feed：
 
 ```bash
 node -e 'fetch(process.argv[1]).then(r => r.json()).then(f =>
