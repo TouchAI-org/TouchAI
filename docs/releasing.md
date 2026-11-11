@@ -30,13 +30,15 @@ git rev-parse origin/main
 
 ## 更新日志风格
 
-参考 [Magpie Releases](https://github.com/Blinue/Magpie/releases)：写成用户能读懂的发布说明，不要贴 commit 清单。
+更新日志是给用户看的版本说明，不是提交记录。
 
-- 开头用一句话说明这版最重要的变化。
-- 按 `New Features` / `Fixes` / `Other Changes` 分组；中文对应“新功能 / 修复 / 其他变更”。小版本可以只用一个编号列表。
-- 用编号列表，按影响排序；每条写用户能感知的结果，并尽量带 `#issue` 或 `#PR`。
+- 首句说明这版最值得注意的结果。
+- 按 `New Features` / `Fixes` / `Other Changes` 分组；只有一两个变化时可以只用一个编号列表。
+- 用编号列表，按影响从高到低排列；每条只讲一个变化，直接写用户能看到或做到什么。
+- 避免“优化体验”“修复问题”这类空话；说明具体改了什么。
 - 不写 commit hash、内部文件名、纯重构、测试或 CI 细节，除非它们直接影响用户。
-- 英文和中文保持相同结构；中文可以意译，不做机器翻译。缺少中文时只发英文。
+- 保留相关的 `#issue` 或 `#PR`，让用户能追溯背景。
+- 英文和中文保持相同结构；中文自然表达，不逐字翻译，也不使用机器翻译。缺少中文时只发英文。
 - 可在末尾感谢重要贡献者。
 
 需要定制日志时，在 `apps/desktop/release-notes/<version>.json` 写入经审核的 `en-US` 和 `zh-CN`。完整格式见 [`release-notes/README.md`](../apps/desktop/release-notes/README.md)。
