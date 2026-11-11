@@ -259,3 +259,135 @@ describe('given reviewed bilingual release content', () => {
         });
     });
 });
+
+describe('given a release-please changelog', () => {
+    const changelog = `# Changelog
+
+## [1.2.0](https://github.com/TouchAI-org/TouchAI/compare/v1.1.0...v1.2.0) (2026-11-10)
+
+### Features
+
+* **updater:** keep an interrupted download resumable ([#776](https://github.com/TouchAI-org/TouchAI/issues/776))
+
+## [1.1.0](https://github.com/TouchAI-org/TouchAI/compare/v1.0.0...v1.1.0) (2026-06-03)
+
+### Bug Fixes
+
+* **desktop:** keep the previous release out of these notes
+`;
+
+    it('user gets the exact release-please section as the default Stable notes', async () => {
+        const root = await fixture();
+        await writeFile(join(root, 'CHANGELOG.md'), changelog);
+        const expected = `## [1.2.0](https://github.com/TouchAI-org/TouchAI/compare/v1.1.0...v1.2.0) (2026-11-10)
+
+### Features
+
+* **updater:** keep an interrupted download resumable ([#776](https://github.com/TouchAI-org/TouchAI/issues/776))`;
+        await prepareReleaseNotes(root, join(root, 'notes'), {
+            repository: 'TouchAI-org/TouchAI',
+            channel: 'stable',
+            version: '1.2.0',
+            tag: 'v1.2.0',
+            targetCommitish: 'main',
+            gh: () => JSON.stringify([[{ tag_name: 'v1.2.0', body: expected }]]),
+        });
+
+        expect(await readFile(join(root, 'notes/release-notes.md'), 'utf8')).toBe(`${expected}\n`);
+        expect(JSON.parse(await readFile(join(root, 'notes/release-notes.json'), 'utf8'))).toEqual({
+            'en-US': expected,
+        });
+    });
+
+    it('user keeps a reviewed translation instead of replacing it from the changelog', async () => {
+        const root = await fixture();
+        await writeFile(join(root, 'CHANGELOG.md'), changelog);
+        await mkdir(join(root, 'release-notes'));
+        await writeFile(
+            join(root, 'release-notes/1.2.0.json'),
+            JSON.stringify({
+                'en-US': '## Review\n\n- Curated English',
+                'zh-CN': '## 审核\n\n- 人工整理的中文',
+            })
+        );
+        await prepareReleaseNotes(root, join(root, 'notes'), {
+            repository: 'TouchAI-org/TouchAI',
+            channel: 'stable',
+            version: '1.2.0',
+            tag: 'v1.2.0',
+            targetCommitish: 'main',
+            gh: () => {
+                throw new Error('Reviewed notes must not call the GitHub notes API.');
+            },
+        });
+
+        expect(JSON.parse(await readFile(join(root, 'notes/release-notes.json'), 'utf8'))).toEqual({
+            'en-US': '## Review\n\n- Curated English',
+            'zh-CN': '## 审核\n\n- 人工整理的中文',
+        });
+    });
+
+    it('user does not get a prerelease changelog mixed into a Stable version', async () => {
+        const root = await fixture();
+        await writeFile(
+            join(root, 'CHANGELOG.md'),
+            '## [1.2.0-beta.1](https://example.test/compare) (2026-11-10)\n\n- Beta only\n'
+        );
+        await prepareReleaseNotes(root, join(root, 'notes'), {
+            repository: 'TouchAI-org/TouchAI',
+            channel: 'stable',
+            version: '1.2.0',
+            tag: 'v1.2.0',
+            targetCommitish: 'main',
+            gh: () => JSON.stringify([[{ tag_name: 'v1.2.0', body: 'Published Stable notes' }]]),
+        });
+
+        expect(await readFile(join(root, 'notes/release-notes.md'), 'utf8')).toBe(
+            'Published Stable notes\n'
+        );
+    });
+
+    it('user keeps a manually corrected published body over a stale changelog', async () => {
+        const root = await fixture();
+        await writeFile(join(root, 'CHANGELOG.md'), changelog);
+        await prepareReleaseNotes(root, join(root, 'notes'), {
+            repository: 'TouchAI-org/TouchAI',
+            channel: 'stable',
+            version: '1.2.0',
+            tag: 'v1.2.0',
+            targetCommitish: 'main',
+            gh: () =>
+                JSON.stringify([
+                    [{ tag_name: 'v1.2.0', body: '## Review\n\n- Maintainer corrected notes' }],
+                ]),
+        });
+
+        expect(await readFile(join(root, 'notes/release-notes.md'), 'utf8')).toBe(
+            '## Review\n\n- Maintainer corrected notes\n'
+        );
+    });
+
+    it('user gets generated notes for a Beta even when a changelog exists', async () => {
+        const root = await fixture();
+        await writeFile(join(root, 'CHANGELOG.md'), changelog);
+        const requests: string[][] = [];
+        await prepareReleaseNotes(root, join(root, 'notes'), {
+            repository: 'TouchAI-org/TouchAI',
+            channel: 'beta',
+            version: '1.2.0-beta.2',
+            tag: 'v1.2.0-beta.2',
+            targetCommitish: 'main',
+            gh: (args) => {
+                requests.push(args);
+                return args.some((arg) => arg.endsWith('/generate-notes'))
+                    ? JSON.stringify({ body: 'Generated Beta notes' })
+                    : JSON.stringify([[{ tag_name: 'v1.2.0-beta.1' }]]);
+            },
+        });
+
+        expect(requests[requests.length - 1]).toContain('previous_tag_name=v1.2.0-beta.1');
+        expect(await readFile(join(root, 'notes/release-notes.md'), 'utf8')).toBe(
+            'Generated Beta notes\n'
+        );
+    });
+});

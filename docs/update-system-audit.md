@@ -5,9 +5,11 @@
 
 ## 链路与职责
 
-1. `release-please.yml` 管理 Stable；`release.yml` 管理 Beta/Nightly。
-2. `prepare-release-notes.mjs` 选择比较基线、读取已审核的多语言内容，输出兼容 Markdown、
-   多语言 JSON 和 GitHub Release 正文。
+1. `release-please.yml` 管理 Stable 的版本号与 `CHANGELOG.md`；`release.yml` 管理 Beta/Nightly。
+2. `prepare-release-notes.mjs` 对 Stable 读取 release-please 在发布 PR 中生成的
+   `CHANGELOG.md` 精确版本段，作为默认英文日志；`release-notes/<version>.json` 可提供
+   人工审核的中英文覆盖。Beta/Nightly 继续使用已发布正文或 GitHub 生成日志。脚本输出
+   兼容 Markdown、多语言 JSON 和 GitHub Release 正文。
 3. `velopack-build.yml` 构建 Windows MSI/Velopack 包、macOS 和 Linux 安装包。
    Velopack 的历史包只用于差量生成，不混入本版本的公开发布清单。
 4. 聚合作业筛出本版本产物，按打包版本生成源码依赖 SBOM、流式 SHA-256 清单及 Sigstore
@@ -27,6 +29,7 @@
 | 切换通道可能降级，数据库却已迁移 | 原生明确禁止降级；保留数字化的 Beta 版本比较 |
 | Beta 日志可能与 Stable/Nightly 比较 | 生成日志时显式传上一个已发布且版本更低的 Beta 标签；首个 Beta 才回退 Stable |
 | 日志只有一种语言 | 发布端支持已审核的中英文内容；feed 与 IPC 保留语言映射，UI 即时切换并回退英语 |
+| 英文日志与版本发布脱节 | Stable 默认读取 release-please 发布 PR 的 `CHANGELOG.md` 精确版本段；人工语言文件可覆盖，已发布正文的手工修正优先保留 |
 | 发布重跑使双语重复，或被打包作业覆盖 | 仅准备作业写 Release 正文；识别生成的英文区段，保证重跑不重复嵌套翻译 |
 | 下载或安装失败后只能跳外部网页 | 保留可重试的候选版本；安装重试复用已下载的包 |
 | 关闭下载对话框却标成“取消” | 改成“后台继续”，并允许通过“查看下载”重新打开进度，不重复检查或下载 |

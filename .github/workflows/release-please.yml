@@ -1,8 +1,9 @@
 name: Release Please
 
 on:
-    # Keep the release PR current after main changes. The stable Velopack build below
-    # only runs when release-please actually creates a GitHub release.
+    # Keep the release PR current after main changes. The generated CHANGELOG.md
+    # is the default English source for stable update notes; the stable Velopack
+    # build below only runs when release-please actually creates a GitHub release.
     push:
         branches:
             - main

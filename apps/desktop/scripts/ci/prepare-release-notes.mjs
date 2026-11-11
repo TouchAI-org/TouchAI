@@ -9,6 +9,51 @@ import { previousReleaseTag } from './resolve-release-metadata.mjs';
 const ENGLISH_SECTION_START = '## English\n\n<!-- touchai-release-notes:en-US -->\n\n';
 const ENGLISH_SECTION_END = '\n\n<!-- /touchai-release-notes:en-US -->';
 const CHINESE_SECTION_HEADING = '## 简体中文';
+const RELEASE_PLEASE_CHANGELOG = 'CHANGELOG.md';
+
+function escapeRegExp(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Release Please writes one level-two section per version. Keep the exact
+ * version section so Stable notes stay tied to the release PR's changelog
+ * instead of a separately generated comparison.
+ */
+function releasePleaseChangelogSection(changelog, version) {
+    const text = typeof changelog === 'string' ? changelog.replace(/\r\n/g, '\n') : '';
+    const escapedVersion = escapeRegExp(version);
+    const heading = new RegExp(
+        `^##\\s+(?:\\[${escapedVersion}\\]|${escapedVersion}(?:\\s|$))`,
+        'm'
+    );
+    const match = heading.exec(text);
+    if (!match) {
+        return null;
+    }
+
+    const contentStart = match.index + match[0].length;
+    const nextSection = /^##\s+/m.exec(text.slice(contentStart));
+    const sectionEnd = nextSection ? contentStart + nextSection.index : text.length;
+    return text.slice(match.index, sectionEnd).trim() || null;
+}
+
+async function readReleasePleaseEnglishNotes(projectRoot, channel, version) {
+    if (channel !== 'stable') {
+        return null;
+    }
+    try {
+        return releasePleaseChangelogSection(
+            await readFile(join(projectRoot, RELEASE_PLEASE_CHANGELOG), 'utf8'),
+            version
+        );
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            return null;
+        }
+        throw error;
+    }
+}
 
 /**
  * Read back what a previous run published so a retry after a clean checkout
@@ -80,6 +125,17 @@ export async function prepareReleaseNotes(projectRoot, outputRoot, options) {
             if (!localized[locale]) {
                 localized[locale] = content;
             }
+        }
+        const releasePleaseEnglish = await readReleasePleaseEnglishNotes(
+            projectRoot,
+            channel,
+            version
+        );
+        if (
+            releasePleaseEnglish &&
+            (!published.english || published.english.trim() === releasePleaseEnglish.trim())
+        ) {
+            english = releasePleaseEnglish;
         }
         if (!english) {
             const previousTag = previousReleaseTag(releases, channel, version);
