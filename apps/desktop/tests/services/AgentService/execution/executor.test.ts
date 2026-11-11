@@ -297,6 +297,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
             const persisted: unknown[] = [];
             const persister = {
                 getSessionId: () => 42,
+                getAttemptGeneration: () => 1,
                 persistContextSummary: async (summary: unknown) => {
                     persisted.push(summary);
                     return 1;

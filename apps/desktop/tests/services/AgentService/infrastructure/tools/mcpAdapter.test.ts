@@ -11,7 +11,8 @@ const mocks = vi.hoisted(() => ({
     resolveToolCall: vi.fn(),
     mcpExecuteTool: vi.fn(),
     createMcpToolLog: vi.fn(),
-    updateMcpToolLogByCallId: vi.fn(),
+    updateMcpToolLogById: vi.fn(),
+    createToolPart: vi.fn(),
 }));
 
 vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
@@ -20,7 +21,11 @@ vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
 
 vi.mock('@database/queries', () => ({
     createMcpToolLog: mocks.createMcpToolLog,
-    updateMcpToolLogByCallId: mocks.updateMcpToolLogByCallId,
+    updateMcpToolLogById: mocks.updateMcpToolLogById,
+}));
+
+vi.mock('@database/queries/toolParts', () => ({
+    createToolPart: mocks.createToolPart,
 }));
 
 function createContext(overrides: Partial<ToolCallContext> = {}): ToolCallContext {
@@ -39,7 +44,8 @@ describe('user runs an MCP tool call', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.createMcpToolLog.mockResolvedValue({ id: 42 });
-        mocks.updateMcpToolLogByCallId.mockResolvedValue(undefined);
+        mocks.updateMcpToolLogById.mockResolvedValue(undefined);
+        mocks.createToolPart.mockResolvedValue({ id: 44 });
     });
 
     it('user sees the call start and end reported around a logged result', async () => {
@@ -80,8 +86,8 @@ describe('user runs an MCP tool call', () => {
                 status: 'pending',
             })
         );
-        expect(mocks.updateMcpToolLogByCallId).toHaveBeenCalledWith(
-            'call-1',
+        expect(mocks.updateMcpToolLogById).toHaveBeenCalledWith(
+            42,
             expect.objectContaining({ output: 'found', status: 'success' })
         );
         expect(outcome).toMatchObject({ result: 'found', isError: false, toolLogId: 42 });
@@ -116,7 +122,34 @@ describe('user runs an MCP tool call', () => {
         expect(mocks.createMcpToolLog).not.toHaveBeenCalled();
     });
 
-    it('user sees a localized failure when the MCP call rejects', async () => {
+    it('user gets a persisted rejected call when the MCP tool is missing', async () => {
+        mocks.resolveToolCall.mockResolvedValue(null);
+
+        const outcome = await executeMcpTool({
+            context: createContext({
+                sessionId: 4,
+                toolCallMessageId: 12,
+                toolCall: { id: 'call-missing', name: 'mcp__9__missing', arguments: '{}' },
+            }),
+            toolArgs: {},
+        });
+
+        expect(mocks.createToolPart).toHaveBeenCalledWith(
+            'mcp',
+            expect.objectContaining({
+                tool_call_id: 'call-missing',
+                session_id: 4,
+                message_id: 12,
+                server_id: 9,
+                tool_name: 'missing',
+                requestedName: 'mcp__9__missing',
+                status: 'error',
+            })
+        );
+        expect(outcome).toMatchObject({ isError: true, toolLogId: 44 });
+    });
+
+    it('user sees a generic localized failure when the MCP call rejects', async () => {
         mocks.resolveToolCall.mockResolvedValue({
             serverId: 1,
             originalName: 'search',
@@ -140,10 +173,28 @@ describe('user runs an MCP tool call', () => {
             isError: true,
             finalStatus: 'error',
         });
-        expect(mocks.updateMcpToolLogByCallId).toHaveBeenCalledWith(
-            'call-1',
+        expect(mocks.updateMcpToolLogById).toHaveBeenCalledWith(
+            42,
             expect.objectContaining({ status: 'error' })
         );
+    });
+
+    it('user still receives the result when MCP log creation fails', async () => {
+        mocks.resolveToolCall.mockResolvedValue({
+            serverId: 1,
+            originalName: 'search',
+            toolTimeout: 30000,
+        });
+        mocks.createMcpToolLog.mockRejectedValue(new Error('database unavailable'));
+        mocks.mcpExecuteTool.mockResolvedValue({ result: 'found', isError: false });
+
+        const outcome = await executeMcpTool({
+            context: createContext(),
+            toolArgs: { query: 'alpha' },
+        });
+
+        expect(outcome).toMatchObject({ result: 'found', isError: false, toolLogId: null });
+        expect(mocks.updateMcpToolLogById).not.toHaveBeenCalled();
     });
 
     it('user receives the attachments the tool produced', async () => {

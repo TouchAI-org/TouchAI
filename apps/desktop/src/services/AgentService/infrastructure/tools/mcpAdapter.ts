@@ -1,6 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
-import { createMcpToolLog, updateMcpToolLogByCallId } from '@database/queries';
+import { createMcpToolLog, updateMcpToolLogById } from '@database/queries';
 import { log } from '@services/ObservabilityService';
 import { serializeAuditPayload } from '@services/ObservabilityService/redact';
 
@@ -9,6 +9,7 @@ import { tt } from '@/i18n';
 import { AiError, AiErrorCode } from '../../contracts/errors';
 import type { AttachmentIndex } from '../attachments';
 import { mcpManager } from '../mcp';
+import { recordRejectedToolCall } from './rejected';
 import type { McpToolOutcome, ToolCallInvocation } from './types';
 
 const formatToolNotFoundError = (toolName: string): string =>
@@ -33,6 +34,17 @@ export async function executeMcpTool(invocation: ToolCallInvocation): Promise<Mc
     if (!mapping) {
         const errorResult = formatToolNotFoundError(toolCall.name);
         const durationMs = Date.now() - callStartTime;
+        const toolLogId =
+            sessionId === null
+                ? null
+                : await recordRejectedToolCall({
+                      toolCall,
+                      input: toolArgs,
+                      result: errorResult,
+                      iteration,
+                      sessionId,
+                      messageId: toolCallMessageId,
+                  });
         emitToolEvent({
             type: 'call_end',
             callId: toolCall.id,
@@ -42,7 +54,7 @@ export async function executeMcpTool(invocation: ToolCallInvocation): Promise<Mc
             finalStatus: 'error',
         });
 
-        return { result: errorResult, isError: true, toolLogId: null };
+        return { result: errorResult, isError: true, toolLogId };
     }
 
     emitToolEvent({
@@ -119,14 +131,16 @@ export async function executeMcpTool(invocation: ToolCallInvocation): Promise<Mc
         finalStatus: toolResult.isError ? 'error' : 'completed',
     });
 
-    await updateMcpToolLogByCallId(toolCall.id, {
-        output: serializeAuditPayload(toolResult.result),
-        status: toolResult.isError ? 'error' : 'success',
-        duration_ms: durationMs,
-        error_message: toolResult.isError ? serializeAuditPayload(toolResult.result) : null,
-    }).catch((error) => {
-        log.error('[McpToolAdapter] Failed to update MCP tool log:', error);
-    });
+    if (toolLogId !== null) {
+        await updateMcpToolLogById(toolLogId, {
+            output: serializeAuditPayload(toolResult.result),
+            status: toolResult.isError ? 'error' : 'success',
+            duration_ms: durationMs,
+            error_message: toolResult.isError ? serializeAuditPayload(toolResult.result) : null,
+        }).catch((error) => {
+            log.error('[McpToolAdapter] Failed to update MCP tool log:', error);
+        });
+    }
 
     if (cancellation) throw cancellation;
 

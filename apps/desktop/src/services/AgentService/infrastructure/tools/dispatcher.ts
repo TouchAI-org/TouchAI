@@ -1,5 +1,7 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { serializeAuditPayload } from '@services/ObservabilityService/redact';
+
 import { tt } from '@/i18n';
 import { parseRequestedTimeoutMs } from '@/utils/timeouts';
 import { z } from '@/utils/zod';
@@ -8,6 +10,7 @@ import { AiError, AiErrorCode } from '../../contracts/errors';
 import type { AiToolCall } from '../../contracts/tooling';
 import { executeBuiltinTool } from './builtinAdapter';
 import { executeMcpTool } from './mcpAdapter';
+import { recordRejectedToolCall } from './rejected';
 import type { ToolDispatchRequest, ToolDispatchResult } from './types';
 
 const toolArgumentsSchema = z.record(z.string(), z.unknown());
@@ -76,6 +79,17 @@ export async function dispatchToolCall(request: ToolDispatchRequest): Promise<To
 
     const parsed = parseToolArguments(request.toolCall);
     if (!parsed.ok) {
+        const toolLogId =
+            request.sessionId === null
+                ? null
+                : await recordRejectedToolCall({
+                      toolCall: request.toolCall,
+                      input: request.toolCall.arguments,
+                      result: parsed.errorResult,
+                      iteration: request.iteration,
+                      sessionId: request.sessionId,
+                      messageId: request.toolCallMessageId,
+                  });
         request.emitToolEvent({
             type: 'call_end',
             callId: request.toolCall.id,
@@ -87,9 +101,10 @@ export async function dispatchToolCall(request: ToolDispatchRequest): Promise<To
 
         return {
             toolCall: request.toolCall,
+            input: serializeAuditPayload(request.toolCall.arguments),
             result: parsed.errorResult,
             isError: true,
-            toolLogId: null,
+            toolLogId,
             argumentParseFailed: true,
         };
     }
@@ -113,9 +128,17 @@ export async function dispatchToolCall(request: ToolDispatchRequest): Promise<To
 
     const builtinOutcome = await executeBuiltinTool(invocation);
     if (builtinOutcome) {
-        return { toolCall: request.toolCall, ...builtinOutcome };
+        return {
+            toolCall: request.toolCall,
+            input: serializeAuditPayload(sanitizedToolArgs),
+            ...builtinOutcome,
+        };
     }
 
     const mcpOutcome = await executeMcpTool(invocation);
-    return { toolCall: request.toolCall, ...mcpOutcome };
+    return {
+        toolCall: request.toolCall,
+        input: serializeAuditPayload(sanitizedToolArgs),
+        ...mcpOutcome,
+    };
 }

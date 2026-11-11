@@ -56,6 +56,13 @@ vi.mock('@/services/AgentService/outputs/persistence', () => {
 
 vi.mock('@/services/AgentService/prompt/composer', () => ({
     composePromptSnapshot: vi.fn(async () => ({
+        id: 'prompt-1',
+        createdAt: '2026-10-08T00:00:00Z',
+        systemPrompt: '',
+        executionMode: 'foreground',
+        fragments: [],
+        userPrompt: 'Hi',
+        attachments: [],
         modelLanguageContext: { locale: 'en-US', label: 'English' },
     })),
 }));

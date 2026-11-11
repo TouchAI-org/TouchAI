@@ -45,10 +45,11 @@ import {
 import { type AiProvider, parseProviderConfigJson } from '../infrastructure/providers';
 import { createProviderFromRegistry } from '../infrastructure/providers/drivers';
 import { dispatchToolCall } from '../infrastructure/tools';
+import { recordRejectedToolCall } from '../infrastructure/tools/rejected';
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
-import { MAX_SELECTED_SKILLS } from '../skills/activation';
 import { LatestProgressWriter } from '../outputs/progressWriter';
+import { MAX_SELECTED_SKILLS } from '../skills/activation';
 import { ContextWindow, type SummaryResult } from './context';
 import { snapshotAiMessages } from './messages';
 import type { RuntimeTurnEvent } from './runtime';
@@ -675,6 +676,51 @@ export class AiRequestExecutor {
         }
     }
 
+    /** A rejected call is still conversation history; commit its error before continuing. */
+    private async rejectToolCall(options: {
+        toolCall: AiToolCall;
+        input: unknown;
+        result: string;
+        iteration: number;
+        toolCallMessageId: number | null;
+        sessionId: number | null;
+        durationMs: number;
+        signal?: AbortSignal;
+        onChunk?: RequestExecutionCallbacks['onChunk'];
+    }): Promise<ToolExecutionResult> {
+        throwIfAborted(options.signal);
+        const result = serializeAuditPayload(options.result);
+        const toolLogId =
+            options.sessionId === null
+                ? null
+                : await recordRejectedToolCall({
+                      toolCall: options.toolCall,
+                      input: options.input,
+                      result,
+                      iteration: options.iteration,
+                      sessionId: options.sessionId,
+                      messageId: options.toolCallMessageId,
+                  });
+
+        throwIfAborted(options.signal);
+        this.emitToolEvent(options.onChunk, {
+            type: 'call_end',
+            callId: options.toolCall.id,
+            result,
+            isError: true,
+            durationMs: options.durationMs,
+            finalStatus: 'error',
+        });
+
+        return {
+            toolCall: options.toolCall,
+            input: serializeAuditPayload(options.input),
+            result,
+            isError: true,
+            toolLogId,
+        };
+    }
+
     private async consumeModelStep(
         runtime: AttemptRuntime,
         options: Pick<
@@ -1057,7 +1103,7 @@ export class AiRequestExecutor {
                     ...options,
                     iteration: runtime.iteration,
                     sessionId: options.persister.getSessionId(),
-                    input: serializeAuditPayload(options.toolCall.arguments),
+                    input: options.toolCall.arguments,
                     result: t('skills.contextLimit', { count: MAX_SELECTED_SKILLS }),
                     durationMs: 0,
                 });
