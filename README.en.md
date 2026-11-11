@@ -41,8 +41,8 @@
 
 Download the latest installer from [Releases](https://github.com/TouchAI-org/TouchAI/releases).
 
-See [installation and update verification](docs/release-verification.md) for channel selection,
-the no-downgrade policy, and installer integrity checks.
+See the [release process](docs/releasing.md) for channel selection, the
+no-downgrade policy, and installer integrity checks.
 
 ### Development & Contributing
 
@@ -51,7 +51,6 @@ If you want to contribute to TouchAI, read the [contributing docs](./CONTRIBUTIN
 ### Docs
 
 - [Release process](docs/releasing.md)
-- [Installation and update verification](docs/release-verification.md)
 
 For more details, browse the project docs and source code.
 

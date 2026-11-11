@@ -40,7 +40,7 @@
 ### 下载使用
 在 [Releases](https://github.com/TouchAI-org/TouchAI/releases) 下载最新安装包。
 
-通道选择、禁止降级和安装包校验说明见 [installation and update verification](docs/release-verification.md)。
+通道选择、禁止降级和安装包校验说明见[发版流程](docs/releasing.md)。
 
 ### 开发贡献
 
@@ -48,8 +48,7 @@
 
 ### 文档
 
-- [Release process](docs/releasing.md)
-- [Installation and update verification](docs/release-verification.md)
+- [发版流程](docs/releasing.md)
 
 更多说明请查看项目文档和仓库代码。
 

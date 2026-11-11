@@ -1,25 +1,27 @@
 # Release process
 
 For maintainers and Agents. Releases run only through GitHub Actions. Do not
-create tags, create releases, upload installers, or edit update feeds by hand.
+create tags, releases, upload assets, or edit update feeds by hand.
 
 ## Channels
 
 | Channel | Version | Trigger | Release notes |
 | --- | --- | --- | --- |
 | Stable | `X.Y.Z` | Merge the release-please PR | `release-notes/<version>.json` |
-| Beta | `X.Y.Z-beta.N` | Dispatch `release.yml` on `main` | The same file, already committed to `main` |
+| Beta | `X.Y.Z-beta.N` | Dispatch `release.yml` on `main` | The same file, committed to `main` |
 | Nightly | Generated or `X.Y.Z-nightly...` | Schedule or manual dispatch | Manual versions use the same file; scheduled builds may use generated notes |
 
 Only Beta and Nightly runs dispatched from `main` deploy the production feed.
+Never downgrade. The app rejects an older version, and a published problem is
+fixed with a higher version.
 
 ## Agent approval
 
-When the user requests a release, confirm the channel, exact version (optional
-for automatic Nightly), and target commit once. After that, the Agent may
-prepare notes, merge the release PR, dispatch workflows, confirm required
-environments, and verify the result without asking again. Re-confirm only when
-the target commit, version, or channel changes.
+Confirm the channel, exact version (optional for automatic Nightly), and target
+commit once when the user requests a release. Then prepare notes, merge the
+release PR, dispatch workflows, approve required environments, and verify the
+result without asking again. Re-confirm only if the target commit, version, or
+channel changes.
 
 ## Before releasing
 
@@ -30,41 +32,46 @@ git rev-parse origin/main
 ```
 
 - The worktree is clean, and Beta/Nightly runs use the latest `main`.
-- The version is higher than the current release in the same channel; downgrades
-  are not allowed.
-- User-facing notes are reviewed in both languages, and required checks pass.
+- The version is higher than the current release in the same channel.
+- Reviewed notes exist in both languages, and required checks pass.
 
 ## Release notes
 
-Release notes are user-facing. They are not commit logs, raw release-please
-changelogs, or verbatim GitHub-generated content.
+Release notes are user-facing, not commit logs or raw release-please
+changelogs. Start with the most important user-visible outcome, then group
+changes under `New Features`, `Fixes`, and `Other Changes`. Use one numbered
+list when there are only one or two changes.
 
-- Start with the most important user-visible outcome.
-- Group changes under `New Features`, `Fixes`, and `Other Changes`. Use one
-  numbered list when there are only one or two changes.
-- Order items by impact. Each item describes one change and what the user can
-  now see or do.
+- Order items by impact and describe what the user can now see or do.
 - Avoid vague claims such as "improved experience" or "fixed issues".
-- Omit commit hashes, internal file names, pure refactors, tests, and CI details
+- Omit commit hashes, internal file names, refactors, tests, and CI details
   unless they directly affect users.
 - Keep relevant issue or pull request references.
 - Compare with the previous published release in the same channel. Only the
   first Beta falls back to Stable; never use Stable or Nightly as the Beta
   baseline.
-- Rewrite English and Chinese from the actual diff. Do not paste a changelog or
-  commit list into English, and do not translate Chinese word for word. Both
-  languages use the same structure and facts, in natural user-facing language.
+- Rewrite English and Chinese from the actual diff. Both languages use the same
+  structure and facts, in natural user-facing language; do not translate word
+  for word.
 - Thank significant contributors at the end when appropriate.
 
-Formal releases (Stable, Beta, and manual Nightly) must include reviewed
-`en-US` and `zh-CN` content in `apps/desktop/release-notes/<version>.json` in
-the released commit. Both languages are reviewed together; a missing language
-blocks publication. Automatic scheduled Nightly is the internal-verification
-exception and may use generated notes. For a user-facing Nightly build, dispatch
-an exact version after committing the bilingual file.
+Formal releases (Stable, Beta, and manual Nightly) require reviewed `en-US` and
+`zh-CN` content in `apps/desktop/release-notes/<version>.json` in the released
+commit. Both languages are reviewed together; a missing language blocks
+publication. Automatic scheduled Nightly is the internal-verification exception
+and may use generated notes. For a user-facing Nightly build, dispatch an exact
+version after committing the bilingual file.
 
-See [`release-notes/README.md`](../apps/desktop/release-notes/README.md) for the
-file format.
+```json
+{
+    "en-US": "This update makes interrupted downloads recoverable.\n\n## New Features\n\n1. **Resume updates**: continue a download after reconnecting (#776)",
+    "zh-CN": "本次更新支持恢复中断的下载。\n\n## 新功能\n\n1. **断点续传**：重新联网后可以继续下载（#776）"
+}
+```
+
+Do not reuse a file from an earlier version. Invalid JSON, missing content,
+unknown language keys, non-string values, or notes longer than 64 Ki characters
+fail preparation before the release is edited.
 
 ## Stable
 
@@ -151,8 +158,21 @@ node -e 'fetch(process.argv[1]).then(r => r.json()).then(f =>
 ```
 
 Use `releases.beta.json` or `releases.nightly.json` for the other channels.
-See [`release-verification.md`](release-verification.md) for signature and
-checksum verification.
+
+For package verification, run:
+
+```sh
+gh attestation verify './TouchAI-<version>-windows.msi' \
+  --repo TouchAI-org/TouchAI \
+  --signer-workflow TouchAI-org/TouchAI/.github/workflows/velopack-build.yml
+sha256sum './TouchAI-<version>-linux.AppImage'
+```
+
+Use `shasum -a 256` on macOS and `Get-FileHash -Algorithm SHA256` on Windows.
+The digest must match the corresponding line in `SHA256SUMS` from the same
+release. Free signing is GitHub/Sigstore keyless provenance only; it is not
+Windows Authenticode or macOS Developer ID/notarization, so OS warnings can
+still appear. Never disable OS security checks to install the app.
 
 ## Failure handling
 
