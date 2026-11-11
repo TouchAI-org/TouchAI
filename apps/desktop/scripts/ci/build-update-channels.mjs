@@ -361,7 +361,8 @@ async function releaseAssetsFromDirectory(releaseDir, channel) {
             // Latest point at package entries nobody uploaded. Refuse instead of
             // silently keeping (or clearing) the previous channel history.
             throw new Error(
-                `Missing releases.${channel}.json in the release directory; refusing to publish an update feed without packaged assets.`
+                `Missing releases.${channel}.json in the release directory; refusing to publish an update feed without packaged assets.`,
+                { cause: error }
             );
         }
         throw error;
