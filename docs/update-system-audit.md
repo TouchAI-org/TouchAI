@@ -1,103 +1,123 @@
-# 安装、发布与更新链路梳理
+# Installation, release, and update audit
 
-本轮工作统一在 PR #776，不拆成多个工作树或并行的更新系统。
-关联问题：#766、#767、#768、#769、#771、#772、#773、#777。
+This work is consolidated in PR #776 instead of separate worktrees or parallel
+update systems. Related issues: #766, #767, #768, #769, #771, #772, #773, #777.
 
-## 链路与职责
+## Flow and ownership
 
-1. `release-please.yml` 管理 Stable 的版本号与 `CHANGELOG.md`；`release.yml` 管理 Beta/Nightly。
-2. release-please 维护版本号和历史 `CHANGELOG.md`；面向用户的正式更新日志由
-   `release-notes/<version>.json` 提供，必须包含人工审核的 `en-US` 与 `zh-CN`。
-   Stable、Beta 和手动 Nightly 缺少任一语言时准备步骤直接失败；自动定时 Nightly
-   是内部验证例外，可以使用生成说明。脚本输出兼容 Markdown、双语 JSON 和 GitHub
-   Release 正文。
-3. `velopack-build.yml` 构建 Windows MSI/Velopack 包、macOS 和 Linux 安装包。
-   Velopack 的历史包只用于差量生成，不混入本版本的公开发布清单。
-4. 聚合作业筛出本版本产物，按打包版本生成源码依赖 SBOM、流式 SHA-256 清单及 Sigstore
-   来源证明，再上传 GitHub Release。产物证明失败不会被当作可忽略警告。
-5. Cloudflare R2 先上传二进制，成功后才上传通道 feed；最后清理已归档的旧文件。
-   Worker 保留既有缓存/GitHub 归档回退、Range/HEAD 语义和来源限制。
-6. 原生更新层读取 feed，Velopack 决定版本、差量策略并负责最终包校验及安装。
-   HTTP 传输使用现有 reqwest/sha2 依赖，在已有 partial 路径上实现受约束的续传。
-7. `AppUpdateService` 管理设置、检查节奏、失败重试和跨窗口检查结果；设置页、强制更新
-   门禁与通知通过同一份类型契约、语言选择规则读取数据。
+1. `release-please.yml` manages Stable versions and `CHANGELOG.md`.
+   `release.yml` manages Beta and Nightly.
+2. Release-please maintains versions and engineering changelog history. Formal
+   user-facing notes come from `release-notes/<version>.json`, which must contain
+   reviewed `en-US` and `zh-CN` content. Stable, Beta, and manual Nightly fail
+   preparation when either language is missing. Automatic scheduled Nightly is
+   the internal-verification exception and may use generated notes. The
+   preparation script writes Markdown, localized JSON, and the GitHub release
+   body.
+3. `velopack-build.yml` builds the Windows MSI/Velopack package and the macOS
+   and Linux installers. Historical Velopack packages are used only for delta
+   generation and never enter the public manifest for this version.
+4. The aggregate job selects this version's artifacts, generates a
+   source-dependency SBOM, a streaming SHA-256 manifest, and Sigstore provenance,
+   then uploads the GitHub release. Attestation failure is not treated as a
+   warning.
+5. Cloudflare R2 receives binaries first and channel feeds only after binary
+   uploads succeed. Archived files are pruned last. The Worker keeps the
+   existing cache/GitHub fallback, Range/HEAD behavior, and origin restrictions.
+6. The native update layer reads the feed. Velopack decides version and delta
+   behavior and owns final package verification and installation. The HTTP
+   transport uses the existing reqwest/sha2 dependencies and adds bounded resume
+   support on the existing partial path.
+7. `AppUpdateService` owns settings, check cadence, retries, and cross-window
+   results. Settings, the required-update gate, and notifications use the same
+   type contract and language-selection rules.
 
-## 已落地的改进
+## Implemented improvements
 
-| 用户遇到的缺口 | 本轮处理 |
+| User-facing gap | Change |
 | --- | --- |
-| 新装 Beta/Nightly 却默认检查 Stable | 从应用版本推导初始通道；已保存的选择优先 |
-| 切换通道可能降级，数据库却已迁移 | 原生明确禁止降级；保留数字化的 Beta 版本比较 |
-| 日志版本基线可能错位 | 自动 Nightly 生成日志时使用上一个已发布 Nightly；Beta 日志按流程与上一个已发布 Beta 对比，首个 Beta 才回退 Stable |
-| 正式日志只有一种语言或直接贴提交记录 | Stable、Beta 和手动 Nightly 强制要求经审核的双语版本文件；英文和中文都从实际改动重写，不直接发布 changelog 或 commit list |
-| 日志内容与版本发布脱节 | 版本文件放在被发布的提交中；release-please 的 `CHANGELOG.md` 只保留工程历史，自动定时 Nightly 才允许使用生成说明 |
-| 发布重跑改变日志，或被打包作业覆盖 | 正式发布只读取同一版本的双语文件；仅准备作业写 Release 正文，重跑保持相同内容 |
-| 下载或安装失败后只能跳外部网页 | 保留可重试的候选版本；安装重试复用已下载的包 |
-| 关闭下载对话框却标成“取消” | 改成“后台继续”，并允许通过“查看下载”重新打开进度，不重复检查或下载 |
-| 下载中断后从零开始 | 有 SHA-256 元数据时续传；验证精确 Range、长度和续传后的摘要，不信任任意追加响应 |
-| CDN 忽略 Range、拒绝 Range 或断点内容损坏 | 安全地从头获取；无 SHA-256 的旧 feed 保持完整下载，不冒险复用断点 |
-| 网络请求可能无限等待 | 连接超时 + 空闲读写超时；内存下载按声明大小追加总预算；使用有上限的流式缓冲区及稀疏进度事件 |
-| 离线检查打扰用户，恢复后仍等很久 | 自动检查离线时安静跳过；在线失败按 1/2/4/8/16/32/60 分钟退避，成功恢复一小时节奏 |
-| 操作系统错误地报告“离线” | 手动检查仍尝试真实原生请求，避免把联网提示当成不可用的绝对判断 |
-| 新 feed 先出现，文件还未上传 | 发布顺序显式拆成先二进制、后 feed，前一步失败不会进入后一步 |
-| R2 临时失败跳过了可用归档 | 版本化二进制继续尝试既有缓存和 GitHub 回退；feed 错误不伪装成成功 |
-| 更新后找不到本版本日志 | 已取得匹配本版本的日志时，提供独立阅读入口，不触发检查、安装或降级 |
-| 下载前不知道包大小 | 显示声明的完整包体积，不把它冒充为差量实际流量或剩余时间 |
-| 用户只能靠文件名相信下载来源 | 提供最终产物校验和、keyless 构建来源证明、可下载证明包及源码依赖 SBOM |
+| A new Beta/Nightly install checked Stable by default | Derive the initial channel from the installed app version; saved preferences still win |
+| Channel switching could downgrade a migrated database | Native updates explicitly reject downgrades; numeric Beta ordering is retained |
+| Release-note baselines could be wrong | Generated Nightly notes compare with the previous published Nightly; Beta notes compare with the previous published Beta, and only the first Beta falls back to Stable |
+| Formal notes had one language or copied commits | Stable, Beta, and manual Nightly require reviewed bilingual files; both languages are rewritten from the actual diff |
+| Notes could drift from the released version | Use a version-specific file from the released commit; release-please `CHANGELOG.md` remains engineering history, and only scheduled Nightly may use generated notes |
+| A retry or packaging job could overwrite notes | Formal releases read only the version file; only the preparation job writes the release body, so retries keep it stable |
+| A failed download or install always sent users to a web page | Keep retryable candidates and reuse a downloaded package when installation is retried |
+| Closing a download dialog was labeled "Cancel" | Rename it to "Continue in background" and let "View download" reopen progress without checking or downloading again |
+| Interrupted downloads restarted from zero | Resume when SHA-256 metadata exists; validate the exact Range, length, and post-resume digest instead of trusting any appended bytes |
+| A CDN ignored or rejected ranges, or partial bytes were corrupt | Restart safely; legacy feeds without SHA-256 always download in full and never reuse partial data |
+| Network requests could wait forever | Add connection and idle read timeouts; scale the in-memory transfer budget by declared size; use bounded streaming buffers and sparse progress events |
+| Offline checks interrupted users and recovery waited too long | Skip automatic checks offline; back off online failures at 1/2/4/8/16/32/60 minutes; resume the normal cadence after success |
+| The OS could report offline incorrectly | Manual checks still attempt the real native request instead of treating the online hint as authoritative |
+| A new feed could appear before its files uploaded | Split publication into binaries first and feeds second; a failed first step stops the second |
+| An R2 outage skipped an available archive | Versioned binaries still try the cache and GitHub fallback; feed errors do not pretend to succeed |
+| Users could not find notes for their installed version | Add a read-only entry point for matching notes without checking, installing, or downgrading |
+| Users did not know the package size before downloading | Show the declared full package size without presenting it as delta traffic or time remaining |
+| Users could only trust a file name | Publish final-artifact checksums, keyless build provenance, a downloadable proof bundle, and a source-dependency SBOM |
 
-## 安全与兼容性边界
+## Compatibility and safety boundaries
 
-- 没有数据库、迁移、持久化 JSON 设置形状、CSP、工具权限或遥测内容变更。
-- feed 仍为 `SchemaVersion: 1`，保留 `releaseNotes` 和 Velopack `NotesMarkdown`。
-  新客户端可以读旧 feed；旧客户端继续读兼容内容。
-- 语言选择优先当前语言，其次英语，最后是**匹配版本**的旧日志；已下载版本与最新版本
-  不同时，不把别的版本日志展示成它的更新说明。
-- 续传不绕过 Velopack 的最终校验、安装路径或禁止降级配置，不创建第二份下载状态数据库。
-  服务器持续返回错误时仍会明确失败，而不是把缺损文件标成“已下载”。
-- 自动检查的失败计数仅存在于内存，有上限；保持 08:00 至午夜的原有检查时段。
-  重新调度和窗口退出会移除本轮创建的定时器与网络监听。
-- “后台继续”不是取消 API，也不是强制安装。安装仍由用户确认。
-- 当前版本日志入口使用已经取得的匹配 feed，不新增已安装版本历史存储或启动弹窗。
-  若通道已推进到其他版本，可从 GitHub Release 查看更早日志。
+- No database, migration, persisted JSON shape, CSP, tool permission, or
+  telemetry-content changes.
+- The feed remains `SchemaVersion: 1` and keeps `releaseNotes` and Velopack
+  `NotesMarkdown`. New clients can read old feeds; old clients keep compatible
+  content.
+- Language selection prefers the current language, then English, then
+  notes for the matching version. A downloaded version is never labeled with
+  notes for a different version.
+- Resume does not bypass Velopack's final verification, install path, or
+  downgrade prohibition. It creates no second download-state database. Repeated
+  server errors still fail clearly instead of marking a damaged file as
+  downloaded.
+- Automatic failure counts are in memory and bounded. The existing 08:00 to
+  midnight check window is retained. Rescheduling and page exit remove the
+  timers and listeners created by this run.
+- "Continue in background" is not a cancel API and does not force installation.
+  The user still confirms installation.
+- The current-version notes entry uses already-fetched matching feed data. It
+  adds no installed-version history store or startup prompt. If the channel has
+  moved on, earlier notes remain available on the GitHub release page.
 
-## 为什么选择这些实现
+## Implementation choices
 
-- 保留 Velopack 的安装/差量/校验机制，而不重写更新器。已安装的
-  `velopack 1.3.39-g8d2844f` 的 HTTP 下载实现使用 `File::create` 且默认无超时，
-  无法完成断点续传。因此仅替换 HTTP 传输，并抽成共享的 `core/download.rs`：更新包与字体
-  CDN 共用同一套 Range、长度、SHA-256、重试和进度策略，底层仍使用已有 reqwest 与 sha2，
-  不自行实现 TLS 或摘要算法。
-- 发布脚本复用已有版本解析和通道校验工具。元数据准备作业不需要为比较几个标签而安装整套
-  前端依赖；前端版本比较直接使用已有 `semver` 包的 `valid` 与 `gt`，不再维护手写正则比较器。
-- 使用 Node 内建流和 crypto 生成跨平台清单，而非新增依赖或将大文件整体读入内存。
-- 使用固定提交的 GitHub `actions/attest` 与 Anchore SBOM action，并固定 Syft 版本。
-  `attest-build-provenance` 上游已建议新集成使用 `actions/attest`，所以没有添加一层旧包装。
-- 不依赖付费翻译、不把用户内容送到翻译服务，也不把未经审校的自动翻译当成发布事实。
+- Keep Velopack's install, delta, and verification behavior instead of replacing
+  the updater. The installed Velopack 1.3.39-g8d2844f HTTP downloader uses
+  `File::create` and has no suitable default timeout, so only the HTTP transport
+  is replaced. The shared `core/download.rs` module is reused by update packages
+  and font CDN downloads for Range, length, SHA-256, retry, and progress policy.
+  It still uses reqwest for HTTP/TLS and sha2 for hashing.
+- Reuse the existing version parser and channel validation in release scripts.
+  Frontend comparison uses the existing `semver` package's `valid` and `gt`
+  functions instead of a hand-written regex comparator.
+- Generate the cross-platform manifest with Node's built-in streams and crypto,
+  without a new dependency or reading large files into memory.
+- Use pinned GitHub `actions/attest` and Anchore SBOM actions with a pinned Syft
+  version. No compatibility wrapper around a deprecated attestation action is
+  added.
+- Do not depend on paid translation or send user content to a translation
+  service, and do not treat unreviewed machine translation as release fact.
 
-## 不应误认为已经解决的事情
+## Not solved by this change
 
-- 免费 keyless 来源证明不等于 Windows Authenticode 或 macOS Developer ID/公证。
-  SignPath Foundation 需维护者申请；Apple 的相应开发者资格通常收费。
-- SBOM 是发布源码的依赖清单，不等于完整安装包内所有系统组件的清单，也不是漏洞扫描结果。
-- 不做数据库自动回滚，也不通过旧版本覆盖来“撤销”已安装更新。出现问题应发布**更高版本**修复。
-- 当前分批验证仍通过 Beta/Nightly 和受保护的 Stable 发布环境完成；本轮没有新建百分比灰度、
-  远程撤销已下载包或新的发布控制后台。若需要这些机制，应先明确离线安装、撤销时效和强制更新
-  策略的兼容性，不能把切换到旧 feed 当作安全回滚。
-- CI 配置和静态验证不等于完成了一次真实签名发布。本轮不发 tag、不部署 Worker/R2、不签署
-  服务条款，也不对生产数据进行迁移。
-- 本机组件截图和单元测试不能替代 Windows 安装版升级、macOS Gatekeeper、Linux 包管理器
-  以及原生 release 构建的性能验收。相关未运行项在 PR 中逐项列出。
+- Free keyless provenance is not Windows Authenticode or macOS Developer
+  ID/notarization. SignPath Foundation requires a maintainer application, and
+  the relevant Apple program is normally paid.
+- The SBOM is a source-dependency inventory, not a complete inventory of OS
+  components in the installed package and not a vulnerability scan.
+- The app does not roll back the database or use an older installer to undo an
+  update. Publish a higher version to fix a released problem.
+- Staged validation still uses Beta/Nightly and the protected Stable
+  environment. This change does not add percentage rollout, remote revocation
+  of downloaded packages, or a release-control backend.
+- CI configuration and static checks are not a real signed publication. This
+  work did not create a tag, deploy the Worker or R2, accept service terms, or
+  migrate production data.
+- Component screenshots and unit tests do not replace Windows installed-package
+  upgrades, macOS Gatekeeper checks, Linux package-manager checks, or native
+  release-build performance acceptance. Unverified items are listed in the PR.
 
-## 维护入口与参考
+## Maintenance entry points
 
-- [发版流程（含 Agent 审批边界）](releasing.md)
-- [更新日志规范](../apps/desktop/release-notes/README.md)
-- [安装与更新包验证](release-verification.zh-CN.md) / [English](release-verification.md)
-- [GitHub release notes API](https://docs.github.com/en/rest/releases/releases#generate-release-notes-content-for-a-release)
-- [Velopack 文档](https://docs.velopack.io/)
-- [GitHub artifact attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds)
-- [GitHub attest action](https://github.com/actions/attest)
-- [Anchore SBOM action](https://github.com/anchore/sbom-action)
-
-验收以真实行为为准：先记录 Given/When/Then，再运行失败用例，最后修复对应层。
-PR 保存中英文组件证据、定向/全量检查命令及结果；发布前仍需在对应原生平台确认升级和性能预算。
+- [Release process](releasing.md)
+- [Release notes format](../apps/desktop/release-notes/README.md)
+- [Installation and update verification](release-verification.md)

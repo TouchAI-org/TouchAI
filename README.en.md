@@ -50,6 +50,9 @@ If you want to contribute to TouchAI, read the [contributing docs](./CONTRIBUTIN
 
 ### Docs
 
+- [Release process](docs/releasing.md)
+- [Installation and update verification](docs/release-verification.md)
+
 For more details, browse the project docs and source code.
 
 ### Partners

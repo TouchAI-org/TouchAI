@@ -1,7 +1,5 @@
 # Verify an installation or update
 
-[简体中文](release-verification.zh-CN.md)
-
 Download from [TouchAI releases](https://github.com/TouchAI-org/TouchAI/releases)
 or the official update service. Choose the installer for your OS and architecture.
 Windows uses MSI/Velopack; macOS uses DMG; Linux provides AppImage, DEB and RPM.
