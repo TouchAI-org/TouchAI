@@ -89,6 +89,7 @@
 
 ## 维护入口与参考
 
+- [发版流程（含 Agent 审批边界）](releasing.md)
 - [中英文日志编写规范](../apps/desktop/release-notes/README.md)
 - [安装与更新包验证](release-verification.zh-CN.md) / [English](release-verification.md)
 - [GitHub release notes API](https://docs.github.com/en/rest/releases/releases#generate-release-notes-content-for-a-release)

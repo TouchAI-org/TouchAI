@@ -1,5 +1,8 @@
 # Localized release notes
 
+For the complete Stable/Beta/Nightly process and Agent approval boundaries, see
+[`docs/releasing.md`](../../../docs/releasing.md).
+
 Stable release notes start with the exact version section from `CHANGELOG.md`,
 which release-please writes in the release PR. The generated English text is the
 default for the GitHub release, Velopack metadata and the update feed. Beta and

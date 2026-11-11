@@ -48,6 +48,9 @@
 
 ### 文档
 
+- [发版流程](docs/releasing.md)
+- [安装与更新包验证](docs/release-verification.zh-CN.md)
+
 更多说明请查看项目文档和仓库代码。
 
 ### 生态伙伴
