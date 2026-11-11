@@ -73,6 +73,10 @@ Do not reuse a file from an earlier version. Invalid JSON, missing content,
 unknown language keys, non-string values, or notes longer than 64 Ki characters
 fail preparation before the release is edited.
 
+The JSON file is the only reviewed source. Publishing derives the legacy
+English `releaseNotes` for older clients, the English Markdown used by
+Velopack, and the GitHub Release body from it.
+
 ## Stable
 
 1. Find and inspect the release-please PR:

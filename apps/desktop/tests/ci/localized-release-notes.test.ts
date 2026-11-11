@@ -92,7 +92,6 @@ describe('given reviewed bilingual release content', () => {
                 version: '1.2.0-beta.11',
                 tag: 'v1.2.0-beta.11',
                 prerelease: true,
-                releaseNotesFile: join(output, 'release-notes.md'),
                 releaseNotesByLocaleFile: join(output, 'release-notes.json'),
             },
         });
@@ -118,7 +117,7 @@ describe('given reviewed bilingual release content', () => {
                 targetCommitish: 'main',
             })
         ).rejects.toThrow(/Reviewed bilingual release notes/);
-        await expect(readFile(join(root, 'notes/release-notes.md'))).rejects.toMatchObject({
+        await expect(readFile(join(root, 'notes/release-notes.json'))).rejects.toMatchObject({
             code: 'ENOENT',
         });
     });
@@ -150,7 +149,7 @@ describe('given reviewed bilingual release content', () => {
                 targetCommitish: 'main',
             })
         ).rejects.toThrow(/zh-CN/);
-        await expect(readFile(join(root, 'notes/release-notes.md'))).rejects.toMatchObject({
+        await expect(readFile(join(root, 'notes/release-notes.json'))).rejects.toMatchObject({
             code: 'ENOENT',
         });
     });

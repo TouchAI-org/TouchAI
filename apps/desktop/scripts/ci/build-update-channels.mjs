@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { versionFromAssetName } from '../update-release-assets.mjs';
-import { normalizeLocalizedReleaseNotes } from './release-notes.mjs';
+import { legacyEnglishReleaseNotes, normalizeLocalizedReleaseNotes } from './release-notes.mjs';
 
 const REQUIRED_SEVERITIES = ['critical', 'security', 'recommended'];
 const DOWNLOAD_KINDS = ['installer', 'fullPackage', 'deltaPackage', 'updatePackage', 'asset'];
@@ -490,19 +490,24 @@ export async function buildUpdateChannels(projectRoot, outputRoot, now = new Dat
     const updates = product.services.updates;
     const outputDir = join(outputRoot, relativeUpdatePath(updates.baseUrl));
     const channelNames = channelEntries(updates.channels).map(([channel]) => channel);
+    const releaseNotesByLocale = options.release
+        ? (options.release.releaseNotesByLocale ??
+          (options.release.releaseNotesByLocaleFile
+              ? normalizeLocalizedReleaseNotes(
+                    JSON.parse(await readFile(options.release.releaseNotesByLocaleFile, 'utf8'))
+                )
+              : null))
+        : null;
     const release = options.release
         ? {
               ...options.release,
               releaseNotes:
                   options.release.releaseNotes ??
+                  (releaseNotesByLocale ? legacyEnglishReleaseNotes(releaseNotesByLocale) : null) ??
                   (options.release.releaseNotesFile
                       ? await readFile(options.release.releaseNotesFile, 'utf8')
                       : null),
-              releaseNotesByLocale:
-                  options.release.releaseNotesByLocale ??
-                  (options.release.releaseNotesByLocaleFile
-                      ? JSON.parse(await readFile(options.release.releaseNotesByLocaleFile, 'utf8'))
-                      : null),
+              releaseNotesByLocale,
               downloads: mergeDownloads(
                   await releaseDownloadsFromDirectory(
                       product,

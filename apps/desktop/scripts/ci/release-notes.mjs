@@ -25,3 +25,12 @@ export function normalizeLocalizedReleaseNotes(value) {
     }
     return notes;
 }
+
+export function legacyEnglishReleaseNotes(value) {
+    const notes = normalizeLocalizedReleaseNotes(value);
+    const english = notes['en-US'] ?? notes.en;
+    if (!english) {
+        throw new Error('Release notes must include en-US.');
+    }
+    return english;
+}
