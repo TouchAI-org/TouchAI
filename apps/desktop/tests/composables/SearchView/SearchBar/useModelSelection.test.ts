@@ -1,5 +1,6 @@
 import type { ModelWithProvider } from '@database/queries/models';
 import { mountComposable } from '@tests/utils/composables';
+import { flushPromises } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
 
@@ -147,6 +148,83 @@ describe('when the search bar picks the model for the next request', () => {
         mounted.result.invalidateDropdownModels();
         await mounted.result.loadDropdownModels();
         expect(deps.findModels).toHaveBeenCalledTimes(2);
+
+        mounted.unmount();
+    });
+
+    it.each([
+        {
+            cancelled: false,
+            outcome: 'keeps waiting for a shared refresh when the opening query is invalidated',
+        },
+        {
+            cancelled: true,
+            outcome: 'stops waiting for a shared refresh when the invalidated opening is cancelled',
+        },
+    ])('user $outcome', async ({ cancelled }) => {
+        const reads: Array<(models: ModelWithProvider[]) => void> = [];
+        const mounted = await mountComposable(() =>
+            useModelSelection(
+                {
+                    searchBarContainerRef: ref(null),
+                    logoContainerRef: ref(null),
+                    modelOverride: ref({ modelId: null, providerId: null }),
+                },
+                {
+                    findModels: () => new Promise((resolve) => reads.push(resolve)),
+                    getActiveModel: async () => null,
+                    findModelByOverride: async () => null,
+                }
+            )
+        );
+        let openingCurrent = true;
+        let prepared = false;
+        const preparation = mounted.result
+            .prepareModelDropdownOpen(() => openingCurrent)
+            .then(() => {
+                prepared = true;
+            });
+        mounted.result.invalidateDropdownModels();
+        openingCurrent = !cancelled;
+        const prefetch = mounted.result.loadDropdownModels();
+
+        reads[0]!([createModel(1)]);
+        await flushPromises();
+        expect(prepared).toBe(cancelled);
+        expect(mounted.result.getModelDropdownContext().models).toEqual([]);
+
+        const currentModels = [createModel(2)];
+        reads[1]!(currentModels);
+        await Promise.all([preparation, prefetch]);
+        expect(mounted.result.getModelDropdownContext().models).toEqual(currentModels);
+
+        mounted.unmount();
+    });
+
+    it('user opening models after a failed query gets an empty list until explicitly trying again', async () => {
+        const currentModels = [createModel(2)];
+        const mounted = await mountComposable(() =>
+            useModelSelection(
+                {
+                    searchBarContainerRef: ref(null),
+                    logoContainerRef: ref(null),
+                    modelOverride: ref({ modelId: null, providerId: null }),
+                },
+                {
+                    findModels: vi
+                        .fn()
+                        .mockRejectedValueOnce(new Error('query failed'))
+                        .mockResolvedValue(currentModels),
+                    getActiveModel: async () => null,
+                    findModelByOverride: async () => null,
+                }
+            )
+        );
+
+        await mounted.result.prepareModelDropdownOpen();
+        expect(mounted.result.getModelDropdownContext().models).toEqual([]);
+        await mounted.result.prepareModelDropdownOpen();
+        expect(mounted.result.getModelDropdownContext().models).toEqual(currentModels);
 
         mounted.unmount();
     });

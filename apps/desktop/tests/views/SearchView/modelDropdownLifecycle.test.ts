@@ -119,6 +119,47 @@ async function invalidateModels() {
 }
 
 describe('user opens models while the model list changes', () => {
+    it.each([1, 2])(
+        'user opening models waits for a current list after %i query invalidations',
+        async (invalidations) => {
+            await openView();
+            await toggleModels();
+            await vi.waitFor(() => expect(reads).toHaveLength(1));
+
+            for (let updateIndex = 0; updateIndex < invalidations; updateIndex += 1) {
+                await invalidateModels();
+                reads[updateIndex]!('Outdated model');
+                await flushPromises();
+
+                expect(wrapper!.find('[data-search-overlay-host]').exists()).toBe(false);
+                await vi.waitFor(() => expect(reads).toHaveLength(updateIndex + 2));
+            }
+
+            reads[invalidations]!('Current model');
+            await vi.waitFor(() =>
+                expect(wrapper!.get('[data-search-overlay-host]').text()).toContain('Current model')
+            );
+            expect(wrapper!.get('[data-search-overlay-host]').text()).not.toContain(
+                'Outdated model'
+            );
+        }
+    );
+
+    it('user cancels an opening while its refreshed query is pending and the popup stays closed', async () => {
+        await openView();
+        await toggleModels();
+        await vi.waitFor(() => expect(reads).toHaveLength(1));
+        await invalidateModels();
+        reads[0]!('Previous model');
+        await vi.waitFor(() => expect(reads).toHaveLength(2));
+
+        await toggleModels();
+        reads[1]!('Current model');
+        await flushPromises();
+
+        expect(wrapper!.find('[data-search-overlay-host]').exists()).toBe(false);
+    });
+
     it('user cancels a newer opening after an old query finishes and the popup stays closed', async () => {
         await openView();
         await toggleModels();

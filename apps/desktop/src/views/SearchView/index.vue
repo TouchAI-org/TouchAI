@@ -1754,7 +1754,7 @@
             // again for something that only hangs above it.
             await closeSessionHistoryOverlayForIntent(intentEpoch, false);
             if (!isOverlayIntentCurrent(intentEpoch)) return;
-            await controller.prepareModelDropdownOpen();
+            await controller.prepareModelDropdownOpen(() => isOverlayIntentCurrent(intentEpoch));
             if (!isOverlayIntentCurrent(intentEpoch)) return;
             overlayAnchorElement.value = controller.getModelDropdownAnchor();
             // The picker belongs to the editor row, including its padding, in every surface mode.

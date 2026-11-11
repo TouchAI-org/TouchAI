@@ -239,8 +239,13 @@ export function useModelSelection(
      *
      * @returns Promise<void>
      */
-    async function prepareModelDropdownOpen() {
-        await loadDropdownModels();
+    async function prepareModelDropdownOpen(isCurrent = () => true) {
+        while (isCurrent()) {
+            const loading = loadDropdownModels();
+            const load = dropdownModelsLoad;
+            await loading;
+            if (load?.state.value !== 'invalidated') return;
+        }
     }
 
     /**
