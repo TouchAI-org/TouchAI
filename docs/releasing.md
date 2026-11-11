@@ -38,6 +38,7 @@ git rev-parse origin/main
 - 避免“优化体验”“修复问题”这类空话；说明具体改了什么。
 - 不写 commit hash、内部文件名、纯重构、测试或 CI 细节，除非它们直接影响用户。
 - 保留相关的 `#issue` 或 `#PR`，让用户能追溯背景。
+- 以同通道上一个已发布版本为比较基线；第一个 Beta 才回退到上一个 Stable，不要拿 Stable 或 Nightly 混作 Beta 的基线。
 - 英文和中文都从实际 diff 重写：英文不要直接贴 changelog 或 commit list，中文不要逐字翻译英文；两种语言都使用自然、面向用户的表达。
 - 可在末尾感谢重要贡献者。
 
