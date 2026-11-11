@@ -1,6 +1,6 @@
 # Localized release notes
 
-For the complete Stable/Beta/Nightly process and Agent approval boundaries, see
+For the complete Stable/Beta/Nightly process and Agent release workflow, see
 [`docs/releasing.md`](../../../docs/releasing.md).
 
 Stable release notes start with the exact version section from `CHANGELOG.md`,
@@ -15,10 +15,15 @@ PR as the version change so it is reviewed before publishing. The file belongs t
 the commit being released. Do not reuse a file from an earlier version or translate
 notes at runtime.
 
+Write user-facing notes, not commit logs: a one-sentence intro, then
+`## New Features`, `## Fixes`, and `## Other Changes` as needed; use numbered
+items with the relevant issue or PR. See the style rules in
+[`docs/releasing.md`](../../../docs/releasing.md).
+
 ```json
 {
-    "en-US": "## Improvements\n\n- Retry an interrupted update without losing progress.",
-    "zh-CN": "## 改进\n\n- 更新中断后可重试，无需丢失下载进度。"
+    "en-US": "This update makes interrupted downloads recoverable.\n\n## New Features\n\n1. **Resume updates**: continue a download after reconnecting (#776)",
+    "zh-CN": "本次更新支持恢复中断的下载。\n\n## 新功能\n\n1. **断点续传**：重新联网后可以继续下载（#776）"
 }
 ```
 
