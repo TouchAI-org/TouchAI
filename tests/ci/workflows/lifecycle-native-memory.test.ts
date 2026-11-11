@@ -25,6 +25,9 @@ function Get-CimInstance {
         $nativeProcess
     }
 }
+function Get-Date {
+    ([DateTimeOffset]$fixture.sampledAt).LocalDateTime
+}
 function Get-Process {
     param([int[]]$Id)
     foreach ($processId in $Id) {
@@ -56,7 +59,7 @@ interface NativeProcess {
     Name: string;
     CreationDate: string | null;
     ExecutablePath: string | null;
-    CommandLine: string;
+    CommandLine: string | null;
     PrivatePageCount: number | null;
     WorkingSetSize: number | null;
 }
@@ -106,6 +109,7 @@ function fixture() {
     ];
     return {
         processes,
+        sampledAt: '2026-11-10T00:02:03Z',
         liveProcesses: processes.map((nativeProcess) => ({
             Id: nativeProcess.ProcessId,
             PrivateMemorySize64: nativeProcess.PrivatePageCount,
@@ -155,6 +159,13 @@ const expectedMemory = {
     renderers: 1,
 };
 
+const memoryWithTransientProcess = {
+    privateBytes: 5000012000,
+    workingSetBytes: 6000018000,
+    processes: 4,
+    renderers: 1,
+};
+
 interface Scenario {
     name: string;
     change?: (input: ReturnType<typeof fixture>) => void;
@@ -177,6 +188,22 @@ function attachUnrelatedBranch(
         ProcessId: 50,
         ParentProcessId: 40,
         CreationDate: '2026-11-10T00:00:03Z',
+    });
+}
+
+function attachTransientWebViewProcess(
+    input: ReturnType<typeof fixture>,
+    commandLine: string | null
+) {
+    input.processes.push({
+        ProcessId: 50,
+        ParentProcessId: 20,
+        Name: 'msedgewebview2.exe',
+        CreationDate: '2026-11-10T00:02:01.2Z',
+        ExecutablePath: null,
+        CommandLine: commandLine,
+        PrivatePageCount: 7000,
+        WorkingSetSize: 9000,
     });
 }
 
@@ -289,6 +316,7 @@ const scenarios: Scenario[] = [
         verify(report) {
             expect(report).toEqual({
                 ...expectedMemory,
+                sampledAt: '2026-11-10T00:02:03.0000000Z',
                 processDetails: [
                     {
                         id: 10,
@@ -296,6 +324,8 @@ const scenarios: Scenario[] = [
                         name: 'TouchAI.exe',
                         createdAt: '2026-11-10T00:00:00.0000000Z',
                         role: 'app',
+                        commandLineAvailable: true,
+                        diagnosticArguments: [],
                         privateBytes: 5000000000,
                         workingSetBytes: 6000000000,
                     },
@@ -305,6 +335,8 @@ const scenarios: Scenario[] = [
                         name: 'msedgewebview2.exe',
                         createdAt: '2026-11-10T00:00:01.0000000Z',
                         role: 'other',
+                        commandLineAvailable: true,
+                        diagnosticArguments: [],
                         privateBytes: 2000,
                         workingSetBytes: 4000,
                     },
@@ -314,12 +346,159 @@ const scenarios: Scenario[] = [
                         name: 'msedgewebview2.exe',
                         createdAt: '2026-11-10T00:00:02.0000000Z',
                         role: 'renderer',
+                        commandLineAvailable: true,
+                        diagnosticArguments: ['--type=renderer'],
                         privateBytes: 3000,
                         workingSetBytes: 5000,
                     },
                 ],
                 rejectedParentReuses: [],
             });
+        },
+    },
+    {
+        name: 'user samples a delayed GPU probe that exits after enumeration and retains its full memory with safe launch evidence',
+        change(input) {
+            attachTransientWebViewProcess(
+                input,
+                'msedgewebview2.exe --type=gpu-process /prefetch:8 --disable-gpu-sandbox --use-gl=disabled --token=never-log-this'
+            );
+        },
+        expected: memoryWithTransientProcess,
+        verify(report) {
+            expect(report).toHaveProperty('sampledAt', '2026-11-10T00:02:03.0000000Z');
+            expect(report).toHaveProperty(
+                'processDetails',
+                expect.arrayContaining([
+                    {
+                        id: 50,
+                        parentId: 20,
+                        name: 'msedgewebview2.exe',
+                        createdAt: '2026-11-10T00:02:01.2000000Z',
+                        role: 'gpu-process',
+                        commandLineAvailable: true,
+                        diagnosticArguments: [
+                            '--type=gpu-process',
+                            '/prefetch:8',
+                            '--disable-gpu-sandbox',
+                            '--use-gl=disabled',
+                        ],
+                        privateBytes: 7000,
+                        workingSetBytes: 9000,
+                    },
+                ])
+            );
+            expect(JSON.stringify(report)).not.toContain('never-log-this');
+        },
+    },
+    {
+        name: 'user samples quoted GPU restart arguments and receives diagnostic hints without private paths or tokens',
+        change(input) {
+            attachTransientWebViewProcess(
+                input,
+                '"C:\\private-path\\msedgewebview2.exe" "--type=gpu-process" "/prefetch:2" "--gpu-recent-crash-count=2" --token=never-log-this'
+            );
+        },
+        expected: memoryWithTransientProcess,
+        verify(report) {
+            expect(report).toHaveProperty(
+                'processDetails',
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: 50,
+                        commandLineAvailable: true,
+                        diagnosticArguments: [
+                            '--type=gpu-process',
+                            '/prefetch:2',
+                            '--gpu-recent-crash-count=2',
+                        ],
+                    }),
+                ])
+            );
+            expect(JSON.stringify(report)).not.toMatch(/private-path|never-log-this/);
+        },
+    },
+    ...[null, '   '].map(
+        (commandLine): Scenario => ({
+            name: `user samples a child with ${commandLine === null ? 'missing' : 'blank'} launch details and retains its memory with explicit unavailable evidence`,
+            change(input) {
+                attachTransientWebViewProcess(input, commandLine);
+            },
+            expected: memoryWithTransientProcess,
+            verify(report) {
+                expect(report).toHaveProperty(
+                    'processDetails',
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            id: 50,
+                            role: 'other',
+                            commandLineAvailable: false,
+                            diagnosticArguments: [],
+                        }),
+                    ])
+                );
+            },
+        })
+    ),
+    {
+        name: 'user samples unapproved or malformed launch arguments and receives no guessed hints or private values',
+        change(input) {
+            attachTransientWebViewProcess(
+                input,
+                'msedgewebview2.exe --type=private-role --disable-gpu-extra --use-gl=disabled-private /prefetch:123-private --gpu-recent-crash-count=private-count "--disable-gpu-sandbox --token=never-log-this'
+            );
+        },
+        expected: memoryWithTransientProcess,
+        verify(report) {
+            expect(report).toHaveProperty(
+                'processDetails',
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: 50,
+                        role: 'other',
+                        commandLineAvailable: true,
+                        diagnosticArguments: [],
+                    }),
+                ])
+            );
+            expect(JSON.stringify(report)).not.toMatch(/private-|never-log-this/);
+        },
+    },
+    {
+        name: 'user inspects browser initialization and sees only the launch flags relevant to delayed hardware collection',
+        change(input) {
+            assert(input.processes[3]);
+            input.processes[3].CommandLine =
+                'msedgewebview2.exe --disable-gpu --no-sandbox --in-process-gpu --single-process --no-delay-for-dx12-vulkan-info-collection --collect-dawn-info-eagerly --user-data-dir=private-profile';
+        },
+        verify(report) {
+            expect(report).toHaveProperty(
+                'processDetails',
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: 20,
+                        commandLineAvailable: true,
+                        diagnosticArguments: [
+                            '--disable-gpu',
+                            '--no-sandbox',
+                            '--in-process-gpu',
+                            '--single-process',
+                            '--no-delay-for-dx12-vulkan-info-collection',
+                            '--collect-dawn-info-eagerly',
+                        ],
+                    }),
+                ])
+            );
+            expect(JSON.stringify(report)).not.toContain('private-profile');
+        },
+    },
+    {
+        name: 'user samples with a local clock offset and receives a UTC observation time comparable to process creation',
+        change(input) {
+            input.sampledAt = '2026-11-10T08:02:03+08:00';
+        },
+        verify(report) {
+            expect(report).toHaveProperty('sampledAt', '2026-11-10T00:02:03.0000000Z');
         },
     },
     {
