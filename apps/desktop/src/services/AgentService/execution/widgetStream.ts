@@ -1,34 +1,22 @@
 import { parsePartialJson } from 'ai';
 
+import { showWidgetRawArgsSchema } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/constants';
 import {
     SHOW_WIDGET_DRAFT_MIN_INTERVAL_MS,
     SHOW_WIDGET_DRAFT_THROTTLE_MIN_CHARS,
 } from '@/services/BuiltInToolService/tools/widgetTool/showWidget/runtimeConstants';
 
 import type { AiStreamChunk } from '../contracts/protocol';
-import type { AiToolCall } from '../contracts/tooling';
-import { publicWidgetArguments, type WidgetSkillAccess } from '../skills/widgetAccess';
+import { SKILL_ACKNOWLEDGEMENT_FIELD } from '../skills/widgetAcknowledgement';
 
 const WIDGET_TOOL = 'builtin__show_widget';
 const MAX_TRACKED_DRAFTS = 32;
-
-export function publicToolCall(call: AiToolCall): AiToolCall {
-    if (call.name !== WIDGET_TOOL) return call;
-    try {
-        return {
-            ...call,
-            arguments: JSON.stringify(publicWidgetArguments(JSON.parse(call.arguments))),
-        };
-    } catch {
-        return { ...call, arguments: '{}' };
-    }
-}
 
 /**
  * One model stream owns this bounded pacing state. Large drafts are sampled before parsing;
  * final arguments bypass pacing. No timer can publish after cancellation or into a retry.
  */
-export function createPublicWidgetStream(access: WidgetSkillAccess) {
+export function createPublicWidgetStream() {
     const sampled = new Map<string | number, { at: number; length: number }>();
     return async (chunk: AiStreamChunk): Promise<AiStreamChunk> => {
         const deltas = [];
@@ -59,26 +47,26 @@ export function createPublicWidgetStream(access: WidgetSkillAccess) {
             if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
             const args = value as Record<string, unknown>;
             const fields = Object.keys(args);
-            // Partial JSON repair can close a still-growing credential string. Wait for
-            // the next argument (normally widget_code), or a complete JSON document.
-            if (state !== 'successful-parse' && fields[fields.length - 1] === 'skill_key') continue;
-            if (!access.isAuthorized(args.skill_key)) continue;
+            if (
+                state !== 'successful-parse' &&
+                fields[fields.length - 1] === SKILL_ACKNOWLEDGEMENT_FIELD
+            )
+                continue;
+            if (!showWidgetRawArgsSchema.safeParse(args).success) continue;
             deltas.push({
                 ...delta,
                 argumentsDelta: undefined,
-                argumentsBuffer: JSON.stringify(publicWidgetArguments(args)),
+                argumentsBuffer: JSON.stringify(args),
             });
         }
-        const calls = (chunk.toolCalls ?? [])
-            .filter((call) => {
-                if (call.name !== WIDGET_TOOL) return true;
-                try {
-                    return access.isAuthorized(JSON.parse(call.arguments)?.skill_key);
-                } catch {
-                    return false;
-                }
-            })
-            .map(publicToolCall);
+        const calls = (chunk.toolCalls ?? []).filter((call) => {
+            if (call.name !== WIDGET_TOOL) return true;
+            try {
+                return showWidgetRawArgsSchema.safeParse(JSON.parse(call.arguments)).success;
+            } catch {
+                return false;
+            }
+        });
         for (const call of chunk.toolCalls ?? []) sampled.delete(call.id);
         if (chunk.done) sampled.clear();
         return {

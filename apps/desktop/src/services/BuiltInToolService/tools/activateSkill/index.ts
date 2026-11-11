@@ -130,10 +130,7 @@ export async function executeActivateSkillTool(
         if (!loadedSkill) throw new Error(t('skills.readFailed'));
 
         return {
-            result:
-                target.builtIn && target.name === 'widget' && context.widgetSkillAccess
-                    ? context.widgetSkillAccess.activate(loadedSkill.contextText)
-                    : loadedSkill.contextText,
+            result: loadedSkill.contextText,
             persistedResult: buildPersistedSkillActivationResult(loadedSkill),
             isError: false,
             status: 'success',

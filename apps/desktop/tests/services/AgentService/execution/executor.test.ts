@@ -17,7 +17,6 @@ import type {
     AttemptCheckpoint,
     RequestPrivateState,
 } from '@/services/AgentService/execution/executor';
-import { WidgetSkillAccess } from '@/services/AgentService/skills/widgetAccess';
 
 const providerMock = vi.hoisted(() => ({
     stream: vi.fn(),
@@ -218,9 +217,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
             startCheckpoint: checkpoint,
             privateState: {
                 messageContents: new Map([[0, 'Private instructions '.repeat(3000)]]),
-                messageToolCalls: new Map(),
                 skillActivationAttempts: 0,
-                widgetSkillAccess: new WidgetSkillAccess(),
             },
             persister: {
                 getSessionId: () => 42,
@@ -238,10 +235,10 @@ describe('user sends a prompt and receives a streamed answer', () => {
         'user compacts history then continues through a %s with private content attached only to its original message',
         async (continuation) => {
             const checkpoint = createLongCheckpoint();
-            const privateCall = {
-                id: 'retained-private-call',
-                name: 'builtin__show_widget',
-                arguments: '{"skill_key":"request-only-key","widgetId":"chart"}',
+            const publicCall = {
+                id: 'retained-public-call',
+                name: 'builtin__read',
+                arguments: '{"path":"chart.md"}',
             };
             const start = checkpoint.messages.length;
             const source = { id: 100, fingerprint: 'b'.repeat(64) };
@@ -249,14 +246,14 @@ describe('user sends a prompt and receives a streamed answer', () => {
                 {
                     role: 'assistant',
                     content: '',
-                    tool_calls: [{ ...privateCall, arguments: '{"widgetId":"chart"}' }],
+                    tool_calls: [publicCall],
                     contextSource: source,
                 },
                 {
                     role: 'tool',
                     content: 'Public result',
-                    tool_call_id: privateCall.id,
-                    name: privateCall.name,
+                    tool_call_id: publicCall.id,
+                    name: publicCall.name,
                     contextSource: source,
                 }
             );
@@ -265,9 +262,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
                     [1, 'ARCHIVED_PRIVATE_BODY'],
                     [start + 1, 'RETAINED_PRIVATE_BODY'],
                 ]),
-                messageToolCalls: new Map([[start, [privateCall]]]),
                 skillActivationAttempts: 0,
-                widgetSkillAccess: new WidgetSkillAccess(),
             };
             const nextCall = { id: 'next-call', name: 'builtin__read', arguments: '{}' };
             const sent: AiRequestOptions[] = [];
@@ -335,16 +330,15 @@ describe('user sends a prompt and receives a streamed answer', () => {
             expect(summaries.length).toBeGreaterThan(0);
             for (const request of sent) {
                 expect(
-                    request.messages.find((message) => message.tool_call_id === privateCall.id)
+                    request.messages.find((message) => message.tool_call_id === publicCall.id)
                 ).toMatchObject({ role: 'tool', content: 'RETAINED_PRIVATE_BODY' });
                 expect(
                     request.messages.flatMap((message) => message.tool_calls ?? [])
-                ).toContainEqual(privateCall);
+                ).toContainEqual(publicCall);
                 expect(JSON.stringify(request)).not.toContain('ARCHIVED_PRIVATE_BODY');
             }
             for (const value of [summaries, persisted]) {
                 expect(JSON.stringify(value)).not.toContain('PRIVATE_BODY');
-                expect(JSON.stringify(value)).not.toContain('request-only-key');
             }
         }
     );

@@ -57,11 +57,10 @@ import { createProviderFromRegistry } from '../infrastructure/providers/drivers'
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import { MAX_SELECTED_SKILLS } from '../skills/activation';
-import { publicWidgetArguments, WidgetSkillAccess } from '../skills/widgetAccess';
 import { ContextWindow, type SummaryResult } from './context';
 import { snapshotAiMessages } from './messages';
 import type { TurnEvent } from './runtime';
-import { createPublicWidgetStream, publicToolCall } from './widgetStream';
+import { createPublicWidgetStream } from './widgetStream';
 
 const BUILT_IN_UPGRADE_TOOL_NAME = 'builtin__upgrade_model';
 const BUILT_IN_SKILL_TOOL_NAME = 'builtin__activate_skill';
@@ -135,9 +134,7 @@ export interface AttemptCheckpoint {
 /** Lives for one logical request, including retries; never published or persisted. */
 export interface RequestPrivateState {
     messageContents: Map<number, AiMessage['content']>;
-    messageToolCalls: Map<number, AiToolCall[]>;
     skillActivationAttempts: number;
-    widgetSkillAccess: WidgetSkillAccess;
 }
 
 interface AttemptRuntime {
@@ -148,7 +145,6 @@ interface AttemptRuntime {
     tools?: AiToolDefinition[];
     messages: AiMessage[];
     privateMessageContents: Map<number, AiMessage['content']>;
-    privateMessageToolCalls: Map<number, AiToolCall[]>;
     privateState: RequestPrivateState;
     response: string;
     reasoning: string;
@@ -872,7 +868,6 @@ export class AiRequestExecutor {
             }),
             messages: snapshotAiMessages(startCheckpoint.messages),
             privateMessageContents: new Map(privateState.messageContents),
-            privateMessageToolCalls: new Map(privateState.messageToolCalls),
             privateState,
             response: startCheckpoint.response,
             reasoning: startCheckpoint.reasoning,
@@ -921,10 +916,6 @@ export class AiRequestExecutor {
         for (const [index, content] of runtime.privateMessageContents) {
             runtime.privateState.messageContents.set(index, content);
         }
-        runtime.privateState.messageToolCalls.clear();
-        for (const [index, calls] of runtime.privateMessageToolCalls) {
-            runtime.privateState.messageToolCalls.set(index, calls);
-        }
     }
 
     private async consumeModelStep(
@@ -947,27 +938,18 @@ export class AiRequestExecutor {
         for (const message of runtime.messages) {
             if (message.contextSummary) await options.persister.validateContextSummary(message);
         }
-        const privateMessageValues = new WeakMap<
-            AiMessage,
-            { content?: AiMessage['content']; tool_calls?: AiToolCall[] }
-        >();
+        const privateMessageContents = new WeakMap<AiMessage, AiMessage['content']>();
         for (const [index, message] of runtime.messages.entries()) {
             const content = runtime.privateMessageContents.get(index);
-            const toolCalls = runtime.privateMessageToolCalls.get(index);
-            if (content !== undefined || toolCalls !== undefined) {
-                privateMessageValues.set(message, {
-                    ...(content !== undefined ? { content } : {}),
-                    ...(toolCalls !== undefined ? { tool_calls: toolCalls } : {}),
-                });
-            }
+            if (content !== undefined) privateMessageContents.set(message, content);
         }
         const transportMessages = new WeakMap<AiMessage, AiMessage>();
         const projectForTransport = (message: AiMessage): AiMessage => {
-            const privateValues = privateMessageValues.get(message);
-            if (!privateValues) return message;
+            const privateContent = privateMessageContents.get(message);
+            if (privateContent === undefined) return message;
             let transport = transportMessages.get(message);
             if (!transport) {
-                transport = snapshotAiMessages([{ ...message, ...privateValues }])[0]!;
+                transport = snapshotAiMessages([{ ...message, content: privateContent }])[0]!;
                 transportMessages.set(message, transport);
             }
             return transport;
@@ -1023,13 +1005,10 @@ export class AiRequestExecutor {
         });
         if (prepared.messages.some((message) => message.contextSummary)) {
             runtime.privateMessageContents.clear();
-            runtime.privateMessageToolCalls.clear();
             for (const [index, message] of prepared.messages.entries()) {
-                const privateValues = privateMessageValues.get(message);
-                if (privateValues?.content !== undefined)
-                    runtime.privateMessageContents.set(index, privateValues.content);
-                if (privateValues?.tool_calls !== undefined)
-                    runtime.privateMessageToolCalls.set(index, privateValues.tool_calls);
+                const privateContent = privateMessageContents.get(message);
+                if (privateContent !== undefined)
+                    runtime.privateMessageContents.set(index, privateContent);
             }
             runtime.messages = snapshotAiMessages(prepared.messages);
             this.syncPrivateCheckpoint(runtime);
@@ -1148,7 +1127,7 @@ export class AiRequestExecutor {
         };
         let streamError: unknown;
         let streamFailed = false;
-        const projectPublicChunk = createPublicWidgetStream(runtime.privateState.widgetSkillAccess);
+        const projectPublicChunk = createPublicWidgetStream();
         try {
             for await (const chunk of runtime.provider.stream(modelRequest)) {
                 throwIfAborted(options.signal);
@@ -1346,7 +1325,6 @@ export class AiRequestExecutor {
             toolArgs: sanitizedToolArgs,
             iteration: runtime.iteration,
             currentModel: runtime.activeModel,
-            widgetSkillAccess: runtime.privateState.widgetSkillAccess,
             signal: options.signal,
             toolCallMessageId: options.toolCallMessageId,
             sessionId: options.persister.getSessionId(),
@@ -1357,13 +1335,7 @@ export class AiRequestExecutor {
         });
 
         if (builtInResult) {
-            return {
-                ...builtInResult,
-                input:
-                    builtInResult.builtInToolId === 'show_widget'
-                        ? serializeAuditPayload(publicWidgetArguments(sanitizedToolArgs))
-                        : input,
-            };
+            return { ...builtInResult, input };
         }
 
         const result = await this.executeMcpToolCall({
@@ -1392,12 +1364,8 @@ export class AiRequestExecutor {
             iteration: runtime.iteration,
         });
 
-        const publicCalls = options.step.toolCalls.map(publicToolCall);
-        if (publicCalls.some((call, index) => call !== options.step.toolCalls[index])) {
-            runtime.privateMessageToolCalls.set(runtime.messages.length, options.step.toolCalls);
-        }
         runtime.messages.push(
-            buildAssistantToolCallHistoryMessage(options.step.outputParts, publicCalls)
+            buildAssistantToolCallHistoryMessage(options.step.outputParts, options.step.toolCalls)
         );
 
         const toolCallMessageId = await options.persister.persistToolCallMessage(
@@ -1560,9 +1528,7 @@ export class AiRequestExecutor {
     async runAttempt(options: RunAttemptOptions): Promise<AttemptExecutionResult> {
         const privateState = options.privateState ?? {
             messageContents: new Map<number, AiMessage['content']>(),
-            messageToolCalls: new Map<number, AiToolCall[]>(),
             skillActivationAttempts: 0,
-            widgetSkillAccess: new WidgetSkillAccess(),
         };
         const runtime = await this.createAttemptRuntime(
             options.startCheckpoint,

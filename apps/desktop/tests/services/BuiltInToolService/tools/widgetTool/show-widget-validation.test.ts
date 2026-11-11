@@ -1,30 +1,68 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { WidgetSkillAccess } from '@/services/AgentService/skills/widgetAccess';
 import type { BaseBuiltInToolExecutionContext } from '@/services/BuiltInToolService';
 import { executeShowWidgetTool } from '@/services/BuiltInToolService/tools/widgetTool/showWidget';
 
 function createContext(): BaseBuiltInToolExecutionContext {
-    const widgetSkillAccess = new WidgetSkillAccess();
-    widgetSkillAccess.activate('{{WIDGET_SKILL_KEY}}');
     return {
         callId: 'call-1',
         iteration: 1,
         emitToolEvent: vi.fn(),
-        widgetSkillAccess,
     };
 }
 
-const skillKey = '00000000-0000-4000-8000-000000000001';
-
 describe('user asks for a widget and gets a visible one', () => {
-    beforeEach(() => {
-        vi.spyOn(crypto, 'randomUUID').mockReturnValue(skillKey);
+    it('user sees optional title and description preserved in the widget event', async () => {
+        const context = createContext();
+
+        await expect(
+            executeShowWidgetTool(
+                {
+                    is_read_widget_skill: true,
+                    widget_code: '<section>content</section>',
+                    title: 'Revenue',
+                    description: 'Weekly revenue trend',
+                },
+                {},
+                context
+            )
+        ).resolves.toMatchObject({ status: 'success' });
+        expect(context.emitToolEvent).toHaveBeenCalledWith({
+            type: 'widget_upsert',
+            callId: 'call-1',
+            widgetId: 'call-1',
+            title: 'Revenue',
+            description: 'Weekly revenue trend',
+            html: '<section>content</section>',
+            mode: 'render',
+            phase: 'ready',
+        });
     });
 
-    afterEach(() => {
-        vi.restoreAllMocks();
-    });
+    it.each([
+        ['title', 42],
+        ['title', null],
+        ['description', 42],
+        ['description', null],
+    ])(
+        'user sees an invalid %s value rejected without emitting a widget event',
+        async (field, value) => {
+            const context = createContext();
+
+            await expect(
+                executeShowWidgetTool(
+                    {
+                        is_read_widget_skill: true,
+                        widget_code: '<section>content</section>',
+                        [field]: value,
+                    },
+                    {},
+                    context
+                )
+            ).rejects.toThrow(`"${field}"`);
+            expect(context.emitToolEvent).not.toHaveBeenCalled();
+        }
+    );
 
     it.each([
         ['style', '<style>.root{display:grid}</style><section class="root">content</section>'],
@@ -49,7 +87,7 @@ describe('user asks for a widget and gets a visible one', () => {
             await expect(
                 executeShowWidgetTool(
                     {
-                        skill_key: skillKey,
+                        is_read_widget_skill: true,
                         widget_code: widgetCode,
                     },
                     {},
@@ -63,7 +101,7 @@ describe('user asks for a widget and gets a visible one', () => {
         await expect(
             executeShowWidgetTool(
                 {
-                    skill_key: skillKey,
+                    is_read_widget_skill: true,
                     widget_code: '<!--<style>.ignored{}</style>--><section>content</section>',
                 },
                 {},
@@ -82,7 +120,7 @@ describe('user asks for a widget and gets a visible one', () => {
         await expect(
             executeShowWidgetTool(
                 {
-                    skill_key: skillKey,
+                    is_read_widget_skill: true,
                     widget_code: widgetCode,
                 },
                 {},
@@ -114,7 +152,7 @@ describe('user asks for a widget and gets a visible one', () => {
             await expect(
                 executeShowWidgetTool(
                     {
-                        skill_key: skillKey,
+                        is_read_widget_skill: true,
                         widget_code: widgetCode,
                     },
                     {},

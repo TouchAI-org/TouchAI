@@ -27,7 +27,7 @@ export function widgetSkillFile() {
         disabled: false,
         scope: 'app' as const,
         frontmatter,
-        content: `${frontmatter}Use builtin__show_widget with skill_key: {{WIDGET_SKILL_KEY}}`,
+        content: `${frontmatter}Use builtin__show_widget with is_read_widget_skill: true`,
     };
 }
 

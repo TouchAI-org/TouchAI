@@ -74,26 +74,28 @@ export const SHOW_WIDGET_STYLE_GUIDELINES = [
 ].join(' ');
 
 export const SHOW_WIDGET_TOOL_NAME = 'ShowWidget';
-export const showWidgetRawArgsSchema = z.object({
-    skill_key: z.string().min(1),
-    widget_code: optionalTrimmedStringSchema,
-    html: optionalTrimmedStringSchema,
-    mode: z.enum(['render', 'remove']).optional(),
-    widgetId: optionalTrimmedStringSchema,
-    title: optionalTrimmedStringSchema,
-    description: optionalTrimmedStringSchema,
-});
+export const showWidgetRawArgsSchema = z
+    .object({
+        is_read_widget_skill: z.literal(true),
+        widget_code: optionalTrimmedStringSchema,
+        html: optionalTrimmedStringSchema,
+        mode: z.enum(['render', 'remove']).optional(),
+        widgetId: optionalTrimmedStringSchema,
+        title: z.string().trim().optional(),
+        description: z.string().trim().optional(),
+    })
+    .strict();
 
 /**
  * 暴露给模型的 ShowWidget 工具说明。
  */
 export const SHOW_WIDGET_TOOL_DESCRIPTION = [
-    'CRITICAL STREAMING INSTRUCTION: Pass skill_key first, then start widget_code IMMEDIATELY.',
+    'CRITICAL STREAMING INSTRUCTION: Pass is_read_widget_skill: true first, then start widget_code IMMEDIATELY.',
     'The first characters of widget_code must already contain a visible root element (<svg>, <div>, <section>).',
     'Output visible structure first, metadata fields last.',
     'Use this tool to create live inline visual artifacts.',
     'TouchAI streams widget DOM into an opaque-origin sandbox iframe, with controlled host theme variables, keyed DOM patching, and final classic scripts.',
-    'This tool is exposed to the model as builtin__show_widget. Load the built-in widget skill with builtin__activate_skill using its exact catalog path under appRoot/skills/.system/widget/SKILL.md. Pass the current request credential from that skill as skill_key for every creation, update, or removal.',
+    'This tool is exposed to the model as builtin__show_widget. Load the built-in widget skill with builtin__activate_skill using its exact catalog path under appRoot/skills/.system/widget/SKILL.md, then set is_read_widget_skill to true for every creation, update, or removal.',
     'Structure: visible root and visible HTML/SVG first, optional inline <style> inside that root after the first visible content, scripts last.',
     'Outputs using gradients, shadows, blur, glass effects, full-page HTML, iframe/object, or non-allowlisted external resources will be rejected.',
     SHOW_WIDGET_STYLE_GUIDELINES,
@@ -109,15 +111,16 @@ function withExamples(description: string, ...examples: string[]): string {
 export const SHOW_WIDGET_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
     type: 'object',
     properties: {
-        skill_key: {
-            type: 'string',
+        is_read_widget_skill: {
+            type: 'boolean',
+            const: true,
             description:
-                'The current request credential supplied by the activated built-in widget skill. Pass it exactly as supplied, before widget_code. Never include it in widget content or user-facing text.',
+                'Set to true after reading the built-in widget skill. This is a model reminder, not a credential. Pass it before widget_code.',
         },
         widget_code: {
             type: 'string',
             description: withExamples(
-                'Required for render mode; omit for remove mode. STREAMING CRITICAL: Start this parameter immediately after skill_key. The opening characters must already be a visible root element (<svg viewBox="...", <div>, <section>) with visible structure or labels immediately inside it. Use inline styles for controls that must look correct mid-stream, or place a short <style> inside the visible root after the first visible content. Put optional <script> last. The widget streams token-by-token, so emit structure early. Self-contained HTML, CSS, and JavaScript. Transparent background by default. No outer card shell, gradient, shadow, blur, or rounded wrapper unless explicitly a mockup. Feel like a natural conversation extension.',
+                'Required for render mode; omit for remove mode. STREAMING CRITICAL: Start this parameter immediately after is_read_widget_skill. The opening characters must already be a visible root element (<svg viewBox="...", <div>, <section>) with visible structure or labels immediately inside it. Use inline styles for controls that must look correct mid-stream, or place a short <style> inside the visible root after the first visible content. Put optional <script> last. The widget streams token-by-token, so emit structure early. Self-contained HTML, CSS, and JavaScript. Transparent background by default. No outer card shell, gradient, shadow, blur, or rounded wrapper unless explicitly a mockup. Feel like a natural conversation extension.',
                 '"<svg viewBox=\\"0 0 320 140\\" role=\\"img\\" aria-label=\\"Weekly revenue trend\\"><path d=\\"...\\" /></svg>"',
                 '"<section><style>.root{display:grid;gap:8px}.row{display:flex;justify-content:space-between;border-bottom:1px solid color-mix(in oklch, currentColor 18%, transparent)}</style><div class=\\"root\\">...</div></section>"'
             ),
@@ -139,7 +142,15 @@ export const SHOW_WIDGET_TOOL_INPUT_SCHEMA: AiToolDefinition['input_schema'] = {
                 '"weather-7day"'
             ),
         },
+        title: {
+            type: 'string',
+            description: 'Optional short title used as the widget accessible label.',
+        },
+        description: {
+            type: 'string',
+            description: 'Optional widget description used for presentation and accessibility.',
+        },
     },
-    required: ['skill_key'],
+    required: ['is_read_widget_skill'],
     additionalProperties: false,
 };

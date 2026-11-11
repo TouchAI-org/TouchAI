@@ -25,7 +25,6 @@ import type {
     ToolApprovalRequest,
     ToolEvent,
 } from '@/services/AgentService/contracts/tooling';
-import { publicWidgetArguments } from '@/services/AgentService/skills/widgetAccess';
 
 import { builtInToolRegistry } from './registry';
 import type {
@@ -61,7 +60,6 @@ interface BuiltInToolExecutionOptions {
     toolArgs: Record<string, unknown>;
     iteration: number;
     currentModel: ModelWithProvider;
-    widgetSkillAccess?: BaseBuiltInToolExecutionContext['widgetSkillAccess'];
     signal?: AbortSignal;
     sessionId: number | null;
     toolCallMessageId: number | null;
@@ -320,16 +318,11 @@ class BuiltInToolService {
             currentModel: options.currentModel,
             signal: options.signal,
             emitToolEvent: options.emitToolEvent,
-            widgetSkillAccess: options.widgetSkillAccess,
             requestUserQuestions: options.requestUserQuestions,
             requestedTimeoutMs: options.requestedTimeoutMs,
         };
 
         const callStartTime = Date.now();
-        const publicArgs =
-            resolved.tool.id === 'show_widget'
-                ? publicWidgetArguments(options.toolArgs)
-                : options.toolArgs;
         const fallbackConversationSemantic = resolved.tool.buildConversationSemantic(
             options.toolArgs
         );
@@ -342,7 +335,7 @@ class BuiltInToolService {
             source: 'builtin',
             startedAt: callStartTime,
             sourceLabel: '内置工具',
-            arguments: publicArgs,
+            arguments: options.toolArgs,
             builtinConversationSemantic: fallbackConversationSemantic,
         });
         const conversationSemantic = await this.buildConversationSemantic(
@@ -359,7 +352,7 @@ class BuiltInToolService {
                 source: 'builtin',
                 startedAt: callStartTime,
                 sourceLabel: '内置工具',
-                arguments: publicArgs,
+                arguments: options.toolArgs,
                 builtinConversationSemantic: conversationSemantic,
             });
         }
@@ -374,7 +367,7 @@ class BuiltInToolService {
                 session_id: options.sessionId,
                 message_id: options.toolCallMessageId,
                 iteration: options.iteration,
-                input: serializeAuditPayload(publicArgs),
+                input: serializeAuditPayload(options.toolArgs),
                 status: 'pending',
                 approval_state: 'none',
             });

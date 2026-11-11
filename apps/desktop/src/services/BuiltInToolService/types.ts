@@ -14,7 +14,6 @@ import type {
     ToolEventStructuredPayload,
 } from '@/services/AgentService/contracts/tooling';
 import type { AttachmentIndex } from '@/services/AgentService/infrastructure/attachments';
-import type { WidgetSkillAccess } from '@/services/AgentService/skills/widgetAccess';
 
 /**
  * 当前内置工具体系允许暴露给模型的稳定工具标识。
@@ -50,7 +49,6 @@ export interface BaseBuiltInToolExecutionContext {
         questions: AskUserQuestion[]
     ) => Promise<AskUserAnswer[] | null>;
     requestedTimeoutMs?: number;
-    widgetSkillAccess?: WidgetSkillAccess;
 }
 
 /**

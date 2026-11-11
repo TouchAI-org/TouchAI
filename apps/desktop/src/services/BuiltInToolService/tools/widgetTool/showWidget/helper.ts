@@ -12,7 +12,6 @@ import { parseToolArguments } from '../../../utils/toolSchema';
 import { MAX_WIDGET_HTML_CHARS, SHOW_WIDGET_TOOL_NAME, showWidgetRawArgsSchema } from './constants';
 
 interface ShowWidgetArgs {
-    skillKey: string;
     mode: ShowWidgetMode;
     widgetId: string;
     title: string;
@@ -90,7 +89,6 @@ export function parseShowWidgetArgs(
     }
 
     return {
-        skillKey: parsedArgs.skill_key,
         mode,
         widgetId,
         title,

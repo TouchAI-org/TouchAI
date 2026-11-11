@@ -103,12 +103,6 @@ export async function executeShowWidgetTool(
 
     const parsed = parseShowWidgetArgs(args, context);
 
-    if (!context.widgetSkillAccess?.isAuthorized(parsed.skillKey)) {
-        throw new Error(
-            'ShowWidget requires the current request skill_key. Load the built-in widget skill with builtin__activate_skill using its exact catalog path, then pass the credential from that skill.'
-        );
-    }
-
     if (parsed.mode === 'render' && parsed.html.trim()) {
         validateShowWidgetMarkup(parsed.html);
     }

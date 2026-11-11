@@ -65,10 +65,11 @@ remain valid. Restoring a reference revalidates its path against the current ena
 catalog before loading its instructions. An older app version cannot render the new
 editor node, so a database backup remains the rollback source for full editor fidelity.
 
-Full instructions and widget read credentials exist only in a logical request's
-private state. Events, checkpoints, tool records and summaries use the public
-projection. Compaction budgets the live transport projection but summarizes only
-public content; retained messages keep their private values by identity, and removed
-messages release those values. A retry synchronizes the same compacted public/private
-boundary. Tool-source verification compares the public input and persisted output,
-matching the records actually stored in SQLite.
+Full skill instructions exist only in a logical request's private state. The widget
+`is_read_widget_skill` argument is a public model reminder, not a credential. Events,
+checkpoints, tool records and summaries use the public projection. Compaction budgets
+the live transport projection but summarizes only public content; retained messages
+keep their private values by identity, and removed messages release those values. A
+retry synchronizes the same compacted public/private boundary. Tool-source verification
+compares the public input and persisted output, matching the records actually stored
+in SQLite.

@@ -13,11 +13,11 @@ Use `builtin__show_widget` to create live, interactive HTML/SVG artifacts that r
 
 ## Workflow
 
-1. Load the built-in `widget` skill with `builtin__activate_skill`, passing `name: "widget"` and the exact absolute `path` shown in the skill catalog. Its installed location is `appRoot/skills/.system/widget/SKILL.md`, where `appRoot` is the current application root; use the discovered path rather than guessing it. A user-created skill with the same name does not grant widget access.
-2. Read this complete guide before creating the visual. If the built-in skill was already activated by the user selection for this request, use that loaded guide and credential.
-3. Call `builtin__show_widget` with the current request credential as `skill_key` before `widget_code`. The credential is required for creation, updates, and removal. Reuse `widgetId` to update the same visual; for removal, pass `mode: "remove"` and its `widgetId` without `widget_code`.
+1. Load the built-in `widget` skill with `builtin__activate_skill`, passing `name: "widget"` and the exact absolute `path` shown in the skill catalog. Its installed location is `appRoot/skills/.system/widget/SKILL.md`, where `appRoot` is the current application root; use the discovered path rather than guessing it.
+2. Read this complete guide before creating the visual. If the built-in skill was already activated by user selection for this request, use that loaded guide.
+3. Call `builtin__show_widget` with `is_read_widget_skill: true` before `widget_code`. Set it for creation, updates, and removal. Reuse `widgetId` to update the same visual; for removal, pass `mode: "remove"` and its `widgetId` without `widget_code`.
 
-**Request credential:** Set `skill_key` to `{{WIDGET_SKILL_KEY}}` exactly as supplied. Use it only in the tool argument, never in prose, widget HTML/scripts, metadata, or logs. It is valid for this request only; a later request must load the built-in skill again. Saved history, guessed strings, and boolean flags do not grant access.
+`is_read_widget_skill` is a reminder that you read this guide. It is not a credential or an access control mechanism.
 
 Explain or clarify in normal assistant text whenever useful. Skill activation does not require the next assistant response to be a tool call.
 
@@ -35,7 +35,7 @@ The widget streams token-by-token. Structure your tool call so visible content a
 
 ```json
 {
-    "skill_key": "<credential from this skill>",
+    "is_read_widget_skill": true,
     "widget_code": "<svg viewBox=\"0 0 400 200\">...",
     "widgetId": "optional-id",
     "title": "optional-title"
@@ -131,14 +131,14 @@ Output streams token-by-token. Structure code so useful content appears early.
 Good:
 
 ```json
-{"skill_key": "<credential from this skill>","widget_code":"<svg viewBox=\"0 0 400 200\"><rect...
+{"is_read_widget_skill":true,"widget_code":"<svg viewBox=\"0 0 400 200\"><rect...
 ```
 
 Bad (delays visible content):
 
 ```json
 {
-  "skill_key": "<credential from this skill>",
+  "is_read_widget_skill": true,
   "widgetId": "my-widget",
   "title": "My Widget",
   "widget_code": "<svg...

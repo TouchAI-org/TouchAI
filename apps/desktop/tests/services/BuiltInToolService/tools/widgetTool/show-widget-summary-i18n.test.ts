@@ -120,7 +120,8 @@ describe('user reads widget summaries in their own language', () => {
         expect(parsed.name).toBe('widget');
         expect(parsed.description).toBeTruthy();
         expect(parsed.shortDescription).toBeTruthy();
-        expect(result.match(/\{\{WIDGET_SKILL_KEY\}\}/g)).toHaveLength(1);
+        expect(result).toContain('is_read_widget_skill: true');
+        expect(result).not.toContain('skill_key');
         expect(result).toContain('builtin__activate_skill');
         expect(result).toContain('skills/.system/widget/SKILL.md');
         expect(result).not.toContain('builtin://');

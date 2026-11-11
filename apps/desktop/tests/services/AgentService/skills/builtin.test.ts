@@ -32,11 +32,12 @@ describe('given the app includes a widget skill', () => {
         expect(getTauriInvokeCalls('agent_skills_read_enabled_user_file')).toEqual([]);
     });
 
-    it('user can inspect bundled instructions without receiving an execution credential', async () => {
+    it('user can inspect bundled instructions and sees the widget read acknowledgement', async () => {
         const content = await readSkillContent(widget);
         expect(content).toContain('name: widget');
         expect(content).toContain('builtin__show_widget');
-        expect(content).toContain('{{WIDGET_SKILL_KEY}}');
+        expect(content).toContain('is_read_widget_skill: true');
+        expect(content).not.toContain('skill_key');
         expect(content).not.toContain('i_have_seen_read_me');
         expect(content).not.toContain('visualize_read_me');
     });

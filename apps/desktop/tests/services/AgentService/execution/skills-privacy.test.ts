@@ -147,7 +147,7 @@ describe('given a skill is activated during a conversation that needs a retry', 
         const widgetPath = '/app/skills/.system/widget/SKILL.md';
         const checkpoints: TurnEvent[] = [];
         let step = 0;
-        httpFetch.mockImplementation(async (_url, init) => {
+        httpFetch.mockImplementation(async () => {
             step++;
             if (step === 1)
                 return widgetResponse(
@@ -156,14 +156,10 @@ describe('given a skill is activated during a conversation that needs a retry', 
                     'read-widget'
                 );
             if (step === 2) {
-                const key = init.body.match(
-                    /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/
-                )?.[0];
-                expect(key).toBeTruthy();
                 return widgetResponse(
                     'builtin__show_widget',
                     {
-                        skill_key: key,
+                        is_read_widget_skill: true,
                         widget_code: '<section>Chart</section>',
                         widgetId: 'chart',
                     },
@@ -220,47 +216,45 @@ describe('given a skill is activated during a conversation that needs a retry', 
         }
     );
 
-    it('user never sees a widget draft when the model supplies the old acknowledgement without a read credential', async () => {
-        httpFetch
-            .mockResolvedValueOnce(
-                widgetResponse('builtin__show_widget', {
-                    i_have_seen_read_me: true,
-                    widget_code: '<section>Unauthorized preview</section>',
-                })
-            )
-            .mockResolvedValueOnce(response());
-        const chunks: AiStreamChunk[] = [];
-        await new AiConversationRuntime(new AiRequestExecutor(), {
-            prompt: 'Draw a chart',
-            onChunk: (chunk) => chunks.push(chunk),
-        }).run();
-        expect(chunks.flatMap((chunk) => chunk.toolCallDeltas ?? [])).toEqual([]);
-        expect(chunks.flatMap((chunk) => chunk.toolCalls ?? [])).toEqual([]);
-        expect(chunks.some((chunk) => chunk.toolEvent?.type === 'widget_upsert')).toBe(false);
-    });
+    it.each([
+        ['omits', {}],
+        ['sets false', { is_read_widget_skill: false }],
+        ['uses a string', { is_read_widget_skill: 'true' }],
+        ['uses a number', { is_read_widget_skill: 1 }],
+        ['uses the legacy key', { skill_key: 'legacy' }],
+    ])(
+        'user sees no widget preview or mutation when the model %s acknowledgement',
+        async (_label, acknowledgement) => {
+            httpFetch
+                .mockResolvedValueOnce(
+                    widgetResponse('builtin__show_widget', {
+                        ...acknowledgement,
+                        widget_code: '<section>Unauthorized preview</section>',
+                    })
+                )
+                .mockResolvedValueOnce(response());
+            const chunks: AiStreamChunk[] = [];
+            await new AiConversationRuntime(new AiRequestExecutor(), {
+                prompt: 'Draw a chart',
+                onChunk: (chunk) => chunks.push(chunk),
+            }).run();
+            expect(chunks.flatMap((chunk) => chunk.toolCallDeltas ?? [])).toEqual([]);
+            expect(chunks.flatMap((chunk) => chunk.toolCalls ?? [])).toEqual([]);
+            expect(chunks.some((chunk) => chunk.toolEvent?.type === 'widget_upsert')).toBe(false);
+        }
+    );
 
     it.each([false, true])(
-        'user can create and retry a widget with a private read credential when explicit selection is %s',
+        'user can create and retry an acknowledged widget when explicit selection is %s',
         async (selected) => {
             const widgetPath = '/app/skills/.system/widget/SKILL.md';
             const requests: string[] = [];
             const chunks: AiStreamChunk[] = [];
             const events: TurnEvent[] = [];
-            let key: string | undefined;
+            let toolCallObserved = false;
             let step = selected ? 1 : 0;
             httpFetch.mockImplementation(async (_url, init) => {
-                const body = JSON.parse(init.body) as {
-                    messages: Array<{ role: string; content: string }>;
-                };
                 requests.push(init.body);
-                const guide = body.messages.find(
-                    (message) =>
-                        typeof message.content === 'string' &&
-                        message.content.includes('<path>/app/skills/.system/widget/SKILL.md</path>')
-                )?.content;
-                key ??= guide?.match(
-                    /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/
-                )?.[0];
                 const current = step++;
                 if (current === 0)
                     return widgetResponse(
@@ -276,7 +270,7 @@ describe('given a skill is activated during a conversation that needs a retry', 
                     return widgetResponse(
                         'builtin__show_widget',
                         {
-                            skill_key: key ?? 'missing-current-key',
+                            is_read_widget_skill: true,
                             widget_code: `<section>Chart ${current}</section>`,
                             widgetId: 'chart',
                         },
@@ -293,11 +287,14 @@ describe('given a skill is activated during a conversation that needs a retry', 
                     skills: selected ? [{ name: 'widget', path: widgetPath }] : [],
                 },
                 requestToolApproval: async () => true,
-                onChunk: (chunk) => chunks.push(chunk),
+                onChunk: (chunk) => {
+                    chunks.push(chunk);
+                    toolCallObserved ||= Boolean(chunk.toolCalls?.length);
+                },
                 onTurnEvent: (event) => events.push(event),
             }).run();
             expect(result.response).toBe('Three concise points.');
-            expect(key).toBeTruthy();
+            expect(toolCallObserved).toBe(true);
             expect(
                 chunks.filter(
                     (chunk) =>
@@ -306,29 +303,32 @@ describe('given a skill is activated during a conversation that needs a retry', 
                 )
             ).toHaveLength(2);
             expect(events.some((event) => event.type === 'retry_scheduled')).toBe(true);
-            expect(requests[requests.length - 1]).toContain(key!);
-            expect(JSON.stringify(chunks)).not.toContain(key!);
-            expect(JSON.stringify(events)).not.toContain(key!);
-            for (const { name } of database
+            expect(requests[requests.length - 1]).toContain('is_read_widget_skill');
+            expect(JSON.stringify(chunks)).toContain('is_read_widget_skill');
+            expect(JSON.stringify(events)).toContain('is_read_widget_skill');
+            const storedCalls = database
                 .prepare(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                    "SELECT data FROM message_parts WHERE type = 'tool_call' AND tool_call_id LIKE 'widget-%'"
                 )
-                .all() as Array<{ name: string }>) {
-                expect(
-                    JSON.stringify(
-                        database.prepare(`SELECT * FROM "${name.replace(/"/g, '""')}"`).all()
-                    )
-                ).not.toContain(key!);
+                .all() as Array<{ data: string }>;
+            expect(storedCalls).toHaveLength(2);
+            for (const { data } of storedCalls) {
+                expect(JSON.parse(data)).toMatchObject({
+                    toolCallId: expect.stringMatching(/^widget-/),
+                    input: expect.stringContaining('"is_read_widget_skill":true'),
+                });
             }
             await flushObservability();
-            expect(JSON.stringify(getTauriInvokeCalls('obs_ingest'))).not.toContain(key!);
+            expect(JSON.stringify(getTauriInvokeCalls('obs_ingest'))).not.toContain(
+                'is_read_widget_skill'
+            );
 
             httpFetch.mockReset();
             httpFetch
                 .mockResolvedValueOnce(
                     widgetResponse('builtin__show_widget', {
-                        skill_key: key,
-                        widget_code: '<section>Expired credential</section>',
+                        is_read_widget_skill: false,
+                        widget_code: '<section>Rejected acknowledgement</section>',
                     })
                 )
                 .mockResolvedValueOnce(response());

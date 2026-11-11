@@ -36,7 +36,6 @@ import type { PromptSnapshot } from '../prompt/types';
 import { createSessionReadModel } from '../session/readModel';
 import { buildSessionTitle } from '../session/title';
 import { findUnsupportedSessionAttachmentTypes } from '../session/transport';
-import { WidgetSkillAccess } from '../skills/widgetAccess';
 import type { TaskExecutionMode } from '../task/types';
 import {
     AiRequestExecutor,
@@ -213,9 +212,7 @@ export class AiConversationRuntime {
     /** Request-only contents never enter published checkpoints or persistence. */
     private readonly privateState: RequestPrivateState = {
         messageContents: new Map<number, AiMessage['content']>(),
-        messageToolCalls: new Map(),
         skillActivationAttempts: 0,
-        widgetSkillAccess: new WidgetSkillAccess(),
     };
     private readonly startedAt = Date.now();
     private requestFinalized = false;
@@ -371,8 +368,7 @@ export class AiConversationRuntime {
                 executionMode: this.options.executionMode ?? 'foreground',
                 inputSnapshot: this.options.inputSnapshot,
             }));
-        const livePromptSnapshot =
-            await this.privateState.widgetSkillAccess.prepareSnapshot(composedPromptSnapshot);
+        const livePromptSnapshot = composedPromptSnapshot;
         const promptSnapshot = summarizePromptSnapshot(livePromptSnapshot);
         const modelLanguageContext =
             promptSnapshot.modelLanguageContext ?? getCurrentModelLanguageContext();
@@ -642,8 +638,6 @@ export class AiConversationRuntime {
             throw error;
         } finally {
             this.privateState.messageContents.clear();
-            this.privateState.messageToolCalls.clear();
-            this.privateState.widgetSkillAccess.clear();
             this.options.signal?.removeEventListener('abort', onAbort);
             try {
                 this.liveTracker?.stop();
