@@ -162,6 +162,9 @@ export const useSettingsStore = defineStore('settings', () => {
         try {
             await initializePromise;
         } catch (error) {
+            if (!isActive()) {
+                return;
+            }
             // A failed handshake is retryable. Keep the subscription so a late owner-ready
             // or focus reconcile can still update the mirror before the explicit retry.
             if (initialization.value === attempt && attempt.state.value === 'pending') {

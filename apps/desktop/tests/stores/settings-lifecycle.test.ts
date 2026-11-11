@@ -1,5 +1,10 @@
-import { AppEvent, eventService } from '@services/EventService';
-import type { DatabaseQueryRequest } from '@services/NativeService/database';
+import {
+    getSettingsService,
+    setActiveSettingsService,
+    SettingsErrorCode,
+    SettingsServiceError,
+} from '@services/SettingsService';
+import { SETTINGS_TRANSPORT_EVENT } from '@services/SettingsService/wire';
 import { flushPromises } from '@vue/test-utils';
 import { createPinia, disposePinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -24,17 +29,30 @@ function deferred() {
 function isSettingsRegistration(call: TauriInvokeCall): boolean {
     return (
         call.cmd === 'plugin:event|listen' &&
-        (call.payload as { event?: string })?.event === AppEvent.SETTINGS_GENERAL_UPDATED
+        (call.payload as { event?: string })?.event === SETTINGS_TRANSPORT_EVENT
+    );
+}
+
+function isSettingsUnregistration(call: TauriInvokeCall): boolean {
+    return (
+        call.cmd === 'plugin:event|unlisten' &&
+        (call.payload as { event?: string })?.event === SETTINGS_TRANSPORT_EVENT
     );
 }
 
 async function broadcastLanguage() {
-    await eventService.emit(AppEvent.SETTINGS_GENERAL_UPDATED, {
-        sourceId: 'another-window',
-        windowLabel: 'settings',
-        key: 'language',
-        value: 'en-US',
-    });
+    try {
+        const result = await getSettingsService().mutate('language', 'en-US');
+        expect(result.status).toBe('committed');
+    } catch (error) {
+        if (
+            error instanceof SettingsServiceError &&
+            error.code === SettingsErrorCode.OwnerDisposed
+        ) {
+            return;
+        }
+        throw error;
+    }
 }
 
 let pinia: ReturnType<typeof createPinia>;
@@ -44,7 +62,9 @@ beforeEach(() => {
     setActivePinia(pinia);
     const values = new Map<string, string>([['language', 'zh-CN']]);
     mockTauriCommand('database_query', (payload: unknown) => {
-        const { request } = payload as { request: DatabaseQueryRequest };
+        const { request } = payload as {
+            request: { sql: string; params?: Array<string | number | null> };
+        };
         const writing = request.sql.startsWith('insert');
         if (writing) {
             values.set(String(request.params?.[0]), String(request.params?.[1]));
@@ -64,10 +84,36 @@ beforeEach(() => {
             lastInsertId: writing ? 1 : null,
         };
     });
+    mockTauriCommand('database_operation', (payload: unknown) => {
+        const { request } = payload as {
+            request:
+                | { kind: 'setting_get_many'; keys: string[] }
+                | { kind: 'setting_get'; key: string }
+                | { kind: 'setting_set'; key: string; value: string };
+        };
+        if (request.kind === 'setting_get_many') {
+            return Object.fromEntries(request.keys.map((key) => [key, values.get(key) ?? null]));
+        }
+        if (request.kind === 'setting_get') {
+            return values.get(request.key) ?? null;
+        }
+        if (request.kind === 'setting_set') {
+            values.set(request.key, request.value);
+            return {
+                id: 1,
+                key: request.key,
+                value: request.value,
+                created_at: '2026-11-10 00:00:00',
+                updated_at: '2026-11-10 00:00:00',
+            };
+        }
+        return null;
+    });
 });
 
 afterEach(async () => {
     disposePinia(pinia);
+    setActiveSettingsService(null);
     await flushPromises();
 });
 
@@ -88,7 +134,7 @@ describe('user shares and disposes settings initialization', () => {
         const readStarted = deferred();
         const read = deferred();
         interceptTauriInvoke(async (call, next) => {
-            if (call.cmd === 'database_query') {
+            if (call.cmd === 'database_query' || call.cmd === 'database_operation') {
                 readStarted.resolve();
                 await read.promise;
             }
@@ -105,7 +151,12 @@ describe('user shares and disposes settings initialization', () => {
 
         expect(store.initialized).toBe(false);
         expect(store.settings.language).not.toBe('en-US');
-        expect(getTauriInvokeCalls().filter(isSettingsRegistration)).toEqual([]);
+        expect(getTauriInvokeCalls().filter(isSettingsRegistration)).toHaveLength(1);
+        expect(getTauriInvokeCalls().filter(isSettingsUnregistration)).toEqual([
+            expect.objectContaining({
+                payload: expect.objectContaining({ event: SETTINGS_TRANSPORT_EVENT }),
+            }),
+        ]);
     });
 
     it('user disposes during native registration and its eventual listener is released', async () => {
@@ -132,7 +183,7 @@ describe('user shares and disposes settings initialization', () => {
         expect(store.settings.language).toBe('zh-CN');
         expect(getTauriInvokeCalls('plugin:event|unlisten')).toEqual([
             expect.objectContaining({
-                payload: expect.objectContaining({ event: AppEvent.SETTINGS_GENERAL_UPDATED }),
+                payload: expect.objectContaining({ event: SETTINGS_TRANSPORT_EVENT }),
             }),
         ]);
     });
@@ -168,12 +219,12 @@ describe('user shares and disposes settings initialization', () => {
         expect(store.settings.language).toBe('zh-CN');
         expect(getTauriInvokeCalls('plugin:event|unlisten')).toEqual([
             expect.objectContaining({
-                payload: expect.objectContaining({ event: AppEvent.SETTINGS_GENERAL_UPDATED }),
+                payload: expect.objectContaining({ event: SETTINGS_TRANSPORT_EVENT }),
             }),
         ]);
     });
 
-    it('user reinitializes after disposal without waiting for the previous registration', async () => {
+    it('user opens a fresh settings store while the previous registration is still pending', async () => {
         const registrationStarted = deferred();
         const registration = deferred();
         let deferRegistration = true;
@@ -190,17 +241,22 @@ describe('user shares and disposes settings initialization', () => {
         await registrationStarted.promise;
         await store.dispose();
 
-        const current = store.initialize();
+        disposePinia(pinia);
+        setActiveSettingsService(null);
+        pinia = createPinia();
+        setActivePinia(pinia);
+        const currentStore = useSettingsStore();
+        const current = currentStore.initialize();
         await flushPromises();
-        const readyBeforePreviousCompletion = store.initialized;
+        const readyBeforePreviousCompletion = currentStore.initialized;
         registration.resolve();
         await Promise.all([previous, current]);
         await broadcastLanguage();
 
         expect(readyBeforePreviousCompletion).toBe(true);
-        expect(store.initialized).toBe(true);
-        expect(store.settings.language).toBe('en-US');
-        await store.dispose();
+        expect(currentStore.initialized).toBe(true);
+        expect(currentStore.settings.language).toBe('en-US');
+        await currentStore.dispose();
     });
 
     it('user retries after failed registration and receives updates from the new initialization', async () => {
@@ -261,7 +317,7 @@ describe('user shares and disposes settings initialization', () => {
         const secondRead = deferred();
         let reads = 0;
         interceptTauriInvoke(async (call, next) => {
-            if (call.cmd === 'database_query') {
+            if (call.cmd === 'database_query' || call.cmd === 'database_operation') {
                 reads += 1;
                 await (reads === 1 ? firstRead.promise : secondRead.promise);
             }
