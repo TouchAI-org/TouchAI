@@ -23,7 +23,7 @@ async function fixture() {
     return root;
 }
 
-async function writeNotes(root: string, version: string, content = notes) {
+async function writeNotes(root: string, version: string, content: Record<string, unknown> = notes) {
     await mkdir(join(root, 'release-notes'), { recursive: true });
     await writeFile(join(root, 'release-notes', `${version}.json`), JSON.stringify(content));
 }
