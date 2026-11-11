@@ -123,9 +123,22 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// 两个用例都会改写全局诊断级别，必须串行执行。
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn reset() {
+        GENERATION.fetch_add(1, Ordering::SeqCst);
+        DIAGNOSTIC_ENABLED.store(false, Ordering::SeqCst);
+        EXPIRES_AT_MS.store(0, Ordering::SeqCst);
+        ACTIVE_LEVEL_RANK.store(RANK_INFO, Ordering::SeqCst);
+    }
 
     #[test]
     fn user_gets_an_expiry_when_diagnostic_mode_is_enabled() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        reset();
         initialize(LevelFilter::Info);
         let status = set_diagnostic_mode(true);
         assert!(status.enabled);
@@ -135,8 +148,8 @@ mod tests {
 
     #[test]
     fn user_gets_debug_records_only_while_diagnostic_mode_is_enabled() {
-        initialize(LevelFilter::Info);
-        set_diagnostic_mode(false);
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        reset();
 
         assert!(allows(Level::Info));
         assert!(!allows(Level::Debug));
