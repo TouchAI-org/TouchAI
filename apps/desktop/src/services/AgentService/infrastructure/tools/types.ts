@@ -88,6 +88,8 @@ export interface McpToolOutcome {
  */
 export interface ToolDispatchResult {
     toolCall: AiToolCall;
+    /** The exact audit-safe input persisted with the tool-call part. */
+    input?: string;
     result: string;
     persistedResult?: string;
     isError: boolean;

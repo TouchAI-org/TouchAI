@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     mcpExecuteTool: vi.fn(),
     createMcpToolLog: vi.fn(),
     updateMcpToolLogByCallId: vi.fn(),
+    createToolPart: vi.fn(),
 }));
 
 vi.mock('@/services/BuiltInToolService', () => ({
@@ -25,6 +26,10 @@ vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
 vi.mock('@database/queries', () => ({
     createMcpToolLog: mocks.createMcpToolLog,
     updateMcpToolLogByCallId: mocks.updateMcpToolLogByCallId,
+}));
+
+vi.mock('@database/queries/toolParts', () => ({
+    createToolPart: mocks.createToolPart,
 }));
 
 function createRequest(overrides: Partial<ToolDispatchRequest> = {}): ToolDispatchRequest {
@@ -60,6 +65,7 @@ describe('user runs a tool call requested by the model', () => {
         vi.clearAllMocks();
         mocks.createMcpToolLog.mockResolvedValue({ id: 9 });
         mocks.updateMcpToolLogByCallId.mockResolvedValue(undefined);
+        mocks.createToolPart.mockResolvedValue({ id: 55 });
     });
 
     describe('given the tool name matches an enabled built-in tool', () => {
@@ -73,6 +79,7 @@ describe('user runs a tool call requested by the model', () => {
             );
 
             expect(result).toMatchObject({
+                input: '{}',
                 result: 'ok',
                 isError: false,
                 toolLogId: 7,
@@ -116,7 +123,7 @@ describe('user runs a tool call requested by the model', () => {
                 },
             ];
 
-            await dispatchToolCall(
+            const result = await dispatchToolCall(
                 createRequest({
                     toolDefinitions,
                     toolCall: {
@@ -133,6 +140,7 @@ describe('user runs a tool call requested by the model', () => {
                     requestedTimeoutMs: 5000,
                 })
             );
+            expect(result.input).toBe('{"command":"ls"}');
         });
     });
 
@@ -188,6 +196,38 @@ describe('user runs a tool call requested by the model', () => {
     });
 
     describe('given the tool arguments are not valid JSON', () => {
+        it('user sees the rejected call kept in history with its original name', async () => {
+            const result = await dispatchToolCall(
+                createRequest({
+                    sessionId: 3,
+                    toolCallMessageId: 8,
+                    toolCall: {
+                        id: 'call-rejected',
+                        name: 'unknown.tool',
+                        arguments: '{"secret":"value"',
+                    },
+                })
+            );
+
+            expect(mocks.createToolPart).toHaveBeenCalledWith(
+                'mcp',
+                expect.objectContaining({
+                    tool_call_id: 'call-rejected',
+                    session_id: 3,
+                    message_id: 8,
+                    requestedName: 'unknown.tool',
+                    input: '{"secret":"[redacted]"',
+                    status: 'error',
+                })
+            );
+            expect(result).toMatchObject({
+                input: '{"secret":"[redacted]"',
+                isError: true,
+                toolLogId: 55,
+                argumentParseFailed: true,
+            });
+        });
+
         it('user sees a protocol error reported instead of running any tool', async () => {
             const events: ToolEvent[] = [];
             const expected = tt('工具参数协议错误：{toolName} 返回了无效的 JSON 参数。', {
