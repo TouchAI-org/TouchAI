@@ -192,6 +192,17 @@ describe('primitive tokens', () => {
 });
 
 describe('semantic tokens', () => {
+    it('user given desktop control feedback when resolving its palette then retains white foreground and a visible pointer shadow', () => {
+        const resolved = resolveToken(
+            readAppFile('node_modules/tailwindcss/theme.css'),
+            primitiveCss,
+            semanticCss
+        );
+
+        expect(resolved('--color-text-inverse')).toBe('#fff');
+        expect(resolved('--color-border-strong')).toBe('rgba(74, 64, 57, 0.28)');
+    });
+
     it('resolves every surface role to the exact colour it replaced', () => {
         /*
          * The roles now point at the primitive neutral ladder rather than carrying

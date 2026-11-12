@@ -53,6 +53,7 @@ const BUILT_IN_TOOL_SEED_RISK_LEVELS: Record<BuiltInToolId, 'low' | 'medium' | '
     browser_session: 'medium',
     browser_observe: 'low',
     browser_act: 'high',
+    computer_use: 'high',
 };
 
 interface BuiltInToolExecutionOptions {
@@ -452,6 +453,20 @@ class BuiltInToolService {
 
                 if (!approved) {
                     const durationMs = Date.now() - callStartTime;
+                    if (typeof resolved.tool.recordApprovalRejected === 'function') {
+                        await Promise.resolve(
+                            resolved.tool.recordApprovalRejected(
+                                options.toolArgs,
+                                resolved.config,
+                                executionContext
+                            )
+                        ).catch((error) => {
+                            log.error(
+                                '[BuiltInToolService] Failed to record rejected built-in tool action:',
+                                error
+                            );
+                        });
+                    }
                     if (toolLogId !== null)
                         await updateBuiltInToolLogById(toolLogId, {
                             status: 'rejected',

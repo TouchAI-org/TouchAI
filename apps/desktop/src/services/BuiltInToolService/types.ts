@@ -33,7 +33,8 @@ export type BuiltInToolId =
     | 'browser'
     | 'browser_session'
     | 'browser_observe'
-    | 'browser_act';
+    | 'browser_act'
+    | 'computer_use';
 
 /**
  * 所有内置工具共享的最小运行时上下文。
@@ -174,6 +175,22 @@ export abstract class BuiltInTool<
         void namespacedName;
         void context;
         return null;
+    }
+
+    /**
+     * Record a tool-specific outcome when the user rejects approval.
+     *
+     * The execution service owns the approval decision, so tools need this
+     * hook to account for actions that deliberately never reach `execute`.
+     */
+    recordApprovalRejected(
+        args: Record<string, unknown>,
+        config: TConfig,
+        context: TContext
+    ): void | Promise<void> {
+        void args;
+        void config;
+        void context;
     }
 
     buildConversationSemantic(args: Record<string, unknown>): BuiltInToolConversationSemantic {

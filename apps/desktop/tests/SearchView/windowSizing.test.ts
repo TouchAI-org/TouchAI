@@ -162,6 +162,21 @@ describe('when a conversation is on screen', () => {
         });
     });
 
+    it('user gets the approval panel measured even after a manual height was chosen', () => {
+        expect(
+            resolveSearchWindowHeightPolicy({
+                askUserOpen: true,
+                sessionCount: 1,
+                quickSearchOpen: false,
+            })
+        ).toEqual({
+            hasManagedPanel: true,
+            autoResizeEnabled: true,
+            respectManualOverride: false,
+            allowHeightOverride: true,
+        });
+    });
+
     it('user can shrink the window no further than the auto-height floor', () => {
         expect(
             resolveSearchWindowMinimumSize({

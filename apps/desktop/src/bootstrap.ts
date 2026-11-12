@@ -22,8 +22,8 @@ const runUsageMaintenance = async (retentionDays = 0): Promise<void> => {
     const { runUsageMaintenance: run } = await import('./services/UsageService/maintenance');
     await run(retentionDays);
 };
-const AUXILIARY_WINDOW_LABELS = new Set(['tray-menu']);
-const AUXILIARY_ROUTE_PREFIXES = ['#/tray-menu'];
+const AUXILIARY_WINDOW_LABELS = new Set(['tray-menu', 'computer-use-glow']);
+const AUXILIARY_ROUTE_PREFIXES = ['#/tray-menu', '#/computer-use-glow'];
 
 /** 定时检查远端目录的间隔；是否真正请求由刷新入口按上次检查时间决定。 */
 const MODEL_METADATA_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -312,12 +312,18 @@ export async function initializeApp() {
     installI18n(app);
 
     if (shouldUseLightweightBootstrap()) {
+        if (
+            getCurrentWindowLabel() === 'computer-use-glow' ||
+            window.location.hash.startsWith('#/computer-use-glow')
+        ) {
+            void initializeFontLoader();
+        }
         app.mount('#app');
         // Keep tray motion preferences synchronized without delaying its first paint.
         void useSettingsStore(pinia)
             .initialize()
             .catch((error) => {
-                log.warn('Failed to initialize tray preferences.', error);
+                log.warn('Failed to initialize auxiliary window preferences.', error);
             });
         return;
     }

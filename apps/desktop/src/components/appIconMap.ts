@@ -16,6 +16,7 @@ import IconCheckCircle from '~icons/lucide/circle-check';
 import IconXCircle from '~icons/lucide/circle-x';
 import IconCopy from '~icons/lucide/copy';
 import IconData from '~icons/lucide/database';
+import IconDownload from '~icons/lucide/download';
 import IconLinkExternal from '~icons/lucide/external-link';
 import IconShow from '~icons/lucide/eye';
 import IconHide from '~icons/lucide/eye-off';
@@ -37,6 +38,7 @@ import IconChatHistory from '~icons/lucide/message-circle-more';
 import IconWindowRestore from '~icons/lucide/minimize';
 import IconCompress from '~icons/lucide/minimize-2';
 import IconMinus from '~icons/lucide/minus';
+import IconPointer from '~icons/lucide/mouse-pointer-2';
 import IconEdit from '~icons/lucide/pencil';
 import IconPin from '~icons/lucide/pin';
 import IconPlay from '~icons/lucide/play';
@@ -63,10 +65,12 @@ export const appIconMap = {
     'chevron-up': IconChevronUp,
     close: IconX,
     compress: IconCompress,
+    cursor: IconPointer,
     copy: IconCopy,
     database: IconData,
     delete: IconTrash,
     'document-text': IconFileBlank,
+    download: IconDownload,
     edit: IconEdit,
     'exclamation-triangle': IconError,
     eye: IconShow,
@@ -89,6 +93,7 @@ export const appIconMap = {
     llm: IconBoxes,
     leaf: IconLeaf,
     loader: IconLoader,
+    loading: IconLoader,
     'external-link': IconLinkExternal,
     mcp: IconBlocks,
     minimize: IconMinus,

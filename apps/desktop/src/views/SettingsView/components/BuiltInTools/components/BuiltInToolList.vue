@@ -7,7 +7,11 @@
 
     import { t } from '@/i18n';
 
-    import { type BuiltInToolEntity, getBuiltInToolSummary } from '../types';
+    import {
+        type BuiltInToolEntity,
+        getBuiltInToolDisplayName,
+        getBuiltInToolSummary,
+    } from '../types';
     interface Props {
         tools: BuiltInToolEntity[];
         selectedToolId: string | null;
@@ -54,7 +58,7 @@
                         data-no-i18n="true"
                         translate="no"
                     >
-                        {{ tool.display_name }}
+                        {{ getBuiltInToolDisplayName(tool) }}
                     </h3>
                     <p class="mt-1 text-xs leading-5 break-words text-neutral-500">
                         {{ getBuiltInToolSummary(tool.tool_id, tool.description) }}

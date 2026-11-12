@@ -152,6 +152,19 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
     }
     info!("Application base directories initialized.");
 
+    let attachment_cache =
+        app_directory_path(crate::core::system::paths::AppDirectory::Cache)?.join("attachments");
+    app.add_capability(
+        tauri::ipc::CapabilityBuilder::new("attachment-cache-write")
+            .window("main")
+            .permission_scoped(
+                "fs:allow-write-file",
+                vec![serde_json::json!({ "path": attachment_cache.join("**").to_string_lossy() })],
+                Vec::<serde_json::Value>::new(),
+            ),
+    )
+    .map_err(|error| format!("Failed to configure attachment cache writes: {error}"))?;
+
     let database_runtime =
         tauri::async_runtime::block_on(crate::core::database::DatabaseRuntime::initialize(app))
             .map_err(|error| {
@@ -177,6 +190,11 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
             warn!("Analytics runtime unavailable, collection stays disabled: {error}");
         }
     }
+    app.manage(crate::core::computer_use::storage::DriverStorage::new(
+        database_runtime.clone(),
+        app_directory_path(crate::core::system::paths::AppDirectory::ComputerUse)?,
+        app_directory_path(crate::core::system::paths::AppDirectory::AssetsBin)?,
+    ));
     app.manage(database_runtime);
     info!("Database runtime initialized.");
 
@@ -245,6 +263,10 @@ pub fn setup_app(app: &mut tauri::App) -> Result<(), String> {
 
     if let Err(error) = crate::core::window::tray::preload_tray_menu(app.handle()) {
         warn!("Failed to preload tray menu: {}", error);
+    }
+
+    if let Err(error) = crate::core::window::computer_use_glow::preload(app.handle()) {
+        warn!("Failed to preload computer-use glow: {}", error);
     }
 
     #[cfg(target_os = "windows")]

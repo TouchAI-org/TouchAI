@@ -113,6 +113,7 @@ const BUILT_IN_TOOL_EMPTY_CONFIG_IDS = new Set([
     'web_search',
     'web_fetch',
     'browser',
+    'computer_use',
     'show_widget',
     'visualize_read_me',
     'ask_user_question',
@@ -122,7 +123,15 @@ const BUILT_IN_TOOL_EMPTY_CONFIG_IDS = new Set([
 const BUILT_IN_TOOL_HIDDEN_IN_SETTINGS_IDS = new Set(['web_search', 'visualize_read_me']);
 const BROWSER_AUTOMATION_TOOL_IDS = new Set(['browser']);
 
+export function getBuiltInToolDisplayName(tool: BuiltInToolEntity): string {
+    return tool.display_name;
+}
+
 export function getBuiltInToolSummary(toolId: string, description?: string | null): string {
+    if (toolId === 'computer_use') {
+        return t('settings.builtInTools.summary.computerUse');
+    }
+
     if (toolId === 'bash') {
         return t('settings.builtInTools.summary.bash');
     }

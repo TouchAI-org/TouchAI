@@ -17,6 +17,7 @@
         type BuiltInToolEntity,
         type BuiltInToolLogEntity,
         type BuiltInToolLogSummary,
+        getBuiltInToolDisplayName,
         loadBuiltInToolQueries,
     } from '../types';
 
@@ -194,7 +195,7 @@
                 <ToolLogEntry
                     v-for="log in filteredLogs"
                     :key="log.id"
-                    :name="props.tool.display_name"
+                    :name="getBuiltInToolDisplayName(props.tool)"
                     :status="log.status"
                     :created-at="log.created_at"
                     :duration-ms="log.duration_ms"

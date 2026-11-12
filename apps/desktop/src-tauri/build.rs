@@ -170,16 +170,22 @@ fn emit_rerun_if_changed(path: &Path) -> Result<(), Box<dyn std::error::Error>> 
 /// 编译时下载、校验、嵌入一个外部二进制。
 ///
 /// `name` 同时决定：
-/// - manifest 路径：`resources/{name}/manifest.json`
+/// - manifest 路径：`resources/binaries.json` 中的对应条目
 /// - 缓存目录：`target/{name}-cache/{version}/{triple}`
 /// - 共享缓存：`<user cache>/touchai/bundled-binaries/{name}/{version}/{triple}`
 /// - 生成产物：`{OUT_DIR}/{name}-binary.rs`
 ///   其中常量名为 `BUNDLED_{NAME_UPPER}_FILENAME` / `_SHA256` / `_BYTES`
 fn prepare_bundled(name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let manifest_path = PathBuf::from(format!("resources/{name}/manifest.json"));
+    let manifest_path = PathBuf::from("resources/binaries.json");
     println!("cargo:rerun-if-changed={}", manifest_path.display());
 
-    let manifest: BundledManifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
+    let mut resources: std::collections::BTreeMap<String, serde_json::Value> =
+        serde_json::from_slice(&fs::read(&manifest_path)?)?;
+    let manifest: BundledManifest = serde_json::from_value(
+        resources
+            .remove(name)
+            .ok_or(format!("missing bundled resource {name}"))?,
+    )?;
     let target_triple = std::env::var("TARGET")?;
     let out_dir = PathBuf::from(std::env::var("OUT_DIR")?);
     let cache_dir = cargo_target_dir(&out_dir)?

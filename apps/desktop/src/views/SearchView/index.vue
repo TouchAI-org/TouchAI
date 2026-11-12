@@ -634,6 +634,7 @@
         finishNativeDrag,
         isLogicalPanelResizing,
     } = useSearchWindowResize({
+        askUserOpen: computed(() => Boolean(askUserStore.current)),
         target: pageContent,
         inputArea,
         picker: pickerContainer,

@@ -6,6 +6,7 @@ pub mod autostart;
 pub mod browser;
 pub mod built_in_tools;
 pub mod clipboard;
+pub mod computer_use;
 pub mod database;
 pub mod font;
 pub mod mcp;
@@ -126,5 +127,23 @@ pub fn invoke_handler<R: tauri::Runtime>(
         browser::browser_reload,
         browser::browser_observe,
         browser::browser_act,
+        computer_use::computer_use_status,
+        computer_use::computer_use_driver_directory,
+        computer_use::computer_use_set_driver_directory,
+        computer_use::computer_use_list_tools,
+        computer_use::computer_use_glow_pulse,
+        computer_use::computer_use_glow_set_active,
+        computer_use::computer_use_glow_snapshot,
+        computer_use::computer_use_cursor_position,
+        computer_use::computer_use_prepare,
+        computer_use::computer_use_invoke,
+        computer_use::computer_use_cancel,
+        computer_use::computer_use_cancel_all,
+        computer_use::computer_use_check_update,
+        computer_use::computer_use_install_update,
+        computer_use::computer_use_remove,
+        computer_use::computer_use_apply_settings,
+        computer_use::computer_use_set_recording,
+        computer_use::computer_use_shutdown,
     ]
 }

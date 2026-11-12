@@ -5,22 +5,31 @@ import { setLocale } from '@/i18n';
 vi.mock('@/services/BuiltInToolService/registry', () => ({
     builtInToolRegistry: {
         get: (toolId: string) =>
-            toolId === 'bash'
+            toolId === 'computer_use'
                 ? {
-                      id: 'bash',
-                      displayName: 'Bash',
+                      id: 'computer_use',
+                      displayName: 'Computer use',
                       buildConversationSemantic: () => ({
                           action: 'process',
-                          target: 'Bash',
+                          target: 'Computer use',
                       }),
                   }
-                : toolId === 'empty'
+                : toolId === 'bash'
                   ? {
-                        id: 'empty',
-                        displayName: 'Empty',
-                        buildConversationSemantic: () => null,
+                        id: 'bash',
+                        displayName: 'Bash',
+                        buildConversationSemantic: () => ({
+                            action: 'process',
+                            target: 'Bash',
+                        }),
                     }
-                  : null,
+                  : toolId === 'empty'
+                    ? {
+                          id: 'empty',
+                          displayName: 'Empty',
+                          buildConversationSemantic: () => null,
+                      }
+                    : null,
         list: () => [
             {
                 id: 'bash',
@@ -39,6 +48,31 @@ vi.mock('@/services/BuiltInToolService/registry', () => ({
 }));
 
 describe('user reads tool activity in their own language', () => {
+    it.each([
+        ['en-US', 'completed', 'Adjust window'],
+        ['en-US', 'error', 'Adjust window'],
+        ['zh-CN', 'completed', '调整窗口'],
+        ['zh-CN', 'error', '调整窗口'],
+    ] as const)(
+        'user given a desktop action in %s when it is %s then sees its operation without a result suffix',
+        async (locale, status, verb) => {
+            setLocale(locale);
+            const { buildBuiltInToolConversationPresentation } =
+                await import('@/services/BuiltInToolService/presentation');
+            expect(
+                buildBuiltInToolConversationPresentation(
+                    'builtin__computer_use',
+                    {
+                        action: 'call',
+                        tool: 'set_window_frame',
+                        arguments: { app: 'Notepad' },
+                    },
+                    status
+                )
+            ).toEqual({ verb, content: 'Notepad' });
+        }
+    );
+
     it('user reads built-in tool verbs in the active runtime language', async () => {
         const { buildBuiltInToolConversationPresentation } =
             await import('@/services/BuiltInToolService/presentation');

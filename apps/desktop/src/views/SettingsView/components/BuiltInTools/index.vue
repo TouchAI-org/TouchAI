@@ -20,7 +20,6 @@
     import {
         type BuiltInToolEntity,
         type BuiltInToolUpdateData,
-        isBrowserAutomationToolId,
         isBuiltInToolVisibleInSettings,
         loadBuiltInToolQueries,
         usesBuiltInToolEmptyConfig,
@@ -45,16 +44,16 @@
     const togglingToolIds = ref<Set<number>>(new Set());
     const queuedPatch = ref<BuiltInToolUpdateData | null>(null);
     const activeTab = ref<'config' | 'logs'>('config');
-    const baseTabs: SectionTabItem<'config' | 'logs'>[] = [
+    const baseTabs = computed<SectionTabItem<'config' | 'logs'>[]>(() => [
         { value: 'config', label: t('settings.builtInTools.tabs.config') },
         { value: 'logs', label: t('settings.builtInTools.tabs.logs') },
-    ];
+    ]);
     const tabs = computed<SectionTabItem<'config' | 'logs'>[]>(() => {
         if (selectedTool.value && usesBuiltInToolEmptyConfig(selectedTool.value.tool_id)) {
-            return baseTabs.filter((tab) => tab.value !== 'config');
+            return baseTabs.value.filter((tab) => tab.value !== 'config');
         }
 
-        return baseTabs;
+        return baseTabs.value;
     });
     const tabContentRef = ref<HTMLElement | null>(null);
     useScrollbarStabilizer(tabContentRef);
@@ -194,7 +193,7 @@
         }
 
         const currentTool = selectedTool.value;
-        if (isBrowserAutomationToolId(currentTool.tool_id) && 'config_json' in patch) {
+        if (usesBuiltInToolEmptyConfig(currentTool.tool_id) && 'config_json' in patch) {
             return;
         }
 

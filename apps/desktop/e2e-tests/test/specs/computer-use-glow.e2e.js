@@ -1,0 +1,127 @@
+import {
+    exerciseComputerUseGlow,
+    readComputerUseFeedbackAppearance,
+} from '../support/computer-use-glow.js';
+import { assertVisible, switchToWindowContaining, waitForE2eBridge } from '../support/desktop.js';
+
+describe('user runs computer control with activity feedback', () => {
+    before(async () => {
+        await waitForE2eBridge();
+        await browser.execute(async () => {
+            await window.__TAURI_INTERNALS__.invoke('computer_use_prepare', {
+                driver: 'cua-driver',
+            });
+        });
+    });
+
+    it('user given computer tasks when executing foreground input then sees feedback from the first input until the activity ends', async () => {
+        const result = await browser.execute(exerciseComputerUseGlow);
+        assertVisible(result.focusedBefore, 'The foreground fixture was not focused.');
+        assertVisible(result.hiddenWhileWaiting, 'Waiting for input displayed feedback.');
+        assertVisible(result.hiddenAfterObservation, 'A background read displayed feedback.');
+        assertVisible(result.visibleDuringInput, 'Foreground input did not display feedback.');
+        assertVisible(result.focusedDuringInput, 'The activity glow took keyboard focus.');
+        assertVisible(
+            result.activePointer,
+            'Real cursor movement did not show an automatic pointer.'
+        );
+        assertVisible(
+            result.visibleBetweenActions,
+            'Feedback hid while the activity was still active.'
+        );
+        assertVisible(
+            result.visibleAfterLatePointer,
+            'A late pointer from the active task hid feedback.'
+        );
+        assertVisible(
+            result.queuedTaskNoExtraFeedback,
+            'A queued call added a second feedback entry for the same activity.'
+        );
+        assertVisible(
+            result.queuedCallCancelled,
+            'Cancelling a queued task did not prevent input.'
+        );
+        assertVisible(result.visibleWithSecondOperation, 'Ending an idle task hid active input.');
+        assertVisible(result.remainingIdentity, 'The remaining session lost its identity.');
+        assertVisible(
+            result.visibleAfterFailure,
+            'A failed operation hid feedback while the activity was active.'
+        );
+        assertVisible(result.cancelledFeedback, 'Cancelled input left feedback visible.');
+        assertVisible(
+            result.directCallStopped,
+            'Stopping control left a direct native call running.'
+        );
+        assertVisible(result.hiddenAfterDirectCall, 'A direct native call left feedback visible.');
+        assertVisible(
+            !result.visibleAfterCompletion,
+            'The activity glow remained after completion.'
+        );
+    });
+
+    it('user given active computer control when feedback appears then reads white status text and pointer labels', async () => {
+        const mainWindow = await browser.getWindowHandle();
+        const activityId = 'glow-appearance-e2e';
+        try {
+            await browser.execute(async (id) => {
+                await window.__TAURI_INTERNALS__.invoke('computer_use_glow_set_active', {
+                    activityId: id,
+                    active: true,
+                });
+                window.__computerUseAppearance = window.__TAURI_INTERNALS__
+                    .invoke('computer_use_invoke', {
+                        activityId: id,
+                        executionId: id,
+                        driver: 'cua-driver',
+                        fullAccess: true,
+                        allowForeground: true,
+                        tool: 'run_script',
+                        arguments: {
+                            script: "await cua.sleep(10000); return 'appearance fixture';",
+                            session: id,
+                        },
+                    })
+                    .catch(() => undefined);
+                const deadline = Date.now() + 5000;
+                while (Date.now() < deadline) {
+                    const feedback = await window.__TAURI_INTERNALS__.invoke(
+                        'computer_use_glow_snapshot'
+                    );
+                    if (feedback.activities.some((entry) => entry.id === id)) break;
+                    await new Promise((resolve) => setTimeout(resolve, 25));
+                }
+                await window.__TAURI_INTERNALS__.invoke('computer_use_glow_pulse', {
+                    activityId: id,
+                    pointer: { x: 240, y: 180 },
+                });
+            }, activityId);
+            await switchToWindowContaining('/computer-use-glow');
+            await browser.waitUntil(
+                async () => Boolean(await browser.execute(readComputerUseFeedbackAppearance)),
+                { timeoutMsg: 'Computer-control status and pointer did not render.' }
+            );
+            const appearance = await browser.execute(readComputerUseFeedbackAppearance);
+            for (const color of [
+                appearance.statusColor,
+                appearance.stopKeyColor,
+                appearance.pointerLabelColor,
+            ]) {
+                assertVisible(
+                    color === 'rgb(255, 255, 255)',
+                    `Expected white feedback text, got ${color}.`
+                );
+            }
+            assertVisible(appearance.pointerShadow !== 'none', 'The pointer shadow disappeared.');
+        } finally {
+            await browser.switchToWindow(mainWindow);
+            await browser.execute(async (id) => {
+                await window.__TAURI_INTERNALS__.invoke('computer_use_glow_set_active', {
+                    activityId: id,
+                    active: false,
+                });
+                await window.__computerUseAppearance;
+                delete window.__computerUseAppearance;
+            }, activityId);
+        }
+    });
+});

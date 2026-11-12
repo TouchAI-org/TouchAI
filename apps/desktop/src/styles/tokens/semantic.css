@@ -39,6 +39,7 @@
     --color-canvas: var(--color-ui-100);
     --color-canvas-sunken: var(--color-ui-200);
     --color-surface-raised: var(--color-ui-50);
+    --color-surface-floating: var(--color-white);
     --color-surface-sunken: var(--color-ui-400);
     --color-surface-hover: var(--color-ui-300);
     --color-surface-hover-soft: var(--color-ui-500);
@@ -64,14 +65,17 @@
     /* ── Text ────────────────────────────────────────────────────────────── */
 
     --color-text-primary: #4a4039;
+    --color-text-neutral: var(--color-neutral-800);
     --color-text-secondary: #6b5f54;
     --color-text-tertiary: #968b7d;
     --color-settings-text: var(--color-neutral-950);
+    --color-text-inverse: var(--color-white);
 
     /* ── Borders ─────────────────────────────────────────────────────────── */
 
     --color-border: #e5e5e5;
     --color-border-subtle: rgba(74, 64, 57, 0.12);
+    --color-border-strong: rgba(74, 64, 57, 0.28);
     --color-window-border: var(--color-window-stroke);
     --color-model-logo-border: var(--color-gray-300);
     --color-model-logo-border-hover: var(--color-gray-400);

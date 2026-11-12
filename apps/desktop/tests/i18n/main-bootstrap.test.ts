@@ -292,6 +292,25 @@ describe('user opens the tray menu or settings', () => {
         expect(initializeAppUpdateNotifications).not.toHaveBeenCalled();
     });
 
+    it.each(['window label', 'route'])(
+        'user given computer control feedback when starting by %s then gets the product font without tool warm-up',
+        async (entry) => {
+            stubRoot();
+            window.history.replaceState(null, '', entry === 'route' ? '/#/computer-use-glow' : '/');
+            vi.mocked(getCurrentWindow).mockReturnValue({
+                label: entry === 'window label' ? 'computer-use-glow' : 'main',
+            } as never);
+
+            const root = await startApp();
+
+            expect(root).not.toBeNull();
+            expect(initializeFontLoader).toHaveBeenCalledOnce();
+            expect(toolServiceMock.syncRegisteredTools).not.toHaveBeenCalled();
+            expect(metadataMock.syncAllModelsMetadata).not.toHaveBeenCalled();
+            expect(initializeAppUpdateNotifications).not.toHaveBeenCalled();
+        }
+    );
+
     it('user sees the settings window without waiting for the main-window warm-up', async () => {
         stubRoot();
         window.history.replaceState(null, '', '/#/settings');

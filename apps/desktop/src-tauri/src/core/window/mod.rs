@@ -4,6 +4,7 @@
 //!
 //! 包含主窗口、设置窗口的管理逻辑
 
+pub mod computer_use_glow;
 pub mod resize;
 pub mod rounded_corners;
 pub mod search;

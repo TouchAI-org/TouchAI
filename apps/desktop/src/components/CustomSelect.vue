@@ -9,7 +9,7 @@
         SelectTrigger,
         SelectValue,
     } from '@components/ui/select';
-    import type { AcceptableValue, SelectTriggerProps } from 'reka-ui';
+    import { type AcceptableValue, Primitive, type SelectTriggerProps } from 'reka-ui';
     import { computed, ref, useAttrs } from 'vue';
 
     import { type MessageKey, t, tt } from '@/i18n';
@@ -21,10 +21,11 @@
         value: T;
         description?: string;
         iconSrc?: string;
+        disabled?: boolean;
     }
 
     interface Props {
-        modelValue: T;
+        modelValue: T | '';
         options: Option[];
         placeholder?: string;
         placeholderKey?: MessageKey;
@@ -60,12 +61,13 @@
     });
 
     const emit = defineEmits<Emits>();
-    defineSlots<{
+    const slots = defineSlots<{
         trigger?(props: {
             option: Option | undefined;
             open: boolean;
             displayLabel: string;
         }): unknown;
+        'option-actions'?(props: { option: Option }): unknown;
     }>();
     const attrs = useAttrs();
 
@@ -85,6 +87,7 @@
     });
 
     const selectOption = (value: T) => {
+        if (props.options.find((option) => option.value === value)?.disabled) return;
         emit('update:modelValue', value);
     };
 
@@ -98,6 +101,23 @@
         localOpen.value = open;
         emit('update:open', open);
     };
+
+    function handleContentKeydown(event: KeyboardEvent): void {
+        if (event.key !== 'Tab' || !slots['option-actions']) return;
+        const content = event.currentTarget as HTMLElement;
+        const targets = Array.from(
+            content.querySelectorAll<HTMLElement>(
+                ':is([role="option"]:not([data-disabled]), button:not(:disabled))'
+            )
+        );
+        if (targets.length === 0) return;
+        const currentIndex = Math.max(0, targets.indexOf(event.target as HTMLElement));
+        const nextIndex =
+            (currentIndex + (event.shiftKey ? -1 : 1) + targets.length) % targets.length;
+        event.preventDefault();
+        event.stopPropagation();
+        targets[nextIndex]?.focus();
+    }
 </script>
 
 <template>
@@ -160,53 +180,77 @@
             :data-testid="contentTestId || undefined"
             :disable-portal="disablePortal"
             class="w-[var(--reka-select-trigger-width)] min-w-[var(--reka-select-trigger-width)] rounded-control border border-gray-200 bg-white py-1 shadow-lg"
+            @keydown.capture="handleContentKeydown"
         >
             <EmptyState
                 v-if="options.length === 0"
                 :title="t('common.emptyOptions')"
                 size="compact"
             />
-            <SelectItem
+            <Primitive
                 v-for="option in options"
                 :key="option.value"
-                :value="option.value"
-                :data-testid="
-                    optionTestIdPrefix ? `${optionTestIdPrefix}${option.value}` : undefined
-                "
-                class="flex w-full px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100"
+                :as-child="!$slots['option-actions']"
+                :role="$slots['option-actions'] ? 'group' : undefined"
+                :aria-label="$slots['option-actions'] ? option.label : undefined"
                 :class="{
-                    'bg-primary-50 text-primary-600': option.value === modelValue,
-                    'text-gray-900': option.value !== modelValue,
+                    'flex items-center pr-2 focus-within:bg-surface-active hover:bg-surface-hover':
+                        $slots['option-actions'],
+                    'bg-surface-selected': $slots['option-actions'] && option.value === modelValue,
                 }"
             >
-                <div class="flex min-w-0 items-center gap-2">
-                    <img
-                        v-if="option.iconSrc"
-                        :src="option.iconSrc"
-                        :alt="option.label"
-                        class="h-4 w-4 shrink-0 rounded-sm object-contain"
-                        :data-no-i18n="protectOptionText ? 'true' : undefined"
-                        :translate="protectOptionText ? 'no' : undefined"
-                    />
-                    <div class="min-w-0 flex-1">
-                        <span
-                            class="block truncate font-serif font-medium"
+                <SelectItem
+                    :value="option.value"
+                    :disabled="option.disabled"
+                    :text-value="option.label"
+                    :data-testid="
+                        optionTestIdPrefix ? `${optionTestIdPrefix}${option.value}` : undefined
+                    "
+                    class="flex w-full px-3 py-2 text-left text-sm transition-colors hover:bg-gray-100"
+                    :class="{
+                        'bg-primary-50 text-primary-600': option.value === modelValue,
+                        'text-gray-900': option.value !== modelValue,
+                        'min-w-0 flex-1 bg-transparent hover:bg-transparent data-[highlighted]:bg-transparent':
+                            $slots['option-actions'],
+                    }"
+                >
+                    <div class="flex min-w-0 items-center gap-2">
+                        <img
+                            v-if="option.iconSrc"
+                            :src="option.iconSrc"
+                            :alt="option.label"
+                            class="h-4 w-4 shrink-0 rounded-sm object-contain"
                             :data-no-i18n="protectOptionText ? 'true' : undefined"
                             :translate="protectOptionText ? 'no' : undefined"
-                        >
-                            {{ option.label }}
-                        </span>
-                        <span
-                            v-if="option.description"
-                            class="mt-0.5 block truncate text-xs text-gray-400"
-                            :data-no-i18n="protectOptionText ? 'true' : undefined"
-                            :translate="protectOptionText ? 'no' : undefined"
-                        >
-                            {{ option.description }}
-                        </span>
+                        />
+                        <div class="min-w-0 flex-1">
+                            <span
+                                class="block truncate font-serif font-medium"
+                                :data-no-i18n="protectOptionText ? 'true' : undefined"
+                                :translate="protectOptionText ? 'no' : undefined"
+                            >
+                                {{ option.label }}
+                            </span>
+                            <span
+                                v-if="option.description"
+                                class="mt-0.5 block truncate text-xs text-gray-400"
+                                :data-no-i18n="protectOptionText ? 'true' : undefined"
+                                :translate="protectOptionText ? 'no' : undefined"
+                            >
+                                {{ option.description }}
+                            </span>
+                        </div>
                     </div>
+                </SelectItem>
+                <div
+                    v-if="$slots['option-actions']"
+                    class="flex shrink-0 items-center gap-1"
+                    @keydown.enter.stop
+                    @keydown.space.stop
+                >
+                    <slot name="option-actions" :option="option" />
                 </div>
-            </SelectItem>
+            </Primitive>
         </SelectContent>
     </Select>
 </template>

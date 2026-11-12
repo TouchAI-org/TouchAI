@@ -105,6 +105,7 @@ async function mountSection(tools = createBrowserTools()) {
         global: {
             stubs: {
                 SectionTabs: {
+                    name: 'SectionTabs',
                     props: ['modelValue', 'tabs'],
                     emits: ['update:modelValue'],
                     template: '<div data-testid="section-tabs"></div>',
@@ -177,6 +178,19 @@ describe('user toggles the browser automation tool', () => {
             config_json: '{"timeoutMs":15000}',
         });
         expect(mocks.updateBuiltInToolsMock).not.toHaveBeenCalled();
+    });
+
+    it('user given computer control settings when selecting its built-in entry then sees logs without duplicate configuration', async () => {
+        const tools = [createTool(1, 'bash'), createTool(2, 'computer_use')];
+        const wrapper = await mountSection(tools);
+        await wrapper.getComponent({ name: 'BuiltInToolList' }).vm.$emit('select', tools[1]);
+        await nextTick();
+        expect(wrapper.find('[data-testid="tool-config"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="tool-logs"]').exists()).toBe(true);
+        expect(wrapper.getComponent({ name: 'SectionTabs' }).props('tabs')).toEqual([
+            { value: 'logs', label: 'Call logs' },
+        ]);
+        wrapper.unmount();
     });
 
     it('user gets browser update failures', async () => {

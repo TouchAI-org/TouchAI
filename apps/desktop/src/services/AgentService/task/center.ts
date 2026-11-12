@@ -1,5 +1,6 @@
 // Copyright (c) 2026. Qian Cheng. Licensed under GPL v3
 
+import { computerUseService } from '@services/ComputerUseService';
 import { log } from '@services/ObservabilityService';
 
 import { tt } from '@/i18n';
@@ -291,6 +292,7 @@ export class SessionTaskCenter {
         };
 
         this.tasks.set(taskId, task);
+        computerUseService.bindTask(abortController.signal, () => this.cancelTask(taskId));
         this.bindTaskToSession(taskId, options.sessionId ?? null);
 
         try {
@@ -549,6 +551,11 @@ export class SessionTaskCenter {
             throw error;
         } finally {
             const task = this.tasks.get(taskId);
+            if (task) {
+                await computerUseService.endActivity(task.abortController.signal).catch((error) => {
+                    log.warn('[SessionTaskCenter] Failed to release computer-use feedback:', error);
+                });
+            }
             if (task && isTerminalStatus(task.snapshot.status)) {
                 this.scheduleTaskRelease(taskId);
             }

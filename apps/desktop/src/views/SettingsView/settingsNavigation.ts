@@ -9,6 +9,7 @@ export type NavigationSection =
     | 'ai-services'
     | 'usage'
     | 'built-in-tools'
+    | 'computer-use'
     | 'search'
     | 'browser'
     | 'mcp-tools'
@@ -90,6 +91,12 @@ const settingsNavigationDefinitions: SettingsNavigationGroupDefinition[] = [
                 descriptionKey: 'settings.nav.builtInTools.description',
             },
             ...jsonSettingsNavigationDefinitions,
+            {
+                id: 'computer-use',
+                icon: 'cursor',
+                labelKey: 'settings.nav.computerUse.label',
+                descriptionKey: 'settings.nav.computerUse.description',
+            },
             {
                 id: 'skills',
                 icon: 'skill',

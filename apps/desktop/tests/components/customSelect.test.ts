@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { h } from 'vue';
 
 import CustomSelect from '@/components/CustomSelect.vue';
 import { setLocale } from '@/i18n';
@@ -62,6 +63,61 @@ describe('user picks an option from a custom dropdown', () => {
 
     afterEach(() => {
         document.body.innerHTML = '';
+    });
+
+    it('user given actions for each driver when using one then acts on that driver without changing selection', async () => {
+        const update = vi.fn();
+        const wrapper = mount(CustomSelect, {
+            props: { modelValue: 'openai', options, disablePortal: true },
+            slots: {
+                'option-actions': ({ option }) => [
+                    h(
+                        'button',
+                        {
+                            type: 'button',
+                            'aria-label': `Update ${option.label}`,
+                            onClick: () => update(option.value),
+                        },
+                        'Update'
+                    ),
+                    h(
+                        'button',
+                        { type: 'button', 'aria-label': `Remove ${option.label}`, disabled: true },
+                        'Remove'
+                    ),
+                ],
+            },
+            attachTo: document.body,
+        });
+        await openList(wrapper);
+        const option = listOptions(wrapper)[1]!;
+        (option.element as HTMLElement).focus();
+        await option.trigger('keydown', { key: 'Tab' });
+        const button = wrapper.get('button[aria-label="Update Anthropic"]');
+        expect(document.activeElement).toBe(button.element);
+        expect(button.element.closest('[role="option"]')).toBeNull();
+        expect(button.element.closest('[role="group"]')?.getAttribute('aria-label')).toBe(
+            'Anthropic'
+        );
+        await button.trigger('pointerup');
+        await button.trigger('keydown', { key: 'Enter' });
+        await button.trigger('click');
+        expect(update).toHaveBeenCalledWith('anthropic');
+        expect(wrapper.emitted('update:modelValue')).toBeUndefined();
+        expect(listOptions(wrapper)).toHaveLength(options.length);
+        await button.trigger('keydown', { key: 'Tab', shiftKey: true });
+        expect(document.activeElement).toBe(option.element);
+        await option.trigger('keydown', { key: 'Tab' });
+        await button.trigger('keydown', { key: 'Tab' });
+        expect(document.activeElement).toBe(listOptions(wrapper)[2]!.element);
+        await listOptions(wrapper)[2]!.trigger('keydown', { key: 'Tab', shiftKey: true });
+        expect(document.activeElement).toBe(button.element);
+        await button.trigger('keydown', { key: 'Escape' });
+        await vi.waitFor(() => {
+            expect(listOptions(wrapper)).toHaveLength(0);
+            expect(document.activeElement).toBe(triggerOf(wrapper).element);
+        });
+        wrapper.unmount();
     });
 
     it('user sees the current selection on the closed trigger', () => {
@@ -283,6 +339,38 @@ describe('user gets a disabled or protected dropdown', () => {
 
     afterEach(() => {
         document.body.innerHTML = '';
+    });
+
+    it('user given an unavailable option when using pointer or keyboard then cannot select it but can still use its download action', async () => {
+        const download = vi.fn();
+        const wrapper = mount(CustomSelect, {
+            props: {
+                modelValue: 'openai',
+                options: options.map((option) => ({
+                    ...option,
+                    disabled: option.value === 'anthropic',
+                })),
+                disablePortal: true,
+            },
+            slots: {
+                'option-actions': ({ option }) =>
+                    option.disabled ? h('button', { onClick: download }, 'Download') : null,
+            },
+            attachTo: document.body,
+        });
+        await openList(wrapper);
+        const unavailable = listOptions(wrapper)[1]!;
+        expect(unavailable.attributes('aria-disabled')).toBe('true');
+        await unavailable.trigger('pointerup');
+        await unavailable.trigger('keydown', { key: 'Enter' });
+        expect(wrapper.emitted('update:modelValue')).toBeUndefined();
+        await listOptions(wrapper)[0]!.trigger('keydown', { key: 'Tab' });
+        const action = wrapper.get('[role="group"][aria-label="Anthropic"] button');
+        expect(document.activeElement).toBe(action.element);
+        await action.trigger('click');
+        expect(download).toHaveBeenCalled();
+        expect(wrapper.emitted('update:modelValue')).toBeUndefined();
+        wrapper.unmount();
     });
 
     it('user sees the dropdown greyed out and not clickable when it is disabled', async () => {

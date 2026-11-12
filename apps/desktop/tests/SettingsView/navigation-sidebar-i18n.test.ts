@@ -70,6 +70,7 @@ describe('user navigates the settings sections', () => {
             'Built-in tools',
             'Search',
             'Browser Control',
+            'Computer control',
             'Skills',
             'MCP tools',
             'Data & privacy',
@@ -84,6 +85,7 @@ describe('user navigates the settings sections', () => {
         setLocale('zh-CN');
 
         expect(settingsNavigationGroups[0]?.label).toBe('基础体验');
+        expect(getSettingsNavigationItem('computer-use')?.label).toBe('电脑控制');
         expect(getSettingsNavigationItem('mcp-tools')?.description).toBe(
             '外部 MCP 服务器与工具调用日志'
         );

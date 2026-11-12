@@ -469,3 +469,22 @@ export type BrowserSessionResponse = Record<string, unknown>;
 export type BrowserConnectExistingResponse = Record<string, unknown>;
 export type BrowserObserveResponse = Record<string, unknown>;
 export type BrowserActResponse = Record<string, unknown>;
+
+/** Raw driver status payload returned by the native computer use commands. */
+export interface ComputerUseDriverStatus {
+    abi_version: string | null;
+    binary: string | null;
+    driver_version: string | null;
+    installed_size_bytes?: number | null;
+    error: string | null;
+    installed: boolean;
+    metadata?: Record<string, unknown> | null;
+}
+
+/** Driver update check result returned by the native command. */
+export interface ComputerUseUpdateInfo {
+    current: string;
+    latest: string | null;
+    update_available: boolean;
+    error: string | null;
+}

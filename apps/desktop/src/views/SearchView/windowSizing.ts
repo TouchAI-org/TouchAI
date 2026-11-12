@@ -20,6 +20,7 @@ export const SEARCH_WINDOW_TOP_INSET = 96;
 // ============================================================
 
 export interface SearchWindowHeightPolicyInput {
+    askUserOpen?: boolean;
     sessionCount: number;
     quickSearchOpen: boolean;
     skillAutocompleteOpen?: boolean;
@@ -120,14 +121,18 @@ export function resolveSearchWindowHeightPolicy(
     input: SearchWindowHeightPolicyInput
 ): SearchWindowHeightPolicy {
     const hasConversationPanel = input.sessionCount > 0;
+    const askUserOpen = input.askUserOpen ?? false;
     const hasManagedPanel =
-        hasConversationPanel || input.quickSearchOpen || (input.skillAutocompleteOpen ?? false);
+        hasConversationPanel ||
+        input.quickSearchOpen ||
+        (input.skillAutocompleteOpen ?? false) ||
+        askUserOpen;
 
     return {
         hasManagedPanel,
         autoResizeEnabled: true,
-        respectManualOverride: hasConversationPanel,
-        allowHeightOverride: hasConversationPanel,
+        respectManualOverride: hasConversationPanel && !askUserOpen,
+        allowHeightOverride: hasConversationPanel || askUserOpen,
     };
 }
 
