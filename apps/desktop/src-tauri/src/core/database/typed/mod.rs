@@ -8,7 +8,7 @@
 
 mod model_id;
 mod operation;
-mod repositories;
+pub(crate) mod repositories;
 mod repository;
 mod row;
 

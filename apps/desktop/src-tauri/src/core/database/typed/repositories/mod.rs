@@ -3,6 +3,7 @@
 mod attachment_remote_refs;
 mod attachments;
 mod builtins;
+pub(crate) mod computer_use;
 mod llm_metadata;
 mod mcp;
 mod models;

@@ -119,6 +119,7 @@ operations. The TypeScript query modules are typed callers only.
 | Attachments | `attachment_ensure`, `attachment_remote_ref_*` |
 | Usage queries and detail writes | `usage_*` including `usage_append_llm_call_parts` |
 | Backup/import | `database_export_backup`, `database_import_backup` |
+| Computer-use driver directory | Rust `DriverStorage` composes the private `computer_use` settings repository inside one `BEGIN IMMEDIATE` transaction; no IPC surface |
 
 `BEGIN IMMEDIATE` is the standard typed-write transaction entry. Import uses
 `BEGIN EXCLUSIVE` after preparing and migrating an isolated source snapshot, so

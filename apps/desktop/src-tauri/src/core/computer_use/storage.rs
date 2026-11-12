@@ -1,12 +1,8 @@
 use std::path::{Component, Path, PathBuf};
 
-use serde_json::json;
 use tokio::sync::{RwLock, RwLockMappedWriteGuard, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::core::database::{
-    types::{DatabaseQueryMethod, DatabaseQueryRequest},
-    DatabaseRuntime,
-};
+use crate::core::database::{typed::repositories::computer_use, DatabaseRuntime};
 
 use super::{agent_desktop, cua_driver, provision::sha256_file};
 
@@ -78,13 +74,9 @@ impl DriverStorage {
             .await
             .map_err(|error| error.to_string())??;
             if clear_default {
-                self.database
-                    .query(DatabaseQueryRequest {
-                        sql: "DELETE FROM settings WHERE key = ?".into(),
-                        params: vec![json!(DIRECTORY_KEY)],
-                        method: DatabaseQueryMethod::Run,
-                    })
-                    .await?;
+                computer_use::delete_setting(self.database.pool(), DIRECTORY_KEY)
+                    .await
+                    .map_err(|error| error.message)?;
             }
             *directory = Some(root);
         }
@@ -183,20 +175,9 @@ impl DriverStorage {
     }
 
     async fn setting(&self, key: &str) -> Result<Option<String>, String> {
-        let result = self
-            .database
-            .query(DatabaseQueryRequest {
-                sql: "SELECT value FROM settings WHERE key = ?".into(),
-                params: vec![json!(key)],
-                method: DatabaseQueryMethod::Get,
-            })
-            .await?;
-        Ok(result
-            .rows
-            .first()
-            .and_then(|row| row.get("value"))
-            .and_then(|value| value.as_str())
-            .map(str::to_owned))
+        computer_use::get_setting(self.database.pool(), key)
+            .await
+            .map_err(|error| error.message)
     }
 
     async fn cleanup_roots(&self) -> Result<Vec<PathBuf>, String> {
@@ -210,34 +191,18 @@ impl DriverStorage {
     }
 
     async fn persist(&self, destination: &Path, cleanup: &[PathBuf]) -> Result<(), String> {
-        let transaction = self
-            .database
-            .begin_transaction("computer-use-storage".into(), None)
-            .await?;
-        let result = async {
-            for (key, value) in [(DIRECTORY_KEY, destination.to_string_lossy().into_owned()), (CLEANUP_KEY, serde_json::to_string(cleanup).map_err(|error| error.to_string())?)] {
-                if key == DIRECTORY_KEY && destination == self.default_base.join(DIRECTORY_NAME) {
-                    self.database.tx_query(&transaction, DatabaseQueryRequest {
-                        sql: "DELETE FROM settings WHERE key = ?".into(),
-                        params: vec![json!(key)],
-                        method: DatabaseQueryMethod::Run,
-                    }).await?;
-                    continue;
-                }
-                self.database.tx_query(&transaction, DatabaseQueryRequest {
-                    sql: "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP".into(),
-                    params: vec![json!(key), json!(value)],
-                    method: DatabaseQueryMethod::Run,
-                }).await?;
-            }
-            self.database.commit_transaction(&transaction).await
-        }.await;
-        if result.is_err() {
-            if let Err(error) = self.database.rollback_transaction(&transaction).await {
-                log::warn!("Driver storage rollback failed: {error}");
-            }
-        }
-        result
+        let cleanup = serde_json::to_string(cleanup).map_err(|error| error.to_string())?;
+        let directory = (destination != self.default_base.join(DIRECTORY_NAME))
+            .then(|| destination.to_string_lossy().into_owned());
+        computer_use::persist_driver_storage(
+            self.database.pool(),
+            directory.as_deref(),
+            &cleanup,
+            DIRECTORY_KEY,
+            CLEANUP_KEY,
+        )
+        .await
+        .map_err(|error| error.message)
     }
 }
 
