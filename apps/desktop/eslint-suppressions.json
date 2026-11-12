@@ -449,7 +449,7 @@
     },
     "src/views/SettingsView/components/General/UpdateSettingsSection.vue": {
         "tailwindcss/no-arbitrary-value": {
-            "count": 2
+            "count": 1
         },
         "vue/no-restricted-class": {
             "count": 2
