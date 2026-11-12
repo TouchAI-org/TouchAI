@@ -586,15 +586,26 @@ jobs:
               working-directory: apps/desktop
               run: node scripts/ci/set-release-version.mjs "$RELEASE_VERSION"
 
+            - name: Install Syft
+              env:
+                  SYFT_VERSION: v1.57.1
+                  SYFT_SHA256: bf52519eb57f675d47c07d43213cb6dff6449f3d6d1147ff6701ed91f44eef0c
+              run: |
+                  set -euo pipefail
+                  archive="syft_${SYFT_VERSION#v}_linux_amd64.tar.gz"
+                  curl -sSfLo "$RUNNER_TEMP/$archive" \
+                    "https://github.com/anchore/syft/releases/download/$SYFT_VERSION/$archive"
+                  printf '%s  %s\n' "$SYFT_SHA256" "$RUNNER_TEMP/$archive" | sha256sum -c -
+                  tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" syft
+                  echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
             - name: Generate source dependency SBOM
-              uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c
-              with:
-                  path: .
-                  format: spdx-json
-                  syft-version: v1.57.1
-                  output-file: ${{ runner.temp }}/touchai-github-release-assets/TouchAI-${{ inputs.version }}.source.spdx.json
-                  upload-artifact: false
-                  upload-release-assets: false
+              env:
+                  RELEASE_VERSION: ${{ inputs.version }}
+              run: |
+                  set -euo pipefail
+                  syft dir:. -o spdx-json \
+                    > "$RUNNER_TEMP/touchai-github-release-assets/TouchAI-${RELEASE_VERSION}.source.spdx.json"
 
             - name: Generate release checksums
               working-directory: apps/desktop
