@@ -2,6 +2,7 @@ import { getTauriInvokeCalls, mockTauriCommand } from '@tests/utils/tauri';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { nextTick } from 'vue';
 
 import { setLocale } from '@/i18n';
 import BrowserSettingsView from '@/views/SettingsView/components/Browser/index.vue';
@@ -11,6 +12,9 @@ import { searchSettings } from '@/views/SettingsView/settingsSearch';
 const updateBrowserSettingsMock = vi.hoisted(() => vi.fn(async () => undefined));
 const browserSettingsPatch = vi.hoisted(() => ({
     value: {} as Record<string, unknown>,
+}));
+const settingsRefHolder = vi.hoisted(() => ({
+    current: null as null | { value: { browserSettings: Record<string, unknown> } },
 }));
 const DEFAULT_BROWSER_DATA_PATH = 'C:/Users/test/AppData/Roaming/TouchAI/browser-data';
 
@@ -29,6 +33,9 @@ vi.mock('@/stores/settings', async () => {
                     ...browserSettingsPatch.value,
                 },
             });
+            settingsRefHolder.current = settingsRef as unknown as {
+                value: { browserSettings: Record<string, unknown> };
+            };
 
             return {
                 settings: settingsRef,
@@ -37,6 +44,19 @@ vi.mock('@/stores/settings', async () => {
         },
     };
 });
+
+function updateStoredBrowserSettings(patch: Record<string, unknown>) {
+    const holder = settingsRefHolder.current;
+    if (!holder) {
+        throw new Error('settings store was not initialized');
+    }
+    holder.value = {
+        browserSettings: {
+            ...holder.value.browserSettings,
+            ...patch,
+        },
+    };
+}
 
 vi.mock('@components/CustomSelect.vue', () => ({
     default: {
@@ -171,6 +191,28 @@ describe('user edits the browser settings', () => {
 
         expect(updateBrowserSettingsMock).toHaveBeenCalledWith(
             expect.objectContaining({ fingerprintWindowSize: '1440,900' })
+        );
+    });
+
+    it('user keeps a pending edit when another window refreshes the browser section', async () => {
+        const wrapper = mount(BrowserSettingsView);
+
+        await wrapper
+            .get('[data-testid="browser-default-homepage-input"]')
+            .setValue('https://example.test/pending');
+        updateStoredBrowserSettings({
+            defaultHomepage: 'https://example.test/other-window',
+            headless: true,
+        });
+        await nextTick();
+
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(updateBrowserSettingsMock).toHaveBeenCalledWith(
+            expect.objectContaining({
+                defaultHomepage: 'https://example.test/pending',
+                headless: false,
+            })
         );
     });
 

@@ -263,6 +263,11 @@
     watch(
         () => settings.value.browserSettings,
         (config) => {
+            if (autoSaveTimer) {
+                // The queued save owns the field until it reaches the owner. A refresh
+                // from another window must not replace the user's pending draft first.
+                return;
+            }
             isSyncingFromStore = true;
             draft.value = cloneConfig(config);
             isEditingCustomBrowserExecutable.value = Boolean(
