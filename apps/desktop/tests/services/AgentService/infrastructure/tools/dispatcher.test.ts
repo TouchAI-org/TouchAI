@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
     resolveToolCall: vi.fn(),
     mcpExecuteTool: vi.fn(),
     createMcpToolLog: vi.fn(),
-    updateMcpToolLogByCallId: vi.fn(),
+    updateMcpToolLogById: vi.fn(),
     createToolPart: vi.fn(),
 }));
 
@@ -25,7 +25,7 @@ vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
 
 vi.mock('@database/queries', () => ({
     createMcpToolLog: mocks.createMcpToolLog,
-    updateMcpToolLogByCallId: mocks.updateMcpToolLogByCallId,
+    updateMcpToolLogById: mocks.updateMcpToolLogById,
 }));
 
 vi.mock('@database/queries/toolParts', () => ({
@@ -64,7 +64,7 @@ describe('user runs a tool call requested by the model', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.createMcpToolLog.mockResolvedValue({ id: 9 });
-        mocks.updateMcpToolLogByCallId.mockResolvedValue(undefined);
+        mocks.updateMcpToolLogById.mockResolvedValue(undefined);
         mocks.createToolPart.mockResolvedValue({ id: 55 });
     });
 

@@ -47,7 +47,7 @@ vi.mock('@/services/AgentService/infrastructure/mcp', () => ({
 
 vi.mock('@database/queries', () => ({
     createMcpToolLog: createMcpToolLogMock,
-    updateMcpToolLogByCallId: vi.fn(async () => undefined),
+    updateMcpToolLogById: vi.fn(async () => undefined),
 }));
 
 const MCP_TOOL_NAME = 'mcp__1__search';

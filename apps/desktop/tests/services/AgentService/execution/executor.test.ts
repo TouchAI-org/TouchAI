@@ -372,6 +372,8 @@ describe('user sends a prompt and receives a streamed answer', () => {
                 getSessionId: () => 42,
 
                 persistContextSummary: async () => 1,
+                validateContextSummary: async () => undefined,
+                persistCheckpoint: async () => undefined,
                 persistOutputProgress: async () => undefined,
                 persistToolCallMessage: async (parts: PersistedOutputPart[]) => {
                     storedToolParts.push(parts);
@@ -379,7 +381,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
                 },
                 persistToolResult: async () => undefined,
                 getContextMessageSource: async () => undefined,
-                persistCheckpoint: async () => undefined,
+                getAttemptGeneration: () => 1,
             } as never,
         });
         expect(result.type).toBe('failed');
@@ -400,6 +402,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         const persister = {
             getSessionId: () => 42,
             persistOutputProgress: async () => undefined,
+            getAttemptGeneration: () => 1,
         };
         const failed = await executor.runAttempt({
             startCheckpoint: createCheckpoint(),
@@ -463,7 +466,10 @@ describe('user sends a prompt and receives a streamed answer', () => {
                 getSessionId: () => 42,
 
                 persistContextSummary: async () => 1,
+                validateContextSummary: async () => undefined,
+                persistCheckpoint: async () => undefined,
                 persistOutputProgress: async () => undefined,
+                getAttemptGeneration: () => 1,
             } as never,
         });
         expect(result.type).toBe('completed');
@@ -507,7 +513,10 @@ describe('user sends a prompt and receives a streamed answer', () => {
                 getSessionId: () => 42,
 
                 persistContextSummary: async () => 1,
+                validateContextSummary: async () => undefined,
+                persistCheckpoint: async () => undefined,
                 persistOutputProgress: async () => undefined,
+                getAttemptGeneration: () => 1,
             } as never,
         });
         expect(result.type).toBe('completed');
@@ -540,6 +549,8 @@ describe('user sends a prompt and receives a streamed answer', () => {
             signal: controller.signal,
             persister: {
                 getSessionId: () => 42,
+                persistOutputProgress: async () => undefined,
+                getAttemptGeneration: () => 1,
             } as never,
         });
         expect(result.type).toBe('failed');
@@ -581,7 +592,10 @@ describe('user sends a prompt and receives a streamed answer', () => {
                         getSessionId: () => 42,
 
                         persistContextSummary: async () => 1,
+                        validateContextSummary: async () => undefined,
+                        persistCheckpoint: async () => undefined,
                         persistOutputProgress: async () => undefined,
+                        getAttemptGeneration: () => 1,
                     } as never,
                 });
                 if (cancel) {
@@ -624,6 +638,10 @@ describe('user sends a prompt and receives a streamed answer', () => {
             startCheckpoint: createLongCheckpoint(),
             persister: {
                 getSessionId: () => 42,
+                validateContextSummary: async () => undefined,
+                persistCheckpoint: async () => undefined,
+                persistOutputProgress: async () => undefined,
+                getAttemptGeneration: () => 1,
             } as never,
         });
         expect(result.type).toBe('failed');
@@ -643,6 +661,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         const outcome = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
             persister: {
+                getSessionId: () => 42,
                 persistOutputProgress: vi.fn().mockResolvedValue(undefined),
                 getAttemptGeneration: () => 1,
             } as never,
@@ -689,9 +708,6 @@ describe('user sends a prompt and receives a streamed answer', () => {
         vi.useFakeTimers();
         vi.setSystemTime(1000);
         const persistOutputProgress = vi.fn().mockResolvedValue(undefined);
-        const firstSaved = new Promise<void>((resolve) => {
-            persistOutputProgress.mockImplementationOnce(async () => resolve());
-        });
         providerMock.stream.mockImplementation(async function* () {
             yield { content: '', reasoningState: 'start', done: false };
             await Promise.resolve();
@@ -706,7 +722,11 @@ describe('user sends a prompt and receives a streamed answer', () => {
         });
         const outcome = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: { persistOutputProgress, getAttemptGeneration: () => 1 } as never,
+            persister: {
+                getSessionId: () => 42,
+                persistOutputProgress,
+                getAttemptGeneration: () => 1,
+            } as never,
         });
         expect(outcome.type).toBe('completed');
         expect(persistOutputProgress).toHaveBeenLastCalledWith(
@@ -723,12 +743,6 @@ describe('user sends a prompt and receives a streamed answer', () => {
         vi.useFakeTimers();
         vi.setSystemTime(1000);
         const persistOutputProgress = vi.fn().mockResolvedValue(undefined);
-        const reasoningSaved = new Promise<void>((resolve) => {
-            persistOutputProgress.mockImplementation(async (parts: PersistedOutputPart[]) => {
-                if (parts.some((part) => part.type === 'reasoning' && part.endedAt !== undefined))
-                    resolve();
-            });
-        });
         providerMock.stream.mockImplementation(async function* () {
             yield { content: '', reasoning: 'Plan', done: false };
             vi.setSystemTime(6000);
@@ -744,7 +758,11 @@ describe('user sends a prompt and receives a streamed answer', () => {
         });
         const result = await new AiRequestExecutor().runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: { persistOutputProgress, getAttemptGeneration: () => 1 } as never,
+            persister: {
+                getSessionId: () => 42,
+                persistOutputProgress,
+                getAttemptGeneration: () => 1,
+            } as never,
         });
         expect(result.type).toBe('completed');
         expect(persistOutputProgress).toHaveBeenLastCalledWith(
@@ -816,7 +834,6 @@ describe('user sends a prompt and receives a streamed answer', () => {
                 persistToolResult: vi.fn().mockResolvedValue(undefined),
                 getContextMessageSource: async () => undefined,
                 persistCheckpoint: vi.fn().mockResolvedValue(undefined),
-                getSessionId: () => 1,
                 getAttemptGeneration: () => 1,
             } as never,
         });
@@ -847,7 +864,7 @@ describe('user sends a prompt and receives a streamed answer', () => {
         const executor = new AiRequestExecutor();
         const result = await executor.runAttempt({
             startCheckpoint: createCheckpoint(),
-            persister: { getAttemptGeneration: () => 1 } as never,
+            persister: { getSessionId: () => 42, getAttemptGeneration: () => 1 } as never,
         });
 
         expect(result.type).toBe('failed');

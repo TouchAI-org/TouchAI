@@ -127,10 +127,18 @@ describe('given a session with streamed reasoning and answer parts', () => {
                 { type: 'text', content: 'Answer' },
             ],
         });
+        if (result.type !== 'completed') throw new Error('Expected a completed attempt');
         expect(readCheckpointJson()).toBe(savedCheckpoint);
+        await projector.markCompleted({
+            durationMs: 1,
+            outputParts: result.finalStepOutputParts,
+            calls: result.calls,
+        });
         const messages = await findMessagesBySessionId(1);
         expect(messages).toHaveLength(2);
-        expect(messages[1]!.parts).toMatchObject([
+        expect(
+            messages[1]!.parts.filter((part) => part.type === 'reasoning' || part.type === 'text')
+        ).toMatchObject([
             { type: 'reasoning', content: 'Plan' },
             { type: 'text', content: 'Answer' },
         ]);
