@@ -18,7 +18,6 @@ import { log } from '@services/ObservabilityService';
 import { useStateMachine } from 'reka-ui';
 import { computed, onUnmounted, type Ref, ref } from 'vue';
 
-import { DEFAULT_SUBMIT_SHORTCUT_MODE, type SubmitShortcutMode } from '@/config/chatSubmission';
 import {
     type Index,
     isAttachmentSupported,
@@ -41,7 +40,6 @@ interface UseSearchRequestFlowOptions {
     getSupportedAttachments: () => Index[];
     getUnsupportedAttachmentMessage: () => string | null;
     getCurrentInputSnapshot: (query: string) => InputHistorySnapshot;
-    submitShortcutMode?: Readonly<Ref<SubmitShortcutMode>>;
 }
 
 const SESSION_LIST_LIMIT = 40;
@@ -84,7 +82,6 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
         getCurrentInputSnapshot,
-        submitShortcutMode = ref(DEFAULT_SUBMIT_SHORTCUT_MODE),
     } = options;
 
     const sessionHistoryOverlayOpen = ref(false);
@@ -265,7 +262,9 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         rejectPendingToolApproval,
         settleUserQuestion,
         enqueueUserMessage,
+        promotePendingUserMessage,
         removePendingUserMessage,
+        reorderPendingUserMessages,
         clearPendingUserMessages,
         updatePendingUserMessagesModel,
     } = useAgent({
@@ -498,8 +497,6 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         if (isLoading.value || pendingUserMessages.value.length > 0) {
             const selectedModelId = modelOverride.value.modelId;
             const selectedProviderId = modelOverride.value.providerId;
-            const modified = shortcutIntent === 'enter-modified';
-            const useQueue = (submitShortcutMode.value === 'queue_on_enter') !== modified;
             const pendingMessage = enqueueUserMessage(
                 {
                     prompt: query,
@@ -508,7 +505,7 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
                     modelId: selectedModelId ?? undefined,
                     providerId: selectedProviderId ?? undefined,
                 },
-                useQueue ? 'queue' : 'priority'
+                shortcutIntent === 'enter-modified' ? 'priority' : 'queue'
             );
             if (pendingMessage) {
                 clearDraft({ preserveModelTag: true });
@@ -699,6 +696,9 @@ export function useSearchRequestFlow(options: UseSearchRequestFlowOptions) {
         cancelRequest,
         cancelPendingRequest,
         cancelLatestPendingMessage,
+        promotePendingUserMessage,
+        removePendingUserMessage,
+        reorderPendingUserMessages,
         handleRegenerateMessage,
     };
 }

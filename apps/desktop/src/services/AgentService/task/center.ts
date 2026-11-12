@@ -89,6 +89,49 @@ function mergePendingUserMessages(
 }
 
 /**
+ * Reorder only the queued messages, preserving the slots occupied by steers.
+ *
+ * The caller supplies the complete queue order. Rejecting partial or stale orders
+ * keeps a drag from silently dropping a message that arrived while it was moving.
+ */
+function reorderQueuedUserMessages(
+    messages: readonly PendingUserMessage[],
+    orderedQueueIds: readonly string[]
+): PendingUserMessage[] | null {
+    const queued = messages.filter((message) => message.delivery === 'queue');
+    if (
+        queued.length !== orderedQueueIds.length ||
+        new Set(orderedQueueIds).size !== orderedQueueIds.length
+    ) {
+        return null;
+    }
+
+    const queuedById = new Map(queued.map((message) => [message.id, message] as const));
+    if (queuedById.size !== queued.length) {
+        return null;
+    }
+
+    const reordered: PendingUserMessage[] = [];
+    for (const id of orderedQueueIds) {
+        const message = queuedById.get(id);
+        if (!message) {
+            return null;
+        }
+        reordered.push(message);
+    }
+
+    let queueIndex = 0;
+    return messages.map((message) => {
+        if (message.delivery !== 'queue') {
+            return message;
+        }
+        const next = reordered[queueIndex];
+        queueIndex += 1;
+        return next ?? message;
+    });
+}
+
+/**
  * 控制类状态（完成、失败、等待审批/用户输入）必须即时发布；
  * 普通流式增量可以合并到一个微任务里发布一次。
  */
@@ -379,6 +422,8 @@ export class SessionTaskCenter {
                 inputSnapshot: options.inputSnapshot,
                 executionMode: options.executionMode ?? 'foreground',
                 takePriorityUserMessages: () => this.getPriorityUserMessages(taskId),
+                hasImmediatePriorityUserMessages: () =>
+                    this.hasImmediatePriorityUserMessages(taskId),
                 environment: runtimeEnvironmentResult.value,
                 signal: abortController.signal,
                 onChunk: (chunk) => {
@@ -549,6 +594,56 @@ export class SessionTaskCenter {
         return true;
     }
 
+    /**
+     * 把一条排队中的消息提升为插队消息。
+     *
+     * 用户点击「插队」时同时标记 `immediate`，执行器会在当前回答的下一个安全
+     * 分片处中断并立刻投递，而不是等待下一次工具调用。
+     */
+    promoteTaskUserMessage(taskId: string, messageId: string): boolean {
+        const task = this.tasks.get(taskId);
+        if (!task || isTerminalStatus(task.snapshot.status)) {
+            return false;
+        }
+
+        const index = task.snapshot.pendingUserMessages.findIndex(
+            (message) => message.id === messageId && message.delivery === 'queue'
+        );
+        if (index < 0) {
+            return false;
+        }
+
+        const next = [...task.snapshot.pendingUserMessages];
+        const message = next[index];
+        if (!message) {
+            return false;
+        }
+        next[index] = { ...message, delivery: 'priority', immediate: true };
+        task.snapshot.pendingUserMessages = next;
+        this.notifySubscribers(taskId);
+        return true;
+    }
+
+    /**
+     * 调整任务队列中尚未投递消息的顺序。
+     *
+     * 只排序 queue 消息，priority 消息已经进入插队通道，不参与拖动。
+     */
+    reorderTaskQueuedMessages(taskId: string, orderedQueueIds: readonly string[]): boolean {
+        const task = this.tasks.get(taskId);
+        if (!task || isTerminalStatus(task.snapshot.status)) {
+            return false;
+        }
+
+        const next = reorderQueuedUserMessages(task.snapshot.pendingUserMessages, orderedQueueIds);
+        if (!next) {
+            return false;
+        }
+        task.snapshot.pendingUserMessages = next;
+        this.notifySubscribers(taskId);
+        return true;
+    }
+
     /** 清空任务上所有尚未投递的消息。 */
     clearTaskUserMessages(taskId: string): boolean {
         const task = this.tasks.get(taskId);
@@ -558,6 +653,88 @@ export class SessionTaskCenter {
 
         task.snapshot.pendingUserMessages = [];
         this.notifySubscribers(taskId);
+        return true;
+    }
+
+    /** 从会话交接队列中移除一条尚未投递的消息。 */
+    removeSessionUserMessage(sessionId: number, messageId: string): boolean {
+        const activeTaskId = this.sessionActiveTaskIndex.get(sessionId);
+        if (activeTaskId && this.removeTaskUserMessage(activeTaskId, messageId)) {
+            return true;
+        }
+
+        const queued = this.sessionPendingQueues.get(sessionId);
+        if (!queued) {
+            return false;
+        }
+        const next = queued.filter((message) => message.id !== messageId);
+        if (next.length === queued.length) {
+            return false;
+        }
+        this.sessionPendingQueues.set(sessionId, next);
+        return true;
+    }
+
+    /** 把会话交接队列中的排队消息提升为立即插队消息。 */
+    promoteSessionUserMessage(sessionId: number, messageId: string): boolean {
+        const activeTaskId = this.sessionActiveTaskIndex.get(sessionId);
+        if (activeTaskId && this.promoteTaskUserMessage(activeTaskId, messageId)) {
+            return true;
+        }
+
+        const queued = this.sessionPendingQueues.get(sessionId);
+        if (!queued) {
+            return false;
+        }
+        const index = queued.findIndex(
+            (message) => message.id === messageId && message.delivery === 'queue'
+        );
+        if (index < 0) {
+            return false;
+        }
+
+        const next = [...queued];
+        const message = next[index];
+        if (!message) {
+            return false;
+        }
+        next[index] = { ...message, delivery: 'priority', immediate: true };
+        this.sessionPendingQueues.set(sessionId, next);
+
+        return true;
+    }
+
+    /** 调整回合交接队列中的排队顺序。 */
+    reorderSessionQueuedMessages(sessionId: number, orderedQueueIds: readonly string[]): boolean {
+        const activeTaskId = this.sessionActiveTaskIndex.get(sessionId);
+        if (activeTaskId && this.reorderTaskQueuedMessages(activeTaskId, orderedQueueIds)) {
+            return true;
+        }
+
+        const queued = this.sessionPendingQueues.get(sessionId);
+        if (!queued) {
+            return false;
+        }
+        const next = reorderQueuedUserMessages(queued, orderedQueueIds);
+        if (!next) {
+            return false;
+        }
+        this.sessionPendingQueues.set(sessionId, next);
+        return true;
+    }
+
+    /** 清空会话交接队列中的待发消息。 */
+    clearSessionUserMessages(sessionId: number): boolean {
+        const activeTaskId = this.sessionActiveTaskIndex.get(sessionId);
+        if (activeTaskId && this.clearTaskUserMessages(activeTaskId)) {
+            return true;
+        }
+
+        const queued = this.sessionPendingQueues.get(sessionId);
+        if (!queued || queued.length === 0) {
+            return false;
+        }
+        this.sessionPendingQueues.set(sessionId, []);
         return true;
     }
 
@@ -837,6 +1014,18 @@ export class SessionTaskCenter {
         );
     }
 
+    /** 用户点了「插队」且消息尚未投递时，执行器应立即中断当前回答。 */
+    private hasImmediatePriorityUserMessages(taskId: string): boolean {
+        const task = this.tasks.get(taskId);
+        if (!task) {
+            return false;
+        }
+
+        return task.snapshot.pendingUserMessages.some(
+            (message) => message.delivery === 'priority' && message.immediate === true
+        );
+    }
+
     /**
      * 当前回合正常完成后，把排队消息作为下一条用户轮次启动。
      * 调度放在微任务里，先让终态投影完成发布，再切换会话索引。
@@ -975,6 +1164,7 @@ export class SessionTaskCenter {
                     (message) => ({
                         ...message,
                         delivery: 'queue',
+                        immediate: undefined,
                     })
                 );
                 if (task.sessionId !== null && task.snapshot.pendingUserMessages.length > 0) {

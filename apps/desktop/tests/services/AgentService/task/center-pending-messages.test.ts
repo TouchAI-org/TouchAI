@@ -21,6 +21,7 @@ const runtimeState = vi.hoisted(() => ({
 function latestOptions(): Record<string, unknown> & {
     onTurnEvent?: (event: Record<string, unknown>) => void;
     takePriorityUserMessages?: () => PendingUserMessage[];
+    hasImmediatePriorityUserMessages?: () => boolean;
     signal?: AbortSignal;
 } {
     const entries = runtimeState.instances;
@@ -162,9 +163,174 @@ describe('user submits a message while a task runs', () => {
         );
         expect(seen.length).toBeGreaterThan(0);
     });
+
+    it('user gets a queued message promoted to the next tool boundary', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const message = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'Send me now' },
+            'queue'
+        );
+
+        expect(center.promoteTaskUserMessage(started.taskId, message!.id)).toBe(true);
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages[0]?.delivery).toBe(
+            'priority'
+        );
+        expect(latestOptions().takePriorityUserMessages?.()).toEqual([
+            expect.objectContaining({ id: message!.id, delivery: 'priority' }),
+        ]);
+        expect(center.promoteTaskUserMessage(started.taskId, message!.id)).toBe(false);
+    });
+
+    it('user gets their message flagged for immediate delivery when they click steer now', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const message = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'Send me now' },
+            'queue'
+        );
+
+        expect(center.promoteTaskUserMessage(started.taskId, message!.id)).toBe(true);
+
+        // The executor needs this flag to cut the running answer instead of
+        // waiting for the next tool call.
+        expect(latestOptions().hasImmediatePriorityUserMessages?.()).toBe(true);
+    });
+
+    it('user does not interrupt the answer for a message that only waits for a tool call', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        center.enqueueTaskUserMessage(started.taskId, { prompt: 'Insert me' }, 'priority');
+
+        expect(latestOptions().hasImmediatePriorityUserMessages?.()).toBe(false);
+    });
+
+    it('user gets a queued message turned solid immediately when they click steer now', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const message = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'Insert me' },
+            'queue'
+        );
+        const seen: string[] = [];
+        center.subscribeTask(started.taskId, (snapshot) => {
+            seen.push(snapshot.pendingUserMessages[0]?.delivery ?? 'none');
+        });
+
+        expect(center.promoteTaskUserMessage(started.taskId, message!.id)).toBe(true);
+
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages[0]).toMatchObject({
+            id: message!.id,
+            delivery: 'priority',
+        });
+        // The subscriber must be told, otherwise the bubble stays dashed until
+        // some unrelated snapshot happens to publish.
+        expect(seen[seen.length - 1]).toBe('priority');
+    });
+
+    it('user gets pending messages removed or cleared from the task', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(1));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 1 });
+        const first = center.enqueueTaskUserMessage(started.taskId, { prompt: 'one' }, 'queue');
+        const second = center.enqueueTaskUserMessage(started.taskId, { prompt: 'two' }, 'queue');
+
+        expect(center.removeTaskUserMessage(started.taskId, first!.id)).toBe(true);
+        expect(center.removeTaskUserMessage(started.taskId, first!.id)).toBe(false);
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([second]);
+
+        expect(center.clearTaskUserMessages(started.taskId)).toBe(true);
+        expect(center.clearTaskUserMessages(started.taskId)).toBe(false);
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual([]);
+    });
+
+    it('user gets queued messages reordered without moving a committed steer', async () => {
+        runtimeState.run.mockImplementation(staysRunningInSession(10));
+        const center = createCenter();
+        const started = await center.startTask({ prompt: 'Hi', sessionId: 10 });
+        const steered = center.enqueueTaskUserMessage(
+            started.taskId,
+            { prompt: 'insert' },
+            'priority'
+        );
+        const first = center.enqueueTaskUserMessage(started.taskId, { prompt: 'first' }, 'queue');
+        const second = center.enqueueTaskUserMessage(started.taskId, { prompt: 'second' }, 'queue');
+        const third = center.enqueueTaskUserMessage(started.taskId, { prompt: 'third' }, 'queue');
+
+        expect(
+            center.reorderTaskQueuedMessages(started.taskId, [third!.id, first!.id, second!.id])
+        ).toBe(true);
+
+        const snapshot = center.getTaskSnapshot(started.taskId);
+        expect(snapshot?.pendingUserMessages.map((message) => message.prompt)).toEqual([
+            'insert',
+            'third',
+            'first',
+            'second',
+        ]);
+        expect(latestOptions().takePriorityUserMessages?.()).toEqual([steered]);
+
+        expect(center.reorderTaskQueuedMessages(started.taskId, [steered!.id])).toBe(false);
+        expect(center.getTaskSnapshot(started.taskId)?.pendingUserMessages).toEqual(
+            snapshot?.pendingUserMessages
+        );
+    });
 });
 
 describe('user waits for a queued message to become the next turn', () => {
+    it('user gets the reordered queue started first on the next turn', async () => {
+        runtimeState.run
+            .mockImplementationOnce(finishableRun(11))
+            .mockImplementation(staysRunningInSession(11));
+        const center = createCenter();
+        const first = await center.startTask({ prompt: 'first', sessionId: 11 });
+        const queuedFirst = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'queued first' },
+            'queue'
+        );
+        const queuedSecond = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'queued second' },
+            'queue'
+        );
+        const queuedThird = center.enqueueTaskUserMessage(
+            first.taskId,
+            { prompt: 'queued third' },
+            'queue'
+        );
+
+        expect(
+            center.reorderTaskQueuedMessages(first.taskId, [
+                queuedThird!.id,
+                queuedFirst!.id,
+                queuedSecond!.id,
+            ])
+        ).toBe(true);
+
+        finishCurrentTask!();
+        await first.completion;
+
+        await vi.waitFor(() => expect(runtimeState.instances).toHaveLength(2));
+        const next = center.getSessionStatus(11);
+        const nextSnapshot = center.getTaskSnapshot(next!.taskId);
+        expect(nextSnapshot?.sessionHistory[0]).toMatchObject({
+            id: queuedThird!.id,
+            content: 'queued third',
+        });
+        expect(nextSnapshot?.pendingUserMessages.map((message) => message.prompt)).toEqual([
+            'queued first',
+            'queued second',
+        ]);
+    });
+
     it('user gets the next queued message started after the run completes', async () => {
         runtimeState.run
             .mockImplementationOnce(finishableRun(3))
@@ -277,6 +443,45 @@ describe('user submits while a finished run hands over to its queue', () => {
             expect(
                 center.getTaskSnapshot(nextId)?.pendingUserMessages.map((entry) => entry.prompt)
             ).toEqual(['third', 'late']);
+        } finally {
+            releaseStartup?.();
+            resetStartupCapabilities();
+        }
+    });
+
+    it('user gets handover queues reordered before the next task attaches', async () => {
+        let releaseStartup!: () => void;
+        try {
+            runtimeState.run
+                .mockImplementationOnce(finishableRun(12))
+                .mockImplementation(staysRunningInSession(12));
+            const center = createCenter();
+            const first = await center.startTask({ prompt: 'first', sessionId: 12 });
+            center.enqueueTaskUserMessage(first.taskId, { prompt: 'second' }, 'queue');
+            const third = center.enqueueTaskUserMessage(first.taskId, { prompt: 'third' }, 'queue');
+
+            finishCurrentTask!();
+            await first.completion;
+
+            registerStartupCapability(
+                'model-metadata',
+                new Promise<void>((resolve) => {
+                    releaseStartup = resolve;
+                })
+            );
+            await Promise.resolve();
+            await Promise.resolve();
+
+            const late = center.enqueueSessionUserMessage(12, { prompt: 'late' }, 'queue');
+            expect(late).not.toBeNull();
+            expect(center.reorderSessionQueuedMessages(12, [late!.id, third!.id])).toBe(true);
+
+            releaseStartup();
+            await vi.waitFor(() => expect(center.getSessionStatus(12)?.status).toBe('running'));
+            const nextId = center.getSessionStatus(12)!.taskId;
+            expect(
+                center.getTaskSnapshot(nextId)?.pendingUserMessages.map((entry) => entry.prompt)
+            ).toEqual(['late', 'third']);
         } finally {
             releaseStartup?.();
             resetStartupCapabilities();

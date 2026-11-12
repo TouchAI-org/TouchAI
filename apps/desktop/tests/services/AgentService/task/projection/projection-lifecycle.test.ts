@@ -435,3 +435,35 @@ describe('user has a message waiting for delivery', () => {
         ).toHaveLength(1);
     });
 });
+
+describe('user steers into a running task', () => {
+    it('user gets the steer above the loading row once it is delivered', () => {
+        const { snapshot, projection } = createProjection();
+        projection.bootstrap([], 'Hello', []);
+        snapshot.pendingUserMessages = [
+            {
+                id: 'steer-1',
+                prompt: 'Steer this way',
+                attachments: [],
+                delivery: 'priority',
+                createdAt: 2,
+            },
+        ];
+
+        projection.syncTaskMetadata({
+            type: 'user_messages_delivered',
+            taskId: 'task-1',
+            messages: [{ id: 'steer-1', prompt: 'Steer this way', attachments: [] }],
+        } as never);
+
+        const steerIndex = snapshot.sessionHistory.findIndex((entry) => entry.id === 'steer-1');
+        const loadingIndex = snapshot.sessionHistory.findIndex(
+            (entry) => entry.role === 'assistant' && entry.isStreaming
+        );
+
+        expect(steerIndex).toBeGreaterThanOrEqual(0);
+        expect(loadingIndex).toBeGreaterThan(steerIndex);
+        expect(snapshot.sessionHistory[steerIndex]?.pendingDelivery).toBeUndefined();
+        expect(snapshot.pendingUserMessages).toEqual([]);
+    });
+});

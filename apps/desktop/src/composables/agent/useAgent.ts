@@ -367,17 +367,51 @@ export function useAgent(options: UseAiRequestOptions = {}) {
     }
 
     function removePendingUserMessage(messageId: string): boolean {
-        if (!attachedTaskId.value) {
-            return false;
+        if (
+            attachedTaskId.value &&
+            sessionTaskCenter.removeTaskUserMessage(attachedTaskId.value, messageId)
+        ) {
+            return true;
         }
-        return sessionTaskCenter.removeTaskUserMessage(attachedTaskId.value, messageId);
+        return currentSessionId.value === null
+            ? false
+            : sessionTaskCenter.removeSessionUserMessage(currentSessionId.value, messageId);
+    }
+
+    function promotePendingUserMessage(messageId: string): boolean {
+        if (
+            attachedTaskId.value &&
+            sessionTaskCenter.promoteTaskUserMessage(attachedTaskId.value, messageId)
+        ) {
+            return true;
+        }
+        return currentSessionId.value === null
+            ? false
+            : sessionTaskCenter.promoteSessionUserMessage(currentSessionId.value, messageId);
+    }
+
+    function reorderPendingUserMessages(orderedQueueIds: string[]): boolean {
+        if (
+            attachedTaskId.value &&
+            sessionTaskCenter.reorderTaskQueuedMessages(attachedTaskId.value, orderedQueueIds)
+        ) {
+            return true;
+        }
+        return currentSessionId.value === null
+            ? false
+            : sessionTaskCenter.reorderSessionQueuedMessages(
+                  currentSessionId.value,
+                  orderedQueueIds
+              );
     }
 
     function clearPendingUserMessages(): boolean {
-        if (!attachedTaskId.value) {
-            return false;
+        if (attachedTaskId.value && sessionTaskCenter.clearTaskUserMessages(attachedTaskId.value)) {
+            return true;
         }
-        return sessionTaskCenter.clearTaskUserMessages(attachedTaskId.value);
+        return currentSessionId.value === null
+            ? false
+            : sessionTaskCenter.clearSessionUserMessages(currentSessionId.value);
     }
 
     function updatePendingUserMessagesModel(
@@ -453,7 +487,9 @@ export function useAgent(options: UseAiRequestOptions = {}) {
         rejectPendingToolApproval,
         settleUserQuestion,
         enqueueUserMessage,
+        promotePendingUserMessage,
         removePendingUserMessage,
+        reorderPendingUserMessages,
         clearPendingUserMessages,
         updatePendingUserMessagesModel,
     };

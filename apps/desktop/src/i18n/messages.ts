@@ -114,7 +114,8 @@ const zhCNMessages = {
     'settings.general.searchActions.windowMaximize': '切换窗口最大化',
     'settings.general.searchActions.openSettings': '打开设置',
     'settings.general.searchActions.cancelRequest': '取消当前请求',
-    'settings.general.fixedSearchActions.submitRequest': '发送请求',
+    'settings.general.searchActions.queueMessage': '排队发送消息',
+    'settings.general.searchActions.priorityMessage': '插队发送消息',
     'settings.general.fixedSearchActions.newLine': '换行',
     'settings.general.fixedSearchActions.previousInputHistory': '上一条会话历史',
     'settings.general.fixedSearchActions.nextInputHistory': '下一条会话历史',
@@ -131,7 +132,9 @@ const zhCNMessages = {
     'settings.general.searchActionDescriptions.openSettings': '快速打开设置窗口',
     'settings.general.searchActionDescriptions.cancelRequest':
         '停止会话 / 清除输入内容 / 恢复默认模型',
-    'settings.general.searchActionDescriptions.submitRequest': '发送当前输入内容',
+    'settings.general.searchActionDescriptions.queueMessage': '这一轮回答完再发',
+    'settings.general.searchActionDescriptions.priorityMessage':
+        '下个工具调用后插队，不用等整轮回答',
     'settings.general.searchActionDescriptions.newLine': '在输入框中输入文本时换行',
     'settings.general.searchActionDescriptions.previousInputHistory': '查看输入框输入的上一条记录',
     'settings.general.searchActionDescriptions.nextInputHistory': '查看输入框输入的下一条记录',
@@ -147,6 +150,7 @@ const zhCNMessages = {
     'settings.general.searchShortcuts.errors.globalConflict':
         '该快捷键与全局唤起快捷键冲突，请换一个组合',
     'settings.general.searchShortcuts.fixedUnavailable': '暂不支持修改该快捷键',
+    'settings.general.searchShortcuts.managedInGeneral': '请在“通用”中修改发送快捷键',
     'settings.general.saveShortcutFailed': '保存快捷键到数据库失败',
     'settings.general.loadSettingsFailed': '加载设置失败',
     'settings.general.saveStartOnBootFailed': '保存开机自启动设置失败',
@@ -186,10 +190,9 @@ const zhCNMessages = {
     'settings.general.languageDescription': '控制 TouchAI 界面使用的显示语言',
     'settings.general.interfaceLanguage': '界面语言',
     'settings.general.conversationExperience': '对话体验',
-    'settings.general.conversationExperienceDescription': '调整长输出场景下的阅读位置',
-    'settings.general.submitShortcutMode.label': '运行中提交方式',
-    'settings.general.submitShortcutMode.queueOnEnter': 'Enter 排队',
-    'settings.general.submitShortcutMode.priorityOnEnter': 'Enter 插队',
+    'settings.general.conversationExperienceDescription': '调整发送方式与长输出场景下的阅读位置',
+    'settings.general.sendShortcut': '发送快捷键',
+    'settings.general.sendShortcutDescription': '运行中按哪个键排队，另一个键就用来插队',
     'settings.general.update.channelTitle': '版本更新',
     'settings.general.update.channelDescription': '选择您适合的版本更新频率',
     'settings.general.update.channelRowLabel': '版本更新通道',
@@ -1039,6 +1042,11 @@ const zhCNMessages = {
     'conversation.scroller.assistant': '助手',
     'conversation.scroller.jumpToMessage': '跳转到第 {index}/{total} 条{role}消息',
     'conversation.scroller.scrollToBottom': '滚动到最新消息',
+    'conversation.pendingMessage.sendNow': '插队',
+    'conversation.message.expand': '展开全文',
+    'conversation.message.collapse': '收起',
+    'conversation.pendingMessage.edit': '编辑待发消息',
+    'conversation.pendingMessage.remove': '取消待发消息',
     'assistant.loadingTip.newLine': 'Shift+Enter 换行，适合分段表述',
     'assistant.loadingTip.switchModel': '使用配置的快捷键或点击模型图标切换模型',
     'assistant.loadingTip.history': '使用配置的快捷键快速打开历史会话',
@@ -1192,7 +1200,7 @@ const zhCNMessages = {
     'agent.persistenceIssue.retryStarted': '保存重试检查点失败，但本轮仍会继续重试。',
     'agent.persistenceIssue.turnFailed': '保存会话失败状态失败，对话记录可能不完整。',
     'agent.persistenceIssue.userMessageDelivery':
-        '保存插队消息失败，对话将继续但该消息可能未写入历史。',
+        '保存引导消息失败，对话将继续但该消息可能未写入历史。',
     'agent.mcp.toolDescriptionFallback': '工具：{toolName}',
     'settings.diagnostics.title': '诊断与支持',
     'settings.analytics.title': '隐私与产品统计',
@@ -1335,7 +1343,8 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.general.searchActions.windowMaximize': 'Toggle window maximize',
     'settings.general.searchActions.openSettings': 'Open settings',
     'settings.general.searchActions.cancelRequest': 'Cancel current request',
-    'settings.general.fixedSearchActions.submitRequest': 'Submit request',
+    'settings.general.searchActions.queueMessage': 'Queue message',
+    'settings.general.searchActions.priorityMessage': 'Steer message',
     'settings.general.fixedSearchActions.newLine': 'Insert new line',
     'settings.general.fixedSearchActions.previousInputHistory': 'Previous input history',
     'settings.general.fixedSearchActions.nextInputHistory': 'Next input history',
@@ -1354,7 +1363,9 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.general.searchActionDescriptions.openSettings': 'Quickly open the settings window.',
     'settings.general.searchActionDescriptions.cancelRequest':
         'Stop the current generation or tool run.',
-    'settings.general.searchActionDescriptions.submitRequest': 'Send the current input.',
+    'settings.general.searchActionDescriptions.queueMessage': 'Send after this answer finishes.',
+    'settings.general.searchActionDescriptions.priorityMessage':
+        'Steer after the next tool call instead of waiting for the whole answer.',
     'settings.general.searchActionDescriptions.newLine': 'Insert a new line in the input field.',
     'settings.general.searchActionDescriptions.previousInputHistory':
         'Show the previous input history item.',
@@ -1374,6 +1385,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
         'This shortcut conflicts with the global activation shortcut. Choose another combination.',
     'settings.general.searchShortcuts.fixedUnavailable':
         'Changing this shortcut is not supported yet.',
+    'settings.general.searchShortcuts.managedInGeneral': 'Change the send shortcut in General.',
     'settings.general.saveShortcutFailed': 'Failed to save shortcut to database',
     'settings.general.loadSettingsFailed': 'Failed to load settings',
     'settings.general.saveStartOnBootFailed': 'Failed to save start-on-boot setting',
@@ -1419,10 +1431,10 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.general.interfaceLanguage': 'Interface language',
     'settings.general.conversationExperience': 'Conversation experience',
     'settings.general.conversationExperienceDescription':
-        'Adjust the reading position for long streaming output',
-    'settings.general.submitShortcutMode.label': 'Submit while running',
-    'settings.general.submitShortcutMode.queueOnEnter': 'Enter queues',
-    'settings.general.submitShortcutMode.priorityOnEnter': 'Enter inserts',
+        'Control how messages send and where long output stays in view',
+    'settings.general.sendShortcut': 'Send shortcut',
+    'settings.general.sendShortcutDescription':
+        'Choose which key queues while a task runs; the other key steers.',
     'settings.general.update.channelTitle': 'Version updates',
     'settings.general.update.channelDescription': 'Choose the update frequency that fits you',
     'settings.general.update.channelRowLabel': 'Version update channel',
@@ -2343,6 +2355,11 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'conversation.scroller.assistant': 'assistant',
     'conversation.scroller.jumpToMessage': 'Go to {role} message {index} of {total}',
     'conversation.scroller.scrollToBottom': 'Scroll to latest message',
+    'conversation.pendingMessage.sendNow': 'Steer now',
+    'conversation.message.expand': 'Expand',
+    'conversation.message.collapse': 'Collapse',
+    'conversation.pendingMessage.edit': 'Edit pending message',
+    'conversation.pendingMessage.remove': 'Cancel pending message',
     'assistant.loadingTip.newLine': 'Shift+Enter inserts a new line for structured prompts',
     'assistant.loadingTip.switchModel':
         'Use the configured shortcut or the model icon to switch models',
@@ -2511,7 +2528,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'agent.persistenceIssue.turnFailed':
         'Failed to save session failure state. Conversation records may be incomplete.',
     'agent.persistenceIssue.userMessageDelivery':
-        'Failed to save the inserted message. The conversation continues but it may be missing from history.',
+        'Failed to save the steer message. The conversation continues but it may be missing from history.',
     'agent.mcp.toolDescriptionFallback': 'Tool: {toolName}',
     'settings.diagnostics.title': 'Diagnostics and support',
     'settings.analytics.title': 'Privacy and product analytics',

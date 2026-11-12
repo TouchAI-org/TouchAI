@@ -7,10 +7,10 @@
     import { storeToRefs } from 'pinia';
     import { computed, onMounted, ref, watch } from 'vue';
 
-    import type { SubmitShortcutMode } from '@/config/chatSubmission';
     import { type SearchWindowSizePreset } from '@/config/searchWindow';
     import { type AppLocale, LOCALE_LABELS, SUPPORTED_LOCALES, t } from '@/i18n';
     import { type OutputScrollBehavior, useSettingsStore } from '@/stores/settings';
+    import { formatShortcutForDisplay, normalizeLocalShortcutString } from '@/utils/shortcuts';
 
     import MotionSettingsSection from './MotionSettingsSection.vue';
     import UpdateAvailableBadge from './UpdateAvailableBadge.vue';
@@ -51,6 +51,20 @@
         ]
     );
 
+    type SendShortcut = 'Enter' | 'Mod+Enter';
+
+    const sendShortcutOptions = computed<Array<{ value: SendShortcut; label: string }>>(() => [
+        { value: 'Enter', label: formatShortcutForDisplay('Enter') },
+        { value: 'Mod+Enter', label: formatShortcutForDisplay('Mod+Enter') },
+    ]);
+    const selectedSendShortcut = computed<SendShortcut>(() =>
+        normalizeLocalShortcutString(settings.value.searchKeybindings['search.submit.queue']) ===
+        'Mod+Enter'
+            ? 'Mod+Enter'
+            : 'Enter'
+    );
+    const isSavingSendShortcut = ref(false);
+
     const searchWindowSizeOptions = computed(
         (): Array<{
             value: SearchWindowSizePreset;
@@ -59,22 +73,6 @@
             { value: 'small', label: t('settings.general.size.small') },
             { value: 'normal', label: t('settings.general.size.normal') },
             { value: 'large', label: t('settings.general.size.large') },
-        ]
-    );
-
-    const submitShortcutModeOptions = computed(
-        (): Array<{
-            value: SubmitShortcutMode;
-            label: string;
-        }> => [
-            {
-                value: 'queue_on_enter',
-                label: t('settings.general.submitShortcutMode.queueOnEnter'),
-            },
-            {
-                value: 'priority_on_enter',
-                label: t('settings.general.submitShortcutMode.priorityOnEnter'),
-            },
         ]
     );
 
@@ -142,13 +140,35 @@
         }
     };
 
-    const saveSubmitShortcutMode = async () => {
+    const saveSendShortcut = async (shortcut: SendShortcut) => {
+        if (isSavingSendShortcut.value) {
+            return;
+        }
+
+        const priorityShortcut: SendShortcut = shortcut === 'Enter' ? 'Mod+Enter' : 'Enter';
+        const currentQueueShortcut = normalizeLocalShortcutString(
+            settings.value.searchKeybindings['search.submit.queue']
+        );
+        const currentPriorityShortcut = normalizeLocalShortcutString(
+            settings.value.searchKeybindings['search.submit.priority']
+        );
+        if (currentQueueShortcut === shortcut && currentPriorityShortcut === priorityShortcut) {
+            return;
+        }
+
+        isSavingSendShortcut.value = true;
         try {
-            await settingsStore.updateSubmitShortcutMode(settings.value.submitShortcutMode);
+            await settingsStore.updateSearchKeybindings({
+                ...settings.value.searchKeybindings,
+                'search.submit.queue': shortcut,
+                'search.submit.priority': priorityShortcut,
+            });
             alertMessage.value?.success(t('common.saved'), 2000);
         } catch (error) {
-            log.error('Failed to save submit_shortcut_mode setting:', error);
+            log.error('Failed to save send shortcut:', error);
             alertMessage.value?.error(t('settings.general.saveSettingsFailed'), 3000);
+        } finally {
+            isSavingSendShortcut.value = false;
         }
     };
 
@@ -202,7 +222,7 @@
 
                 <div
                     data-testid="settings-general-card-launch"
-                    class="settings-row-group divide-y divide-neutral-200/70"
+                    class="settings-row-group divide-y divide-border/70"
                 >
                     <SettingsRow
                         data-settings-search-target="start-on-boot"
@@ -266,7 +286,32 @@
                     </p>
                 </div>
 
-                <div data-testid="settings-general-card-conversation" class="settings-row-group">
+                <div
+                    data-testid="settings-general-card-conversation"
+                    class="settings-row-group divide-y divide-border/70"
+                >
+                    <SettingsRow
+                        data-settings-search-target="send-shortcut"
+                        control-width="180"
+                        label-as="label"
+                        label-class="block"
+                        :label="t('settings.general.sendShortcut')"
+                        :description="t('settings.general.sendShortcutDescription')"
+                        :label-attrs="{ 'data-testid': 'settings-general-row-label' }"
+                        control-class="ml-auto w-[180px]"
+                        :control-attrs="{ 'data-testid': 'settings-general-control' }"
+                    >
+                        <CustomSelect
+                            :model-value="selectedSendShortcut"
+                            :options="sendShortcutOptions"
+                            :disabled="isSavingSendShortcut"
+                            protect-option-text
+                            trigger-test-id="settings-send-shortcut-trigger"
+                            content-test-id="settings-send-shortcut-content"
+                            option-test-id-prefix="settings-send-shortcut-option-"
+                            @update:model-value="saveSendShortcut"
+                        />
+                    </SettingsRow>
                     <SettingsRow
                         data-settings-search-target="output-scroll"
                         control-width="180"
@@ -281,23 +326,6 @@
                             v-model="settings.outputScrollBehavior"
                             :options="outputScrollBehaviorOptions"
                             @update:model-value="saveOutputScrollBehavior"
-                        />
-                    </SettingsRow>
-
-                    <SettingsRow
-                        data-settings-search-target="submit-shortcut-mode"
-                        control-width="180"
-                        label-as="label"
-                        label-class="block"
-                        :label="t('settings.general.submitShortcutMode.label')"
-                        :label-attrs="{ 'data-testid': 'settings-general-row-label' }"
-                        control-class="ml-auto w-[180px]"
-                        :control-attrs="{ 'data-testid': 'settings-general-control' }"
-                    >
-                        <CustomSelect
-                            v-model="settings.submitShortcutMode"
-                            :options="submitShortcutModeOptions"
-                            @update:model-value="saveSubmitShortcutMode"
                         />
                     </SettingsRow>
                 </div>

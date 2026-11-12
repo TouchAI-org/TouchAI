@@ -38,6 +38,12 @@ export interface PendingUserMessageInput {
 export interface PendingUserMessage extends PendingUserMessageInput {
     id: string;
     delivery: PendingUserMessageDelivery;
+    /**
+     * Set when the user clicks Steer now. The executor keeps streaming the
+     * current answer only up to its next safe boundary, then injects this
+     * message into the running turn instead of waiting for a tool call.
+     */
+    immediate?: boolean;
     attachments: AttachmentIndex[];
     createdAt: number;
 }

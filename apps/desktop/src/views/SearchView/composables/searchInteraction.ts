@@ -7,7 +7,11 @@ import type { SearchSurfaceCommandEvent } from '@services/EventService/types';
 import { log } from '@services/ObservabilityService';
 import { computed, type ComputedRef, reactive, type Ref, watch } from 'vue';
 
-import type { SearchKeybindingActionId, SearchKeybindings } from '@/config/searchKeybindings';
+import {
+    isRendererOnlySearchKeybindingAction,
+    type SearchKeybindingActionId,
+    type SearchKeybindings,
+} from '@/config/searchKeybindings';
 import { useAskUserStore } from '@/stores/askUser';
 import {
     cloneInputHistorySnapshot,
@@ -619,12 +623,35 @@ function resolveSearchKeybindingAction(
     for (const [actionId, shortcut] of Object.entries(keybindings) as Array<
         [SearchKeybindingActionId, string | null]
     >) {
+        if (isRendererOnlySearchKeybindingAction(actionId)) {
+            continue;
+        }
         if (matchShortcut(shortcut, input)) {
             return actionId;
         }
     }
 
     return null;
+}
+
+/**
+ * Resolve the running-submit gesture from the user's bindings.
+ * Plain Enter queues; Ctrl/Cmd+Enter inserts unless the bindings are swapped.
+ */
+function resolveSearchSubmitIntent(
+    input: SearchKeyboardRouteInput,
+    keybindings: SearchKeybindings | undefined
+): SubmitShortcutIntent {
+    if (keybindings) {
+        if (matchShortcut(keybindings['search.submit.priority'], input)) {
+            return 'enter-modified';
+        }
+        if (matchShortcut(keybindings['search.submit.queue'], input)) {
+            return 'enter';
+        }
+    }
+
+    return input.ctrlKey || input.metaKey ? 'enter-modified' : 'enter';
 }
 
 function matchesSearchKeybindingCommand(
@@ -890,7 +917,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
                     // the host to jump back to the compact height.
                     if (queryText.trim() || hasAttachments() || hasInputContent?.()) {
                         runKeyboardEffect(() =>
-                            onSubmit(input.ctrlKey || input.metaKey ? 'enter-modified' : 'enter')
+                            onSubmit(resolveSearchSubmitIntent(input, keybindings))
                         );
                     } else {
                         onCloseQuickSearch();
@@ -924,7 +951,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
 
                 if (queryText.trim() || hasAttachments() || hasInputContent?.()) {
                     runKeyboardEffect(() =>
-                        onSubmit(input.ctrlKey || input.metaKey ? 'enter-modified' : 'enter')
+                        onSubmit(resolveSearchSubmitIntent(input, keybindings))
                     );
                     return true;
                 }
@@ -936,9 +963,7 @@ export function createSearchKeyboardRouter(options: CreateSearchKeyboardRouterOp
 
         if (getActiveSurface() === 'search-surface' && input.key === 'Enter' && !input.shiftKey) {
             if (queryText.trim() || hasAttachments() || hasInputContent?.()) {
-                runKeyboardEffect(() =>
-                    onSubmit(input.ctrlKey || input.metaKey ? 'enter-modified' : 'enter')
-                );
+                runKeyboardEffect(() => onSubmit(resolveSearchSubmitIntent(input, keybindings)));
             }
             return true;
         }

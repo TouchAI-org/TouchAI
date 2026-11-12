@@ -463,6 +463,8 @@ describe('when the user clicks around the search window', () => {
             useSearchKeyboard({
                 viewReady: ref(true),
                 searchKeybindings: ref({
+                    'search.submit.queue': null,
+                    'search.submit.priority': null,
                     'search.history.open': null,
                     'search.input.focus': null,
                     'search.session.new': null,

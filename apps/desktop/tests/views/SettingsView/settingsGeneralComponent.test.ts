@@ -17,9 +17,11 @@ function setPlatform(platform: string) {
 
 const settingsStoreMock = await vi.hoisted(async () => {
     const { ref } = await import('vue');
+    const { createDefaultSearchKeybindings } = await import('@/config/searchKeybindings');
+
     const createGeneralSettingsMock = () => ({
         globalShortcut: 'Alt+Space',
-        searchKeybindings: {},
+        searchKeybindings: createDefaultSearchKeybindings(),
         startOnBoot: false,
         startMinimized: true,
         language: 'zh-CN',
@@ -39,6 +41,7 @@ const settingsStoreMock = await vi.hoisted(async () => {
         updateStartOnBoot: vi.fn().mockResolvedValue(undefined),
         updateStartMinimized: vi.fn().mockResolvedValue(undefined),
         updateOutputScrollBehavior: vi.fn().mockResolvedValue(undefined),
+        updateSearchKeybindings: vi.fn().mockResolvedValue(undefined),
         updateSearchWindowSizePreset: vi.fn().mockResolvedValue(undefined),
         updateLanguage: vi.fn().mockResolvedValue(undefined),
         updateAppUpdateChannel: vi.fn().mockResolvedValue(undefined),
@@ -202,6 +205,8 @@ describe('user changes general settings', () => {
         expect(wrapper.text()).toContain('启动时最小化');
         expect(wrapper.text()).toContain('窗口尺寸');
         expect(wrapper.text()).toContain('对话体验');
+        expect(wrapper.text()).toContain('发送快捷键');
+        expect(wrapper.text()).toContain('运行中按哪个键排队，另一个键就用来插队');
         expect(wrapper.text()).toContain('输出时滚动策略');
         expect(wrapper.text()).toContain('界面语言');
         expect(wrapper.text()).toContain('版本更新通道');
@@ -209,7 +214,7 @@ describe('user changes general settings', () => {
         expect(wrapper.text()).toContain('当前已是最新版（V0.1.0）');
         expect(wrapper.text()).toContain('自动检查更新');
         expect(wrapper.text()).toContain('检查更新');
-        expect(wrapper.text()).not.toContain('快捷键');
+        expect(wrapper.text()).not.toContain('快捷键设置');
         expect(wrapper.text()).not.toContain('唤起快捷键');
         expect(wrapper.find('[data-testid="settings-global-shortcut-input"]').exists()).toBe(false);
         expect(wrapper.find('[data-testid^="settings-search-shortcut-input-"]').exists()).toBe(
@@ -227,7 +232,7 @@ describe('user changes general settings', () => {
         expect(wrapper.text()).not.toContain('隐私与产品统计');
 
         const controls = wrapper.findAll('[data-testid="settings-general-control"]');
-        expect(controls.length).toBeGreaterThanOrEqual(3);
+        expect(controls.length).toBeGreaterThanOrEqual(4);
 
         const rowLabels = wrapper.findAll('[data-testid="settings-general-row-label"]');
         expect(rowLabels.length).toBeGreaterThanOrEqual(5);
@@ -248,6 +253,48 @@ describe('user changes general settings', () => {
                 .get('[data-settings-search-target="start-on-boot"] [role="switch"]')
                 .attributes('aria-checked')
         ).toBe('false');
+    });
+
+    it('user chooses Ctrl+Enter as the send shortcut and both run actions swap', async () => {
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const sendShortcut = wrapper
+            .get('[data-settings-search-target="send-shortcut"]')
+            .findComponent({ name: 'CustomSelectStub' });
+        expect(sendShortcut.props('modelValue')).toBe('Enter');
+        expect(sendShortcut.props('options')).toEqual([
+            { value: 'Enter', label: 'Enter' },
+            { value: 'Mod+Enter', label: 'Ctrl+Enter' },
+        ]);
+
+        sendShortcut.vm.$emit('update:modelValue', 'Mod+Enter');
+        await flushPromises();
+
+        expect(settingsStoreMock.updateSearchKeybindings).toHaveBeenCalledWith(
+            expect.objectContaining({
+                'search.submit.queue': 'Mod+Enter',
+                'search.submit.priority': 'Enter',
+            })
+        );
+        expect(alertMessageMock.success).toHaveBeenCalledWith('保存成功', 2000);
+    });
+
+    it('user sees the selected send shortcut when priority already owns Enter', async () => {
+        settingsStoreMock.settings.value.searchKeybindings = {
+            ...settingsStoreMock.createGeneralSettingsMock().searchKeybindings,
+            'search.submit.queue': 'Mod+Enter',
+            'search.submit.priority': 'Enter',
+        };
+        const wrapper = mount(GeneralSection);
+
+        await flushPromises();
+
+        const sendShortcut = wrapper
+            .get('[data-settings-search-target="send-shortcut"]')
+            .findComponent({ name: 'CustomSelectStub' });
+        expect(sendShortcut.props('modelValue')).toBe('Mod+Enter');
     });
 
     it('user keeps the latest-version state compact after a manual check', async () => {

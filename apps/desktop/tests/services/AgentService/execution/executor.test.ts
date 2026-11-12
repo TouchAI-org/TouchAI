@@ -1288,6 +1288,70 @@ describe('user calls a tool the agent does not have', () => {
         expect(onToolBoundary).toHaveBeenCalledTimes(1);
     });
 
+    it('user gets their message sent immediately when they steer during an answer', async () => {
+        const requests: AiRequestOptions[] = [];
+        let immediateSteerRequested = false;
+        providerMock.stream
+            .mockImplementationOnce(async function* (request: AiRequestOptions) {
+                requests.push(request);
+                yield { content: 'Partial answer', done: false };
+                // The answer would keep going; the user's click must cut it here.
+                yield { content: ' and more', done: false };
+                yield { content: ' never reached', done: true };
+            })
+            .mockImplementationOnce(async function* (request: AiRequestOptions) {
+                requests.push(request);
+                const tail = request.messages.slice(-2);
+                expect(tail[0]).toMatchObject({ role: 'assistant' });
+                expect(tail[1]).toEqual({ role: 'user', content: 'Steer this' });
+                yield { content: 'Done', done: true };
+            });
+
+        const onSteerBoundary = vi
+            .fn()
+            .mockResolvedValue([{ role: 'user', content: 'Steer this' }]);
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persisterStub() as never,
+            onSteerBoundary,
+            shouldInterruptForImmediateSteer: () => immediateSteerRequested,
+            onChunk: (chunk) => {
+                if (chunk.content === 'Partial answer') {
+                    immediateSteerRequested = true;
+                }
+            },
+        });
+
+        expect(outcome.type).toBe('completed');
+        expect(onSteerBoundary).toHaveBeenCalledTimes(1);
+        // The interrupted stream stopped at the next chunk, not at its natural end.
+        expect(requests).toHaveLength(2);
+    });
+
+    it('user is not interrupted mid-answer when no steer was requested', async () => {
+        let chunks = 0;
+        providerMock.stream.mockImplementationOnce(async function* () {
+            yield { content: 'First', done: false };
+            yield { content: ' second', done: false };
+            yield { content: ' third', done: true };
+        });
+
+        const onSteerBoundary = vi.fn();
+        const outcome = await new AiRequestExecutor().runAttempt({
+            startCheckpoint: createCheckpoint(),
+            persister: persisterStub() as never,
+            onSteerBoundary,
+            shouldInterruptForImmediateSteer: () => false,
+            onChunk: () => {
+                chunks += 1;
+            },
+        });
+
+        expect(outcome.type).toBe('completed');
+        expect(onSteerBoundary).not.toHaveBeenCalled();
+        expect(chunks).toBe(3);
+    });
+
     it('user sees a tool call with non-object arguments rejected before it runs', async () => {
         providerMock.stream
             .mockImplementationOnce(

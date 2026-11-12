@@ -8,6 +8,8 @@ import {
 } from '@/utils/shortcuts';
 
 export const SEARCH_KEYBINDING_ACTION_IDS = [
+    'search.submit.queue',
+    'search.submit.priority',
     'search.history.open',
     'search.input.focus',
     'search.session.new',
@@ -27,11 +29,29 @@ export interface SearchKeybindingDefinition {
     descriptionKey: MessageKey;
     defaultShortcut: string | null;
     allowModifierlessFunctionShortcut: boolean;
+    /** Present when the shortcut selects what happens to a submission during a run. */
+    submitIntent?: 'queue' | 'priority';
 }
 
 export type SearchKeybindings = Record<SearchKeybindingActionId, string | null>;
 
 export const SEARCH_KEYBINDING_DEFINITIONS: SearchKeybindingDefinition[] = [
+    {
+        id: 'search.submit.queue',
+        labelKey: 'settings.general.searchActions.queueMessage',
+        descriptionKey: 'settings.general.searchActionDescriptions.queueMessage',
+        defaultShortcut: 'Enter',
+        allowModifierlessFunctionShortcut: true,
+        submitIntent: 'queue',
+    },
+    {
+        id: 'search.submit.priority',
+        labelKey: 'settings.general.searchActions.priorityMessage',
+        descriptionKey: 'settings.general.searchActionDescriptions.priorityMessage',
+        defaultShortcut: 'Mod+Enter',
+        allowModifierlessFunctionShortcut: true,
+        submitIntent: 'priority',
+    },
     {
         id: 'search.history.open',
         labelKey: 'settings.general.searchActions.history',
@@ -118,6 +138,58 @@ export function createDefaultSearchKeybindings(): SearchKeybindings {
     }, {} as SearchKeybindings);
 }
 
+/**
+ * Submission is an Enter gesture: Enter queues and modified Enter inserts.
+ * Shift/Alt+Enter stay reserved for inserting a new line.
+ */
+export function isSearchSubmitShortcut(shortcut: string | null | undefined): boolean {
+    const normalized = normalizeLocalShortcutString(shortcut);
+    if (!normalized) {
+        return false;
+    }
+
+    const parts = normalized.split('+');
+    const key = parts.pop();
+    return key === 'Enter' && !parts.includes('Shift') && !parts.includes('Alt');
+}
+
+export function isSearchKeybindingShortcutAllowed(
+    definition: SearchKeybindingDefinition,
+    shortcut: string | null | undefined
+): boolean {
+    const normalized = normalizeLocalShortcutString(shortcut);
+    if (!normalized) {
+        return false;
+    }
+
+    const isSubmitShortcut = isSearchSubmitShortcut(normalized);
+    if (definition.submitIntent) {
+        return isSubmitShortcut && !isReservedGlobalShortcut(normalized);
+    }
+    if (isSubmitShortcut) {
+        return false;
+    }
+
+    const allowsModifierless =
+        definition.allowModifierlessFunctionShortcut && isModifierlessFunctionShortcut(normalized);
+
+    if (!hasCommandModifier(normalized) && !allowsModifierless) {
+        return false;
+    }
+    if (isReservedLocalShortcut(normalized)) {
+        return false;
+    }
+    if (isReservedGlobalShortcut(normalized)) {
+        return false;
+    }
+
+    return true;
+}
+
+export function isRendererOnlySearchKeybindingAction(actionId: SearchKeybindingActionId): boolean {
+    return actionId === 'search.submit.queue' || actionId === 'search.submit.priority';
+}
+
 export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
         return createDefaultSearchKeybindings();
@@ -142,11 +214,7 @@ export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
         const shortcut = normalizeLocalShortcutString(candidate);
         if (
             shortcut &&
-            (hasCommandModifier(shortcut) ||
-                (definition.allowModifierlessFunctionShortcut &&
-                    isModifierlessFunctionShortcut(shortcut))) &&
-            !isReservedLocalShortcut(shortcut) &&
-            !isReservedGlobalShortcut(shortcut) &&
+            isSearchKeybindingShortcutAllowed(definition, shortcut) &&
             !usedShortcuts.has(shortcut)
         ) {
             result[definition.id] = shortcut;
@@ -160,7 +228,12 @@ export function normalizeSearchKeybindings(value: unknown): SearchKeybindings {
             continue;
         }
         const shortcut = normalizeLocalShortcutString(definition.defaultShortcut);
-        result[definition.id] = shortcut && !usedShortcuts.has(shortcut) ? shortcut : null;
+        result[definition.id] =
+            shortcut &&
+            isSearchKeybindingShortcutAllowed(definition, shortcut) &&
+            !usedShortcuts.has(shortcut)
+                ? shortcut
+                : null;
         if (result[definition.id]) {
             usedShortcuts.add(shortcut!);
         }

@@ -1,5 +1,4 @@
 import { DEFAULT_APP_UPDATE_CHANNEL, normalizeAppUpdateChannel } from '@/config/appUpdate';
-import { DEFAULT_SUBMIT_SHORTCUT_MODE, normalizeSubmitShortcutMode } from '@/config/chatSubmission';
 import { normalizeAnimationSpeed } from '@/config/motion';
 import {
     DEFAULT_SEARCH_WINDOW_SIZE_PRESET,
@@ -152,18 +151,6 @@ export const GENERAL_SCALAR_SETTING_SPECS = [
             computedName: 'outputScrollBehavior',
             updaterName: 'updateOutputScrollBehavior',
             normalizeUpdate: String,
-        },
-    },
-    {
-        key: 'submit_shortcut_mode',
-        stateKey: 'submitShortcutMode',
-        defaultValue: DEFAULT_SUBMIT_SHORTCUT_MODE,
-        parsePersisted: normalizeSubmitShortcutMode,
-        parseUpdate: normalizeSubmitShortcutMode,
-        store: {
-            computedName: 'submitShortcutMode',
-            updaterName: 'updateSubmitShortcutMode',
-            normalizeUpdate: normalizeSubmitShortcutMode,
         },
     },
     {

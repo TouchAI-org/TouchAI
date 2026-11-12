@@ -18,7 +18,7 @@
     import { useStateMachine } from 'reka-ui';
     import { computed, nextTick, onMounted, onUnmounted, reactive, ref, toRef, watch } from 'vue';
 
-    import type { SearchKeybindingActionId } from '@/config/searchKeybindings';
+    import type { SearchKeybindingActionId, SearchKeybindings } from '@/config/searchKeybindings';
     import {
         SEARCH_SURFACE_EASING,
         SEARCH_SURFACE_MOTION,
@@ -359,8 +359,7 @@
     const inputHistoryRestoreVersion = ref(0);
     const mcpStore = useMcpStore();
     const settingsStore = useSettingsStore();
-    const { searchWindowDefaultSize, searchKeybindings, submitShortcutMode } =
-        storeToRefs(settingsStore);
+    const { searchWindowDefaultSize, searchKeybindings } = storeToRefs(settingsStore);
     const { sessionStatuses, refreshAllStatuses: refreshSessionStatuses } = useSessionStatus();
     const { isPinned, syncWindowPinState, setWindowPinned, toggleWindowPin } = useSearchWindowPin();
     type E2eAskUserRequest =
@@ -381,6 +380,13 @@
             setAskUserRequest: (request: E2eAskUserRequest) => void;
             clearAskUser: () => void;
             setLanguage: (locale: AppLocale) => Promise<void>;
+            setSearchKeybindings: (keybindings: Partial<SearchKeybindings>) => Promise<void>;
+            configureE2eModel: (
+                endpoint: string,
+                modelId: string,
+                modelName: string
+            ) => Promise<void>;
+            cancelSearchRequest: () => Promise<void>;
             getQuickSearchFallbackResults?: (query: string) => QuickShortcutItem[];
             resetDraft?: () => void;
             clearSessionToIdle?: () => Promise<void>;
@@ -599,6 +605,9 @@
         cancelRequest,
         cancelPendingRequest,
         cancelLatestPendingMessage,
+        promotePendingUserMessage,
+        removePendingUserMessage,
+        reorderPendingUserMessages,
         handleRegenerateMessage: handleRegenerateMessageRequest,
     } = useSearchRequestFlow({
         modelOverride,
@@ -606,7 +615,6 @@
         getSupportedAttachments,
         getUnsupportedAttachmentMessage,
         getCurrentInputSnapshot: buildCurrentInputHistorySnapshot,
-        submitShortcutMode,
     });
 
     const floatingPicker = computed(
@@ -1009,6 +1017,9 @@
 
     async function handleSearchKeybindingAction(actionId: SearchKeybindingActionId) {
         switch (actionId) {
+            case 'search.submit.queue':
+            case 'search.submit.priority':
+                return;
             case 'search.history.open':
                 await openHistoryDialog();
                 return;
@@ -2328,6 +2339,50 @@
         await handleRegenerateMessageRequest(messageId);
     }
 
+    async function handlePendingMessageAction(
+        action: 'sendNow' | 'edit' | 'remove',
+        messageId: string
+    ): Promise<void> {
+        if (action === 'sendNow') {
+            promotePendingUserMessage(messageId);
+            return;
+        }
+
+        if (action === 'remove') {
+            removePendingUserMessage(messageId);
+            return;
+        }
+
+        const message = pendingUserMessages.value.find((entry) => entry.id === messageId);
+        if (!message || !removePendingUserMessage(messageId)) {
+            return;
+        }
+
+        const snapshot = createInputHistorySnapshot({
+            text: message.prompt,
+            attachments: message.attachments,
+            editorDoc: message.inputSnapshot?.editorDoc,
+            excludeFromHistory: message.inputSnapshot?.excludeFromHistory,
+        });
+        const restoredText =
+            searchBar.value?.restoreInputHistorySnapshot(snapshot) ?? snapshot.text;
+        attachments.value = snapshot.attachments;
+        syncAttachmentSupport();
+        queryText.value = restoredText;
+        if (message.modelId !== undefined || message.providerId !== undefined) {
+            modelOverride.value = {
+                modelId: message.modelId ?? null,
+                providerId: message.providerId ?? null,
+            };
+        }
+        await nextTick();
+        await controller.focusSearchInput();
+    }
+
+    function handlePendingMessagesReorder(orderedMessageIds: string[]): void {
+        reorderPendingUserMessages(orderedMessageIds);
+    }
+
     function applyE2eSearchQuery(nextText: string) {
         const snapshot = createInputHistorySnapshot({
             text: nextText,
@@ -2398,6 +2453,86 @@
             async setLanguage(locale: AppLocale) {
                 await settingsStore.initialize();
                 await settingsStore.updateLanguage(locale);
+            },
+            async setSearchKeybindings(keybindings: Partial<SearchKeybindings>) {
+                await settingsStore.initialize();
+                await settingsStore.updateSearchKeybindings({
+                    ...settingsStore.searchKeybindings,
+                    ...keybindings,
+                });
+            },
+            async configureE2eModel(endpoint: string, modelId: string, modelName: string) {
+                const {
+                    createModel,
+                    createProvider,
+                    findModelsWithProvider,
+                    setDefaultModel,
+                    updateModel,
+                    updateProvider,
+                } = await import('@database/queries');
+                const providerName = 'TouchAI E2E Local';
+                const existingModels = await findModelsWithProvider();
+                const existingProvider = existingModels.find(
+                    (model) => model.provider_name === providerName
+                );
+                let providerId: number;
+
+                if (existingProvider) {
+                    providerId = existingProvider.provider_id;
+                    await updateProvider({
+                        id: providerId,
+                        providerPatch: {
+                            driver: 'openai-compatible',
+                            api_endpoint: endpoint,
+                            enabled: 1,
+                            is_builtin: 0,
+                        },
+                    });
+                } else {
+                    providerId = (
+                        await createProvider({
+                            name: providerName,
+                            driver: 'openai-compatible',
+                            api_endpoint: endpoint,
+                            api_key: null,
+                            config_json: null,
+                            logo: 'openai.png',
+                            enabled: 1,
+                            is_builtin: 0,
+                        })
+                    ).id;
+                }
+
+                const existingModel = existingModels.find(
+                    (model) => model.provider_id === providerId && model.model_id === modelId
+                );
+                const modelPatch = {
+                    name: modelName,
+                    tool_call: 1,
+                    context_limit: 65_536,
+                    output_limit: 8_192,
+                };
+                let modelDbId = existingModel?.id;
+                if (modelDbId === undefined) {
+                    modelDbId = (
+                        await createModel({
+                            provider_id: providerId,
+                            model_id: modelId,
+                            ...modelPatch,
+                        })
+                    ).id;
+                } else {
+                    await updateModel({ id: modelDbId, modelPatch });
+                }
+
+                await setDefaultModel({ modelId: modelDbId });
+                modelOverride.value = { modelId: null, providerId: null };
+                controller.invalidateModelDropdownData();
+                await controller.loadActiveModel();
+            },
+            async cancelSearchRequest() {
+                cancelRequest();
+                await nextTick();
             },
             async clearSessionToIdle() {
                 await clearSessionToIdle();
@@ -2826,6 +2961,8 @@
                                     @drag-start="handleSearchPanelDragStart"
                                     @drag-end="handleSearchPanelDragEnd"
                                     @regenerate-message="handleRegenerateMessage"
+                                    @pending-action="handlePendingMessageAction"
+                                    @reorder-pending-messages="handlePendingMessagesReorder"
                                     @content-resize="scheduleContentMeasurement()"
                                     @latest-content-visibility-change="
                                         handleLatestContentVisibilityChange
