@@ -9,7 +9,7 @@ import { tt } from '@/i18n';
 import { AiError, AiErrorCode } from '../../contracts/errors';
 import type { AttachmentIndex } from '../attachments';
 import { mcpManager } from '../mcp';
-import { recordRejectedToolCall } from './rejected';
+import { rejectToolCall } from './rejected';
 import type { McpToolOutcome, ToolCallInvocation } from './types';
 
 const formatToolNotFoundError = (toolName: string): string =>
@@ -34,27 +34,22 @@ export async function executeMcpTool(invocation: ToolCallInvocation): Promise<Mc
     if (!mapping) {
         const errorResult = formatToolNotFoundError(toolCall.name);
         const durationMs = Date.now() - callStartTime;
-        const toolLogId =
-            sessionId === null
-                ? null
-                : await recordRejectedToolCall({
-                      toolCall,
-                      input: toolArgs,
-                      result: errorResult,
-                      iteration,
-                      sessionId,
-                      messageId: toolCallMessageId,
-                  });
-        emitToolEvent({
-            type: 'call_end',
-            callId: toolCall.id,
+        const rejected = await rejectToolCall({
+            toolCall,
+            input: toolArgs,
             result: errorResult,
-            isError: true,
+            iteration,
+            sessionId,
+            messageId: toolCallMessageId,
             durationMs,
-            finalStatus: 'error',
+            signal,
+            emitToolEvent,
         });
-
-        return { result: errorResult, isError: true, toolLogId };
+        return {
+            result: rejected.result,
+            isError: rejected.isError,
+            toolLogId: rejected.toolLogId,
+        };
     }
 
     emitToolEvent({

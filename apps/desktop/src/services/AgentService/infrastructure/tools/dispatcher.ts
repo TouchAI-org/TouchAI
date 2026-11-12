@@ -10,7 +10,7 @@ import { AiError, AiErrorCode } from '../../contracts/errors';
 import type { AiToolCall } from '../../contracts/tooling';
 import { executeBuiltinTool } from './builtinAdapter';
 import { executeMcpTool } from './mcpAdapter';
-import { recordRejectedToolCall } from './rejected';
+import { rejectToolCall } from './rejected';
 import type { ToolDispatchRequest, ToolDispatchResult } from './types';
 
 const toolArgumentsSchema = z.record(z.string(), z.unknown());
@@ -79,32 +79,18 @@ export async function dispatchToolCall(request: ToolDispatchRequest): Promise<To
 
     const parsed = parseToolArguments(request.toolCall);
     if (!parsed.ok) {
-        const toolLogId =
-            request.sessionId === null
-                ? null
-                : await recordRejectedToolCall({
-                      toolCall: request.toolCall,
-                      input: request.toolCall.arguments,
-                      result: parsed.errorResult,
-                      iteration: request.iteration,
-                      sessionId: request.sessionId,
-                      messageId: request.toolCallMessageId,
-                  });
-        request.emitToolEvent({
-            type: 'call_end',
-            callId: request.toolCall.id,
-            result: parsed.errorResult,
-            isError: true,
-            durationMs: 0,
-            finalStatus: 'error',
-        });
-
         return {
-            toolCall: request.toolCall,
-            input: serializeAuditPayload(request.toolCall.arguments),
-            result: parsed.errorResult,
-            isError: true,
-            toolLogId,
+            ...(await rejectToolCall({
+                toolCall: request.toolCall,
+                input: request.toolCall.arguments,
+                result: parsed.errorResult,
+                iteration: request.iteration,
+                sessionId: request.sessionId,
+                messageId: request.toolCallMessageId,
+                durationMs: 0,
+                signal: request.signal,
+                emitToolEvent: request.emitToolEvent,
+            })),
             argumentParseFailed: true,
         };
     }

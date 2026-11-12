@@ -5,7 +5,6 @@ import type { ProviderDriver } from '@database/schema';
 import type { Span } from '@opentelemetry/api';
 import { error as obsError, event, log } from '@services/ObservabilityService';
 import { ATTR } from '@services/ObservabilityService/attributes';
-import { serializeAuditPayload } from '@services/ObservabilityService/redact';
 import { withSpan } from '@services/ObservabilityService/tracing';
 
 import { t } from '@/i18n';
@@ -45,7 +44,7 @@ import {
 import { type AiProvider, parseProviderConfigJson } from '../infrastructure/providers';
 import { createProviderFromRegistry } from '../infrastructure/providers/drivers';
 import { dispatchToolCall } from '../infrastructure/tools';
-import { recordRejectedToolCall } from '../infrastructure/tools/rejected';
+import { rejectToolCall } from '../infrastructure/tools/rejected';
 import type { ModelLanguageContext } from '../languageContext';
 import { PersistenceProjector } from '../outputs/persistence';
 import { LatestProgressWriter } from '../outputs/progressWriter';
@@ -441,6 +440,35 @@ function throwIfAborted(signal?: AbortSignal): void {
     }
 }
 
+function resolveOnAbort<T>(promise: Promise<T>, signal: AbortSignal, fallback: T): Promise<T> {
+    if (signal.aborted) {
+        return Promise.resolve(fallback);
+    }
+
+    return new Promise<T>((resolve, reject) => {
+        const onAbort = () => resolve(fallback);
+        signal.addEventListener('abort', onAbort, { once: true });
+        promise.then(
+            (value) => {
+                signal.removeEventListener('abort', onAbort);
+                resolve(value);
+            },
+            (error) => {
+                signal.removeEventListener('abort', onAbort);
+                reject(error);
+            }
+        );
+    });
+}
+
+function requestUnlessAborted<T>(
+    signal: AbortSignal,
+    fallback: T,
+    request: () => Promise<T>
+): Promise<T> {
+    return signal.aborted ? Promise.resolve(fallback) : resolveOnAbort(request(), signal, fallback);
+}
+
 function throwIfAttachmentsUnsupportedByModel(
     attachments: AttachmentIndex[] | undefined,
     model: ModelWithProvider
@@ -673,51 +701,6 @@ export class AiRequestExecutor {
         for (const [index, content] of runtime.privateMessageContents) {
             runtime.privateState.messageContents.set(index, content);
         }
-    }
-
-    /** A rejected call is still conversation history; commit its error before continuing. */
-    private async rejectToolCall(options: {
-        toolCall: AiToolCall;
-        input: unknown;
-        result: string;
-        iteration: number;
-        toolCallMessageId: number | null;
-        sessionId: number | null;
-        durationMs: number;
-        signal?: AbortSignal;
-        onChunk?: RequestExecutionCallbacks['onChunk'];
-    }): Promise<ToolExecutionResult> {
-        throwIfAborted(options.signal);
-        const result = serializeAuditPayload(options.result);
-        const toolLogId =
-            options.sessionId === null
-                ? null
-                : await recordRejectedToolCall({
-                      toolCall: options.toolCall,
-                      input: options.input,
-                      result,
-                      iteration: options.iteration,
-                      sessionId: options.sessionId,
-                      messageId: options.toolCallMessageId,
-                  });
-
-        throwIfAborted(options.signal);
-        this.emitToolEvent(options.onChunk, {
-            type: 'call_end',
-            callId: options.toolCall.id,
-            result,
-            isError: true,
-            durationMs: options.durationMs,
-            finalStatus: 'error',
-        });
-
-        return {
-            toolCall: options.toolCall,
-            input: serializeAuditPayload(options.input),
-            result,
-            isError: true,
-            toolLogId,
-        };
     }
 
     private async consumeModelStep(
@@ -1098,13 +1081,16 @@ export class AiRequestExecutor {
 
         if (options.toolCall.name === BUILT_IN_SKILL_TOOL_NAME) {
             if (runtime.privateState.skillActivationAttempts >= MAX_SELECTED_SKILLS) {
-                return this.rejectToolCall({
-                    ...options,
+                return rejectToolCall({
+                    toolCall: options.toolCall,
                     iteration: runtime.iteration,
                     sessionId: options.persister.getSessionId(),
+                    messageId: options.toolCallMessageId,
                     input: options.toolCall.arguments,
                     result: t('skills.contextLimit', { count: MAX_SELECTED_SKILLS }),
                     durationMs: 0,
+                    signal: options.signal,
+                    emitToolEvent: (toolEvent) => this.emitToolEvent(options.onChunk, toolEvent),
                 });
             }
             runtime.privateState.skillActivationAttempts++;
@@ -1156,48 +1142,98 @@ export class AiRequestExecutor {
         runtime.currentStepOutputParts = [];
         runtime.currentStepReasoningStartedAt = null;
 
-        const toolResults = await Promise.all(
-            options.step.toolCalls.map((toolCall) =>
-                withSpan(
-                    'touchai.tool',
-                    {
-                        [ATTR.toolCallId]: toolCall.id,
-                        [ATTR.toolName]: toolCall.name,
-                    },
-                    async () => {
-                        const startedAt = performance.now();
-                        try {
-                            const result = await this.executeToolCall(runtime, {
-                                toolCall,
-                                toolCallMessageId,
-                                persister: options.persister,
-                                signal: options.signal,
-                                onChunk: options.onChunk,
-                                requestToolApproval: options.requestToolApproval,
-                                requestUserQuestions: options.requestUserQuestions,
-                            });
-                            options.analytics?.noteToolCompleted({
-                                category: toolCategoryForName(toolCall.name),
-                                result: result.isError ? 'failure' : 'success',
-                                durationMs: performance.now() - startedAt,
-                            });
-                            return result;
-                        } catch (error) {
-                            const aiError = AiError.fromError(error);
-                            options.analytics?.noteToolCompleted({
-                                category: toolCategoryForName(toolCall.name),
-                                result: aiError.is(AiErrorCode.REQUEST_CANCELLED)
-                                    ? 'cancelled'
-                                    : 'failure',
-                                durationMs: performance.now() - startedAt,
-                            });
-                            throw error;
-                        }
-                    },
-                    options.parentSpan
+        const roundAbortController = new AbortController();
+        const abortRound = () => {
+            roundAbortController.abort();
+        };
+        if (options.signal?.aborted) {
+            abortRound();
+        } else {
+            options.signal?.addEventListener('abort', abortRound, { once: true });
+        }
+
+        const failures: unknown[] = [];
+        const toolResults: ToolExecutionResult[] = [];
+        try {
+            const settledResults = await Promise.allSettled(
+                options.step.toolCalls.map((toolCall) =>
+                    withSpan(
+                        'touchai.tool',
+                        {
+                            [ATTR.toolCallId]: toolCall.id,
+                            [ATTR.toolName]: toolCall.name,
+                        },
+                        async () => {
+                            const startedAt = performance.now();
+                            try {
+                                const result = await this.executeToolCall(runtime, {
+                                    toolCall,
+                                    toolCallMessageId,
+                                    persister: options.persister,
+                                    signal: roundAbortController.signal,
+                                    onChunk: options.onChunk,
+                                    requestToolApproval:
+                                        options.requestToolApproval === undefined
+                                            ? undefined
+                                            : (payload) =>
+                                                  requestUnlessAborted(
+                                                      roundAbortController.signal,
+                                                      false,
+                                                      () => options.requestToolApproval!(payload)
+                                                  ),
+                                    requestUserQuestions:
+                                        options.requestUserQuestions === undefined
+                                            ? undefined
+                                            : (callId, questions) =>
+                                                  requestUnlessAborted(
+                                                      roundAbortController.signal,
+                                                      null,
+                                                      () =>
+                                                          options.requestUserQuestions!(
+                                                              callId,
+                                                              questions
+                                                          )
+                                                  ),
+                                });
+                                options.analytics?.noteToolCompleted({
+                                    category: toolCategoryForName(toolCall.name),
+                                    result: result.isError ? 'failure' : 'success',
+                                    durationMs: performance.now() - startedAt,
+                                });
+                                return result;
+                            } catch (error) {
+                                const aiError = AiError.fromError(error);
+                                options.analytics?.noteToolCompleted({
+                                    category: toolCategoryForName(toolCall.name),
+                                    result: aiError.is(AiErrorCode.REQUEST_CANCELLED)
+                                        ? 'cancelled'
+                                        : 'failure',
+                                    durationMs: performance.now() - startedAt,
+                                });
+                                if (failures.length === 0) {
+                                    abortRound();
+                                }
+                                failures.push(error);
+                                throw error;
+                            }
+                        },
+                        options.parentSpan
+                    )
                 )
-            )
-        );
+            );
+
+            for (const result of settledResults) {
+                if (result.status === 'fulfilled') {
+                    toolResults.push(result.value);
+                }
+            }
+        } finally {
+            options.signal?.removeEventListener('abort', abortRound);
+        }
+
+        if (failures.length > 0) {
+            throw failures[0];
+        }
 
         const requestedModelSwitch =
             toolResults.find(({ controlSignal }) => controlSignal?.type === 'upgrade_model')
