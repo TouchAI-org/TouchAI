@@ -3,6 +3,7 @@ import type { Component } from 'vue';
 import IconArrowDown from '~icons/lucide/arrow-down';
 import IconArrowLeft from '~icons/lucide/arrow-left';
 import IconArrowRight from '~icons/lucide/arrow-right';
+import IconArrowUp from '~icons/lucide/arrow-up';
 import IconBlocks from '~icons/lucide/blocks';
 import IconSkill from '~icons/lucide/box';
 import IconBoxes from '~icons/lucide/boxes';
@@ -58,6 +59,7 @@ export const appIconMap = {
     'arrow-down': IconArrowDown,
     'arrow-left': IconArrowLeft,
     'arrow-right': IconArrowRight,
+    'arrow-up': IconArrowUp,
     'check-circle': IconCheckCircle,
     chart: IconChartColumn,
     'chevron-down': IconChevronDown,

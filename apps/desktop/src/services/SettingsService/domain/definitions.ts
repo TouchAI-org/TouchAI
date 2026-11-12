@@ -1,5 +1,4 @@
 import type { AppUpdateChannel } from '@/config/appUpdate';
-import type { SubmitShortcutMode } from '@/config/chatSubmission';
 import type { AnimationSpeed } from '@/config/motion';
 import {
     createDefaultSearchKeybindings,
@@ -39,7 +38,6 @@ export interface GeneralSettingsData {
     startOnBoot: boolean;
     startMinimized: boolean;
     outputScrollBehavior: OutputScrollBehavior;
-    submitShortcutMode: SubmitShortcutMode;
     searchWindowSizePreset: SearchWindowSizePreset;
     searchWindowDefaultSize: SearchWindowDefaultSize;
     language: AppLocale;
@@ -100,7 +98,6 @@ export interface GeneralSettingUpdaters {
     updateStartOnBoot(enabled: boolean): Promise<void>;
     updateStartMinimized(enabled: boolean): Promise<void>;
     updateOutputScrollBehavior(mode: OutputScrollBehavior): Promise<void>;
-    updateSubmitShortcutMode(mode: SubmitShortcutMode): Promise<void>;
     updateSearchWindowSizePreset(preset: SearchWindowSizePreset): Promise<void>;
     updateLanguage(language: AppLocale): Promise<void>;
     updateAppUpdateChannel(channel: AppUpdateChannel): Promise<void>;

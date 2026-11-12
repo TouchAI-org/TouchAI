@@ -164,6 +164,8 @@ export interface ExecuteRequestOptions extends RequestExecutionCallbacks {
     promptSnapshot?: PromptSnapshot;
     environment?: ConversationRuntimeEnvironment;
     takePriorityUserMessages?: () => PendingUserMessage[];
+    /** True once the user clicked Steer now and the message is still undelivered. */
+    hasImmediatePriorityUserMessages?: () => boolean;
 }
 
 interface RuntimeContext {
@@ -429,12 +431,12 @@ export class AiConversationRuntime {
     }
 
     /**
-     * 在工具轮结束后的安全边界投递插队消息。
+     * 在安全边界投递插队消息：工具轮结束，或用户点击「插队」后当前回答中断处。
      *
      * 消息先按普通用户消息落库，再作为下一条上下文发给模型；落库失败不会
      * 阻断对话，只是与普通轮次一样报告持久化问题。
      */
-    private async deliverPriorityUserMessagesAtToolBoundary(
+    private async deliverPriorityUserMessages(
         persister: PersistenceProjector,
         model: ModelWithProvider
     ): Promise<AiMessage[]> {
@@ -797,10 +799,11 @@ export class AiConversationRuntime {
                                 },
                                 onTurnEvent: (event) => this.notifyTurnEvent(event),
                                 onToolBoundary: ({ persister, model }) =>
-                                    this.deliverPriorityUserMessagesAtToolBoundary(
-                                        persister,
-                                        model
-                                    ),
+                                    this.deliverPriorityUserMessages(persister, model),
+                                onSteerBoundary: ({ persister, model }) =>
+                                    this.deliverPriorityUserMessages(persister, model),
+                                shouldInterruptForImmediateSteer: () =>
+                                    this.options.hasImmediatePriorityUserMessages?.() ?? false,
                                 requestToolApproval: requestToolApproval
                                     ? (payload) =>
                                           requestToolApproval({

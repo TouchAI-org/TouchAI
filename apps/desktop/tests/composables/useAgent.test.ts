@@ -12,6 +12,8 @@ const { findSessionByIdMock, notifyMock, sessionTaskCenterMock } = vi.hoisted(()
         approveTaskToolCall: vi.fn(() => true),
         cancelTask: vi.fn(() => true),
         rejectTaskToolCall: vi.fn(() => true),
+        reorderSessionQueuedMessages: vi.fn(() => true),
+        reorderTaskQueuedMessages: vi.fn(() => true),
         startTask: vi.fn(),
         subscribeTask: vi.fn(),
     },
@@ -209,6 +211,32 @@ describe('when the user answers a tool approval with nothing attached', () => {
         expect(mounted.result.settleUserQuestion('call-1', null)).toBe(false);
         expect(sessionTaskCenterMock.approveTaskToolCall).not.toHaveBeenCalled();
         expect(sessionTaskCenterMock.rejectTaskToolCall).not.toHaveBeenCalled();
+
+        mounted.unmount();
+    });
+});
+
+describe('when the user drags queued messages into a new order', () => {
+    it('user gets the active task queue reordered instead of only the visible list', async () => {
+        vi.clearAllMocks();
+        sessionTaskCenterMock.attachSessionView.mockReturnValue({
+            taskId: 'task-1',
+            snapshot: createTaskSnapshot('task-1'),
+        });
+        sessionTaskCenterMock.subscribeTask.mockImplementation((_taskId, listener) => {
+            listener(createTaskSnapshot('task-1'));
+            return () => undefined;
+        });
+        sessionTaskCenterMock.reorderTaskQueuedMessages.mockReturnValue(true);
+
+        const mounted = await mountComposable(() => useAgent());
+        await mounted.result.openSession(1);
+
+        expect(mounted.result.reorderPendingUserMessages(['queued-2', 'queued-1'])).toBe(true);
+        expect(sessionTaskCenterMock.reorderTaskQueuedMessages).toHaveBeenCalledWith('task-1', [
+            'queued-2',
+            'queued-1',
+        ]);
 
         mounted.unmount();
     });

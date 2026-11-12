@@ -391,6 +391,52 @@ describe('user starts a turn that needs a new conversation', () => {
         });
     });
 
+    it('user gets an immediate steer injected without waiting for a tool call', async () => {
+        const executor = createExecutor();
+        buildUserPromptMessageMock.mockResolvedValue({ role: 'user', content: 'Steer this' });
+        const { runtime, events } = run(executor, {
+            taskId: 'task-1',
+            takePriorityUserMessages: () => [
+                {
+                    id: 'pending-1',
+                    prompt: 'Steer this',
+                    attachments: [],
+                    delivery: 'priority',
+                    immediate: true,
+                    createdAt: 1,
+                },
+            ],
+            hasImmediatePriorityUserMessages: () => true,
+        });
+
+        await runtime.run();
+
+        const attemptOptions = executor.runAttempt.mock.calls[0]![0] as ExecuteRequestOptions;
+        expect(attemptOptions.shouldInterruptForImmediateSteer?.()).toBe(true);
+
+        const inserted = await attemptOptions.onSteerBoundary!({
+            persister: projectorMock as never,
+            model: createModel(),
+        });
+
+        expect(projectorMock.persistInjectedUserMessage).toHaveBeenCalledWith({
+            prompt: 'Steer this',
+            attachments: [],
+        });
+        expect(inserted).toEqual([
+            {
+                role: 'user',
+                content: 'Steer this',
+                contextSource: { id: 11, fingerprint: 'f'.repeat(64) },
+            },
+        ]);
+        expect(events).toContainEqual({
+            type: 'user_messages_delivered',
+            taskId: 'task-1',
+            messages: [{ id: 'pending-1', prompt: 'Steer this', attachments: [] }],
+        });
+    });
+
     it('user sees no live task events when the request runs outside a task', async () => {
         const executor = createExecutor();
         const { runtime, events } = run(executor);

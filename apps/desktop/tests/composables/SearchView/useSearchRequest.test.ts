@@ -55,6 +55,7 @@ const {
             })
         ),
         removePendingUserMessage: vi.fn(() => true),
+        reorderPendingUserMessages: vi.fn(() => true),
         clearPendingUserMessages: vi.fn(() => true),
         updatePendingUserMessagesModel: vi.fn(() => true),
     };
@@ -157,7 +158,6 @@ interface FlowOptions {
     clearDraft?: (options?: { preserveModelTag?: boolean }) => void;
     attachments?: Index[];
     unsupportedMessage?: string | null;
-    submitShortcutMode?: Ref<'queue_on_enter' | 'priority_on_enter'>;
 }
 
 async function mountFlow(options: FlowOptions = {}) {
@@ -182,7 +182,6 @@ async function mountFlow(options: FlowOptions = {}) {
                     text: query,
                     attachments,
                 }),
-            submitShortcutMode: options.submitShortcutMode,
         })
     );
 
@@ -306,28 +305,6 @@ describe('when the user sends a second prompt while a request is running', () =>
         unmount();
     });
 
-    it('user gets the two delivery modes swapped when the setting is inverted', async () => {
-        const { result, unmount } = await mountFlow({
-            submitShortcutMode: ref('priority_on_enter'),
-        });
-
-        await result.handleSubmit('plain enter', undefined, 'enter');
-        await result.handleSubmit('ctrl enter', undefined, 'enter-modified');
-
-        expect(agentState.enqueueUserMessage).toHaveBeenNthCalledWith(
-            1,
-            expect.objectContaining({ prompt: 'plain enter' }),
-            'priority'
-        );
-        expect(agentState.enqueueUserMessage).toHaveBeenNthCalledWith(
-            2,
-            expect.objectContaining({ prompt: 'ctrl enter' }),
-            'queue'
-        );
-
-        unmount();
-    });
-
     it('user keeps the draft when the running task can no longer accept a message', async () => {
         agentState.enqueueUserMessage.mockReturnValueOnce(null);
         const { result, clearDraft, unmount } = await mountFlow();
@@ -346,6 +323,15 @@ describe('when the user sends a second prompt while a request is running', () =>
         expect(result.cancelLatestPendingMessage()).toBe(true);
         expect(agentState.removePendingUserMessage).toHaveBeenCalledWith('m2');
         expect(agentState.cancel).not.toHaveBeenCalled();
+
+        unmount();
+    });
+
+    it('user gets queued messages reordered from the conversation tail', async () => {
+        const { result, unmount } = await mountFlow();
+
+        expect(result.reorderPendingUserMessages(['m3', 'm1', 'm2'])).toBe(true);
+        expect(agentState.reorderPendingUserMessages).toHaveBeenCalledWith(['m3', 'm1', 'm2']);
 
         unmount();
     });

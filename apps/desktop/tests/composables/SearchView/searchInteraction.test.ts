@@ -4,6 +4,7 @@ import { nextTick, ref } from 'vue';
 
 import {
     createDefaultSearchKeybindings,
+    isRendererOnlySearchKeybindingAction,
     SEARCH_KEYBINDING_DEFINITIONS,
 } from '@/config/searchKeybindings';
 import { createInputHistorySnapshot, type SessionMessage } from '@/types/session';
@@ -641,6 +642,21 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onSubmit).toHaveBeenCalledWith('enter-modified');
     });
 
+    it('user gets the two submit modes swapped when the shortcut bindings are swapped', () => {
+        const bindings = createDefaultSearchKeybindings();
+        bindings['search.submit.queue'] = 'Mod+Enter';
+        bindings['search.submit.priority'] = 'Enter';
+        const { router, callbacks } = createKeyboardRouter({
+            getQueryText: () => 'touch',
+            getSearchKeybindings: () => bindings,
+        });
+
+        expect(router.route({ key: 'Enter' })).toBe(true);
+        expect(callbacks.onSubmit).toHaveBeenLastCalledWith('enter-modified');
+        expect(router.route({ key: 'Enter', ctrlKey: true })).toBe(true);
+        expect(callbacks.onSubmit).toHaveBeenLastCalledWith('enter');
+    });
+
     it('opens quick search when ArrowDown cannot navigate newer history and query is empty with eligible trigger', () => {
         const { router, callbacks } = createKeyboardRouter({
             getQueryText: () => '',
@@ -754,26 +770,27 @@ describe('createSearchKeyboardRouter', () => {
         expect(callbacks.onPrimaryShortcut).not.toHaveBeenCalled();
     });
 
-    it.each(SEARCH_KEYBINDING_DEFINITIONS)(
-        'user invokes $id once per press through both shortcut paths',
-        ({ id, defaultShortcut }) => {
-            const { router, callbacks } = createKeyboardRouter({ isQuickSearchOpen: () => true });
-            const tokens = defaultShortcut!.split('+');
-            const key = tokens[tokens.length - 1]!;
-            const input = {
-                key: key === 'F11' ? key : key.toLowerCase(),
-                ctrlKey: tokens.includes('Mod'),
-                shiftKey: tokens.includes('Shift'),
-            };
-            expect(router.route(input)).toBe(true);
-            expect(callbacks.onSearchKeybindingAction).toHaveBeenLastCalledWith(id);
-            expect(router.route({ ...input, repeat: true })).toBe(true);
-            expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledTimes(1);
-            expect(router.routeCommand(id, defaultShortcut!)).toBe(true);
-            expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledTimes(2);
-            expect(callbacks.onHideWindow).not.toHaveBeenCalled();
-        }
-    );
+    it.each(
+        SEARCH_KEYBINDING_DEFINITIONS.filter(
+            (definition) => !isRendererOnlySearchKeybindingAction(definition.id)
+        )
+    )('user invokes $id once per press through both shortcut paths', ({ id, defaultShortcut }) => {
+        const { router, callbacks } = createKeyboardRouter({ isQuickSearchOpen: () => true });
+        const tokens = defaultShortcut!.split('+');
+        const key = tokens[tokens.length - 1]!;
+        const input = {
+            key: key === 'F11' ? key : key.toLowerCase(),
+            ctrlKey: tokens.includes('Mod'),
+            shiftKey: tokens.includes('Shift'),
+        };
+        expect(router.route(input)).toBe(true);
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenLastCalledWith(id);
+        expect(router.route({ ...input, repeat: true })).toBe(true);
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledTimes(1);
+        expect(router.routeCommand(id, defaultShortcut!)).toBe(true);
+        expect(callbacks.onSearchKeybindingAction).toHaveBeenCalledTimes(2);
+        expect(callbacks.onHideWindow).not.toHaveBeenCalled();
+    });
 
     it.each([null, 'Mod+Shift+G'])(
         'user disables the old QuickSearch binding when it is changed to %s',

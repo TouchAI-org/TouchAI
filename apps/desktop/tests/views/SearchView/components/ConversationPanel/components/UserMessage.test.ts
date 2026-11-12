@@ -6,6 +6,13 @@ import UserMessage from '@/views/SearchView/components/ConversationPanel/compone
 
 vi.mock('@services/NotificationService', () => ({ notify: vi.fn() }));
 vi.mock('@/services/ClipboardService', () => ({ clipboardService: { writeText: vi.fn() } }));
+vi.mock('@components/AppIcon.vue', () => ({
+    default: {
+        name: 'AppIconStub',
+        props: ['name'],
+        template: '<span data-testid="app-icon" :data-name="name" />',
+    },
+}));
 
 function createImageMessage() {
     return {
@@ -50,8 +57,74 @@ describe('UserMessage attachment images', () => {
     });
 });
 
+describe('UserMessage long content', () => {
+    it('user collapses a long message to six lines and can expand it again', async () => {
+        const content = Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join('\n');
+        const wrapper = mount(UserMessage, {
+            props: {
+                message: {
+                    id: 'user-long',
+                    role: 'user',
+                    content,
+                    parts: [],
+                    timestamp: 1,
+                } as SessionMessage,
+            },
+        });
+
+        const text = wrapper.get('.user-text');
+        expect(text.classes()).toContain('line-clamp-6');
+        expect(text.attributes('data-collapsed')).toBe('true');
+
+        const toggle = wrapper.get('[data-testid="user-message-expand-toggle"]');
+        expect(toggle.text()).toContain('展开全文');
+        expect(toggle.attributes('aria-expanded')).toBe('false');
+
+        await toggle.trigger('click');
+
+        expect(wrapper.get('.user-text').classes()).not.toContain('line-clamp-6');
+        expect(wrapper.get('[data-testid="user-message-expand-toggle"]').text()).toContain('收起');
+        expect(
+            wrapper
+                .get('[data-testid="user-message-expand-toggle"] [data-testid="app-icon"]')
+                .attributes('data-name')
+        ).toBe('chevron-up');
+        expect(
+            wrapper.get('[data-testid="user-message-expand-toggle"]').attributes('aria-expanded')
+        ).toBe('true');
+
+        await wrapper.get('[data-testid="user-message-expand-toggle"]').trigger('click');
+        expect(wrapper.get('.user-text').classes()).toContain('line-clamp-6');
+        expect(
+            wrapper
+                .get('[data-testid="user-message-expand-toggle"] [data-testid="app-icon"]')
+                .attributes('data-name')
+        ).toBe('chevron-down');
+
+        wrapper.unmount();
+    });
+
+    it('user sees no expand control on a short message', () => {
+        const wrapper = mount(UserMessage, {
+            props: {
+                message: {
+                    id: 'user-short',
+                    role: 'user',
+                    content: 'short text',
+                    parts: [],
+                    timestamp: 1,
+                } as SessionMessage,
+            },
+        });
+
+        expect(wrapper.find('[data-testid="user-message-expand-toggle"]').exists()).toBe(false);
+
+        wrapper.unmount();
+    });
+});
+
 describe('UserMessage pending delivery', () => {
-    it('user sees a queued message as a dashed bubble with muted text', () => {
+    it('user sees a queued message as a dashed bubble with normal message text', () => {
         const wrapper = mount(UserMessage, {
             props: {
                 message: {
@@ -68,8 +141,108 @@ describe('UserMessage pending delivery', () => {
         const bubble = wrapper.get('[data-pending-delivery="queue"]');
         expect(bubble.classes()).toContain('border-dashed');
         expect(bubble.classes()).toContain('bg-transparent');
-        expect(wrapper.get('.user-text').classes()).toContain('text-text-tertiary');
+        expect(wrapper.get('.user-text').classes()).toContain('text-message-foreground');
+        expect(wrapper.get('.user-text').classes()).not.toContain('text-text-tertiary');
         expect(wrapper.findComponent({ name: 'ActionButton' }).exists()).toBe(false);
+
+        wrapper.unmount();
+    });
+
+    it('user sees send now, edit, and cancel actions on a queued message', async () => {
+        const wrapper = mount(UserMessage, {
+            props: {
+                message: {
+                    id: 'pending-queue',
+                    role: 'user',
+                    content: 'queued text',
+                    parts: [],
+                    timestamp: 1,
+                    pendingDelivery: 'queue',
+                } as SessionMessage,
+            },
+        });
+
+        expect(wrapper.find('[data-testid="pending-message-actions"]').exists()).toBe(true);
+        expect(wrapper.get('[data-testid="pending-message-send-now"]').text()).toContain('插队');
+        const sendNowIcon = wrapper.get(
+            '[data-testid="pending-message-send-now"] [data-testid="app-icon"]'
+        );
+        expect(sendNowIcon.attributes('data-name')).toBe('arrow-up');
+        expect(sendNowIcon.classes()).toEqual(expect.arrayContaining(['h-4', 'w-4']));
+        for (const testId of [
+            'pending-message-send-now',
+            'pending-message-edit',
+            'pending-message-remove',
+        ]) {
+            expect(wrapper.get(`[data-testid="${testId}"]`).classes()).not.toContain(
+                'hover:bg-surface-hover'
+            );
+        }
+        expect(
+            wrapper
+                .get('[data-testid="pending-message-edit"] [data-testid="app-icon"]')
+                .attributes('data-name')
+        ).toBe('edit');
+        expect(
+            wrapper
+                .get('[data-testid="pending-message-remove"] [data-testid="app-icon"]')
+                .attributes('data-name')
+        ).toBe('x');
+        expect(wrapper.find('[data-testid="pending-message-priority"]').exists()).toBe(false);
+
+        await wrapper.get('[data-testid="pending-message-send-now"]').trigger('click');
+        await wrapper.get('[data-testid="pending-message-edit"]').trigger('click');
+        await wrapper.get('[data-testid="pending-message-remove"]').trigger('click');
+
+        expect(wrapper.emitted('sendNow')).toEqual([['pending-queue']]);
+        expect(wrapper.emitted('edit')).toEqual([['pending-queue']]);
+        expect(wrapper.emitted('remove')).toEqual([['pending-queue']]);
+
+        wrapper.unmount();
+    });
+
+    it('user sees a pending steer as a solid bubble instead of a dashed queue', () => {
+        const wrapper = mount(UserMessage, {
+            props: {
+                message: {
+                    id: 'pending-priority',
+                    role: 'user',
+                    content: 'insert text',
+                    parts: [],
+                    timestamp: 1,
+                    pendingDelivery: 'priority',
+                } as SessionMessage,
+            },
+        });
+
+        const bubble = wrapper.get('[data-pending-delivery="priority"]');
+        expect(bubble.classes()).toContain('bg-secondary');
+        expect(bubble.classes()).not.toContain('border-dashed');
+        expect(bubble.classes()).not.toContain('bg-transparent');
+        expect(wrapper.get('.user-text').classes()).toContain('text-message-foreground');
+
+        wrapper.unmount();
+    });
+
+    it('user sees a pending steer as a normal message without pending actions', () => {
+        const wrapper = mount(UserMessage, {
+            props: {
+                message: {
+                    id: 'pending-priority',
+                    role: 'user',
+                    content: 'insert text',
+                    parts: [],
+                    timestamp: 1,
+                    pendingDelivery: 'priority',
+                } as SessionMessage,
+            },
+        });
+
+        expect(wrapper.find('[data-testid="pending-message-actions"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="pending-message-send-now"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="pending-message-edit"]').exists()).toBe(false);
+        expect(wrapper.find('[data-testid="pending-message-remove"]').exists()).toBe(false);
+        expect(wrapper.findComponent({ name: 'ActionButton' }).exists()).toBe(true);
 
         wrapper.unmount();
     });
@@ -88,8 +261,8 @@ describe('UserMessage pending delivery', () => {
         });
 
         expect(wrapper.find('[data-pending-delivery]').exists()).toBe(false);
-        expect(wrapper.get('.rounded-lg').classes()).toContain('bg-muted');
-        expect(wrapper.get('.user-text').classes()).toContain('text-foreground');
+        expect(wrapper.get('.rounded-lg').classes()).toContain('bg-secondary');
+        expect(wrapper.get('.user-text').classes()).toContain('text-message-foreground');
 
         wrapper.unmount();
     });

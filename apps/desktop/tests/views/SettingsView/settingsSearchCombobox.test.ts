@@ -142,6 +142,25 @@ describe('user picks a result', () => {
         expect(selected.section).toBe('general');
     });
 
+    it('user finds the send shortcut under General', async () => {
+        const wrapper = mountSearch();
+        await searchFor(wrapper, '发送快捷键');
+
+        const result = wrapper
+            .findAll('[role="option"]')
+            .find((option) => option.text().includes('发送快捷键'));
+        expect(result).toBeDefined();
+
+        await result!.trigger('click');
+
+        const selected = wrapper.emitted('select')?.[0]?.[0] as {
+            section: string;
+            targetId?: string;
+        };
+        expect(selected.section).toBe('general');
+        expect(selected.targetId).toBe('send-shortcut');
+    });
+
     it('user gets the query cleared after choosing a setting', async () => {
         const wrapper = mountSearch();
         await searchFor(wrapper, '开机');

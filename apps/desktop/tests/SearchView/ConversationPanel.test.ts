@@ -47,6 +47,23 @@ vi.mock('@/views/SearchView/components/ConversationPanel/components/MessageItem.
     default: { props: ['message'], template: '<div data-message />' },
 }));
 
+vi.mock('vue-draggable-plus', async () => {
+    const { defineComponent } = await import('vue');
+    return {
+        VueDraggable: defineComponent({
+            name: 'VueDraggableStub',
+            props: {
+                modelValue: {
+                    type: Array,
+                    default: () => [],
+                },
+            },
+            emits: ['update:modelValue', 'start'],
+            template: '<div><slot /></div>',
+        }),
+    };
+});
+
 import ConversationPanel from '@/views/SearchView/components/ConversationPanel/index.vue';
 
 describe('ConversationPanel intrinsic session measurement', () => {
@@ -75,6 +92,45 @@ describe('ConversationPanel intrinsic session measurement', () => {
 
         expect(wrapper.get('[data-slot="message-scroller"]').classes()).toContain('h-full');
         expect(wrapper.get('[data-slot="message-scroller"] section').classes()).toContain('h-full');
+        wrapper.unmount();
+    });
+});
+
+describe('ConversationPanel queued message reordering', () => {
+    it('user gets the new queue order emitted when a queued bubble is dragged', async () => {
+        const wrapper = mount(ConversationPanel, {
+            props: {
+                startDragging: vi.fn().mockResolvedValue(undefined),
+                messages: [],
+                pendingMessages: [
+                    {
+                        id: 'queue-1',
+                        prompt: 'first queued',
+                        attachments: [],
+                        delivery: 'queue',
+                        createdAt: 1,
+                    },
+                    {
+                        id: 'queue-2',
+                        prompt: 'second queued',
+                        attachments: [],
+                        delivery: 'queue',
+                        createdAt: 2,
+                    },
+                ],
+                isLoading: false,
+                error: null,
+                isPinned: false,
+                historyOpen: false,
+            },
+        });
+
+        wrapper
+            .findComponent({ name: 'VueDraggableStub' })
+            .vm.$emit('update:modelValue', [{ id: 'queue-2' }, { id: 'queue-1' }]);
+        await wrapper.vm.$nextTick();
+
+        expect(wrapper.emitted('reorderPendingMessages')).toEqual([[['queue-2', 'queue-1']]]);
         wrapper.unmount();
     });
 });

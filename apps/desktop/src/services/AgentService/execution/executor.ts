@@ -89,6 +89,18 @@ export interface RequestExecutionCallbacks {
         persister: PersistenceProjector;
         model: ModelWithProvider;
     }) => Promise<AiMessage[]>;
+    /** Injects the messages that interrupted the current answer mid-stream. */
+    onSteerBoundary?: (context: {
+        persister: PersistenceProjector;
+        model: ModelWithProvider;
+    }) => Promise<AiMessage[]>;
+    /**
+     * Returns true once the user clicked Steer now. The executor then stops the
+     * current model stream at its next safe point and injects the message into
+     * the running turn instead of waiting for a tool call. A bare predicate
+     * keeps the runtime in charge of reading and persisting pending messages.
+     */
+    shouldInterruptForImmediateSteer?: () => boolean;
     /** Per-logical-request analytics sink; absent for callers without one. */
     analytics?: AgentRequestAnalytics;
     onAttachmentManifestResolved?: (
@@ -173,6 +185,12 @@ interface ToolExecutionResult {
 type AttemptStepResult =
     | {
           type: 'done';
+          outputParts: PersistedOutputPart[];
+          call: AiCallRecord;
+      }
+    | {
+          /** The user steered mid-answer; the turn continues with the injected message. */
+          type: 'steered';
           outputParts: PersistedOutputPart[];
           call: AiCallRecord;
       }
@@ -416,6 +434,22 @@ function buildAssistantToolCallHistoryMessage(
                 : { type: part.type, text: part.content }
         ),
         tool_calls: toolCalls,
+    };
+}
+
+/** Close the interrupted answer as assistant history before the steered user turn. */
+function buildAssistantHistoryMessage(parts: PersistedOutputPart[]): AiMessage {
+    return {
+        role: 'assistant',
+        content: parts.map((part) =>
+            part.type === 'reasoning'
+                ? {
+                      type: 'reasoning' as const,
+                      text: part.content,
+                      ...(part.providerOptions ? { providerOptions: part.providerOptions } : {}),
+                  }
+                : { type: part.type, text: part.content }
+        ),
     };
 }
 async function buildToolResultMessageContent(
@@ -712,7 +746,11 @@ export class AiRequestExecutor {
         runtime: AttemptRuntime,
         options: Pick<
             RequestExecutionCallbacks,
-            'signal' | 'onChunk' | 'onAttachmentManifestResolved' | 'taskId'
+            | 'signal'
+            | 'onChunk'
+            | 'onAttachmentManifestResolved'
+            | 'taskId'
+            | 'shouldInterruptForImmediateSteer'
         > & {
             persister: PersistenceProjector;
             onContextPrepared: () => void;
@@ -929,6 +967,7 @@ export class AiRequestExecutor {
         let streamError: unknown;
         let streamFailed = false;
         const projectPublicChunk = createPublicWidgetStream();
+        let interruptedForSteer = false;
         try {
             for await (const chunk of runtime.provider.stream(modelRequest)) {
                 throwIfAborted(options.signal);
@@ -982,6 +1021,16 @@ export class AiRequestExecutor {
                 if (chunk.done) {
                     break;
                 }
+                // Never cut a tool call apart: wait for its round to finish, where
+                // the regular tool boundary delivers the steer.
+                const toolActivity =
+                    chunk.toolEvent ||
+                    Boolean(chunk.toolCallDeltas?.length) ||
+                    Boolean(chunk.done && chunk.toolCalls?.length);
+                if (!toolActivity && options.shouldInterruptForImmediateSteer?.()) {
+                    interruptedForSteer = true;
+                    break;
+                }
             }
         } catch (error) {
             streamFailed = true;
@@ -1002,8 +1051,13 @@ export class AiRequestExecutor {
         }
 
         const outputParts = normalizeOutputParts(runtime.currentStepOutputParts);
-        const isToolRelated = finishReason === 'tool_calls' || finishReason === 'tool_use';
+        const isToolRelated =
+            !interruptedForSteer && (finishReason === 'tool_calls' || finishReason === 'tool_use');
         const hasToolCalls = Boolean(toolCalls && toolCalls.length > 0);
+
+        if (interruptedForSteer) {
+            finishReason = 'steered';
+        }
 
         // ===== 组装本次调用的用量与耗时记录 =====
         const callEndedAt = Date.now();
@@ -1043,6 +1097,10 @@ export class AiRequestExecutor {
         }
 
         if (streamFailed) throw streamError;
+
+        if (interruptedForSteer) {
+            return { type: 'steered', outputParts, call };
+        }
 
         if (!isToolRelated || !hasToolCalls) {
             return { type: 'done', outputParts, call };
@@ -1377,6 +1435,8 @@ export class AiRequestExecutor {
                             this.consumeModelStep(runtime, {
                                 signal: options.signal,
                                 onChunk: options.onChunk,
+                                shouldInterruptForImmediateSteer:
+                                    options.shouldInterruptForImmediateSteer,
                                 persister: options.persister,
                                 onContextPrepared: () => {
                                     resumeCheckpoint.messages = snapshotAiMessages(
@@ -1413,6 +1473,38 @@ export class AiRequestExecutor {
 
                 if (step.type === 'done') {
                     break;
+                }
+
+                // A mid-answer steer ends the current assistant segment and continues
+                // the same turn with the injected message; no tool round runs.
+                if (step.type === 'steered') {
+                    runtime.messages.push(buildAssistantHistoryMessage(step.outputParts));
+                    runtime.currentStepOutputParts = [];
+                    runtime.currentStepReasoningStartedAt = null;
+                    const insertedMessages = await options.onSteerBoundary?.({
+                        persister: options.persister,
+                        model: runtime.activeModel,
+                    });
+                    if (!insertedMessages?.length) {
+                        // The message disappeared between the interrupt and the hand-off
+                        // (for example the user removed it). Close the turn with the answer
+                        // so far instead of sending a request with no new user turn.
+                        break;
+                    }
+                    runtime.messages.push(...insertedMessages);
+                    runtime.iteration += 1;
+                    Object.assign(resumeCheckpoint, this.commitCheckpoint(runtime));
+                    await options.persister.persistCheckpoint(resumeCheckpoint).catch((error) => {
+                        log.error('[AiRequestExecutor] Failed to persist checkpoint:', error);
+                    });
+                    if (options.taskId) {
+                        options.onTurnEvent?.({
+                            type: 'checkpoint_committed',
+                            taskId: options.taskId,
+                            checkpoint: resumeCheckpoint,
+                        });
+                    }
+                    continue;
                 }
 
                 const leaveTool = options.analytics?.enterPhase('tool');
