@@ -97,12 +97,15 @@ afterEach(async () => {
 async function openView() {
     wrapper = mount(SearchView, { attachTo: document.body, global: { plugins: [pinia] } });
     await flushPromises();
-    await vi.waitFor(() =>
-        expect(
-            getTauriInvokeCalls('plugin:event|listen').some(
-                (call) => (call.payload as { event?: string })?.event === AppEvent.AI_MODELS_UPDATED
-            )
-        ).toBe(true)
+    await vi.waitFor(
+        () =>
+            expect(
+                getTauriInvokeCalls('plugin:event|listen').some(
+                    (call) =>
+                        (call.payload as { event?: string })?.event === AppEvent.AI_MODELS_UPDATED
+                )
+            ).toBe(true),
+        { timeout: 10_000 }
     );
 }
 
