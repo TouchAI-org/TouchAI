@@ -3,8 +3,12 @@ import { computed } from 'vue';
 
 import { getLocale, setLocale } from '@/i18n';
 import { createUpdateNotificationBody } from '@/services/AppUpdateService/notificationText';
-import { appUpdateReleaseNotes } from '@/services/AppUpdateService/releaseNotes';
+import {
+    appUpdateReleaseNotes,
+    appUpdateReleaseSections,
+} from '@/services/AppUpdateService/releaseNotes';
 import { createInitialAppUpdateState } from '@/services/AppUpdateService/state';
+import type { AppUpdateChannelLatest } from '@/services/AppUpdateService/types';
 
 function state() {
     return {
@@ -72,5 +76,92 @@ describe('given the same update is visible while the app language changes', () =
             },
         };
         expect(appUpdateReleaseNotes(update, 'en-US')).toBe('English notes');
+    });
+
+    it('user sees every skipped release newest first and not the installed release', () => {
+        const update = {
+            ...state(),
+            currentVersion: '1.2.1',
+            availableUpdate: { ...state().availableUpdate, version: '1.2.4' },
+            latestUpdate: {
+                ...state().latestUpdate,
+                version: '1.2.4',
+                releaseNotesByLocale: {
+                    'en-US': 'Target release',
+                    'zh-CN': '目标版本',
+                },
+                releaseHistory: [
+                    {
+                        version: '1.2.3',
+                        publishedAt: '2026-05-23T00:00:00.000Z',
+                        releaseNotes: 'Third release',
+                        releaseNotesByLocale: { 'en-US': 'Third release' },
+                    },
+                    {
+                        version: '1.2.2',
+                        publishedAt: '2026-05-22T00:00:00.000Z',
+                        releaseNotes: 'Second release',
+                        releaseNotesByLocale: { 'en-US': 'Second release' },
+                    },
+                    {
+                        version: '1.2.1',
+                        publishedAt: '2026-05-21T00:00:00.000Z',
+                        releaseNotes: 'Installed release',
+                        releaseNotesByLocale: { 'en-US': 'Installed release' },
+                    },
+                ],
+            } satisfies AppUpdateChannelLatest,
+        };
+
+        expect(
+            appUpdateReleaseSections(update, 'en-US', '1.2.1').map((section) => section.version)
+        ).toEqual(['1.2.4', '1.2.3', '1.2.2']);
+    });
+
+    it('user sees only the visible version notes when no feed history is available', () => {
+        const update = state();
+        update.currentVersion = '1.2.0';
+        update.latestUpdate = {
+            ...update.latestUpdate,
+            releaseNotesByLocale: {
+                'en-US': 'Target release',
+                'zh-CN': '目标版本',
+            },
+        };
+
+        expect(appUpdateReleaseSections(update, 'en-US', '1.2.0')).toEqual([
+            {
+                version: '1.2.3',
+                publishedAt: null,
+                notes: 'Target release',
+            },
+        ]);
+    });
+
+    it('user sees only the installed release notes when already current', () => {
+        const update = {
+            ...state(),
+            currentVersion: '1.2.3',
+            availableUpdate: null,
+            latestUpdate: {
+                ...state().latestUpdate,
+                releaseHistory: [
+                    {
+                        version: '1.2.2',
+                        publishedAt: '2026-05-22T00:00:00.000Z',
+                        releaseNotes: 'Older release',
+                        releaseNotesByLocale: { 'en-US': 'Older release' },
+                    },
+                ],
+            },
+        };
+
+        expect(appUpdateReleaseSections(update, 'en-US', '1.2.3')).toEqual([
+            {
+                version: '1.2.3',
+                publishedAt: null,
+                notes: 'Safer updates',
+            },
+        ]);
     });
 });

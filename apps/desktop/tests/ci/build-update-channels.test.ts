@@ -181,6 +181,7 @@ describe('buildUpdateChannels', () => {
                 Channel: 'stable',
                 GeneratedAt: '2026-05-24T00:00:00.000Z',
                 Latest: null,
+                History: [],
                 Policy: {
                     minimumSupportedVersion: '0.2.1',
                     requiredSeverity: 'critical',
@@ -529,6 +530,11 @@ describe('buildUpdateChannels', () => {
             releaseNotes: '## Old Beta',
             downloads: [],
         };
+        const olderBetaHistory = {
+            version: '0.2.1-beta.0',
+            publishedAt: '2026-05-22T09:00:00.000Z',
+            releaseNotes: '## Oldest Beta',
+        };
 
         await mkdir(releaseDir, { recursive: true });
         await writeFile(releaseNotesPath, '## Beta 2\n\n- New beta fixes\n', 'utf8');
@@ -577,6 +583,7 @@ describe('buildUpdateChannels', () => {
                     [updateFeedUrl(productFixture, 'beta')]: {
                         Assets: [oldBetaAsset],
                         Latest: oldBetaLatest,
+                        History: [olderBetaHistory],
                     },
                 },
                 async () => {
@@ -615,6 +622,14 @@ describe('buildUpdateChannels', () => {
                     expect(stable.Latest).toEqual(stableLatest);
                     expect(beta.Latest.version).toBe('0.2.1-beta.2');
                     expect(beta.Latest.releaseNotes).toBe('## Beta 2\n\n- New beta fixes');
+                    expect(beta.History).toEqual([
+                        {
+                            version: '0.2.1-beta.1',
+                            publishedAt: '2026-05-23T09:00:00.000Z',
+                            releaseNotes: '## Old Beta',
+                        },
+                        olderBetaHistory,
+                    ]);
                     expect(
                         beta.Assets.map((asset: { FileName: string }) => asset.FileName)
                     ).toEqual([newBetaFullPackageName, newBetaDeltaPackageName]);

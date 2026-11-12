@@ -124,6 +124,7 @@ vi.mock('@/views/SettingsView/components/General/UpdateDetailsDialog.vue', () =>
             'publishedAt',
             'hasUpdate',
             'releaseNotes',
+            'releaseSections',
             'actionText',
             'busy',
             'downloadProgress',
@@ -138,6 +139,7 @@ vi.mock('@/views/SettingsView/components/General/UpdateDetailsDialog.vue', () =>
                 :data-published="publishedAt ?? ''"
                 :data-has-update="String(hasUpdate)"
                 :data-notes="releaseNotes"
+                :data-release-sections="JSON.stringify(releaseSections ?? [])"
                 :data-action="actionText"
                 :data-busy="String(busy)"
                 :data-progress="downloadProgress === null ? '' : String(downloadProgress)"
@@ -373,7 +375,13 @@ describe('user checks for updates', () => {
             currentVersion: '0.2.0',
             latestUpdate: channelLatest({ releaseNotesByLocale: { 'zh-CN': '本版本更新内容' } }),
         });
-        await wrapper.get('[data-testid="settings-update-release-notes-action"]').trigger('click');
+        const releaseNotesAction = wrapper.get(
+            '[data-testid="settings-update-release-notes-action"]'
+        );
+        expect(releaseNotesAction.text()).toBe('更新日志');
+        expect(releaseNotesAction.classes()).toEqual(primaryAction(wrapper).classes());
+
+        await releaseNotesAction.trigger('click');
         await flushPromises();
         expect(dialog(wrapper).attributes('data-has-update')).toBe('false');
         expect(dialog(wrapper).attributes('data-notes')).toBe('本版本更新内容');
@@ -712,6 +720,40 @@ describe('user reads the details dialog content', () => {
         await flushPromises();
         expect(dialog(wrapper).attributes('data-notes')).toBe('Safer updates');
         expect(dialog(wrapper).attributes('data-version')).toBe('0.2.0');
+    });
+
+    it('user reads every skipped release when the update crosses several versions', async () => {
+        const wrapper = await openDialog({
+            status: 'available',
+            currentVersion: '0.1.0',
+            availableUpdate: update({ version: '0.2.0' }),
+            latestUpdate: channelLatest({
+                version: '0.2.0',
+                releaseNotesByLocale: {
+                    'zh-CN': '0.2.0 更新',
+                    'en-US': '0.2.0 update',
+                },
+                releaseHistory: [
+                    {
+                        version: '0.1.5',
+                        publishedAt: '2026-05-19T00:00:00.000Z',
+                        releaseNotes: '0.1.5 更新',
+                        releaseNotesByLocale: { 'zh-CN': '0.1.5 更新' },
+                    },
+                    {
+                        version: '0.1.0',
+                        publishedAt: '2026-05-18T00:00:00.000Z',
+                        releaseNotes: '0.1.0 更新',
+                        releaseNotesByLocale: { 'zh-CN': '0.1.0 更新' },
+                    },
+                ],
+            }),
+        });
+
+        const sections = JSON.parse(
+            dialog(wrapper).attributes('data-release-sections') ?? '[]'
+        ) as Array<{ version: string }>;
+        expect(sections.map((section) => section.version)).toEqual(['0.2.0', '0.1.5']);
     });
 
     it('user gets the download action label while the download runs', async () => {

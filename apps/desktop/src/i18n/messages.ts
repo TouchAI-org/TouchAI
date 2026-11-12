@@ -356,7 +356,7 @@ const zhCNMessages = {
     'settings.update.action.downloading': '正在下载 {progress}%',
     'settings.update.action.installing': '正在安装',
     'settings.update.action.recheck': '重新检查',
-    'settings.update.releaseNotes': '更新内容',
+    'settings.update.releaseNotes': '更新日志',
     'appUpdate.requiredGate.minimumVersion': '需要 {version} 或更高版本',
     'appUpdate.requiredGate.supportedVersionRequired': '需要安装受支持的版本',
     'appUpdate.requiredGate.continueAfterUpdate': '{target}，安装更新后才能继续使用 {appName}。',
@@ -1451,7 +1451,7 @@ const enUSMessages: Record<keyof typeof zhCNMessages, string> = {
     'settings.update.action.downloading': 'Downloading {progress}%',
     'settings.update.action.installing': 'Installing',
     'settings.update.action.recheck': 'Recheck',
-    'settings.update.releaseNotes': 'Release notes',
+    'settings.update.releaseNotes': 'Changelog',
     'appUpdate.requiredGate.minimumVersion': 'Requires {version} or later',
     'appUpdate.requiredGate.supportedVersionRequired': 'A supported version is required',
     'appUpdate.requiredGate.continueAfterUpdate':

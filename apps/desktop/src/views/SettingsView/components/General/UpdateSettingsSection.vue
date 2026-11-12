@@ -1,7 +1,6 @@
 <script setup lang="ts">
     import CustomSelect from '@components/CustomSelect.vue';
     import SettingsRow from '@components/SettingsRow.vue';
-    import { Button } from '@components/ui/button';
     import { Switch } from '@components/ui/switch';
     import { appUpdateService } from '@services/AppUpdateService';
     import {
@@ -21,7 +20,10 @@
     import { getLocale, t } from '@/i18n';
     import { formatDateTime } from '@/i18n/format';
     import { preferredAppUpdateDownload } from '@/services/AppUpdateService/downloads';
-    import { appUpdateReleaseNotes } from '@/services/AppUpdateService/releaseNotes';
+    import {
+        appUpdateReleaseNotes,
+        appUpdateReleaseSections,
+    } from '@/services/AppUpdateService/releaseNotes';
 
     import UpdateDetailsDialog from './UpdateDetailsDialog.vue';
 
@@ -71,6 +73,9 @@
     const currentDisplayVersion = computed(
         () => updateState.value.currentVersion ?? appVersion.value
     );
+    const releaseSections = computed(() =>
+        appUpdateReleaseSections(updateState.value, getLocale(), currentDisplayVersion.value)
+    );
     const hasCurrentReleaseNotes = computed(
         () =>
             latestUpdate.value?.version === currentDisplayVersion.value &&
@@ -92,6 +97,8 @@
     const isBusy = computed(() => isChecking.value || isDownloading.value || isInstalling.value);
     const canInstall = computed(() => Boolean(getInstallableAppUpdate(updateState.value)));
     const canUseInAppUpdate = computed(() => Boolean(getDownloadableAppUpdate(updateState.value)));
+    const actionButtonClass =
+        'inline-flex h-9 min-w-22 items-center justify-center rounded-control border border-transparent bg-surface-sunken px-3 text-dense font-normal text-text-primary transition-colors hover:bg-surface-active disabled:cursor-not-allowed disabled:opacity-50';
     const statusTitle = computed(() => {
         if (isChecking.value) {
             return t('settings.general.update.status.checking');
@@ -332,31 +339,33 @@
                         {{ updateState.error }}
                     </div>
                 </template>
-                <Button
-                    v-if="hasCurrentReleaseNotes"
-                    variant="ghost"
-                    size="sm"
-                    data-testid="settings-update-release-notes-action"
-                    :disabled="isBusy"
-                    @click="detailsOpen = true"
-                >
-                    {{ t('settings.update.releaseNotes') }}
-                </Button>
-                <button
-                    type="button"
-                    class="ml-auto inline-flex h-9 min-w-[88px] items-center justify-center rounded-control border border-transparent bg-surface-sunken px-3 text-[12px] font-normal text-neutral-800 transition-colors hover:bg-surface-active disabled:cursor-not-allowed disabled:opacity-50"
-                    data-testid="settings-update-primary-action"
-                    :disabled="isChecking || isInstalling"
-                    @click="handlePrimaryAction"
-                >
-                    {{
-                        t(
-                            isDownloading
-                                ? 'settings.general.update.action.showProgress'
-                                : 'settings.general.update.action.check'
-                        )
-                    }}
-                </button>
+                <div class="flex items-center justify-end gap-2">
+                    <button
+                        v-if="hasCurrentReleaseNotes"
+                        type="button"
+                        :class="actionButtonClass"
+                        data-testid="settings-update-release-notes-action"
+                        :disabled="isBusy"
+                        @click="detailsOpen = true"
+                    >
+                        {{ t('settings.update.releaseNotes') }}
+                    </button>
+                    <button
+                        type="button"
+                        :class="actionButtonClass"
+                        data-testid="settings-update-primary-action"
+                        :disabled="isChecking || isInstalling"
+                        @click="handlePrimaryAction"
+                    >
+                        {{
+                            t(
+                                isDownloading
+                                    ? 'settings.general.update.action.showProgress'
+                                    : 'settings.general.update.action.check'
+                            )
+                        }}
+                    </button>
+                </div>
             </SettingsRow>
         </div>
 
@@ -368,6 +377,7 @@
             :published-at="dialogPublishedAt"
             :has-update="hasUpdateDetails"
             :release-notes="hasUpdateDetails || hasCurrentReleaseNotes ? releaseNotes : ''"
+            :release-sections="hasUpdateDetails || hasCurrentReleaseNotes ? releaseSections : []"
             :package-size-bytes="
                 hasUpdateDetails ? (visibleUpdate?.sizeBytes ?? directDownload?.sizeBytes) : null
             "
