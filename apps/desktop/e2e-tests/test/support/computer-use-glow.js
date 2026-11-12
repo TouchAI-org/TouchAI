@@ -103,9 +103,9 @@ export async function exerciseComputerUseGlow() {
         const firstResult = await firstOperation;
         if (firstResult.error || firstResult.value.isError)
             throw new Error('The first foreground fixture failed.');
-        result.hiddenBetweenActions = await hidden();
+        result.visibleBetweenActions = await visible();
         await invoke('computer_use_glow_pulse', { activityId: first, pointer: { x: 100, y: 100 } });
-        result.hiddenAfterLatePointer = await hidden();
+        result.visibleAfterLatePointer = await visible();
         const secondOperation = pause(second, 1500);
         pending.push(secondOperation);
         await waitForActivity(second);
@@ -116,7 +116,9 @@ export async function exerciseComputerUseGlow() {
         const queuedOperation = pause(first, 500);
         pending.push(queuedOperation);
         const duringQueue = await invoke('computer_use_glow_snapshot');
-        result.queuedTaskHidden = duringQueue.activities.every((entry) => entry.id === second);
+        result.queuedTaskNoExtraFeedback =
+            duringQueue.activities.length === 2 &&
+            duringQueue.activities.every((entry) => entry.id === first || entry.id === second);
         await activity(first, false);
         const queuedResult = await queuedOperation;
         result.queuedCallCancelled = Boolean(queuedResult.error?.includes('cancelled'));
@@ -136,7 +138,7 @@ export async function exerciseComputerUseGlow() {
             (error) => String(error).includes('fixture failure')
         );
         if (!failed) throw new Error('The failing operation fixture did not report an error.');
-        result.hiddenAfterFailure = await hidden();
+        result.visibleAfterFailure = await visible();
         const cancelledOperation = pause(second, 4000);
         pending.push(cancelledOperation);
         await waitForActivity(second);

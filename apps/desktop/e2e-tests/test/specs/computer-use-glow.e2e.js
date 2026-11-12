@@ -14,7 +14,7 @@ describe('user runs computer control with activity feedback', () => {
         });
     });
 
-    it('user given computer tasks when executing foreground input then sees feedback only until that input ends', async () => {
+    it('user given computer tasks when executing foreground input then sees feedback from the first input until the activity ends', async () => {
         const result = await browser.execute(exerciseComputerUseGlow);
         assertVisible(result.focusedBefore, 'The foreground fixture was not focused.');
         assertVisible(result.hiddenWhileWaiting, 'Waiting for input displayed feedback.');
@@ -26,13 +26,16 @@ describe('user runs computer control with activity feedback', () => {
             'Real cursor movement did not show an automatic pointer.'
         );
         assertVisible(
-            result.hiddenBetweenActions,
-            'Waiting between actions kept feedback visible.'
+            result.visibleBetweenActions,
+            'Feedback hid while the activity was still active.'
         );
-        assertVisible(result.hiddenAfterLatePointer, 'A late pointer reopened feedback.');
         assertVisible(
-            result.queuedTaskHidden,
-            'A queued task displayed feedback before execution.'
+            result.visibleAfterLatePointer,
+            'A late pointer from the active task hid feedback.'
+        );
+        assertVisible(
+            result.queuedTaskNoExtraFeedback,
+            'A queued call added a second feedback entry for the same activity.'
         );
         assertVisible(
             result.queuedCallCancelled,
@@ -40,7 +43,10 @@ describe('user runs computer control with activity feedback', () => {
         );
         assertVisible(result.visibleWithSecondOperation, 'Ending an idle task hid active input.');
         assertVisible(result.remainingIdentity, 'The remaining session lost its identity.');
-        assertVisible(result.hiddenAfterFailure, 'A failed operation left feedback visible.');
+        assertVisible(
+            result.visibleAfterFailure,
+            'A failed operation hid feedback while the activity was active.'
+        );
         assertVisible(result.cancelledFeedback, 'Cancelled input left feedback visible.');
         assertVisible(
             result.directCallStopped,
