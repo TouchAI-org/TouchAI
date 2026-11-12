@@ -62,6 +62,27 @@ describe('given a directory of release note files', () => {
         await expect(validateReleaseNotesDirectory(directory)).rejects.toThrow(/semantic version/);
     });
 
+    it.each(['1.3.0-01.json', '1.3.0-beta.03.json'])(
+        'user gets a clear error when %s uses a numeric prerelease identifier with a leading zero',
+        async (filename) => {
+            const directory = await releaseNotesDirectory();
+            await writeNotes(directory, filename, reviewedNotes);
+
+            await expect(validateReleaseNotesDirectory(directory)).rejects.toThrow(
+                /semantic version/
+            );
+        }
+    );
+
+    it('user publishes a release when an alphanumeric prerelease identifier contains digits', async () => {
+        const directory = await releaseNotesDirectory();
+        await writeNotes(directory, '1.3.0-beta03.json', reviewedNotes);
+
+        await expect(validateReleaseNotesDirectory(directory)).resolves.toEqual([
+            '1.3.0-beta03.json',
+        ]);
+    });
+
     it('user gets a clear error when a release note file is not valid JSON', async () => {
         const directory = await releaseNotesDirectory();
         await writeNotes(directory, '1.3.0-beta.3.json', '{"en-US":');
