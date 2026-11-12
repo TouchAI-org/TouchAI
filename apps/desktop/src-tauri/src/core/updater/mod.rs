@@ -244,8 +244,22 @@ pub struct AppUpdateChannelLatest {
     pub release_notes: Option<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub release_notes_by_locale: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub release_history: Vec<AppUpdateReleaseHistoryEntry>,
     #[serde(default)]
     pub downloads: Vec<AppUpdateDownload>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateReleaseHistoryEntry {
+    pub version: String,
+    #[serde(default)]
+    pub published_at: Option<String>,
+    #[serde(default)]
+    pub release_notes: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub release_notes_by_locale: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -309,6 +323,8 @@ struct ProductReleaseFeedDocument {
     Channel: String,
     GeneratedAt: String,
     Latest: Option<AppUpdateChannelLatest>,
+    #[serde(default)]
+    History: Vec<AppUpdateReleaseHistoryEntry>,
     Policy: ProductUpdatePolicy,
 }
 
@@ -362,12 +378,16 @@ fn parse_product_release_feed(
     }
 
     let _ = (document.DisplayName, document.GeneratedAt);
+    let mut latest = document.Latest;
+    if let Some(latest) = latest.as_mut() {
+        latest.release_history = document.History;
+    }
     Ok(ParsedProductReleaseFeed {
         feed: VelopackAssetFeed {
             Assets: document.Assets,
         },
         metadata: ProductUpdateFeedMetadata {
-            latest: document.Latest,
+            latest,
             policy: document.Policy,
         },
     })
@@ -1067,6 +1087,7 @@ mod tests {
             prerelease: false,
             release_notes: None,
             release_notes_by_locale: BTreeMap::new(),
+            release_history: Vec::new(),
             downloads: Vec::new(),
         };
 
@@ -1104,6 +1125,7 @@ mod tests {
             prerelease: true,
             release_notes: Some("Security fixes".to_string()),
             release_notes_by_locale: BTreeMap::new(),
+            release_history: Vec::new(),
             downloads: vec![AppUpdateDownload {
                 kind: "installer".to_string(),
                 name: "TouchAI-beta-0.2.1-beta.1-windows.msi".to_string(),
@@ -1204,6 +1226,17 @@ mod tests {
             "Channel": AppUpdateChannel::Stable.as_str(),
             "GeneratedAt": "2026-05-24T00:00:00.000Z",
             "Latest": latest,
+            "History": [
+                {
+                    "version": "0.2.0",
+                    "publishedAt": "2026-05-23T00:00:00.000Z",
+                    "releaseNotes": "Previous release",
+                    "releaseNotesByLocale": {
+                        "en-US": "Previous release",
+                        "zh-CN": "上一个版本"
+                    }
+                }
+            ],
             "Policy": {
                 "minimumSupportedVersion": "0.2.1",
                 "requiredSeverity": "critical",
@@ -1226,6 +1259,15 @@ mod tests {
                 prerelease: false,
                 release_notes: Some("Bug fixes".to_string()),
                 release_notes_by_locale: BTreeMap::new(),
+                release_history: vec![AppUpdateReleaseHistoryEntry {
+                    version: "0.2.0".to_string(),
+                    published_at: Some("2026-05-23T00:00:00.000Z".to_string()),
+                    release_notes: Some("Previous release".to_string()),
+                    release_notes_by_locale: BTreeMap::from([
+                        ("en-US".to_string(), "Previous release".to_string()),
+                        ("zh-CN".to_string(), "上一个版本".to_string()),
+                    ]),
+                }],
                 downloads: vec![AppUpdateDownload {
                     kind: "installer".to_string(),
                     name: "TouchAI-0.2.1-windows.msi".to_string(),

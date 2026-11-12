@@ -1,6 +1,7 @@
 import type {
     AppUpdateChannel,
     AppUpdateChannelLatest,
+    AppUpdateChannelReleaseNote,
     AppUpdateCheckResult,
     AppUpdateDownload,
     AppUpdateInfo,
@@ -11,6 +12,7 @@ import type {
 export type {
     AppUpdateChannel,
     AppUpdateChannelLatest,
+    AppUpdateChannelReleaseNote,
     AppUpdateCheckResult,
     AppUpdateDownload,
     AppUpdateInfo,

@@ -269,7 +269,15 @@ export interface AppUpdateChannelLatest {
     prerelease: boolean;
     releaseNotes: string | null;
     releaseNotesByLocale?: Record<string, string>;
+    releaseHistory?: AppUpdateChannelReleaseNote[];
     downloads: AppUpdateDownload[];
+}
+
+export interface AppUpdateChannelReleaseNote {
+    version: string;
+    publishedAt: string | null;
+    releaseNotes: string | null;
+    releaseNotesByLocale?: Record<string, string>;
 }
 
 export type AppUpdateCheckResult =

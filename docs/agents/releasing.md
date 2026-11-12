@@ -158,11 +158,13 @@ feed:
 
 ```bash
 node -e 'fetch(process.argv[1]).then(r => r.json()).then(f =>
-  console.log(JSON.stringify(f.Latest, null, 2)))' \
+  console.log(JSON.stringify({ Latest: f.Latest, History: f.History ?? [] }, null, 2)))' \
   https://updates.touch-ai.org/touchai-app/v1/releases.stable.json
 ```
 
 Use `releases.beta.json` or `releases.nightly.json` for the other channels.
+`History` is maintained by the release workflow from the previous feed entry;
+never edit it by hand. It lets the app combine notes when a user skips versions.
 
 For package verification, run:
 

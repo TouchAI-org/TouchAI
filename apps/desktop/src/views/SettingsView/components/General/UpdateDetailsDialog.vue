@@ -8,6 +8,7 @@
 
     import { getLocale, t } from '@/i18n';
     import { formatShortDate } from '@/i18n/format';
+    import type { AppUpdateReleaseSection } from '@/services/AppUpdateService/releaseNotes';
 
     const props = defineProps<{
         title: string;
@@ -16,6 +17,7 @@
         publishedAt?: string | null;
         hasUpdate: boolean;
         releaseNotes: string;
+        releaseSections?: AppUpdateReleaseSection[];
         actionText: string;
         busy: boolean;
         downloadProgress?: number | null;
@@ -31,6 +33,28 @@
     const isDownloading = computed(
         () => props.downloadProgress !== null && props.downloadProgress !== undefined
     );
+    const releaseSections = computed(() => {
+        const sections = (props.releaseSections ?? []).filter((section) => section.notes.trim());
+        if (sections.length > 0) {
+            return sections;
+        }
+
+        return props.releaseNotes.trim()
+            ? [
+                  {
+                      version: props.version,
+                      publishedAt: props.publishedAt ?? null,
+                      notes: props.releaseNotes,
+                  },
+              ]
+            : [];
+    });
+    const showVersionHeadings = computed(() => releaseSections.value.length > 1);
+
+    function releaseHeading(section: AppUpdateReleaseSection): string {
+        const date = formatShortDate(section.publishedAt);
+        return date ? `V${section.version} · ${date}` : `V${section.version}`;
+    }
 
     const versionLabel = computed(() => {
         const label = `${props.channel} V${props.version.replace(/^v/i, '')}`;
@@ -90,22 +114,37 @@
 
             <div class="flex min-h-0 flex-col bg-surface-raised">
                 <div
-                    v-if="hasUpdate || releaseNotes || error"
-                    class="settings-scrollbar min-h-0 overflow-y-auto px-7 py-5"
+                    v-if="hasUpdate || releaseSections.length > 0 || error"
+                    class="settings-scrollbar max-h-112 min-h-0 overflow-y-auto overscroll-contain px-7 py-6"
                 >
                     <div
-                        v-if="hasUpdate || releaseNotes"
+                        v-if="hasUpdate || releaseSections.length > 0"
                         class="text-compact leading-6 text-neutral-700"
                     >
-                        <h3 class="mb-2 text-[12px] font-medium text-neutral-600">
-                            {{ t('settings.update.releaseNotes') }}
-                        </h3>
-                        <MarkdownContent
-                            v-if="releaseNotes"
-                            class="settings-update-release-notes"
-                            :content="releaseNotes"
-                            :final="true"
-                        />
+                        <div v-if="releaseSections.length > 0">
+                            <section
+                                v-for="(section, index) in releaseSections"
+                                :key="section.version"
+                                :class="
+                                    index > 0
+                                        ? 'mt-6 border-t border-neutral-200/60 pt-6'
+                                        : undefined
+                                "
+                                data-testid="settings-update-release-section"
+                            >
+                                <h1
+                                    v-if="showVersionHeadings"
+                                    class="mb-3 text-base leading-6 font-semibold text-neutral-950"
+                                >
+                                    {{ releaseHeading(section) }}
+                                </h1>
+                                <MarkdownContent
+                                    class="settings-update-release-notes"
+                                    :content="section.notes"
+                                    :final="true"
+                                />
+                            </section>
+                        </div>
                         <EmptyState
                             v-else
                             :title="t('settings.general.update.dialog.noReleaseNotes')"

@@ -7,6 +7,7 @@ import { legacyEnglishReleaseNotes, normalizeLocalizedReleaseNotes } from './rel
 
 const REQUIRED_SEVERITIES = ['critical', 'security', 'recommended'];
 const DOWNLOAD_KINDS = ['installer', 'fullPackage', 'deltaPackage', 'updatePackage', 'asset'];
+const RELEASE_HISTORY_LIMIT = 20;
 const SEMVER_PATTERN =
     /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
@@ -99,6 +100,44 @@ function normalizeReleaseNotes(value, label) {
     return notes ? notes : null;
 }
 
+function normalizeReleaseHistoryEntry(value, label) {
+    assertObject(value, label);
+    assertVersion(value.version, `${label}.version`);
+
+    const publishedAt = value.publishedAt ?? null;
+    assertNullableString(publishedAt, `${label}.publishedAt`);
+
+    return {
+        version: value.version,
+        publishedAt,
+        releaseNotes: normalizeReleaseNotes(value.releaseNotes ?? null, `${label}.releaseNotes`),
+        ...(value.releaseNotesByLocale
+            ? { releaseNotesByLocale: normalizeLocalizedReleaseNotes(value.releaseNotesByLocale) }
+            : {}),
+    };
+}
+
+function normalizeReleaseHistory(value, channel) {
+    if (value === undefined || value === null) {
+        return [];
+    }
+    if (!Array.isArray(value)) {
+        throw new Error(`${channel}.History must be an array.`);
+    }
+
+    const seen = new Set();
+    const history = [];
+    for (const [index, entry] of value.entries()) {
+        const normalized = normalizeReleaseHistoryEntry(entry, `${channel}.History[${index}]`);
+        if (seen.has(normalized.version)) {
+            continue;
+        }
+        seen.add(normalized.version);
+        history.push(normalized);
+    }
+    return history;
+}
+
 function normalizeDownload(value, label) {
     assertObject(value, label);
     assertNonEmptyString(value.kind, `${label}.kind`);
@@ -162,6 +201,35 @@ function normalizeLatestRelease(value, channel) {
             : {}),
         downloads: normalizeDownloads(value.downloads, channel),
     };
+}
+
+function releaseHistoryForFeed(existing, latest, channel) {
+    const history = normalizeReleaseHistory(existing?.History ?? [], channel);
+    const previousLatest = normalizeLatestRelease(existing?.Latest ?? null, channel);
+    const entries = previousLatest
+        ? [
+              {
+                  version: previousLatest.version,
+                  publishedAt: previousLatest.publishedAt,
+                  releaseNotes: previousLatest.releaseNotes,
+                  ...(previousLatest.releaseNotesByLocale
+                      ? { releaseNotesByLocale: previousLatest.releaseNotesByLocale }
+                      : {}),
+              },
+              ...history,
+          ]
+        : history;
+    const seen = new Set();
+
+    return entries
+        .filter((entry) => {
+            if (latest?.version === entry.version || seen.has(entry.version)) {
+                return false;
+            }
+            seen.add(entry.version);
+            return true;
+        })
+        .slice(0, RELEASE_HISTORY_LIMIT);
 }
 
 function relativeUpdatePath(baseUrl) {
@@ -449,6 +517,7 @@ async function existingFeedsByChannel(product, channels, fetchExisting) {
 
 function feedOutput(product, channel, channelConfig, generatedAt, options) {
     const existing = options.existing ?? null;
+    const latest = normalizeLatestRelease(options.latest ?? existing?.Latest ?? null, channel);
     return {
         Assets: options.assets ?? existing?.Assets ?? [],
         SchemaVersion: 1,
@@ -456,7 +525,8 @@ function feedOutput(product, channel, channelConfig, generatedAt, options) {
         DisplayName: product.displayName,
         Channel: channel,
         GeneratedAt: generatedAt,
-        Latest: normalizeLatestRelease(options.latest ?? existing?.Latest ?? null, channel),
+        Latest: latest,
+        History: releaseHistoryForFeed(existing, latest, channel),
         Policy: normalizePolicy(channelConfig.policy, channel),
     };
 }

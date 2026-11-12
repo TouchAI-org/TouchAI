@@ -112,6 +112,48 @@ it('user reads the current release notes without an installation action', async 
     expect(wrapper.emitted('action')).toBeUndefined();
 });
 
+it('user sees version headings only when several releases are combined', async () => {
+    setLocale('en-US');
+    const wrapper = await mountDialog(null, false);
+    await wrapper.setProps({
+        hasUpdate: false,
+        releaseNotes: '',
+        releaseSections: [
+            {
+                version: '1.3.0-beta.3',
+                publishedAt: '2026-11-12T10:20:04Z',
+                notes: 'Current release notes',
+            },
+            {
+                version: '1.3.0-beta.2',
+                publishedAt: '2026-11-10T10:20:04Z',
+                notes: 'Previous release notes',
+            },
+        ],
+    });
+    await flushPromises();
+
+    const headings = dialog().findAll('h1');
+    expect(headings.map((heading) => heading.text())).toEqual([
+        'V1.3.0-beta.3 · Nov 12, 2026',
+        'V1.3.0-beta.2 · Nov 10, 2026',
+    ]);
+    expect(dialog().text()).not.toContain('Changelog');
+
+    await wrapper.setProps({
+        releaseSections: [
+            {
+                version: '1.3.0-beta.3',
+                publishedAt: '2026-11-12T10:20:04Z',
+                notes: 'Current release notes',
+            },
+        ],
+    });
+    await flushPromises();
+
+    expect(dialog().findAll('h1')).toHaveLength(0);
+});
+
 it.each([
     { bytes: 10, expected: '10 byte' },
     { bytes: 12_000, expected: '12 kB' },

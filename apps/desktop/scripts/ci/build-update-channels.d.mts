@@ -14,6 +14,13 @@ export type BuildUpdateChannelsLatest = {
     }>;
 };
 
+export type BuildUpdateChannelsHistoryEntry = {
+    version: string;
+    publishedAt: string | null;
+    releaseNotes?: string | null;
+    releaseNotesByLocale?: Record<string, string>;
+};
+
 export type BuildUpdateChannelsOptions = {
     fetchExisting?: boolean;
     release?: {
