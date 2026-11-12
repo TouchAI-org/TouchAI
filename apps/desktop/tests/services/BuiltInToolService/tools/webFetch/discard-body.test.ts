@@ -52,7 +52,6 @@ function createExecutionContext(): Parameters<typeof executeWebFetchTool>[2] {
         signal: new AbortController().signal,
         callId: 'web-fetch-call',
         iteration: 1,
-        hasExecutedBuiltInTool: vi.fn(() => false),
     };
 }
 
