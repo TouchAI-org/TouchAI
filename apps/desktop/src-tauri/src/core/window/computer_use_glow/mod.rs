@@ -273,13 +273,6 @@ fn ensure_window<R: Runtime>(app: &AppHandle<R>) -> Result<WebviewWindow<R>, Str
         .build()
         .map_err(|error| format!("Failed to create the computer-use glow window: {error}"))?;
 
-    if let Err(error) = window.set_ignore_cursor_events(true) {
-        let _ = window.destroy();
-        return Err(format!(
-            "Failed to make the computer-use glow click-through: {error}"
-        ));
-    }
-
     if let Err(error) =
         crate::core::window::webview_defaults::apply_webview_runtime_defaults(&window)
     {
@@ -506,14 +499,16 @@ fn show_current<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
                 bounds.height,
             )))
             .map_err(|error| format!("Failed to size the computer-use glow: {error}"))?;
-        window.set_ignore_cursor_events(true).map_err(|error| {
-            format!("Failed to keep the computer-use glow click-through: {error}")
-        })?;
         let feedback = snapshot(app)?;
         if feedback.activities.is_empty() {
             return set_visible(&window, false);
         }
         set_visible(&window, true)?;
+        // GTK only creates the native window when it becomes visible. Applying
+        // click-through before that point panics inside tao on Linux.
+        window.set_ignore_cursor_events(true).map_err(|error| {
+            format!("Failed to make the computer-use glow click-through: {error}")
+        })?;
         let _ = window.set_content_protected(true);
         app.emit_to(WINDOW_LABEL, PULSE_EVENT, feedback)
             .map_err(|error| format!("Failed to restart the computer-use glow: {error}"))?;
