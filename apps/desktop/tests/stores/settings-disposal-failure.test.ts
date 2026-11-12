@@ -57,4 +57,27 @@ describe('user disposes while settings initialization fails', () => {
         expect(store.settings.language).toBe('zh-CN');
         expect(service.dispose).toHaveBeenCalledTimes(1);
     });
+
+    it('user replaces the active service and disposing the old store leaves the replacement open', async () => {
+        const createService = () =>
+            ({
+                dispose: vi.fn(),
+                getSnapshot: () => createDefaultGeneralSettings(),
+                initialize: vi.fn(async () => undefined),
+                mutate: vi.fn(),
+                refresh: vi.fn(),
+                subscribe: vi.fn(() => () => undefined),
+            }) as unknown as SettingsService;
+        const firstService = createService();
+        const replacementService = createService();
+        setActiveSettingsService(firstService);
+        const store = useSettingsStore();
+        await store.initialize();
+
+        setActiveSettingsService(replacementService);
+        await store.dispose();
+
+        expect(firstService.dispose).toHaveBeenCalledTimes(1);
+        expect(replacementService.dispose).not.toHaveBeenCalled();
+    });
 });

@@ -180,6 +180,7 @@ export const useSettingsStore = defineStore('settings', () => {
     }
 
     function releaseInitialization(): void {
+        const source = subscribedService ?? initialization.value?.service ?? null;
         disposed = true;
         const attempt = initialization.value;
         if (attempt?.state.value === 'pending' || attempt?.state.value === 'ready') {
@@ -190,7 +191,7 @@ export const useSettingsStore = defineStore('settings', () => {
         unsubscribe?.();
         unsubscribe = null;
         subscribedService = null;
-        service().dispose();
+        source?.dispose();
         lastWarning.value = null;
     }
 
