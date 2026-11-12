@@ -63,6 +63,19 @@ export async function submitSearchDraft(chord) {
 
 export async function readConversationMessages() {
     return browser.execute(() => {
+        const colorCanvas = document.createElement('canvas');
+        colorCanvas.width = 1;
+        colorCanvas.height = 1;
+        const colorContext = colorCanvas.getContext('2d', { willReadFrequently: true });
+        const comparableColor = (color) => {
+            if (!color || !colorContext) return null;
+            colorContext.clearRect(0, 0, 1, 1);
+            colorContext.fillStyle = color;
+            colorContext.fillRect(0, 0, 1, 1);
+            const [red, green, blue] = colorContext.getImageData(0, 0, 1, 1).data;
+            return `rgb(${red}, ${green}, ${blue})`;
+        };
+
         return [...document.querySelectorAll('[data-message-id]')].map((node, index) => {
             const pendingBubble = node.querySelector('[data-pending-delivery]');
             const textElement = node.querySelector('.user-text');
@@ -77,14 +90,22 @@ export async function readConversationMessages() {
                 role: node.getAttribute('data-message-role'),
                 text: textElement?.textContent?.trim() ?? null,
                 textColor: textStyle?.color ?? null,
+                textColorRgb: comparableColor(textStyle?.color),
                 pendingDelivery: pendingBubble?.getAttribute('data-pending-delivery') ?? null,
                 borderStyle: style?.borderTopStyle ?? null,
+                borderColor: style?.borderTopColor ?? null,
+                borderColorRgb: comparableColor(style?.borderTopColor),
                 backgroundColor: style?.backgroundColor ?? null,
                 hasPendingActions: Boolean(pendingActions),
+                pendingActionText: pendingActions?.textContent?.trim() ?? null,
                 pendingActionIconCount: pendingActions
                     ? pendingActions.querySelectorAll('svg.app-icon').length
                     : 0,
                 hasSendNow: Boolean(node.querySelector('[data-testid="pending-message-send-now"]')),
+                sendNowLabel:
+                    node
+                        .querySelector('[data-testid="pending-message-send-now"]')
+                        ?.getAttribute('aria-label') ?? null,
                 hasEdit: Boolean(node.querySelector('[data-testid="pending-message-edit"]')),
                 hasRemove: Boolean(node.querySelector('[data-testid="pending-message-remove"]')),
                 hasExpandToggle: Boolean(expandToggle),

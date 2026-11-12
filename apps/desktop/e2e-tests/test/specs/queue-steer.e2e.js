@@ -45,6 +45,7 @@ const SETTING_TOOL_CALL = {
         keys: ['language'],
     },
 };
+const TOOL_CALL_MUTED_COLOR_RGB = [107, 114, 128];
 
 function assertPendingOrder(state, expectedTexts) {
     const actual = pendingMessages(state).map((message) =>
@@ -56,6 +57,19 @@ function assertPendingOrder(state, expectedTexts) {
         `Pending messages were not in the expected order. Expected ${JSON.stringify(
             expectedTexts
         )}, received ${JSON.stringify(actual)}.`
+    );
+}
+
+function assertToolCallMutedColor(color, label, message) {
+    const channels = /^rgb\((\d+), (\d+), (\d+)\)$/
+        .exec(color ?? '')
+        ?.slice(1)
+        .map(Number);
+    assertVisible(
+        channels?.every(
+            (channel, index) => Math.abs(channel - TOOL_CALL_MUTED_COLOR_RGB[index]) <= 2
+        ),
+        `The queued message ${label} did not match the tool-call color: ${JSON.stringify(message)}.`
     );
 }
 
@@ -89,9 +103,17 @@ function assertQueuedMessage(message) {
         message.borderStyle === 'dashed',
         `The queued message lost its dashed outline: ${JSON.stringify(message)}.`
     );
+    assertToolCallMutedColor(message.textColorRgb, 'text', message);
+    assertToolCallMutedColor(message.borderColorRgb, 'outline', message);
     assertVisible(
         message.hasPendingActions && message.hasSendNow && message.hasEdit && message.hasRemove,
         `The queued message lost one of its actions: ${JSON.stringify(message)}.`
+    );
+    assertVisible(
+        message.pendingActionText === '' && message.sendNowLabel === 'Steer now',
+        `The queued message actions were not icon-only with an accessible steer name: ${JSON.stringify(
+            message
+        )}.`
     );
     assertVisible(
         message.pendingActionIconCount === 3,
@@ -309,9 +331,9 @@ describe('user sends queued and priority messages during a running answer', () =
         assertQueuedMessage(messageByText(afterBoundary, queuedOne));
         assertQueuedMessage(messageByText(afterBoundary, queuedTwo));
         assertVisible(
-            messageByText(afterBoundary, queuedOne).textColor ===
-                messageByText(afterBoundary, steeredOne).textColor,
-            `The queued message text did not match a delivered message: ${JSON.stringify(
+            messageByText(afterBoundary, queuedOne).textColorRgb !==
+                messageByText(afterBoundary, steeredOne).textColorRgb,
+            `The queued message lost its muted color after delivery: ${JSON.stringify(
                 afterBoundary
             )}.`
         );
